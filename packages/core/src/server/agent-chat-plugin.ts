@@ -38,6 +38,7 @@ import {
 } from "../a2a/task-store.js";
 import type { Message as A2AMessage } from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
+import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -5307,12 +5308,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             let reason = "user";
             try {
               const body = await readBody(event);
-              if (
-                typeof body?.reason === "string" &&
-                /^[a-z0-9_-]{1,64}$/i.test(body.reason)
-              ) {
-                reason = body.reason;
-              }
+              reason = clientAbortReason(body?.reason);
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }

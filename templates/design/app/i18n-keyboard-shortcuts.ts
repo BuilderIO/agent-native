@@ -3,6 +3,7 @@ import { type LocaleCode } from "@agent-native/core/client/i18n";
 interface KeyboardShortcutLabels {
   title: string;
   essential: string;
+  eyedropper: string;
   shape: string;
   selection: string;
   cursor: string;
@@ -44,6 +45,7 @@ interface KeyboardKeyLabels {
 export const keyboardShortcutLabels = {
   "zh-TW": {
     title: "鍵盤快速鍵",
+    eyedropper: "取色器",
     essential: "基本",
     shape: "形狀",
     selection: "選取",
@@ -62,6 +64,7 @@ export const keyboardShortcutLabels = {
   },
   "zh-CN": {
     title: "键盘快捷键",
+    eyedropper: "取色器",
     essential: "基本",
     shape: "形状",
     selection: "选择",
@@ -80,6 +83,7 @@ export const keyboardShortcutLabels = {
   },
   "es-ES": {
     title: "Atajos de teclado",
+    eyedropper: "Cuentagotas",
     essential: "Esenciales",
     shape: "Formas",
     selection: "Selección",
@@ -99,6 +103,7 @@ export const keyboardShortcutLabels = {
   },
   "fr-FR": {
     title: "Raccourcis clavier",
+    eyedropper: "Pipette",
     essential: "Essentiels",
     shape: "Formes",
     selection: "Sélection",
@@ -119,6 +124,7 @@ export const keyboardShortcutLabels = {
   },
   "de-DE": {
     title: "Tastenkürzel",
+    eyedropper: "Pipette",
     essential: "Grundlagen",
     shape: "Formen",
     selection: "Auswahl",
@@ -139,6 +145,7 @@ export const keyboardShortcutLabels = {
   },
   "ja-JP": {
     title: "キーボードショートカット",
+    eyedropper: "スポイトツール",
     essential: "基本",
     shape: "シェイプ",
     selection: "選択",
@@ -157,6 +164,7 @@ export const keyboardShortcutLabels = {
   },
   "ko-KR": {
     title: "키보드 단축키",
+    eyedropper: "스포이드",
     essential: "필수",
     shape: "도형",
     selection: "선택",
@@ -175,6 +183,7 @@ export const keyboardShortcutLabels = {
   },
   "pt-BR": {
     title: "Atalhos de teclado",
+    eyedropper: "Conta-gotas",
     essential: "Essenciais",
     shape: "Formas",
     selection: "Seleção",
@@ -195,6 +204,7 @@ export const keyboardShortcutLabels = {
   },
   "hi-IN": {
     title: "कीबोर्ड शॉर्टकट",
+    eyedropper: "आई-ड्रॉपर",
     essential: "आवश्यक",
     shape: "आकृति",
     selection: "चयन",
@@ -213,6 +223,7 @@ export const keyboardShortcutLabels = {
   },
   "ar-SA": {
     title: "اختصارات لوحة المفاتيح",
+    eyedropper: "أداة القطارة",
     essential: "أساسي",
     shape: "الأشكال",
     selection: "التحديد",
@@ -575,6 +586,7 @@ export function attachLocalizedKeyboardShortcuts<
           penTool: d.tools.pen,
           handTool: d.tools.hand,
           scaleTool: d.tools.scale,
+          eyedropper: labels.eyedropper,
           commentTool: d.pinComment,
           drawTool: d.modes.draw,
           showLayers: layers.title,

@@ -2026,6 +2026,7 @@ export default function CalendarView() {
             onClose={() => setSidebarEvent(null)}
             onDelete={handleDeleteEvent}
             onTitleSave={handleTitleSave}
+            timezone={displayTimezone}
           />
         )}
 

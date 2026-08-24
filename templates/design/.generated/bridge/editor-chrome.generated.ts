@@ -584,7 +584,38 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       renderRuntimeInteractionStatePreviews();
     }
-    var lastSourceHeadHtml = null;
+    var lastSourceHeadHtml = typeof __INITIAL_SOURCE_HEAD__ === "string" ? __INITIAL_SOURCE_HEAD__ || null : null;
+    function headNodeSignature(node) {
+      var tag = node.tagName.toLowerCase();
+      if (tag === "title" || tag === "base") return tag;
+      if (tag === "style") {
+        var attrs = node.attributes;
+        for (var i = 0; i < attrs.length; i += 1) {
+          var name = attrs[i].name;
+          if (name.indexOf("data-agent-native-") === 0) return "style:" + name;
+        }
+        return "";
+      }
+      if (tag === "meta") {
+        var meta = ["name", "property", "http-equiv", "charset"];
+        for (var m = 0; m < meta.length; m += 1) {
+          if (node.hasAttribute(meta[m])) {
+            return "meta:" + meta[m] + "=" + node.getAttribute(meta[m]);
+          }
+        }
+        return "";
+      }
+      return "";
+    }
+    function findHeadNodeBySignature(signature) {
+      var children = document.head ? document.head.children : null;
+      if (!children) return null;
+      for (var i = 0; i < children.length; i += 1) {
+        var candidate = children[i];
+        if (headNodeSignature(candidate) === signature) return candidate;
+      }
+      return null;
+    }
     function replaceSourceHeadNodes(previousSourceHtml, nextSourceHtml) {
       if (!document.head) return;
       var stale = document.createElement("head");
@@ -594,6 +625,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         var key = node.outerHTML;
         staleCounts[key] = (staleCounts[key] || 0) + 1;
       });
+      var retained = document.createElement("head");
+      retained.innerHTML = nextSourceHtml || "";
+      Array.prototype.forEach.call(retained.children, function(node) {
+        var key = node.outerHTML;
+        if (staleCounts[key]) staleCounts[key] -= 1;
+      });
       Array.prototype.slice.call(document.head.children).forEach(function(node) {
         var key = node.outerHTML;
         if (!staleCounts[key]) return;
@@ -602,8 +639,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var next = document.createElement("head");
       next.innerHTML = nextSourceHtml || "";
+      var present = {};
+      Array.prototype.forEach.call(
+        document.head.children,
+        function(node) {
+          var key = node.outerHTML;
+          present[key] = (present[key] || 0) + 1;
+        }
+      );
       var anchor = document.head.firstChild;
       Array.prototype.slice.call(next.children).forEach(function(node) {
+        var key = node.outerHTML;
+        if (present[key]) {
+          present[key] -= 1;
+          return;
+        }
+        var signature = previousSourceHtml === null ? headNodeSignature(node) : "";
+        if (signature) {
+          var existing = findHeadNodeBySignature(signature);
+          if (existing) {
+            document.head.replaceChild(document.importNode(node, true), existing);
+            return;
+          }
+        }
         document.head.insertBefore(document.importNode(node, true), anchor);
       });
     }
@@ -2117,6 +2175,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     spacingBadge.setAttribute("data-agent-native-edit-overlay", "spacing-badge");
     spacingBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
     document.body.appendChild(spacingBadge);
+    var constraintGuideLayer = document.createElement("div");
+    constraintGuideLayer.setAttribute(
+      "data-agent-native-edit-overlay",
+      "constraint-guide"
+    );
+    constraintGuideLayer.style.cssText = "position:fixed;inset:0;z-index:99999;display:none;pointer-events:none;";
+    document.body.appendChild(constraintGuideLayer);
+    var sizeBadge = document.createElement("div");
+    sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
+    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    document.body.appendChild(sizeBadge);
     var insertionGuide = document.createElement("div");
     insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
     insertionGuide.setAttribute(
@@ -2125,14 +2194,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     insertionGuide.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
     document.body.appendChild(insertionGuide);
-    var snapGuideV = document.createElement("div");
-    snapGuideV.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-    snapGuideV.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;width:1px;background:hsl(var(--destructive) / 0.9);";
-    document.body.appendChild(snapGuideV);
-    var snapGuideH = document.createElement("div");
-    snapGuideH.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-    snapGuideH.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;height:1px;background:hsl(var(--destructive) / 0.9);";
-    document.body.appendChild(snapGuideH);
+    var snapGuideLayer = document.createElement("div");
+    snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+    snapGuideLayer.style.cssText = "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
+    document.body.appendChild(snapGuideLayer);
     var measurementOverlay = document.createElement("div");
     measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
     measurementOverlay.setAttribute(
@@ -2274,6 +2339,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hideSelectionOverlay() {
       selectionOverlay.style.display = "none";
+      hideSizeBadge();
       hideSpacingOverlay();
       hideParentAutoLayoutOverlay();
       clearComponentTag();
@@ -2404,7 +2470,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "multi-selection-handle"
         );
         handle.setAttribute("data-corner", pos);
-        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:none;";
+        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
         if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
         if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -2433,6 +2499,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "[data-agent-native-edit-overlay='multi-selection-handle']"
       ).forEach(function(handle) {
         var pos = handle.getAttribute("data-corner") || "";
+        handle.style.pointerEvents = readOnly ? "none" : "auto";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -2527,6 +2594,320 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
+    function sourceMetaFor(element) {
+      return element.__anSourceMeta;
+    }
+    function isSourceOwned(node) {
+      return node.__anSource === true;
+    }
+    function recordSourceOwnership(node) {
+      node.__anSource = true;
+      if (node.nodeType !== 1) return;
+      var element = node;
+      var names = [];
+      for (var i = 0; i < element.attributes.length; i += 1) {
+        names.push(element.attributes[i].name);
+      }
+      element.__anSourceMeta = {
+        attrs: names,
+        className: element.getAttribute("class") ?? "",
+        style: element.getAttribute("style") ?? ""
+      };
+    }
+    function recordSourceSubtree(root) {
+      if (root.nodeType === 1 && root.hasAttribute("data-agent-native-edit-overlay")) {
+        return;
+      }
+      recordSourceOwnership(root);
+      if (root.nodeType !== 1) return;
+      var template = templateContentOf(root);
+      if (template) {
+        var held = template.childNodes;
+        for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]);
+        return;
+      }
+      var children = root.childNodes;
+      for (var i = 0; i < children.length; i += 1) {
+        recordSourceSubtree(children[i]);
+      }
+    }
+    function templateContentOf(element) {
+      if (element.nodeName !== "TEMPLATE") return null;
+      return element.content ?? null;
+    }
+    function scopedMorphContext(liveRoot, nextRoot) {
+      var keyed = /* @__PURE__ */ new Map();
+      liveRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        if (!isSourceOwned(element)) return;
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key && !keyed.has(key)) keyed.set(key, element);
+      });
+      var nextKeys = /* @__PURE__ */ new Set();
+      nextRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key) nextKeys.add(key);
+      });
+      return { keyed, nextKeys, obsolete: /* @__PURE__ */ new Set() };
+    }
+    function captureInitialSourceOwnership() {
+      if (document.body) recordSourceSubtree(document.body);
+    }
+    function classTokens(value) {
+      return value.split(/\\s+/).filter(function(token) {
+        return token.length > 0;
+      });
+    }
+    function applyClassAttribute(live, previousSource, nextSource) {
+      var previous = classTokens(previousSource);
+      var current = classTokens(live.getAttribute("class") ?? "");
+      var result = classTokens(nextSource);
+      for (var i = 0; i < current.length; i += 1) {
+        var token = current[i];
+        if (previous.indexOf(token) !== -1) continue;
+        if (result.indexOf(token) === -1) result.push(token);
+      }
+      var value = result.join(" ");
+      if ((live.getAttribute("class") ?? "") === value) return;
+      if (value) live.setAttribute("class", value);
+      else live.removeAttribute("class");
+    }
+    var styleProbe = null;
+    function styleDeclarations(value) {
+      var probe = styleProbe || (styleProbe = document.createElement("div"));
+      probe.style.cssText = value || "";
+      var out = [];
+      for (var i = 0; i < probe.style.length; i += 1) {
+        var property = probe.style.item(i);
+        out.push([
+          property,
+          probe.style.getPropertyValue(property),
+          probe.style.getPropertyPriority(property)
+        ]);
+      }
+      return out;
+    }
+    function applyStyleAttribute(live, previousSource, nextSource) {
+      var previousOwned = {};
+      styleDeclarations(previousSource).forEach(function(entry) {
+        previousOwned[entry[0]] = entry[1];
+      });
+      var nextOwned = {};
+      styleDeclarations(nextSource).forEach(function(entry) {
+        nextOwned[entry[0]] = true;
+      });
+      var target = document.createElement("div");
+      target.style.cssText = nextSource || "";
+      styleDeclarations(live.getAttribute("style") ?? "").forEach(
+        function(entry) {
+          if (nextOwned[entry[0]]) return;
+          var wasSource = Object.prototype.hasOwnProperty.call(
+            previousOwned,
+            entry[0]
+          );
+          if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+          target.style.setProperty(entry[0], entry[1], entry[2]);
+        }
+      );
+      var value = target.style.cssText;
+      if ((live.getAttribute("style") ?? "") === value) return;
+      if (value) live.setAttribute("style", value);
+      else live.removeAttribute("style");
+    }
+    function morphFormState(live, next) {
+      if (live.nodeName === "INPUT") {
+        var input = live;
+        var nextChecked = next.hasAttribute("checked");
+        if (input.defaultChecked !== nextChecked) {
+          input.defaultChecked = nextChecked;
+          input.checked = nextChecked;
+        }
+        var nextValue = next.getAttribute("value");
+        if (nextValue !== null && input.defaultValue !== nextValue) {
+          input.defaultValue = nextValue;
+          input.value = nextValue;
+        }
+        return;
+      }
+      if (live.nodeName === "TEXTAREA") {
+        var area = live;
+        var nextText = next.textContent ?? "";
+        if (area.defaultValue !== nextText) {
+          area.defaultValue = nextText;
+          area.value = nextText;
+        }
+        return;
+      }
+      if (live.nodeName === "OPTION") {
+        var option = live;
+        var nextSelected = next.hasAttribute("selected");
+        if (option.defaultSelected !== nextSelected) {
+          option.defaultSelected = nextSelected;
+          option.selected = nextSelected;
+        }
+      }
+    }
+    function declaresRuntimeChildren(element) {
+      return element.hasAttribute("x-text") || element.hasAttribute("x-html") || element.hasAttribute("v-text") || element.hasAttribute("v-html");
+    }
+    function scopeDirectiveChanged(live, next) {
+      return (live.getAttribute("x-data") ?? "") !== (next.getAttribute("x-data") ?? "");
+    }
+    function morphNodeKey(node) {
+      if (node.nodeType !== 1) return null;
+      return node.getAttribute("data-agent-native-node-id");
+    }
+    function morphAttributes(live, next) {
+      var meta = sourceMetaFor(live);
+      var previousAttrs = meta ? meta.attrs : [];
+      var previousClass = meta ? meta.className : "";
+      var previousStyle = meta ? meta.style : "";
+      var nextNames = [];
+      var nextAttrs = next.attributes;
+      for (var i = 0; i < nextAttrs.length; i += 1) {
+        var attr = nextAttrs[i];
+        nextNames.push(attr.name);
+        if (attr.name === "class") {
+          applyClassAttribute(live, previousClass, attr.value);
+          continue;
+        }
+        if (attr.name === "style") {
+          applyStyleAttribute(live, previousStyle, attr.value);
+          continue;
+        }
+        if (attr.name === "x-cloak" && !live.hasAttribute("x-cloak")) continue;
+        if (live.getAttribute(attr.name) === attr.value) continue;
+        if (attr.namespaceURI) {
+          live.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+        } else {
+          live.setAttribute(attr.name, attr.value);
+        }
+      }
+      for (var j = 0; j < previousAttrs.length; j += 1) {
+        var name = previousAttrs[j];
+        if (nextNames.indexOf(name) !== -1) continue;
+        if (name === "class") {
+          applyClassAttribute(live, previousClass, "");
+          continue;
+        }
+        if (name === "style") {
+          applyStyleAttribute(live, previousStyle, "");
+          continue;
+        }
+        live.removeAttribute(name);
+      }
+      live.__anSourceMeta = {
+        attrs: nextNames,
+        className: next.getAttribute("class") ?? "",
+        style: next.getAttribute("style") ?? ""
+      };
+    }
+    function morphChildren(live, next, context) {
+      var cursor = live.firstChild;
+      var nextChild = next.firstChild;
+      while (nextChild) {
+        var key = morphNodeKey(nextChild);
+        var reuse = null;
+        if (key) {
+          var candidate = context.keyed.get(key) ?? null;
+          if (candidate && !candidate.contains(live) && candidate.nodeName === nextChild.nodeName && candidate.namespaceURI === nextChild.namespaceURI) {
+            reuse = candidate;
+            context.keyed.delete(key);
+          } else if (candidate) {
+            context.obsolete.add(key);
+          }
+        } else {
+          var probe = cursor;
+          while (probe) {
+            var probeKey = morphNodeKey(probe);
+            if (probeKey) {
+              if (context.nextKeys.has(probeKey) && !context.obsolete.has(probeKey)) {
+                break;
+              }
+              probe = probe.nextSibling;
+              continue;
+            }
+            if (!isSourceOwned(probe)) {
+              probe = probe.nextSibling;
+              continue;
+            }
+            if (probe.nodeType === nextChild.nodeType && probe.nodeName === nextChild.nodeName) {
+              reuse = probe;
+            }
+            break;
+          }
+        }
+        if (reuse && reuse.nodeType === 1 && scopeDirectiveChanged(reuse, nextChild)) {
+          var rebuilt = document.importNode(nextChild, true);
+          live.insertBefore(rebuilt, cursor);
+          if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
+          recordSourceSubtree(rebuilt);
+          cursor = rebuilt.nextSibling;
+          nextChild = nextChild.nextSibling;
+          continue;
+        }
+        if (reuse) {
+          if (reuse !== cursor) live.insertBefore(reuse, cursor);
+          if (reuse.nodeType === 1) {
+            morphElement(reuse, nextChild, context);
+          } else if (reuse.nodeValue !== nextChild.nodeValue) {
+            reuse.nodeValue = nextChild.nodeValue;
+          }
+          cursor = reuse.nextSibling;
+        } else if (nextChild.nodeType === 1) {
+          var shell = document.importNode(nextChild, false);
+          live.insertBefore(shell, cursor);
+          recordSourceOwnership(shell);
+          morphElement(shell, nextChild, context);
+          cursor = shell.nextSibling;
+        } else {
+          var imported = document.importNode(nextChild, true);
+          live.insertBefore(imported, cursor);
+          recordSourceSubtree(imported);
+        }
+        nextChild = nextChild.nextSibling;
+      }
+      while (cursor) {
+        var stale = cursor;
+        cursor = cursor.nextSibling;
+        if (stale.parentNode !== live) continue;
+        if (!isSourceOwned(stale)) continue;
+        live.removeChild(stale);
+      }
+    }
+    function morphElement(live, next, context) {
+      morphFormState(live, next);
+      morphAttributes(live, next);
+      if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+      var liveTemplate = templateContentOf(live);
+      var nextTemplate = templateContentOf(next);
+      if (liveTemplate && nextTemplate) {
+        morphChildren(
+          liveTemplate,
+          nextTemplate,
+          scopedMorphContext(liveTemplate, nextTemplate)
+        );
+        return;
+      }
+      morphChildren(live, next, context);
+    }
+    function morphRuntimeBody(nextBody) {
+      var keyed = /* @__PURE__ */ new Map();
+      document.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        if (!isSourceOwned(element)) return;
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key && !keyed.has(key)) keyed.set(key, element);
+      });
+      var nextKeys = /* @__PURE__ */ new Set();
+      nextBody.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key) nextKeys.add(key);
+      });
+      morphElement(document.body, nextBody, {
+        keyed,
+        nextKeys,
+        obsolete: /* @__PURE__ */ new Set()
+      });
+    }
     function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession) {
       if (typeof html !== "string") return;
       exitStaleTextEditSession();
@@ -2571,6 +2952,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
       ensureEditorChromeStyle();
       if (lastSourceHeadHtml === null) {
+        replaceSourceHeadNodes(null, nextHeadHtml);
         lastSourceHeadHtml = nextHeadHtml;
       }
       var currentHeadHtml = lastSourceHeadHtml;
@@ -2639,13 +3021,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         ensureEditorChromeStyle();
         lastSourceHeadHtml = nextHeadHtml;
       }
-      Array.prototype.slice.call(document.body.attributes).forEach(function(attribute) {
-        document.body.removeAttribute(attribute.name);
+      persistentNodes.forEach(function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
       });
-      Array.prototype.slice.call(nextDoc.body.attributes).forEach(function(attribute) {
-        document.body.setAttribute(attribute.name, attribute.value);
-      });
-      document.body.innerHTML = nextDoc.body.innerHTML;
+      morphRuntimeBody(nextDoc.body);
       persistentNodes.forEach(function(node) {
         document.body.appendChild(node);
       });
@@ -3428,6 +3807,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       overlay.setAttribute("data-agent-native-multi-selection-bounds", "true");
       overlay.style.cssText = "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
       appendPassiveSelectionHandles(overlay);
+      overlay.addEventListener(
+        "mousedown",
+        function(e) {
+          if (readOnly) return;
+          var corner = e.target && e.target.getAttribute && e.target.getAttribute("data-corner");
+          if (!corner) return;
+          startGroupResize(corner, e);
+        },
+        true
+      );
       document.body.appendChild(overlay);
       multiSelectionBoundsOverlay = overlay;
       return overlay;
@@ -3440,6 +3829,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       passiveSelectionEls.forEach(function(el) {
         if (el && document.documentElement.contains(el)) members.push(el);
       });
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !activeTextEditEl && members.length < 2
+      );
       if (members.length < 2 || selectionChromeHidden) {
         if (multiSelectionBoundsOverlay) {
           multiSelectionBoundsOverlay.style.display = "none";
@@ -3504,6 +3896,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         updateSpacingOverlay(el);
         updateComponentTag(el, rect);
         updateParentAutoLayoutOverlay(el);
+        showSizeBadge(el);
       } else {
         applyElementOverlayChrome(overlay, el);
       }
@@ -3541,6 +3934,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var overlay = passiveSelectionOverlays[index];
         if (overlay) positionOverlay(overlay, el);
       });
+      if (passiveSelectionEls.length > 0) hideSizeBadge();
       positionMultiSelectionBounds();
       positionGradientOverlay();
       syncOverlayObservers();
@@ -3954,9 +4348,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           // Cmd from Ctrl the way isPlatformPrimaryModifier does host-side, but
           // forwarding is harmless when the host has no match for the combo.
           "f",
-          // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
-          // onPasteToReplace) — both live under bare primary+r.
-          "r",
+          // Cmd/Ctrl+Shift+R paste-to-replace. Bare primary+r stays native
+          // so browser refresh keeps its expected meaning.
           // Cmd/Ctrl+K — open the host command menu even while the iframe has
           // focus. DesignEditor routes this chord to openCommandMenu().
           "k"
@@ -3965,7 +4358,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
-        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
+        e.shiftKey && (normalized === "h" || normalized === "l") || e.shiftKey && normalized === "r" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.
         e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
@@ -5345,8 +5738,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cs.position === "absolute" || cs.position === "fixed") return false;
       return true;
     }
-    function collectMoveGroupMembers(gestureEl) {
-      if (!gestureEl) return [];
+    function collectSelectionMembers() {
       var raw = [];
       if (selectedEl) raw.push(selectedEl);
       for (var i = 0; i < passiveSelectionEls.length; i += 1) {
@@ -5360,11 +5752,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         members.push(candidate);
       }
-      members = members.filter(function(member) {
+      return members.filter(function(member) {
         return !members.some(function(other) {
           return other !== member && other.contains(member);
         });
       });
+    }
+    function collectMoveGroupMembers(gestureEl) {
+      if (!gestureEl) return [];
+      var members = collectSelectionMembers();
       var gestureMember = null;
       for (var k = 0; k < members.length; k += 1) {
         if (members[k] === gestureEl || members[k].contains && members[k].contains(gestureEl)) {
@@ -6365,84 +6761,584 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return rects;
     }
-    function computeMoveSnapOffset(movingRect, candidates, threshold) {
-      var moving = rectBounds(movingRect);
-      var bestX = null;
-      var bestY = null;
-      for (var i = 0; i < candidates.length; i += 1) {
-        var candidate = candidates[i];
-        var xValues = [moving.left, moving.centerX, moving.right];
-        var xTargets = [candidate.left, candidate.centerX, candidate.right];
-        for (var xi = 0; xi < xValues.length; xi += 1) {
-          for (var xj = 0; xj < xTargets.length; xj += 1) {
-            var offsetX = xTargets[xj] - xValues[xi];
-            var distanceX = Math.abs(offsetX);
-            if (distanceX > threshold) continue;
-            if (!bestX || distanceX < bestX.distance) {
-              bestX = {
-                distance: distanceX,
-                offset: offsetX,
-                guide: {
-                  position: xTargets[xj],
-                  start: Math.min(moving.top, candidate.top),
-                  end: Math.max(moving.bottom, candidate.bottom)
-                }
-              };
-            }
-          }
-        }
-        var yValues = [moving.top, moving.centerY, moving.bottom];
-        var yTargets = [candidate.top, candidate.centerY, candidate.bottom];
-        for (var yi = 0; yi < yValues.length; yi += 1) {
-          for (var yj = 0; yj < yTargets.length; yj += 1) {
-            var offsetY = yTargets[yj] - yValues[yi];
-            var distanceY = Math.abs(offsetY);
-            if (distanceY > threshold) continue;
-            if (!bestY || distanceY < bestY.distance) {
-              bestY = {
-                distance: distanceY,
-                offset: offsetY,
-                guide: {
-                  position: yTargets[yj],
-                  start: Math.min(moving.left, candidate.left),
-                  end: Math.max(moving.right, candidate.right)
-                }
-              };
-            }
-          }
-        }
-      }
+    var SNAP_ALIGN_EPSILON = 1e-6;
+    var SPACING_MATCH_EPSILON = 0.5;
+    var PROXIMITY_RANGE_PX = 160;
+    function axisSnapValues(bounds, axis) {
+      return axis === "x" ? [bounds.left, bounds.centerX, bounds.right] : [bounds.top, bounds.centerY, bounds.bottom];
+    }
+    function axisStart(bounds, axis) {
+      return axis === "x" ? bounds.left : bounds.top;
+    }
+    function axisEnd(bounds, axis) {
+      return axis === "x" ? bounds.right : bounds.bottom;
+    }
+    function crossStart(bounds, axis) {
+      return axis === "x" ? bounds.top : bounds.left;
+    }
+    function crossEnd(bounds, axis) {
+      return axis === "x" ? bounds.bottom : bounds.right;
+    }
+    function crossAxisOverlaps(axis, a, b) {
+      return crossStart(a, axis) < crossEnd(b, axis) && crossEnd(a, axis) > crossStart(b, axis);
+    }
+    function translateRectBounds(bounds, dx, dy) {
       return {
-        dx: bestX ? bestX.offset : 0,
-        dy: bestY ? bestY.offset : 0,
-        guideV: bestX ? bestX.guide : null,
-        guideH: bestY ? bestY.guide : null
+        left: bounds.left + dx,
+        right: bounds.right + dx,
+        centerX: bounds.centerX + dx,
+        top: bounds.top + dy,
+        bottom: bounds.bottom + dy,
+        centerY: bounds.centerY + dy
       };
     }
-    function showSnapGuides(guideV, guideH) {
-      var line = 1 * chromeLineScale();
-      if (guideV) {
-        snapGuideV.style.display = "block";
-        snapGuideV.style.width = line + "px";
-        snapGuideV.style.left = Math.round(guideV.position) + "px";
-        snapGuideV.style.top = Math.round(guideV.start) + "px";
-        snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
-      } else {
-        snapGuideV.style.display = "none";
+    function findAxisSnapOffset(axis, moving, candidates, threshold) {
+      var offset = null;
+      var bestDistance = Infinity;
+      var movingValues = axisSnapValues(moving, axis);
+      for (var i = 0; i < candidates.length; i += 1) {
+        var targets = axisSnapValues(candidates[i], axis);
+        for (var mi = 0; mi < movingValues.length; mi += 1) {
+          for (var ti = 0; ti < targets.length; ti += 1) {
+            var candidate = targets[ti] - movingValues[mi];
+            var distance = Math.abs(candidate);
+            if (distance > threshold || distance >= bestDistance) continue;
+            bestDistance = distance;
+            offset = candidate;
+          }
+        }
       }
-      if (guideH) {
-        snapGuideH.style.display = "block";
-        snapGuideH.style.height = line + "px";
-        snapGuideH.style.top = Math.round(guideH.position) + "px";
-        snapGuideH.style.left = Math.round(guideH.start) + "px";
-        snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
-      } else {
-        snapGuideH.style.display = "none";
+      return offset;
+    }
+    function buildAxisGuides(axis, moving, candidates) {
+      var positions = [];
+      var spans = [];
+      var movingValues = axisSnapValues(moving, axis);
+      for (var i = 0; i < candidates.length; i += 1) {
+        var candidate = candidates[i];
+        var targets = axisSnapValues(candidate, axis);
+        for (var mi = 0; mi < movingValues.length; mi += 1) {
+          for (var ti = 0; ti < targets.length; ti += 1) {
+            if (Math.abs(targets[ti] - movingValues[mi]) > SNAP_ALIGN_EPSILON) {
+              continue;
+            }
+            var slot = positions.indexOf(targets[ti]);
+            if (slot === -1) {
+              positions.push(targets[ti]);
+              spans.push({
+                start: Math.min(
+                  crossStart(moving, axis),
+                  crossStart(candidate, axis)
+                ),
+                end: Math.max(crossEnd(moving, axis), crossEnd(candidate, axis))
+              });
+            } else {
+              spans[slot].start = Math.min(
+                spans[slot].start,
+                crossStart(candidate, axis)
+              );
+              spans[slot].end = Math.max(
+                spans[slot].end,
+                crossEnd(candidate, axis)
+              );
+            }
+          }
+        }
+      }
+      var guides = [];
+      for (var g = 0; g < positions.length; g += 1) {
+        guides.push({
+          orientation: axis === "x" ? "vertical" : "horizontal",
+          position: positions[g],
+          start: spans[g].start,
+          end: spans[g].end
+        });
+      }
+      return guides;
+    }
+    function collectAxisGapCandidates(axis, moving, candidates) {
+      var gaps = [];
+      for (var i = 0; i < candidates.length; i += 1) {
+        var bounds = candidates[i];
+        if (!crossAxisOverlaps(axis, bounds, moving)) continue;
+        var band = {
+          crossStart: Math.max(
+            crossStart(bounds, axis),
+            crossStart(moving, axis)
+          ),
+          crossEnd: Math.min(crossEnd(bounds, axis), crossEnd(moving, axis))
+        };
+        if (axisEnd(bounds, axis) <= axisStart(moving, axis)) {
+          gaps.push({
+            side: "before",
+            gap: axisStart(moving, axis) - axisEnd(bounds, axis),
+            gapStart: axisEnd(bounds, axis),
+            gapEnd: axisStart(moving, axis),
+            crossStart: band.crossStart,
+            crossEnd: band.crossEnd
+          });
+        } else if (axisStart(bounds, axis) >= axisEnd(moving, axis)) {
+          gaps.push({
+            side: "after",
+            gap: axisStart(bounds, axis) - axisEnd(moving, axis),
+            gapStart: axisEnd(moving, axis),
+            gapEnd: axisStart(bounds, axis),
+            crossStart: band.crossStart,
+            crossEnd: band.crossEnd
+          });
+        }
+      }
+      return gaps;
+    }
+    function closestGapCandidate(gaps, side) {
+      var best = null;
+      for (var i = 0; i < gaps.length; i += 1) {
+        if (gaps[i].side !== side) continue;
+        if (!best || gaps[i].gap < best.gap) best = gaps[i];
+      }
+      return best;
+    }
+    function collectRhythmGaps(axis, moving, candidates) {
+      var row = [];
+      for (var i = 0; i < candidates.length; i += 1) {
+        var entry = candidates[i];
+        if (!crossAxisOverlaps(axis, entry, moving)) continue;
+        if (axisStart(entry, axis) <= axisStart(moving, axis) && axisEnd(entry, axis) >= axisEnd(moving, axis)) {
+          continue;
+        }
+        row.push(entry);
+      }
+      row.sort(function(a, b) {
+        return axisStart(a, axis) - axisStart(b, axis);
+      });
+      var gaps = [];
+      var previous = null;
+      for (var r = 0; r < row.length; r += 1) {
+        var bounds = row[r];
+        var gap = previous ? axisStart(bounds, axis) - axisEnd(previous, axis) : 0;
+        if (previous && gap > 0 && crossAxisOverlaps(axis, previous, bounds)) {
+          gaps.push({
+            gap,
+            band: {
+              gapStart: axisEnd(previous, axis),
+              gapEnd: axisStart(bounds, axis),
+              crossStart: Math.max(
+                crossStart(previous, axis),
+                crossStart(bounds, axis)
+              ),
+              crossEnd: Math.min(
+                crossEnd(previous, axis),
+                crossEnd(bounds, axis)
+              )
+            }
+          });
+        }
+        if (!previous || axisEnd(bounds, axis) > axisEnd(previous, axis)) {
+          previous = bounds;
+        }
+      }
+      return gaps;
+    }
+    function findSpacingSnapOffset(axis, moving, candidates, tolerance) {
+      var gaps = collectAxisGapCandidates(axis, moving, candidates);
+      var before = closestGapCandidate(gaps, "before");
+      var after = closestGapCandidate(gaps, "after");
+      if (!before && !after) return { offset: 0, side: null };
+      var offset = 0;
+      var side = null;
+      var bestDistance = Infinity;
+      function consider(value, matched) {
+        var distance = Math.abs(value);
+        if (distance > tolerance || distance >= bestDistance) return;
+        bestDistance = distance;
+        offset = value;
+        side = matched;
+      }
+      if (before && after) consider((after.gap - before.gap) / 2, "both");
+      var rhythms = collectRhythmGaps(axis, moving, candidates);
+      for (var i = 0; i < rhythms.length; i += 1) {
+        if (before) consider(rhythms[i].gap - before.gap, "before");
+        if (after) consider(after.gap - rhythms[i].gap, "after");
+      }
+      return { offset, side };
+    }
+    function gapCandidateBand(candidate) {
+      return {
+        gapStart: candidate.gapStart,
+        gapEnd: candidate.gapEnd,
+        crossStart: candidate.crossStart,
+        crossEnd: candidate.crossEnd
+      };
+    }
+    function matchingRhythmBands(rhythms, gap, tolerance) {
+      var bands = [];
+      for (var i = 0; i < rhythms.length; i += 1) {
+        if (Math.abs(rhythms[i].gap - gap) <= tolerance)
+          bands.push(rhythms[i].band);
+      }
+      return bands;
+    }
+    function buildSpacingGuides(axis, moving, candidates, tolerance, gaps, matchedSide) {
+      gaps = gaps || collectAxisGapCandidates(axis, moving, candidates);
+      var before = closestGapCandidate(gaps, "before");
+      var after = closestGapCandidate(gaps, "after");
+      var orientation = axis === "x" ? "vertical" : "horizontal";
+      var rhythms = collectRhythmGaps(axis, moving, candidates);
+      if (before && after && Math.abs(before.gap - after.gap) <= tolerance) {
+        var pairGap = (before.gap + after.gap) / 2;
+        return [
+          {
+            orientation,
+            gap: pairGap,
+            bands: [gapCandidateBand(before), gapCandidateBand(after)].concat(
+              matchingRhythmBands(rhythms, pairGap, tolerance)
+            )
+          }
+        ];
+      }
+      var neighbor = matchedSide === "after" ? after : matchedSide === "before" ? before : before || after;
+      if (!neighbor) return [];
+      var matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);
+      if (!matched.length) return [];
+      return [
+        {
+          orientation,
+          gap: neighbor.gap,
+          bands: [gapCandidateBand(neighbor)].concat(matched)
+        }
+      ];
+    }
+    function computeProximityMeasurements(moving, candidates, range, gapsByAxis) {
+      var measurements = [];
+      var axes = ["x", "y"];
+      for (var a = 0; a < axes.length; a += 1) {
+        var axis = axes[a];
+        var gaps = gapsByAxis && gapsByAxis[axis] || collectAxisGapCandidates(axis, moving, candidates);
+        var nearest = null;
+        for (var i = 0; i < gaps.length; i += 1) {
+          if (!nearest || gaps[i].gap < nearest.gap) nearest = gaps[i];
+        }
+        if (!nearest || nearest.gap > range) continue;
+        measurements.push({
+          orientation: axis === "x" ? "vertical" : "horizontal",
+          gap: nearest.gap,
+          band: gapCandidateBand(nearest)
+        });
+      }
+      return measurements;
+    }
+    function computeMoveSnapOffset(movingRect, candidates, threshold, isGroup, locked) {
+      var moving = rectBounds(movingRect);
+      locked = locked || {};
+      var dx = locked.x ? null : findAxisSnapOffset("x", moving, candidates, threshold);
+      var dy = locked.y ? null : findAxisSnapOffset("y", moving, candidates, threshold);
+      var snapped = translateRectBounds(moving, dx || 0, dy || 0);
+      var guides = (locked.x ? [] : buildAxisGuides("x", snapped, candidates)).concat(locked.y ? [] : buildAxisGuides("y", snapped, candidates));
+      if (isGroup) {
+        return {
+          dx: dx || 0,
+          dy: dy || 0,
+          guides,
+          spacingGuides: [],
+          measurements: []
+        };
+      }
+      var idle = { offset: 0, side: null };
+      var spacingXResult = guides.some(function(guide) {
+        return guide.orientation === "vertical";
+      }) ? idle : locked.x ? idle : findSpacingSnapOffset("x", snapped, candidates, threshold);
+      var spacingYResult = guides.some(function(guide) {
+        return guide.orientation === "horizontal";
+      }) ? idle : locked.y ? idle : findSpacingSnapOffset("y", snapped, candidates, threshold);
+      var spacingX = spacingXResult.offset;
+      var spacingY = spacingYResult.offset;
+      var spaced = translateRectBounds(snapped, spacingX, spacingY);
+      var settledGaps = {
+        x: collectAxisGapCandidates("x", spaced, candidates),
+        y: collectAxisGapCandidates("y", spaced, candidates)
+      };
+      var spacingGuides = buildSpacingGuides(
+        "x",
+        spaced,
+        candidates,
+        SPACING_MATCH_EPSILON,
+        settledGaps.x,
+        spacingXResult.side
+      ).concat(
+        buildSpacingGuides(
+          "y",
+          spaced,
+          candidates,
+          SPACING_MATCH_EPSILON,
+          settledGaps.y,
+          spacingYResult.side
+        )
+      );
+      var measurements = computeProximityMeasurements(
+        spaced,
+        candidates,
+        PROXIMITY_RANGE_PX * threshold / SNAP_THRESHOLD_PX,
+        settledGaps
+      ).filter(function(measurement) {
+        return !spacingGuides.some(function(guide) {
+          return guide.orientation === measurement.orientation;
+        });
+      });
+      return {
+        dx: (dx || 0) + spacingX,
+        dy: (dy || 0) + spacingY,
+        guides,
+        spacingGuides,
+        measurements
+      };
+    }
+    var snapGuideNodeCount = 0;
+    function beginSnapGuideNodes() {
+      snapGuideNodeCount = 0;
+    }
+    function appendSnapGuideNode(cssText) {
+      var node = snapGuideLayer.children[snapGuideNodeCount];
+      if (!node) {
+        node = document.createElement("div");
+        snapGuideLayer.appendChild(node);
+      }
+      node.style.cssText = "position:fixed;" + cssText;
+      node.textContent = "";
+      snapGuideNodeCount += 1;
+      return node;
+    }
+    function endSnapGuideNodes() {
+      while (snapGuideLayer.children.length > snapGuideNodeCount) {
+        snapGuideLayer.removeChild(snapGuideLayer.lastChild);
       }
     }
+    function showSnapGuides(guides, spacingGuides, measurements) {
+      measurements = measurements || [];
+      if (!guides.length && !spacingGuides.length && !measurements.length) {
+        hideSnapGuides();
+        return;
+      }
+      beginSnapGuideNodes();
+      if (snapGuideLayer.style.display !== "block") {
+        snapGuideLayer.style.display = "block";
+      }
+      var scale = chromeLineScale();
+      var line = 1 * scale;
+      var fill = "background:var(--design-editor-measure-color);";
+      for (var i = 0; i < guides.length; i += 1) {
+        var guide = guides[i];
+        var span = Math.max(1, guide.end - guide.start);
+        appendSnapGuideNode(
+          guide.orientation === "vertical" ? "left:" + guide.position + "px;top:" + guide.start + "px;width:" + line + "px;height:" + span + "px;" + fill : "top:" + guide.position + "px;left:" + guide.start + "px;height:" + line + "px;width:" + span + "px;" + fill
+        );
+      }
+      for (var s = 0; s < spacingGuides.length; s += 1) {
+        var spacing = spacingGuides[s];
+        for (var b = 0; b < spacing.bands.length; b += 1) {
+          appendSnapGuideNode(
+            spacingBandCss(spacing.orientation, spacing.bands[b], line, fill)
+          );
+          appendSnapGuideNode(
+            spacingSerifCss(
+              spacing.orientation,
+              spacing.bands[b],
+              line,
+              5 * scale,
+              fill,
+              true
+            )
+          );
+          appendSnapGuideNode(
+            spacingSerifCss(
+              spacing.orientation,
+              spacing.bands[b],
+              line,
+              5 * scale,
+              fill,
+              false
+            )
+          );
+        }
+        var label = appendSnapGuideNode(
+          spacingLabelCss(spacing.orientation, spacing.bands[0], scale)
+        );
+        label.textContent = String(Math.round(spacing.gap));
+      }
+      for (var m = 0; m < measurements.length; m += 1) {
+        var measurement = measurements[m];
+        appendSnapGuideNode(
+          spacingBandCss(measurement.orientation, measurement.band, line, fill)
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            measurement.orientation,
+            measurement.band,
+            line,
+            5 * scale,
+            fill,
+            true
+          )
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            measurement.orientation,
+            measurement.band,
+            line,
+            5 * scale,
+            fill,
+            false
+          )
+        );
+        var measureLabel = appendSnapGuideNode(
+          spacingLabelCss(measurement.orientation, measurement.band, scale)
+        );
+        measureLabel.textContent = String(Math.round(measurement.gap));
+      }
+      endSnapGuideNodes();
+    }
+    function spacingBandCss(orientation, band, line, fill) {
+      var crossMid = (band.crossStart + band.crossEnd) / 2;
+      var length = Math.max(0, band.gapEnd - band.gapStart);
+      return orientation === "vertical" ? "left:" + band.gapStart + "px;top:" + (crossMid - line / 2) + "px;width:" + length + "px;height:" + line + "px;" + fill : "top:" + band.gapStart + "px;left:" + (crossMid - line / 2) + "px;height:" + length + "px;width:" + line + "px;" + fill;
+    }
+    function spacingSerifCss(orientation, band, line, serif, fill, atStart) {
+      var crossMid = (band.crossStart + band.crossEnd) / 2;
+      var along = atStart ? band.gapStart : band.gapEnd;
+      return orientation === "vertical" ? "left:" + (along - line / 2) + "px;top:" + (crossMid - serif) + "px;width:" + line + "px;height:" + serif * 2 + "px;" + fill : "top:" + (along - line / 2) + "px;left:" + (crossMid - serif) + "px;height:" + line + "px;width:" + serif * 2 + "px;" + fill;
+    }
+    function spacingLabelCss(orientation, band, scale) {
+      var crossMid = (band.crossStart + band.crossEnd) / 2;
+      var alongMid = (band.gapStart + band.gapEnd) / 2;
+      return (orientation === "vertical" ? "left:" + alongMid + "px;top:" + crossMid + "px;" : "left:" + crossMid + "px;top:" + alongMid + "px;") + "transform:translate(-50%,-50%);border-radius:" + 3 * scale + "px;padding:" + 1 * scale + "px " + 4 * scale + "px;font:" + 10 * scale + "px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;background:var(--design-editor-measure-color);color:white;";
+    }
+    function authoredOffset(value) {
+      if (!value || value === "auto") return "";
+      return value;
+    }
+    function elementConstraints(el) {
+      var style = el.style;
+      var left = authoredOffset(style.left);
+      var right = authoredOffset(style.right);
+      var top = authoredOffset(style.top);
+      var bottom = authoredOffset(style.bottom);
+      var transform = style.transform || "";
+      return {
+        horizontal: style.width === "100%" ? "scale" : left && right ? "left-right" : right && !left ? "right" : transform.indexOf("translateX(-50%)") !== -1 ? "center" : "left",
+        vertical: style.height === "100%" ? "scale" : top && bottom ? "top-bottom" : bottom && !top ? "bottom" : transform.indexOf("translateY(-50%)") !== -1 ? "center" : "top"
+      };
+    }
+    var constraintNodeCount = 0;
+    function appendConstraintLine(from, to, crossPosition, horizontal, thickness) {
+      var start = Math.min(from, to);
+      var length = Math.max(1, Math.abs(to - from));
+      var node = constraintGuideLayer.children[constraintNodeCount];
+      if (!node) {
+        node = document.createElement("div");
+        constraintGuideLayer.appendChild(node);
+      }
+      constraintNodeCount += 1;
+      node.style.cssText = "position:fixed;" + (horizontal ? "left:" + start + "px;top:" + (crossPosition - thickness / 2) + "px;width:" + length + "px;height:0;border-top:" : "top:" + start + "px;left:" + (crossPosition - thickness / 2) + "px;height:" + length + "px;width:0;border-left:") + thickness + "px dashed var(--design-editor-accent-color);";
+    }
+    function showConstraintGuides(el) {
+      if (!el || dragChromeSuppressed) return hideConstraintGuides();
+      var parent = el.offsetParent || el.parentElement;
+      if (!parent) return hideConstraintGuides();
+      var rect = el.getBoundingClientRect();
+      var frame = parent.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return hideConstraintGuides();
+      if (!constraintGuideLayer.isConnected) {
+        document.body.appendChild(constraintGuideLayer);
+      }
+      constraintNodeCount = 0;
+      if (constraintGuideLayer.style.display !== "block") {
+        constraintGuideLayer.style.display = "block";
+      }
+      var thickness = chromeLineScale();
+      var midY = rect.top + rect.height / 2;
+      var midX = rect.left + rect.width / 2;
+      var constraints = elementConstraints(el);
+      if (constraints.horizontal === "scale") {
+        appendConstraintLine(frame.left, frame.right, midY, true, thickness);
+      } else {
+        if (constraints.horizontal !== "right" && constraints.horizontal !== "center") {
+          appendConstraintLine(frame.left, rect.left, midY, true, thickness);
+        }
+        if (constraints.horizontal === "right" || constraints.horizontal === "left-right") {
+          appendConstraintLine(rect.right, frame.right, midY, true, thickness);
+        }
+        if (constraints.horizontal === "center") {
+          appendConstraintLine(
+            frame.left + frame.width / 2,
+            midX,
+            midY,
+            true,
+            thickness
+          );
+        }
+      }
+      if (constraints.vertical === "scale") {
+        appendConstraintLine(frame.top, frame.bottom, midX, false, thickness);
+      } else {
+        if (constraints.vertical !== "bottom" && constraints.vertical !== "center") {
+          appendConstraintLine(frame.top, rect.top, midX, false, thickness);
+        }
+        if (constraints.vertical === "bottom" || constraints.vertical === "top-bottom") {
+          appendConstraintLine(rect.bottom, frame.bottom, midX, false, thickness);
+        }
+        if (constraints.vertical === "center") {
+          appendConstraintLine(
+            frame.top + frame.height / 2,
+            midY,
+            midX,
+            false,
+            thickness
+          );
+        }
+      }
+      trimConstraintNodes();
+    }
+    function trimConstraintNodes() {
+      while (constraintGuideLayer.children.length > constraintNodeCount) {
+        constraintGuideLayer.removeChild(constraintGuideLayer.lastChild);
+      }
+    }
+    function hideConstraintGuides() {
+      if (constraintGuideLayer.style.display === "none") return;
+      constraintGuideLayer.style.display = "none";
+      constraintGuideLayer.innerHTML = "";
+      constraintNodeCount = 0;
+    }
+    var sizeBadgeKey = "";
+    var dragChromeSuppressed = false;
+    function showSizeBadge(el) {
+      if (!el || dragChromeSuppressed) return hideSizeBadge();
+      var rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+      var scale = chromeLineScale();
+      var key = rect.left + "|" + rect.bottom + "|" + rect.width + "|" + rect.height + "|" + scale;
+      if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
+      sizeBadgeKey = key;
+      if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
+      sizeBadge.textContent = Math.round(rect.width) + " \\xD7 " + Math.round(rect.height);
+      sizeBadge.style.display = "block";
+      sizeBadge.style.borderRadius = 3 * scale + "px";
+      sizeBadge.style.padding = 2 * scale + "px " + 4 * scale + "px";
+      sizeBadge.style.fontSize = 10 * scale + "px";
+      sizeBadge.style.left = rect.left + rect.width / 2 + "px";
+      sizeBadge.style.top = rect.bottom + 6 * scale + "px";
+      sizeBadge.style.transform = "translateX(-50%)";
+    }
+    function hideSizeBadge() {
+      if (sizeBadge.style.display === "none") return;
+      sizeBadge.style.display = "none";
+      sizeBadgeKey = "";
+    }
     function hideSnapGuides() {
-      snapGuideV.style.display = "none";
-      snapGuideH.style.display = "none";
+      dragChromeSuppressed = false;
+      if (snapGuideLayer.style.display === "none") return;
+      snapGuideLayer.style.display = "none";
+      snapGuideLayer.innerHTML = "";
+      snapGuideNodeCount = 0;
     }
     function startMove(e, gestureElParam, pointerStartParam) {
       if (readOnly) return;
@@ -7075,6 +7971,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
+      function ancestorScale(el, axis) {
+        var host = el && el.offsetParent;
+        if (!host) return 1;
+        var rect = host.getBoundingClientRect();
+        var layout = axis === "x" ? host.offsetWidth : host.offsetHeight;
+        var client = axis === "x" ? rect.width : rect.height;
+        if (!(layout > 0)) return 1;
+        var scale = client / layout;
+        return scale > 0 && Number.isFinite(scale) ? scale : 1;
+      }
+      var dragElOffsetScaleX = ancestorScale(dragEl, "x");
+      var dragElOffsetScaleY = ancestorScale(dragEl, "y");
       if (!duplicatedForDrag && !isGroupDrag) {
         postCrossScreenDrag("start", dragEl, e);
       }
@@ -7110,17 +8018,33 @@ export const editorChromeBridgeScript: string = `"use strict";
         var snapBypass = Boolean(ev.metaKey || ev.ctrlKey);
         var snapResult = !snapBypass && !duplicatedForDrag ? computeMoveSnapOffset(
           {
-            left: nextLeft,
-            top: nextTop,
+            // snapCandidateRects are client space; nextLeft/nextTop are
+            // offset-parent CSS space. Convert, or nothing ever matches.
+            left: dragElStartRect.left + (nextLeft - originLeft) * dragElOffsetScaleX,
+            top: dragElStartRect.top + (nextTop - originTop) * dragElOffsetScaleY,
             width: dragElStartWidth,
             height: dragElStartHeight
           },
           snapCandidateRects,
           // Convert the screen-space base to content px (1/zoom).
-          SNAP_THRESHOLD_PX * chromeLineScale()
-        ) : { dx: 0, dy: 0, guideV: null, guideH: null };
-        nextLeft += snapResult.dx;
-        nextTop += snapResult.dy;
+          SNAP_THRESHOLD_PX * chromeLineScale(),
+          isGroupDrag,
+          ev.shiftKey ? { x: rawDx === 0, y: rawDy === 0 } : null
+        ) : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
+        if (window.__DND_DEBUG)
+          dndLog("snap:tick", {
+            // Ordered so the fields that decide whether snapping ran at all come
+            // first: the console collapses long objects behind an ellipsis.
+            bypass: snapBypass,
+            duplicated: duplicatedForDrag,
+            mods: (ev.metaKey ? "M" : "") + (ev.ctrlKey ? "C" : "") + (ev.altKey ? "A" : "") + (ev.shiftKey ? "S" : "") || "none",
+            guides: snapResult.guides.length,
+            measurements: snapResult.measurements.length,
+            candidates: snapCandidateRects.length,
+            dropMode: currentAutoLayoutTarget ? currentAutoLayoutTarget.dropMode || "(none)" : "no-target"
+          });
+        nextLeft += snapResult.dx / dragElOffsetScaleX;
+        nextTop += snapResult.dy / dragElOffsetScaleY;
         var appliedDx = nextLeft - originLeft;
         var appliedDy = nextTop - originTop;
         memberStates.forEach(function(state) {
@@ -7154,10 +8078,20 @@ export const editorChromeBridgeScript: string = `"use strict";
             setMembersOpacity(null);
           }
         }
-        if (currentAutoLayoutTarget || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
+        if (flowInsertPending || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           hideSnapGuides();
+          dragChromeSuppressed = true;
+          hideSizeBadge();
+          hideConstraintGuides();
         } else {
-          showSnapGuides(snapResult.guideV, snapResult.guideH);
+          dragChromeSuppressed = false;
+          showSnapGuides(
+            snapResult.guides,
+            snapResult.spacingGuides,
+            snapResult.measurements
+          );
+          showConstraintGuides(dragEl);
         }
         showTransformBadge(
           Math.round(nextLeft) + ", " + Math.round(nextTop),
@@ -7190,6 +8124,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideTransformBadge();
         hideInsertionGuide();
         hideSnapGuides();
+        hideSizeBadge();
+        hideConstraintGuides();
         currentAutoLayoutTarget = null;
         if (duplicatedForDrag) {
           if (dragEl && dragEl.parentElement) {
@@ -7220,12 +8156,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideTransformBadge();
           hideInsertionGuide();
           hideSnapGuides();
+          hideSizeBadge();
+          hideConstraintGuides();
           return;
         }
         cleanupMoveDrag();
         hideTransformBadge();
         hideInsertionGuide();
         hideSnapGuides();
+        hideSizeBadge();
+        hideConstraintGuides();
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) : false;
         if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
@@ -7323,6 +8263,30 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keydown", onMoveKeyDown, true);
       setActiveDragCancel(cancelMoveDrag);
     }
+    function collectScaleFontTargets(root) {
+      var targets = [];
+      var nodes = root.querySelectorAll("*");
+      for (var i = 0; i < nodes.length; i += 1) {
+        var el = nodes[i];
+        if (isOverlayElement(el)) continue;
+        var inlineFontSize = el.style.fontSize || "";
+        if (inlineFontSize && !/px\\s*$/i.test(inlineFontSize)) continue;
+        var parent = el.parentElement;
+        var cs = window.getComputedStyle(el);
+        if (!inlineFontSize && parent && window.getComputedStyle(parent).fontSize === cs.fontSize) {
+          continue;
+        }
+        var originFontSize = readPx(inlineFontSize || cs.fontSize);
+        if (!(originFontSize > 0)) continue;
+        rememberLiveVisualEditOriginalStyles(el);
+        targets.push({
+          el,
+          originFontSize,
+          originalInlineFontSize: el.style.fontSize
+        });
+      }
+      return targets;
+    }
     function startResize(handle, e) {
       if (readOnly) return;
       if (!selectedEl) return;
@@ -7393,6 +8357,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var widthTouched = false;
       var heightTouched = false;
+      var scaledTextTargetsCache = null;
+      function scaledTextTargets() {
+        if (!scaledTextTargetsCache) {
+          scaledTextTargetsCache = collectScaleFontTargets(resizeEl);
+        }
+        return scaledTextTargetsCache;
+      }
       function nextRect(ev) {
         var screenDx = ev.clientX - startX;
         var screenDy = ev.clientY - startY;
@@ -7493,6 +8464,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (originFontSize > 0) {
             resizeEl.style.fontSize = Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) + "px";
           }
+          scaledTextTargets().forEach(function(target) {
+            target.el.style.fontSize = Math.max(
+              1,
+              Math.round(target.originFontSize * kScaleFactor * 100) / 100
+            ) + "px";
+          });
         }
         showTransformBadge(
           Math.round(rect.width) + " x " + Math.round(rect.height),
@@ -7519,6 +8496,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.height = originalInlineHeight;
           resizeEl.style.borderWidth = originalInlineBorderWidth;
           resizeEl.style.fontSize = originalInlineFontSize;
+          (scaledTextTargetsCache || []).forEach(function(target) {
+            target.el.style.fontSize = target.originalInlineFontSize;
+          });
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
         }
@@ -7566,11 +8546,312 @@ export const editorChromeBridgeScript: string = `"use strict";
           },
           "*"
         );
+        if (scaleToolEnabled) {
+          (scaledTextTargetsCache || []).forEach(function(target) {
+            var textStyles = {
+              fontSize: target.el.style.fontSize
+            };
+            window.parent.postMessage(
+              {
+                type: "visual-style-change",
+                selector: getSelector(target.el),
+                styles: textStyles,
+                originalStyles: originalInlineStylesForPatch(
+                  target.el,
+                  textStyles
+                ),
+                payload: getElementInfo(target.el),
+                preserveSelection: true
+              },
+              "*"
+            );
+          });
+        }
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onResizeKeyDown, true);
       setActiveDragCancel(cancelResizeDrag);
+    }
+    function startGroupResize(handle, e) {
+      if (readOnly) return;
+      var members = collectSelectionMembers();
+      if (members.length < 2) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var events = dragEventNames(e);
+      var groupLeft = Infinity;
+      var groupTop = Infinity;
+      var groupRight = -Infinity;
+      var groupBottom = -Infinity;
+      var memberStates = members.map(function(member) {
+        var el = member;
+        var snapshot = {
+          el,
+          originalInlinePosition: el.style.position,
+          originalInlineLeft: el.style.left,
+          originalInlineTop: el.style.top,
+          originalInlineWidth: el.style.width,
+          originalInlineHeight: el.style.height,
+          originalInlineBorderWidth: el.style.borderWidth,
+          originalInlineFontSize: el.style.fontSize,
+          originLeft: 0,
+          originTop: 0,
+          originWidth: 0,
+          originHeight: 0,
+          // The center is the one point rotation leaves alone: a rotated
+          // member's client rect is its inflated axis-aligned box, so corners
+          // would scale it to the wrong place.
+          originCenterX: 0,
+          originCenterY: 0,
+          originBorderWidth: 0,
+          originFontSize: 0,
+          textTargets: null
+        };
+        rememberLiveVisualEditOriginalStyles(el);
+        ensurePositionable(el);
+        var cs = window.getComputedStyle(el);
+        var rect = el.getBoundingClientRect();
+        groupLeft = Math.min(groupLeft, rect.left);
+        groupTop = Math.min(groupTop, rect.top);
+        groupRight = Math.max(groupRight, rect.right);
+        groupBottom = Math.max(groupBottom, rect.bottom);
+        snapshot.originLeft = readPx(el.style.left || cs.left);
+        snapshot.originTop = readPx(el.style.top || cs.top);
+        snapshot.originWidth = readPx(cs.width);
+        snapshot.originHeight = readPx(cs.height);
+        snapshot.originCenterX = rect.left + rect.width / 2;
+        snapshot.originCenterY = rect.top + rect.height / 2;
+        snapshot.originBorderWidth = readPx(
+          el.style.borderWidth || cs.borderWidth
+        );
+        snapshot.originFontSize = readPx(el.style.fontSize || cs.fontSize);
+        return snapshot;
+      });
+      var groupWidth = Math.max(1, groupRight - groupLeft);
+      var groupHeight = Math.max(1, groupBottom - groupTop);
+      var anchorX = handle.indexOf("w") !== -1 ? groupRight : groupLeft;
+      var anchorY = handle.indexOf("n") !== -1 ? groupBottom : groupTop;
+      var minMemberWidth = Math.max(
+        1,
+        Math.min.apply(
+          null,
+          memberStates.map(function(state) {
+            return Math.max(1, state.originWidth);
+          })
+        )
+      );
+      var minMemberHeight = Math.max(
+        1,
+        Math.min.apply(
+          null,
+          memberStates.map(function(state) {
+            return Math.max(1, state.originHeight);
+          })
+        )
+      );
+      var minFactorX = 8 / minMemberWidth;
+      var minFactorY = 8 / minMemberHeight;
+      var startX = e.clientX;
+      var startY = e.clientY;
+      var groupGestureViewport = bridgeGestureViewport();
+      var bridgeGroupResizeController = createCanvasGestureController({
+        capabilities: { move: true, resize: true },
+        drag: { threshold: 3, duplicateModifier: "alt" },
+        minSize: 8,
+        adapter: {
+          preview: function() {
+            return { handled: true };
+          },
+          commit: function() {
+            return { handled: true };
+          },
+          cancel: function() {
+            return { handled: true };
+          }
+        }
+      });
+      bridgeGroupResizeController.pointerDown({
+        kind: "resize",
+        objectIds: memberStates.map(function(state) {
+          return getSelector(state.el);
+        }),
+        pointer: bridgeGesturePointer(e),
+        viewport: groupGestureViewport,
+        canvas: {
+          width: groupGestureViewport.width,
+          height: groupGestureViewport.height
+        },
+        handle,
+        rect: {
+          x: groupLeft,
+          y: groupTop,
+          width: groupWidth,
+          height: groupHeight
+        }
+      });
+      function groupFactors(ev) {
+        var dx = ev.clientX - startX;
+        var dy = ev.clientY - startY;
+        var nextWidth = handle.indexOf("e") !== -1 ? groupWidth + dx : groupWidth - dx;
+        var nextHeight = handle.indexOf("s") !== -1 ? groupHeight + dy : groupHeight - dy;
+        var factorX = nextWidth / groupWidth;
+        var factorY = nextHeight / groupHeight;
+        if (ev.shiftKey || scaleToolEnabled) {
+          var uniform = Math.max(
+            Math.max(minFactorX, minFactorY),
+            Math.abs(dx) > Math.abs(dy) ? factorX : factorY
+          );
+          return { x: uniform, y: uniform };
+        }
+        return {
+          x: Math.max(minFactorX, factorX),
+          y: Math.max(minFactorY, factorY)
+        };
+      }
+      function memberTextTargets(state) {
+        if (!state.textTargets) {
+          state.textTargets = collectScaleFontTargets(state.el);
+        }
+        return state.textTargets;
+      }
+      function onMove(ev) {
+        var controllerMove = bridgeGroupResizeController.pointerMove(
+          bridgeGesturePointer(ev)
+        );
+        if (controllerMove.phase !== "active") return;
+        var factor = groupFactors(ev);
+        memberStates.forEach(function(state) {
+          var nextCenterX = anchorX + (state.originCenterX - anchorX) * factor.x;
+          var nextCenterY = anchorY + (state.originCenterY - anchorY) * factor.y;
+          var nextWidth = state.originWidth * factor.x;
+          var nextHeight = state.originHeight * factor.y;
+          state.el.style.left = Math.round(
+            state.originLeft + (nextCenterX - state.originCenterX) - (nextWidth - state.originWidth) / 2
+          ) + "px";
+          state.el.style.top = Math.round(
+            state.originTop + (nextCenterY - state.originCenterY) - (nextHeight - state.originHeight) / 2
+          ) + "px";
+          state.el.style.width = Math.round(nextWidth) + "px";
+          state.el.style.height = Math.round(nextHeight) + "px";
+          if (!scaleToolEnabled) return;
+          if (state.originBorderWidth > 0) {
+            state.el.style.borderWidth = Math.max(
+              0,
+              Math.round(state.originBorderWidth * factor.x * 100) / 100
+            ) + "px";
+          }
+          if (state.originFontSize > 0) {
+            state.el.style.fontSize = Math.max(
+              1,
+              Math.round(state.originFontSize * factor.x * 100) / 100
+            ) + "px";
+          }
+          memberTextTargets(state).forEach(function(target) {
+            target.el.style.fontSize = Math.max(
+              1,
+              Math.round(target.originFontSize * factor.x * 100) / 100
+            ) + "px";
+          });
+        });
+        showTransformBadge(
+          Math.round(groupWidth * factor.x) + " x " + Math.round(groupHeight * factor.y),
+          ev.clientX,
+          ev.clientY
+        );
+        refreshOverlays();
+      }
+      function cleanupGroupResizeDrag() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onGroupResizeKeyDown, true);
+        clearActiveDragCancel(cancelGroupResizeDrag);
+      }
+      function cancelGroupResizeDrag() {
+        bridgeGroupResizeController.cancel();
+        cleanupGroupResizeDrag();
+        hideTransformBadge();
+        memberStates.forEach(function(state) {
+          if (!document.documentElement.contains(state.el)) return;
+          state.el.style.position = state.originalInlinePosition;
+          state.el.style.left = state.originalInlineLeft;
+          state.el.style.top = state.originalInlineTop;
+          state.el.style.width = state.originalInlineWidth;
+          state.el.style.height = state.originalInlineHeight;
+          state.el.style.borderWidth = state.originalInlineBorderWidth;
+          state.el.style.fontSize = state.originalInlineFontSize;
+          (state.textTargets || []).forEach(function(target) {
+            target.el.style.fontSize = target.originalInlineFontSize;
+          });
+        });
+        suppressNextShieldClickBriefly();
+        refreshOverlays();
+        return true;
+      }
+      function onGroupResizeKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelGroupResizeDrag();
+      }
+      function onUp(ev) {
+        var controllerEnd = bridgeGroupResizeController.pointerUp(
+          bridgeGesturePointer(ev)
+        );
+        cleanupGroupResizeDrag();
+        hideTransformBadge();
+        if (!controllerEnd.committed) return;
+        memberStates.forEach(function(state) {
+          var styles = {
+            position: state.el.style.position,
+            left: state.el.style.left,
+            top: state.el.style.top,
+            width: state.el.style.width,
+            height: state.el.style.height
+          };
+          if (scaleToolEnabled && state.originBorderWidth > 0) {
+            styles.borderWidth = state.el.style.borderWidth;
+          }
+          if (scaleToolEnabled && state.originFontSize > 0) {
+            styles.fontSize = state.el.style.fontSize;
+          }
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(state.el),
+              styles,
+              originalStyles: originalInlineStylesForPatch(state.el, styles),
+              payload: getElementInfo(state.el)
+            },
+            "*"
+          );
+          if (!scaleToolEnabled) return;
+          (state.textTargets || []).forEach(function(target) {
+            var textStyles = {
+              fontSize: target.el.style.fontSize
+            };
+            window.parent.postMessage(
+              {
+                type: "visual-style-change",
+                selector: getSelector(target.el),
+                styles: textStyles,
+                originalStyles: originalInlineStylesForPatch(
+                  target.el,
+                  textStyles
+                ),
+                payload: getElementInfo(target.el),
+                // A scaled descendant is a side effect of the gesture, not the
+                // object the user is holding.
+                preserveSelection: true
+              },
+              "*"
+            );
+          });
+        });
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onGroupResizeKeyDown, true);
+      setActiveDragCancel(cancelGroupResizeDrag);
     }
     function startRotate(e) {
       if (readOnly) return;
@@ -7710,7 +8991,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         preferSelected: selectedLayerDragPriorityEnabled
       });
       var clickTarget = hitTarget;
+      if (window.__DND_DEBUG)
+        dndLog("shield:down", {
+          hit: getSelector(hit),
+          dragTarget: getSelector(dragTarget),
+          board: designCanvasBoardSurface,
+          readOnly,
+          position: dragTarget ? window.getComputedStyle(dragTarget).position : null,
+          flowCandidate: dragTarget ? isFlowReorderCandidate(dragTarget) : null
+        });
       if (!dragTarget || dragTarget === document.body || dragTarget === document.documentElement || isLayerInteractionBlocked(dragTarget)) {
+        dndLog("shield:reject", { reason: "no-drag-target" });
         return;
       }
       if (e.pointerId !== void 0 && shieldOverlay.setPointerCapture && !e.altKey) {
@@ -7743,6 +9034,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (readOnly) return;
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
         clearPendingShieldDrag();
+        if (!didStartDrag)
+          dndLog("shield:drag-start", { board: designCanvasBoardSurface });
         didStartDrag = true;
         var groupGestureMember = !e.altKey ? groupMemberForGestureTarget(dragTarget) : null;
         if (groupGestureMember && collectMoveGroupMembers(groupGestureMember).length > 1) {
@@ -9399,6 +10692,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         ]
       });
     }
+    captureInitialSourceOwnership();
     if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
     window.parent.postMessage(
       { type: "agent-native:editor-chrome-ready" },

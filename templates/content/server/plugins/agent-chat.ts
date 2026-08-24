@@ -67,9 +67,16 @@ Content's Notion access is per-user OAuth only. Never ask for or use NOTION_API_
         search: async (query: string) => {
           const db = getDb();
           const ownerEmail = getCurrentOwnerEmail();
+          // Project only id/title/parentId — documents.content is the full
+          // page body and must not be pulled into this per-keystroke search.
+          const mentionColumns = {
+            id: documents.id,
+            title: documents.title,
+            parentId: documents.parentId,
+          };
           const rows = query
             ? await db
-                .select()
+                .select(mentionColumns)
                 .from(documents)
                 .where(
                   and(
@@ -79,7 +86,7 @@ Content's Notion access is per-user OAuth only. Never ask for or use NOTION_API_
                 )
                 .limit(15)
             : await db
-                .select()
+                .select(mentionColumns)
                 .from(documents)
                 .where(eq(documents.ownerEmail, ownerEmail))
                 .orderBy(desc(documents.updatedAt))

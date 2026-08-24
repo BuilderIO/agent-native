@@ -91,7 +91,10 @@ describe("ChatFirstAppsRail", () => {
 
     expect(selectedIcon?.className).not.toContain("grayscale");
     expect(
-      selectedIcon?.closest("[data-chat-first-app]")?.className,
+      selectedIcon?.closest("[data-chat-first-app]")?.className.split(" "),
+    ).toContain("bg-sidebar-accent");
+    expect(
+      inactiveIcon?.closest("[data-chat-first-app]")?.className.split(" "),
     ).not.toContain("bg-sidebar-accent");
     expect(
       selectedIcon
@@ -229,11 +232,14 @@ describe("ChatFirstAppsRail", () => {
     ).not.toBeNull();
   });
 
-  it("does not add an outer selection background in the expanded rail", () => {
+  it("adds an accent background to the active app row in the expanded rail", () => {
     act(() => {
       root.render(
         <ChatFirstAppsRail
-          apps={[{ id: "content", name: "Content" }]}
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
           activeAppId="content"
           onOpenApp={vi.fn()}
           renderIcon={(app, options) => (
@@ -243,10 +249,16 @@ describe("ChatFirstAppsRail", () => {
       );
     });
 
-    const appRow = container.querySelector<HTMLElement>(
+    const activeRow = container.querySelector<HTMLElement>(
       '[data-chat-first-app][data-app-id="content"]',
     );
-    expect(appRow?.className).not.toContain("bg-sidebar-accent");
+    const inactiveRow = container.querySelector<HTMLElement>(
+      '[data-chat-first-app][data-app-id="analytics"]',
+    );
+    expect(activeRow?.className.split(" ")).toContain("bg-sidebar-accent");
+    expect(inactiveRow?.className.split(" ")).not.toContain(
+      "bg-sidebar-accent",
+    );
   });
 
   it("keeps a selected app outside the default slice visible", () => {

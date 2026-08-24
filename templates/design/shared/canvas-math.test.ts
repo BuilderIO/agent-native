@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   assignRegions,
   canvasToScreenPoint,
-  computeEqualGapGuides,
   computeMoveSnap,
+  computeProximityMeasurements,
   computeResizeSnap,
+  computeDragSnap,
+  computeSpacingSnap,
   DEFAULT_ASSIGNED_REGION_GAP,
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -591,92 +593,440 @@ describe("canvas snap and resize math", () => {
   });
 });
 
-describe("computeEqualGapGuides (smart spacing, CV11)", () => {
-  it("detects a moving frame evenly spaced between two horizontal neighbors", () => {
-    // left sibling ends at x=100, moving frame spans 140-240 (gap 40 before),
-    // right sibling starts at x=280 (gap 40 after). All share the same y
-    // range so they cross-overlap on the y axis.
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "right", geometry: { x: 280, y: 0, width: 100, height: 100 } },
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].orientation).toBe("vertical");
-    expect(guides[0].gap).toBeCloseTo(40);
-    expect(guides[0].bands[0].gapStart).toBeCloseTo(100);
-    expect(guides[0].bands[0].gapEnd).toBeCloseTo(140);
-    expect(guides[0].bands[1].gapStart).toBeCloseTo(240);
-    expect(guides[0].bands[1].gapEnd).toBeCloseTo(280);
+describe("computeMoveSnap guide fan-out", () => {
+  const square = (id: string, x: number, y: number) => ({
+    id,
+    geometry: { x, y, width: 100, height: 100 },
   });
 
-  it("detects vertical (above/below) equal spacing symmetrically", () => {
-    const moving = { x: 0, y: 150, width: 100, height: 100 };
-    const stationary = [
-      { id: "above", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "below", geometry: { x: 0, y: 300, width: 100, height: 100 } },
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].orientation).toBe("horizontal");
-    expect(guides[0].gap).toBeCloseTo(50);
+  const bar = (id: string, y: number, width: number) => ({
+    id,
+    geometry: { x: 0, y, width, height: 100 },
   });
 
-  it("returns no guide when the two gaps clearly differ", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "right", geometry: { x: 400, y: 0, width: 100, height: 100 } }, // gap 160, not 40
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("draws one guide through every frame sharing the snapped edge", () => {
+    const guides = computeMoveSnap(
+      [square("moving", 3, 600)],
+      [bar("a", 0, 140), bar("b", 200, 180), bar("c", 400, 220)],
+      { thresholdScreenPx: 6, zoom: 100 },
+    ).guides;
+
+    const vertical = guides.filter((guide) => guide.orientation === "vertical");
+    expect(vertical).toHaveLength(1);
+    expect(vertical[0].position).toBe(0);
+    expect(vertical[0].start).toBe(0);
+    expect(vertical[0].end).toBe(700);
   });
 
-  it("respects a custom tolerance", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } }, // gap 40
-      { id: "right", geometry: { x: 283, y: 0, width: 100, height: 100 } }, // gap 43
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("draws both the left-edge and right-edge guide when one offset satisfies both", () => {
+    // Snapping left-to-left at x=0 also lands the moving frame's right edge
+    // on the wide frame's right edge, so Figma shows two lines, not one.
+    const guides = computeMoveSnap(
+      [square("moving", 2, 300)],
+      [
+        bar("left-edge", 0, 60),
+        {
+          id: "right-edge",
+          geometry: { x: -400, y: 0, width: 500, height: 50 },
+        },
+      ],
+      { thresholdScreenPx: 6, zoom: 100 },
+    ).guides;
+
+    const positions = guides
+      .filter((guide) => guide.orientation === "vertical")
+      .map((guide) => guide.position)
+      .sort((a, b) => a - b);
+    expect(positions).toEqual([0, 100]);
+  });
+
+  it("spans the guide from the post-snap position, not where the pointer left the frame", () => {
+    const guides = computeMoveSnap(
+      [square("moving", 3, -300)],
+      [square("target", 0, 0)],
+      { thresholdScreenPx: 6, zoom: 100 },
+    ).guides;
+
+    const vertical = guides.find((guide) => guide.orientation === "vertical");
+    expect(vertical?.start).toBe(-300);
+    expect(vertical?.end).toBe(100);
+  });
+});
+
+describe("computeDragSnap precedence", () => {
+  const far = [
+    { id: "far", geometry: { x: 5000, y: 5000, width: 100, height: 100 } },
+  ];
+  const row = (...xs: number[]) =>
+    xs.map((x, index) => ({
+      id: `s${index}`,
+      geometry: { x, y: 0, width: 100, height: 100 },
+    }));
+
+  it("rounds to the pixel grid on an axis with no guide on it", () => {
+    const snap = computeDragSnap(
+      [
+        {
+          id: "moving",
+          geometry: { x: 10.3, y: 20.8, width: 100, height: 100 },
+        },
+      ],
+      far,
+      { thresholdScreenPx: 6, zoom: 100, pixelGrid: true },
+    );
+    expect(snap.dx).toBeCloseTo(-0.3);
+    expect(snap.dy).toBeCloseTo(0.2);
+  });
+
+  it("never rounds an alignment snap away", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 10.3, y: 0, width: 100, height: 100 } }],
+      [{ id: "target", geometry: { x: 8.5, y: 0, width: 100, height: 100 } }],
+      { thresholdScreenPx: 6, zoom: 100, pixelGrid: true },
+    );
+    expect(snap.dx).toBeCloseTo(-1.8);
+  });
+
+  it("keeps the pixel grid off by default", () => {
     expect(
-      computeEqualGapGuides(moving, stationary, { toleranceCanvasPx: 5 }),
+      computeDragSnap(
+        [
+          {
+            id: "moving",
+            geometry: { x: 10.3, y: 0, width: 100, height: 100 },
+          },
+        ],
+        far,
+        { thresholdScreenPx: 6, zoom: 100 },
+      ).dx,
+    ).toBe(0);
+  });
+
+  it("lets an alignment snap beat an available spacing snap on the same axis", () => {
+    // Centering between the two neighbors wants x=200; aligning top-left to
+    // the left neighbor's right edge wants x=100. The frame sits 2px from the
+    // alignment target and 5px from the centered position, and alignment wins.
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 102, y: 0, width: 100, height: 100 } }],
+      row(0, 400),
+      {
+        thresholdScreenPx: 6,
+        zoom: 100,
+      },
+    );
+    expect(snap.dx).toBeCloseTo(-2);
+    expect(snap.spacingGuides).toEqual([]);
+  });
+
+  it("applies the spacing snap on the axis alignment left free", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 205, y: 0, width: 100, height: 100 } }],
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-5);
+    expect(snap.spacingGuides).toHaveLength(1);
+  });
+
+  it("drops spacing guides for a multi-frame drag, matching Figma", () => {
+    const snap = computeDragSnap(
+      [
+        { id: "a", geometry: { x: 205, y: 0, width: 100, height: 100 } },
+        { id: "b", geometry: { x: 205, y: 400, width: 100, height: 100 } },
+      ],
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.spacingGuides).toEqual([]);
+  });
+});
+
+describe("computeDragSnap respects a Shift-locked axis", () => {
+  const stationary = [
+    { id: "far", geometry: { x: 5000, y: 5000, width: 100, height: 100 } },
+  ];
+
+  it("does not let the pixel grid reintroduce motion on the locked axis", () => {
+    const snap = computeDragSnap(
+      [
+        {
+          id: "moving",
+          geometry: { x: 10.3, y: 20.8, width: 100, height: 100 },
+        },
+      ],
+      stationary,
+      {
+        thresholdScreenPx: 6,
+        zoom: 100,
+        pixelGrid: true,
+        lockedAxes: { y: true },
+      },
+    );
+    expect(snap.dx).toBeCloseTo(-0.3);
+    expect(snap.dy, "Shift pinned y, so nothing may move it").toBe(0);
+  });
+
+  it("does not let an alignment snap move the locked axis either", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 0, y: 102, width: 100, height: 100 } }],
+      [{ id: "target", geometry: { x: 0, y: 100, width: 100, height: 100 } }],
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { y: true } },
+    );
+    expect(snap.dy).toBe(0);
+  });
+
+  it("emits no spacing chrome on an axis it was not allowed to move", () => {
+    const row = [
+      { id: "a", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+      { id: "b", geometry: { x: 400, y: 0, width: 100, height: 100 } },
+    ];
+    const snap = computeSpacingSnap(
+      { x: 200, y: 0, width: 100, height: 100 },
+      row,
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { x: true } },
+    );
+    expect(snap.dx).toBe(0);
+    expect(
+      snap.guides,
+      "the gaps are genuinely equal, but alignment owns this axis",
+    ).toEqual([]);
+  });
+});
+
+describe("review regressions", () => {
+  const f = (x: number, y: number, w = 100, h = 100) => ({
+    id: `${x}-${y}`,
+    geometry: { x, y, width: w, height: h },
+  });
+
+  it("draws no guide on a Shift-locked axis the frame was not moved onto", () => {
+    const snap = computeDragSnap([f(500, 203)], [f(0, 200)], {
+      zoom: 100,
+      thresholdScreenPx: 6,
+      pixelGrid: true,
+      lockedAxes: { y: true },
+    });
+    expect(snap.dy).toBe(0);
+    expect(
+      snap.guides.filter((guide) => guide.orientation === "horizontal"),
+      "the frame sits at 203/253/303; guides at 200/250/300 describe nowhere",
+    ).toEqual([]);
+  });
+
+  it("draws the spacing guide on the side the snap actually matched", () => {
+    // The rhythm (100) matches on the AFTER side; picking "before" by default
+    // built the guide for an untouched gap and returned nothing.
+    const snap = computeSpacingSnap(
+      { x: 380, y: 0, width: 100, height: 100 },
+      [f(0, 0), f(200, 0), f(575, 0)],
+      { zoom: 100, thresholdScreenPx: 6 },
+    );
+    expect(snap.dx).toBeCloseTo(-5);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].gap).toBeCloseTo(100);
+  });
+
+  it("does not let the pixel grid round away a spacing snap", () => {
+    const snap = computeDragSnap(
+      [f(380, 0)],
+      [f(0, 0), f(200.3, 0), f(575, 0)],
+      { zoom: 100, thresholdScreenPx: 6, pixelGrid: true },
+    );
+    expect(
+      snap.dx,
+      "rounding to -5 undoes the fractional rhythm the user just snapped to",
+    ).toBeCloseTo(-5.3);
+  });
+});
+
+describe("computeProximityMeasurements", () => {
+  const near = [
+    { id: "right", geometry: { x: 220, y: 0, width: 100, height: 100 } },
+  ];
+
+  it("reports the gap to the nearest neighbour on an axis", () => {
+    const found = computeProximityMeasurements(
+      { x: 0, y: 0, width: 100, height: 100 },
+      near,
+      { zoom: 100 },
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].orientation).toBe("vertical");
+    expect(found[0].gap).toBeCloseTo(120);
+  });
+
+  it("stays quiet for a neighbour beyond the range", () => {
+    expect(
+      computeProximityMeasurements(
+        { x: 0, y: 0, width: 100, height: 100 },
+        [{ id: "far", geometry: { x: 900, y: 0, width: 100, height: 100 } }],
+        { zoom: 100 },
+      ),
+    ).toEqual([]);
+  });
+
+  it("scales the range with zoom so it stays a constant on-screen distance", () => {
+    const moving = { x: 0, y: 0, width: 100, height: 100 };
+    const target = [
+      { id: "right", geometry: { x: 340, y: 0, width: 100, height: 100 } },
+    ];
+    // 240 canvas px is inside 160 screen px at 50% zoom, outside it at 100%.
+    expect(
+      computeProximityMeasurements(moving, target, { zoom: 50 }),
     ).toHaveLength(1);
+    expect(computeProximityMeasurements(moving, target, { zoom: 200 })).toEqual(
+      [],
+    );
   });
 
-  it("ignores stationary frames that don't cross-overlap the moving frame's extent", () => {
-    // "left" is entirely above the moving frame's y-range on the x-axis
-    // gap-detection pass, so it shouldn't produce a horizontal-axis gap
-    // candidate at all — this guards against treating a diagonal neighbor
-    // as if it were directly beside the moving frame.
-    const moving = { x: 140, y: 200, width: 100, height: 100 };
-    const stationary = [
-      { id: "diagonal", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("reports one measurement per axis, nearest wins", () => {
+    const found = computeProximityMeasurements(
+      { x: 200, y: 200, width: 100, height: 100 },
+      [
+        { id: "closer", geometry: { x: 340, y: 200, width: 50, height: 100 } },
+        { id: "further", geometry: { x: 420, y: 200, width: 50, height: 100 } },
+        { id: "below", geometry: { x: 200, y: 360, width: 100, height: 50 } },
+      ],
+      { zoom: 100 },
+    );
+    expect(found.map((m) => m.orientation).sort()).toEqual([
+      "horizontal",
+      "vertical",
+    ]);
+    expect(found.find((m) => m.orientation === "vertical")?.gap).toBeCloseTo(
+      40,
+    );
   });
 
-  it("only pairs the closest gap on each side, not every combinatorial match", () => {
-    // Two candidates on the "before" side (gap 40 and gap 90) and one on
-    // "after" (gap 40) — should pair with the CLOSER before-candidate (40),
-    // not emit a guide for the farther one too.
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "near-left", geometry: { x: 0, y: 0, width: 100, height: 100 } }, // gap 40
-      { id: "far-left", geometry: { x: -150, y: 0, width: 100, height: 100 } }, // gap 90 (still "before", further)
-      { id: "right", geometry: { x: 280, y: 0, width: 100, height: 100 } }, // gap 40
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].gap).toBeCloseTo(40);
+  it("goes quiet when snapping is bypassed", () => {
+    expect(
+      computeProximityMeasurements(
+        { x: 0, y: 0, width: 100, height: 100 },
+        near,
+        { zoom: 100, bypass: true },
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("spacing guide rhythm chaining", () => {
+  const row = (...xs: number[]) =>
+    xs.map((x, index) => ({
+      id: `s${index}`,
+      geometry: { x, y: 0, width: 100, height: 100 },
+    }));
+
+  it("lights every gap in an evenly spaced run, not just the pair it snapped to", () => {
+    // s0..s2 sit 24px apart twice over; the dragged frame joins the run.
+    const snap = computeSpacingSnap(
+      { x: 500, y: 0, width: 100, height: 100 },
+      row(0, 124, 248, 372),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-4);
+    expect(snap.guides).toHaveLength(1);
+    // The frame's own new gap plus the three gaps already in the row.
+    expect(snap.guides[0].bands).toHaveLength(4);
+    expect(snap.guides[0].gap).toBeCloseTo(24);
   });
 
-  it("produces no guide for a lone neighbor with nothing to pair against", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
+  it("leaves out gaps in the run that do not match", () => {
+    const snap = computeSpacingSnap(
+      { x: 480, y: 0, width: 100, height: 100 },
+      row(0, 124, 300),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    // The run holds a 24px gap and a 76px one; only the 76 matches.
+    expect(snap.guides[0].bands).toHaveLength(2);
+    expect(snap.guides[0].gap).toBeCloseTo(76);
+  });
+});
+
+describe("computeSpacingSnap (Figma smart spacing)", () => {
+  const row = (...xs: number[]) =>
+    xs.map((x, index) => ({
+      id: `s${index}`,
+      geometry: { x, y: 0, width: 100, height: 100 },
+    }));
+
+  it("centers the frame between its two neighbors", () => {
+    // Neighbors end at 100 and start at 400: the centered position is x=200.
+    const snap = computeSpacingSnap(
+      { x: 205, y: 0, width: 100, height: 100 },
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-5);
+    expect(snap.dy).toBe(0);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].gap).toBeCloseTo(100);
+  });
+
+  it("matches a gap that already exists between two other frames", () => {
+    // s0 and s1 sit 24px apart; dropping a third frame ~4px off that rhythm
+    // snaps its own gap to 24 and highlights both gaps.
+    const snap = computeSpacingSnap(
+      { x: 252, y: 0, width: 100, height: 100 },
+      row(0, 124),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBeCloseTo(-4);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].gap).toBeCloseTo(24);
+  });
+
+  it("leaves an axis alone once an alignment snap has claimed it", () => {
+    const snap = computeSpacingSnap(
+      { x: 205, y: 0, width: 100, height: 100 },
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { x: true } },
+    );
+    expect(snap.dx).toBe(0);
+  });
+
+  it("goes fully quiet when snapping is bypassed, like the alignment pass", () => {
+    const snap = computeSpacingSnap(
+      { x: 200, y: 0, width: 100, height: 100 },
+      row(0, 400),
+      { thresholdScreenPx: 6, zoom: 100, bypass: true },
+    );
+    expect(snap).toEqual({ dx: 0, dy: 0, guides: [] });
+  });
+
+  it("does not label two near-equal gaps as equal on an axis it could not move", () => {
+    const snap = computeSpacingSnap(
+      { x: 200, y: 0, width: 100, height: 100 },
+      row(0, 404),
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { x: true } },
+    );
+    expect(snap.dx).toBe(0);
+    expect(snap.guides).toEqual([]);
+  });
+
+  it("ignores neighbors that are too far off the rhythm to match", () => {
+    const snap = computeSpacingSnap(
+      { x: 300, y: 0, width: 100, height: 100 },
+      row(0, 124),
+      { thresholdScreenPx: 6, zoom: 100 },
+    );
+    expect(snap.dx).toBe(0);
+    expect(snap.guides).toEqual([]);
+  });
+
+  it("keeps the snap tolerance constant in screen px across zoom levels", () => {
+    const moving = { x: 205, y: 0, width: 100, height: 100 };
+    expect(
+      computeSpacingSnap(moving, row(0, 400), {
+        thresholdScreenPx: 6,
+        zoom: 400,
+      }).dx,
+    ).toBe(0);
+    expect(
+      computeSpacingSnap(moving, row(0, 400), {
+        thresholdScreenPx: 6,
+        zoom: 100,
+      }).dx,
+    ).toBeCloseTo(-5);
   });
 });
 

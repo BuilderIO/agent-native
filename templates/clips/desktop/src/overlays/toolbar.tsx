@@ -366,8 +366,8 @@ export function Toolbar() {
             className={`toolbar-v-disk-indicator toolbar-v-disk-indicator-${diskSpaceLevel}`}
             title={
               diskSpaceLevel === "critical"
-                ? "Disk almost full — stop recording now to avoid losing your clip"
-                : "Low disk space — save your recording soon"
+                ? "Disk almost full. Stop recording now to avoid losing your clip."
+                : "Low disk space. Save your recording soon."
             }
             data-no-drag
           >

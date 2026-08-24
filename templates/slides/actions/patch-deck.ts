@@ -37,6 +37,12 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import { hashSlideContent } from "../shared/slide-fit.js";
+import {
+  awaitLayoutFitCheck,
+  formatOverflowForTool,
+  type SlideFitResult,
+} from "./_await-fit-check.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -850,21 +856,84 @@ export default defineAction({
         }
       });
 
+      // Start the freshness window right after the SQL write and before
+      // notifying editors — same ordering as add-slide/update-slide — so a
+      // fast render landing before this line isn't discarded as stale.
+      const fitSince = Date.now();
+
       notifyClients(deckId);
 
-      return {
+      const updatedSlideIds = [
+        ...new Set(
+          operations.flatMap((operation) =>
+            operation.op === "patch-slide" || operation.op === "add-slide"
+              ? [operation.slideId]
+              : [],
+          ),
+        ),
+      ];
+
+      // Only slides whose HTML actually changed can newly overflow — an
+      // add-slide always sets content; a patch-slide only when this batch's
+      // operation included `fields.content`. Re-check every one of them in
+      // parallel: a deck-wide restyle can touch dozens of slides, and polling
+      // them one at a time would serialize N fit-check timeouts.
+      const contentChangedSlideIds = [
+        ...new Set(
+          operations.flatMap((operation) =>
+            operation.op === "add-slide" ||
+            (operation.op === "patch-slide" &&
+              operation.fields.content !== undefined)
+              ? [operation.slideId]
+              : [],
+          ),
+        ),
+      ];
+      const finalSlides: Array<{ id?: unknown; content?: unknown }> =
+        Array.isArray(deck.slides) ? deck.slides : [];
+      const fitResults: SlideFitResult[] = await Promise.all(
+        contentChangedSlideIds.map((slideId) => {
+          const slide = finalSlides.find((s) => s.id === slideId);
+          return awaitLayoutFitCheck(
+            slideId,
+            fitSince,
+            5000,
+            hashSlideContent(
+              typeof slide?.content === "string" ? slide.content : "",
+            ),
+          );
+        }),
+      );
+      const overflows = fitResults.filter(
+        (fit): fit is Extract<SlideFitResult, { status: "overflows" }> =>
+          fit.status === "overflows",
+      );
+
+      const base = {
         ok: true,
         deckId,
         updatedAt: now,
-        updatedSlideIds: [
-          ...new Set(
-            operations.flatMap((operation) =>
-              operation.op === "patch-slide" || operation.op === "add-slide"
-                ? [operation.slideId]
-                : [],
-            ),
-          ),
-        ],
+        updatedSlideIds,
+      };
+
+      if (overflows.length === 0) return base;
+
+      return {
+        ...base,
+        layoutOverflow: {
+          overflows: overflows.map(({ measurement }) => ({
+            slideId: measurement.slideId,
+            verticalOverflow: measurement.verticalOverflow,
+            horizontalOverflow: measurement.horizontalOverflow ?? 0,
+            contentWidth: measurement.contentWidth,
+            contentHeight: measurement.contentHeight,
+            viewportWidth: measurement.viewportWidth,
+            viewportHeight: measurement.viewportHeight,
+          })),
+        },
+        message: overflows
+          .map(({ measurement }) => formatOverflowForTool(deckId, measurement))
+          .join("\n\n"),
       };
     });
   },

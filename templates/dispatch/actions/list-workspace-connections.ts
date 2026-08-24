@@ -9,6 +9,10 @@ import {
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
 import {
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
+} from "@agent-native/core/server";
+import {
   getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
@@ -45,6 +49,8 @@ type GrantSummary = {
   access: "all-apps" | "selected-app" | "explicit-grant";
   lastUsedAt?: string | null;
 };
+
+type GoogleOAuthAvailability = "configured" | "unconfigured";
 
 function unique(values: string[]) {
   return Array.from(
@@ -117,21 +123,40 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const providers = listWorkspaceConnectionProviders({
+    const catalogProviders = listWorkspaceConnectionProviders({
       capability: args.capability as WorkspaceConnectionCapability | undefined,
       templateUse: args.templateUse as
         | WorkspaceConnectionTemplateUse
         | undefined,
     });
-    const connections = await listWorkspaceConnections({
+    const googleOAuthAvailability: GoogleOAuthAvailability =
+      (await hasWorkspaceProviderOAuthCredentials("gmail"))
+        ? "configured"
+        : "unconfigured";
+    const googleOAuthConfigured = googleOAuthAvailability === "configured";
+    const providers = catalogProviders.filter(
+      (provider) =>
+        googleOAuthConfigured || !isGoogleWorkspaceOAuthProvider(provider.id),
+    );
+    const allConnections = await listWorkspaceConnections({
       provider: args.provider,
       appId: args.appId,
       includeDisabled: args.includeDisabled,
     });
-    const explicitGrants = await listWorkspaceConnectionGrants({
+    const connections = allConnections.filter(
+      (connection) =>
+        googleOAuthConfigured ||
+        !isGoogleWorkspaceOAuthProvider(connection.provider),
+    );
+    const allExplicitGrants = await listWorkspaceConnectionGrants({
       provider: args.provider,
       appId: args.appId,
     });
+    const explicitGrants = allExplicitGrants.filter(
+      (grant) =>
+        googleOAuthConfigured ||
+        !isGoogleWorkspaceOAuthProvider(grant.provider),
+    );
     const grantApps = await listGrantApps();
     const legacyGrants = connections.flatMap<GrantSummary>((connection) => {
       if (connection.allowedApps.length === 0) {
@@ -246,6 +271,12 @@ export default defineAction({
     });
 
     return {
+      availability: {
+        googleOAuth: {
+          status: googleOAuthAvailability,
+          retryable: false,
+        },
+      },
       providers: providersWithReadiness,
       connections,
       grants,

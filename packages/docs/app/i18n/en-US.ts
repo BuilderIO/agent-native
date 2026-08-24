@@ -69,6 +69,12 @@ const enUS = {
     source: "Source",
     readDocs: "Read the docs",
     signIn: "Sign in",
+    tryTemplateFree: "Try {{name}} free",
+    designForFree: "Design for free",
+    recordForFree: "Record for free",
+    getStarted: "Get started",
+    freeAndOpenSource: "100% free • open source",
+    viewAllApps: "View all apps",
   },
   search: {
     dialogLabel: "Search documentation",

@@ -3,6 +3,10 @@
  * Enables cross-isolate access on Cloudflare Workers and
  * reliable reconnection after page refreshes.
  */
+import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  TURN_RUN_LEDGER_SLACK,
+} from "../app-config/run-lifecycle-invariants.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -221,15 +225,33 @@ async function hasRunningRuns(): Promise<boolean> {
 }
 
 /**
- * FIX 3 (durable-background incident) per-turn run-count ceiling for
- * stale-run recovery — mirrors `chainServerDrivenContinuation`'s own ledger
- * guard in production-agent.ts (`MAX_BACKGROUND_RUN_CONTINUATIONS + 5` = 25).
- * Duplicated as a literal rather than imported: production-agent.ts already
- * imports run-manager.ts, which imports this file, so a runtime import back
- * from here would be circular. Keep this numerically in sync if that
- * constant ever changes.
+ * Ceiling on run ROWS for one logical turn — the number the continuation-chain
+ * guard and stale-run recovery must agree on.
+ *
+ * This was a literal `25` here plus `MAX_BACKGROUND_RUN_CONTINUATIONS + 5` in
+ * production-agent.ts, kept in step by a comment asking the next editor to
+ * remember, because importing back from this file would have been circular.
+ * It no longer needs to be: the base value is configuration, and `app-config`
+ * imports no agent code, so both sites can read the same resolver.
  */
-const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
+export function resolveTurnRunLedgerBudget(): number {
+  return MAX_BACKGROUND_RUN_CONTINUATIONS + TURN_RUN_LEDGER_SLACK;
+}
+
+/**
+ * True when a turn holding `turnRunCount` run rows must not be given another.
+ *
+ * A predicate rather than a number the callers compare themselves, because both
+ * call sites had `turnRunCount > budget` and both were off by one: the current
+ * run's row is already inserted when they check, and the successor's row is
+ * inserted after — so at equality they permitted a row past the documented
+ * ceiling. Two sites, one comparison, no way for them to disagree about the
+ * boundary again. That is the third time in this area that one number had two
+ * spellings.
+ */
+export function turnRunLedgerExhausted(turnRunCount: number): boolean {
+  return turnRunCount >= resolveTurnRunLedgerBudget();
+}
 
 /**
  * Circuit breaker for a DETERMINISTIC dead-on-arrival loop: some request
@@ -238,7 +260,7 @@ const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
  * hitting a transient blip. Because `attemptStaleRunRecovery` replays the
  * SAME captured `dispatch_payload` on every successor (never a fresh
  * request), such a turn was retrying an unwinnable request up to
- * `STALE_RUN_RECOVERY_MAX_TURN_RUNS` (25) times — ~25 * 53s ≈ 22 minutes,
+ * `resolveTurnRunLedgerBudget()` (25) times — ~25 * 53s ≈ 22 minutes,
  * each cycle re-billing the full input context — before finally giving up.
  * Confirmed live in prod (assets: one turn cycled 24x, each attempt an
  * identical ~32K-token request that made a token of real progress around
@@ -1427,6 +1449,14 @@ export const RUN_DIAG_STAGE = {
    * the per-turn budget is exhausted). See `attemptStaleRunRecovery`.
    */
   staleRunRecoveryAttempted: "stale_run_recovery_attempted",
+  /**
+   * The run manager reached a server-owned chunk boundary (`no_progress` or
+   * `run_timeout`). Detail carries the reason, whether it was recovered in the
+   * same invocation or terminated the turn, how long the run had been silent,
+   * and the last event type seen — the segment that went quiet, which is what
+   * no boundary previously recorded anywhere.
+   */
+  runBoundaryReached: "run_boundary_reached",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
@@ -1683,7 +1713,7 @@ function staleRecoveryDispatchPayload(payload: string): string {
  *     caller's own atomic "did I win the reap" gate, this guarantees AT MOST
  *     ONE recovery successor per reaped run even under concurrent reapers.
  *   - the per-turn run ledger (`countRunsForTurn`'s underlying query) has
- *     room (`STALE_RUN_RECOVERY_MAX_TURN_RUNS`) — mirrors
+ *     room (`resolveTurnRunLedgerBudget`) — mirrors
  *     `chainServerDrivenContinuation`'s own budget guard so a pathological
  *     turn can't loop forever through reaper-driven recovery either.
  */
@@ -1742,10 +1772,7 @@ async function attemptStaleRunRecovery(
   const turnRunCount = Number(
     (countRows?.[0] as { run_count?: unknown } | undefined)?.run_count,
   );
-  if (
-    Number.isFinite(turnRunCount) &&
-    turnRunCount > STALE_RUN_RECOVERY_MAX_TURN_RUNS
-  ) {
+  if (Number.isFinite(turnRunCount) && turnRunLedgerExhausted(turnRunCount)) {
     return { outcome: "budget_exhausted" };
   }
 

@@ -427,6 +427,12 @@ const deDE = {
     source: "Quelle",
     readDocs: "Lesen Sie die Dokumente",
     signIn: "Anmelden",
+    tryTemplateFree: "{{name}} kostenlos testen",
+    designForFree: "Kostenlos designen",
+    recordForFree: "Kostenlos aufnehmen",
+    getStarted: "Loslegen",
+    freeAndOpenSource: "100 % kostenlos • Open Source",
+    viewAllApps: "Alle Apps anzeigen",
   },
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",

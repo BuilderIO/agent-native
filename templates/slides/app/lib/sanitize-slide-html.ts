@@ -300,42 +300,55 @@ function cleanNode(
 }
 
 function sanitizeHtmlString(html: string, scopeSelector?: string): string {
-  return html
-    .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_match, css) => {
-      const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
-      return safeCss
-        ? `<style>${safeCss.replace(/<\/style/gi, "<\\/style")}</style>`
-        : "";
-    })
-    .replace(
-      /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[\s\S]*?<\/\1>/gi,
-      "",
-    )
-    .replace(
-      /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(
-      /\s+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-      (match, attr, _raw, dq, sq, bare) => {
-        const value = dq ?? sq ?? bare ?? "";
-        const safe = sanitizeSlideUrl(
-          value,
-          String(attr).toLowerCase() === "src" ? "image" : "link",
-        );
-        return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
-      },
-    )
-    .replace(
-      /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-      (_match, _raw, dq, sq, bare) => {
-        const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
-        return safe ? ` style="${escapeHtml(safe)}"` : "";
-      },
-    );
+  return (
+    html
+      .replace(/<style\b[^>]*>([\s\S]*?)<\/\s*style\s*>/gi, (_match, css) => {
+        const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
+        return safeCss
+          ? `<style>${safeCss.replace(/<\/style/gi, "<\\/style")}</style>`
+          : "";
+      })
+      .replace(
+        /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[\s\S]*?<\/\s*\1\s*>/gi,
+        "",
+      )
+      // Anything left here is a blocked element that never closed. The opening-tag
+      // pass below would strip only its tag and leave the body behind as slide
+      // text — which is how a script's JavaScript renders as visible copy on the
+      // SSR'd share/present pages, where DOMParser is undefined and this regex
+      // twin runs instead of cleanNode(). An unclosed raw-text or embedding
+      // element swallows the rest of the document in a real parser, so dropping
+      // the remainder is what keeps this path agreeing with the DOM path.
+      .replace(
+        /<(script|style|textarea|iframe|object|embed|svg|math)\b[\s\S]*$/i,
+        "",
+      )
+      .replace(
+        /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
+        "",
+      )
+      .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(
+        /\s+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+        (match, attr, _raw, dq, sq, bare) => {
+          const value = dq ?? sq ?? bare ?? "";
+          const safe = sanitizeSlideUrl(
+            value,
+            String(attr).toLowerCase() === "src" ? "image" : "link",
+          );
+          return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
+        },
+      )
+      .replace(
+        /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+        (_match, _raw, dq, sq, bare) => {
+          const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
+          return safe ? ` style="${escapeHtml(safe)}"` : "";
+        },
+      )
+  );
 }
 
 export function sanitizeSlideHtml(

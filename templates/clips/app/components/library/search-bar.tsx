@@ -160,7 +160,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
               </button>
             ) : (
               <span className="absolute end-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {shortcutLabel("cmd+k")}
+                {shortcutLabel("/")}
               </span>
             )}
           </div>

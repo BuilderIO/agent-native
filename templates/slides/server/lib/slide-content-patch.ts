@@ -86,10 +86,21 @@ export async function applySlideContentEdits(
 
 export async function formatSlideHtml(content: string): Promise<string> {
   try {
-    const prettier = await import("prettier");
-    return await prettier.format(content, {
+    // prettier's main entry `import()`s all 13 parser plugins, so a bundler
+    // inlines ~3.5MB of flow/typescript/yaml/markdown parsers just to format
+    // HTML. Load the standalone core plus only the plugins the HTML printer
+    // reaches, which still formats embedded <style> and <script>.
+    const [{ format }, ...plugins] = await Promise.all([
+      import("prettier/standalone"),
+      import("prettier/plugins/html"),
+      import("prettier/plugins/postcss"),
+      import("prettier/plugins/babel"),
+      import("prettier/plugins/estree"),
+    ]);
+    return await format(content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
+      plugins,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -35,6 +35,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "डायग्नोस्टिक कॉपी करें",
   "aboutAgentNative.unknown": "अज्ञात",
   "common.agent": "एजेंट",
+  "agentPanel.mode": "मोड",
+  "agentPanel.uiMode": "यूआई",
   "common.cancel": "रद्द करें",
   "common.collapse": "समेटें",
   "common.connect": "कनेक्ट करें",
@@ -290,7 +292,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। इस ऐप में “एजेंट प्रबंधित करें” → “LLM” खोलें, फिर Builder.io कनेक्ट करें या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -498,6 +500,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "लिंक वाले लोग इसे फिर भी खोल सकते हैं।",
   "share.loading": "लोड हो रहा है...",
   "share.loadMore": "और लोड करें",
+  "share.loadFailed": "साझाकरण सेटिंग्स लोड नहीं की जा सकीं।",
   "share.loadPeopleFailed": "लोगों को लोड नहीं किया जा सका।",
   "share.noAccess": "अभी किसी के पास एक्सेस नहीं है।",
   "share.noMatches": "कोई मिलान नहीं मिला।",

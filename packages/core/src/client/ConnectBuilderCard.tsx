@@ -54,6 +54,8 @@ export interface ConnectBuilderCardProps {
   /** The user's feature/change request, forwarded to the selected coding
    *  agent when they click Send. Empty for generic "connect Builder" prompts. */
   prompt?: string;
+  /** Formatted staged chat context forwarded with the Builder request. */
+  context?: string;
 }
 
 interface BuilderRunResult {
@@ -74,6 +76,7 @@ export function ConnectBuilderCard({
   connectUrl: initialConnectUrl,
   orgName: initialOrgName,
   prompt = "",
+  context = "",
 }: ConnectBuilderCardProps) {
   // The connect-poll state machine is shared — the tool-call result is
   // frozen at render time, so the hook's mount-time fetch + focus refresh
@@ -138,7 +141,10 @@ export function ConnectBuilderCard({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({
+            prompt,
+            ...(context.trim() ? { context } : {}),
+          }),
         },
       );
       const data = await res.json().catch(() => ({}));
@@ -157,7 +163,7 @@ export function ConnectBuilderCard({
       setSendErr(e instanceof Error ? e.message : "Send failed");
       setSending(false);
     }
-  }, [prompt]);
+  }, [context, prompt]);
 
   const handleJoinWaitlist = useCallback(async () => {
     setJoiningWaitlist(true);

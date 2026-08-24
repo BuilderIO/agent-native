@@ -56,6 +56,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  isDashboardMine,
+  type DashboardVisibility,
+} from "@/lib/dashboard-visibility";
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
 
 import { NewDashboardDialog } from "../components/layout/NewDashboardDialog";
@@ -65,7 +69,8 @@ type Dashboard = {
   id: string;
   name?: string;
   title?: string;
-  visibility?: string;
+  visibility?: DashboardVisibility;
+  ownerEmail?: string | null;
   folderId?: string | null;
 };
 type Folder = {
@@ -125,10 +130,15 @@ export default function DashboardOverview() {
         ) {
           continue;
         }
+        const ownerEmail =
+          typeof dashboard.ownerEmail === "string"
+            ? dashboard.ownerEmail
+            : undefined;
         validDashboards.push({
           id: dashboard.id,
           name: dashboard.name,
           visibility: dashboard.visibility,
+          ...(ownerEmail ? { ownerEmail } : {}),
           folderId: dashboard.folderId ?? null,
         });
       }
@@ -394,6 +404,7 @@ export default function DashboardOverview() {
               folders={folders}
               grouped={grouped}
               onMove={moveDashboard}
+              currentUserEmail={auth?.email}
               t={t}
             />
           ))}
@@ -428,6 +439,7 @@ function DashboardScopeSection({
   folders,
   grouped,
   onMove,
+  currentUserEmail,
   t,
 }: {
   scope: Scope;
@@ -435,11 +447,12 @@ function DashboardScopeSection({
   folders: Folder[];
   grouped: Map<string, Dashboard[]>;
   onMove: (dashboard: Dashboard, folderId: string | null) => void;
+  currentUserEmail?: string | null;
   t: ReturnType<typeof useT>;
 }) {
   const scopeFolders = folders.filter((folder) => folder.scope === scope);
   const scopeDashboards = dashboards.filter((dashboard) =>
-    isDashboardInScope(dashboard, scope),
+    isDashboardInScope(dashboard, scope, currentUserEmail),
   );
   const Icon = scope === "personal" ? IconLock : IconUsers;
 
@@ -476,6 +489,7 @@ function DashboardScopeSection({
               folders={folders}
               scope={scope}
               onMove={onMove}
+              currentUserEmail={currentUserEmail}
               t={t}
             />
           ))}
@@ -485,6 +499,7 @@ function DashboardScopeSection({
             folders={folders}
             scope={scope}
             onMove={onMove}
+            currentUserEmail={currentUserEmail}
             t={t}
             hideWhenEmpty
           />
@@ -500,6 +515,7 @@ function FolderSection({
   folders,
   scope,
   onMove,
+  currentUserEmail,
   t,
   hideWhenEmpty = false,
 }: {
@@ -508,11 +524,12 @@ function FolderSection({
   folders: Folder[];
   scope: Scope;
   onMove: (dashboard: Dashboard, folderId: string | null) => void;
+  currentUserEmail?: string | null;
   t: ReturnType<typeof useT>;
   hideWhenEmpty?: boolean;
 }) {
   const scopedDashboards = dashboards.filter((dashboard) =>
-    isDashboardInScope(dashboard, scope),
+    isDashboardInScope(dashboard, scope, currentUserEmail),
   );
   if (hideWhenEmpty && scopedDashboards.length === 0) return null;
 
@@ -540,6 +557,7 @@ function FolderSection({
               folders={folders}
               currentFolderId={folder?.id ?? null}
               onMove={onMove}
+              currentUserEmail={currentUserEmail}
               t={t}
             />
           ))}
@@ -554,23 +572,26 @@ function DashboardRow({
   folders,
   currentFolderId,
   onMove,
+  currentUserEmail,
   t,
 }: {
   dashboard: Dashboard;
   folders: Folder[];
   currentFolderId: string | null;
   onMove: (dashboard: Dashboard, folderId: string | null) => void;
+  currentUserEmail?: string | null;
   t: ReturnType<typeof useT>;
 }) {
   const name =
     dashboard.name || dashboard.title || t("sidebar.untitledDashboard");
+  const mine = isDashboardMine(dashboard, currentUserEmail);
   const candidateFolders = folders.filter((folder) => {
-    if (dashboard.visibility === "private") {
+    if (mine) {
       return folder.scope === "personal";
     }
     return dashboard.visibility === "org" && folder.scope === "shared";
   });
-  const canOrganize = dashboard.visibility !== "public";
+  const canOrganize = mine || dashboard.visibility === "org";
 
   return (
     <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30">
@@ -586,7 +607,7 @@ function DashboardRow({
             {name}
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {dashboard.visibility === "private"
+            {mine
               ? t("dashboardOverview.personal")
               : t("dashboardOverview.shared")}
           </p>
@@ -635,8 +656,12 @@ function DashboardRow({
   );
 }
 
-function isDashboardInScope(dashboard: Dashboard, scope: Scope): boolean {
+function isDashboardInScope(
+  dashboard: Dashboard,
+  scope: Scope,
+  currentUserEmail?: string | null,
+): boolean {
   return scope === "personal"
-    ? dashboard.visibility === "private"
-    : dashboard.visibility === "org" || dashboard.visibility === "public";
+    ? isDashboardMine(dashboard, currentUserEmail)
+    : !isDashboardMine(dashboard, currentUserEmail);
 }

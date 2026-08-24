@@ -302,16 +302,6 @@ export default function Templates() {
           </p>
         </div>
 
-        <div className="relative mb-6 md:hidden">
-          <IconSearch className="absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t("templatesPage.searchPlaceholder")}
-            className="h-9 w-full bg-accent/50 ps-8 text-sm"
-          />
-        </div>
-
         {isLoading ? (
           <TemplateGridSkeleton />
         ) : isError ? (

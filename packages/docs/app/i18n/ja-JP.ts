@@ -426,6 +426,12 @@ const jaJP = {
     source: "ソース",
     readDocs: "ドキュメントを読む",
     signIn: "サインイン",
+    tryTemplateFree: "{{name}}を無料で試す",
+    designForFree: "無料でデザイン",
+    recordForFree: "無料で録画",
+    getStarted: "始める",
+    freeAndOpenSource: "100%無料 • オープンソース",
+    viewAllApps: "すべてのアプリを見る",
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",

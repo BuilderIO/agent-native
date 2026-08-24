@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getDesignBottomToolbarMode,
   resolveModeChangeView,
+  resolveToolAfterSelection,
 } from "./tool-state";
 
 describe("resolveModeChangeView", () => {
@@ -88,4 +89,17 @@ describe("getDesignBottomToolbarMode", () => {
       }),
     ).toBe("hidden");
   });
+});
+
+describe("resolveToolAfterSelection", () => {
+  it("keeps the scale tool armed so a new selection can be scaled too", () => {
+    expect(resolveToolAfterSelection("scale")).toBe("scale");
+  });
+
+  it.each(["rect", "ellipse", "pen", "text", "hand", "move"] as const)(
+    "drops %s back to move once a selection lands",
+    (tool) => {
+      expect(resolveToolAfterSelection(tool)).toBe("move");
+    },
+  );
 });

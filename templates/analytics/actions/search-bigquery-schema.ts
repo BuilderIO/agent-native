@@ -35,6 +35,15 @@ interface TableListResponse {
   }>;
 }
 
+interface BigQueryTableSummary {
+  projectId?: string;
+  datasetId?: string;
+  tableId?: string;
+  type?: string;
+  friendlyName?: string;
+  labels?: Record<string, string>;
+}
+
 interface TableMetadata {
   tableReference?: {
     projectId?: string;
@@ -54,6 +63,9 @@ interface TableMetadata {
 
 const PROJECT_RE = /^[A-Za-z][A-Za-z0-9-]{4,61}[A-Za-z0-9]$/;
 const ID_RE = /^[A-Za-z0-9_]+$/;
+const GLOBAL_SEARCH_DATASET_LIMIT = 100;
+const GLOBAL_SEARCH_TABLE_LIMIT = 250;
+const GLOBAL_SEARCH_METADATA_BATCH_SIZE = 20;
 
 function assertIdentifier(
   label: string,
@@ -183,7 +195,12 @@ function compactTable(meta: TableMetadata, includeColumns: boolean) {
 }
 
 function matchesSearch(meta: TableMetadata, search: string): boolean {
-  const q = search.toLowerCase();
+  const terms = search
+    .toLowerCase()
+    .replace(/[._-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!terms.length) return true;
   const ref = meta.tableReference ?? {};
   const haystack = [
     ref.projectId,
@@ -199,8 +216,9 @@ function matchesSearch(meta: TableMetadata, search: string): boolean {
   ]
     .filter(Boolean)
     .join(" ")
-    .toLowerCase();
-  return haystack.includes(q);
+    .toLowerCase()
+    .replace(/[._-]+/g, " ");
+  return terms.every((term) => haystack.includes(term));
 }
 
 async function listDatasets(projectId: string, limit: number, search: string) {
@@ -245,6 +263,111 @@ async function listTables(projectId: string, datasetId: string, limit: number) {
   }));
 }
 
+async function searchAcrossDatasets(
+  projectId: string,
+  search: string,
+  limit: number,
+) {
+  const datasets = await listDatasets(
+    projectId,
+    GLOBAL_SEARCH_DATASET_LIMIT + 1,
+    "",
+  );
+  const scannableDatasets = datasets.slice(0, GLOBAL_SEARCH_DATASET_LIMIT);
+  const tables: BigQueryTableSummary[] = [];
+  const datasetCount = scannableDatasets.filter(
+    (dataset) => typeof dataset.datasetId === "string" && dataset.datasetId,
+  ).length;
+  let datasetsScanned = 0;
+  let truncated = datasets.length > GLOBAL_SEARCH_DATASET_LIMIT;
+
+  for (const dataset of scannableDatasets) {
+    const datasetId = dataset.datasetId;
+    if (!datasetId) continue;
+    if (tables.length >= GLOBAL_SEARCH_TABLE_LIMIT) {
+      truncated = true;
+      break;
+    }
+
+    datasetsScanned += 1;
+    const remaining = GLOBAL_SEARCH_TABLE_LIMIT - tables.length;
+    const listed = await listTables(
+      projectId,
+      datasetId,
+      Math.min(remaining, GLOBAL_SEARCH_TABLE_LIMIT),
+    );
+    tables.push(...listed);
+  }
+
+  if (datasetsScanned < datasetCount) truncated = true;
+
+  // Inspect table metadata in bounded batches so a search can match columns,
+  // not only table names, without issuing an unbounded burst of requests.
+  const matches: ReturnType<typeof compactTable>[] = [];
+  const errors: Array<{
+    projectId?: string;
+    datasetId?: string;
+    tableId?: string;
+    error: string;
+  }> = [];
+
+  for (
+    let offset = 0;
+    offset < tables.length;
+    offset += GLOBAL_SEARCH_METADATA_BATCH_SIZE
+  ) {
+    const batch = tables.slice(
+      offset,
+      offset + GLOBAL_SEARCH_METADATA_BATCH_SIZE,
+    );
+    const settled = await Promise.allSettled(
+      batch.map(async (table) => {
+        if (!table.datasetId || !table.tableId) return null;
+        const metadata = await getTableMetadata(
+          projectId,
+          table.datasetId,
+          table.tableId,
+        );
+        return matchesSearch(metadata, search)
+          ? compactTable(metadata, true)
+          : null;
+      }),
+    );
+
+    settled.forEach((result, index) => {
+      const table = batch[index];
+      if (result.status === "fulfilled") {
+        if (result.value) matches.push(result.value);
+        return;
+      }
+      errors.push({
+        projectId: table?.projectId ?? projectId,
+        datasetId: table?.datasetId,
+        tableId: table?.tableId,
+        error:
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+      });
+    });
+  }
+
+  return {
+    mode: "table-search",
+    projectId,
+    search,
+    datasetsScanned,
+    tablesScanned: tables.length,
+    truncated,
+    tables: matches.slice(0, limit),
+    ...(errors.length
+      ? { errors: errors.slice(0, 12), errorCount: errors.length }
+      : {}),
+    nextStep:
+      "Use table=dataset.table for full metadata. Global search is bounded; pass a returned dataset/table reference for a complete inspection.",
+  };
+}
+
 async function getTableMetadata(
   projectId: string,
   datasetId: string,
@@ -256,7 +379,7 @@ async function getTableMetadata(
 
 export default defineAction({
   description:
-    "Search or describe BigQuery metadata for the configured warehouse. Use before writing SQL when the data dictionary does not already name the dataset, table, and columns. With no args, lists datasets. With dataset, lists tables. With dataset + table or a dataset.table value, returns columns for that table.",
+    "Search or describe BigQuery metadata for the configured warehouse. Use before writing SQL when the data dictionary does not already name the dataset, table, and columns. With no args, lists datasets. With search and no dataset, searches accessible tables and columns across the configured project so the user does not need to provide internal table names. With dataset, lists tables. With dataset + table or a dataset.table value, returns columns for that table.",
   schema: z.object({
     dataset: z
       .string()
@@ -307,6 +430,9 @@ export default defineAction({
     }
 
     if (!args.dataset) {
+      if (search) {
+        return searchAcrossDatasets(configuredProjectId, search, limit);
+      }
       return {
         mode: "datasets",
         projectId: configuredProjectId,

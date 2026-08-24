@@ -11,6 +11,10 @@ import {
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 
+vi.mock("./MermaidRenderer", () => ({
+  MermaidRenderer: () => <div data-mermaid-diagram="true" />,
+}));
+
 function rect(left: number, top: number, width: number, height: number) {
   return {
     x: left,
@@ -382,6 +386,26 @@ describe("SlideInner autofit", () => {
     // the pre-edit transform rather than reset to 1 and visibly shift content.
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+  });
+
+  it("keeps the live edit node on a mermaid slide across re-renders", () => {
+    const slide: Slide = {
+      id: "raw-mermaid",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><h2>Diagram title</h2><div class="mermaid">graph TD; A--&gt;B;</div></div>',
+    };
+
+    const { rerender } = render(<SlideInner slide={slide} />);
+
+    const heading = document.querySelector<HTMLElement>("h2");
+    expect(heading).toBeTruthy();
+    heading!.contentEditable = "true";
+
+    rerender(<SlideInner slide={slide} />);
+
+    expect(document.querySelector("h2")).toBe(heading);
   });
 
   it("does not fit the flow layer around a moved freeform object", async () => {

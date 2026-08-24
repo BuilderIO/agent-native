@@ -36,6 +36,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "診断情報をコピー",
   "aboutAgentNative.unknown": "不明",
   "common.agent": "エージェント",
+  "agentPanel.mode": "モード",
+  "agentPanel.uiMode": "UI",
   "common.cancel": "キャンセル",
   "common.collapse": "折りたたむ",
   "common.connect": "接続",
@@ -297,7 +299,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
   "errorMessages.noProviderConnected":
-    "LLM プロバイダーが接続されていません。このアプリの「エージェントを管理」→「LLM」を開き、Builder.io を接続するか、プロバイダーキーを追加してください。",
+    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）に接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
   "errorMessages.providerAuthentication":
     "モデルプロバイダーが保存済みの API キーを拒否しました。設定 → 連携 → API キーでキーを更新してから再試行してください。",
@@ -506,6 +508,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen":
     "リンクを知っているユーザーは引き続き開くことができます。",
   "share.loadMore": "さらに読み込む",
+  "share.loadFailed": "共有設定を読み込めませんでした。",
   "share.loadPeopleFailed": "ユーザーを読み込めませんでした。",
   "share.loading": "読み込み中...",
   "share.noAccess": "アクセスできるユーザーはまだいません。",

@@ -31,7 +31,7 @@ import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "../editor/FigmaLinkComposerBubble";
-import { Header } from "./Header";
+import { Header, MobileHeaderActions } from "./Header";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
@@ -48,26 +48,51 @@ export function useOpenMobileSidebar() {
 const BARE_PREFIXES = ["/present/"];
 
 /**
- * Routes where the page renders its own toolbar instead of the global Header.
- * The Header is hidden so the page can supply richer custom chrome (e.g.
- * DesignEditor mode/zoom/device, shared ExtensionViewer / ExtensionsListPage
- * chrome). The editor owns its agent surface inside its Figma-style left rail.
+ * Routes where the page renders its own toolbar instead of the global Header
+ * on a standalone page. Embedded app surfaces keep the global shell so the
+ * host-provided chat rail can still be reopened from the app header.
  */
 const EDITOR_PREFIXES = ["/design/", "/visual-edit/", "/extensions"];
+
+type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";
+
+function resolveDesignLayoutMode(input: {
+  builderHostEmbed: boolean;
+  embedded: boolean;
+  hasSession: boolean;
+  isDesignEditor: boolean;
+}): DesignLayoutMode {
+  if (
+    input.builderHostEmbed ||
+    (input.isDesignEditor && !input.hasSession && !input.embedded)
+  ) {
+    return "host-bare";
+  }
+  if (input.isDesignEditor && !input.embedded) return "standalone-editor";
+  return "app-shell";
+}
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
+  const builderHostEmbed = isBuilderHostEmbed();
   // The shell canvas is embedded without a session, so this cannot be the token
   // check alone or it renders Design's own nav inside Builder.
-  const embedded = isBuilderHostEmbed() || isEmbedAuthActive();
+  const embedded = builderHostEmbed || isEmbedAuthActive();
   useNavigationState(hasSession);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const openMobileSidebar = useCallback(() => setMobileSidebarOpen(true), []);
   const isDesignEditor = isDesignEditorRoute(location.pathname);
-  const showMobileTopBar = !isDesignEditor;
+  const layoutMode = resolveDesignLayoutMode({
+    builderHostEmbed,
+    embedded,
+    hasSession,
+    isDesignEditor,
+  });
+  const standaloneEditor = layoutMode === "standalone-editor";
+  const showMobileTopBar = !standaloneEditor;
   const browserTabId = getBrowserTabId();
   const {
     link: detectedFigmaComposerLink,
@@ -109,11 +134,10 @@ export function Layout({ children }: LayoutProps) {
     return <>{children}</>;
   }
 
-  const hideHeader = EDITOR_PREFIXES.some((p) =>
-    location.pathname.startsWith(p),
-  );
+  const hideHeader =
+    !embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p));
 
-  if (embedded || (isDesignEditor && !hasSession)) {
+  if (layoutMode === "host-bare") {
     return (
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
@@ -132,7 +156,7 @@ export function Layout({ children }: LayoutProps) {
     );
   }
 
-  if (isDesignEditor) {
+  if (layoutMode === "standalone-editor") {
     return (
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
@@ -151,7 +175,7 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <MobileSidebarContext.Provider
-        value={isDesignEditor ? null : openMobileSidebar}
+        value={standaloneEditor ? null : openMobileSidebar}
       >
         <AgentSidebar
           position="right"
@@ -178,13 +202,13 @@ export function Layout({ children }: LayoutProps) {
           }
         >
           <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
-            {!isDesignEditor && mobileSidebarOpen && (
+            {!standaloneEditor && mobileSidebarOpen && (
               <div
                 className="fixed inset-0 z-40 bg-black/50 md:hidden"
                 onClick={() => setMobileSidebarOpen(false)}
               />
             )}
-            {!isDesignEditor && (
+            {!standaloneEditor && (
               <div
                 className={cn(
                   "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
@@ -212,7 +236,12 @@ export function Layout({ children }: LayoutProps) {
                   </span>
                 </div>
               )}
-              {!hideHeader && <Header />}
+              {!hideHeader && (
+                <>
+                  <MobileHeaderActions />
+                  <Header />
+                </>
+              )}
               <main
                 className={cn(
                   "agent-native-app-main flex-1",

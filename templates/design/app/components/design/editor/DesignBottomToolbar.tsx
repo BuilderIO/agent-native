@@ -42,6 +42,7 @@ export function DesignBottomToolbar({
   pinMode,
   drawMode,
   activeTool,
+  shapeTool,
   isOverview,
   hasActiveFile,
   onMove,
@@ -62,6 +63,9 @@ export function DesignBottomToolbar({
   pinMode: boolean;
   drawMode: boolean;
   activeTool: DesignTool;
+  /** The shape the group button draws when pressed directly: the last one
+   *  picked, since activeTool has already fallen back to move after a draw. */
+  shapeTool: ShapeTool;
   isOverview: boolean;
   hasActiveFile: boolean;
   onMove: () => void;
@@ -89,7 +93,7 @@ export function DesignBottomToolbar({
   ]);
   const activeShape = shapeTools.has(activeTool)
     ? (activeTool as ShapeTool)
-    : "rect";
+    : shapeTool;
   const shapeIcon = (tool: ShapeTool, className: string) => {
     switch (tool) {
       case "line":
@@ -298,7 +302,7 @@ export function DesignBottomToolbar({
           key: "draw",
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
-          shortcut: "Y",
+          shortcut: "⇧Y",
           active: activeTool === "draw" && mode === "annotate" && drawMode,
           disabled: !hasActiveFile,
           onSelect: onDraw,

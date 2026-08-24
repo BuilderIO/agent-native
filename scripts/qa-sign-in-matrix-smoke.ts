@@ -481,6 +481,11 @@ async function runDeploySuite(
   await page.waitForURL((url) => pathnameOf(url.toString()) === protectedPath, {
     timeout: 60_000,
   });
+  // The protected app is the first route that loads its full client graph.
+  // Vite may finish dependency optimization after the redirect, and a
+  // reload during the forged-continuation checks can interrupt the signed-in
+  // session probe and leave the page at sign-in.
+  await waitForViteDepsQuiet(app.viteReload, app.logs);
   assert.equal(
     fullPathOf(page.url()),
     protectedPath,
