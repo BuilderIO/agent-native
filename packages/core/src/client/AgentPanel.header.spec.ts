@@ -260,19 +260,20 @@ describe("AgentPanel shortcut hints", () => {
 describe("AgentSidebar toggle routing", () => {
   it("routes a scoped toggle only to the matching mounted sidebar", () => {
     const event = new CustomEvent("agent-panel:toggle", {
-      detail: { scopeId: "mail" },
+      detail: { scopeId: "mail-tab-1" },
     });
-    const mountedScopes = [{ id: "mail" }, { id: "calendar" }];
+    const mountedScopes = ["mail-tab-1", "mail-tab-2"];
 
     expect(
       mountedScopes.filter((scope) =>
         shouldHandleAgentSidebarToggle(event, scope),
       ),
-    ).toEqual([{ id: "mail" }]);
+    ).toEqual(["mail-tab-1"]);
     expect(
-      shouldHandleAgentSidebarToggle(new Event("agent-panel:toggle"), {
-        id: "calendar",
-      }),
+      shouldHandleAgentSidebarToggle(
+        new Event("agent-panel:toggle"),
+        "mail-tab-2",
+      ),
     ).toBe(true);
   });
 });

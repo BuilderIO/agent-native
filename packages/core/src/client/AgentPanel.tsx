@@ -156,11 +156,11 @@ const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 
 export function shouldHandleAgentSidebarToggle(
   event: Event,
-  scope?: { id: string } | null,
+  toggleScopeId?: string | null,
 ): boolean {
   const detail = (event as CustomEvent<{ scopeId?: unknown }>).detail;
   if (!detail || detail.scopeId === undefined) return true;
-  return typeof detail.scopeId === "string" && detail.scopeId === scope?.id;
+  return typeof detail.scopeId === "string" && detail.scopeId === toggleScopeId;
 }
 
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
@@ -3122,6 +3122,8 @@ export interface AgentSidebarProps {
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Identity used to route host-scoped sidebar toggle events. */
+  toggleScopeId?: string;
   /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
@@ -3186,6 +3188,7 @@ export function AgentSidebar({
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
+  toggleScopeId,
   isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
@@ -3554,7 +3557,7 @@ export function AgentSidebar({
 
   useEffect(() => {
     const toggleHandler = (event: Event) => {
-      if (!shouldHandleAgentSidebarToggle(event, scope)) return;
+      if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
       if (isPerAppChatHosted) {
         requestPerAppChatCommand("toggle");
         return;
@@ -3605,7 +3608,7 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted]);
+  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted, toggleScopeId]);
 
   // Listen for sidebar mode commands from the frame parent.
   // When frame is in "code" mode, hide the app sidebar.

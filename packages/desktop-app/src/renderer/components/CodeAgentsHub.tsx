@@ -2687,6 +2687,7 @@ export default function CodeAgentsHub({
                 appAuthState={appAuthState}
                 isActive={isTabActive}
                 chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
+                toggleScopeId={tab.id}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div
@@ -2937,7 +2938,7 @@ export default function CodeAgentsHub({
                         window.dispatchEvent(
                           new CustomEvent("agent-panel:toggle", {
                             detail: {
-                              scopeId: activeChatFirstSurfaceTab?.appId,
+                              scopeId: activeChatFirstSurfaceTab?.id,
                             },
                           }),
                         )

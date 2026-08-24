@@ -312,7 +312,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("desktop-chat-first-rail-chat");
     expect(hubSource).toContain('aria-label="Toggle chat sidebar"');
     expect(hubSource).toContain('new CustomEvent("agent-panel:toggle"');
-    expect(hubSource).toContain("scopeId: activeChatFirstSurfaceTab?.appId");
+    expect(hubSource).toContain("scopeId: activeChatFirstSurfaceTab?.id");
     expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
