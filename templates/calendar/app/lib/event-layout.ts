@@ -112,18 +112,33 @@ export function computeTimedEventLayout(
     }
 
     const totalCols = overlapLayers.length;
-    // Give every overlap column a proportional slice of the day column so an
-    // event's right edge stays visible instead of being covered by whichever
-    // card renders on top of it.
-    const width = 100 / totalCols;
+    const sameStartGroups = new Map<number, EventEntry[]>();
+    const sameStartIndexes = new Map<EventEntry, number>();
+    for (const entry of group) {
+      const entries = sameStartGroups.get(entry.bounds.start) ?? [];
+      sameStartIndexes.set(entry, entries.length);
+      entries.push(entry);
+      sameStartGroups.set(entry.bounds.start, entries);
+    }
 
     for (const entry of group) {
       const col = eventColumns.get(entry.event)!;
+      const sameStartEntries = sameStartGroups.get(entry.bounds.start)!;
+      const sameStartIndex = sameStartIndexes.get(entry)!;
+      const sameStartWidth = 100 / sameStartEntries.length;
+      const isGroupStart = entry.bounds.start === group[0].bounds.start;
+      const useStartLanes = sameStartEntries.length > 1;
+
+      // Later events sit over the earlier event instead of forcing both cards
+      // into equal columns. Events with the same start time still get lanes so
+      // their titles remain independently readable.
+      const left = useStartLanes ? sameStartIndex * sameStartWidth : 0;
+      const width = 100 - left;
 
       result.set(entry.event.id, {
-        left: col * width,
+        left,
         width,
-        indent: col * OVERLAP_INDENT_PX,
+        indent: isGroupStart && sameStartIndex === 0 ? 0 : OVERLAP_INDENT_PX,
         col,
         totalCols,
         stackOrder: stackOrder++,
