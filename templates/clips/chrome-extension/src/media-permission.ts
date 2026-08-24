@@ -156,8 +156,8 @@ export async function hasGrantedDeviceLabels(
     const devices = await navigator.mediaDevices.enumerateDevices();
     return devices.some((entry) => entry.kind === kind && Boolean(entry.label));
   } catch {
-    // Unreadable, not "revoked" — but the only caller uses this to decide
-    // whether to route through the permission page, which recovers either way.
+    // coercion-ok: unreadable is not "revoked", but the only caller treats both
+    // the same — it routes through the permission page either way, which recovers.
     return false;
   }
 }
