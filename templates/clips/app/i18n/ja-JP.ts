@@ -527,6 +527,7 @@ const messages = {
     height: "身長",
     autoplay: "自動再生",
     startAt: "(秒)から開始",
+    startAtTimestamp: "{{time}} から開始",
     embedCode: "埋め込みコード",
     sharePlainTitle: "{{title}}を共有する",
   },
