@@ -66,6 +66,8 @@ export interface CalendarEvent {
   hangoutLink?: string; // Google Meet link
   /** Meeting URL stored in location/description for non-Google providers such as Zoom */
   meetingLink?: string;
+  /** Action-result warning when optional video conferencing could not be provisioned. */
+  videoConferenceError?: "zoom";
   conferenceData?: {
     entryPoints?: Array<{
       entryPointType: string;

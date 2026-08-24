@@ -83,6 +83,7 @@ describe("create-event recurrence", () => {
       expect(result).toMatchObject({
         id: "google-event-123",
         title: "Customer call",
+        videoConferenceError: "zoom",
       });
       expect(result.meetingLink).toBeUndefined();
     } finally {
