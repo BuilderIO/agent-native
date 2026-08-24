@@ -2267,8 +2267,12 @@ pub async fn native_fullscreen_recording_cancel(
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
         guard.take()
     };
-    if let Some(mut session) = session {
-        discard_session(&mut session);
+    if let Some(session) = session {
+        eprintln!(
+            "[clips-tray] cancel: detaching discard for {}",
+            session.path.display()
+        );
+        spawn_detached_discard(session);
     }
     // An aborted start (countdown/warm cancelled before `begin`) never reaches
     // `hide_recording_chrome`, so the picker's monitor override must also be
@@ -2757,6 +2761,26 @@ fn recover_from_unusable_current_segment(
     false
 }
 
+/// Discard a cancelled session on a detached thread. Backend teardown blocks
+/// for however long the OS takes — the stock SCK path's `stop_capture()` can
+/// hang indefinitely — and the renderer awaits the cancel command before it
+/// continues its own discard chain, so the discard must not run on the
+/// command's thread. The session was already taken out of the state slot
+/// under the state lock, and nothing here re-locks it, so a new recording
+/// can start while the old stream tears down (the same concurrent-stream
+/// model pause/resume relies on). Tradeoff: if the process dies before this
+/// thread deletes the files, crash recovery can resurrect the cancelled take.
+fn spawn_detached_discard(mut session: NativeFullscreenSession) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let recording_path = session.path.clone();
+        discard_session(&mut session);
+        eprintln!(
+            "[clips-tray] cancel: detached discard finished for {}",
+            recording_path.display()
+        );
+    })
+}
+
 /// Best-effort cleanup of a session being discarded (cancel, or a stale
 /// session displaced by a new start). Finalizes any active backend and
 /// deletes every on-disk artifact — segment files and the final path.
@@ -2768,13 +2792,88 @@ fn discard_session(session: &mut NativeFullscreenSession) {
     if let Some(stop) = &session.disk_monitor_stop {
         stop.store(true, Ordering::Relaxed);
     }
-    let _ = finalize_active_backend(session, false);
+    if let Err(err) = finalize_active_backend(session, false) {
+        eprintln!("[clips-tray] discard: backend finalize failed (continuing cleanup): {err}");
+    }
     for segment in &session.segments {
         remove_recording_intent(segment);
         let _ = std::fs::remove_file(segment);
     }
     remove_recording_intent(&session.path);
     let _ = std::fs::remove_file(&session.path);
+}
+
+#[cfg(test)]
+mod detached_discard_tests {
+    use super::*;
+
+    /// A session with no live backend — the shape cancel sees after an
+    /// aborted warm or a paused recording — so the discard path runs without
+    /// capture hardware.
+    fn hardware_free_session(path: PathBuf, segments: Vec<PathBuf>) -> NativeFullscreenSession {
+        NativeFullscreenSession {
+            backend: None,
+            path,
+            mime_type: MP4_RECORDING_MIME_TYPE,
+            started_at: Instant::now(),
+            width: None,
+            height: None,
+            segments,
+            paused_total: Duration::ZERO,
+            current_segment_started_at: Instant::now(),
+            lost_segment_duration: Duration::ZERO,
+            lost_segment_count: 0,
+            paused_at: None,
+            restart: RestartInfo {
+                safe_id: "test".to_string(),
+                include_audio: false,
+                capture_system_audio: false,
+                mic_captured_in_file: false,
+                mic_device_id: None,
+                mic_device_label: None,
+                segment_counter: 1,
+                target_display_id: None,
+                capture_region: None,
+            },
+            pending_recording_output: false,
+            custom_pipeline: false,
+            audio_cleanup_applied: false,
+            #[cfg(target_os = "macos")]
+            live_upload: None,
+            had_live_upload: false,
+            disk_monitor_stop: None,
+        }
+    }
+
+    #[test]
+    fn detached_discard_deletes_files_off_the_calling_thread() {
+        let root = std::env::temp_dir().join(format!(
+            "clips-detached-discard-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("recording.mp4");
+        let segment = root.join("recording-seg2.mp4");
+        std::fs::write(&path, b"video").unwrap();
+        std::fs::write(&segment, b"video").unwrap();
+        std::fs::write(recording_intent_path(&path), b"{}").unwrap();
+
+        let caller_thread = std::thread::current().id();
+        let handle =
+            spawn_detached_discard(hardware_free_session(path.clone(), vec![segment.clone()]));
+        assert_ne!(handle.thread().id(), caller_thread);
+        handle.join().unwrap();
+
+        assert!(!path.exists());
+        assert!(!segment.exists());
+        assert!(!recording_intent_path(&path).exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 /// Sibling path next to the original pending recording, numbered with

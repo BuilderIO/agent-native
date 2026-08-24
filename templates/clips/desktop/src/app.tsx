@@ -428,6 +428,10 @@ function stopRestartHandoff(handoff: RestartHandoff): void {
   [handoff.displayStream, handoff.audioStream].forEach((stream) =>
     stream?.getTracks().forEach((track) => track.stop()),
   );
+  // Every creation site attaches its own catch, so this teardown promise
+  // can't reject — this guard keeps a handoff abandoned mid-restart from
+  // ever surfacing an unhandled rejection if a future site forgets.
+  void handoff.transcriptionTornDown?.catch(() => {});
 }
 
 type FetchInput = Parameters<typeof fetch>[0];
@@ -3429,6 +3433,8 @@ export function App({
         preAcquiredCameraStream,
         preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
         preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
+        pendingTranscriptionTeardown:
+          options?.resumeCapture?.transcriptionTornDown ?? null,
         signal: startController.signal,
       });
       // macOS: give WebKit a short window to dispatch getDisplayMedia before

@@ -267,6 +267,12 @@ export interface StartParams {
   preAcquiredDisplayStream?: MediaStream | null;
   /** Live microphone capture handed over on restart. See `preAcquiredDisplayStream`. */
   preAcquiredAudioStream?: MediaStream | null;
+  /**
+   * The replaced take's transcription teardown, handed over on restart. See
+   * `RestartHandoff.transcriptionTornDown` — the engine is process-global, so
+   * this session must await it immediately before starting transcription.
+   */
+  pendingTranscriptionTeardown?: Promise<void> | null;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -336,6 +342,16 @@ export interface RestartHandoff {
   /** Null when the backend re-acquires capture natively (no user gesture needed). */
   displayStream: MediaStream | null;
   audioStream: MediaStream | null;
+  /**
+   * Settles when the discarded take's transcription engine has fully stopped.
+   * The engine is process-global (one session slot), so the retake must await
+   * this immediately before its own `startTranscriptionCapture` — and no
+   * earlier, so Whisper's final flush hides under the retake's countdown
+   * instead of delaying it. Every creation site attaches its own `.catch`,
+   * so this promise never rejects. Absent/null when the discarded take had
+   * no transcription running.
+   */
+  transcriptionTornDown?: Promise<void> | null;
 }
 
 export interface RecorderHandle {
@@ -2661,6 +2677,11 @@ async function tryStartRewindFullscreenRecording(
   const canTranscribeLocally = !localOnly && includeMic;
   const startRewindTranscription = async () => {
     if (!canTranscribeLocally || transcriptionCapture) return;
+    // The engine is process-global: on a restart the replaced take's stop must
+    // land before this start, or it attaches to the dying capture. The wait
+    // runs here, under the countdown, instead of inside the discard.
+    await params.pendingTranscriptionTeardown;
+    if (transcriptionAborted) return;
     // Runs after `rewind_clip_prepare`, so the Rewind producer already carries
     // mic (+system) and whisper attaches to it instead of opening its own
     // ScreenCaptureKit stream — which would mute the clip's own audio legs.
@@ -2857,7 +2878,7 @@ async function tryStartRewindFullscreenRecording(
     await clearRecordingState();
   };
 
-  const discardTake = async (forRestart: boolean) => {
+  const discardTake = async (forRestart: boolean): Promise<RestartHandoff> => {
     stopped = true;
     cleanupUi();
     transcriptionAborted = true;
@@ -2885,8 +2906,17 @@ async function tryStartRewindFullscreenRecording(
       );
     }
     // The transcription engine is process-global, so this stop must land
-    // before the replacement session starts it again.
-    if (forRestart) await transcriptionTornDown;
+    // before the replacement session starts it again. Hand the pending
+    // teardown to the retake — it awaits it right before its own
+    // transcription start, hiding the flush under the new countdown instead
+    // of delaying it here.
+    return {
+      displayStream: null,
+      audioStream: null,
+      transcriptionTornDown: forRestart
+        ? (transcriptionTornDown ?? null)
+        : null,
+    };
   };
 
   const handle: RecorderHandle = {
@@ -3030,7 +3060,7 @@ async function tryStartRewindFullscreenRecording(
         return cancelPromise;
       }
       if (stopped) return;
-      cancelPromise = discardTake(false);
+      cancelPromise = discardTake(false).then(() => {});
       return cancelPromise;
     },
     async discardForRestart() {
@@ -3043,11 +3073,8 @@ async function tryStartRewindFullscreenRecording(
         throw new Error("Recording already finished — nothing to restart");
       }
       // The Rewind producer re-acquires capture natively, so the retake needs
-      // nothing handed to it.
-      discardPromise = discardTake(true).then(() => ({
-        displayStream: null,
-        audioStream: null,
-      }));
+      // no streams handed to it — only the pending transcription teardown.
+      discardPromise = discardTake(true);
       return discardPromise;
     },
   };
@@ -3159,6 +3186,10 @@ async function startNativeFullscreenRecording(
   };
   const startNativeTranscriptionBeforeRecording = async () => {
     if (localOnly || !canTranscribeLocally || transcriptionCapture) return;
+    // The engine is process-global: on a restart the replaced take's stop must
+    // land before this start, or it attaches to the dying capture. The wait
+    // runs here, under the countdown, instead of inside the discard.
+    await params.pendingTranscriptionTeardown;
     throwIfRecordingStartAborted(params.signal);
     transcriptionCapture = await guardRecordingStart(
       startTranscriptionCapture(
@@ -3571,7 +3602,7 @@ async function startNativeFullscreenRecording(
     await invoke("hide_overlays").catch(() => {});
   };
 
-  const discardTake = async (forRestart: boolean) => {
+  const discardTake = async (forRestart: boolean): Promise<RestartHandoff> => {
     stopped = true;
     clearSegmentRotator();
     pauseQueue?.dispose();
@@ -3630,8 +3661,17 @@ async function startNativeFullscreenRecording(
       );
     }
     // The transcription engine is process-global, so this stop must land
-    // before the replacement session starts it again.
-    if (forRestart) await transcriptionTornDown;
+    // before the replacement session starts it again. Hand the pending
+    // teardown to the retake — it awaits it right before its own
+    // transcription start, hiding the flush under the new countdown instead
+    // of delaying it here.
+    return {
+      displayStream: null,
+      audioStream: null,
+      transcriptionTornDown: forRestart
+        ? (transcriptionTornDown ?? null)
+        : null,
+    };
   };
 
   const handle: RecorderHandle = {
@@ -3865,7 +3905,7 @@ async function startNativeFullscreenRecording(
         return cancelPromise;
       }
       if (stopped) return;
-      cancelPromise = discardTake(false);
+      cancelPromise = discardTake(false).then(() => {});
       return cancelPromise;
     },
 
@@ -3879,11 +3919,9 @@ async function startNativeFullscreenRecording(
         throw new Error("Recording already finished — nothing to restart");
       }
       // ScreenCaptureKit is driven from Rust, so the retake re-acquires
-      // capture natively without needing a user gesture.
-      discardPromise = discardTake(true).then(() => ({
-        displayStream: null,
-        audioStream: null,
-      }));
+      // capture natively without needing a user gesture — only the pending
+      // transcription teardown is handed over.
+      discardPromise = discardTake(true);
       return discardPromise;
     },
   };
@@ -4153,7 +4191,11 @@ export function resolveRestartHandoff(
     stopStream(audioStream);
     throw new Error(RESTART_CAPTURE_ENDED_MESSAGE);
   }
-  return { displayStream, audioStream };
+  return {
+    displayStream,
+    audioStream,
+    transcriptionTornDown: params.pendingTranscriptionTeardown,
+  };
 }
 
 async function startRecordingInner(
@@ -5102,6 +5144,10 @@ async function startRecordingInner(
     // delaying capture, so the first ~1s the user expected to record was lost
     // (and the recording felt cut at the end). It's a separate capture from the
     // recorded audio tracks, so starting it slightly late is safe.
+    //
+    // The engine is process-global: a restart's handed-off teardown must land
+    // before this start, or it attaches to the dying capture.
+    if (canTranscribeLocally) await restartHandoff.transcriptionTornDown;
     transcriptionCapture = canTranscribeLocally
       ? await startTranscriptionCapture(
           {
@@ -5561,11 +5607,25 @@ async function startRecordingInner(
         console.warn("[clips-recorder] local backup cleanup failed:", err);
       });
       // The transcription engine is process-global, so this stop must land
-      // before the replacement session starts it again.
-      if (keepCaptureStreams) await transcriptionTornDown;
+      // before the replacement session starts it again. Hand the pending
+      // teardown to the retake — it awaits it right before its own
+      // transcription start, hiding the flush under the new countdown instead
+      // of delaying it here. Gated on `keepCaptureStreams`, not `handsOff`:
+      // a synthetic-capture restart hands over no streams but still restarts.
+      const handedTranscriptionTeardown = keepCaptureStreams
+        ? (transcriptionTornDown ?? null)
+        : null;
       return handsOff
-        ? { displayStream, audioStream }
-        : { displayStream: null, audioStream: null };
+        ? {
+            displayStream,
+            audioStream,
+            transcriptionTornDown: handedTranscriptionTeardown,
+          }
+        : {
+            displayStream: null,
+            audioStream: null,
+            transcriptionTornDown: handedTranscriptionTeardown,
+          };
     };
 
     const handle: RecorderHandle = {
