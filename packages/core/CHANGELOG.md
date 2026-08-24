@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.172.10
+
+### Patch Changes
+
+- 200e63b: Make the harness-session generation migration idempotent on SQLite.
+
 ## 0.172.9
 
 ### Patch Changes
