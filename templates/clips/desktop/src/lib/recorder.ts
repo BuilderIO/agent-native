@@ -2384,15 +2384,6 @@ async function runRecordingCountdown(
   await showRegionGuidesForRecording(wantsScreen);
   let countdownGeneration: number;
   try {
-    {
-      const t0 = (window as unknown as { __perfRestartT0?: number })
-        .__perfRestartT0;
-      if (t0) {
-        console.log(
-          `[perf] restart: show_countdown invoked +${Math.round(performance.now() - t0)}ms`,
-        );
-      }
-    }
     countdownGeneration = await invoke<number>("show_countdown");
   } catch (err) {
     console.error("[clips-recorder] show_countdown failed:", err);

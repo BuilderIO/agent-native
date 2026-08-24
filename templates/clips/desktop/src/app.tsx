@@ -3788,8 +3788,6 @@ export function App({
     track(
       listen("clips:recorder-cancel", async () => {
         if (restartInFlightRef.current) return;
-        const perfT0 = performance.now();
-        console.log("[perf] cancel: listener entered");
         const cancelDone = recorder.cancel();
         // Optimistic feedback: bring the popover back and clear the tray's
         // recording state the moment the cancel is dispatched — the recorder
@@ -3803,9 +3801,6 @@ export function App({
         }
         try {
           await cancelDone;
-          console.log(
-            `[perf] cancel: recorder.cancel resolved +${Math.round(performance.now() - perfT0)}ms`,
-          );
         } finally {
           if (!cancelled) {
             (
@@ -3817,9 +3812,6 @@ export function App({
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
-            console.log(
-              `[perf] cancel: flow released +${Math.round(performance.now() - perfT0)}ms`,
-            );
           }
         }
       }),
@@ -3832,16 +3824,9 @@ export function App({
         // is being brought up.
         if (restartInFlightRef.current) return;
         restartInFlightRef.current = true;
-        const perfT0 = performance.now();
-        (window as unknown as { __perfRestartT0?: number }).__perfRestartT0 =
-          perfT0;
-        console.log("[perf] restart: listener entered");
         let handoff: RestartHandoff | null = null;
         try {
           handoff = await recorder.discardForRestart();
-          console.log(
-            `[perf] restart: discard done +${Math.round(performance.now() - perfT0)}ms`,
-          );
           if (cancelled) return;
           // The recording flow stays latched across the restart. Releasing
           // `clipsForceAlive` / `recordingFlowGateRef` / `recordingFlowActive`
@@ -3856,9 +3841,6 @@ export function App({
           // it has to be told the chrome is gone.
           setRecordingChromeEpoch((epoch) => epoch + 1);
           setRecorder(null);
-          console.log(
-            `[perf] restart: starting retake +${Math.round(performance.now() - perfT0)}ms`,
-          );
           const restarted = await handleStartRecordingRef.current({
             ignoreActiveRecorder: true,
             resumeCapture: handoff,
