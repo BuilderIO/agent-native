@@ -132,9 +132,7 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
-  const [barHeights, setBarHeights] = useState<[number, number, number]>([
-    4, 4, 4,
-  ]);
+  const [barHeights, setBarHeights] = useState<number[]>([4, 4, 4, 4, 4]);
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
   // What the confirm's action button does. Both intents share the confirm
@@ -202,13 +200,21 @@ export function RecordingPill() {
       1,
       Math.sqrt(Math.max(0, Math.min(1, raw))) * 1.15,
     );
-    setBarHeights([
-      4 + Math.round(boosted * 10 * (0.45 + Math.random() * 0.55)),
-      4 + Math.round(boosted * 10 * (0.7 + Math.random() * 0.3)),
-      4 + Math.round(boosted * 10 * (0.45 + Math.random() * 0.55)),
-    ]);
+    // Five thin lines with a center-weighted random spread — a waveform, not
+    // a glyph, so the meter can't be misread as the two-bar pause icon.
+    const spread = [0.4, 0.7, 0.95, 0.7, 0.4];
+    setBarHeights(
+      spread.map(
+        (base) =>
+          3 +
+          Math.round(boosted * 11 * Math.min(1, base + Math.random() * 0.35)),
+      ),
+    );
     if (levelDecayRef.current) clearTimeout(levelDecayRef.current);
-    levelDecayRef.current = setTimeout(() => setBarHeights([4, 4, 4]), 350);
+    levelDecayRef.current = setTimeout(
+      () => setBarHeights([4, 4, 4, 4, 4]),
+      350,
+    );
   }
 
   function clearPauseTransition() {
@@ -914,9 +920,7 @@ export function RecordingPill() {
   const showPaused = paused;
   const meterFlat = showPaused || !enabled;
   const timerText = formatTimer(elapsed);
-  const shownBarHeights: [number, number, number] = meterFlat
-    ? [4, 4, 4]
-    : barHeights;
+  const shownBarHeights = meterFlat ? [4, 4, 4, 4, 4] : barHeights;
 
   const doneCaption =
     doneStage === "uploaded"
@@ -1058,13 +1062,13 @@ export function RecordingPill() {
             <span className="inline-flex flex-none items-center">
               <span
                 aria-hidden
-                className="ml-3.5 flex h-3.5 w-[13px] flex-none items-center justify-center gap-0.5 transition-opacity duration-150"
+                className="ml-3.5 flex h-3.5 w-[18px] flex-none items-center justify-center gap-[2px] transition-opacity duration-150"
                 style={{ opacity: meterFlat ? 0.3 : 1 }}
               >
                 {shownBarHeights.map((h, i) => (
                   <i
                     key={i}
-                    className="block w-[3px] rounded-[1px] bg-[var(--pill-meter)] transition-[height] duration-100 ease-out"
+                    className="block w-[2px] rounded-full bg-[var(--pill-meter)] transition-[height] duration-100 ease-out"
                     style={{ height: `${h}px` }}
                   />
                 ))}
