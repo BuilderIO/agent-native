@@ -26,13 +26,20 @@ export default defineAction({
       .describe(
         "Set to 'true' for full frontend deck payloads; omitted returns metadata only",
       ),
+    includePreview: z
+      .enum(["true", "false"])
+      .optional()
+      .describe(
+        "Set to 'true' with light mode to include only the first slide preview",
+      ),
     light: z
       .enum(["true", "false"])
       .optional()
       .describe(
         "Set to 'true' for a minimal id/title/updatedAt/visibility listing " +
           "used for cheap add/remove diffing (e.g. background polling). " +
-          "Never reads the deck body — no slides, no slideCount.",
+          "By default never reads the deck body — no slides, no slideCount. " +
+          "Use includePreview for the first slide only.",
       ),
     createdBy: z
       .enum(["all", "me"])
@@ -50,7 +57,7 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     if (
-      args.includeSlides === "true" &&
+      (args.includeSlides === "true" || args.includePreview === "true") &&
       ctx?.caller === "frontend" &&
       normalizedOwnerEmail === null
     ) {
@@ -75,9 +82,44 @@ export default defineAction({
     if (args.light === "true") {
       // Column-projected listing for cheap add/remove diffing (the client's
       // background poll and SSE-reconnect resync). The `data` column holds
-      // each deck's entire slide JSON and can be large — never select it
-      // here. Callers that need slide content use `includeSlides: "true"` or
-      // fetch the specific deck via `get-deck`.
+      // each deck's entire slide JSON and can be large. The home grid opts
+      // into the separate preview projection; polling keeps the metadata-only
+      // path below.
+      if (args.includePreview === "true") {
+        const rows = await db
+          .select({
+            id: schema.decks.id,
+            title: schema.decks.title,
+            updatedAt: schema.decks.updatedAt,
+            visibility: schema.decks.visibility,
+            ownerEmail: schema.decks.ownerEmail,
+            data: schema.decks.data,
+          })
+          .from(schema.decks)
+          .where(where)
+          .orderBy(desc(schema.decks.updatedAt));
+
+        return {
+          count: rows.length,
+          decks: rows.map((row) => {
+            const data = JSON.parse(row.data);
+            const previewSlide = Array.isArray(data?.slides)
+              ? data.slides[0]
+              : undefined;
+            return {
+              id: row.id,
+              title: row.title,
+              updatedAt: row.updatedAt,
+              visibility: row.visibility,
+              createdByMe:
+                normalizedOwnerEmail !== null &&
+                normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+              ...(previewSlide ? { previewSlide } : {}),
+            };
+          }),
+        };
+      }
+
       const rows = await db
         .select({
           id: schema.decks.id,

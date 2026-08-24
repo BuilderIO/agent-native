@@ -32,6 +32,7 @@ vi.mock("../server/db/index.js", () => ({
       createdAt: "created_at_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      data: "data_col",
     },
     deckShares: {},
   },
@@ -120,6 +121,27 @@ describe("list-decks", () => {
     });
     expect(result.decks[0]).not.toHaveProperty("ownerEmail");
     expect(result.count).toBe(1);
+  });
+
+  it("can include only the first slide as a light-mode preview", async () => {
+    const result = await action.run({
+      light: "true",
+      includePreview: "true",
+    });
+
+    expect(selectFn).toHaveBeenCalledWith({
+      id: "id_col",
+      title: "title_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+      ownerEmail: "owner_email_col",
+      data: "data_col",
+    });
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      previewSlide: { id: "slide-1" },
+    });
+    expect(result.decks[0]).not.toHaveProperty("slides");
   });
 
   it("can limit results to decks created by the current user", async () => {

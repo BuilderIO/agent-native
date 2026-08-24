@@ -147,6 +147,8 @@ export interface Deck {
   starred?: boolean;
   /** Slide aspect ratio (defaults to 16:9 when absent for backwards compat) */
   aspectRatio?: AspectRatio;
+  /** First slide returned by the light deck listing for home-page previews. */
+  previewSlide?: Slide;
 }
 
 export type DeckPersistenceResult =
@@ -325,6 +327,8 @@ function normalizeActionDeck(value: unknown): Deck | null {
   const deckRecord = deck as unknown as Record<string, unknown>;
   const cleanedDeck = { ...deckRecord };
   for (const field of GET_DECK_ONLY_DECK_FIELDS) delete cleanedDeck[field];
+  const previewSlide = deckRecord.previewSlide;
+  delete cleanedDeck.previewSlide;
 
   // Strip the same decorative fields from every slide, so a deck fetched from
   // `get-deck` is structurally identical to one built by local mutations —
@@ -356,6 +360,9 @@ function normalizeActionDeck(value: unknown): Deck | null {
         ? deck.updatedAt
         : deck.createdAt || "",
     slides,
+    ...(previewSlide && typeof previewSlide === "object"
+      ? { previewSlide: previewSlide as Slide }
+      : {}),
   } as Deck;
 }
 
@@ -1040,7 +1047,7 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
     const result = await callAction<DeckListActionResult>(
       "list-decks",
-      { light: "true" },
+      { light: "true", includePreview: "true" },
       { method: "GET" },
     );
     if (!Array.isArray(result?.decks)) {
@@ -1172,7 +1179,7 @@ async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
   }
   if (!currentOpenDeckId) return loaded;
 
-  // The list is intentionally metadata-only. Hydrate just the deck the user
+  // The list has only first-slide previews. Hydrate just the deck the user
   // opened so the editor gets full slide content without making the home page
   // download every deck body.
   const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
