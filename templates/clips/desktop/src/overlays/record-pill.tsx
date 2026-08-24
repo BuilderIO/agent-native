@@ -135,8 +135,7 @@ export function RecordingPill() {
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
   // Whether the delete confirm was entered from an already-paused recording:
-  // its safe exit then KEEPS the pause, so the button says Cancel, not Resume.
-  const [confirmFromPaused, setConfirmFromPaused] = useState(false);
+  // Esc then backs out to that pause, while the Resume button always resumes.
   const confirmFromPausedRef = useRef(false);
   const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
   const [doneDurationMs, setDoneDurationMs] = useState(0);
@@ -419,7 +418,6 @@ export function RecordingPill() {
     // previous (empty) question.
     flushSync(() => {
       setConfirmQuestion(`Delete ${formatDurationCopy(elapsedRef.current)}?`);
-      setConfirmFromPaused(wasPaused);
     });
     // Pause at the instant of the click — the deliberation must not end up
     // in the clip. A recording already paused by hand stays exactly as the
@@ -437,17 +435,20 @@ export function RecordingPill() {
     setAnnouncement("Paused");
   }
 
-  function exitConfirm() {
+  function exitConfirm(resume: boolean) {
     if (modeRef.current !== "confirm") return;
     setMode("recording");
-    if (!confirmFromPausedRef.current) applyPauseIntent("resume");
+    if (resume && pausedRef.current) applyPauseIntent("resume");
+    else if (!resume && !confirmFromPausedRef.current) {
+      applyPauseIntent("resume");
+    }
     transitionSegs([
       ["res", false, 0],
       ["del", false, 20],
       ["q", false, 40],
       ["stop", true, 40],
     ]);
-    setAnnouncement(confirmFromPausedRef.current ? "Paused" : "Recording");
+    setAnnouncement(pausedRef.current ? "Paused" : "Recording");
   }
 
   function applyPauseIntent(transition: "pause" | "resume") {
@@ -718,7 +719,7 @@ export function RecordingPill() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && modeRef.current === "confirm") {
         e.preventDefault();
-        exitConfirm();
+        exitConfirm(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1115,10 +1116,10 @@ export function RecordingPill() {
             <span className="inline-flex flex-none items-center">
               <button
                 type="button"
-                onClick={exitConfirm}
+                onClick={() => exitConfirm(true)}
                 className="ml-2 flex h-7 flex-none items-center rounded-full bg-[var(--pill-soft)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
               >
-                {confirmFromPaused ? "Cancel" : "Resume"}
+                Resume
               </button>
             </span>
           </span>
