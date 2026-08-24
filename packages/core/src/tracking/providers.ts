@@ -417,6 +417,9 @@ function createWebhookProvider(
           event: event.name,
           properties: event.properties,
           userId: event.userId,
+          // Without this a webhook consumer cannot join a signup back to the
+          // anonymous pageviews that preceded it — the whole point of the id.
+          anonymousId: event.anonymousId,
           sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),
