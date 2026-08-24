@@ -98,7 +98,9 @@ describe("framework release schema migrations", () => {
     });
     expect(generationMigration?.sql).toMatchObject({
       postgres: expect.stringContaining("generation BIGINT"),
-      sqlite: expect.stringContaining("generation INTEGER"),
+      sqlite: expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS generation INTEGER",
+      ),
     });
     expect(
       (
