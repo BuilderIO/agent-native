@@ -10336,6 +10336,15 @@ export function createProductionAgentHandler(
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
                   maxIterations: loopSettings.maxIterations,
+                  // Same `startRun` chunk and same signal as the main loop, so
+                  // the same budget. Left off, the loop re-derives the generic
+                  // hosted/background ceiling, which can sit above the chunk
+                  // these nested calls actually run inside — and then the
+                  // per-tool timeout is unreachable and the chunk boundary
+                  // preempts it.
+                  ...(resolvedRunSoftTimeoutMs > 0
+                    ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+                    : {}),
                 });
 
                 // Attribute custom-agent sub-calls under their own label
