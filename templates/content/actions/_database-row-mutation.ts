@@ -870,6 +870,14 @@ async function withMutationLocks<T>(
   );
 }
 
+export function nextPosition(max: unknown): number {
+  const value = Number(max ?? -1);
+  if (!Number.isSafeInteger(value) || value < -1) {
+    throw new Error("Database position is outside the supported range.");
+  }
+  return value + 1;
+}
+
 async function createInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -913,7 +921,7 @@ async function createInsideTransaction(
     title: args.title?.trim() ?? "",
     content: "",
     icon: null,
-    position: (maxDoc?.max ?? -1) + 1,
+    position: nextPosition(maxDoc?.max),
     isFavorite: 0,
     hideFromSearch: context.databaseDocument.hideFromSearch ?? 0,
     visibility: context.databaseDocument.visibility ?? "private",
@@ -926,7 +934,7 @@ async function createInsideTransaction(
     orgId: context.database.orgId,
     databaseId: context.database.id,
     documentId,
-    position: (maxItem?.max ?? -1) + 1,
+    position: nextPosition(maxItem?.max),
     createdAt: now,
     updatedAt: now,
   });
