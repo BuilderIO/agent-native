@@ -5,7 +5,7 @@ import {
   databasePropertyEntriesSchema,
   normalizeDatabasePropertyInput,
 } from "../../actions/_database-property-input";
-import { digest } from "../../actions/_database-row-mutation";
+import { databaseMutationPayloadDigest } from "../../actions/_database-row-mutation";
 import addDatabaseItem from "../../actions/add-database-item";
 import updateDatabaseItem from "../../actions/update-database-item";
 import upsertDatabaseItemByKey from "../../actions/upsert-database-item-by-key";
@@ -24,11 +24,13 @@ describe("database row property inputs", () => {
       expect(properties).not.toHaveProperty("propertyValues");
       const propertyEntries = properties.propertyEntries;
       expect(propertyEntries.type).toBe("array");
-      expect(propertyEntries.items.properties.propertyId.description).toContain(
+      expect(JSON.stringify(propertyEntries.items)).toContain(
         "Exact immutable property definition ID",
       );
+      expect(JSON.stringify(propertyEntries.items)).toContain("propertyType");
+      expect(JSON.stringify(propertyEntries.items)).not.toContain('"value":{}');
       expect(propertyEntries.description).toContain(
-        "Include one entry for every schema-valid writable property value the user requested",
+        "include one entry for every writable property value the user requested",
       );
       expect(propertyEntries.description).toContain(
         "never pass an empty array",
@@ -36,6 +38,7 @@ describe("database row property inputs", () => {
       expect(propertyEntries.description).toContain(
         "Do not invent or clear unmentioned properties",
       );
+      expect(properties.target.properties).not.toHaveProperty("authorityScope");
     },
   );
 
@@ -43,13 +46,27 @@ describe("database row property inputs", () => {
     expect(
       normalizeDatabasePropertyInput({
         propertyEntries: [
-          { propertyId: "status-id", value: "ready" },
-          { propertyId: "evidence-id", value: "preserve me" },
+          {
+            propertyId: "status-id",
+            propertyType: "status",
+            value: "ready",
+          },
+          {
+            propertyId: "evidence-id",
+            propertyType: "text",
+            value: "preserve me",
+          },
         ],
       }),
     ).toEqual({
-      "status-id": "ready",
-      "evidence-id": "preserve me",
+      propertyValues: {
+        "status-id": "ready",
+        "evidence-id": "preserve me",
+      },
+      propertyTypeAssertions: {
+        "status-id": "status",
+        "evidence-id": "text",
+      },
     });
   });
 
@@ -57,8 +74,16 @@ describe("database row property inputs", () => {
     expect(() =>
       normalizeDatabasePropertyInput({
         propertyEntries: [
-          { propertyId: "status-id", value: "ready" },
-          { propertyId: "status-id", value: "changed" },
+          {
+            propertyId: "status-id",
+            propertyType: "status",
+            value: "ready",
+          },
+          {
+            propertyId: "status-id",
+            propertyType: "status",
+            value: "changed",
+          },
         ],
       }),
     ).toThrow(/provided more than once/);
@@ -67,7 +92,13 @@ describe("database row property inputs", () => {
   it("rejects ambiguous entry and record inputs", () => {
     expect(() =>
       normalizeDatabasePropertyInput({
-        propertyEntries: [{ propertyId: "status-id", value: "ready" }],
+        propertyEntries: [
+          {
+            propertyId: "status-id",
+            propertyType: "status",
+            value: "ready",
+          },
+        ],
         propertyValues: { "status-id": "ready" },
       }),
     ).toThrow(/not both/);
@@ -75,27 +106,70 @@ describe("database row property inputs", () => {
 
   it("preserves __proto__ as an ordinary property definition ID", () => {
     const propertyEntries = databasePropertyEntriesSchema.parse([
-      { propertyId: "__proto__", value: "preserve me" },
+      {
+        propertyId: "__proto__",
+        propertyType: "text",
+        value: "preserve me",
+      },
     ]);
     const normalized = normalizeDatabasePropertyInput({
       propertyEntries,
     });
 
-    expect(normalized).toBeDefined();
-    expect(Object.getPrototypeOf(normalized)).toBeNull();
-    expect(Object.keys(normalized!)).toEqual(["__proto__"]);
-    expect(Object.prototype.hasOwnProperty.call(normalized, "__proto__")).toBe(
-      true,
-    );
-    expect(normalized?.["__proto__"]).toBe("preserve me");
+    expect(Object.getPrototypeOf(normalized.propertyValues)).toBeNull();
+    expect(Object.keys(normalized.propertyValues!)).toEqual(["__proto__"]);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        normalized.propertyValues,
+        "__proto__",
+      ),
+    ).toBe(true);
+    expect(normalized.propertyValues?.["__proto__"]).toBe("preserve me");
+    expect(normalized.propertyTypeAssertions?.["__proto__"]).toBe("text");
+  });
+
+  it("requires a schema-visible type and its matching JSON value shape", () => {
+    expect(() =>
+      databasePropertyEntriesSchema.parse([
+        { propertyId: "count-id", value: 3314 },
+      ]),
+    ).toThrow(/propertyType/);
+    expect(() =>
+      databasePropertyEntriesSchema.parse([
+        {
+          propertyId: "count-id",
+          propertyType: "number",
+          value: "3314",
+        },
+      ]),
+    ).toThrow();
+    expect(
+      databasePropertyEntriesSchema.parse([
+        {
+          propertyId: "count-id",
+          propertyType: "number",
+          value: 3314,
+        },
+      ]),
+    ).toEqual([
+      { propertyId: "count-id", propertyType: "number", value: 3314 },
+    ]);
   });
 
   it("removes the model-only representation before canonical hashing", () => {
     const canonical = canonicalizeDatabasePropertyInput({
       idempotencyKey: "same-intent",
       propertyEntries: [
-        { propertyId: "status-id", value: "ready" },
-        { propertyId: "evidence-id", value: "preserve me" },
+        {
+          propertyId: "status-id",
+          propertyType: "status",
+          value: "ready",
+        },
+        {
+          propertyId: "evidence-id",
+          propertyType: "text",
+          value: "preserve me",
+        },
       ],
     });
 
@@ -105,6 +179,10 @@ describe("database row property inputs", () => {
         "status-id": "ready",
         "evidence-id": "preserve me",
       },
+      propertyTypeAssertions: {
+        "status-id": "status",
+        "evidence-id": "text",
+      },
     });
     expect(canonical).not.toHaveProperty("propertyEntries");
   });
@@ -113,8 +191,16 @@ describe("database row property inputs", () => {
     const fromEntries = canonicalizeDatabasePropertyInput({
       idempotencyKey: "same-intent",
       propertyEntries: [
-        { propertyId: "status-id", value: "ready" },
-        { propertyId: "evidence-id", value: "preserve me" },
+        {
+          propertyId: "status-id",
+          propertyType: "status",
+          value: "ready",
+        },
+        {
+          propertyId: "evidence-id",
+          propertyType: "text",
+          value: "preserve me",
+        },
       ],
     });
     const fromRecord = canonicalizeDatabasePropertyInput({
@@ -125,21 +211,29 @@ describe("database row property inputs", () => {
       },
     });
 
-    expect(digest(fromEntries)).toBe(digest(fromRecord));
+    expect(databaseMutationPayloadDigest("create", fromEntries)).toBe(
+      databaseMutationPayloadDigest("create", fromRecord),
+    );
   });
 
   it("includes __proto__ property values in the canonical digest", () => {
     const withPrototypeNamedProperty = canonicalizeDatabasePropertyInput({
       idempotencyKey: "same-intent",
-      propertyEntries: [{ propertyId: "__proto__", value: "preserve me" }],
+      propertyEntries: [
+        {
+          propertyId: "__proto__",
+          propertyType: "text",
+          value: "preserve me",
+        },
+      ],
     });
     const withoutProperty = canonicalizeDatabasePropertyInput({
       idempotencyKey: "same-intent",
       propertyValues: {},
     });
 
-    expect(digest(withPrototypeNamedProperty)).not.toBe(
-      digest(withoutProperty),
-    );
+    expect(
+      databaseMutationPayloadDigest("create", withPrototypeNamedProperty),
+    ).not.toBe(databaseMutationPayloadDigest("create", withoutProperty));
   });
 });

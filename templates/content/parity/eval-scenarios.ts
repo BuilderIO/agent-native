@@ -9,9 +9,9 @@ export interface ParityEvalScenario {
   successSignals: string[];
   expectedTools?: string[];
   expectedPropertyValues?: Record<string, unknown>;
+  expectedPropertyTypes?: Record<string, string>;
   expectedCreateEnvelope?: {
     target: {
-      authorityScope: { kind: "personal"; id: string };
       spaceId: string;
       databaseId: string;
       databaseDocumentId: string;
@@ -31,24 +31,29 @@ export const parityEvalScenarios: ParityEvalScenario[] = [
     defaultState: "skipped",
     requiresPrivateCredentials: false,
     prompt:
-      "Create exactly one row in the already-verified fixture Content database. Do not rediscover or alter the target. Use target authorityScope { kind: personal, id: fixture-owner@example.test }, spaceId fixture_personal_space, databaseId fixture_feedback_database, and databaseDocumentId fixture_feedback_document; expectedSchemaRevision fixture_schema_revision; title [FIXTURE] preserve explicit properties; idempotencyKey fixture-create-property-preservation-v1. Set property fixture_status_property to status-cannot-verify and property fixture_evidence_property to Baseline fixture preserve-me. No Blocks value was requested. Call add-database-item once with every exact target constraint and both property entries, then report its result truthfully.",
+      "Find the fixture Content database titled PR #3314 feedback — do not treat 3314 as its database ID. Discover its exact database target and mutation contract through Content actions, then create exactly one row titled [FIXTURE] preserve explicit properties with idempotency key fixture-create-property-preservation-v1. Set Status to status-cannot-verify and Evidence to Baseline fixture preserve-me using the discovered immutable property IDs and property types. Omit authority identity because the authenticated server owns it. No Blocks value was requested. Call add-database-item once, then report its result truthfully.",
     successSignals: [
-      "Uses add-database-item once for the exact fixture target.",
+      "Discovers the exact database and mutation contract before creating.",
+      "Uses add-database-item once for the discovered stable target without authoring authority identity.",
       "Preserves both explicitly requested writable property values.",
       "Does not invent a Blocks value or another property.",
       "Reports an action failure rather than claiming a row was created if the fixture is unavailable.",
     ],
-    expectedTools: ["add-database-item"],
+    expectedTools: [
+      "list-content-databases",
+      "get-content-database",
+      "add-database-item",
+    ],
     expectedPropertyValues: {
       fixture_status_property: "status-cannot-verify",
       fixture_evidence_property: "Baseline fixture preserve-me",
     },
+    expectedPropertyTypes: {
+      fixture_status_property: "status",
+      fixture_evidence_property: "text",
+    },
     expectedCreateEnvelope: {
       target: {
-        authorityScope: {
-          kind: "personal",
-          id: "fixture-owner@example.test",
-        },
         spaceId: "fixture_personal_space",
         databaseId: "fixture_feedback_database",
         databaseDocumentId: "fixture_feedback_document",

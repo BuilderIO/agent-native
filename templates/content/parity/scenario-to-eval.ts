@@ -44,10 +44,15 @@ function hasExactKeys(
 
 function analyzePropertyValues(input: unknown): {
   received: Record<string, unknown>;
+  receivedTypes: Record<string, string>;
   invalid: string[];
 } {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { received: {}, invalid: ["tool input is not an object"] };
+    return {
+      received: {},
+      receivedTypes: {},
+      invalid: ["tool input is not an object"],
+    };
   }
   const record = input as Record<string, unknown>;
   const hasEntries = record.propertyEntries !== undefined;
@@ -55,6 +60,7 @@ function analyzePropertyValues(input: unknown): {
   if (hasEntries && hasValues) {
     return {
       received: {},
+      receivedTypes: {},
       invalid: ["propertyEntries and propertyValues were both provided"],
     };
   }
@@ -64,20 +70,33 @@ function analyzePropertyValues(input: unknown): {
       typeof record.propertyValues !== "object" ||
       Array.isArray(record.propertyValues)
     ) {
-      return { received: {}, invalid: ["propertyValues is not a record"] };
+      return {
+        received: {},
+        receivedTypes: {},
+        invalid: ["propertyValues is not a record"],
+      };
     }
     return {
       received: record.propertyValues as Record<string, unknown>,
-      invalid: [],
+      receivedTypes: {},
+      invalid: ["propertyValues bypassed the typed agent input"],
     };
   }
   if (!hasEntries || !Array.isArray(record.propertyEntries)) {
-    return { received: {}, invalid: ["propertyEntries is not an array"] };
+    return {
+      received: {},
+      receivedTypes: {},
+      invalid: ["propertyEntries is not an array"],
+    };
   }
 
   const received: Record<string, unknown> = Object.create(null) as Record<
     string,
     unknown
+  >;
+  const receivedTypes: Record<string, string> = Object.create(null) as Record<
+    string,
+    string
   >;
   const invalid: string[] = [];
   for (const entry of record.propertyEntries) {
@@ -85,9 +104,16 @@ function analyzePropertyValues(input: unknown): {
       invalid.push("propertyEntries contains a non-object entry");
       continue;
     }
-    const { propertyId, value } = entry as Record<string, unknown>;
+    const { propertyId, propertyType, value } = entry as Record<
+      string,
+      unknown
+    >;
     if (
-      !hasExactKeys(entry as Record<string, unknown>, ["propertyId", "value"])
+      !hasExactKeys(entry as Record<string, unknown>, [
+        "propertyId",
+        "propertyType",
+        "value",
+      ])
     ) {
       invalid.push(
         "propertyEntries contains an entry with unrecognized fields",
@@ -98,13 +124,20 @@ function analyzePropertyValues(input: unknown): {
       invalid.push("propertyEntries contains an invalid propertyId");
       continue;
     }
+    if (typeof propertyType !== "string" || propertyType.length === 0) {
+      invalid.push(
+        `propertyEntries contains an invalid type for ${propertyId}`,
+      );
+      continue;
+    }
     if (Object.prototype.hasOwnProperty.call(received, propertyId)) {
       invalid.push(`propertyEntries contains duplicate ID ${propertyId}`);
       continue;
     }
     received[propertyId] = value;
+    receivedTypes[propertyId] = propertyType;
   }
-  return { received, invalid };
+  return { received, receivedTypes, invalid };
 }
 
 const databaseRowMutationTools = new Set([
@@ -124,15 +157,6 @@ function matchesCreateEnvelope(
     return false;
   }
   const actualTarget = target as Record<string, unknown>;
-  const authorityScope = actualTarget.authorityScope;
-  if (
-    !authorityScope ||
-    typeof authorityScope !== "object" ||
-    Array.isArray(authorityScope)
-  ) {
-    return false;
-  }
-  const actualAuthority = authorityScope as Record<string, unknown>;
   return (
     hasExactKeys(input, [
       "target",
@@ -144,14 +168,10 @@ function matchesCreateEnvelope(
         : "propertyEntries",
     ]) &&
     hasExactKeys(actualTarget, [
-      "authorityScope",
       "spaceId",
       "databaseId",
       "databaseDocumentId",
     ]) &&
-    hasExactKeys(actualAuthority, ["kind", "id"]) &&
-    actualAuthority.kind === expected.target.authorityScope.kind &&
-    actualAuthority.id === expected.target.authorityScope.id &&
     actualTarget.spaceId === expected.target.spaceId &&
     actualTarget.databaseId === expected.target.databaseId &&
     actualTarget.databaseDocumentId === expected.target.databaseDocumentId &&
@@ -163,6 +183,7 @@ function matchesCreateEnvelope(
 
 function expectedPropertyValuesScorer(
   expected: Record<string, unknown>,
+  expectedTypes: Record<string, string> | undefined,
   expectedEnvelope?: ParityEvalScenario["expectedCreateEnvelope"],
 ) {
   return createScorer<
@@ -194,6 +215,45 @@ function expectedPropertyValuesScorer(
         invalid.push(
           `expected exactly one row mutation, received ${mutationCalls.length}`,
         );
+      }
+      const orderedCalls = run.toolCalls;
+      const listIndex = orderedCalls.indexOf("list-content-databases");
+      const inspectIndex = orderedCalls.indexOf("get-content-database");
+      const createIndex = orderedCalls.indexOf("add-database-item");
+      if (
+        listIndex < 0 ||
+        inspectIndex <= listIndex ||
+        createIndex <= inspectIndex
+      ) {
+        invalid.push("database discovery did not precede the create mutation");
+      }
+      const listCall = (run.toolCallDetails ?? []).find(
+        (call) => call.name === "list-content-databases",
+      );
+      const inspectCall = (run.toolCallDetails ?? []).find(
+        (call) => call.name === "get-content-database",
+      );
+      const listInput = listCall?.input as Record<string, unknown> | undefined;
+      const inspectInput = inspectCall?.input as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        expectedEnvelope &&
+        (listInput?.title !== "PR #3314 feedback" ||
+          inspectInput?.databaseId !== expectedEnvelope.target.databaseId)
+      ) {
+        invalid.push(
+          "discovery did not resolve the requested title to the exact create target",
+        );
+      }
+      for (const [propertyId, expectedType] of Object.entries(
+        expectedTypes ?? {},
+      )) {
+        if (analysis.receivedTypes[propertyId] !== expectedType) {
+          invalid.push(
+            `property ${propertyId} did not declare discovered type ${expectedType}`,
+          );
+        }
       }
       const createInput = createCalls[0]?.input;
       if (
@@ -278,6 +338,7 @@ export function scenarioToEval(scenario: ParityEvalScenario): Eval {
         ? [
             expectedPropertyValuesScorer(
               scenario.expectedPropertyValues,
+              scenario.expectedPropertyTypes,
               scenario.expectedCreateEnvelope,
             ),
           ]

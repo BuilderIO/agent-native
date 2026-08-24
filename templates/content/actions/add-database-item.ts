@@ -10,6 +10,7 @@ import {
 } from "./_database-property-input.js";
 import {
   createDatabaseRow,
+  databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
 } from "./_database-row-mutation.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -25,11 +26,14 @@ const schema = databaseMutationEnvelopeSchema.extend({
   propertyValues: databasePropertyValuesSchema,
   propertyEntries: databasePropertyEntriesSchema,
 });
+const agentSchema = schema
+  .extend({ target: databaseMutationAgentTargetSchema })
+  .omit({ propertyValues: true });
 
 export default defineAction({
   description:
     "Create one row in an exact ordinary Content database using its discovered schema revision. Strictly validates every non-Blocks property, applies the side effect once per idempotency key, and returns a verified receipt with stable row identity.",
-  agentInputSchema: schema.omit({ propertyValues: true }),
+  agentInputSchema: agentSchema,
   publicAgent: {
     expose: true,
     readOnly: false,

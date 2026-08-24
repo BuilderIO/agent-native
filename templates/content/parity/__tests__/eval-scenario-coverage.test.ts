@@ -24,6 +24,45 @@ function successfulCreateCall(
   };
 }
 
+function typedExpectedEntries(scenario: (typeof parityEvalScenarios)[number]) {
+  return Object.entries(scenario.expectedPropertyValues ?? {}).map(
+    ([propertyId, value]) => ({
+      propertyId,
+      propertyType: scenario.expectedPropertyTypes?.[propertyId],
+      value,
+    }),
+  );
+}
+
+const discoveryCalls = ["list-content-databases", "get-content-database"];
+
+function successfulDiscoveryDetails(
+  scenario: (typeof parityEvalScenarios)[number],
+) {
+  return [
+    {
+      name: "list-content-databases",
+      input: { title: "PR #3314 feedback" },
+      completed: true,
+      isError: false,
+      result: JSON.stringify({
+        databases: [scenario.expectedCreateEnvelope?.target],
+      }),
+    },
+    {
+      name: "get-content-database",
+      input: {
+        databaseId: scenario.expectedCreateEnvelope?.target.databaseId,
+      },
+      completed: true,
+      isError: false,
+      result: JSON.stringify({
+        mutationContract: scenario.expectedCreateEnvelope,
+      }),
+    },
+  ];
+}
+
 afterEach(() => {
   if (OLD_GATE === undefined) {
     delete process.env.CONTENT_PARITY_EVALS;
@@ -171,9 +210,10 @@ describe("Content parity eval scenarios", () => {
     const row = await scoreEval(evalCase, {
       runAgent: vi.fn(async () => ({
         text: scenario.successSignals.join("\n"),
-        toolCalls: ["add-database-item"],
+        toolCalls: [...discoveryCalls, "add-database-item"],
         toolCallDetails: [
-          successfulCreateCall(scenario, { propertyValues: {} }),
+          ...successfulDiscoveryDetails(scenario),
+          successfulCreateCall(scenario, { propertyEntries: [] }),
         ],
         ok: true,
         runId: "content-parity:empty-property-values",
@@ -199,10 +239,11 @@ describe("Content parity eval scenarios", () => {
     const row = await scoreEval(evalCase, {
       runAgent: vi.fn(async () => ({
         text: scenario.successSignals.join("\n"),
-        toolCalls: ["add-database-item"],
+        toolCalls: [...discoveryCalls, "add-database-item"],
         toolCallDetails: [
+          ...successfulDiscoveryDetails(scenario),
           successfulCreateCall(scenario, {
-            propertyValues: scenario.expectedPropertyValues,
+            propertyEntries: typedExpectedEntries(scenario),
           }),
         ],
         ok: true,
@@ -226,9 +267,21 @@ describe("Content parity eval scenarios", () => {
       toolCallDetails: [
         successfulCreateCall(scenario, {
           propertyEntries: [
-            { propertyId: "parity-text-property-id", value: "preserve me" },
-            { propertyId: "parity-text-property-id", value: "preserve me" },
-            { propertyId: "parity-status-property-id", value: "ready" },
+            {
+              propertyId: "fixture_evidence_property",
+              propertyType: "text",
+              value: "Baseline fixture preserve-me",
+            },
+            {
+              propertyId: "fixture_evidence_property",
+              propertyType: "text",
+              value: "Baseline fixture preserve-me",
+            },
+            {
+              propertyId: "fixture_status_property",
+              propertyType: "status",
+              value: "status-cannot-verify",
+            },
           ],
         }),
       ],
@@ -238,8 +291,16 @@ describe("Content parity eval scenarios", () => {
       toolCallDetails: [
         successfulCreateCall(scenario, {
           propertyEntries: [
-            { propertyId: "parity-text-property-id", value: "preserve me" },
-            { propertyId: "parity-status-property-id", value: "ready" },
+            {
+              propertyId: "fixture_evidence_property",
+              propertyType: "text",
+              value: "Baseline fixture preserve-me",
+            },
+            {
+              propertyId: "fixture_status_property",
+              propertyType: "status",
+              value: "status-cannot-verify",
+            },
           ],
           propertyValues: {
             "parity-text-property-id": "preserve me",
@@ -253,8 +314,16 @@ describe("Content parity eval scenarios", () => {
       toolCallDetails: [
         successfulCreateCall(scenario, {
           propertyEntries: [
-            { propertyId: "parity-text-property-id", value: "preserve me" },
-            { propertyId: "parity-status-property-id", value: "ready" },
+            {
+              propertyId: "fixture_evidence_property",
+              propertyType: "text",
+              value: "Baseline fixture preserve-me",
+            },
+            {
+              propertyId: "fixture_status_property",
+              propertyType: "status",
+              value: "status-cannot-verify",
+            },
           ],
         }),
         {
@@ -276,8 +345,14 @@ describe("Content parity eval scenarios", () => {
     const row = await scoreEval(evalCase, {
       runAgent: vi.fn(async () => ({
         text: scenario.successSignals.join("\n"),
-        toolCalls: toolCallDetails.map((call) => call.name),
-        toolCallDetails,
+        toolCalls: [
+          ...discoveryCalls,
+          ...toolCallDetails.map((call) => call.name),
+        ],
+        toolCallDetails: [
+          ...successfulDiscoveryDetails(scenario),
+          ...toolCallDetails,
+        ],
         ok: true,
         runId: "content-parity:invalid-property-input",
         durationMs: 1,
@@ -376,16 +451,14 @@ describe("Content parity eval scenarios", () => {
       name: "an extra property-entry field",
       mutate(call: ReturnType<typeof successfulCreateCall>) {
         const input = call.input as Record<string, unknown>;
-        const { propertyValues, ...withoutPropertyValues } = input;
         return {
           ...call,
           input: {
-            ...withoutPropertyValues,
-            propertyEntries: Object.entries(
-              propertyValues as Record<string, unknown>,
-            ).map(([propertyId, value]) => ({
-              propertyId,
-              value,
+            ...input,
+            propertyEntries: (
+              input.propertyEntries as Array<Record<string, unknown>>
+            ).map((entry) => ({
+              ...entry,
               hallucinated: true,
             })),
           },
@@ -399,15 +472,15 @@ describe("Content parity eval scenarios", () => {
     )!;
     const call = mutate(
       successfulCreateCall(scenario, {
-        propertyValues: scenario.expectedPropertyValues,
+        propertyEntries: typedExpectedEntries(scenario),
       }),
     );
     const evalCase = scenarioToEval(scenario);
     const row = await scoreEval(evalCase, {
       runAgent: vi.fn(async () => ({
         text: scenario.successSignals.join("\n"),
-        toolCalls: ["add-database-item"],
-        toolCallDetails: [call],
+        toolCalls: [...discoveryCalls, "add-database-item"],
+        toolCallDetails: [...successfulDiscoveryDetails(scenario), call],
         ok: true,
         runId: "content-parity:rejected-create",
         durationMs: 1,

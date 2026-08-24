@@ -9,6 +9,7 @@ import {
   databasePropertyValuesSchema,
 } from "./_database-property-input.js";
 import {
+  databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
   updateDatabaseRow,
 } from "./_database-row-mutation.js";
@@ -23,14 +24,17 @@ const schema = databaseMutationEnvelopeSchema.extend({
   title: z.string().trim().min(1).max(500).optional(),
   propertyValues: databasePropertyValuesSchema,
   propertyEntries: databasePropertyEntriesSchema.describe(
-    "Sparse property patch as explicit entries; omitted fields are preserved and explicit null clears a value. Include one entry for every schema-valid writable property value the user requested, using the exact immutable property definition ID. When at least one value was requested, never pass an empty array. Do not invent or clear unmentioned properties.",
+    "Sparse typed property patch as explicit entries; omitted fields are preserved and explicit null clears a value. Copy each propertyType from the discovered mutation contract and include one entry for every writable property value the user requested, using the exact immutable property definition ID. When at least one value was requested, never pass an empty array. Do not invent or clear unmentioned properties.",
   ),
 });
+const agentSchema = schema
+  .extend({ target: databaseMutationAgentTargetSchema })
+  .omit({ propertyValues: true });
 
 export default defineAction({
   description:
     "Sparsely update one exact Content database row by stable item and document IDs. Requires schema and row revisions, validates every non-Blocks property, and returns a verified idempotent receipt.",
-  agentInputSchema: schema.omit({ propertyValues: true }),
+  agentInputSchema: agentSchema,
   schema,
   http: { method: "PUT" },
   audit: {
