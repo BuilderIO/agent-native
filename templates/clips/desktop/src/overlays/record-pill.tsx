@@ -772,6 +772,26 @@ export function RecordingPill() {
     return () => clearInterval(t);
   }, []);
 
+  // Self-healing size net: whatever strands the window at the wrong size —
+  // a resize racing a transition, a throttled animation clock finishing
+  // late, a font swap — the pill's layout size is the truth, so any drift
+  // outside a choreographed transition re-syncs the window to it.
+  useEffect(() => {
+    if (!hasTauri) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new ResizeObserver(() => {
+      if (Date.now() < animatingUntilRef.current) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => syncWindowToContent(), 120);
+    });
+    const el = mode === "done" ? cardRef.current : pillRef.current;
+    if (el) observer.observe(el);
+    return () => {
+      if (timer) clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [mode]);
+
   // The pill owns its window's visibility: hidden through pre-record and the
   // countdown, shown the moment capture is live, and kept up while the
   // completion card is open. Rust never shows this window itself.
@@ -856,7 +876,7 @@ export function RecordingPill() {
       {mode === "done" ? (
         <div
           ref={cardRef}
-          className={`w-[340px] rounded-[14px] border-[0.5px] border-[var(--pill-card-border)] bg-[var(--pill-card-surface)] p-4 record-pill-card-shadow ${reducedRef.current ? "" : "record-pill-card-in"}`}
+          className={`w-[340px] flex-none rounded-[14px] border-[0.5px] border-[var(--pill-card-border)] bg-[var(--pill-card-surface)] p-4 record-pill-card-shadow ${reducedRef.current ? "" : "record-pill-card-in"}`}
         >
           <div className="mb-3 flex items-center gap-2.5">
             <span className="flex size-8 flex-none items-center justify-center rounded-full bg-[var(--pill-card-badge-bg)] text-[var(--pill-card-badge)]">
@@ -935,7 +955,7 @@ export function RecordingPill() {
           onMouseLeave={handleMouseLeave}
           onFocusCapture={handleFocusCapture}
           onBlurCapture={handleBlurCapture}
-          className={`flex h-[42px] items-center rounded-full bg-[var(--pill-chrome)] pt-1.5 pr-2 pb-1.5 pl-4 text-[var(--pill-on-chrome)] record-pill-shadow ${enabled ? "" : "opacity-80"}`}
+          className={`flex h-[42px] flex-none items-center rounded-full bg-[var(--pill-chrome)] pt-1.5 pr-2 pb-1.5 pl-4 text-[var(--pill-on-chrome)] record-pill-shadow ${enabled ? "" : "opacity-80"}`}
         >
           <span
             aria-hidden
