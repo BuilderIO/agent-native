@@ -1557,7 +1557,18 @@ async function readWorkspaceAppsFromGateway(): Promise<
       }
     }
 
-    if (!authHeaders.Authorization) return null;
+    const requestOrigin = requestContext?.requestOrigin;
+    const isSameOriginGateway = requestOrigin
+      ? (() => {
+          try {
+            return new URL(requestOrigin).origin === baseUrl.origin;
+          } catch {
+            // coercion-ok: an invalid request origin cannot prove a self-fetch.
+            return false;
+          }
+        })()
+      : false;
+    if (isSameOriginGateway || !authHeaders.Authorization) return null;
     const actionUrl = gatewayUrl(WORKSPACE_APPS_ACTION_PATH);
     actionUrl.searchParams.set("includeAgentCards", "false");
     actionUrl.searchParams.set("audience", "all");

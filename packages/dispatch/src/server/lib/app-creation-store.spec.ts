@@ -372,6 +372,24 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it("does not recursively call the hosted registry action", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "dev@example.test",
+        requestOrigin: "https://agent-workspace.builder.io",
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
   it("keeps the exact request org in hosted registry tokens", async () => {
     const fetchMock = vi
       .fn()
