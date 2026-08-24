@@ -2540,7 +2540,7 @@ const AssistantChatInner = forwardRef<
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
-  const composerDraftScope = threadId || tabId;
+  const composerDraftScope = tabId || threadId;
   const initialComposerText = useMemo(
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
