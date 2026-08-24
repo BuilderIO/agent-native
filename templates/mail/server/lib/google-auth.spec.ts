@@ -35,6 +35,7 @@ vi.mock("@agent-native/core/server", () => ({
     clientSecretKey: "GOOGLE_CLIENT_SECRET",
   },
   getOAuthAccounts: vi.fn(),
+  getCredentialContext: vi.fn(() => null),
   isOAuthConnected: vi.fn(),
   resolveGoogleProviderCredentialCandidatesWithReader: vi.fn(
     async ({ readCredential, credentialKeyPairs }) => {

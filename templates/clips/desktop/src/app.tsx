@@ -2696,6 +2696,7 @@ export function App({
     let stopPump: (() => void) | null = null;
     let fellBackToPump = false;
     let stream: MediaStream | null = null;
+    let unlistenUnrendered: (() => void) | null = null;
 
     const startPump = (reason: string) => {
       if (cancelled || stopPump || !stream) return;
@@ -2756,11 +2757,30 @@ export function App({
           webrtcHandle = null;
           startPump(reason);
         };
+        // ICE reaching `connected` proves the transport works, nothing more.
+        // WKWebView can refuse to play the received track (no user gesture in
+        // the bubble page, or its window briefly had no on-screen area), and
+        // that failure is invisible from here — so the bubble reports it and
+        // we fall back to the pump. Without this the safety net below only
+        // ever fired on ICE failure, which is not how this breaks in practice.
+        listen("clips:bubble-webrtc-unrendered", (ev) => {
+          startCanvasFallback(
+            `bubble reported no rendered frames ${JSON.stringify(ev.payload)}`,
+          );
+        })
+          .then((u) => {
+            if (cancelled) {
+              u();
+              return;
+            }
+            unlistenUnrendered = u;
+          })
+          .catch(() => {});
         webrtcHandle = startBubbleWebrtc({
           stream: s,
           onConnected: () => {
             console.log(
-              "[clips-popover] bubble WebRTC connected — video is live",
+              "[clips-popover] bubble WebRTC transport connected — waiting for the bubble to confirm playback",
             );
           },
           onFailure: startCanvasFallback,
@@ -2805,6 +2825,10 @@ export function App({
         !!webrtcHandle,
         !!stopPump,
       );
+      if (unlistenUnrendered) {
+        unlistenUnrendered();
+        unlistenUnrendered = null;
+      }
       if (webrtcHandle) {
         webrtcHandle.stop();
         webrtcHandle = null;
@@ -3292,11 +3316,14 @@ export function App({
       // A restart hands off the already-live display stream from the take
       // it's replacing (see `discardForRestart`/`preAcquiredDisplayStream`
       // below) — it must keep recording the same screen, not re-prompt.
-      if (source === "full-screen" && !options?.resumeCapture) {
+      if (
+        (source === "full-screen" || source === "region") &&
+        !options?.resumeCapture
+      ) {
         try {
           // Must resolve before `recordingFlowActive` flips the toolbar on
-          // below — the toolbar reads the pick to place itself on the
-          // chosen screen the first time it's shown.
+          // below — the toolbar and region selector read the pick to place
+          // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
           recordingFlowGateRef.current = false;
@@ -3834,22 +3861,25 @@ export function App({
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
-  const pendingUploadBanner = recordingStopFinalizing ? (
-    <FinalizingUploadBanner />
-  ) : pendingUploads.length > 0 ? (
-    <PendingUploadBanner
-      uploads={pendingUploads}
-      retryingUploadId={retryingUploadId}
-      retryingUploadStatus={retryingUploadStatus}
-      exportingUploadId={exportingUploadId}
-      dismissingUploadId={dismissingUploadId}
-      onExport={exportPendingUpload}
-      onRetry={retryPendingUpload}
-      onDismiss={dismissPendingUpload}
-      onOpenFolder={openPendingUploadFolder}
-      onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
-    />
-  ) : null;
+  const pendingUploadBanner =
+    authStatus === "authed" ? (
+      recordingStopFinalizing ? (
+        <FinalizingUploadBanner />
+      ) : pendingUploads.length > 0 ? (
+        <PendingUploadBanner
+          uploads={pendingUploads}
+          retryingUploadId={retryingUploadId}
+          retryingUploadStatus={retryingUploadStatus}
+          exportingUploadId={exportingUploadId}
+          dismissingUploadId={dismissingUploadId}
+          onExport={exportPendingUpload}
+          onRetry={retryPendingUpload}
+          onDismiss={dismissPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
+          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
+        />
+      ) : null
+    ) : null;
 
   async function copyRewindAgentPrompt() {
     try {

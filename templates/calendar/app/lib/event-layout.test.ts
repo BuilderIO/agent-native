@@ -37,7 +37,44 @@ describe("computeTimedEventLayout", () => {
     });
   });
 
-  it("indents the later event while keeping both cards wide", () => {
+  it("lets nested later events overlap the earliest card", () => {
+    const layout = computeTimedEventLayout(
+      [
+        event("a", "08:00", "09:00"),
+        event("b", "08:05", "08:55"),
+        event("c", "08:10", "08:50"),
+        event("d", "08:15", "08:45"),
+      ],
+      DAY,
+    );
+
+    expect(layout.get("a")).toMatchObject({
+      col: 0,
+      left: 0,
+      width: 100,
+      indent: 0,
+    });
+    expect(layout.get("b")).toMatchObject({
+      col: 1,
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
+    expect(layout.get("c")).toMatchObject({
+      col: 2,
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
+    expect(layout.get("d")).toMatchObject({
+      col: 3,
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
+  });
+
+  it("overlays a later event across the earlier event", () => {
     const layout = computeTimedEventLayout(
       [event("gym", "16:00", "18:00"), event("friyay", "17:00", "18:00")],
       DAY,
@@ -58,7 +95,7 @@ describe("computeTimedEventLayout", () => {
     });
   });
 
-  it("adds another inset layer for simultaneous events", () => {
+  it("overlays a later event that starts inside a longer event", () => {
     const layout = computeTimedEventLayout(
       [event("a", "09:00", "11:00"), event("b", "09:20", "10:00")],
       DAY,
@@ -75,6 +112,28 @@ describe("computeTimedEventLayout", () => {
       width: 100,
       indent: 16,
       col: 1,
+    });
+  });
+
+  it("keeps later same-start events in readable lanes", () => {
+    const layout = computeTimedEventLayout(
+      [
+        event("background", "08:00", "12:00"),
+        event("later-a", "09:00", "10:00"),
+        event("later-b", "09:00", "10:00"),
+      ],
+      DAY,
+    );
+
+    expect(layout.get("later-a")).toMatchObject({
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
+    expect(layout.get("later-b")).toMatchObject({
+      left: 50,
+      width: 50,
+      indent: 16,
     });
   });
 
@@ -124,17 +183,23 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("first")).toMatchObject({
       col: 0,
+      left: 0,
+      width: 100,
       indent: 0,
       totalCols: 2,
     });
     expect(layout.get("middle")).toMatchObject({
       col: 1,
+      left: 0,
+      width: 100,
       indent: 16,
       totalCols: 2,
     });
     expect(layout.get("last")).toMatchObject({
       col: 0,
-      indent: 0,
+      left: 0,
+      width: 100,
+      indent: 16,
       totalCols: 2,
     });
   });
@@ -155,6 +220,35 @@ describe("computeTimedEventLayout", () => {
       left: 0,
       width: 100,
       indent: 16,
+    });
+  });
+
+  it("keeps a later isolated event at full width despite an earlier overlap", () => {
+    const layout = computeTimedEventLayout(
+      [
+        event("morning-a", "09:00", "09:30"),
+        event("morning-b", "09:00", "09:30"),
+        event("afternoon", "15:00", "16:00"),
+      ],
+      DAY,
+    );
+
+    expect(layout.get("morning-a")).toMatchObject({
+      left: 0,
+      width: 100,
+      totalCols: 2,
+    });
+    expect(layout.get("morning-b")).toMatchObject({
+      left: 50,
+      width: 50,
+      totalCols: 2,
+    });
+    expect(layout.get("afternoon")).toMatchObject({
+      left: 0,
+      width: 100,
+      indent: 0,
+      col: 0,
+      totalCols: 1,
     });
   });
 

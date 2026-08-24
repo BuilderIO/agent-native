@@ -25,6 +25,7 @@ const popoverOpenChangeHandlers = vi.hoisted(
 const popoverTestState = vi.hoisted(() => ({
   simulateMounting: false,
 }));
+const sharesError = vi.hoisted(() => ({ current: false }));
 const sharesData = vi.hoisted(() => ({
   current: {
     ownerEmail: "owner@example.com",
@@ -38,6 +39,7 @@ const sharesData = vi.hoisted(() => ({
 vi.mock("../use-action.js", () => ({
   useActionQuery: () => ({
     data: sharesData.current,
+    isError: sharesError.current,
     refetch: refetchShares,
   }),
   useActionMutation: (name: string) => ({
@@ -153,6 +155,7 @@ describe("ShareButton", () => {
     popoverInteractOutsideHandlers.length = 0;
     popoverOpenChangeHandlers.length = 0;
     popoverTestState.simulateMounting = false;
+    sharesError.current = false;
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: null,
@@ -515,6 +518,37 @@ describe("ShareButton", () => {
     expect(trigger?.textContent).toBe("Share");
     expect(trigger?.querySelector("svg")).toBeFalsy();
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
+  });
+
+  it("reports a failed shares read instead of skeletoning forever", async () => {
+    sharesData.current = undefined as any;
+    sharesError.current = true;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="plan"
+            resourceId="plan-1"
+            shareUrl="https://plan.agent-native.com/plans/plan-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Couldn't load sharing settings.");
+    expect(container.querySelector(".animate-pulse")).toBeFalsy();
+
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    if (!retry) throw new Error("Retry button not found");
+    const refetchesBefore = refetchShares.mock.calls.length;
+    act(() => {
+      retry.click();
+    });
+
+    expect(refetchShares.mock.calls.length).toBe(refetchesBefore + 1);
   });
 
   it("renders both primary and secondary share URLs", async () => {

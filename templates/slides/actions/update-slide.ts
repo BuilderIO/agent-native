@@ -297,6 +297,11 @@ export default defineAction({
       // structure renders and merges with concurrent typing via the Yjs CRDT.
       let applied = false;
       let notFound = false;
+      // Per-edit outcomes for the `edits` batch (e.g. "insert-after:0" means
+      // that edit's marker matched nothing and it silently no-opped). Stays
+      // undefined for the legacy fullContent/find paths, which have no
+      // per-edit breakdown to report.
+      let editResults: string[] | undefined;
       const previousContent = String(slide.content ?? "");
 
       if (fullContent !== undefined) {
@@ -327,6 +332,7 @@ export default defineAction({
         });
         slide.content = nextContent;
         applied = patched.changed;
+        editResults = patched.applied;
         if (!applied) slide.content = previousContent;
       } else if (find !== undefined) {
         const idx = previousContent.indexOf(find);
@@ -461,6 +467,7 @@ export default defineAction({
         return {
           applied,
           notFound,
+          editResults,
           slide,
           slideIndex,
           contentHash: hashSlideContent(String(slide.content ?? "")),
@@ -473,6 +480,7 @@ export default defineAction({
       return {
         applied,
         notFound,
+        editResults,
         slide,
         slideIndex,
         contentHash: hashSlideContent(String(slide.content ?? "")),
@@ -486,13 +494,14 @@ export default defineAction({
       };
     }
 
-    const { applied } = rmw;
+    const { applied, editResults } = rmw;
     if (!applied) {
       return {
         ok: true,
         deckId,
         slideId,
         applied: false,
+        editResults,
         contentHash: rmw.contentHash,
         deepLink: deckDeepLink(deckId),
       };
@@ -537,6 +546,7 @@ export default defineAction({
       deckId,
       slideId,
       applied,
+      editResults,
       contentHash: rmw.contentHash,
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode

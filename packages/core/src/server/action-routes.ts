@@ -731,6 +731,7 @@ export function mountActionRoutes(
 
               // Only echo the raw message for known-safe cases:
               //  - validation errors (deterministic, parameter-shape only)
+              //  - action contract errors (explicitly safe on every transport)
               //  - explicit user-facing errors (AgentActionStopError / fail())
               //  - errors with an explicit statusCode < 500 (client errors)
               // For uncategorized 500s, return a generic message and keep the
@@ -738,13 +739,16 @@ export function mountActionRoutes(
               // upstream text we must not leak to HTTP callers.
               const isUserFacing =
                 isValidationError ||
+                isActionContractError(err) ||
                 isAgentActionStopError(err) ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return isActionContractError(err)
+                return isActionContractError(err) || isAgentActionStopError(err)
                   ? {
                       error: msg,
-                      errorCode: err.errorCode,
+                      ...(typeof err.errorCode === "string"
+                        ? { errorCode: err.errorCode }
+                        : {}),
                       ...(err.details === undefined
                         ? {}
                         : { details: err.details }),

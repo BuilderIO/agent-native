@@ -27,6 +27,9 @@ describe("dispatch Tailwind styles", () => {
       '@source "../components/**/*.{js,mjs,ts,tsx}"',
     );
     expect(stylesheet).toContain('@source "../routes/**/*.{js,mjs,ts,tsx}"');
+    expect(stylesheet).toContain(
+      "body:has(.fixed.bottom-3.left-3) [data-dispatch-sidebar-footer]",
+    );
   });
 
   it("imports package source directives from the Dispatch template", () => {

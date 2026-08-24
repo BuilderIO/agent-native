@@ -411,6 +411,17 @@ export async function saveOAuthTokens(
     ...(existingTokens ?? {}),
     ...cleanedIncomingTokens,
   };
+  const existingScope = existingTokens?.scope;
+  const incomingScope = cleanedIncomingTokens.scope;
+  if (typeof existingScope === "string" && typeof incomingScope === "string") {
+    tokensToStore.scope = Array.from(
+      new Set(
+        `${existingScope} ${incomingScope}`
+          .split(/[\s,]+/)
+          .filter((scope) => scope.length > 0),
+      ),
+    ).join(" ");
+  }
 
   const result = await client.execute({
     sql: isPostgres()

@@ -693,12 +693,28 @@ export function useContentDatabase(
   };
 }
 
-export function useContentDatabaseById(databaseId: string | null) {
+// `enabled` pauses fetching without touching the query key: a caller that
+// wants to briefly hold off refetching (e.g. to avoid competing with a
+// higher-priority read) can pass `databaseId` unchanged and flip `enabled` to
+// false instead of nulling `databaseId` out. Nulling it changes the query key
+// to its disabled `undefined`-params form, which has no cached data of its
+// own and drops the rows already on screen for as long as it stays disabled.
+export function isContentDatabaseByIdQueryEnabled(
+  databaseId: string | null,
+  options?: { enabled?: boolean },
+): boolean {
+  return !!databaseId && options?.enabled !== false;
+}
+
+export function useContentDatabaseById(
+  databaseId: string | null,
+  options?: { enabled?: boolean },
+) {
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
     databaseId ? { databaseId } : undefined,
     {
-      enabled: !!databaseId,
+      enabled: isContentDatabaseByIdQueryEnabled(databaseId, options),
       retry: false,
       placeholderData: (previous, previousQuery) =>
         preserveScopedDatabasePlaceholder(previous, previousQuery, {

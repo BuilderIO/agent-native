@@ -2450,17 +2450,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={toggleDashOpen}
+                  <Link
+                    to="/dashboards"
                     className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
-                    aria-expanded={dashOpen}
                   >
                     <IconChartBar className="h-4 w-4 shrink-0" />
                     <span className="min-w-0 flex-1 truncate">
                       {t("navigation.dashboards")}
                     </span>
-                  </button>
+                  </Link>
                   <SidebarSectionSettingsPopover
                     label={t("navigation.dashboards")}
                     sortMode={dashboardSortMode}
@@ -2477,6 +2475,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         ? t("sidebar.collapseDashboards")
                         : t("sidebar.expandDashboards")
                     }
+                    aria-expanded={dashOpen}
                   >
                     <IconChevronDown
                       className={cn(

@@ -55,6 +55,33 @@ describe("desktop app chat shell", () => {
     expect(source).not.toContain("data-desktop-app-sign-in");
   });
 
+  it("keeps the resolved chat endpoint across app tab switches", () => {
+    const source = readFileSync(
+      new URL("./DesktopAppChatShell.tsx", import.meta.url),
+      "utf8",
+    );
+    const apiUrlEffectStart = source.indexOf("setApiUrl(null);");
+    const apiUrlEffectEnd = source.indexOf(
+      "  useEffect(() => {\n    void preloadAgentChatSurface();",
+      apiUrlEffectStart,
+    );
+    const apiUrlEffect = source.slice(apiUrlEffectStart, apiUrlEffectEnd);
+
+    expect(apiUrlEffect).toContain("}, [appId]);");
+    expect(apiUrlEffect).not.toContain("setDesktopChatRelayActive");
+  });
+
+  it("keeps the app webview boundary visible with or without chat", () => {
+    const shellCss = readFileSync(
+      new URL("../shell.css", import.meta.url),
+      "utf8",
+    );
+
+    expect(shellCss).toMatch(
+      /\.desktop-app-webview-surface,\s*\.code-agents-embedded-app-surface\s*\{\s*border-left: 1px solid hsl\(var\(--border\)\);\s*\}/,
+    );
+  });
+
   it("shows chat while the guest app is still loading", () => {
     expect(
       shouldShowDesktopAppChatSidebar({

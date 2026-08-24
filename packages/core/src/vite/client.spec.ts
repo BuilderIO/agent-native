@@ -338,6 +338,35 @@ describe("dev server mounted path helpers", () => {
     expect(assetRequest.headers.accept).toBe("image/png");
   });
 
+  it("normalizes the browser's real speculation-rules auto-fetch destination", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+
+    // Real Chromium tags its native speculation-rules auto-fetch with this
+    // exact destination, never absent — the forwarder must still normalize
+    // it, or Nitro's dev classifier treats it as a static asset and 404s.
+    const request: any = {
+      url: "/_agent-native/speculation-rules.json",
+      headers: {
+        accept: "application/speculationrules+json",
+        "sec-fetch-dest": "speculationrules",
+      },
+    };
+    const next = vi.fn();
+    middleware?.(request, {}, next);
+    expect(request.headers["sec-fetch-dest"]).toBe("empty");
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it("preserves document and iframe destinations for embed-start", () => {
     const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
     let middleware: Function | null = null;
@@ -1635,6 +1664,38 @@ describe("agentNative Vite plugin preset", () => {
       dir: "/deps",
       sourcemap: false,
     });
+  });
+
+  it("does not re-emit Vite's deprecated rollupOptions alias", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    // Vite 8 hands plugins a config where `rollupOptions` is a getter alias of
+    // `rolldownOptions`. Spreading it back out alongside our own
+    // `rolldownOptions` makes Vite warn that this plugin set both.
+    const aliasSection = (rolldownOptions: unknown) => {
+      const section: any = { rolldownOptions };
+      Object.defineProperty(section, "rollupOptions", {
+        get: () => section.rolldownOptions,
+        enumerable: true,
+        configurable: true,
+      });
+      return section;
+    };
+
+    const config = (await configPlugin.config(
+      {
+        build: aliasSection({}),
+        optimizeDeps: aliasSection({ plugins: [{ name: "app-dep-plugin" }] }),
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    expect(Object.hasOwn(config.optimizeDeps, "rollupOptions")).toBe(false);
+    expect(Object.hasOwn(config.build, "rollupOptions")).toBe(false);
+    expect(
+      config.optimizeDeps.rolldownOptions.plugins.map((p: any) => p.name),
+    ).toEqual(["app-dep-plugin", "agent-native:no-dep-prebundle-sourcemaps"]);
   });
 
   it("restores dep prebundle sourcemaps when AGENT_NATIVE_DEP_SOURCEMAPS=1", async () => {

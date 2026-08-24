@@ -321,13 +321,21 @@ export interface BookingLink {
    * read response, for display in a multi-time-zone grid.
    */
   ownerTimezone?: string;
+  /** Effective management role for the current caller, when loaded from a list. */
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   createdAt: string;
   updatedAt: string;
 }
 
 export interface GoogleAuthStatus {
+  configured?: boolean;
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
+  accounts: Array<{
+    email: string;
+    expiresAt?: string;
+    photoUrl?: string;
+    shared?: boolean;
+  }>;
 }
 
 export interface ExternalCalendar {

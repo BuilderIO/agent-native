@@ -572,16 +572,14 @@ export async function getConflictItems({
   );
   const freeBusyResolvedHosts = new Set<string>();
 
+  // Google is an availability enhancement, not a requirement: an owner who
+  // hasn't connected Google still has a schedule-only availability computed
+  // below from the weekly schedule and existing SQL bookings. Only actual
+  // Google failures (free/busy errors, event-listing errors, thrown
+  // exceptions) mark availability unavailable — not "not connected".
   const ownerConnected = ownerEmail
     ? await googleCalendar.isConnected(ownerEmail)
     : false;
-
-  if (ownerEmail && !ownerConnected) {
-    return {
-      items: [],
-      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
-    };
-  }
 
   if (ownerConnected) {
     try {

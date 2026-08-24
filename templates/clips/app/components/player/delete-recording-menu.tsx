@@ -94,7 +94,7 @@ export function RecordingOptionsMenu({
           <Button
             variant="ghost"
             size="icon"
-            className="-mx-1.5 h-auto w-auto shrink-0 px-0.5 py-1.5"
+            className="h-auto w-auto shrink-0 px-0.5 py-1.5"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDotsVertical className="h-4 w-4" />

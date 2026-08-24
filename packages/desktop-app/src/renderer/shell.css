@@ -477,6 +477,10 @@ body {
   span,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-settings
+  span,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   .code-agents-rail-footer
   > .update-indicator
   > span {
@@ -507,8 +511,11 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-run-list {
-  visibility: hidden;
-  pointer-events: none;
+  display: none;
+}
+
+.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-rail-scroll {
+  scrollbar-gutter: auto;
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed [data-chat-first-notice] {
@@ -950,7 +957,8 @@ body {
 }
 
 .code-agents-rail-footer {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1px;
   border-top: 1px solid hsl(var(--sidebar-border));
   padding: 8px;
@@ -1016,6 +1024,14 @@ body {
 
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-settings {
+  width: 40px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   [data-chat-first-rail-collapse] {
   background: hsl(var(--sidebar-accent));
   color: hsl(var(--sidebar-accent-foreground));
@@ -1065,6 +1081,11 @@ body {
   overflow: hidden;
   isolation: isolate;
   background: var(--shell-bg);
+}
+
+.desktop-app-webview-surface,
+.code-agents-embedded-app-surface {
+  border-left: 1px solid hsl(var(--border));
 }
 
 .code-agents-primary-app-surface {

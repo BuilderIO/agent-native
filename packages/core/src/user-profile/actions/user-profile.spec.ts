@@ -5,12 +5,16 @@ import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 const getUserProfileMock = vi.fn();
 const updateUserProfileMock = vi.fn();
 const getBetterAuthMock = vi.fn();
+const getBetterAuthInternalAdapterMock = vi.fn();
 let auth: {
   api: {
     listUserAccounts: ReturnType<typeof vi.fn>;
     setPassword: ReturnType<typeof vi.fn>;
     changePassword: ReturnType<typeof vi.fn>;
   };
+};
+let internalAdapter: {
+  findUserByEmail: ReturnType<typeof vi.fn>;
 };
 
 vi.mock("../store.js", () => ({
@@ -19,6 +23,8 @@ vi.mock("../store.js", () => ({
 }));
 vi.mock("../../server/better-auth-instance.js", () => ({
   getBetterAuth: (...args: unknown[]) => getBetterAuthMock(...args),
+  getBetterAuthInternalAdapter: (...args: unknown[]) =>
+    getBetterAuthInternalAdapterMock(...args),
 }));
 
 const getProfile = (await import("./get-user-profile.js")).default;
@@ -51,6 +57,20 @@ describe("user profile actions", () => {
       },
     };
     getBetterAuthMock.mockResolvedValue(auth);
+    internalAdapter = {
+      findUserByEmail: vi.fn().mockResolvedValue({
+        user: { id: "user-1", email: "alice@example.com" },
+        accounts: [
+          {
+            id: "acc-1",
+            providerId: "credential",
+            accountId: "alice@example.com",
+          },
+          { id: "acc-2", providerId: "google", accountId: "alice@example.com" },
+        ],
+      }),
+    };
+    getBetterAuthInternalAdapterMock.mockResolvedValue(internalAdapter);
   });
 
   it("exposes a read action for the current profile", async () => {
@@ -86,7 +106,7 @@ describe("user profile actions", () => {
     ).rejects.toThrow("Not authenticated");
   });
 
-  it("reads password availability through Better Auth", async () => {
+  it("reads password availability by the resolved user email", async () => {
     const headers = new Headers();
     await expect(
       getAuthMethods.run(
@@ -99,9 +119,74 @@ describe("user profile actions", () => {
       ),
     ).resolves.toEqual({ hasPassword: true });
 
-    expect(auth.api.listUserAccounts).toHaveBeenCalledWith({ headers });
+    expect(internalAdapter.findUserByEmail).toHaveBeenCalledWith(
+      "alice@example.com",
+      { includeAccounts: true },
+    );
     expect(getAuthMethods.agentTool).toBe(false);
     expect(getAuthMethods.toolCallable).toBe(false);
+  });
+
+  it("resolves password state for a caller with no Better Auth session cookie (e.g. AUTH_DISABLED dev sessions)", async () => {
+    // AUTH_DISABLED mints ctx.userEmail without ever setting a real Better
+    // Auth session cookie, so the cookie-based auth.api.listUserAccounts
+    // path always 401s for it — reproduce that failure here to prove the
+    // action no longer depends on that path for its data.
+    auth.api.listUserAccounts.mockRejectedValue(
+      Object.assign(new Error("UNAUTHORIZED"), { statusCode: 401 }),
+    );
+    internalAdapter.findUserByEmail.mockResolvedValue({
+      user: { id: "dev-user", email: "dev@local.test" },
+      accounts: [
+        { id: "acc-1", providerId: "credential", accountId: "dev@local.test" },
+      ],
+    });
+
+    await expect(
+      getAuthMethods.run(
+        {},
+        {
+          caller: "frontend",
+          userEmail: "dev@local.test",
+          requestHeaders: new Headers(),
+        },
+      ),
+    ).resolves.toEqual({ hasPassword: true });
+  });
+
+  it("reports no password when the resolved email has no Better Auth user record", async () => {
+    internalAdapter.findUserByEmail.mockResolvedValue(null);
+
+    await expect(
+      getAuthMethods.run(
+        {},
+        {
+          caller: "frontend",
+          userEmail: "dev@local.test",
+          requestHeaders: new Headers(),
+        },
+      ),
+    ).resolves.toEqual({ hasPassword: false });
+  });
+
+  it("throws instead of reporting no password when the internal adapter is unavailable", async () => {
+    // getBetterAuthInternalAdapter returns undefined when $context resolution
+    // fails or has an unexpected shape — an unreadable auth backend, not
+    // confirmation that the user has no credential account. An existing
+    // credential user must not see the "set password" state for this.
+    getBetterAuthInternalAdapterMock.mockResolvedValue(undefined);
+
+    await expect(
+      getAuthMethods.run(
+        {},
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          requestHeaders: new Headers(),
+        },
+      ),
+    ).rejects.toThrow();
+    expect(internalAdapter.findUserByEmail).not.toHaveBeenCalled();
   });
 
   it("adds and changes passwords without exposing credential values", async () => {

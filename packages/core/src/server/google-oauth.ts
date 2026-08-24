@@ -462,6 +462,8 @@ export interface OAuthStatePayload {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  /** Optional signed scope for provider-specific OAuth flows. */
+  scope?: string;
   /**
    * Same-origin path to redirect to after a successful web-flow sign-in.
    * Threaded through the (HMAC-signed) state so it survives the round trip
@@ -541,6 +543,7 @@ export interface EncodeOAuthStateOptions {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  scope?: string;
   returnUrl?: string;
   flowId?: string;
   desktopVerifierHash?: string;
@@ -624,6 +627,7 @@ export function encodeOAuthState(
   if (opts.mobile) payload.m = true;
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
+  if (opts.scope) payload.s = opts.scope;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
@@ -680,6 +684,7 @@ export function decodeOAuthState(
         mobile: !!parsed.m,
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,
+        scope: typeof parsed.s === "string" ? parsed.s : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
         // consumer (oauthCallbackResponse → safeReturnPath). The state is
         // HMAC-signed, but we still validate at consumption as defence in

@@ -35,6 +35,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
   "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
+  "agentPanel.mode": "Modo",
+  "agentPanel.uiMode": "Interface",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",
   "common.connect": "Conectar",
@@ -582,6 +584,8 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "Pessoas com o link ainda podem abrir isto.",
   "share.loading": "Carregando...",
   "share.loadMore": "Ver mais",
+  "share.loadFailed":
+    "Não foi possível carregar as configurações de compartilhamento.",
   "share.loadPeopleFailed": "Não foi possível carregar pessoas.",
   "share.noAccess": "Ninguém tem acesso ainda.",
   "share.noMatches": "Nenhuma correspondência.",

@@ -114,6 +114,7 @@ function buildDesignSystemAgentContext({
   assets,
   customInstructions,
   builder,
+  canRefreshBuilder,
 }: {
   id: string;
   title: string;
@@ -122,6 +123,7 @@ function buildDesignSystemAgentContext({
   assets?: string | null;
   customInstructions?: string | null;
   builder: BuilderGenerationContext | null;
+  canRefreshBuilder: boolean;
 }): string {
   const lines: string[] = [
     "## Selected Design System Context",
@@ -154,7 +156,9 @@ function buildDesignSystemAgentContext({
       builder.builderUrl ? `- URL: ${builder.builderUrl}` : "",
       builder.builderStatus ? `- Status: ${builder.builderStatus}` : "",
       "- Builder DSI docs and token values override local proxy placeholders.",
-      "- Do not substitute a generic style if DSI docs or tokens are unavailable; call get-design-system again or tell the user Builder indexing is not ready.",
+      canRefreshBuilder
+        ? "- If no usable DSI docs or tokens are returned, call refresh-design-system-with-builder once, then call get-design-system again before generating; if it is still empty, tell the user Builder indexing is not ready."
+        : "- If no usable DSI docs or tokens are returned, tell the user Builder indexing is not ready; refreshing the shared system requires editor access.",
     );
 
     if (builder.warning) {
@@ -297,6 +301,7 @@ export default defineAction({
         data: row.data,
         assets: row.assets,
         customInstructions: row.customInstructions,
+        canRefreshBuilder: ["owner", "admin", "editor"].includes(access.role),
         builder,
       }),
     };

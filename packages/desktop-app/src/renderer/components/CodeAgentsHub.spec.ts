@@ -263,6 +263,29 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
+  it("declares the app guest hidden while the integrations overlay covers it", () => {
+    // The guest stays isActive while the wrapper is `invisible`, and an
+    // Electron guest never observes CSS hiding — without this it keeps
+    // polling and holding its event stream underneath the overlay.
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("surfaceHidden={!showNativeIntegrationsGuest}");
+  });
+
+  it("remounts chat-first app surfaces when the shell refresh key changes", () => {
+    // A lane switch bumps refreshKey; without this the app surfaces kept
+    // their old origin and only the preview path reloaded.
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("refreshKey={refreshKey}");
+  });
+
   it("keeps the chat-first rail collapse control at the bottom of the rail", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
@@ -282,8 +305,10 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
-    expect(hubSource).not.toContain("desktop-chat-first-rail-settings");
-    expect(hubSource).not.toContain('<DesktopRailTooltip label="Settings">');
+    expect(hubSource).toContain("desktop-chat-first-rail-settings");
+    expect(hubSource).toContain('<DesktopRailTooltip label="Settings">');
+    expect(hubSource).toContain("onClick={() => onOpenSettings()}");
+    expect(hubSource).toContain("<IconSettings");
     expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
@@ -306,12 +331,23 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toMatch(
       /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-feedback\s*\{[\s\S]*?flex: 1 1 auto;/,
     );
-    expect(shellCss).toContain("visibility: hidden;");
+    expect(shellCss).toContain("desktop-chat-first-rail-settings");
     expect(shellCss).toContain("margin-top: auto;");
     expect(shellCss).toContain("height: 100%;");
     expect(shellCss).toContain("min-height: 0;");
     expect(shellCss).toContain("z-index: 1;");
     expect(shellCss).toContain("[data-chat-first-rail-collapse]");
+  });
+
+  it("removes the hidden chat list from the collapsed rail layout", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub\s+\.code-agents-rail--collapsed\s+\.code-agents-run-list\s*\{[\s\S]*?display: none;/,
+    );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub\s+\.code-agents-rail--collapsed\s+\.code-agents-rail-scroll\s*\{[\s\S]*?scrollbar-gutter: auto;/,
+    );
   });
 
   it("routes Electron-forwarded Cmd+backslash to the chat sidebar", () => {
@@ -332,6 +368,22 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "if (forwardDesktopNavigationShortcut(event, input)) return;",
     );
     expect(mainSource).toContain("if (isDesktopChatToggleShortcut(input)) {");
+  });
+
+  it("routes Cmd+, to the desktop settings surface", () => {
+    const appSource = readFileSync("src/renderer/App.tsx", "utf8");
+    const mainSource = readFileSync("src/main/index.ts", "utf8");
+    const shortcutSource = readFileSync(
+      "src/main/desktop-navigation-shortcuts.ts",
+      "utf8",
+    );
+
+    expect(appSource).toContain("isDesktopSettingsShortcut");
+    expect(appSource).toContain("handleOpenSettings();");
+    expect(mainSource).toContain('contents.on("before-input-event"');
+    expect(mainSource).toContain('win.webContents.on("before-input-event"');
+    expect(shortcutSource).toContain("isDesktopSettingsShortcut");
+    expect(shortcutSource).toContain('? ","');
   });
 
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {

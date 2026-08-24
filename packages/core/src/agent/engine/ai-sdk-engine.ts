@@ -32,10 +32,7 @@ import {
   classifyProviderError,
   describeErrorWithCauses,
 } from "./error-detail.js";
-import {
-  createFirstEventAbortController,
-  FIRST_STREAM_EVENT_TIMEOUT_MS,
-} from "./first-event-timeout.js";
+import { createFirstEventAbortController } from "./first-event-timeout.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -533,11 +530,14 @@ class AISDKEngine implements AgentEngine {
       }
 
       // AI SDK surfaces an aborted stream as a graceful `{type: "abort"}`
-      // part rather than a thrown error, so a first-event timeout would
-      // otherwise fall through to the normal end_turn completion below.
-      if (!sawFirstEvent && firstEventAbort.didTimeout()) {
+      // part rather than a thrown error, so a deadline abort would otherwise
+      // fall through to the normal end_turn completion below. Not gated on
+      // `sawFirstEvent`: the total deadline fires mid-stream by definition, and
+      // reporting that half-delivered turn as a clean end_turn is exactly the
+      // truncated-run-reported-as-complete failure.
+      if (firstEventAbort.didTimeout()) {
         throw new Error(
-          `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`,
+          `${firstEventAbort.timeoutMessage()}; the connection appears wedged.`,
         );
       }
 

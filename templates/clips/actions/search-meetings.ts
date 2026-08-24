@@ -38,6 +38,7 @@ const MEETING_COLUMNS = {
   source: schema.meetings.source,
   platform: schema.meetings.platform,
   trashedAt: schema.meetings.trashedAt,
+  ownerEmail: schema.meetings.ownerEmail,
 } as const;
 
 type MeetingRow = Pick<
