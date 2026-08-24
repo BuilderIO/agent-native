@@ -37,8 +37,40 @@ describe("markdown negotiation edge function", () => {
     ).toBeUndefined();
     expect(
       markdownNegotiation(
+        new Request("https://www.agent-native.com/assets/font.woff2", {
+          headers: { Accept: "text/markdown" },
+        }),
+      ),
+    ).toBeUndefined();
+    expect(
+      markdownNegotiation(
+        new Request("https://www.agent-native.com/docs/page.data", {
+          headers: { Accept: "text/markdown" },
+        }),
+      ),
+    ).toBeUndefined();
+    expect(
+      markdownNegotiation(
+        new Request(
+          "https://www.agent-native.com/examples/self-hosted-chat/Dockerfile",
+          { headers: { Accept: "text/markdown" } },
+        ),
+      ),
+    ).toBeUndefined();
+    expect(
+      markdownNegotiation(
         new Request("https://www.agent-native.com/docs/agent-web-surfaces", {
           headers: { Accept: "text/html" },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("does not rewrite the internal root path a second time", () => {
+    expect(
+      markdownNegotiation(
+        new Request("https://www.agent-native.com/__agent-native-markdown", {
+          headers: { Accept: "text/markdown" },
         }),
       ),
     ).toBeUndefined();
@@ -53,5 +85,19 @@ describe("markdown negotiation edge function", () => {
     expect(config).toContain(
       'edge_functions = "packages/docs/netlify/edge-functions"',
     );
+    for (const redirectPath of [
+      "/examples/self-hosted-chat/Dockerfile",
+      "/templates",
+      "/templates/*",
+      "/:locale/templates/*",
+      "/docs/getting-started",
+      "/:locale/docs/getting-started",
+      "/docs/resources",
+      "/docs/workspace",
+      "/:locale/docs/workspace",
+      "/docs/:locale/workspace",
+    ]) {
+      expect(config).toContain(`"${redirectPath}"`);
+    }
   });
 });

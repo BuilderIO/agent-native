@@ -12,8 +12,11 @@ export function acceptsMarkdown(header: string | null): boolean {
 }
 
 function isStaticAsset(pathname: string): boolean {
-  return /\.(?:css|gif|ico|jpeg|jpg|js|json|map|md|png|svg|txt|webp|xml)$/i.test(
-    pathname,
+  return (
+    pathname.endsWith("/Dockerfile") ||
+    /\.(?:avif|css|data|dockerignore|eot|example|gif|html|ico|jpe?g|js|json|map|md|png|svg|txt|ttf|wasm|webmanifest|webp|woff2?|xml|ya?ml)$/i.test(
+      pathname,
+    )
   );
 }
 
@@ -21,6 +24,7 @@ export default function markdownNegotiation(request: Request): URL | undefined {
   const url = new URL(request.url);
   if (
     !acceptsMarkdown(request.headers.get("accept")) ||
+    url.pathname === MARKDOWN_REWRITE_PREFIX ||
     url.pathname.startsWith(`${MARKDOWN_REWRITE_PREFIX}/`) ||
     isStaticAsset(url.pathname)
   ) {
@@ -39,8 +43,22 @@ export const config = {
     "/.netlify/*",
     "/.well-known/*",
     "/_agent-native/*",
+    "/__agent-native-markdown",
     "/__agent-native-markdown/*",
     "/api/*",
     "/assets/*",
+    "/examples/self-hosted-chat/Dockerfile",
+    "/templates",
+    "/templates/",
+    "/templates/*",
+    "/:locale/templates",
+    "/:locale/templates/",
+    "/:locale/templates/*",
+    "/docs/getting-started",
+    "/:locale/docs/getting-started",
+    "/docs/resources",
+    "/docs/workspace",
+    "/:locale/docs/workspace",
+    "/docs/:locale/workspace",
   ],
 };
