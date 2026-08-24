@@ -134,8 +134,9 @@ export function RecordingPill() {
   const [micLevel, setMicLevel] = useState(0);
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
-  // What the confirm's red button does — restart discards the take exactly
-  // like delete does, so both route through the same destructive confirm.
+  // What the confirm's action button does. Both intents share the confirm
+  // strip, but only delete is destructive-red; restart is the macOS-blue
+  // "cancel this and start a new one" action (CleanShot's convention).
   const [confirmIntent, setConfirmIntent] = useState<"delete" | "restart">(
     "delete",
   );
@@ -417,15 +418,16 @@ export function RecordingPill() {
     const wasPaused = pausedRef.current;
     confirmFromPausedRef.current = wasPaused;
     setMode("confirm");
-    const dur = formatDurationCopy(elapsedRef.current);
     // The question's segment width is measured synchronously below, so the
-    // new text (and the red button's label) must be committed to the DOM
+    // new text (and the action button's label) must be committed to the DOM
     // before transitionSegs runs — without flushSync it would measure the
     // previous (empty) question.
     flushSync(() => {
       setConfirmIntent(intent);
       setConfirmQuestion(
-        intent === "delete" ? `Delete ${dur}?` : `Restart and delete ${dur}?`,
+        intent === "delete"
+          ? `Delete ${formatDurationCopy(elapsedRef.current)}?`
+          : "Start a new recording?",
       );
     });
     // Pause at the instant of the click — the deliberation must not end up
@@ -1107,7 +1109,7 @@ export function RecordingPill() {
               <button
                 type="button"
                 onClick={confirmDestructive}
-                className="ml-2.5 flex h-7 flex-none items-center rounded-full bg-[var(--pill-rec)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
+                className={`ml-2.5 flex h-7 flex-none items-center rounded-full px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)] ${confirmIntent === "delete" ? "bg-[var(--pill-rec)]" : "bg-[var(--pill-restart)]"}`}
               >
                 {confirmIntent === "delete" ? "Delete" : "Restart"}
               </button>

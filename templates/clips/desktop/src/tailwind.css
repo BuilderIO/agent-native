@@ -322,6 +322,8 @@
   --pill-card-border-strong: rgba(0, 0, 0, 0.2);
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-card-well: rgba(0, 0, 0, 0.05);
+  /* guard:allow-raw-color — theme-invariant capture chrome; macOS-blue restart action */
+  --pill-restart: #3a82f7;
   --pill-ease: cubic-bezier(0.3, 0, 0, 1);
 }
 
