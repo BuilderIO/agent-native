@@ -1030,7 +1030,7 @@ export function RecordingPill() {
           </button>
           <span
             aria-live="off"
-            className="record-pill-mono ml-1 flex-none text-sm font-medium transition-colors duration-150"
+            className="record-pill-mono ml-1.5 flex-none text-sm font-medium transition-colors duration-150"
             style={{
               color: showPaused ? "var(--pill-on-chrome)" : "var(--pill-rec)",
             }}
@@ -1039,7 +1039,7 @@ export function RecordingPill() {
           </span>
           <span
             aria-hidden
-            className="ml-2.5 flex h-3.5 w-[13px] flex-none items-end justify-center gap-0.5 transition-opacity duration-150"
+            className="ml-3.5 flex h-3.5 w-[13px] flex-none items-center justify-center gap-0.5 transition-opacity duration-150"
             style={{ opacity: meterFlat ? 0.3 : 1 }}
           >
             {shownBarHeights.map((h, i) => (
@@ -1055,7 +1055,7 @@ export function RecordingPill() {
             onClick={togglePause}
             disabled={!enabled || inConfirm}
             aria-label={showPaused ? "Resume" : "Pause"}
-            className="ml-0.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
+            className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
           >
             {showPaused ? (
               <IconPlayerPlayFilled size={14} aria-hidden />
@@ -1116,7 +1116,7 @@ export function RecordingPill() {
             <span className="inline-flex flex-none items-center">
               <span
                 aria-hidden
-                className="ml-1 h-[18px] w-px flex-none bg-[var(--pill-soft)]"
+                className="ml-1.5 h-[18px] w-px flex-none bg-[var(--pill-soft)]"
               />
               <button
                 type="button"
