@@ -987,32 +987,27 @@ function LLMSectionInner({
   >(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>(null);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
-  const [envLoaded, setEnvLoaded] = useState(false);
   const [envProbeAvailable, setEnvProbeAvailable] = useState(false);
   const [enginesLoaded, setEnginesLoaded] = useState(false);
-  const [statusLoaded, setStatusLoaded] = useState(false);
   const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
   const probeGenerationRef = useRef({ env: 0, status: 0 });
 
-  const initialLoading =
-    !envLoaded || !enginesLoaded || !statusLoaded || !!builderLoading;
+  const initialLoading = !enginesLoaded || !!builderLoading;
 
   const refreshEnvKeys = useCallback(() => {
     const generation = ++probeGenerationRef.current.env;
     setEnvProbeAvailable(false);
     setEnvKeys([]);
-    void fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>()
-      .then((result) => {
-        if (generation !== probeGenerationRef.current.env) return;
-        if (result.state !== "available" || !Array.isArray(result.value)) {
-          return;
-        }
-        setEnvKeys(result.value);
-        setEnvProbeAvailable(true);
-      })
-      .finally(() => {
-        if (generation === probeGenerationRef.current.env) setEnvLoaded(true);
-      });
+    void fetchEnvironmentStatus<
+      Array<{ key: string; configured: boolean }>
+    >().then((result) => {
+      if (generation !== probeGenerationRef.current.env) return;
+      if (result.state !== "available" || !Array.isArray(result.value)) {
+        return;
+      }
+      setEnvKeys(result.value);
+      setEnvProbeAvailable(true);
+    });
   }, []);
 
   const notifyConfigChanged = useCallback(() => {
@@ -1047,12 +1042,7 @@ function LLMSectionInner({
         }
         setStatusProbeAvailable(true);
       })
-      .catch(() => {})
-      .finally(() => {
-        if (generation === probeGenerationRef.current.status) {
-          setStatusLoaded(true);
-        }
-      });
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
