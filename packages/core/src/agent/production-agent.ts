@@ -6740,6 +6740,16 @@ export async function runAgentLoop(opts: {
       // alongside genuine reads, which can reorder it ahead of a later mutating
       // call and break the model's intended sequencing.
       if (!entry) return null;
+      // A call that can pause the turn must not share a batch. `flushParallelBatch`
+      // dispatches through `Promise.all`, so a gated call and its siblings all
+      // start before the gate is reached, and `turnYieldedToUser` would then be
+      // set too late to stop a sibling that already ran. Serializing here is what
+      // makes that flag mean anything for the calls after it. `needsApproval` may
+      // be an async predicate, so this cannot resolve whether approval is truly
+      // required — declaring it at all is enough to serialize.
+      if (entry.needsApproval !== undefined || entry.endsTurn === true) {
+        return null;
+      }
       if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;

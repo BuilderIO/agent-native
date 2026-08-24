@@ -9525,6 +9525,84 @@ describe("runAgentLoop", () => {
     );
   });
 
+  // Same guarantee, but through the parallel path. A batch is dispatched with
+  // `Promise.all`, so if a gated call were batchable its siblings would already
+  // be running by the time the gate is reached — including a mutating
+  // `parallelSafe` one.
+  it("does not run parallelSafe siblings batched alongside a gated call", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "gated-1",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "sibling-1",
+                name: "bulk-write",
+                input: { id: "42" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const sendEmail = vi.fn(async () => "delivered");
+    const bulkWrite = vi.fn(async () => "written");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        // Declares BOTH parallelSafe and needsApproval — without serializing
+        // gated calls this lands in a write batch with its sibling.
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          parallelSafe: true,
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "bulk-write": {
+          ...actionEntry({ readOnly: false }),
+          parallelSafe: true,
+          run: bulkWrite,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(bulkWrite).not.toHaveBeenCalled();
+  });
+
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
     // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();
