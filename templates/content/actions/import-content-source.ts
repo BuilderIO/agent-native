@@ -15,6 +15,7 @@ import {
   parseContentSourceFile,
   type ParsedContentSourceFile,
 } from "../shared/content-source.js";
+import { normalizeImportedMarkdownStructures } from "../shared/markdown-import.js";
 import {
   favoriteDocumentIds,
   setFavoriteMembership,
@@ -212,7 +213,13 @@ export default defineAction({
       await resolveContentSpaceAccess(defaultSpaceId, "editor");
     }
     const parsed: ParsedContentSourceFile[] = entries.map(
-      ([filePath, source]) => parseContentSourceFile(filePath, source),
+      ([filePath, source]) => {
+        const parsed = parseContentSourceFile(filePath, source);
+        return {
+          ...parsed,
+          content: normalizeImportedMarkdownStructures(parsed.content).content,
+        };
+      },
     );
     const importPaths = [...new Set(parsed.map((file) => file.path))];
     const existingLocalDocs =

@@ -13,10 +13,11 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeMarkdownPipeTable } from "../shared/markdown-import.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -53,6 +54,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("JSON array of {find, replace} objects (batch mode)"),
+    transform: z
+      .literal("normalize-pipe-table")
+      .optional()
+      .describe(
+        "Deterministically convert one unique exact Markdown pipe-table region into Content's native table form. Returns a typed no-change result when the region is missing, ambiguous, unsupported, or stale.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -73,6 +80,41 @@ export default defineAction({
   run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    const access = await assertAccess("document", id, "editor");
+    const existing = access.resource;
+    const db = getDb();
+
+    const verifyUnchangedTransformResult = async <T extends object>(
+      result: T,
+    ) => {
+      const [persisted] = await db
+        .select({ content: schema.documents.content })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id))
+        .limit(1);
+      if (!persisted) {
+        throw new Error(
+          "Pipe-table repair could not verify the persisted document body.",
+        );
+      }
+      if (persisted.content !== existing.content) {
+        return {
+          status: "stale" as const,
+          applied: 0,
+          total: 1,
+          verified: true,
+          persistedContentUnchanged: false,
+          results: [
+            "STALE: document changed during repair verification; no repair applied",
+          ],
+        };
+      }
+      return {
+        ...result,
+        verified: true,
+        persistedContentUnchanged: true,
+      };
+    };
 
     // Only publish AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
@@ -82,7 +124,55 @@ export default defineAction({
 
     let edits: TextEdit[];
 
-    if (args.edits) {
+    let transformResult:
+      | {
+          status: "repaired";
+          columnCount: number;
+          rowCount: number;
+        }
+      | undefined;
+
+    if (args.transform) {
+      if (args.edits !== undefined || args.replace !== undefined) {
+        throw new Error(
+          "--transform cannot be combined with --edits or --replace",
+        );
+      }
+      if (!args.find) throw new Error("--find is required with --transform");
+      const matches = (existing.content ?? "").split(args.find).length - 1;
+      if (matches === 0) {
+        return verifyUnchangedTransformResult({
+          status: "no-match" as const,
+          applied: 0,
+          total: 1,
+          results: ["NOT FOUND: exact pipe-table region"],
+        });
+      }
+      if (matches > 1) {
+        return verifyUnchangedTransformResult({
+          status: "ambiguous" as const,
+          applied: 0,
+          total: 1,
+          results: [`AMBIGUOUS: exact region occurs ${matches} times`],
+        });
+      }
+      const normalized = normalizeMarkdownPipeTable(args.find);
+      if (normalized.status !== "normalized") {
+        return verifyUnchangedTransformResult({
+          status: "unsupported" as const,
+          reason: normalized.reason,
+          applied: 0,
+          total: 1,
+          results: [`UNSUPPORTED: ${normalized.reason}`],
+        });
+      }
+      edits = [{ find: args.find, replace: normalized.content }];
+      transformResult = {
+        status: "repaired",
+        columnCount: normalized.columnCount,
+        rowCount: normalized.rowCount,
+      };
+    } else if (args.edits) {
       try {
         edits = JSON.parse(args.edits);
         if (!Array.isArray(edits))
@@ -104,9 +194,6 @@ export default defineAction({
         throw new Error("Each edit must have a non-empty 'find' field");
       if (edit.replace === undefined) edit.replace = "";
     }
-
-    const access = await assertAccess("document", id, "editor");
-    const existing = access.resource;
 
     // ─── Apply edits to the document markdown ───────────────────────────────
     //
@@ -238,14 +325,26 @@ export default defineAction({
 
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an
     // intentional external edit apart from a stale autosave echo.
-    const db = getDb();
     const now = new Date().toISOString();
+    let stale = false;
     await db.transaction(async (tx: any) => {
       const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
-      await tx
+      const updated = await tx
         .update(schema.documents)
         .set({ content, updatedAt: now })
-        .where(eq(schema.documents.id, id));
+        .where(
+          transformResult
+            ? and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.content, existing.content),
+              )
+            : eq(schema.documents.id, id),
+        )
+        .returning({ id: schema.documents.id });
+      if (transformResult && updated.length === 0) {
+        stale = true;
+        return;
+      }
       for (const field of primaryBlocksFields) {
         await persistBlocksFieldIdentity({
           db: tx as unknown as ReturnType<typeof getDb>,
@@ -269,6 +368,40 @@ export default defineAction({
         );
       }
     });
+
+    if (stale) {
+      const [persisted] = await db
+        .select({ content: schema.documents.content })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id))
+        .limit(1);
+      if (!persisted) {
+        throw new Error(
+          "Pipe-table repair could not verify the persisted document body.",
+        );
+      }
+      return {
+        status: "stale" as const,
+        applied: 0,
+        total: 1,
+        verified: true,
+        persistedContentUnchanged: persisted.content === existing.content,
+        results: ["STALE: document changed before repair; no changes applied"],
+      };
+    }
+
+    if (transformResult) {
+      const [persisted] = await db
+        .select({ content: schema.documents.content })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id))
+        .limit(1);
+      if (!persisted || persisted.content !== content) {
+        throw new Error(
+          "Pipe-table repair could not verify the persisted document body.",
+        );
+      }
+    }
 
     // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
     // binds the TipTap Y.XmlFragment("default"), so a live editing session is
@@ -307,6 +440,8 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
+      ...transformResult,
+      ...(transformResult ? { verified: true } : {}),
       applied: changeCount,
       total: edits.length,
       results,

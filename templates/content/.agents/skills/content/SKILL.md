@@ -42,6 +42,11 @@ actions, and local folders that sync into the same database model.
 - Local folders are sources attached to a space's canonical Files database.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.
+- Markdown imports normalize positively recognized pipe tables into native
+  Content tables and retain fenced Mermaid as ordinary Code source. For a
+  legacy flattened pipe table, use `edit-document` with
+  `transform: "normalize-pipe-table"` and the exact unique table region; do not
+  regenerate the whole Page.
 - If Content tools are not visible and no local Content app or Desktop bridge is
   running, treat this skill as repo-editing guidance. Edit configured
   `.md`/`.mdx` files directly, preserve frontmatter and MDX imports, and tell

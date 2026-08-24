@@ -72,7 +72,15 @@ pnpm action edit-document --id abc123 --find "delete me" --replace ""
 
 # Batch edits
 pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{"find":"also old","replace":"also new"}]'
+
+# Repair one exact imported pipe table without regenerating the document
+pnpm action edit-document --id abc123 --find '| A | B |\n| --- | --- |\n| 1 | 2 |' --transform normalize-pipe-table
 ```
+
+`normalize-pipe-table` accepts only a supported pipe-table region that occurs
+exactly once. Missing, repeated, or malformed input returns a typed result only
+after exact unchanged-body read-back; concurrent changes return `stale`. Use it for import repair instead of sending the whole Page
+through `update-document --content`; unrelated content must remain untouched.
 
 ### update-document
 

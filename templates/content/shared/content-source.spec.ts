@@ -63,6 +63,43 @@ describe("content source files", () => {
     });
   });
 
+  it("parses Markdown bodies without rewriting source structures", () => {
+    const source = [
+      "Before sentinel.",
+      "",
+      "| Stage | Owner | Note |",
+      "| :--- | ---: | :---: |",
+      "| Draft | Writer | Uses \\| safely |",
+      "| Review | `Editor | QA` | Ready |",
+      "",
+      "Middle sentinel.",
+      "",
+      "```mermaid",
+      "flowchart LR",
+      "  Draft --> Review",
+      "```",
+      "",
+      "After sentinel.",
+    ].join("\n");
+
+    const parsed = parseContentSourceFile("content/release-path.md", source);
+
+    expect(parsed.content).toBe(source);
+  });
+
+  it("leaves ambiguous table-like text unchanged", () => {
+    const source = [
+      "| A | B |",
+      "| --- | --- |",
+      "| one cell only |",
+      "After sentinel.",
+    ].join("\n");
+
+    expect(parseContentSourceFile("content/ambiguous.md", source).content).toBe(
+      source,
+    );
+  });
+
   it("leaves optional metadata undefined when omitted from frontmatter", () => {
     expect(
       parseContentSourceFile(

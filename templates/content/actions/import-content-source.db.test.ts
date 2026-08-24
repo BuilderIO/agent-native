@@ -5,9 +5,16 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { serializeContentSourceDocument } from "../shared/content-source.js";
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -18,6 +25,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let importContentSourceAction: typeof import("./import-content-source.js").default;
+let editDocumentAction: typeof import("./edit-document.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 const OWNER = "owner@example.com";
@@ -31,6 +39,7 @@ beforeAll(async () => {
   schema = dbModule.schema;
   importContentSourceAction = (await import("./import-content-source.js"))
     .default;
+  editDocumentAction = (await import("./edit-document.js")).default;
   provisionContentSpaces = (await import("./_content-spaces.js"))
     .provisionContentSpaces;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -80,6 +89,146 @@ function sourceWithFavorite(isFavorite: boolean) {
 }
 
 describe("import-content-source descriptions", () => {
+  it("imports pipe tables as native NFM while preserving Mermaid and siblings", async () => {
+    const content = [
+      "Before sentinel.",
+      "",
+      "| Stage | Owner |",
+      "| --- | --- |",
+      "| Draft | Writer |",
+      "| Review | Editor |",
+      "",
+      "Middle sentinel.",
+      "",
+      "```mermaid",
+      "flowchart LR",
+      "  Draft --> Review",
+      "```",
+      "",
+      "After sentinel.",
+    ].join("\n");
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { "content/release-path.md": content },
+        dryRun: false,
+      }),
+    );
+    const documentId = result.created[0]?.id;
+    if (!documentId) throw new Error("Expected imported fixture document");
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+
+    expect(document.content).toContain('<table header-row="true">');
+    expect(document.content).toContain(
+      "```mermaid\nflowchart LR\n  Draft --> Review\n```",
+    );
+    expect(document.content).toContain("Before sentinel.");
+    expect(document.content).toContain("Middle sentinel.");
+    expect(document.content).toContain("After sentinel.");
+  });
+
+  it("repairs one exact pipe table and fails closed otherwise", async () => {
+    const now = new Date().toISOString();
+    const table = [
+      "| Stage | Owner |",
+      "| --- | --- |",
+      "| Draft | Writer |",
+    ].join("\n");
+    const documentId = "localized_pipe_table_repair";
+    const original = ["Before sentinel.", table, "After sentinel."].join(
+      "\n\n",
+    );
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      ownerEmail: OWNER,
+      title: "Localized repair",
+      content: original,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const repaired = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: documentId,
+        find: table,
+        transform: "normalize-pipe-table",
+        reuseLabels: [],
+      }),
+    );
+    expect(repaired).toMatchObject({
+      status: "repaired",
+      applied: 1,
+      verified: true,
+      columnCount: 2,
+      rowCount: 2,
+    });
+    const [afterRepair] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(afterRepair.content).toBe(
+      [
+        "Before sentinel.",
+        [
+          '<table header-row="true">',
+          "<tr>",
+          "<td>Stage</td>",
+          "<td>Owner</td>",
+          "</tr>",
+          "<tr>",
+          "<td>Draft</td>",
+          "<td>Writer</td>",
+          "</tr>",
+          "</table>",
+        ].join("\n"),
+        "After sentinel.",
+      ].join("\n\n"),
+    );
+
+    const missing = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: documentId,
+        find: table,
+        transform: "normalize-pipe-table",
+        reuseLabels: [],
+      }),
+    );
+    expect(missing).toMatchObject({
+      status: "no-match",
+      applied: 0,
+      verified: true,
+      persistedContentUnchanged: true,
+    });
+
+    const repeated = [table, "Middle sentinel.", table].join("\n\n");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: repeated, updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    const ambiguous = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: documentId,
+        find: table,
+        transform: "normalize-pipe-table",
+        reuseLabels: [],
+      }),
+    );
+    expect(ambiguous).toMatchObject({
+      status: "ambiguous",
+      applied: 0,
+      verified: true,
+      persistedContentUnchanged: true,
+    });
+    const [afterAmbiguous] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(afterAmbiguous.content).toBe(repeated);
+  });
+
   it("requires editor access before importing into an organization space", async () => {
     await getDbExec().execute({
       sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
