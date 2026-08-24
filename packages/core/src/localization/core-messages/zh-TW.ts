@@ -3,10 +3,13 @@ import type { AgentChatTranslation } from "../core-messages.js";
 const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
+  "approval.alwaysAllowAction": "一律允許此動作",
+  "approval.alwaysAllowActionHint": "核准並一律允許此動作",
   "approval.approve": "核准",
   "approval.approved": "已核准。正在重新執行 {{tool}}...",
   "approval.denied": "已拒絕。{{tool}} 未執行。",
   "approval.deny": "拒絕",
+  "approval.moreOptions": "更多核准選項",
   "approval.question": "要核准執行 {{tool}} 嗎？",
   "auth.expiredDescription":
     "您的工作階段可能已過期。請登出後重新登入以恢復連線。",

@@ -25,6 +25,7 @@ export interface StoredAgentHarnessSession {
   resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
+  generation: number;
   createdAt: number;
   updatedAt: number;
   stoppedAt?: number | null;
@@ -44,6 +45,8 @@ export interface SaveAgentHarnessSessionInput {
   ownerEmail?: string | null;
   orgId?: string | null;
   stoppedAt?: number | null;
+  /** Internal optimistic-concurrency token used by updateAgentHarnessSession. */
+  expectedGeneration?: number;
 }
 
 let initPromise: Promise<void> | undefined;
@@ -66,6 +69,7 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           resolved_approval_ids TEXT,
           owner_email TEXT,
           org_id TEXT,
+          generation ${intType()} NOT NULL DEFAULT 0,
           created_at ${intType()} NOT NULL,
           updated_at ${intType()} NOT NULL,
           stopped_at ${intType()}
@@ -97,6 +101,11 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           "stopped_at",
           `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS stopped_at ${intType()}`,
         );
+        await ensureColumnExists(
+          "agent_harness_sessions",
+          "generation",
+          `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation ${intType()} NOT NULL DEFAULT 0`,
+        );
         await ensureIndexExists(
           "idx_agent_harness_sessions_thread",
           `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_thread ON agent_harness_sessions(thread_id, updated_at)`,
@@ -110,6 +119,14 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_owner ON agent_harness_sessions(owner_email, updated_at)`,
         );
         return;
+      }
+      try {
+        await client.execute(
+          `ALTER TABLE agent_harness_sessions ADD COLUMN generation ${intType()} NOT NULL DEFAULT 0`,
+        );
+        // coercion-ok: SQLite has no ADD COLUMN IF NOT EXISTS; duplicate-column means the schema is current.
+      } catch {
+        // Column already exists.
       }
 
       // SQLite (local dev): no lock problem — keep the original behaviour.
@@ -194,33 +211,55 @@ export async function saveAgentHarnessSession(
       input.resolvedApprovalIds ?? existing?.resolvedApprovalIds ?? [],
     ownerEmail: input.ownerEmail ?? existing?.ownerEmail ?? null,
     orgId: input.orgId ?? existing?.orgId ?? null,
+    generation: (existing?.generation ?? 0) + 1,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     stoppedAt: input.stoppedAt ?? existing?.stoppedAt ?? null,
   };
   const client = getDbExec();
-  await client.execute({
-    sql: `INSERT INTO agent_harness_sessions (
-            id, harness_name, thread_id, run_id, provider_session_id, status,
-            resume_state, workspace_ref, pending_approval, resolved_approval_ids,
-            owner_email, org_id, created_at, updated_at, stopped_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            harness_name = excluded.harness_name,
-            thread_id = excluded.thread_id,
-            run_id = excluded.run_id,
-            provider_session_id = excluded.provider_session_id,
-            status = excluded.status,
-            resume_state = excluded.resume_state,
-            workspace_ref = excluded.workspace_ref,
-            pending_approval = excluded.pending_approval,
-            resolved_approval_ids = excluded.resolved_approval_ids,
-            owner_email = excluded.owner_email,
-            org_id = excluded.org_id,
-            updated_at = excluded.updated_at,
-            stopped_at = excluded.stopped_at`,
+  const values = [
+    record.id,
+    record.harnessName,
+    record.threadId,
+    record.runId ?? null,
+    record.providerSessionId ?? null,
+    record.status,
+    serializeJson(record.resumeState),
+    record.workspaceRef ?? null,
+    serializeJson(record.pendingApproval),
+    serializeJson(record.resolvedApprovalIds),
+    record.ownerEmail ?? null,
+    record.orgId ?? null,
+    record.generation,
+    record.createdAt,
+    record.updatedAt,
+    record.stoppedAt ?? null,
+  ];
+  if (!existing) {
+    const inserted = await client.execute({
+      sql: `INSERT INTO agent_harness_sessions (
+              id, harness_name, thread_id, run_id, provider_session_id, status,
+              resume_state, workspace_ref, pending_approval, resolved_approval_ids,
+              owner_email, org_id, generation, created_at, updated_at, stopped_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO NOTHING`,
+      args: values,
+    });
+    if (inserted.rowsAffected === 1) return record;
+    const current = await getAgentHarnessSession(input.id);
+    if (!current) throw new Error("Harness session insert did not persist.");
+    return saveAgentHarnessSession({ ...input, expectedGeneration: undefined });
+  }
+
+  const expectedGeneration = input.expectedGeneration ?? existing.generation;
+  const updated = await client.execute({
+    sql: `UPDATE agent_harness_sessions SET
+            harness_name = ?, thread_id = ?, run_id = ?, provider_session_id = ?,
+            status = ?, resume_state = ?, workspace_ref = ?, pending_approval = ?,
+            resolved_approval_ids = ?, owner_email = ?, org_id = ?, generation = ?,
+            updated_at = ?, stopped_at = ?
+          WHERE id = ? AND generation = ?`,
     args: [
-      record.id,
       record.harnessName,
       record.threadId,
       record.runId ?? null,
@@ -232,11 +271,18 @@ export async function saveAgentHarnessSession(
       serializeJson(record.resolvedApprovalIds),
       record.ownerEmail ?? null,
       record.orgId ?? null,
-      record.createdAt,
+      record.generation,
       record.updatedAt,
       record.stoppedAt ?? null,
+      record.id,
+      expectedGeneration,
     ],
   });
+  if (updated.rowsAffected !== 1) {
+    throw new Error(
+      `Harness session ${record.id} changed concurrently; retry the operation.`,
+    );
+  }
   return record;
 }
 
@@ -268,6 +314,7 @@ export async function updateAgentHarnessSession(
     ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
     orgId: patch.orgId ?? existing.orgId ?? null,
     stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
+    expectedGeneration: existing.generation,
   });
 }
 
@@ -411,6 +458,7 @@ function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {
     resolvedApprovalIds: stringArray(record.resolved_approval_ids),
     ownerEmail: stringOrNull(record.owner_email),
     orgId: stringOrNull(record.org_id),
+    generation: numberValue(record.generation),
     createdAt: numberValue(record.created_at),
     updatedAt: numberValue(record.updated_at),
     stoppedAt:

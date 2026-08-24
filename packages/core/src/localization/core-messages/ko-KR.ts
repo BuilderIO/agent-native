@@ -4,10 +4,13 @@ const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
     "이 명령과 정확히 일치하는 명령을 승인하고 항상 허용합니다",
+  "approval.alwaysAllowAction": "이 작업 항상 허용",
+  "approval.alwaysAllowActionHint": "승인하고 이 작업을 항상 허용합니다",
   "approval.approve": "승인",
   "approval.approved": "승인했습니다. {{tool}}을(를) 다시 실행하는 중...",
   "approval.denied": "거부했습니다. {{tool}}이(가) 실행되지 않았습니다.",
   "approval.deny": "거부",
+  "approval.moreOptions": "추가 승인 옵션",
   "approval.question": "{{tool}} 실행을 승인하시겠습니까?",
   "auth.expiredDescription":
     "세션이 만료되었을 수 있습니다. 다시 연결하려면 로그아웃한 후 다시 로그인하세요.",

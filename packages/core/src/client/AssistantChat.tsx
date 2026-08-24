@@ -211,6 +211,7 @@ import {
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
+import { callAction } from "./use-action.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
   appendChatThreadScopeParams,
@@ -2110,14 +2111,16 @@ export interface AssistantChatProps {
   externalStreaming?: boolean;
   /**
    * Optional host hooks for the inline `needsApproval` affordance beyond the
-   * built-in Approve. Additive: omit entirely to keep today's default
-   * behavior (Deny is local-only, no "Always allow" button). Code sessions
-   * pass these through to the same `host.controlRun` commands their
-   * standalone approval banner already uses (see CodeAgentsApp).
+   * built-in Approve and action-type policy. Code sessions pass these through
+   * to the same `host.controlRun` commands their standalone approval banner
+   * already uses (see CodeAgentsApp).
    */
   approvalActions?: {
     onDeny?: (approvalKey: string) => void;
-    onAlwaysAllow?: (approvalKey: string) => void;
+    onAlwaysAllow?: (
+      approvalKey: string,
+      toolName: string,
+    ) => void | Promise<void>;
   };
 }
 
@@ -5831,37 +5834,51 @@ const AssistantChatInner = forwardRef<
   // tool call, re-issue the turn carrying the call's approval key so the server
   // gate lets that specific call run. Reuses the same append path as recovery /
   // queued messages (no hand-written fetch).
+  const approveToolCall = useCallback(
+    (approvalKey: string) => {
+      void addToQueue(
+        "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "queued",
+        undefined,
+        false,
+        false,
+        false,
+        true, // hideUserMessage: this is a protocol continuation, not a new prompt
+        undefined,
+        [approvalKey],
+      );
+    },
+    [addToQueue],
+  );
+  const alwaysAllowToolCall = useCallback(
+    (approvalKey: string, toolName: string) => {
+      if (approvalActions?.onAlwaysAllow) {
+        return approvalActions.onAlwaysAllow(approvalKey, toolName);
+      }
+      return callAction("set-tool-approval-policy", {
+        toolName,
+        enabled: true,
+      }).then(() => approveToolCall(approvalKey));
+    },
+    [approvalActions, approveToolCall],
+  );
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
       getApprovalResolution,
       onApprovalResolved: recordApprovalResolution,
-      onApprove: (approvalKey: string) => {
-        void addToQueue(
-          "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          "queued",
-          undefined,
-          false,
-          false,
-          false,
-          true, // hideUserMessage: this is a protocol continuation, not a new prompt
-          undefined,
-          [approvalKey],
-        );
-      },
+      onApprove: approveToolCall,
+      onAlwaysAllow: alwaysAllowToolCall,
       ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
-      ...(approvalActions?.onAlwaysAllow
-        ? { onAlwaysAllow: approvalActions.onAlwaysAllow }
-        : {}),
     }),
     [
-      addToQueue,
-      execMode,
-      getApprovalResolution,
+      alwaysAllowToolCall,
       approvalActions,
+      approveToolCall,
+      getApprovalResolution,
       recordApprovalResolution,
     ],
   );

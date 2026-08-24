@@ -7,6 +7,7 @@ import {
   IconAlertTriangle,
   IconCircleX,
   IconCheck,
+  IconChevronDown,
   IconChevronRight,
   IconCopy,
   IconCode,
@@ -35,6 +36,12 @@ import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { formatAgentChatContextItemsForPrompt } from "../agent-chat.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { writeClipboardText } from "../clipboard.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
 import {
   Popover,
   PopoverContent,
@@ -103,8 +110,8 @@ export function ToolCallStackMotion({
  * re-issues the turn approving a specific paused tool call (opt-in
  * `needsApproval` actions). When null, the Approve button is not rendered.
  * Deny defaults to local-only (the action stays un-run) unless `onDeny` is
- * provided, and "Always allow" only renders when `onAlwaysAllow` is provided
- * — both are additive so existing action-approval consumers are unaffected.
+ * provided. The chevron menu persists an action-type policy before approving
+ * the current call.
  */
 export type ApprovalResolution = "approved" | "denied";
 
@@ -140,10 +147,13 @@ export type ApprovalContextValue = {
    */
   onDeny?: (approvalKey: string) => void;
   /**
-   * Optional host hook that persists this exact call so future occurrences
-   * skip the approval gate. When absent, no "Always allow" button renders.
+   * Optional host hook that persists this action type and resolves the current
+   * call. The default AssistantChat implementation uses the shared policy.
    */
-  onAlwaysAllow?: (approvalKey: string) => void;
+  onAlwaysAllow?: (
+    approvalKey: string,
+    toolName: string,
+  ) => void | Promise<void>;
 };
 export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
@@ -569,6 +579,8 @@ function ApprovalAffordance({
   const ctx = React.useContext(ApprovalContext);
   const [localResolution, setLocalResolution] =
     useState<ApprovalResolution | null>(null);
+  const [isAlwaysAllowing, setIsAlwaysAllowing] = useState(false);
+  const [alwaysAllowFailed, setAlwaysAllowFailed] = useState(false);
   const retainedResolution =
     ctx?.getApprovalResolution?.(
       approval.approvalKey,
@@ -599,6 +611,25 @@ function ApprovalAffordance({
       </div>
     );
   }
+  const handleAlwaysAllow = async () => {
+    if (!ctx?.onAlwaysAllow || isAlwaysAllowing) return;
+    setIsAlwaysAllowing(true);
+    setAlwaysAllowFailed(false);
+    try {
+      await ctx.onAlwaysAllow(approval.approvalKey, toolName);
+      setLocalResolution("approved");
+      ctx.onApprovalResolved?.(
+        approval.approvalKey,
+        "approved",
+        toolCallId,
+        approval.askId,
+      );
+    } catch {
+      setAlwaysAllowFailed(true);
+    } finally {
+      setIsAlwaysAllowing(false);
+    }
+  };
   return (
     <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
       <IconShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -606,52 +637,62 @@ function ApprovalAffordance({
         {t("agentChat.approval.question", { tool: toolName })}
       </span>
       {ctx && (
-        <button
-          type="button"
-          onClick={() => {
-            setLocalResolution("approved");
-            ctx.onApprovalResolved?.(
-              approval.approvalKey,
-              "approved",
-              toolCallId,
-              approval.askId,
-            );
-            ctx.onApprove(approval.approvalKey);
-          }}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-            "bg-foreground text-background hover:bg-foreground/90",
+        <div className="inline-flex shrink-0 items-stretch">
+          <button
+            type="button"
+            disabled={isAlwaysAllowing}
+            onClick={() => {
+              setLocalResolution("approved");
+              ctx.onApprovalResolved?.(
+                approval.approvalKey,
+                "approved",
+                toolCallId,
+                approval.askId,
+              );
+              ctx.onApprove(approval.approvalKey);
+            }}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors",
+              "bg-foreground text-background hover:bg-foreground/90",
+              ctx.onAlwaysAllow ? "rounded-s-md rounded-e-none" : "rounded-md",
+              "disabled:pointer-events-none disabled:opacity-50",
+            )}
+          >
+            <IconCheck className="h-3.5 w-3.5" />
+            {t("agentChat.approval.approve")}
+          </button>
+          {ctx.onAlwaysAllow && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={isAlwaysAllowing}
+                  aria-label={t("agentChat.approval.moreOptions")}
+                  title={t("agentChat.approval.moreOptions")}
+                  className={cn(
+                    "inline-flex w-7 shrink-0 items-center justify-center rounded-s-none rounded-e-md border-s border-background/25 bg-foreground text-background transition-colors hover:bg-foreground/90",
+                    "disabled:pointer-events-none disabled:opacity-50",
+                  )}
+                >
+                  <IconChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onSelect={() => void handleAlwaysAllow()}
+                  title={t("agentChat.approval.alwaysAllowActionHint")}
+                >
+                  <IconShieldCheck className="h-4 w-4" />
+                  {t("agentChat.approval.alwaysAllowAction")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
-        >
-          <IconCheck className="h-3.5 w-3.5" />
-          {t("agentChat.approval.approve")}
-        </button>
-      )}
-      {ctx?.onAlwaysAllow && (
-        <button
-          type="button"
-          onClick={() => {
-            setLocalResolution("approved");
-            ctx.onApprovalResolved?.(
-              approval.approvalKey,
-              "approved",
-              toolCallId,
-              approval.askId,
-            );
-            ctx.onAlwaysAllow?.(approval.approvalKey);
-          }}
-          title={t("agentChat.approval.alwaysAllowHint")}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
-            "text-foreground hover:bg-muted",
-          )}
-        >
-          <IconShieldCheck className="h-3.5 w-3.5" />
-          {t("agentChat.approval.alwaysAllow")}
-        </button>
+        </div>
       )}
       <button
         type="button"
+        disabled={isAlwaysAllowing}
         onClick={() => {
           setLocalResolution("denied");
           ctx?.onApprovalResolved?.(
@@ -665,11 +706,17 @@ function ApprovalAffordance({
         className={cn(
           "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
           "text-foreground hover:bg-muted",
+          "disabled:pointer-events-none disabled:opacity-50",
         )}
       >
         <IconX className="h-3.5 w-3.5" />
         {t("agentChat.approval.deny")}
       </button>
+      {alwaysAllowFailed && (
+        <span role="alert" className="basis-full text-xs text-destructive">
+          {t("common.saveFailed")}
+        </span>
+      )}
     </div>
   );
 }

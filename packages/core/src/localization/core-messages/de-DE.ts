@@ -4,10 +4,14 @@ const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
     "Diesen exakten Befehl genehmigen und immer erlauben",
+  "approval.alwaysAllowAction": "Diese Aktion immer erlauben",
+  "approval.alwaysAllowActionHint":
+    "Genehmigen und diese Aktion immer erlauben",
   "approval.approve": "Genehmigen",
   "approval.approved": "Genehmigt. {{tool}} wird erneut ausgeführt...",
   "approval.denied": "Abgelehnt. {{tool}} wurde nicht ausgeführt.",
   "approval.deny": "Ablehnen",
+  "approval.moreOptions": "Weitere Genehmigungsoptionen",
   "approval.question": "Ausführung von {{tool}} genehmigen?",
   "auth.expiredDescription":
     "Deine Sitzung ist möglicherweise abgelaufen. Melde dich ab und wieder an, um die Verbindung wiederherzustellen.",

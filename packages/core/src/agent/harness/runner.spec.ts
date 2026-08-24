@@ -150,6 +150,71 @@ describe("startAgentHarnessRun", () => {
     );
   });
 
+  it("persists a resumable checkpoint instead of marking a boundary stopped", async () => {
+    const session = fakeSession(
+      "native-checkpoint",
+      [{ type: "text-delta", text: "partial" }],
+      { token: "checkpoint" },
+    );
+    const adapter = fakeAdapter(session);
+    let capturedRunFn: (
+      send: (event: AgentChatEvent) => void,
+      signal: AbortSignal,
+      control: {
+        turnSignal: AbortSignal;
+        chunkSignal: AbortSignal;
+        chunkBoundaryReason: () => string | null;
+        beginChunk: () => AbortSignal;
+      },
+    ) => Promise<void>;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-checkpoint",
+      threadId: "thread-checkpoint",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-checkpoint" },
+    });
+
+    const turn = new AbortController();
+    const chunk = new AbortController();
+    chunk.abort("run_timeout");
+    const control = {
+      turnSignal: turn.signal,
+      chunkSignal: chunk.signal,
+      chunkBoundaryReason: () => "run_timeout",
+      beginChunk: () => turn.signal,
+    };
+    await capturedRunFn!(() => {}, chunk.signal, control);
+
+    expect(session.detach).toHaveBeenCalledOnce();
+    expect(mocks.markAgentHarnessSessionStopped).not.toHaveBeenCalled();
+    expect(mocks.updateAgentHarnessSession).toHaveBeenCalledWith(
+      "stored-checkpoint",
+      expect.objectContaining({
+        status: "idle",
+        resumeState: { token: "checkpoint" },
+        pendingApproval: null,
+      }),
+    );
+    expect(mocks.startRun.mock.calls[0]?.[4]).toEqual(
+      expect.objectContaining({ recoverChunkBoundaries: true }),
+    );
+  });
+
   it("cleans up and marks the session errored when streaming fails", async () => {
     const session = fakeSession("native-error", [
       { type: "error", error: "provider disconnected" },
