@@ -123,7 +123,6 @@ export interface FeatureConfig {
   voiceCleanupEnabled: boolean;
   launchAtLoginEnabled: boolean;
   autoHidePopoverEnabled: boolean;
-  menuBarTimerEnabled?: boolean;
   meetingTranscriptionMode: "manual" | "ask" | "auto";
   localRecordingMode: LocalRecordingMode;
   showMeetingWidgetEnabled: boolean;

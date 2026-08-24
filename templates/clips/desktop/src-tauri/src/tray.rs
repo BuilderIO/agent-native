@@ -80,9 +80,7 @@ pub fn set_tray_recording_mode(app: &tauri::AppHandle, active: bool) {
             let _ = tray.set_icon_as_template(true);
         }
         #[cfg(target_os = "macos")]
-        if crate::config::menu_bar_timer_enabled(app) {
-            let _ = tray.set_title(Some("0:00"));
-        }
+        let _ = tray.set_title(Some("0:00"));
     } else {
         if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
             let _ = tray.set_icon(Some(base));
@@ -402,6 +400,16 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // resource table. `set_menu` is atomic — replacing the entire menu
     // is the documented Tauri 2 way to update a tray (there's no
     // partial-update API for items).
+    // The status item swaps to stop + timer only when capture is actually
+    // live — `clips:toolbar-enabled` fires true after the countdown, false on
+    // teardown — never at session setup, where RecordingActive is already
+    // true but nothing is rolling yet.
+    let mode_handle = app.handle().clone();
+    app.handle().listen("clips:toolbar-enabled", move |event| {
+        let live = event.payload().trim() == "true";
+        set_tray_recording_mode(&mode_handle, live && is_recording_active(&mode_handle));
+    });
+
     // Mirror the recorder's 500ms state ticks into the status-item title
     // while a recording is live. macOS-only: other platforms have no inline
     // tray text.
@@ -424,12 +432,6 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             let Some(tray) = timer_handle.tray_by_id("main") else {
                 return;
             };
-            if !crate::config::menu_bar_timer_enabled(&timer_handle) {
-                // Also clears a stale title if the setting is switched off
-                // mid-recording.
-                let _ = tray.set_title(None::<String>);
-                return;
-            }
             let time = format_tray_timer(payload.elapsed_ms.unwrap_or(0.0));
             let title = if payload.paused.unwrap_or(false) {
                 format!("⏸ {time}")

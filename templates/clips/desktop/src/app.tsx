@@ -5814,7 +5814,6 @@ function Setup({
     featureConfig?.showMeetingWidgetEnabled !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
-  const menuBarTimerEnabled = featureConfig?.menuBarTimerEnabled === true;
   const showInScreenCapture = featureConfig?.showInScreenCapture === true;
   const localRecordingMode = featureConfig?.localRecordingMode ?? "off";
   const observedScreenMemory =
@@ -5982,15 +5981,6 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, launchAtLoginEnabled: enabled },
-    }).catch((err) =>
-      console.error("[settings] set_feature_config failed", err),
-    );
-  }
-
-  function setMenuBarTimerEnabled(enabled: boolean) {
-    if (!featureConfig) return;
-    invoke("set_feature_config", {
-      config: { ...featureConfig, menuBarTimerEnabled: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -6923,16 +6913,6 @@ function Setup({
                 value={recordCustomShortcut}
                 placeholder="Set"
                 onChange={onRecordCustomShortcutChange}
-              />
-            }
-          />
-          <SettingsRow
-            label="Show timer in the menu bar"
-            control={
-              <SettingsSwitch
-                checked={menuBarTimerEnabled}
-                onCheckedChange={setMenuBarTimerEnabled}
-                label="Show timer in the menu bar"
               />
             }
           />

@@ -117,10 +117,6 @@ pub struct FeatureConfig {
     pub launch_at_login_enabled: bool,
     #[serde(default)]
     pub auto_hide_popover_enabled: bool,
-    // While recording, the menu-bar item always becomes a stop square; the
-    // ticking elapsed-time title beside it is opt-in.
-    #[serde(default)]
-    pub menu_bar_timer_enabled: bool,
     #[serde(default = "default_meeting_transcription_mode")]
     pub meeting_transcription_mode: MeetingTranscriptionMode,
     #[serde(default)]
@@ -235,7 +231,6 @@ impl Default for FeatureConfig {
             voice_cleanup_enabled: default_voice_cleanup_enabled(),
             launch_at_login_enabled: true,
             auto_hide_popover_enabled: false,
-            menu_bar_timer_enabled: false,
             meeting_transcription_mode: default_meeting_transcription_mode(),
             local_recording_mode: LocalRecordingMode::Off,
             show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
@@ -331,10 +326,6 @@ pub fn sync_launch_at_login(app: &AppHandle) {
 
 pub fn auto_hide_popover_enabled(app: &AppHandle) -> bool {
     load_config(app).auto_hide_popover_enabled
-}
-
-pub fn menu_bar_timer_enabled(app: &AppHandle) -> bool {
-    load_config(app).menu_bar_timer_enabled
 }
 
 pub fn show_in_screen_capture(app: &AppHandle) -> bool {
