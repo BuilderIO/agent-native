@@ -9,8 +9,8 @@ import {
   useCallback,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 
@@ -469,6 +469,20 @@ type ActionCallbackMap = Partial<
   Record<CanvasContextMenuAction, CanvasContextMenuActionHandler>
 >;
 
+export function dispatchContextMenuAt(
+  target: HTMLElement,
+  point: CanvasContextMenuPoint,
+) {
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: point.clientX,
+      clientY: point.clientY,
+    }),
+  );
+}
+
 // design-editor menu chrome: compact, dark-border, subtle shadow, no animation jitter
 const MENU_CONTENT_CLASS =
   "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:!animate-none data-[state=closed]:!animate-none";
@@ -600,14 +614,12 @@ export const CanvasContextMenu = forwardRef<
   );
   const [point, setPoint] = useState<CanvasContextMenuPoint | null>(null);
   const [open, setOpen] = useState(false);
-  const [manualPoint, setManualPoint] = useState<CanvasContextMenuPoint | null>(
-    null,
-  );
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const imperativePointRef = useRef<CanvasContextMenuPoint | null>(null);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       setOpen(nextOpen);
-      if (!nextOpen) setManualPoint(null);
       onOpenChange?.(nextOpen);
     },
     [onOpenChange],
@@ -618,8 +630,11 @@ export const CanvasContextMenu = forwardRef<
     () => ({
       openAt(nextPoint) {
         setPoint(nextPoint);
-        setManualPoint(nextPoint);
-        setOpen(true);
+        imperativePointRef.current = nextPoint;
+        if (triggerRef.current) {
+          dispatchContextMenuAt(triggerRef.current, nextPoint);
+        }
+        imperativePointRef.current = null;
       },
       close() {
         handleOpenChange(false);
@@ -734,24 +749,19 @@ export const CanvasContextMenu = forwardRef<
     return <>{children}</>;
   }
 
-  const manualContentStyle = manualPoint
-    ? ({
-        position: "fixed",
-        left: manualPoint.clientX,
-        top: manualPoint.clientY,
-        transform: "none",
-        zIndex: 250,
-      } satisfies CSSProperties)
-    : undefined;
-
   const hasSelection = selectedCount > 0;
 
   return (
     <ContextMenu open={open} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger asChild>
         <div
+          ref={triggerRef}
           className={cn("contents", className)}
           onContextMenuCapture={(event) => {
+            if (imperativePointRef.current) {
+              setPoint(imperativePointRef.current);
+              return;
+            }
             const canvasPoint = getCanvasPoint?.({
               clientX: event.clientX,
               clientY: event.clientY,
@@ -767,10 +777,7 @@ export const CanvasContextMenu = forwardRef<
           {children}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent
-        className={cn(MENU_CONTENT_CLASS, contentClassName)}
-        style={manualContentStyle}
-      >
+      <ContextMenuContent className={cn(MENU_CONTENT_CLASS, contentClassName)}>
         {layerCandidates.length > 0 && onSelectLayer ? (
           <>
             <ContextMenuGroup>

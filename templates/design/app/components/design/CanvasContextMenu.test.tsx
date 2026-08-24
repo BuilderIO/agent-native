@@ -47,7 +47,7 @@ vi.mock("@/components/ui/context-menu", () => {
   };
 });
 
-import { CanvasContextMenu } from "./CanvasContextMenu";
+import { CanvasContextMenu, dispatchContextMenuAt } from "./CanvasContextMenu";
 
 async function renderContextMenu(
   props: Omit<React.ComponentProps<typeof CanvasContextMenu>, "children">,
@@ -75,6 +75,20 @@ async function renderContextMenu(
     },
   };
 }
+
+describe("CanvasContextMenu imperative placement", () => {
+  it("dispatches the pointer location through the Radix trigger", () => {
+    const target = document.createElement("div");
+    const onContextMenu = vi.fn();
+    target.addEventListener("contextmenu", onContextMenu);
+
+    dispatchContextMenuAt(target, { clientX: 40, clientY: 580 });
+
+    expect(onContextMenu).toHaveBeenCalledWith(
+      expect.objectContaining({ clientX: 40, clientY: 580 }),
+    );
+  });
+});
 
 describe("CanvasContextMenu Copy as PNG", () => {
   it("routes the existing item to the dedicated PNG callback", async () => {
