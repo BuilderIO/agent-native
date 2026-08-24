@@ -9442,6 +9442,89 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  // The paused tool result tells the model "the turn is paused". That has to be
+  // true for the REST of the same assistant message too: a second call emitted
+  // alongside the gated one previously still executed while the human was
+  // looking at the approval card.
+  it("does not run later tool calls in the same message while approval is pending", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "approval-call-1",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "follow-up-call-1",
+                name: "delete-records",
+                input: { id: "42" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const sendEmail = vi.fn(async () => "delivered");
+    const deleteRecords = vi.fn(async () => "deleted");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "delete-records": {
+          ...actionEntry({ readOnly: false }),
+          run: deleteRecords,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    // The whole point: the un-gated sibling must not fire either.
+    expect(deleteRecords).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "delete-records",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+  });
+
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
     // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();

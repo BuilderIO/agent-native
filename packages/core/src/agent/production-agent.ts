@@ -6035,6 +6035,12 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
           });
           recordToolResult(result, false);
+          // Control is genuinely handed to the user here — the result above
+          // tells the model "the turn is paused". `requestedActionStop` alone
+          // does not stop anything until after the tool loop drains, so
+          // without this the *rest* of this assistant message still executes
+          // while the human is still looking at the approval card.
+          turnYieldedToUser = true;
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",
@@ -6763,7 +6769,8 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): EngineContentPart => {
       const result =
-        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `Not executed: ${toolCall.name} was called after an action that paused the turn ` +
+        `(an action that ends the turn, or one waiting on the user's approval). ` +
         `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
       send({
         type: "tool_start",
