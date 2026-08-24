@@ -69,6 +69,10 @@ import {
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
+  fetchAgentEngineStatus,
+  fetchEnvironmentStatus,
+} from "../client-status-requests.js";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -776,11 +780,21 @@ function friendlyModelName(model: string): string {
   return model;
 }
 
+type SettingsSource = "env" | "settings" | "app_secrets";
+
 type SettingsStatus = {
   engine: string;
-  source: "env" | "settings" | "app_secrets";
+  source: SettingsSource;
   envVar: string | null;
 } | null;
+
+type AgentEngineStatusResponse = {
+  configured?: boolean;
+  engine?: string;
+  source?: SettingsSource;
+  envVar?: string | null;
+  openAiBaseUrlConfigured?: boolean;
+};
 
 function computeSourceBadge(args: {
   settingsConfigured: boolean;
@@ -972,28 +986,37 @@ function LLMSectionInner({
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>(null);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const [envLoaded, setEnvLoaded] = useState(false);
+  const [envProbeAvailable, setEnvProbeAvailable] = useState(false);
   const [enginesLoaded, setEnginesLoaded] = useState(false);
   const [statusLoaded, setStatusLoaded] = useState(false);
+  const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
 
   const initialLoading =
     !envLoaded || !enginesLoaded || !statusLoaded || !!builderLoading;
 
-  useEffect(() => {
-    fetch(agentNativePath("/_agent-native/env-status"))
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setEnvKeys)
-      .catch(() => {})
+  const refreshEnvKeys = useCallback(() => {
+    setEnvProbeAvailable(false);
+    void fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>()
+      .then((result) => {
+        if (result.state !== "available" || !Array.isArray(result.value)) {
+          return;
+        }
+        setEnvKeys(result.value);
+        setEnvProbeAvailable(true);
+      })
       .finally(() => setEnvLoaded(true));
-  }, [saved]);
+  }, []);
 
   const notifyConfigChanged = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
   }, []);
 
   const refreshSettingsStatus = useCallback(() => {
-    fetch(agentNativePath("/_agent-native/agent-engine/status"))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
+    setStatusProbeAvailable(false);
+    void fetchAgentEngineStatus<AgentEngineStatusResponse>()
+      .then((result) => {
+        if (result.state !== "available") return;
+        const data = result.value;
         setBaseUrlConfigured(Boolean(data?.openAiBaseUrlConfigured));
         if (
           data?.configured &&
@@ -1010,14 +1033,32 @@ function LLMSectionInner({
         } else {
           setSettingsStatus(null);
         }
+        setStatusProbeAvailable(true);
       })
       .catch(() => {})
       .finally(() => setStatusLoaded(true));
   }, []);
 
   useEffect(() => {
+    refreshEnvKeys();
+  }, [refreshEnvKeys]);
+
+  useEffect(() => {
     refreshSettingsStatus();
   }, [refreshSettingsStatus]);
+
+  useEffect(() => {
+    const refresh = () => {
+      refreshEnvKeys();
+      refreshSettingsStatus();
+    };
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshEnvKeys, refreshSettingsStatus]);
 
   useEffect(() => {
     callAction("manage-agent-engine" as any, { action: "list" } as any)
@@ -1074,14 +1115,16 @@ function LLMSectionInner({
     return configured;
   }, [envKeys, settingsStatus]);
   const builderConnected = connected || builderFlow.configured;
+  const configurationKnown = envProbeAvailable && statusProbeAvailable;
   const anyKeyConfigured =
     builderConnected ||
-    (selectedEnginePackageInstalled &&
-      (envConfigured || settingsConfigured || configuredProviderIds.size > 0));
+    (configurationKnown &&
+      selectedEnginePackageInstalled &&
+      (envConfigured || settingsConfigured));
   const sourceBadge = computeSourceBadge({
-    settingsConfigured,
-    settingsStatus,
-    envConfigured,
+    settingsConfigured: configurationKnown && settingsConfigured,
+    settingsStatus: configurationKnown ? settingsStatus : null,
+    envConfigured: configurationKnown && envConfigured,
     envVar,
     builderConnected,
   });
@@ -1116,7 +1159,6 @@ function LLMSectionInner({
       setClearBaseUrl(false);
       if (nextBaseUrl) setBaseUrlConfigured(true);
       if (clearBaseUrl) setBaseUrlConfigured(false);
-      refreshSettingsStatus();
       notifyConfigChanged();
       setTimeout(() => setSaved(false), 2000);
     } finally {
@@ -1136,7 +1178,6 @@ function LLMSectionInner({
       if (res.ok) {
         setTestResult(null);
         setApplyNote(false);
-        refreshSettingsStatus();
         notifyConfigChanged();
         return;
       }
@@ -1206,7 +1247,6 @@ function LLMSectionInner({
       setCurrentEngine(selectedEngine);
       setCurrentModel(selectedModel);
       setApplyNote(true);
-      refreshSettingsStatus();
       notifyConfigChanged();
       setTimeout(() => setApplyNote(false), 4000);
     } catch (err) {
@@ -1220,7 +1260,9 @@ function LLMSectionInner({
       icon={<IconBrain size={14} />}
       title="LLM"
       required
-      connected={initialLoading ? undefined : anyKeyConfigured}
+      connected={
+        initialLoading || !configurationKnown ? undefined : anyKeyConfigured
+      }
       subtitle={
         isPage
           ? undefined
@@ -1253,7 +1295,7 @@ function LLMSectionInner({
             </div>
           )}
           <div className={cn("flex flex-wrap items-center justify-end gap-2")}>
-            {!anyKeyConfigured && (
+            {configurationKnown && !anyKeyConfigured && (
               <UseBuilderCard
                 builderFlow={builderFlow}
                 connectUrl={connectUrl}
@@ -1282,7 +1324,7 @@ function LLMSectionInner({
                     })
               }
               summaryContent={
-                anyKeyConfigured ? (
+                configurationKnown && anyKeyConfigured ? (
                   <UseBuilderCard
                     builderFlow={builderFlow}
                     connectUrl={connectUrl}
@@ -1300,7 +1342,9 @@ function LLMSectionInner({
               <div className="space-y-2 mb-1">
                 <AgentProviderPicker
                   value={selectedProvider}
-                  configuredProviders={configuredProviderIds}
+                  configuredProviders={
+                    configurationKnown ? configuredProviderIds : undefined
+                  }
                   layout={isPage ? "page" : "compact"}
                   onChange={(provider) => {
                     const option = getAgentProviderOption(provider);
@@ -1490,7 +1534,9 @@ function LLMSectionInner({
                     intent="neutral"
                     emphasis="outline"
                     onClick={handleTest}
-                    disabled={testing || !anyKeyConfigured}
+                    disabled={
+                      testing || !configurationKnown || !anyKeyConfigured
+                    }
                     className={pillButtonClass(isPage, "outline")}
                   >
                     {testing ? (
