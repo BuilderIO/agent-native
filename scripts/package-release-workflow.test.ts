@@ -49,14 +49,11 @@ describe("npm package release workflow", () => {
   it("keeps stable changesets flowing on main pushes", () => {
     const release = jobs.release as Workflow;
     const condition = String(release.if);
+    const notify = jobs["notify-downstream"] as Workflow;
 
-    assert.match(condition, /!inputs\.redispatchDownstream/);
-    assert.doesNotMatch(condition, /github\.event_name/);
-    assert.doesNotMatch(condition, /stable-release/);
-    assert.equal(
-      String((jobs["notify-downstream"] as Workflow).if),
-      "always()",
-    );
+    assert.equal(condition, "${{ !inputs.redispatchDownstream }}");
+    assert.deepEqual(notify.needs, ["release"]);
+    assert.equal(String(notify.if), "always()");
   });
 
   it("keeps the release changeset package list aligned with the publisher", () => {
