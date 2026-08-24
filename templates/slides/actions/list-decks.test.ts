@@ -5,6 +5,8 @@ const deckRows = [
     id: "deck_123",
     title: "Roadmap",
     data: JSON.stringify({ slides: [{ id: "slide-1" }] }),
+    previewSlide: JSON.stringify({ id: "slide-1" }),
+    aspectRatio: "4:3",
     visibility: "private",
     designSystemId: null,
     ownerEmail: "Alice@Example.com",
@@ -40,6 +42,10 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => requestUserEmail,
+}));
+
+vi.mock("@agent-native/core/db", () => ({
+  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -135,11 +141,17 @@ describe("list-decks", () => {
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
       ownerEmail: "owner_email_col",
-      data: "data_col",
+      previewSlide: expect.objectContaining({
+        strings: expect.arrayContaining(["json_extract("]),
+      }),
+      aspectRatio: expect.objectContaining({
+        strings: expect.arrayContaining(["json_extract("]),
+      }),
     });
     expect(result.decks[0]).toMatchObject({
       id: "deck_123",
       previewSlide: { id: "slide-1" },
+      aspectRatio: "4:3",
     });
     expect(result.decks[0]).not.toHaveProperty("slides");
   });
