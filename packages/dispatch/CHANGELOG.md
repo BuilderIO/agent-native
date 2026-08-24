@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.16
+
+### Patch Changes
+
+- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
+
 ## 0.31.15
 
 ### Patch Changes
