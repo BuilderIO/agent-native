@@ -5,9 +5,7 @@ import { MicOffConfirmation } from "./MicOffConfirmation";
 
 describe("MicOffConfirmation", () => {
   it("only exposes Back in the muted info state", () => {
-    const html = renderToStaticMarkup(
-      <MicOffConfirmation onBack={vi.fn()} />,
-    );
+    const html = renderToStaticMarkup(<MicOffConfirmation onBack={vi.fn()} />);
 
     expect(html).toContain("Back");
     expect(html).toContain("Your mic is muted");

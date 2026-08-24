@@ -1,10 +1,6 @@
 import { IconArrowLeft, IconMicrophone2 } from "@tabler/icons-react";
 
-export function MicOffConfirmation({
-  onBack,
-}: {
-  onBack: () => void;
-}) {
+export function MicOffConfirmation({ onBack }: { onBack: () => void }) {
   return (
     <section className="mic-off-confirmation" aria-labelledby="mic-off-title">
       <header className="mic-off-confirmation-header">

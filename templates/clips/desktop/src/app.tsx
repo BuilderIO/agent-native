@@ -4303,9 +4303,7 @@ export function App({
   return (
     <div className="app app-recorder" ref={appRef}>
       {micOffConfirmOpen ? (
-        <MicOffConfirmation
-          onBack={closeMicOffConfirmation}
-        />
+        <MicOffConfirmation onBack={closeMicOffConfirmation} />
       ) : null}
 
       <div
