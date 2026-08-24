@@ -26,6 +26,7 @@ import {
 import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
 const SITE_URL = "https://www.agent-native.com";
+const MARKDOWN_REWRITE_PREFIX = "/__agent-native-markdown";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ssrHandler = createH3SSRHandler(
@@ -63,7 +64,7 @@ export default async function docsPageHandler(event: H3Event) {
     return markdown.content;
   }
 
-  if (getRequestURL(event).pathname.endsWith(".md")) {
+  if (markdownRequestPath(event).endsWith(".md")) {
     throw createError({ statusCode: 404, statusMessage: "Markdown not found" });
   }
 
@@ -133,9 +134,8 @@ async function readMarkdownForRequest(
 ): Promise<
   { content: string; pagePath: string; relativePath: string } | undefined
 > {
-  const requestUrl = getRequestURL(event);
   const wantsMarkdown = acceptsMarkdown(getRequestHeader(event, "accept"));
-  const pathname = requestUrl.pathname.replace(/\/+$/, "") || "/";
+  const pathname = markdownRequestPath(event).replace(/\/+$/, "") || "/";
   const isMarkdownPath = pathname.endsWith(".md");
   if (!isMarkdownPath && !wantsMarkdown) return undefined;
 
@@ -150,6 +150,15 @@ async function readMarkdownForRequest(
     pagePath: pagePathForMarkdownRequest(pathname, relativePath),
     relativePath,
   };
+}
+
+function markdownRequestPath(event: H3Event): string {
+  const pathname = getRequestURL(event).pathname;
+  if (pathname === MARKDOWN_REWRITE_PREFIX) return "/";
+  if (pathname.startsWith(`${MARKDOWN_REWRITE_PREFIX}/`)) {
+    return pathname.slice(MARKDOWN_REWRITE_PREFIX.length) || "/";
+  }
+  return pathname;
 }
 
 async function readMarkdownContent(

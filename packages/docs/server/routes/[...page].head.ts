@@ -21,6 +21,7 @@ import { acceptsMarkdown, appendVary } from "../lib/agent-web-responses";
 import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
 const SITE_URL = "https://www.agent-native.com";
+const MARKDOWN_REWRITE_PREFIX = "/__agent-native-markdown";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ssrHandler = createH3SSRHandler(
@@ -77,7 +78,7 @@ function setSsrCacheHeaders(event: H3Event) {
 async function readHeadAssetForRequest(
   event: H3Event,
 ): Promise<{ content: string; contentType: string } | undefined> {
-  const pathname = getRequestURL(event).pathname.replace(/\/+$/, "") || "/";
+  const pathname = markdownRequestPath(event).replace(/\/+$/, "") || "/";
   const wantsMarkdown = acceptsMarkdown(getRequestHeader(event, "accept"));
   const contentTypeByPath: Record<string, string> = {
     "/llms.txt": "text/plain; charset=utf-8",
@@ -107,6 +108,15 @@ async function readHeadAssetForRequest(
     content,
     contentType: contentType ?? "text/markdown; charset=utf-8",
   };
+}
+
+function markdownRequestPath(event: H3Event): string {
+  const pathname = getRequestURL(event).pathname;
+  if (pathname === MARKDOWN_REWRITE_PREFIX) return "/";
+  if (pathname.startsWith(`${MARKDOWN_REWRITE_PREFIX}/`)) {
+    return pathname.slice(MARKDOWN_REWRITE_PREFIX.length) || "/";
+  }
+  return pathname;
 }
 
 function markdownRelativePathForRequest(pathname: string): string {
