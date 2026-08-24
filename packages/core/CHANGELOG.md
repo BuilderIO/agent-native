@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.172.6
+
+### Patch Changes
+
+- 415a6d8: Transform virtual runtime modules before serving them to embed sessions. The
+  dev middleware loaded `/@id/__x00__virtual:*` modules through
+  `pluginContainer.load`, which returns plugin source with bare specifiers
+  intact, so react-router's `inject-hmr-runtime` reached the browser still
+  importing `virtual:react-router/hmr-runtime`. Any page loaded on an origin
+  that had an `an_embed_session` cookie failed to hydrate and hung on a spinner.
+- 3fa1b09: Allow organization members to queue Run now for Factory-domain jobs they can already load, without widening Mail or CRM automation edit rights.
+- 6f0392b: Prevent unconfigured LLM engine tests from reporting a false pass.
+
 ## 0.172.5
 
 ### Patch Changes
