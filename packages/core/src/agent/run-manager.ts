@@ -1718,12 +1718,10 @@ export function startRun(
     overrideMs: options?.noProgressTimeoutMs,
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
-  // Not armed for a runFn that recovers boundaries in this invocation. That
-  // runFn already races the SAME wall with its own per-round timer, budgeted
-  // against cumulative elapsed time — so this timer fires at the moment the
-  // wrapper has nothing left to continue with, producing a boundary that is
-  // recoverable in name only and burning the tail of the budget on nothing.
-  // One wall, one clock; the caller's hard abort still backstops it.
+  // A recoverable run uses the cumulative timer below instead of this one-shot
+  // timer. Each successor chunk gets only the remaining invocation budget, so
+  // recovery cannot extend the hosted wall. The caller's hard abort still
+  // backstops both timer paths.
   const softTimeoutTimer =
     softTimeoutMs > 0 && !recoverChunkBoundaries
       ? setTimeout(() => {
