@@ -92,6 +92,7 @@ import {
   IconPlus,
   IconPin,
   IconSearch,
+  IconSettings,
   IconWorld,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -2249,7 +2250,7 @@ export default function CodeAgentsHub({
         }
         return api.submitRemoteWaitlist(request);
       },
-      async listModels() {
+      async listModels(options?: { refresh?: boolean }) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.listModels) {
           return {
@@ -2258,7 +2259,7 @@ export default function CodeAgentsHub({
             error: "Desktop bridge is not available.",
           };
         }
-        return api.listModels() as Promise<CodeAgentModelListResult>;
+        return api.listModels(options) as Promise<CodeAgentModelListResult>;
       },
       async getHostMetadata() {
         const api = window.electronAPI?.codeAgents;
@@ -2703,6 +2704,8 @@ export default function CodeAgentsHub({
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      surfaceHidden={!showNativeIntegrationsGuest}
+                      refreshKey={refreshKey}
                       theme={theme}
                       urlPath={tab.path}
                       urlParams={
@@ -2922,6 +2925,24 @@ export default function CodeAgentsHub({
               <>
                 <UpdatePrompt />
                 <UpdateIndicator />
+                {onOpenSettings ? (
+                  <DesktopRailTooltip label="Settings">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-settings"
+                      onClick={() => onOpenSettings()}
+                      aria-label="Settings"
+                      title="Settings"
+                    >
+                      <IconSettings
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Settings</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
                 <div className="desktop-chat-first-rail-footer-actions">
                   <FeedbackButton
                     url={DESKTOP_FEEDBACK_FORM_URL}
@@ -2980,7 +3001,9 @@ export default function CodeAgentsHub({
                 isActive={isActive}
                 theme={theme}
                 urlParams={urlParams}
-                refreshKey={appRefreshKey}
+                // Shell key folded in: a lane change remounts every hosted
+                // surface, not just the ones with their own refresh reason.
+                refreshKey={appRefreshKey + refreshKey}
               />
             </div>
           )}

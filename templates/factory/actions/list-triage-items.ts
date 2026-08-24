@@ -106,26 +106,29 @@ export default defineAction({
       };
     });
 
-    for (const item of listedItems) {
-      await recordFactoryAudit(
-        context,
-        { userEmail, orgId },
-        {
-          action: "list-triage-items",
-          kind: "read",
-          itemId: item.itemId,
-          source: item.source,
-          sourceUrl: item.sourceUrl,
-          summary: item.title,
-          details: {
-            status: item.status,
-            coverage: item.coverage,
-            decision: item.latestDecision?.outcome ?? null,
-          },
+    const purpose = needsReview ? "review_candidates" : "repeat_scan";
+    const noun = listedItems.length === 1 ? "item" : "items";
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "list-triage-items",
+        kind: "read",
+        source: source ?? listedItems[0]?.source ?? null,
+        summary: needsReview
+          ? `Loaded ${listedItems.length} review candidate${listedItems.length === 1 ? "" : "s"}.`
+          : `Loaded ${listedItems.length} recent ${source ?? "queue"} ${noun}.`,
+        details: {
+          purpose,
+          limit,
+          count: listedItems.length,
+          needsReview,
+          source: source ?? null,
+          itemIds: listedItems.map((item) => item.itemId),
         },
-        factoryId,
-      );
-    }
+      },
+      factoryId,
+    );
     return listedItems;
   },
 });

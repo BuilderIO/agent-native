@@ -3,7 +3,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import type { WorkspaceAppId } from "../lib/other-apps";
 import { cn } from "../lib/utils";
-import { workspaceAppMatchesQuery } from "../lib/workspace-app-layout";
 import { isDefaultWorkspaceAppHiddenId } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import {
@@ -20,7 +19,7 @@ import {
   type WorkspaceTemplateLabels,
 } from "./workspace-template-card";
 
-type OtherAppEntry =
+export type OtherAppEntry =
   | { kind: "template"; template: CuratedWorkspaceTemplate }
   | { kind: "connected"; app: ConnectedAppSummary };
 
@@ -37,16 +36,34 @@ function getTemplateItems(
   return Array.isArray(result) ? result : result.templates;
 }
 
+export function otherAppEntryMatchesQuery(
+  entry: OtherAppEntry,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  const searchable =
+    entry.kind === "template"
+      ? `${entry.template.name} ${entry.template.description ?? ""}`
+      : `${entry.app.name} ${entry.app.description ?? ""}`;
+  return searchable.toLowerCase().includes(normalizedQuery);
+}
+
+export function filterOtherAppEntries(
+  entries: OtherAppEntry[],
+  query: string,
+): OtherAppEntry[] {
+  return entries.filter((entry) => otherAppEntryMatchesQuery(entry, query));
+}
+
 export function mergeOtherAppEntries({
   templates,
   connectedApps,
   workspaceApps,
-  query = "",
 }: {
   templates?: CuratedWorkspaceTemplatesResult;
   connectedApps: ConnectedAppSummary[];
   workspaceApps: WorkspaceAppId[];
-  query?: string;
 }): OtherAppEntry[] {
   const workspaceAppIds = new Set(
     workspaceApps.map((app) => app.id.trim().toLowerCase()),
@@ -74,17 +91,7 @@ export function mergeOtherAppEntries({
     entries.push({ kind: "connected", app });
   }
 
-  return entries.filter((entry) =>
-    workspaceAppMatchesQuery(
-      entry.kind === "template"
-        ? {
-            name: entry.template.name,
-            description: entry.template.description ?? undefined,
-          }
-        : entry.app,
-      query,
-    ),
-  );
+  return entries;
 }
 
 export function OtherAppsSection({
@@ -124,12 +131,14 @@ export function OtherAppsSection({
   className?: string;
 }) {
   const t = useT();
-  const entries = mergeOtherAppEntries({
-    templates,
-    connectedApps,
-    workspaceApps,
+  const entries = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates,
+      connectedApps,
+      workspaceApps,
+    }),
     query,
-  });
+  );
   const isLoading = templatesLoading || connectedAppsLoading;
   const hasError = Boolean(templatesError || connectedAppsError);
 

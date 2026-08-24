@@ -1,5 +1,190 @@
 # @agent-native/core
 
+## 0.169.1
+
+### Patch Changes
+
+- 4de4af3: Point missing-provider recovery errors to Settings > Agent > AI providers.
+- 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
+- 4de4af3: Stop shipping the 9.3MB libsql native driver to deployments that never load it. `copyInstalledLibsqlNativePackages` ran unconditionally for netlify/vercel/aws-lambda, unlike its Chromium sibling which is gated on a real consumer probe. It is now gated the same way, on whether the emitted bundle actually imports the bare `libsql` addon — the only gate that cannot be wrong, since `getDialect()` reads `DATABASE_URL` at runtime and build-time dialect is unknowable. The one importer in the server graph was the `db-check-scoping` maintenance script, which now uses the existing `createSqliteScriptClient` (dynamic `better-sqlite3` / `@libsql/client/web`) instead of the static node entry. Measured on the docs app: server function 55.9MB → 46.6MB.
+- Release all public npm packages with a patch version bump.
+- 4de4af3: Keep chat turns queued through transient server-run handoffs and delay missing-final warnings until the run state settles.
+- 4de4af3: Show the Connect AI setup for desktop chat relay failures and keep other recovery actions compact.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.8
+  - @agent-native/toolkit@0.16.10
+
+## 0.169.0
+
+### Minor Changes
+
+- c90e034: Make background agent runs recoverable, observable, and tunable.
+
+  A scheduled or queued automation runs the agent loop in-process, with no HTTP
+  body to re-POST and no server-driven continuation behind it. The run manager's
+  no-progress backstop nevertheless checkpointed for a continuation nobody was
+  going to run: it aborted the run's top-level controller, which is the same
+  signal the in-invocation recovery loop is gated on, so a healthy run that went
+  quiet for 150s between a completed tool and the next token was recorded as a
+  terminal `no_progress` failure.
+  - A checkpoint on a run that opts into `recoverChunkBoundaries` now ends the
+    CHUNK, not the turn. `runAgentLoopDirectWithSoftTimeout` accepts the
+    `RunChunkControl` `startRun` hands its `runFn` and continues, using the
+    continuation budget that was already there. A user Stop, a hard timeout, and
+    the cross-isolate abort check still end the turn immediately.
+  - The background automation runner is instrumented with `instrumentAgentLoop`,
+    so scheduled runs produce `$ai_trace` / `$ai_span` events and local trace-store
+    rows under their real owner instead of nothing. `instrumentAgentLoop` gained a
+    `spanName` option and now forwards `metadata` to PostHog, so an automation is
+    identifiable there.
+  - Boundaries are recorded: a `run_boundary_reached` diagnostic naming the
+    segment that went silent, an `agent_run_boundary` analytics event dimensioned
+    by reason and by whether a continuation followed, and a `captureError` for a
+    checkpoint that terminates a run.
+  - `automation_runs` gained an `error_code` column, written from the code the
+    failure taxonomy already computed. That code, and the run's duration, now ride
+    the existing `automation.run.finished` event — which already fires from every
+    path that records a terminal outcome (the runner, the scheduler's dispatch
+    failures, remote execution), and is therefore the terminal hook an application
+    needs.
+  - The run-lifecycle bounds live in one place each, beside the ordering
+    relationships that constrain them, and those relationships are asserted. Two
+    are configuration — `agent.backgroundRunHardTimeoutMs` and
+    `agent.backgroundNoProgressTimeoutMs` — because those are facts about the host
+    and the deployment; the rest stay constants, because a number with two homes
+    needs a test to keep them in step and that test is the tell that it should
+    have had one home. The background no-progress default is clamped to the chunk
+    it guards, so lowering the global soft timeout cannot leave it unreachable.
+  - On a run that recovers boundaries in-invocation the run manager no longer arms
+    its own soft-timeout timer: the agent-loop wrapper already races that same
+    wall with a cumulative per-round budget, so a second timer fired exactly when
+    the wrapper had nothing left to continue with. One wall, one clock.
+  - Trace finalization can no longer alter the run it observes. Assembly ran
+    unguarded inside a `finally`, where a throw replaces the block's result — so a
+    malformed payload could report a completed run as failed. That check
+    catches the pair that shipped violated: the automation runner took a 13-minute
+    chunk budget under its own 10-minute hard abort, so its recoverable boundary
+    was dead code. The runner now derives that budget from its own hard abort.
+
+- c90e034: Give the continuation-chain guard and stale-run recovery one turn-run budget.
+
+  The ceiling on run rows for a logical turn was written three times: the chain
+  bound `MAX_BACKGROUND_RUN_CONTINUATIONS` (20), an inline
+  `turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5` in `production-agent.ts`,
+  and a hand-maintained literal `25` in `run-store.ts` whose own comment asked the
+  next editor to keep it in sync, because importing back would have been circular.
+
+  The cycle is gone now that the base value is configuration and `app-config`
+  imports no agent code, so both sites read `resolveTurnRunLedgerBudget()` with
+  the slack named `TURN_RUN_LEDGER_SLACK` and its reason recorded: the two bounds
+  count different things — handoffs a chunk decided to make versus every run row
+  the turn produced, including sweep redispatches and recoveries — which is why
+  the ledger must sit strictly above the chain bound. A spec pins the
+  relationship.
+
+  Both call sites compared `turnRunCount > budget` while the current run's row was
+  already inserted and counted, and the successor's row is inserted after the
+  check — so at equality they permitted one row past the documented ceiling. They
+  now call a `turnRunLedgerExhausted()` predicate, so the two cannot disagree
+  about the boundary again.
+
+  Also removes `DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS`, an exported alias for
+  `BACKGROUND_SOFT_TIMEOUT_CEILING_MS` with no source caller; use the ceiling (or
+  `resolveBackgroundSoftTimeoutCeilingMs()`) directly.
+
+  No behaviour change: every resolved value is what it was.
+
+### Patch Changes
+
+- c90e034: Enforce the client-above-server follow budgets against resolved configuration.
+
+  The browser's per-turn follow budgets must stay above the server's own ceilings,
+  because the client fires on a clock and cannot tell looping from working while
+  the server can. They shipped inverted once — 10 min / 6 runs against a 13-minute
+  legal chunk — and killed healthy turns the server was still streaming, which was
+  the top non-auth cause of "the chat just stopped".
+
+  That relationship was pinned in `agent-chat-adapter.spec.ts` against the
+  server's module constants. Making those constants configurable moved the real
+  values out from under the test without moving the test: a deployment could raise
+  `maxTurnWallClockMs`, `maxBackgroundRunContinuations`, or
+  `backgroundSoftTimeoutCeilingMs` past what the shipped client can follow, and
+  every check still passed.
+
+  The client budgets now live in `app-config/run-lifecycle-invariants.ts` (which
+  has no runtime imports, so the browser bundle is unaffected) and
+  `assertRunLifecycleInvariants` asserts all three relationships against the
+  resolved configuration. The spec keeps pinning the defaults — one fails fast on
+  a bad default, the other on a bad deploy.
+
+  Comparing the configured numbers alone also hid a real inversion in the shipped
+  values, so the check now uses the EFFECTIVE server limits: the turn ceiling is
+  tested at chunk boundaries, so a turn passing it one chunk short still gets a
+  whole further chunk (90min + 13min against a client following 95min), and the
+  durable ledger allows the chain bound plus the recovery slack in run rows
+  (20 + 5 = 25 against a client following 24). Both were inverted. The client
+  follow budgets move to 110 minutes and 30 runs so the shipped defaults are
+  consistent; killing a turn that is not progressing is still covered by the 210s
+  idle timeout and the repeated-terminal-reason detector, neither of which is a
+  clock on the whole turn.
+
+- c90e034: Close two acceptance-criteria gaps from the background-run hardening.
+
+  A hard-aborted run reached PostHog carrying "Agent run was aborted" —
+  byte-identical to what a user pressing Stop produces, because the abort is what
+  the loop observes and `$ai_error` derives its code from the terminal outcome.
+
+  Fixed at that source rather than per-caller: the agent-loop wrapper now reports
+  a server-owned abort reason as a `failed` outcome carrying that reason as its
+  code, which is what its own no-timeout path has always done. The code therefore
+  reaches `$ai_error` through the existing construction, for every entry point
+  rather than just automations. The reason set is an allowlist, not "anything that
+  isn't `user`", because the abort route accepts a client-supplied reason string
+  and an inverted test would relabel a genuine Stop.
+
+  `backgroundSoftTimeoutCeilingMs` is not merely a bound — it IS the clamp
+  `resolveRunSoftTimeoutMs` reduces every background soft timeout to. Making it
+  configurable therefore left the one number that keeps a chunk inside the host's
+  background-function wall unbounded, so a deployment could raise it past that
+  wall and turn every long background turn back into the silent platform kill the
+  ceiling exists to prevent. The invariant check now asserts it against
+  `BACKGROUND_FUNCTION_WALL_MS` minus the headroom a chunk needs to checkpoint;
+  the shipped 13-minute value sits exactly on that margin.
+
+- c90e034: Stop reporting every unlabelled agent run as `foreground`.
+
+  `emitRunTerminalTrackingEvent` defaulted `dispatch_mode` to `"foreground"` when
+  a caller passed none — and the interactive chat handler is the only caller that
+  passes one. Five others (background automations, agent teams, webhook handlers,
+  harness runs, the docs poller) passed nothing, so the default was wrong every
+  single time it applied.
+
+  Measured consequence: on one deployment, scheduled and manually-dispatched
+  automation runs were failing with `no_progress` at 6 of 7 while interactive chat
+  sat at 2 of 190 — and both were labelled `foreground`, so the failing path was
+  indistinguishable from the healthy one in the only view where anyone would have
+  looked.
+
+  `dispatch_mode` is now absent when the caller did not supply one, so "not
+  recorded" and "was foreground" stop being the same value; the background
+  automation runner passes the `"background"` it already writes onto its own run
+  row; and the durable background worker, which reaches the interactive handler's
+  `startRun` call site, reports `"background"` instead of inheriting the
+  foreground label from a flag that only describes self-chaining. Passing it cannot disturb the runner's self-claim: `insertRun` is
+  `ON CONFLICT DO NOTHING`, so `startRun`'s insert is a no-op for a claimed row.
+
+## 0.168.13
+
+### Patch Changes
+
+- f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
+
+## 0.168.12
+
+### Patch Changes
+
+- 51b31ed: Format localized core documentation after the release sync.
+
 ## 0.168.11
 
 ### Patch Changes

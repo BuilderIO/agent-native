@@ -459,6 +459,36 @@ async function markReconnectRequired<T extends OAuthCredential>(
   );
 }
 
+/**
+ * Force a stored credential into `reconnect_required` without a refresh attempt.
+ * For a token the provider rejected server-side (e.g. a 401/403) while it still
+ * looks valid locally, so the credential itself carries the reconnect signal
+ * instead of a side channel. Returns false when there is nothing to mark.
+ */
+export async function markOAuthReconnectRequired<
+  T extends OAuthCredential = OAuthCredential,
+>(
+  identity: OAuthCredentialIdentity,
+  options: {
+    allowLegacy?: boolean;
+    legacyAccountKey?: boolean;
+    validateCredential?: (credential: T) => boolean;
+  } = {},
+): Promise<boolean> {
+  const stored = await readStoredOAuthCredentialState<T>(identity, {
+    allowLegacy: options.allowLegacy,
+    legacyAccountKey: options.legacyAccountKey,
+    validateCredential: options.validateCredential,
+  });
+  if (stored.kind === "missing" || stored.kind === "malformed") return false;
+  await markReconnectRequired(
+    identity,
+    stored,
+    options.legacyAccountKey === true,
+  );
+  return true;
+}
+
 export async function resolveOAuthCredentialAccess<
   T extends OAuthCredential = OAuthCredential,
 >(

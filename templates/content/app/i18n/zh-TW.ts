@@ -121,6 +121,8 @@ const messages = {
     searchLanguages: "搜尋語言...",
     noBlocksFields: "沒有 Blocks 欄位。請從屬性選單新增一個。",
     noDocumentSelected: "未選取檔案",
+    registryBlockLoadError: "無法載入 {{type}} 區塊：{{message}}",
+    registryBlockUnreadable: "無法讀取已儲存的區塊來源。",
     blocksFieldRevisionConflict:
       "此 Blocks 欄位已在其他位置變更。你的編輯未儲存；現在顯示的是最新版本。",
     couldNotReadLocalSourceFile: "無法讀取本機來源檔案",

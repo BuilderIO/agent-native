@@ -183,8 +183,39 @@ function createRecordingTracer() {
   return { tracer, spans };
 }
 
+/**
+ * A hand-advanced `Date.now`.
+ *
+ * The latency tests below are about arithmetic on timestamps — which interval
+ * gets subtracted, which one is measured, where a span is stamped. Sleeping for
+ * real makes that arithmetic race the scheduler, and a loaded CI runner stretches
+ * a 20ms sleep into a 200ms one, so the assertions have to be either exact and
+ * deterministic or loose enough to stop testing anything. This buys the first.
+ */
+function manualClock(startMs = 1_700_000_000_000) {
+  const realNow = Date.now;
+  let now = startMs;
+  Date.now = () => now;
+  const clock = {
+    advance(ms: number) {
+      now += ms;
+    },
+    restore() {
+      Date.now = realNow;
+    },
+  };
+  activeClock = clock;
+  return clock;
+}
+
+let activeClock: { restore: () => void } | null = null;
+
 describe("instrumentAgentLoop OpenTelemetry export", () => {
   afterEach(() => {
+    // Restored here rather than in each test so a failing assertion cannot
+    // leak the patched clock into the rest of the file.
+    activeClock?.restore();
+    activeClock = null;
     __resetAgentTracerCache();
     unregisterTrackingProvider("qa-ai-generation");
   });
@@ -254,6 +285,112 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       terminal_state: "failed",
       terminal_code: "no_progress",
     });
+  });
+
+  // A trace from a scheduled automation was indistinguishable from a chat turn
+  // in LLM analytics: every path emitted the hardcoded `agent_run` name, and
+  // `metadata` — the one channel that could have said which automation this was
+  // — reached the local SQL store and stopped there.
+  it("carries the caller's span name and run metadata into LLM analytics", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts,
+      runId: "run-named-1",
+      threadId: "thread-named-1",
+      userId: "alice@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      spanName: "background_automation_run",
+      metadata: {
+        automation: "daily-digest",
+        trigger: "background_automation",
+        // Non-scalar values are operational noise in an analytics property and
+        // are dropped rather than stringified into an unqueryable blob.
+        nested: { dropped: true },
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const trace = events.find((event) => event.name === "$ai_trace");
+    expect(trace!.properties).toMatchObject({
+      $ai_span_name: "background_automation_run",
+      run_automation: "daily-digest",
+      run_trigger: "background_automation",
+    });
+    expect(trace!.properties).not.toHaveProperty("run_nested");
+    // A scheduled run has a real owner; per-user observability reads depend on
+    // it not being null.
+    expect(trace!.userId).toBe("alice@example.com");
+  });
+
+  // A throw from inside a `finally` REPLACES what the block was doing, so an
+  // assembly failure in trace finalization would have turned a completed run
+  // into a failed one — instrumentation altering the run it observes.
+  it("does not let a trace-assembly failure change the run's own result", async () => {
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: {
+        // `buildGenerationContent` walks messages; a getter that throws stands
+        // in for any malformed payload it could trip on.
+        get length() {
+          throw new Error("assembly blew up");
+        },
+      },
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    const usage = await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts,
+      runId: "run-assembly-throw",
+      threadId: "thread-assembly-throw",
+      userId: "alice@example.com",
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    expect(usage).toMatchObject({ model: "claude-test", inputTokens: 1 });
   });
 
   it("does not count a planned run_timeout boundary as an error", async () => {
@@ -750,6 +887,144 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events.filter((e) => e.name === "$ai_span")).toHaveLength(0);
     // The trace itself still ships — spans are the opt-out, not the run.
     expect(events.filter((e) => e.name === "$ai_trace")).toHaveLength(1);
+  });
+
+  // `captureLlmSpans` and `captureToolArgs` gate different things, and review
+  // has already read the first as if it were the second. `captureLlmSpans`
+  // decides whether each tool gets its own `$ai_span` event; what a tool call
+  // is allowed to SAY is `captureToolArgs`. Dropping the generation's tool list
+  // along with the span events would leave a trace showing a model that
+  // answered without any sign it called anything.
+  it("keeps tool calls in the generation when only span emission is off", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({
+          type: "tool_start",
+          id: "a",
+          tool: "search",
+          input: { query: "pricing", apiKey: "sk-should-not-appear" },
+        });
+        send({ type: "tool_done", id: "a", tool: "search", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-spans-off-args-on",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        captureLlmSpans: false,
+        captureToolArgs: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events.filter((e) => e.name === "$ai_span")).toHaveLength(0);
+
+    const generation = events.find((e) => e.name === "$ai_generation");
+    const choices = generation?.properties?.["$ai_output_choices"] as Array<{
+      tool_calls?: Array<{ function: { name: string; arguments?: unknown } }>;
+    }>;
+    const call = choices?.[0]?.tool_calls?.[0];
+    expect(call?.function.name).toBe("search");
+    // Arguments ride on `captureToolArgs`, which is on here — and the span's
+    // own redaction still applies to them.
+    expect(call?.function.arguments).toEqual({
+      query: "pricing",
+      apiKey: "[REDACTED]",
+    });
+  });
+
+  // The other half of the same contract: turning span emission back ON must not
+  // start exporting arguments that `captureToolArgs` withheld.
+  it("omits tool arguments when captureToolArgs is off, spans or not", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({
+          type: "tool_start",
+          id: "a",
+          tool: "search",
+          input: { query: "pricing" },
+        });
+        send({ type: "tool_done", id: "a", tool: "search", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-spans-on-args-off",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        captureLlmSpans: true,
+        captureToolArgs: false,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events.filter((e) => e.name === "$ai_span")).toHaveLength(1);
+
+    const generation = events.find((e) => e.name === "$ai_generation");
+    const choices = generation?.properties?.["$ai_output_choices"] as Array<{
+      tool_calls?: Array<{ function: Record<string, unknown> }>;
+    }>;
+    const call = choices?.[0]?.tool_calls?.[0];
+    // The call is still visible — that it happened is not the secret.
+    expect(call?.function.name).toBe("search");
+    expect(call?.function).not.toHaveProperty("arguments");
   });
 
   it("keeps tool detail in invocation order and pairs parallel calls by id", async () => {
@@ -1627,5 +1902,919 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(runSpan?.status?.code).toBe(SPAN_STATUS_OK);
     expect(runSpan?.status?.message).toBeUndefined();
     expect(runSpan?.ended).toBe(true);
+  });
+
+  // PostHog's trace query sums `$ai_latency` over the trace's direct children
+  // AND over any event with no `$ai_parent_id` — which the `$ai_trace` event
+  // itself is. Emitting it there reported roughly twice the real duration, and
+  // a generation claiming the whole run counted tool time a second time.
+  it("reports trace latency through children only, with tool time removed from the generation", async () => {
+    const clock = manualClock();
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        clock.advance(20);
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        clock.advance(5);
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-latency",
+      threadId: "thread-latency",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const generation = byName.get("$ai_generation")?.[0];
+    const span = byName.get("$ai_span")?.[0];
+    expect(trace).toBeDefined();
+    expect(generation).toBeDefined();
+    expect(span).toBeDefined();
+
+    // The trace contributes no latency of its own; PostHog derives it.
+    expect(trace?.properties).not.toHaveProperty("$ai_latency");
+    // ...but the run duration is still recorded for the other backends.
+    expect(trace?.properties?.duration_ms).toEqual(expect.any(Number));
+
+    // What PostHog will sum: the generation plus its sibling tool spans. One
+    // 20ms tool inside a 25ms run, so the children account for the run exactly
+    // once. Before this the generation also claimed the full 25ms.
+    const spanLatency = span?.properties?.["$ai_latency"] as number;
+    const generationLatency = generation?.properties?.["$ai_latency"] as number;
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+    expect(runSeconds).toBe(0.025);
+    expect(spanLatency).toBe(0.02);
+    expect(generationLatency).toBe(0.005);
+  });
+
+  // The engine already brackets each LLM round-trip with `model_stream`
+  // start/end, and that bracket closes before any tool of the turn starts. When
+  // it is present the generation's latency is measured, so none of the
+  // subtraction machinery below applies — overlapping tools cannot distort it.
+  it("measures generation latency from model_stream brackets when present", async () => {
+    const clock = manualClock();
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        // Two round-trips of ~20ms each, with a ~40ms parallel tool fan-out in
+        // between. Model time is ~40ms; the run is ~80ms.
+        send({ type: "model_stream", status: "start" });
+        clock.advance(20);
+        send({ type: "model_stream", status: "end" });
+
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_start", id: "b", tool: "search", input: {} });
+        clock.advance(40);
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        send({ type: "tool_done", id: "b", tool: "search", result: "ok" });
+
+        send({ type: "model_stream", status: "start" });
+        clock.advance(20);
+        send({ type: "model_stream", status: "end" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 2,
+        };
+      },
+      loopOpts,
+      runId: "run-measured",
+      threadId: "thread-measured",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const generation = byName.get("$ai_generation")?.[0];
+    const spans = byName.get("$ai_span") ?? [];
+    expect(spans).toHaveLength(2);
+
+    expect(generation?.properties?.latency_source).toBe("measured");
+    const generationLatency = generation?.properties?.["$ai_latency"] as number;
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+
+    // Exactly the two 20ms brackets, and none of the 40ms tool window between
+    // them. Under the old subtraction this run reported 80 - 80 = 0.
+    expect(generationLatency).toBe(0.04);
+    expect(runSeconds).toBe(0.08);
+
+    // Each tool reports its own real duration, so two tools sharing one 40ms
+    // window contribute ~80ms of work to a ~80ms run. Summed children exceeding
+    // the wall clock is the honest result of concurrency, not an error: the
+    // trace's own `duration_ms` is what reports elapsed time, and the waterfall
+    // places each span by its timestamp. Shrinking the generation to force the
+    // sum down would only trade a true number for a flattering one.
+    expect(spans.map((e) => e.properties?.["$ai_latency"] as number)).toEqual([
+      0.04, 0.04,
+    ]);
+  });
+
+  // The fallback still has to exist for engines that never bracket their model
+  // calls, but a latency built on it must not be mistaken for a measured one.
+  it("labels a derived latency when the engine emits no model_stream", async () => {
+    const clock = manualClock();
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        clock.advance(20);
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-derived",
+      threadId: "thread-derived",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(byName.get("$ai_generation")?.[0]?.properties?.latency_source).toBe(
+      "derived",
+    );
+  });
+
+  // Tools run in parallel all the time. Summing sibling durations subtracts
+  // more than the run spent in tools, which drove the generation's remainder to
+  // zero and left the trace total short of the wall clock.
+  it("counts overlapping tool spans once when deriving generation latency", async () => {
+    const clock = manualClock();
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        // Three tools covering the same ~40ms window: summed they are ~120ms,
+        // which is longer than the run itself.
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_start", id: "b", tool: "search", input: {} });
+        send({ type: "tool_start", id: "c", tool: "fetch", input: {} });
+        clock.advance(40);
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        send({ type: "tool_done", id: "b", tool: "search", result: "ok" });
+        send({ type: "tool_done", id: "c", tool: "fetch", result: "ok" });
+        clock.advance(30);
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-overlap",
+      threadId: "thread-overlap",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const generation = byName.get("$ai_generation")?.[0];
+    const spans = byName.get("$ai_span") ?? [];
+    expect(spans).toHaveLength(3);
+
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+    const generationLatency = generation?.properties?.["$ai_latency"] as number;
+    const summedSpans = spans.reduce(
+      (sum, e) => sum + (e.properties?.["$ai_latency"] as number),
+      0,
+    );
+
+    // Three tools share one 40ms window inside a 70ms run, so the premise
+    // holds: summing their durations claims 120ms of a 70ms run, and the old
+    // code subtracted all of it and clamped the generation to zero.
+    expect(runSeconds).toBe(0.07);
+    expect(summedSpans).toBe(0.12);
+    // Counting the shared window once leaves exactly the 30ms tail.
+    expect(generationLatency).toBe(0.03);
+  });
+
+  // Tool time is only subtracted from the generation because sibling `$ai_span`
+  // events carry it. When those events are not emitted, nothing else holds the
+  // run's tool time and the generation has to keep it.
+  it("keeps full generation latency when tool spans are not exported", async () => {
+    const clock = manualClock();
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        clock.advance(30);
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-no-span-latency",
+      threadId: "thread-no-span-latency",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        captureLlmSpans: false,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const generation = byName.get("$ai_generation")?.[0];
+    expect(byName.get("$ai_span") ?? []).toHaveLength(0);
+
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+    const generationLatency = generation?.properties?.["$ai_latency"] as number;
+    // The generation is the trace's only child, so it carries the whole run
+    // rather than losing the 30ms of tool time nothing else reports.
+    expect(runSeconds).toBe(0.03);
+    expect(generationLatency).toBe(0.03);
+  });
+
+  // PostHog plots a span from its event timestamp forward by `$ai_latency`. A
+  // span stamped at completion therefore drew the tool starting where it ended
+  // and running past the end of the run that contains it.
+  it("timestamps a tool span at its start, not its completion", async () => {
+    const clock = manualClock();
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        clock.advance(40);
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-span-timestamp",
+      threadId: "thread-span-timestamp",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const span = byName.get("$ai_span")?.[0];
+    expect(span).toBeDefined();
+
+    // The trace is stamped at run start; the tool ran for the whole 40ms of it,
+    // so the span starts exactly where the trace does. Stamped at completion it
+    // started at the run's end and ran 40ms past it.
+    const runStartMs = Date.parse(trace!.timestamp);
+    const runEndMs = runStartMs + (trace!.properties?.duration_ms as number);
+    const spanStartMs = Date.parse(span!.timestamp);
+    const spanEndMs =
+      spanStartMs + (span!.properties?.["$ai_latency"] as number) * 1000;
+
+    expect(spanStartMs).toBe(runStartMs);
+    expect(spanEndMs).toBe(runEndMs);
+  });
+
+  // `$ai_time_to_first_token` is a SECONDS field. It was being handed the
+  // millisecond value verbatim, inflating every TTFT in LLM analytics 1000x.
+  it("reports $ai_time_to_first_token in seconds while keeping the ms property", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "gpt-test",
+        usageReported: true,
+        firstEngineEventAtMs: Date.now() + 2000,
+      }),
+      loopOpts,
+      runId: "run-ttft-seconds",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const props = events[0]?.properties ?? {};
+    const ms = props.time_to_first_token_ms as number;
+    const seconds = props["$ai_time_to_first_token"] as number;
+    expect(ms).toBeGreaterThan(1000);
+    expect(seconds).toBeCloseTo(ms / 1000, 2);
+  });
+
+  // PostHog multiplies `$ai_request_count` by per-request pricing. A hardcoded
+  // 1 undercharged every multi-step run.
+  it("reports the run's real LLM round-trip count", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+        llmCalls: 4,
+      }),
+      loopOpts,
+      runId: "run-request-count",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events[0]?.properties?.["$ai_request_count"]).toBe(4);
+  });
+
+  // PostHog reads a trace's input/output state ONLY from the `$ai_trace`
+  // event, so a trace that never carried them showed an empty detail view.
+  it("carries trace input/output state when capturePrompts is on, and omits it when off", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+
+    const run = (capturePrompts: boolean) =>
+      instrumentAgentLoop({
+        runAgentLoop: async ({ send }: any) => {
+          send({ type: "text", text: "the weather is fine" });
+          return {
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+            usageReported: true,
+          };
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [{ role: "user", content: "what is the weather?" }],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: `run-trace-state-${capturePrompts}`,
+        threadId: null,
+        userId: null,
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          capturePrompts,
+        },
+      });
+
+    await run(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Absent, not empty — an empty array reads as "the run had no messages".
+    expect(events[0]?.properties).not.toHaveProperty("$ai_input_state");
+    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
+
+    events.length = 0;
+    await run(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events[0]?.properties?.["$ai_input_state"]).toEqual([
+      { role: "user", content: "what is the weather?" },
+    ]);
+    expect(events[0]?.properties?.["$ai_output_state"]).toEqual([
+      { role: "assistant", content: "the weather is fine" },
+    ]);
+  });
+
+  // Only a FAILED tool's content had anywhere to go, so a healthy tool span
+  // shipped an input and no output — indistinguishable from a tool that
+  // returned nothing.
+  it("carries successful tool output on the span when captureToolResults is on", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_span") events.push(event);
+      },
+    });
+
+    const run = (captureToolResults: boolean) =>
+      instrumentAgentLoop({
+        runAgentLoop: async ({ send }: any) => {
+          send({ type: "tool_start", id: "a", tool: "read", input: {} });
+          send({
+            type: "tool_done",
+            id: "a",
+            tool: "read",
+            result: "three matching rows",
+          });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+          };
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: `run-tool-output-${captureToolResults}`,
+        threadId: null,
+        userId: null,
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureToolResults,
+        },
+      });
+
+    await run(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties?.["$ai_is_error"]).toBe(false);
+    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
+
+    events.length = 0;
+    await run(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties?.["$ai_output_state"]).toBe(
+      "three matching rows",
+    );
+  });
+
+  // Every event in a run is emitted in one burst at the end. Stamping them all
+  // with the flush time collapses the trace tree's timeline into an instant.
+  it("stamps each AI event with when it happened, not when the run flushed", async () => {
+    const clock = manualClock();
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name.startsWith("$ai_")) events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    const startedAt = Date.now();
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        clock.advance(30);
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-timestamps",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const at = (name: string) =>
+      new Date(events.find((e) => e.name === name)?.timestamp ?? 0).getTime();
+
+    // The trace and generation are anchored to run start; the tool span ran
+    // later. If every event were stamped at flush time these would be equal.
+    expect(at("$ai_trace")).toBeCloseTo(startedAt, -2);
+    expect(at("$ai_generation")).toBeCloseTo(startedAt, -2);
+    expect(at("$ai_span")).toBeGreaterThan(at("$ai_trace"));
+  });
+  // Two different identifiers with two different lifetimes. `$ai_session_id`
+  // is the thread (backend-owned, groups traces into a conversation);
+  // `$session_id` is PostHog's frontend session, propagated from the
+  // `X-Agent-Native-Session-Id` header so a trace joins session replay.
+  // Collapsing them would break whichever one lost.
+  it("sends $ai_session_id (thread) and $session_id (browser) as distinct ids on every AI event", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name.startsWith("$ai_")) events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-sessions",
+      threadId: "thread-sessions",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      browserSessionId: "browser-session-xyz",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const names = events.map((e) => e.name).sort();
+    expect(names).toEqual(["$ai_generation", "$ai_span", "$ai_trace"]);
+    for (const event of events) {
+      expect(event.properties?.["$ai_session_id"]).toBe("thread-sessions");
+      expect(event.properties?.["$session_id"]).toBe("browser-session-xyz");
+      expect(event.properties?.["$ai_trace_id"]).toBe("run-sessions");
+    }
+  });
+
+  // PostHog rejects ids outside this set, and a rejected id silently detaches
+  // the event from its trace.
+  it("emits trace and session ids within PostHog's allowed character set", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name.startsWith("$ai_")) events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+      }),
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-1770000000000-a1b2c3",
+      threadId: "thread-1770000000000-d4e5f6",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const allowed = /^[A-Za-z0-9\-_~.@()!':|]+$/;
+    for (const event of events) {
+      expect(String(event.properties?.["$ai_trace_id"])).toMatch(allowed);
+      expect(String(event.properties?.["$ai_session_id"])).toMatch(allowed);
+    }
+  });
+
+  // `$ai_trace` has exactly eight schema properties. Anything else that PostHog
+  // aggregates from elsewhere (tokens, cost, latency) must not appear under an
+  // `$ai_*` name here or it is counted twice.
+  it("keeps the $ai_trace event to PostHog's trace schema", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-trace-schema",
+      threadId: "thread-trace-schema",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const aiKeys = Object.keys(events[0]?.properties ?? {})
+      .filter((k) => k.startsWith("$ai_"))
+      .sort();
+    // No `$ai_error`: the run succeeded, and undefined properties are dropped
+    // rather than sent as null.
+    expect(aiKeys).toEqual([
+      "$ai_is_error",
+      "$ai_model",
+      "$ai_provider",
+      "$ai_session_id",
+      "$ai_span_name",
+      "$ai_trace_id",
+    ]);
+    // Metrics PostHog derives from the trace's children never appear here.
+    for (const derived of [
+      "$ai_latency",
+      "$ai_input_tokens",
+      "$ai_output_tokens",
+      "$ai_total_cost_usd",
+    ]) {
+      expect(events[0]?.properties).not.toHaveProperty(derived);
+    }
+  });
+
+  // PostHog accepts a `system` role in `$ai_input`, but the prompt is app
+  // configuration rather than conversation content and is near-identical on
+  // every run. Keeping it out is deliberate, not an oversight.
+  it("keeps the system prompt out of $ai_input even when capturePrompts is on", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "You are a careful assistant.",
+        tools: [],
+        messages: [{ role: "user", content: "hi" }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-system-prompt",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events[0]?.properties?.["$ai_input"]).toEqual([
+      { role: "user", content: "hi" },
+    ]);
+    expect(JSON.stringify(events[0])).not.toContain("careful assistant");
+    expect(events[0]?.properties?.["$ai_stream"]).toBe(true);
   });
 });

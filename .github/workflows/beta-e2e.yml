@@ -16,10 +16,11 @@ name: Beta E2E (browser)
 # red run always means "do not promote".
 #
 # The workflow itself has no push or schedule trigger. The authenticated lane
-# spends model tokens against a dedicated OpenAI key, and most beta apps share
-# a database with production, so the explicit manual entrypoint remains a
-# deliberate promotion decision. The separate scheduled wrapper calls this
-# workflow on a six-hour cadence and reports failures to one deduplicated issue.
+# spends model tokens against the credential selected by its caller, and most
+# beta apps share a database with production, so the explicit manual entrypoint
+# remains a deliberate promotion decision. The separate scheduled wrapper
+# calls this workflow on a six-hour cadence with the hosted sites' shared
+# credential and reports failures to one deduplicated issue.
 
 on:
   # Callable from another workflow - used by the production deploy's opt-in
@@ -42,10 +43,17 @@ on:
         required: false
         default: ""
         type: string
+      key_source:
+        description: "Which OpenAI credential the agent turns bill"
+        required: false
+        default: dedicated
+        type: string
     secrets:
       BETA_E2E_EMAIL:
         required: false
       BETA_E2E_SESSION_TOKENS:
+        required: false
+      BETA_E2E_SESSION_TOKEN_MACROS:
         required: false
       BETA_E2E_OPENAI_API_KEY:
         required: false
@@ -150,12 +158,18 @@ jobs:
           NODE
 
   public:
+    # Lane jobs below are ordered because several beta apps share production
+    # databases; always() keeps later evidence running after ordinary failure.
     name: ${{ matrix.app }} public sweep
     needs: discover
+    if: ${{ needs.discover.result == 'success' && inputs.lane != 'authed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
+      # Keep public shards bounded: independent hosts can still share backend
+      # capacity, and the fleet-wide lanes run after this matrix completes.
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
       BETA_E2E_APPS: ${{ matrix.app }}
@@ -186,7 +200,8 @@ jobs:
 
   fleet:
     name: Fleet-wide checks
-    needs: discover
+    needs: [discover, public]
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -214,8 +229,8 @@ jobs:
 
   authed:
     name: Authenticated journeys
-    needs: discover
-    if: ${{ inputs.lane != 'public' }}
+    needs: [discover, advisory]
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'public' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -225,6 +240,7 @@ jobs:
       BETA_E2E_REPORT_SLOT: authed
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
+      BETA_E2E_SESSION_TOKEN_MACROS: ${{ secrets.BETA_E2E_SESSION_TOKEN_MACROS }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
       # The repository-wide key is available only for an explicit shared-key
       # dispatch. Dedicated runs must not expose it to setup or test code.
@@ -280,9 +296,8 @@ jobs:
 
   advisory:
     name: Advisory findings (non-gating)
-    if: ${{ always() && needs.discover.result == 'success' }}
-    needs: discover
-    continue-on-error: true
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' }}
+    needs: [discover, fleet]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -294,9 +309,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Advisory findings
+        continue-on-error: true
         # Always runs: it costs no credentials and no tokens, and findings that
-        # stop being reported stop being fixed. continue-on-error keeps a red
-        # here from meaning "do not promote".
+        # stop being reported stop being fixed. Step-level continue-on-error
+        # keeps the reusable workflow green while preserving the failed step
+        # and uploaded report for inspection.
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP" --pass-with-no-tests

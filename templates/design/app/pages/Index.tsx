@@ -864,6 +864,7 @@ export default function Index() {
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder={t("home.searchPlaceholder")}
+            aria-label={t("home.searchPlaceholder")}
             className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
@@ -1232,7 +1233,7 @@ export default function Index() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
-              className="bg-red-600 hover:bg-red-700 cursor-pointer"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
             >
               {t("home.delete")}
             </AlertDialogAction>
@@ -1262,6 +1263,7 @@ export default function Index() {
               }
             }}
             placeholder={t("home.designName")}
+            aria-label={t("home.designName")}
             className="h-9 text-sm"
           />
           <AlertDialogFooter>

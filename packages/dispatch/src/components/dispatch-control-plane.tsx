@@ -1,4 +1,5 @@
 import {
+  chatModelSelectionStorageKey,
   navigateWithAgentChatViewTransition,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
@@ -29,7 +30,11 @@ import {
 } from "./app-list-row";
 import { CreateAppPopover } from "./create-app-popover";
 import { useSetPageTitle } from "./layout/HeaderActions";
-import { mergeOtherAppEntries, OtherAppsSection } from "./other-apps-section";
+import {
+  filterOtherAppEntries,
+  mergeOtherAppEntries,
+  OtherAppsSection,
+} from "./other-apps-section";
 import { Button } from "./ui/button";
 import {
   Collapsible,
@@ -71,7 +76,7 @@ function CommandPanel() {
     selectedEffort,
     selectedEngine,
     selectedModel,
-  } = useChatModels({ storageKey: "dispatch" });
+  } = useChatModels({ storageKey: chatModelSelectionStorageKey("dispatch") });
   const navigate = useNavigate();
   const promptSuggestions = [
     t("dispatch.pages.suggestionOnboardingApp", {
@@ -186,12 +191,14 @@ function AppsPanel({
   const filteredPendingApps = orderedPendingApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
-  const otherAppEntries = mergeOtherAppEntries({
-    templates: curatedTemplates,
-    connectedApps,
-    workspaceApps: apps,
-    query: searchQuery,
-  });
+  const otherAppEntries = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates: curatedTemplates,
+      connectedApps,
+      workspaceApps: apps,
+    }),
+    searchQuery,
+  );
   const hasSearchResults =
     filteredActiveApps.length > 0 ||
     filteredPendingApps.length > 0 ||

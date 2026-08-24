@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -2253,7 +2254,11 @@ export default function SourcesRoute() {
         result,
         sourceKey: form.sourceKey,
       });
-      if (handoff) setIngestHandoff(handoff);
+      setSetupOpen(false);
+      if (handoff) {
+        afterBodyPointerUnlock(() => setIngestHandoff(handoff));
+      }
+      return;
     }
     setSetupOpen(false);
   }
@@ -2360,7 +2365,7 @@ export default function SourcesRoute() {
                     : undefined
                 }
                 onSync={() => syncSource.mutate({ sourceId: source.id })}
-                onTune={() => openEdit(source)}
+                onTune={() => afterBodyPointerUnlock(() => openEdit(source))}
                 onImportMarkdown={() => setMarkdownImportSource(source)}
                 onArchive={() => setArchiveSource(source)}
               />
@@ -2451,7 +2456,7 @@ export default function SourcesRoute() {
               }
               onAddSource={(provider) => {
                 setAdvancedOpen(false);
-                openCreate(provider);
+                afterBodyPointerUnlock(() => openCreate(provider));
               }}
             />
           </div>

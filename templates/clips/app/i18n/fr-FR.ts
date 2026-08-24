@@ -362,6 +362,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "Réunion sans titre",
+    recordedBy: "Enregistré par {{name}}",
     unassigned: "Non attribué",
     them: "Eux",
     me: "Moi",
@@ -369,6 +370,10 @@ const messages = {
     meetingRemoved: "Réunion supprimée",
     couldNotRemoveMeeting: "Impossible de supprimer la réunion",
     couldNotLoadMeeting: "Impossible de charger cette réunion.",
+    retry: "Réessayer",
+    meetingNotFound: "Réunion introuvable",
+    meetingUnavailable: "Cette réunion n'est pas disponible.",
+    noAccess: "Vous n’aurez peut-être pas accès à cette réunion.",
     transcriptCopied: "Transcription copiée",
     couldNotCopyTranscript: "Impossible de copier la transcription",
     allMeetings: "Toutes les réunions",

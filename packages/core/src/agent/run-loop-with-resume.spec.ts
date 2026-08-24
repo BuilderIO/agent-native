@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
+import {
+  MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
+  MAX_RUN_LOOP_CONTINUATIONS,
+} from "../app-config/run-lifecycle-invariants.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
@@ -13,11 +17,10 @@ import {
 } from "./production-agent.js";
 import {
   AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+  clientAbortReason,
   runAgentLoopDirectWithSoftTimeout,
   BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
   MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS,
-  MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
-  MAX_RUN_LOOP_CONTINUATIONS,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
 } from "./run-loop-with-resume.js";
@@ -1567,5 +1570,236 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationNote).toBeDefined();
+  });
+});
+
+describe("chunk-boundary recovery", () => {
+  /**
+   * Minimal stand-in for the run manager's `RunChunkControl`: a turn signal
+   * that only a Stop touches, and a chunk signal the harness can end the way a
+   * checkpoint does.
+   */
+  function makeControl(turnSignal: AbortSignal) {
+    let chunk = new AbortController();
+    let reason: string | null = null;
+    turnSignal.addEventListener("abort", () => chunk.abort(turnSignal.reason));
+    return {
+      control: {
+        get turnSignal() {
+          return turnSignal;
+        },
+        get chunkSignal() {
+          return chunk.signal;
+        },
+        chunkBoundaryReason: () => reason,
+        beginChunk: () => {
+          if (turnSignal.aborted) return turnSignal;
+          reason = null;
+          chunk = new AbortController();
+          return chunk.signal;
+        },
+      },
+      checkpoint: (nextReason: string) => {
+        reason = nextReason;
+        chunk.abort(nextReason);
+      },
+    };
+  }
+
+  /** Resolves immediately when the signal is ALREADY aborted — which it is
+   *  whenever the boundary was decided before the listener was attached. */
+  function waitForAbort(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  }
+
+  beforeEach(() => {
+    mockRunAgentLoop.mockReset();
+    mockGetCurrentTurnEventsForThread.mockReset();
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
+  });
+
+  it("continues the turn after a no-progress checkpoint from above the loop", async () => {
+    const turn = new AbortController();
+    const { control, checkpoint } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      attempts++;
+      if (attempts === 1) {
+        // The run manager decides the boundary while this round is in flight.
+        checkpoint("no_progress");
+        await waitForAbort(opts.signal);
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        messages,
+        control.chunkSignal,
+        undefined,
+        "thread-chunk",
+        outcomes,
+      ),
+      60_000,
+      { backgroundFunction: true },
+      control,
+    );
+
+    expect(attempts).toBe(2);
+    expect(outcomes.at(-1)).toEqual({ state: "completed" });
+    const continuationNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationNote).toBeDefined();
+  });
+
+  it("names the server bound that ended the turn instead of calling it a cancel", async () => {
+    const turn = new AbortController();
+    const { control } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      turn.abort("background_automation_hard_timeout");
+      await waitForAbort(opts.signal);
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          messages,
+          control.chunkSignal,
+          undefined,
+          "thread-hard",
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      ),
+    ).rejects.toThrow();
+
+    // `canceled` here is what made a hard-timed-out automation byte-identical
+    // to a user Stop in `$ai_error`.
+    expect(outcomes.at(-1)).toMatchObject({
+      state: "failed",
+      code: "background_automation_hard_timeout",
+      retryable: false,
+    });
+  });
+
+  it("still reports a cancel when the abort reason came from the client", async () => {
+    const turn = new AbortController();
+    const { control } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      // The abort route accepts any /^[a-z0-9_-]{1,64}$/i reason from the
+      // client, so "not `user`" is not a safe test for "not a Stop".
+      turn.abort("stopped_by_reviewer");
+      await waitForAbort(opts.signal);
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          messages,
+          control.chunkSignal,
+          undefined,
+          "thread-client-stop",
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      ),
+    ).rejects.toThrow();
+
+    expect(outcomes.at(-1)).toEqual({
+      state: "canceled",
+      message: "Agent run was aborted.",
+    });
+  });
+
+  it("treats a Stop as a Stop even when a chunk control is present", async () => {
+    const turn = new AbortController();
+    const { control } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      attempts++;
+      turn.abort("user");
+      await waitForAbort(opts.signal);
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          messages,
+          control.chunkSignal,
+          undefined,
+          "thread-chunk-stop",
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      ),
+    ).rejects.toThrow();
+
+    expect(attempts).toBe(1);
+    expect(outcomes.at(-1)).toEqual({
+      state: "canceled",
+      message: "Agent run was aborted.",
+    });
+  });
+});
+
+describe("clientAbortReason", () => {
+  // The terminal outcome keys off the abort reason, so a client able to name a
+  // server-owned bound could file its own Stop as a server-side failure.
+  it("refuses reasons only the server is allowed to name", () => {
+    expect(clientAbortReason("background_automation_hard_timeout")).toBe(
+      "user",
+    );
+    expect(clientAbortReason("no_progress")).toBe("user");
+    expect(clientAbortReason("RUN_TIMEOUT")).toBe("user");
+  });
+
+  it("keeps a caller's own word for its Stop", () => {
+    expect(clientAbortReason("stopped_by_reviewer")).toBe(
+      "stopped_by_reviewer",
+    );
+    expect(clientAbortReason("user")).toBe("user");
+  });
+
+  it("falls back to user for anything malformed or absent", () => {
+    expect(clientAbortReason(undefined)).toBe("user");
+    expect(clientAbortReason(42)).toBe("user");
+    expect(clientAbortReason("has spaces")).toBe("user");
+    expect(clientAbortReason("x".repeat(65))).toBe("user");
   });
 });

@@ -145,7 +145,7 @@ export default function MailTemplate() {
         }
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbcf3d06c52364153a913c15b77f2418d"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F22d9ae0ae42849a489bd5a572c79fdb8"
             crossOrigin="anonymous"
             alt={t("templateLanding.mail.s001")}
             loading="lazy"

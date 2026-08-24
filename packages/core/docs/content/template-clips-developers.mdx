@@ -100,7 +100,7 @@ This pilot requires the reporter to already have an active session in the Clips 
 
 All data lives in SQL via Drizzle ORM. Schema: `templates/clips/server/db/schema.ts`. Recordings, meetings, dictations, calendar accounts, and vocabulary all carry the standard `ownableColumns` and have a matching framework shares table, so they slot into the per-user / per-org sharing model.
 
-Two things live outside this schema on purpose: organization/member/invitation rows are framework-owned tables (`organizations`, `org_members`, `org_invitations`), with `organization_settings` as the Clips-specific sidecar keyed by organization id; and the Rewind quick-save request lifecycle and mobile-capture-state live in `application_state`, not a SQL table, since they're short-lived, per-session status rather than durable app data.
+Two things live outside this schema on purpose: organization/member/invitation rows are framework-owned tables (`organizations`, `org_members`, `org_invitations`), with `organization_settings` as the Clips-specific sidecar keyed by organization id; and the "Add what happened before" (Rewind pre-roll) request lifecycle and mobile-capture-state live in `application_state`, not a SQL table, since they're short-lived, per-session status rather than durable app data.
 
 <DataModel
   id="doc-block-oitg2"
@@ -313,7 +313,7 @@ Recordings and transcripts are intentionally separate tables so the library and 
     },
     {
       path: "actions/request-rewind-extension.ts",
-      note: "Local Rewind quick-save request lifecycle",
+      note: "Add-what-happened-before (Rewind pre-roll) request lifecycle",
     },
     {
       path: "app/routes/",
@@ -349,7 +349,7 @@ Every agent-callable operation is a TypeScript file in `templates/clips/actions/
 - **Sharing, comments & engagement** — framework sharing actions (`share-resource`, `set-resource-visibility`, `list-resource-shares`) plus `build-embed-url`, `create-recording-agent-link`, `create-cta` / `update-cta` / `delete-cta`, `add-comment` / `reply-to-comment` / `resolve-comment` / `react-to-comment` / `delete-comment`, `react-to-recording`, `list-viewers`, `list-clip-views`.
 - **Organizations & members** — `create-organization`, `set-organization-branding`, `invite-member` / `accept-invite` / `decline-invite` / `get-invite`, `remove-member`, `update-member-role`, `list-organization-state`, `list-notifications`.
 - **Screen Memory** — `get-screen-memory-status`, `query-screen-memory-context`. Both read bounded local files on the current machine only; neither ever returns media bytes or images.
-- **Rewind quick-save** — `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request`, `make-recording-private-for-rewind`, `apply-rewind-extension`.
+- **Add what happened before (Rewind pre-roll)** — `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request`, `make-recording-private-for-rewind`, `apply-rewind-extension`.
 - **Mobile companion** — `set-mobile-capture-state` records the privacy-safe view/phase of the mobile capture UI; it's not agent-callable (`agentTool: false`).
 - **CRM & Brain export** — `prepare-crm-call-evidence`, `export-to-brain`.
 - **Search & insights** — `search-recordings` (matches titles, descriptions, transcript text, and comments, with timestamps), `get-recording-insights`, `get-organization-insights`, `export-insights-csv`, `list-ai-requests` / `update-ai-request-status`.
@@ -372,7 +372,7 @@ The agent edits routes, components, the transcript pipeline, and the schema as n
 ## What's next
 
 - [**Clips**](/docs/template-clips) — the overview
-- [**Capturing Everywhere**](/docs/template-clips-capture-everywhere) — desktop, mobile, Rewind, Screen Memory, and the Chrome extension from a user's perspective
+- [**Capturing Everywhere**](/docs/template-clips-capture-everywhere) — desktop, mobile, Rewind, and the Chrome extension from a user's perspective
 - [**Sharing, Teams, and Agent-Readable Clips**](/docs/template-clips-sharing-and-teams) — the sharing model this data model backs
 - [**AI Pipeline, Editing, and Insights**](/docs/template-clips-ai-and-editing) — the transcription and editing pipeline these actions power
 - [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model

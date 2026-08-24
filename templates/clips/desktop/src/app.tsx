@@ -404,11 +404,10 @@ const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
-// The tray's rolling buffer, which the docs publish under its internal name.
-// Not `#rewind-quick-save`: that section describes pulling a pre-roll from the
-// third-party rewind.ai app, which this app does not integrate with at all.
+// The docs section for the tray's rolling buffer, published under the same
+// Rewind name the settings tab uses.
 const REWIND_DOCS_URL =
-  "https://www.agent-native.com/docs/template-clips-capture-everywhere#screen-memory";
+  "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind";
 
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
@@ -3293,11 +3292,14 @@ export function App({
       // A restart hands off the already-live display stream from the take
       // it's replacing (see `discardForRestart`/`preAcquiredDisplayStream`
       // below) — it must keep recording the same screen, not re-prompt.
-      if (source === "full-screen" && !options?.resumeCapture) {
+      if (
+        (source === "full-screen" || source === "region") &&
+        !options?.resumeCapture
+      ) {
         try {
           // Must resolve before `recordingFlowActive` flips the toolbar on
-          // below — the toolbar reads the pick to place itself on the
-          // chosen screen the first time it's shown.
+          // below — the toolbar and region selector read the pick to place
+          // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
           recordingFlowGateRef.current = false;
@@ -3835,22 +3837,25 @@ export function App({
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
-  const pendingUploadBanner = recordingStopFinalizing ? (
-    <FinalizingUploadBanner />
-  ) : pendingUploads.length > 0 ? (
-    <PendingUploadBanner
-      uploads={pendingUploads}
-      retryingUploadId={retryingUploadId}
-      retryingUploadStatus={retryingUploadStatus}
-      exportingUploadId={exportingUploadId}
-      dismissingUploadId={dismissingUploadId}
-      onExport={exportPendingUpload}
-      onRetry={retryPendingUpload}
-      onDismiss={dismissPendingUpload}
-      onOpenFolder={openPendingUploadFolder}
-      onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
-    />
-  ) : null;
+  const pendingUploadBanner =
+    authStatus === "authed" ? (
+      recordingStopFinalizing ? (
+        <FinalizingUploadBanner />
+      ) : pendingUploads.length > 0 ? (
+        <PendingUploadBanner
+          uploads={pendingUploads}
+          retryingUploadId={retryingUploadId}
+          retryingUploadStatus={retryingUploadStatus}
+          exportingUploadId={exportingUploadId}
+          dismissingUploadId={dismissingUploadId}
+          onExport={exportPendingUpload}
+          onRetry={retryPendingUpload}
+          onDismiss={dismissPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
+          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
+        />
+      ) : null
+    ) : null;
 
   async function copyRewindAgentPrompt() {
     try {

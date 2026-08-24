@@ -525,7 +525,7 @@ describe("createAnthropicEngine", () => {
     const events = await collectEvents(engine.stream(opts));
     const stopEvent = events.find((e) => e.type === "stop");
     expect(stopEvent?.reason).toBe("error");
-    expect(stopEvent?.error).toContain("Manage agent > LLM");
+    expect(stopEvent?.error).toContain("Settings > Agent > AI providers");
     expect(stopEvent?.error).not.toContain("ANTHROPIC_API_KEY");
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });

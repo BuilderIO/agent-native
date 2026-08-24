@@ -72,15 +72,17 @@ describe("consumeExternalEmailRefresh", () => {
     vi.useRealTimers();
   });
 
-  it("uses each forced Gmail list refresh once", () => {
+  it("uses each forced Gmail list refresh once per list scope", () => {
     vi.useFakeTimers();
     const now = new Date("2026-06-26T12:00:00.000Z").getTime();
     vi.setSystemTime(now);
 
     markExternalEmailRefresh();
 
-    expect(consumeExternalEmailRefresh()).toBe(now);
-    expect(consumeExternalEmailRefresh()).toBeUndefined();
+    expect(consumeExternalEmailRefresh("inbox")).toBe(now);
+    expect(consumeExternalEmailRefresh("important")).toBe(now);
+    expect(consumeExternalEmailRefresh("inbox")).toBeUndefined();
+    expect(consumeExternalEmailRefresh("important")).toBeUndefined();
   });
 
   it("drops expired forced Gmail list refreshes", () => {

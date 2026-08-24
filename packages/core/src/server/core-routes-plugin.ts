@@ -143,6 +143,7 @@ import {
   getBuilderBrowserStatusForEvent,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
+  normalizeBuilderAgentContext,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
   resolveBuilderPreviewRelayParentOrigin,
@@ -436,6 +437,35 @@ async function resolveAgentEngineStatusIdentity(
     /* org module not present in this template */
     return { userEmail, orgId: undefined };
   }
+}
+
+/**
+ * A Builder grant is shared by everyone in the caller's org, so establishing,
+ * overwriting, or revoking one requires org owner/admin authority. Returns the
+ * authorized org id and a denial message (null when allowed). The org id is
+ * captured at connect start so the grant is stored under the org that was
+ * authorized, not one re-resolved after the OAuth round trip. Fails closed: an
+ * unreadable owner/admin role is denied.
+ */
+async function resolveBuilderOrgMutation(
+  event: H3Event,
+): Promise<{ orgId: string | null; deny: string | null }> {
+  let orgId: string | null = null;
+  let role: string | null = null;
+  try {
+    const orgCtx = await getOrgContext(event);
+    orgId = orgCtx.orgId ?? null;
+    role = orgCtx.role ?? null;
+  } catch {
+    // coercion-ok: org is missing, it will fail closed
+  }
+  if (role !== "owner" && role !== "admin") {
+    return {
+      orgId,
+      deny: "Only an organization owner or admin can change the shared Builder connection.",
+    };
+  }
+  return { orgId, deny: null };
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -1473,6 +1503,69 @@ export function ensureS3FileUploadProvider(): void {
   registerFileUploadProvider(s3FileUploadProvider);
 }
 
+export interface OAuthCustodyBuilderKeyStatus {
+  privateKeyConfigured: boolean;
+  publicKeyConfigured: boolean;
+  orgName: string;
+  /**
+   * True when the key-pair lookup itself failed (credential store
+   * unreadable, org lookup error, a thrown import) rather than confirming
+   * no keys exist. privateKeyConfigured/publicKeyConfigured stay `false` in
+   * both cases — this is the only signal that tells "never configured"
+   * apart from "couldn't check right now", so a transient store blip can't
+   * read downstream as "the user never connected Builder keys".
+   */
+  keyLookupFailed: boolean;
+}
+
+/**
+ * Resolves the classic Builder key-pair status for a request that already
+ * has Builder MCP OAuth custody (the connection-status handler's `configured`
+ * is already `true` by the time this runs — OAuth alone proves the chat
+ * gateway). Exported so the connection-status route's OAuth-custody branch is
+ * unit-testable without standing up the full plugin.
+ */
+export async function resolveOAuthCustodyBuilderKeyStatus(
+  dependencies: {
+    resolveCredentialsDetailed: () => Promise<{
+      privateKey: string | null;
+      publicKey: string | null;
+      orgName: string | null;
+      lookupFailed: boolean;
+    }>;
+  } = {
+    resolveCredentialsDetailed: async () => {
+      const { resolveBuilderCredentialsDetailed } =
+        await import("./credential-provider.js");
+      return resolveBuilderCredentialsDetailed();
+    },
+  },
+): Promise<OAuthCustodyBuilderKeyStatus> {
+  try {
+    const creds = await dependencies.resolveCredentialsDetailed();
+    return {
+      privateKeyConfigured: !!creds.privateKey,
+      publicKeyConfigured: !!creds.publicKey,
+      orgName:
+        typeof creds.orgName === "string" && creds.orgName
+          ? creds.orgName
+          : "Builder OAuth",
+      keyLookupFailed: creds.lookupFailed,
+    };
+  } catch {
+    // OAuth already proves the chat gateway, so a thrown key-pair lookup
+    // here must not abort the response — but it is unreadable, not
+    // confirmed-absent, so keyLookupFailed has to say so (see the field doc
+    // above) instead of silently landing on the same `false`s as a real miss.
+    return {
+      privateKeyConfigured: false,
+      publicKeyConfigured: false,
+      orgName: "Builder OAuth",
+      keyLookupFailed: true,
+    };
+  }
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1724,7 +1817,12 @@ export function createCoreRoutesPlugin(
 
       for (const provider of [
         "figma",
+        "gmail",
+        "google_calendar",
+        "google_docs",
         "google_drive",
+        "google_sheets",
+        "google_slides",
         "github",
         "hubspot",
         "salesforce",
@@ -2266,29 +2364,15 @@ export function createCoreRoutesPlugin(
                 }
               }
               if (oauthAccess) {
-                let privateKeyConfigured = false;
-                let publicKeyConfigured = false;
-                let orgName = "Builder OAuth";
-                try {
-                  const { resolveBuilderCredentials } =
-                    await import("./credential-provider.js");
-                  const creds = await resolveBuilderCredentials();
-                  privateKeyConfigured = !!creds.privateKey;
-                  publicKeyConfigured = !!creds.publicKey;
-                  if (typeof creds.orgName === "string" && creds.orgName) {
-                    orgName = creds.orgName;
-                  }
-                } catch {
-                  // coercion-ok: OAuth already proves the chat gateway; missing
-                  // key flags only hide code-change send until secrets are readable.
-                }
+                const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
                 return withConnectToken({
                   ...requestStatus,
                   configured: true,
                   credentialSource: "user" as const,
-                  privateKeyConfigured,
-                  publicKeyConfigured,
-                  orgName,
+                  privateKeyConfigured: keyStatus.privateKeyConfigured,
+                  publicKeyConfigured: keyStatus.publicKeyConfigured,
+                  keyLookupFailed: keyStatus.keyLookupFailed,
+                  orgName: keyStatus.orgName,
                   spaces: [],
                 });
               }
@@ -2630,6 +2714,31 @@ export function createCoreRoutesPlugin(
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
+          const { orgId: connectOrgId, deny: orgConnectDenied } =
+            await resolveBuilderOrgMutation(event);
+          if (orgConnectDenied) {
+            await trackBuilderLifecycle(
+              event,
+              "builder connect failed",
+              ownerEmail,
+              {
+                ...builderConnectTrackingProperties(connectTracking),
+                reason: "org_authorization_required",
+                stage: "connect",
+              },
+            );
+            setResponseStatus(event, 403);
+            setResponseHeader(
+              event,
+              "Content-Type",
+              "text/html; charset=utf-8",
+            );
+            return createBuilderBrowserCallbackErrorPage(orgConnectDenied, {
+              title: "Not allowed to connect Builder for this organization",
+              body: "Ask an organization owner or admin to connect Builder.",
+              parentOrigin: getBuilderBrowserOriginForEvent(event),
+            });
+          }
           const state = createBuilderConnectState();
 
           // The standard OAuth client discovers Builder's protected-resource
@@ -2647,7 +2756,7 @@ export function createCoreRoutesPlugin(
             authorizationUrl = started.authorizationUrl;
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
-              orgId: null,
+              orgId: connectOrgId,
               role: null,
               encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
               redirectUri: callbackUrl,
@@ -2713,11 +2822,21 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
+          await assertBodySize(event, 64 * 1024);
           const body = await readBody(event).catch(() => ({}) as any);
           const prompt = typeof body?.prompt === "string" ? body.prompt : "";
           if (!prompt.trim()) {
             setResponseStatus(event, 400);
             return { error: "prompt is required" };
+          }
+          let context: string | undefined;
+          try {
+            context = normalizeBuilderAgentContext(body?.context);
+          } catch (error) {
+            setResponseStatus(event, 400);
+            return {
+              error: error instanceof Error ? error.message : "Invalid context",
+            };
           }
           const session = await getSession(event).catch(() => null);
           if (!session?.email) {
@@ -2763,6 +2882,7 @@ export function createCoreRoutesPlugin(
               try {
                 const result = await runBuilderAgent({
                   prompt,
+                  context,
                   projectId,
                   branchName:
                     typeof body?.branchName === "string"
@@ -3174,6 +3294,8 @@ export function createCoreRoutesPlugin(
             ) as BuilderOAuthPendingFlow;
             await finishBuilderOAuthAuthorization({
               ownerEmail,
+              orgId:
+                typeof consumed.orgId === "string" ? consumed.orgId : undefined,
               code,
               iss,
               pending: oauthFlow,
@@ -3242,6 +3364,15 @@ export function createCoreRoutesPlugin(
 
           try {
             const hadOAuth = await hasBuilderOAuthSession(session.email);
+            // Revoking an org-scoped grant takes the connection offline for
+            // every member, so require org owner/admin before doing so.
+            if (hadOAuth) {
+              const { deny } = await resolveBuilderOrgMutation(event);
+              if (deny) {
+                setResponseStatus(event, 403);
+                return { error: deny };
+              }
+            }
             const oauthResult = hadOAuth
               ? await deleteBuilderOAuthSession(session.email)
               : { localDeleted: false, remoteRevoked: false };

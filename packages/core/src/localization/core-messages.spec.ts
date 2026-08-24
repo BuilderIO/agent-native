@@ -74,11 +74,11 @@ describe("built-in Core chat translations", () => {
   it.each([
     [
       "de-DE",
-      "Es ist kein LLM-Anbieter verbunden. Öffne für diese App „Agent verwalten“ → „LLM“ und verbinde anschließend Builder.io oder füge einen Anbieterschlüssel hinzu.",
+      "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde anschließend Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
     ],
     [
       "ar-SA",
-      "لا يوجد مزوّد LLM متصل. افتح «إدارة الوكيل» ← «LLM» لهذا التطبيق، ثم اربط Builder.io أو أضف مفتاح مزوّد.",
+      "لا يوجد مزوّد LLM متصل. افتح الإعدادات > الوكيل > مزوّدو الذكاء الاصطناعي، ثم اربط Builder.io (تتوفر خطة مجانية) أو أضف مفتاح مزوّد.",
     ],
   ])(
     "localizes Core's missing-provider error for %s",

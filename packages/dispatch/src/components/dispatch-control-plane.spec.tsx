@@ -29,6 +29,8 @@ const clientState = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  chatModelSelectionStorageKey: (namespace: string) =>
+    `agent-native:chat-models:selection:${namespace}`,
   navigateWithAgentChatViewTransition: (
     navigate: unknown,
     path: string,
@@ -176,7 +178,7 @@ describe("DispatchControlPlane", () => {
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
     ).not.toBeNull();
     expect(clientState.useChatModels).toHaveBeenCalledWith({
-      storageKey: "dispatch",
+      storageKey: "agent-native:chat-models:selection:dispatch",
     });
     expect(clientState.promptComposerProps).toMatchObject({
       availableModels: [],

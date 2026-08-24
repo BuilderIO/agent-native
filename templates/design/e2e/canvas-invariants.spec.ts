@@ -920,7 +920,7 @@ test.describe("moving", () => {
 // ── Selection ─────────────────────────────────────────────────────────────
 
 test.describe("selection", () => {
-  test("clicking selects the deepest node, and Escape walks up to the parent", async ({
+  test("clicking selects the deepest node, and Backslash walks up to the parent", async ({
     page,
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -941,7 +941,7 @@ test.describe("selection", () => {
       `a plain click selects the deepest node under the pointer; got "${clicked}"`,
     ).toContain("Title");
 
-    await page.keyboard.press("Escape");
+    await page.keyboard.press("\\");
     await page.waitForTimeout(1500);
     const parent = (
       await page
@@ -951,9 +951,57 @@ test.describe("selection", () => {
     )?.trim();
     expect(
       parent,
-      `Escape is how this editor reaches the ancestor Figma would have picked ` +
+      `"\\" is how this editor reaches the ancestor Figma would have picked ` +
         `on click; got "${parent}"`,
     ).toContain("Intro");
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1500);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+      "Escape is select-none, not one more step up the ancestor chain",
+    ).toHaveCount(0);
+  });
+
+  test("Escape on a rect drawn inside a frame clears, and never lands on the screen", async ({
+    page,
+  }) => {
+    const id = await newDesign(page, BLANK_PAGE);
+    await openEditor(page, id);
+    await drawWith(page, "Frame", {
+      left: 60,
+      top: 80,
+      width: 320,
+      height: 260,
+    });
+    await drawWith(page, "Rectangle", {
+      left: 110,
+      top: 130,
+      width: 140,
+      height: 110,
+    });
+
+    const rect = inFrame(page, '[data-an-primitive="rectangle"]').first();
+    const box = await rect.boundingBox();
+    if (!box) throw new Error("drawn rectangle has no hit box");
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(1800);
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1800);
+    const selectedName = await page
+      .locator('[role="treeitem"][aria-selected="true"]')
+      .first()
+      .textContent()
+      .catch(() => null);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+      `Escape left "${selectedName?.trim()}" selected instead of clearing`,
+    ).toHaveCount(0);
+    await expect(
+      page.locator("[data-frame-selection-box]"),
+      "Escape escalated the selection to the screen frame",
+    ).toHaveCount(0);
   });
 
   test("selecting a second element deselects the first", async ({ page }) => {

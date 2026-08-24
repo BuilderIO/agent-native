@@ -3167,6 +3167,8 @@ const enUS = {
     searchLanguages: "Search languages...",
     noBlocksFields: "No Blocks fields. Add one from the property menu.",
     noDocumentSelected: "No document selected",
+    registryBlockLoadError: "Could not load {{type}} block: {{message}}",
+    registryBlockUnreadable: "Persisted block source is unreadable.",
     blocksFieldRevisionConflict:
       "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
     couldNotReadLocalSourceFile: "Could not read local source file",
@@ -5762,6 +5764,8 @@ const editorMessagesByLocale = {
       red: "红色",
     },
     noDocumentSelected: "未选择文档",
+    registryBlockLoadError: "无法加载 {{type}} 块：{{message}}",
+    registryBlockUnreadable: "无法读取已保存的块源内容。",
     blocksFieldRevisionConflict:
       "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
     collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
@@ -6127,6 +6131,8 @@ const editorMessagesByLocale = {
       red: "Rojo",
     },
     noDocumentSelected: "Ningún documento seleccionado",
+    registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
+    registryBlockUnreadable: "No se puede leer el origen guardado del bloque.",
     blocksFieldRevisionConflict:
       "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
     collabConnectingReadOnly:
@@ -6505,6 +6511,9 @@ const editorMessagesByLocale = {
       red: "Rouge",
     },
     noDocumentSelected: "Aucun document sélectionné",
+    registryBlockLoadError:
+      "Impossible de charger le bloc {{type}} : {{message}}",
+    registryBlockUnreadable: "La source enregistrée du bloc est illisible.",
     blocksFieldRevisionConflict:
       "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
     collabConnectingReadOnly:
@@ -6888,6 +6897,10 @@ const editorMessagesByLocale = {
       red: "Rot",
     },
     noDocumentSelected: "Kein Dokument ausgewählt",
+    registryBlockLoadError:
+      "Der Block {{type}} konnte nicht geladen werden: {{message}}",
+    registryBlockUnreadable:
+      "Die gespeicherte Blockquelle kann nicht gelesen werden.",
     blocksFieldRevisionConflict:
       "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
     collabConnectingReadOnly:
@@ -7274,6 +7287,9 @@ const editorMessagesByLocale = {
       red: "赤",
     },
     noDocumentSelected: "ドキュメントが選択されていません",
+    registryBlockLoadError:
+      "{{type}} ブロックを読み込めませんでした: {{message}}",
+    registryBlockUnreadable: "保存されたブロックソースを読み取れません。",
     blocksFieldRevisionConflict:
       "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
     collabConnectingReadOnly:
@@ -7649,6 +7665,8 @@ const editorMessagesByLocale = {
       red: "빨간색",
     },
     noDocumentSelected: "선택한 문서가 없습니다.",
+    registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",
+    registryBlockUnreadable: "저장된 블록 소스를 읽을 수 없습니다.",
     blocksFieldRevisionConflict:
       "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
     collabConnectingReadOnly:
@@ -8023,6 +8041,9 @@ const editorMessagesByLocale = {
       red: "Vermelho",
     },
     noDocumentSelected: "Nenhum documento selecionado",
+    registryBlockLoadError:
+      "Não foi possível carregar o bloco {{type}}: {{message}}",
+    registryBlockUnreadable: "Não foi possível ler a origem salva do bloco.",
     blocksFieldRevisionConflict:
       "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
     collabConnectingReadOnly:
@@ -8403,6 +8424,8 @@ const editorMessagesByLocale = {
       red: "लाल",
     },
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
+    registryBlockLoadError: "{{type}} ब्लॉक लोड नहीं किया जा सका: {{message}}",
+    registryBlockUnreadable: "सहेजा गया ब्लॉक स्रोत पढ़ा नहीं जा सकता।",
     blocksFieldRevisionConflict:
       "यह ब्लॉक फ़ील्ड कहीं और बदल गया है। आपका संपादन सहेजा नहीं गया; अब नवीनतम संस्करण दिखाया जा रहा है।",
     collabConnectingReadOnly:
@@ -8773,6 +8796,8 @@ const editorMessagesByLocale = {
       red: "أحمر",
     },
     noDocumentSelected: "لم يتم تحديد أي مستند",
+    registryBlockLoadError: "تعذر تحميل كتلة {{type}}: {{message}}",
+    registryBlockUnreadable: "تعذرت قراءة مصدر الكتلة المحفوظ.",
     blocksFieldRevisionConflict:
       "تم تغيير حقل الكتل هذا في مكان آخر. لم يتم حفظ تعديلك؛ ويظهر الآن أحدث إصدار.",
     collabConnectingReadOnly:

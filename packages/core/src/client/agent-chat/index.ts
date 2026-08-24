@@ -83,6 +83,7 @@ export {
 } from "../../code-agents/transcript-normalizer.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
 export {
+  chatModelSelectionStorageKey,
   useChatModels,
   type UseChatModelsResult,
   type EngineModelGroup,

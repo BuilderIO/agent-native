@@ -179,6 +179,31 @@ jobs:
         id: plan
         run: node --experimental-strip-types scripts/ci-test-lanes.ts
 
+  discover-targeted-lanes:
+    name: Plan targeted test lanes
+    needs: change-scope
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_tests: ${{ steps.plan.outputs.has_tests }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Partition affected test packages into lanes
+        id: plan
+        env:
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+          LANES: 5
+        run: node --experimental-strip-types scripts/ci-test-lanes.ts
+
   test-core:
     name: Fast tests core
     needs: change-scope
@@ -290,16 +315,17 @@ jobs:
           --exclude "**/create-e2e.spec.ts"
 
   test-targeted:
-    name: Fast tests targeted workspaces
-    needs: change-scope
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
+    name: Fast tests targeted ${{ matrix.lane }}
+    needs: [change-scope, discover-targeted-lanes]
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.discover-targeted-lanes.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
-    # A core change expands to its dependent workspace graph (currently 38
-    # projects) and runs those packages serially to keep runner memory bounded.
-    # Keep the bounded execution, but allow the graph to finish before treating
-    # a passing test run as a failure. The current serial graph needs more than
-    # 30 minutes on the hosted runner; retain a finite bound for true hangs.
-    timeout-minutes: 45
+    # Keep each runner bounded to one package at a time, but shard the affected
+    # package set across runners so a core change does not serialize its whole
+    # dependent graph behind one job.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-targeted-lanes.outputs.matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -325,33 +351,35 @@ jobs:
       - name: Install Playwright Chromium for browser-backed unit tests
         run: pnpm exec playwright install --only-shell chromium
 
-      - name: Run fast tests for affected workspaces
-        env:
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
-        run: |
-          filters=()
-          while IFS= read -r filter; do
-            filters+=(--filter "$filter")
-          done < <(node -e 'for (const filter of JSON.parse(process.env.CI_WORKSPACE_FILTERS)) console.log(filter)')
-          pnpm -r --no-bail --if-present --workspace-concurrency=1 "${filters[@]}" run test \
-            --exclude "**/*.db.test.ts" \
-            --exclude "**/*.integration.spec.ts" \
-            --exclude "**/*.integration.test.ts" \
-            --exclude "**/*.e2e.spec.ts" \
-            --exclude "**/*.e2e.test.ts" \
-            --exclude "**/e2e/**" \
-            --exclude "**/*.live.spec.ts" \
-            --exclude "**/*.live.test.ts" \
-            --exclude "**/*.perf.spec.ts" \
-            --exclude "**/*.perf.test.ts" \
-            --exclude "**/create-e2e.spec.ts"
+      - name: Run fast tests for lane
+        run: >-
+          pnpm -r --no-bail --if-present --workspace-concurrency=1 ${{ matrix.filters }} run test
+          --exclude "**/*.db.test.ts"
+          --exclude "**/*.integration.spec.ts"
+          --exclude "**/*.integration.test.ts"
+          --exclude "**/*.e2e.spec.ts"
+          --exclude "**/*.e2e.test.ts"
+          --exclude "**/e2e/**"
+          --exclude "**/*.live.spec.ts"
+          --exclude "**/*.live.test.ts"
+          --exclude "**/*.perf.spec.ts"
+          --exclude "**/*.perf.test.ts"
+          --exclude "**/create-e2e.spec.ts"
 
   # Stable required status check. Point branch protection at "Fast tests" (this
   # gate), not the per-lane or targeted jobs whose names may vary.
   fast-tests:
     name: Fast tests
     needs:
-      [change-scope, docs, discover-lanes, test-core, test-rest, test-targeted]
+      [
+        change-scope,
+        docs,
+        discover-lanes,
+        discover-targeted-lanes,
+        test-core,
+        test-rest,
+        test-targeted,
+      ]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -360,8 +388,10 @@ jobs:
         env:
           CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          CI_FULL: ${{ needs.change-scope.outputs.full }}
           DOCS_RESULT: ${{ needs.docs.result }}
           DISCOVER_LANES_RESULT: ${{ needs.discover-lanes.result }}
+          DISCOVER_TARGETED_LANES_RESULT: ${{ needs.discover-targeted-lanes.result }}
           TEST_CORE_RESULT: ${{ needs.test-core.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
@@ -378,8 +408,24 @@ jobs:
             echo "Docs-only change: full fast-test lanes are not required."
             exit 0
           fi
-          if [ "$TEST_TARGETED_RESULT" = "success" ]; then
-            echo "Targeted workspace fast tests passed."
+          if [ "$CI_FULL" != "true" ]; then
+            if [ "$DISCOVER_TARGETED_LANES_RESULT" != "success" ]; then
+              echo "::error::discover-targeted-lanes did not succeed ($DISCOVER_TARGETED_LANES_RESULT)"
+              exit 1
+            fi
+            if [ "${{ needs.discover-targeted-lanes.outputs.has_tests }}" = "true" ]; then
+              if [ "$TEST_TARGETED_RESULT" != "success" ]; then
+                echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
+                exit 1
+              fi
+              echo "Targeted workspace fast tests passed."
+            else
+              if [ "$TEST_TARGETED_RESULT" != "skipped" ] && [ "$TEST_TARGETED_RESULT" != "success" ]; then
+                echo "::error::targeted test job did not skip cleanly ($TEST_TARGETED_RESULT)"
+                exit 1
+              fi
+              echo "No affected workspace has a test script; targeted fast tests were skipped."
+            fi
             exit 0
           fi
           for dep in "discover-lanes:$DISCOVER_LANES_RESULT" \

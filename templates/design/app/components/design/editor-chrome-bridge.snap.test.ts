@@ -25,16 +25,37 @@ import { describe, expect, it } from "vitest";
  */
 
 interface SnapGuide {
+  orientation: "vertical" | "horizontal";
   position: number;
   start: number;
   end: number;
 }
 
+interface SpacingBand {
+  gapStart: number;
+  gapEnd: number;
+  crossStart: number;
+  crossEnd: number;
+}
+
+interface SpacingGuide {
+  orientation: "vertical" | "horizontal";
+  gap: number;
+  bands: [SpacingBand, SpacingBand];
+}
+
+interface ProximityMeasurement {
+  orientation: "vertical" | "horizontal";
+  gap: number;
+  band: SpacingBand;
+}
+
 interface SnapResult {
   dx: number;
   dy: number;
-  guideV: SnapGuide | null;
-  guideH: SnapGuide | null;
+  guides: SnapGuide[];
+  spacingGuides: SpacingGuide[];
+  measurements: ProximityMeasurement[];
 }
 
 interface RectBounds {
@@ -95,19 +116,38 @@ function loadSnapMath(): {
     movingRect: MovingRect,
     candidates: RectBounds[],
     threshold: number,
+    isGroup?: boolean,
   ) => SnapResult;
 } {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
 
-  const rectBoundsSrc = extractFunction(editorChromeBridgeScript, "rectBounds");
-  const computeMoveSnapOffsetSrc = extractFunction(
-    editorChromeBridgeScript,
+  // computeMoveSnapOffset is the top of a small pure call tree; pull the
+  // whole tree so the snippet still evaluates without the bridge's DOM body.
+  const sources = [
+    "rectBounds",
+    "axisSnapValues",
+    "axisStart",
+    "axisEnd",
+    "crossStart",
+    "crossEnd",
+    "crossAxisOverlaps",
+    "translateRectBounds",
+    "findAxisSnapOffset",
+    "buildAxisGuides",
+    "collectAxisGapCandidates",
+    "closestGapCandidate",
+    "collectRhythmGaps",
+    "findSpacingSnapOffset",
+    "gapCandidateBand",
+    "matchingRhythmBands",
+    "buildSpacingGuides",
+    "computeProximityMeasurements",
     "computeMoveSnapOffset",
-  );
+  ].map((name) => extractFunction(editorChromeBridgeScript, name));
 
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
-    `${rectBoundsSrc}\n${computeMoveSnapOffsetSrc}\nreturn { rectBounds, computeMoveSnapOffset };`,
+    `var SNAP_ALIGN_EPSILON = 1e-6;\nvar SPACING_MATCH_EPSILON = 0.5;\nvar PROXIMITY_RANGE_PX = 160;\nvar SNAP_THRESHOLD_PX = 6;\n${sources.join("\n")}\nreturn { rectBounds, computeMoveSnapOffset };`,
   );
   return factory();
 }
@@ -385,12 +425,23 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
   });
 });
 
+const verticalGuide = (result: SnapResult) =>
+  result.guides.find((guide) => guide.orientation === "vertical") ?? null;
+const horizontalGuide = (result: SnapResult) =>
+  result.guides.find((guide) => guide.orientation === "horizontal") ?? null;
+
 describe("editor-chrome bridge — computeMoveSnapOffset", () => {
   it("returns a zero offset and no guides when nothing is within threshold", () => {
     const moving = { left: 500, top: 500, width: 100, height: 100 };
     const candidates = [rectBounds({ left: 0, top: 0, width: 50, height: 50 })];
     const result = computeMoveSnapOffset(moving, candidates, 6);
-    expect(result).toEqual({ dx: 0, dy: 0, guideV: null, guideH: null });
+    expect(result).toEqual({
+      dx: 0,
+      dy: 0,
+      guides: [],
+      spacingGuides: [],
+      measurements: [],
+    });
   });
 
   it("snaps the moving rect's left edge to a candidate's left edge within threshold", () => {
@@ -403,8 +454,7 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
     ];
     const result = computeMoveSnapOffset(moving, candidates, 6);
     expect(result.dx).toBe(-4);
-    expect(result.guideV).not.toBeNull();
-    expect(result.guideV?.position).toBe(100);
+    expect(verticalGuide(result)?.position).toBe(100);
   });
 
   it("snaps to the closest of several within-threshold candidates on each axis", () => {
@@ -426,7 +476,7 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
     ];
     const result = computeMoveSnapOffset(moving, candidates, 6);
     expect(result.dx).toBe(0);
-    expect(result.guideV).toBeNull();
+    expect(verticalGuide(result)).toBeNull();
   });
 
   it("snaps center-to-center as well as edge-to-edge", () => {
@@ -438,7 +488,7 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
     ];
     const result = computeMoveSnapOffset(moving, candidates, 6);
     expect(result.dx).toBe(3);
-    expect(result.guideV?.position).toBe(300);
+    expect(verticalGuide(result)?.position).toBe(300);
   });
 
   it("computes independent x and y snap offsets in the same call", () => {
@@ -454,8 +504,8 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
     const result = computeMoveSnapOffset(moving, candidates, 6);
     expect(result.dx).toBe(-4);
     expect(result.dy).toBe(-6);
-    expect(result.guideV).not.toBeNull();
-    expect(result.guideH).not.toBeNull();
+    expect(verticalGuide(result)).not.toBeNull();
+    expect(horizontalGuide(result)).not.toBeNull();
   });
 
   it("guide line extents span the union of the moving and candidate bounds on the cross axis", () => {
@@ -470,6 +520,123 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
     const result = computeMoveSnapOffset(moving, candidates, 6);
     // Vertical guide (x snap) spans min(movingTop, candidateTop) to
     // max(movingBottom, candidateBottom): min(50, 300)=50, max(250, 310)=310.
-    expect(result.guideV).toEqual({ position: 100, start: 50, end: 310 });
+    expect(verticalGuide(result)).toEqual({
+      orientation: "vertical",
+      position: 100,
+      start: 50,
+      end: 310,
+    });
+  });
+
+  it("draws one guide through every sibling sharing the snapped edge", () => {
+    const moving = { left: 103, top: 600, width: 100, height: 100 };
+    const candidates = [
+      rectBounds({ left: 100, top: 0, width: 140, height: 100 }),
+      rectBounds({ left: 100, top: 200, width: 180, height: 100 }),
+      rectBounds({ left: 100, top: 400, width: 220, height: 100 }),
+    ];
+    const result = computeMoveSnapOffset(moving, candidates, 6);
+    const vertical = result.guides.filter((g) => g.orientation === "vertical");
+    expect(vertical).toHaveLength(1);
+    expect(vertical[0]).toEqual({
+      orientation: "vertical",
+      position: 100,
+      start: 0,
+      end: 700,
+    });
+  });
+});
+
+describe("editor-chrome bridge — spacing snap", () => {
+  const row = (...lefts: number[]) =>
+    lefts.map((left) => rectBounds({ left, top: 0, width: 100, height: 100 }));
+
+  it("centers the element between its two neighbors", () => {
+    const result = computeMoveSnapOffset(
+      { left: 205, top: 0, width: 100, height: 100 },
+      row(0, 400),
+      6,
+    );
+    expect(result.dx).toBe(-5);
+    expect(result.spacingGuides).toHaveLength(1);
+    expect(result.spacingGuides[0].gap).toBe(100);
+  });
+
+  it("matches a gap that already exists between two other siblings", () => {
+    const result = computeMoveSnapOffset(
+      { left: 252, top: 0, width: 100, height: 100 },
+      row(0, 124),
+      6,
+    );
+    expect(result.dx).toBe(-4);
+    expect(result.spacingGuides[0].gap).toBe(24);
+  });
+
+  it("never moves an axis an alignment guide already claimed", () => {
+    // Aligning left-to-left with the neighbor at x=200 is 2px away and wins;
+    // the centered position (x=150) is 53px away and must not fight it.
+    const result = computeMoveSnapOffset(
+      { left: 202, top: 0, width: 100, height: 100 },
+      row(0, 200, 400),
+      6,
+    );
+    expect(result.dx).toBe(-2);
+  });
+});
+
+describe("editor-chrome bridge — group drags", () => {
+  const row = (...lefts: number[]) =>
+    lefts.map((left) => rectBounds({ left, top: 0, width: 100, height: 100 }));
+
+  it("drops spacing and proximity chrome for a group drag, like the overview", () => {
+    const moving = { left: 205, top: 0, width: 100, height: 100 };
+    const single = computeMoveSnapOffset(moving, row(0, 400), 6, false);
+    expect(
+      single.spacingGuides.length + single.measurements.length,
+    ).toBeGreaterThan(0);
+
+    const group = computeMoveSnapOffset(moving, row(0, 400), 6, true);
+    expect(group.spacingGuides).toEqual([]);
+    expect(group.measurements).toEqual([]);
+  });
+
+  it("still snaps a group to alignment", () => {
+    const group = computeMoveSnapOffset(
+      { left: 3, top: 0, width: 100, height: 100 },
+      row(0),
+      6,
+      true,
+    );
+    expect(group.dx).toBe(-3);
+    expect(group.guides.length).toBeGreaterThan(0);
+  });
+});
+
+describe("editor-chrome bridge — spacing band CSS", () => {
+  const spacingBandCss = loadPureBridgeFn<
+    (
+      orientation: string,
+      band: {
+        gapStart: number;
+        gapEnd: number;
+        crossStart: number;
+        crossEnd: number;
+      },
+      line: number,
+      fill: string,
+    ) => string
+  >("spacingBandCss");
+
+  it("paints the band with the fill it was given", () => {
+    // An arity mismatch at the call site silently bound `fill` to a number,
+    // leaving the main spacing line transparent while its serifs still drew.
+    const css = spacingBandCss(
+      "vertical",
+      { gapStart: 10, gapEnd: 40, crossStart: 0, crossEnd: 20 },
+      1,
+      "background:orange;",
+    );
+    expect(css).toContain("background:orange;");
+    expect(css).toContain("width:30px");
   });
 });

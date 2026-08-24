@@ -15,7 +15,10 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  // Tasks embeds an ExtensionSlot in TaskFieldsSidebar and wires /extensions
+  // into agent navigation, so the settings management tab must exist too —
+  // otherwise the /settings/extensions destination silently falls back to General.
+  const agentSettingsTabs = useAgentSettingsTabs({ extensionTools: true });
   useSetPageTitle(t("header.pageSettings"));
 
   return (

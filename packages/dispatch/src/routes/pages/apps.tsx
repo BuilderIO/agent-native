@@ -19,6 +19,7 @@ import {
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
 import {
+  filterOtherAppEntries,
   mergeOtherAppEntries,
   OtherAppsSection,
 } from "../../components/other-apps-section";
@@ -95,25 +96,26 @@ function AppsRoute() {
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
   const archivedApps = allApps.filter((app) => app.archived);
-  const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
-  const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
-  const orderedArchivedApps = orderWorkspaceApps(archivedApps, layout);
+  const connectedApps =
+    (connectedAppsQuery.data as ConnectedAppSummary[] | undefined) ?? [];
   const curatedTemplates = curatedTemplatesQuery.data as
     | CuratedWorkspaceTemplatesResult
     | undefined;
-  const connectedApps = connectedAppsQuery.data as
-    | ConnectedAppSummary[]
-    | undefined;
-  const filteredOtherApps = mergeOtherAppEntries({
-    templates: curatedTemplates,
-    connectedApps: connectedApps ?? [],
-    workspaceApps: allApps,
-    query: searchQuery,
-  });
+  const filteredOtherApps = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates: curatedTemplates,
+      connectedApps,
+      workspaceApps: allApps,
+    }),
+    searchQuery,
+  );
   const otherAppsLoading =
     curatedTemplatesQuery.isLoading || connectedAppsQuery.isLoading;
   const otherAppsError =
     curatedTemplatesQuery.error || connectedAppsQuery.error;
+  const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
+  const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
+  const orderedArchivedApps = orderWorkspaceApps(archivedApps, layout);
   const filteredActiveApps = orderedActiveApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
@@ -307,11 +309,11 @@ function AppsRoute() {
           templates={curatedTemplates}
           connectedApps={connectedApps}
           workspaceApps={allApps}
+          query={searchQuery}
           templatesLoading={curatedTemplatesQuery.isLoading}
           connectedAppsLoading={connectedAppsQuery.isLoading}
           templatesError={curatedTemplatesQuery.error}
           connectedAppsError={connectedAppsQuery.error}
-          query={searchQuery}
           onRetryTemplates={() => void curatedTemplatesQuery.refetch()}
           onRetryConnectedApps={() => void connectedAppsQuery.refetch()}
           templateLabels={templateLabels}

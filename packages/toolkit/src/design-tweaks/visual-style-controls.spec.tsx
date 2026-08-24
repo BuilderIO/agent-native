@@ -91,6 +91,43 @@ describe("visual style controls", () => {
     expect(input?.value).toBe("24px");
   });
 
+  it("commits on Enter and keeps focus so the next keystroke stays in the field", () => {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="Weight"
+          value={1}
+          unit="px"
+          onChange={onChange}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    act(() => input.focus());
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "2");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onChange).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ source: "commit" }),
+    );
+    // Blurring here would hand the next keystroke to a global shortcut.
+    expect(document.activeElement).toBe(input);
+  });
+
   it("supports a compact icon prefix without removing the accessible label", () => {
     const TestIcon = ({
       className,

@@ -18,15 +18,44 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-switcher"');
     expect(html).toContain('id="environment-production-link"');
+    expect(html).toContain('id="environment-hide-badge"');
     expect(html).toContain("__anInitEnvironmentBadge");
+    expect(html).toContain("agent-native:force-production");
+    expect(html).toContain("switcher.hidden = true");
     expect(html).toContain("betaHosts");
     expect(html).toContain("agent-native-environment-switcher-style");
+    expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
+    expect(html).toContain("left: 0;");
+    expect(html).toContain(
+      "width: 100%;\n    min-height: 2rem;\n    margin-top: 0.5rem;\n    margin-bottom: -0.5rem;",
+    );
+    expect(html).toContain(
+      "width: min(17.5rem, calc(100vw - 1.5rem));\n    box-sizing: border-box;\n    padding: 1.25rem;",
+    );
+    expect(html).not.toContain("safe-area-inset-right");
     expect(html).toContain(
       "if (!productionHost || betaHosts[productionHost] !== hostname) return;",
     );
     expect(html.indexOf("data-agent-native-beta-opt-out")).toBeLessThan(
       html.indexOf("</body>"),
     );
+  });
+
+  it("opens the switcher stylesheet with a rule, so the badge keeps position: fixed", () => {
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+    );
+    const css = html.slice(
+      html.indexOf("agent-native-environment-switcher-style"),
+    );
+    const stylesheet = css.slice(css.indexOf(">") + 1, css.indexOf("</style>"));
+
+    // A declaration before the first rule is not a contained parse error: the
+    // following rule's prelude absorbs it and that rule is dropped, which
+    // silently unpins the badge.
+    expect(stylesheet.trimStart()).toMatch(/^[.#a-zA-Z@:*]/);
+    expect(stylesheet.trimStart()).not.toMatch(/^[a-z-]+\s*:/);
+    expect(stylesheet).toContain(".environment-switcher {");
   });
 
   it("does not duplicate the handoff on a second auth response pass", () => {
@@ -44,6 +73,7 @@ describe("injectBetaOptOutPersistence", () => {
     expect(reinjected.match(/id="environment-production-link"/g)).toHaveLength(
       1,
     );
+    expect(reinjected.match(/id="environment-hide-badge"/g)).toHaveLength(1);
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
   });
 
@@ -52,6 +82,7 @@ describe("injectBetaOptOutPersistence", () => {
       <html><head></head><body>
         <div class="environment-switcher" id="environment-switcher" hidden>
           <a id="environment-production-link" href="">Switch to production</a>
+          <button id="environment-hide-badge" type="button">Hide badge</button>
         </div>
         <script>function __anInitEnvironmentBadge() {}</script>
       </body></html>
@@ -60,6 +91,7 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain(BETA_OPT_OUT_PERSISTENCE_MARKER);
     expect(html.match(/id="environment-switcher"/g)).toHaveLength(1);
     expect(html.match(/id="environment-production-link"/g)).toHaveLength(1);
+    expect(html.match(/id="environment-hide-badge"/g)).toHaveLength(1);
     expect(html.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
     expect(html).not.toContain(
       'data-agent-native-environment-switcher-style="1"',

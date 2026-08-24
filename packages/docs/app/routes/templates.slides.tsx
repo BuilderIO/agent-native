@@ -170,7 +170,7 @@ export default function SlidesTemplate() {
         }
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf2e432b544b848f2dd6255b570178"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3723b83883aa4df7b1c53011d2f7ce2c"
             crossOrigin="anonymous"
             alt={t("templateLanding.slides.s001")}
             loading="lazy"

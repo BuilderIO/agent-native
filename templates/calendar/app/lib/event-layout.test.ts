@@ -37,7 +37,24 @@ describe("computeTimedEventLayout", () => {
     });
   });
 
-  it("indents the later event while keeping both cards wide", () => {
+  it("divides the column width proportionally across overlap layers", () => {
+    const layout = computeTimedEventLayout(
+      [
+        event("a", "08:00", "09:00"),
+        event("b", "08:05", "08:55"),
+        event("c", "08:10", "08:50"),
+        event("d", "08:15", "08:45"),
+      ],
+      DAY,
+    );
+
+    expect(layout.get("a")).toMatchObject({ col: 0, left: 0, width: 25 });
+    expect(layout.get("b")).toMatchObject({ col: 1, left: 25, width: 25 });
+    expect(layout.get("c")).toMatchObject({ col: 2, left: 50, width: 25 });
+    expect(layout.get("d")).toMatchObject({ col: 3, left: 75, width: 25 });
+  });
+
+  it("indents the later event while splitting the shared column width", () => {
     const layout = computeTimedEventLayout(
       [event("gym", "16:00", "18:00"), event("friyay", "17:00", "18:00")],
       DAY,
@@ -45,13 +62,13 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("gym")).toMatchObject({
       left: 0,
-      width: 100,
+      width: 50,
       indent: 0,
       col: 0,
     });
     expect(layout.get("friyay")).toMatchObject({
-      left: 0,
-      width: 100,
+      left: 50,
+      width: 50,
       indent: 16,
       col: 1,
       totalCols: 2,
@@ -66,13 +83,13 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("a")).toMatchObject({
       left: 0,
-      width: 100,
+      width: 50,
       indent: 0,
       col: 0,
     });
     expect(layout.get("b")).toMatchObject({
-      left: 0,
-      width: 100,
+      left: 50,
+      width: 50,
       indent: 16,
       col: 1,
     });
@@ -94,8 +111,8 @@ describe("computeTimedEventLayout", () => {
       DAY,
     );
 
-    expect(layout.get("a")).toMatchObject({ left: 0, width: 100, indent: 0 });
-    expect(layout.get("b")).toMatchObject({ left: 0, width: 100, indent: 16 });
+    expect(layout.get("a")).toMatchObject({ left: 0, width: 50, indent: 0 });
+    expect(layout.get("b")).toMatchObject({ left: 50, width: 50, indent: 16 });
   });
 
   it("reuses a free overlap layer after an earlier event ends", () => {
@@ -148,13 +165,42 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("overnight")).toMatchObject({
       left: 0,
-      width: 100,
+      width: 50,
       indent: 0,
     });
     expect(layout.get("later")).toMatchObject({
+      left: 50,
+      width: 50,
+      indent: 16,
+    });
+  });
+
+  it("keeps a later isolated event at full width despite an earlier overlap", () => {
+    const layout = computeTimedEventLayout(
+      [
+        event("morning-a", "09:00", "09:30"),
+        event("morning-b", "09:00", "09:30"),
+        event("afternoon", "15:00", "16:00"),
+      ],
+      DAY,
+    );
+
+    expect(layout.get("morning-a")).toMatchObject({
+      left: 0,
+      width: 50,
+      totalCols: 2,
+    });
+    expect(layout.get("morning-b")).toMatchObject({
+      left: 50,
+      width: 50,
+      totalCols: 2,
+    });
+    expect(layout.get("afternoon")).toMatchObject({
       left: 0,
       width: 100,
-      indent: 16,
+      indent: 0,
+      col: 0,
+      totalCols: 1,
     });
   });
 
