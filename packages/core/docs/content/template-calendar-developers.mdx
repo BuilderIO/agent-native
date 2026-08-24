@@ -109,97 +109,97 @@ Every operation is a TypeScript file in `templates/calendar/actions/`, auto-moun
 
 Event data lives in Google Calendar, never SQL.
 
-| Action | What it does |
-| --- | --- |
-| `list-events` | List events in a date range |
-| `search-events` | Search events by query |
-| `get-event` | Read one event by id |
-| `create-event` | Create an event, including recurrence (RRULE), working locations, and status types (`outOfOffice`, `focusTime`) |
-| `update-event` | Update an event, including recurrence, working locations, and status types |
-| `delete-event` | Delete an event |
-| `manage-event-draft` | Stage an unsent invite for user review before anything is written or guests are notified |
-| `rsvp-event` | Accept, decline, or mark tentative on an invitation |
-| `get-attendee-timezones` | Read per-guest timezone overrides |
-| `set-attendee-timezone` | Set a per-guest timezone override so their local time keeps showing correctly |
+| Action                   | What it does                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `list-events`            | List events in a date range                                                                                     |
+| `search-events`          | Search events by query                                                                                          |
+| `get-event`              | Read one event by id                                                                                            |
+| `create-event`           | Create an event, including recurrence (RRULE), working locations, and status types (`outOfOffice`, `focusTime`) |
+| `update-event`           | Update an event, including recurrence, working locations, and status types                                      |
+| `delete-event`           | Delete an event                                                                                                 |
+| `manage-event-draft`     | Stage an unsent invite for user review before anything is written or guests are notified                        |
+| `rsvp-event`             | Accept, decline, or mark tentative on an invitation                                                             |
+| `get-attendee-timezones` | Read per-guest timezone overrides                                                                               |
+| `set-attendee-timezone`  | Set a per-guest timezone override so their local time keeps showing correctly                                   |
 
 ### Availability & finding time
 
-| Action | What it does |
-| --- | --- |
-| `get-availability` | Read the weekly schedule, timezone, buffer, notice, and advance-window settings |
-| `update-availability` | Update the weekly schedule, timezone, buffer, notice, and advance-window settings |
-| `check-availability` | Find open slots for one date |
-| `find-a-time` | Shared free-slot search across an organizer and named attendees, combining Google free/busy with local conflicts |
+| Action                | What it does                                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | Read the weekly schedule, timezone, buffer, notice, and advance-window settings                                  |
+| `update-availability` | Update the weekly schedule, timezone, buffer, notice, and advance-window settings                                |
+| `check-availability`  | Find open slots for one date                                                                                     |
+| `find-a-time`         | Shared free-slot search across an organizer and named attendees, combining Google free/busy with local conflicts |
 
 ### Booking links & bookings
 
-| Action | What it does |
-| --- | --- |
-| `create-booking-link` | Create a booking link |
-| `update-booking-link` | Update a booking link |
+| Action                   | What it does                                           |
+| ------------------------ | ------------------------------------------------------ |
+| `create-booking-link`    | Create a booking link                                  |
+| `update-booking-link`    | Update a booking link                                  |
 | `duplicate-booking-link` | Duplicate a booking link, including co-hosts (`hosts`) |
-| `list-booking-links` | List accessible booking links |
-| `list-bookings` | List confirmed appointments |
+| `list-booking-links`     | List accessible booking links                          |
+| `list-bookings`          | List confirmed appointments                            |
 
 ### External calendars
 
 Read-only ICS feeds.
 
-| Action | What it does |
-| --- | --- |
-| `add-external-calendar` | Subscribe to a read-only ICS/webcal feed |
-| `list-external-calendars` | List subscribed feeds |
-| `remove-external-calendar` | Remove a subscribed feed |
-| `update-external-calendars` | Update subscribed feeds |
+| Action                      | What it does                             |
+| --------------------------- | ---------------------------------------- |
+| `add-external-calendar`     | Subscribe to a read-only ICS/webcal feed |
+| `list-external-calendars`   | List subscribed feeds                    |
+| `remove-external-calendar`  | Remove a subscribed feed                 |
+| `update-external-calendars` | Update subscribed feeds                  |
 
 ### People & overlays
 
-| Action | What it does |
-| --- | --- |
-| `search-people` | Search Google Contacts and the Workspace directory |
-| `get-overlay-people` | Read the other people whose calendars are pinned into your view |
+| Action                  | What it does                                                      |
+| ----------------------- | ----------------------------------------------------------------- |
+| `search-people`         | Search Google Contacts and the Workspace directory                |
+| `get-overlay-people`    | Read the other people whose calendars are pinned into your view   |
 | `update-overlay-people` | Update the other people whose calendars are pinned into your view |
 
 ### Zoom
 
-| Action | What it does |
-| --- | --- |
+| Action            | What it does                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `get-zoom-status` | Read the current user's Zoom connection status. Connect and disconnect happen through `/_agent-native/zoom/*` routes, not an action, since OAuth needs the signed-in browser session |
 
 ### Google Calendar connection & sync
 
-| Action | What it does |
-| --- | --- |
+| Action                    | What it does                                                   |
+| ------------------------- | -------------------------------------------------------------- |
 | `connect-google-calendar` | Return the OAuth connect URL for the signed-in browser session |
-| `sync-google-calendar` | Force a resync |
+| `sync-google-calendar`    | Force a resync                                                 |
 
 ### Settings & preferences
 
-| Action | What it does |
-| --- | --- |
-| `get-settings` | Read user-level settings |
-| `update-settings` | Update user-level settings |
+| Action                               | What it does                                                                                         |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `get-settings`                       | Read user-level settings                                                                             |
+| `update-settings`                    | Update user-level settings                                                                           |
 | `update-calendar-visual-preferences` | Update local-only display preferences (event colors, hidden weekends). Never touches Google Calendar |
 
 ### Navigation & UI state
 
-| Action | What it does |
-| --- | --- |
-| `navigate` | Move the UI to a view, date, or event |
+| Action        | What it does                             |
+| ------------- | ---------------------------------------- |
+| `navigate`    | Move the UI to a view, date, or event    |
 | `view-screen` | Read the current view back for the agent |
 
 ### Provider API escalation
 
 The raw Google Calendar (and connected CRM) API, for when the actions above are too narrow.
 
-| Action | What it does |
-| --- | --- |
-| `provider-api-catalog` | List the raw provider APIs available to call directly |
-| `provider-api-docs` | Read documentation for a raw provider API endpoint |
-| `provider-api-request` | Call the raw Google Calendar (or connected CRM) API directly |
-| `list-staged-datasets` | List large scans staged for querying instead of returning raw results |
-| `query-staged-dataset` | Query a staged dataset |
-| `delete-staged-dataset` | Delete a staged dataset |
+| Action                  | What it does                                                          |
+| ----------------------- | --------------------------------------------------------------------- |
+| `provider-api-catalog`  | List the raw provider APIs available to call directly                 |
+| `provider-api-docs`     | Read documentation for a raw provider API endpoint                    |
+| `provider-api-request`  | Call the raw Google Calendar (or connected CRM) API directly          |
+| `list-staged-datasets`  | List large scans staged for querying instead of returning raw results |
+| `query-staged-dataset`  | Query a staged dataset                                                |
+| `delete-staged-dataset` | Delete a staged dataset                                               |
 
 ## Data model
 

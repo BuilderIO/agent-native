@@ -109,97 +109,97 @@ Chaque opération est un fichier TypeScript dans `templates/calendar/actions/`, 
 
 Les données d'événement vivent dans Google Calendar, jamais en SQL.
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `list-events` | Lister les événements sur une plage de dates |
-| `search-events` | Rechercher des événements par requête |
-| `get-event` | Lire un événement par son id |
-| `create-event` | Créer un événement, incluant la récurrence (RRULE), les lieux de travail, et les types de statut (`outOfOffice`, `focusTime`) |
-| `update-event` | Mettre à jour un événement, incluant la récurrence, les lieux de travail, et les types de statut |
-| `delete-event` | Supprimer un événement |
-| `manage-event-draft` | Mettre en scène une invitation non envoyée pour révision par l'utilisateur avant que quoi que ce soit ne soit écrit ou que les invités ne soient notifiés |
-| `rsvp-event` | Accepter, décliner, ou marquer comme provisoire sur une invitation |
-| `get-attendee-timezones` | Lire les substitutions de fuseau horaire par invité |
-| `set-attendee-timezone` | Définir une substitution de fuseau horaire par invité pour que son heure locale continue de s'afficher correctement |
+| Action                   | Ce qu'elle fait                                                                                                                                           |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list-events`            | Lister les événements sur une plage de dates                                                                                                              |
+| `search-events`          | Rechercher des événements par requête                                                                                                                     |
+| `get-event`              | Lire un événement par son id                                                                                                                              |
+| `create-event`           | Créer un événement, incluant la récurrence (RRULE), les lieux de travail, et les types de statut (`outOfOffice`, `focusTime`)                             |
+| `update-event`           | Mettre à jour un événement, incluant la récurrence, les lieux de travail, et les types de statut                                                          |
+| `delete-event`           | Supprimer un événement                                                                                                                                    |
+| `manage-event-draft`     | Mettre en scène une invitation non envoyée pour révision par l'utilisateur avant que quoi que ce soit ne soit écrit ou que les invités ne soient notifiés |
+| `rsvp-event`             | Accepter, décliner, ou marquer comme provisoire sur une invitation                                                                                        |
+| `get-attendee-timezones` | Lire les substitutions de fuseau horaire par invité                                                                                                       |
+| `set-attendee-timezone`  | Définir une substitution de fuseau horaire par invité pour que son heure locale continue de s'afficher correctement                                       |
 
 ### Disponibilité et recherche de créneaux
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `get-availability` | Lire l'emploi du temps hebdomadaire, le fuseau horaire, le tampon, le préavis, et les paramètres de fenêtre d'anticipation |
-| `update-availability` | Mettre à jour l'emploi du temps hebdomadaire, le fuseau horaire, le tampon, le préavis, et les paramètres de fenêtre d'anticipation |
-| `check-availability` | Trouver les créneaux libres pour une date |
-| `find-a-time` | Recherche de créneau libre partagé entre un organisateur et des participants nommés, combinant le libre/occupé Google avec les conflits locaux |
+| Action                | Ce qu'elle fait                                                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | Lire l'emploi du temps hebdomadaire, le fuseau horaire, le tampon, le préavis, et les paramètres de fenêtre d'anticipation                     |
+| `update-availability` | Mettre à jour l'emploi du temps hebdomadaire, le fuseau horaire, le tampon, le préavis, et les paramètres de fenêtre d'anticipation            |
+| `check-availability`  | Trouver les créneaux libres pour une date                                                                                                      |
+| `find-a-time`         | Recherche de créneau libre partagé entre un organisateur et des participants nommés, combinant le libre/occupé Google avec les conflits locaux |
 
 ### Liens de réservation et réservations
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `create-booking-link` | Créer un lien de réservation |
-| `update-booking-link` | Mettre à jour un lien de réservation |
+| Action                   | Ce qu'elle fait                                                   |
+| ------------------------ | ----------------------------------------------------------------- |
+| `create-booking-link`    | Créer un lien de réservation                                      |
+| `update-booking-link`    | Mettre à jour un lien de réservation                              |
 | `duplicate-booking-link` | Dupliquer un lien de réservation, incluant les co-hôtes (`hosts`) |
-| `list-booking-links` | Lister les liens de réservation accessibles |
-| `list-bookings` | Lister les rendez-vous confirmés |
+| `list-booking-links`     | Lister les liens de réservation accessibles                       |
+| `list-bookings`          | Lister les rendez-vous confirmés                                  |
 
 ### Calendriers externes
 
 Flux ICS en lecture seule.
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `add-external-calendar` | S'abonner à un flux ICS/webcal en lecture seule |
-| `list-external-calendars` | Lister les flux abonnés |
-| `remove-external-calendar` | Retirer un flux abonné |
-| `update-external-calendars` | Mettre à jour les flux abonnés |
+| Action                      | Ce qu'elle fait                                 |
+| --------------------------- | ----------------------------------------------- |
+| `add-external-calendar`     | S'abonner à un flux ICS/webcal en lecture seule |
+| `list-external-calendars`   | Lister les flux abonnés                         |
+| `remove-external-calendar`  | Retirer un flux abonné                          |
+| `update-external-calendars` | Mettre à jour les flux abonnés                  |
 
 ### Personnes et superpositions
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `search-people` | Rechercher dans les contacts Google et l'annuaire Workspace |
-| `get-overlay-people` | Lire les autres personnes dont les calendriers sont épinglés dans votre vue |
+| Action                  | Ce qu'elle fait                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `search-people`         | Rechercher dans les contacts Google et l'annuaire Workspace                          |
+| `get-overlay-people`    | Lire les autres personnes dont les calendriers sont épinglés dans votre vue          |
 | `update-overlay-people` | Mettre à jour les autres personnes dont les calendriers sont épinglés dans votre vue |
 
 ### Zoom
 
-| Action | Ce qu'elle fait |
-| --- | --- |
+| Action            | Ce qu'elle fait                                                                                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get-zoom-status` | Lire le statut de connexion Zoom de l'utilisateur actuel. Connecter et déconnecter se passent via les routes `/_agent-native/zoom/*`, pas une action, puisque OAuth a besoin de la session navigateur connectée |
 
 ### Connexion et synchronisation Google Calendar
 
-| Action | Ce qu'elle fait |
-| --- | --- |
+| Action                    | Ce qu'elle fait                                                         |
+| ------------------------- | ----------------------------------------------------------------------- |
 | `connect-google-calendar` | Retourner l'URL de connexion OAuth pour la session navigateur connectée |
-| `sync-google-calendar` | Forcer une resynchronisation |
+| `sync-google-calendar`    | Forcer une resynchronisation                                            |
 
 ### Paramètres et préférences
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `get-settings` | Lire les paramètres au niveau utilisateur |
-| `update-settings` | Mettre à jour les paramètres au niveau utilisateur |
+| Action                               | Ce qu'elle fait                                                                                                                          |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-settings`                       | Lire les paramètres au niveau utilisateur                                                                                                |
+| `update-settings`                    | Mettre à jour les paramètres au niveau utilisateur                                                                                       |
 | `update-calendar-visual-preferences` | Mettre à jour les préférences d'affichage locales uniquement (couleurs d'événement, week-ends masqués). Ne touche jamais Google Calendar |
 
 ### Navigation et état de l'interface
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `navigate` | Déplacer l'interface vers une vue, une date, ou un événement |
-| `view-screen` | Lire la vue actuelle pour l'agent |
+| Action        | Ce qu'elle fait                                              |
+| ------------- | ------------------------------------------------------------ |
+| `navigate`    | Déplacer l'interface vers une vue, une date, ou un événement |
+| `view-screen` | Lire la vue actuelle pour l'agent                            |
 
 ### Escalade vers l'API fournisseur
 
 L'API brute Google Calendar (et CRM connecté), pour quand les actions ci-dessus sont trop étroites.
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `provider-api-catalog` | Lister les API fournisseur brutes disponibles à appeler directement |
-| `provider-api-docs` | Lire la documentation d'un point de terminaison d'API fournisseur brut |
-| `provider-api-request` | Appeler directement l'API brute Google Calendar (ou CRM connecté) |
-| `list-staged-datasets` | Lister les grands balayages mis en scène pour être interrogés plutôt que de retourner des résultats bruts |
-| `query-staged-dataset` | Interroger un jeu de données mis en scène |
-| `delete-staged-dataset` | Supprimer un jeu de données mis en scène |
+| Action                  | Ce qu'elle fait                                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `provider-api-catalog`  | Lister les API fournisseur brutes disponibles à appeler directement                                       |
+| `provider-api-docs`     | Lire la documentation d'un point de terminaison d'API fournisseur brut                                    |
+| `provider-api-request`  | Appeler directement l'API brute Google Calendar (ou CRM connecté)                                         |
+| `list-staged-datasets`  | Lister les grands balayages mis en scène pour être interrogés plutôt que de retourner des résultats bruts |
+| `query-staged-dataset`  | Interroger un jeu de données mis en scène                                                                 |
+| `delete-staged-dataset` | Supprimer un jeu de données mis en scène                                                                  |
 
 ## Modèle de données
 
@@ -341,7 +341,11 @@ Défini dans `templates/calendar/server/db/schema.ts`. Seules les données non �
       fields: [
         { name: "id", type: "id", pk: true },
         { name: "linkId", type: "id", fk: "booking_links.id" },
-        { name: "principal", type: "string", note: "utilisateur ou organisation" },
+        {
+          name: "principal",
+          type: "string",
+          note: "utilisateur ou organisation",
+        },
         { name: "role", type: "enum", note: "viewer | editor | admin" },
       ],
     },
@@ -419,7 +423,10 @@ Les règles de disponibilité vivent dans les paramètres par utilisateur sous l
       path: "app/routes/_app._index.tsx",
       note: "la vue principale du calendrier (jour/semaine/mois)",
     },
-    { path: "app/routes/_app.agent.tsx", note: "onglet de chat agent en pleine page" },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "onglet de chat agent en pleine page",
+    },
     {
       path: "app/routes/_app.availability.tsx",
       note: "l'éditeur de disponibilité",
@@ -428,7 +435,10 @@ Les règles de disponibilité vivent dans les paramètres par utilisateur sous l
       path: "app/routes/_app.booking-links._index.tsx",
       note: "liste des liens de réservation ; _app.booking-links.$id.tsx modifie l'un d'eux",
     },
-    { path: "app/routes/_app.bookings.tsx", note: "liste des réservations confirmées" },
+    {
+      path: "app/routes/_app.bookings.tsx",
+      note: "liste des réservations confirmées",
+    },
     {
       path: "app/routes/_app.extensions.tsx",
       note: "routes de widget Extension",
