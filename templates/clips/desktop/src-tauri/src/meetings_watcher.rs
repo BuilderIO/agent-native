@@ -149,6 +149,9 @@ pub(crate) struct MeetingItem {
     pub(crate) source: Option<String>,
 }
 
+pub(crate) const CALENDAR_MATCH_WINDOW_MINUTES: i64 = 15;
+const CALENDAR_MATCH_AMBIGUITY_MARGIN_SECS: i64 = 60;
+
 #[derive(Debug, Deserialize)]
 struct ListMeetingsResponse {
     #[serde(default)]
@@ -459,7 +462,7 @@ pub(crate) fn find_matching_calendar_meeting(
     platform: &str,
     started_at: chrono::DateTime<chrono::Utc>,
 ) -> Option<MeetingItem> {
-    meetings
+    let mut candidates: Vec<_> = meetings
         .iter()
         .filter_map(|meeting| {
             if !is_calendar_reminder_candidate(meeting)
@@ -477,10 +480,19 @@ pub(crate) fn find_matching_calendar_meeting(
                 .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())?
                 .with_timezone(&chrono::Utc);
             let distance = (scheduled_start - started_at).num_seconds().abs();
-            (distance <= 15 * 60).then(|| (distance, meeting.clone()))
+            (distance <= CALENDAR_MATCH_WINDOW_MINUTES * 60).then(|| (distance, meeting))
         })
-        .min_by_key(|(distance, _)| *distance)
-        .map(|(_, meeting)| meeting)
+        .collect();
+    candidates.sort_by_key(|(distance, _)| *distance);
+    let Some((distance, meeting)) = candidates.first() else {
+        return None;
+    };
+    if candidates.get(1).is_some_and(|(next_distance, _)| {
+        next_distance - distance <= CALENDAR_MATCH_AMBIGUITY_MARGIN_SECS
+    }) {
+        return None;
+    }
+    Some((*meeting).clone())
 }
 
 pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
@@ -589,5 +601,30 @@ mod tests {
             matched.and_then(|meeting| meeting.title),
             Some("Product sync".to_string())
         );
+    }
+
+    #[test]
+    fn avoids_ambiguous_same_platform_calendar_matches() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                {
+                    "id": "first",
+                    "scheduledStart": "2026-07-22T19:09:00Z",
+                    "joinUrl": "https://zoom.us/j/1",
+                    "platform": "zoom",
+                    "source": "calendar"
+                },
+                {
+                    "id": "second",
+                    "scheduledStart": "2026-07-22T19:11:00Z",
+                    "joinUrl": "https://zoom.us/j/2",
+                    "platform": "zoom",
+                    "source": "calendar"
+                }
+            ]
+        }));
+
+        let started_at = Utc.with_ymd_and_hms(2026, 7, 22, 19, 10, 0).unwrap();
+        assert!(find_matching_calendar_meeting(&meetings, "zoom", started_at).is_none());
     }
 }

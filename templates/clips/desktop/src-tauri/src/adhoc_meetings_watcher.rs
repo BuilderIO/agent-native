@@ -19,6 +19,7 @@ use crate::config::{feature_config, MeetingTranscriptionMode};
 use crate::dlog;
 use crate::meetings_watcher::{
     find_matching_calendar_meeting, parse_meetings, MeetingItem, MeetingsWatcherState,
+    CALENDAR_MATCH_WINDOW_MINUTES,
 };
 
 /// How often to sample the frontmost app.
@@ -587,10 +588,11 @@ async fn find_calendar_meeting(
     platform: &str,
 ) -> Result<Option<MeetingItem>, String> {
     let url = format!("{server_url}/_agent-native/actions/list-meetings");
+    let upcoming_within_min = CALENDAR_MATCH_WINDOW_MINUTES.to_string();
     let mut req = client.get(url).query(&[
         ("view", "upcoming"),
         ("limit", "20"),
-        ("upcomingWithinMin", "5"),
+        ("upcomingWithinMin", upcoming_within_min.as_str()),
         ("includeStartedWithinMin", "15"),
         ("excludePersonalSoloEvents", "true"),
         ("excludeDeclinedEvents", "true"),

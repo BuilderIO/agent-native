@@ -459,7 +459,7 @@ export function useMeetingTranscription({
         const silenceDetectorConfig = {
           silenceThreshold: 0.05,
           silenceMs: 15 * 60 * 1000,
-          callEndedMs: 30 * 1000,
+          callEndedMs: 2 * 60 * 1000,
           callAppBundleIds: callAppBundleIdsForJoinUrl(payload.joinUrl),
           scheduledEndMs,
           watchSleep: true,
