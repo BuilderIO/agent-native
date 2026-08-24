@@ -170,10 +170,19 @@ export function buildPrerenderPaths(): string[] {
     .map((page) => page.path);
 }
 
+/**
+ * Hidden, noindex-only routes that must never surface in the sitemap even if
+ * a future page list source accidentally starts including them.
+ */
+const HIDDEN_ROUTE_PREFIXES = ["/website-redesign"];
+
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
-  return buildDocsSitePages(rootDir).map(
-    ({ docSlug: _docSlug, draft: _draft, ...page }) => page,
-  );
+  return buildDocsSitePages(rootDir)
+    .filter(
+      (page) =>
+        !HIDDEN_ROUTE_PREFIXES.some((prefix) => page.path.startsWith(prefix)),
+    )
+    .map(({ docSlug: _docSlug, draft: _draft, ...page }) => page);
 }
 
 /** An `AgentWebPage` plus the doc-source facts the prerender list filters on. */

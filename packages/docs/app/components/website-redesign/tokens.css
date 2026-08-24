@@ -1,0 +1,190 @@
+/*
+ * Scoped Builder brand design tokens for the hidden /website-redesign route.
+ * Ported from the "Website Redesign Design System" reference doc. Every
+ * selector is namespaced under .builder-brand-tokens so this file cannot
+ * visually leak onto any other route even if it were accidentally loaded
+ * elsewhere.
+ */
+
+.builder-brand-tokens {
+  /* Font tokens */
+  --b-font-sans: "Geist Variable", system-ui, sans-serif;
+  --b-font-mono: "Geist Mono Variable", monospace;
+
+  /* Color primitives (--c-*) */
+  --c-violet-400: #a8c1ff;
+  --c-blue-100: #bef0f5;
+  --c-blue-200: #7be8f5;
+  --c-blue-300: #00dff6;
+  --c-blue-400: #00d6f6;
+  --c-blue-500: #01c8f1;
+  --c-blue-500-40p: #01c8f166;
+  --c-blue-600: #009ccc;
+  --c-blue-900: #00161b;
+  --c-green-400: #0fdfba;
+  --c-yellow-400: #dec75f;
+  --c-red-400: #ffa27d;
+  --c-pink-400: #fa9bf2;
+  --c-neutral-50: #faf9f5;
+  --c-neutral-100: #e0e0d7;
+  --c-neutral-200: #cac9c6;
+  --c-neutral-400: #ababab;
+  --c-neutral-500: #9a9997;
+  --c-neutral-600: #5e5e5e;
+  --c-neutral-700: #3d3d3d;
+  --c-neutral-800: #2e2e2e;
+  --c-neutral-900: #1a1a1a;
+  --c-neutral-925: #0f0f0f;
+  --c-neutral-950: #0a0a0a;
+  --c-neutral-950-90p: #0a0a0ae6;
+  --c-white-5p: #ffffff0d;
+
+  /* Semantic tokens: bg */
+  --b-bg-page: #0a0a0a;
+  --b-bg-surface: #0a0a0a;
+  --b-bg-raised: #0f0f0f;
+  --b-bg-prominent: #1a1a1a;
+  --b-bg-translucent: #0a0a0ae6;
+  --b-bg-alternative: #00161b;
+
+  /* Semantic tokens: text */
+  --b-text-primary: #faf9f5;
+  --b-text-secondary: #aeadac;
+  --b-text-muted: #5e5e5e;
+  --b-text-highlight: #e0e0d7;
+  --b-text-link: #bef0f5;
+  --b-text-eyebrow: #01c8f1;
+
+  /* Semantic tokens: border */
+  --b-border-default: #1a1a1a;
+  --b-border-subtle: #141414;
+  --b-border-title-row: #2e2e2e;
+  --b-border-menu: #1a1a1a;
+
+  /* Semantic tokens: action */
+  --b-action-primary-bg: #01c8f1;
+  --b-action-primary-hover: #00dff6;
+  --b-action-primary-text: #0a0a0a;
+  --b-action-primary-border: #00dff6;
+  --b-action-primary-effect: #01c8f166;
+  --b-action-secondary-bg: transparent;
+  --b-action-secondary-hover: #1a1a1a;
+  --b-action-secondary-text: #faf9f5;
+  --b-action-secondary-border: #5e5e5e;
+  --b-action-tab-bg: #0a0a0a;
+  --b-action-tab-bg-active: #00161b;
+  --b-action-tab-bg-hover: #0f0f0f;
+  --b-action-tab-text: #5e5e5e;
+  --b-action-tab-text-active: #bef0f5;
+  --b-action-tab-text-hover: #faf9f5;
+  --b-action-tab-indicator: #01c8f1;
+
+  /* Utility */
+  --b-btn-hover-bg: rgba(255, 255, 255, 0.08);
+
+  /* Radius */
+  --b-radius: 6px;
+  --b-radius-none: 0px;
+  --b-radius-sm: 3px;
+  --b-radius-md: 6px;
+  --b-radius-lg: 12px;
+  --b-radius-full: 9999px;
+
+  /* Gradient */
+  --b-gradient-blue: linear-gradient(
+    90deg,
+    #18b4f4 0%,
+    #19b9f5 6.25%,
+    #1bbdf5 12.5%,
+    #1cc2f6 18.75%,
+    #1ec7f7 25%,
+    #1fcbf7 31.25%,
+    #21d0f8 37.5%,
+    #22d5f9 43.75%,
+    #24d9f9 50%,
+    #25defa 56.25%,
+    #26e3fb 62.5%,
+    #28e8fc 68.75%,
+    #29ecfc 75%,
+    #2bf1fd 81.25%,
+    #2cf6fe 87.5%,
+    #2efafe 93.75%,
+    #2fffff 100%
+  );
+
+  /* Spacing scale */
+  --spacing-0: 0px;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+  --spacing-20: 80px;
+  --spacing-24: 96px;
+  --spacing-30: 120px;
+  --spacing-35: 150px;
+  --spacing-50: 200px;
+
+  /* Typography scale */
+  --b-t-heading-1: 56px;
+  --b-t-heading-2: 46px;
+  --b-t-heading-3: 37px;
+  --b-t-heading-4: 28px;
+  --b-t-heading-5: 23px;
+  --b-t-heading-6: 18px;
+  --b-t-paragraph-1: 18px;
+  --b-t-paragraph-2: 15px;
+  --b-t-paragraph-2-md: 15px;
+  --b-t-paragraph-3: 12px;
+  --b-t-label-1: 14px;
+  --b-t-label-2: 11px;
+
+  background: var(--b-bg-page);
+  color: var(--b-text-primary);
+  font-family: var(--b-font-sans);
+}
+
+.builder-brand-tokens .blue-gradient {
+  background: var(--b-gradient-blue);
+}
+
+.builder-brand-tokens .blue-gradient-text {
+  background: var(--b-gradient-blue);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@media (max-width: 768px) {
+  .builder-brand-tokens {
+    --spacing-4: 12px;
+    --spacing-5: 16px;
+    --spacing-6: 20px;
+    --spacing-8: 24px;
+    --spacing-10: 24px;
+    --spacing-12: 24px;
+    --spacing-16: 24px;
+    --spacing-20: 32px;
+    --spacing-24: 32px;
+    --spacing-30: 72px;
+    --spacing-35: 88px;
+    --spacing-50: 80px;
+
+    --b-t-heading-1: 32px;
+    --b-t-heading-2: 28px;
+    --b-t-heading-3: 24px;
+    --b-t-heading-4: 22px;
+    --b-t-heading-5: 19px;
+    --b-t-heading-6: 16px;
+    --b-t-paragraph-1: 16px;
+    --b-t-paragraph-2: 15px;
+    --b-t-paragraph-3: 12px;
+    --b-t-label-1: 14px;
+    --b-t-label-2: 11px;
+  }
+}
