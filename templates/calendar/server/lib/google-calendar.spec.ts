@@ -88,6 +88,8 @@ vi.mock("./google-api.js", () => ({
   calendarPatchEvent: calendarPatchEventMock,
   calendarUpdateEvent: calendarUpdateEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
+  isGoogleNotFoundError: (error: unknown) =>
+    error instanceof Error && /^Google API error \(404\):/.test(error.message),
 }));
 
 import {
@@ -1112,6 +1114,42 @@ describe("calendar recurring event updates", () => {
         end: { dateTime: "2026-05-06T17:00:00Z" },
       }),
       expect.any(Object),
+    );
+  });
+
+  it("removes a selected exception when deleting this and following", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+
+    await deleteEvent(
+      "instance-1",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      { scope: "thisAndFollowing" },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      { recurrence: ["RRULE:FREQ=WEEKLY;UNTIL=20260519T235959Z"] },
+      { sendUpdates: undefined },
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-1",
+      undefined,
     );
   });
 });

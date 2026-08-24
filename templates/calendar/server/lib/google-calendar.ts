@@ -30,6 +30,7 @@ import {
   calendarDeleteEvent,
   calendarPatchEvent,
   calendarUpdateEvent,
+  isGoogleNotFoundError,
   peopleGetProfile,
 } from "./google-api.js";
 import { getCalendarProviderApiRuntime } from "./provider-api.js";
@@ -1748,6 +1749,20 @@ export async function deleteEvent(
     { recurrence: updatedRecurrence },
     { sendUpdates },
   );
+
+  // Truncating the master does not remove a previously materialized exception
+  // for the selected occurrence, so delete that occurrence as well.
+  try {
+    await calendarDeleteEvent(
+      client.accessToken,
+      "primary",
+      googleEventId,
+      sendUpdates,
+    );
+  } catch (error) {
+    // A generated occurrence may already be gone once the master is trimmed.
+    if (!isGoogleNotFoundError(error)) throw error;
+  }
 }
 
 /**
