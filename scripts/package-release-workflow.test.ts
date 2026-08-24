@@ -46,16 +46,14 @@ describe("npm package release workflow", () => {
     assert.doesNotMatch(source, /AGENT_NATIVE_NPM_DIST_TAG: beta/);
   });
 
-  it("does not run stable publication on an ordinary main push", () => {
+  it("keeps stable changesets flowing on main pushes", () => {
     const release = jobs.release as Workflow;
     const condition = String(release.if);
+    const notify = jobs["notify-downstream"] as Workflow;
 
-    assert.match(condition, /workflow_dispatch/);
-    assert.match(condition, /\[stable-release\]/);
-    assert.match(
-      String((jobs["notify-downstream"] as Workflow).if),
-      /github\.event_name == 'workflow_dispatch'/,
-    );
+    assert.equal(condition, "${{ !inputs.redispatchDownstream }}");
+    assert.deepEqual(notify.needs, ["release"]);
+    assert.equal(String(notify.if), "always()");
   });
 
   it("keeps the release changeset package list aligned with the publisher", () => {
