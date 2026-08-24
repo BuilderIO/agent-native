@@ -649,6 +649,8 @@ interface DefineActionWithSchema<
         args: StandardSchemaV1.InferOutput<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  allowPersistentApproval?: boolean;
   /**
    * Authorization gate that runs before `run()` on **every** caller — agent
    * tool, HTTP, frontend, MCP, A2A, and CLI. It wraps `run` itself rather than
@@ -778,6 +780,8 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  allowPersistentApproval?: boolean;
   /** Pre-run authorization gate applied to every caller. See the schema
    *  overload above for full semantics. */
   authorize?: ActionAuthorize<InferParams<TParams>>;
@@ -849,6 +853,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  readonly allowPersistentApproval?: boolean;
   /** Resolved audit-log configuration. Present only when the caller passed
    *  `audit`. The audit capture wrapper is baked into `run`; this field is for
    *  introspection. */
@@ -1137,6 +1143,9 @@ export function defineAction(options: any) {
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
+      : {}),
+    ...(typeof options.allowPersistentApproval === "boolean"
+      ? { allowPersistentApproval: options.allowPersistentApproval }
       : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
   };

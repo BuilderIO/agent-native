@@ -573,7 +573,12 @@ function ApprovalAffordance({
 }: {
   toolName: string;
   toolCallId?: string;
-  approval: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
 }) {
   const t = useT();
   const ctx = React.useContext(ApprovalContext);
@@ -581,6 +586,8 @@ function ApprovalAffordance({
     useState<ApprovalResolution | null>(null);
   const [isAlwaysAllowing, setIsAlwaysAllowing] = useState(false);
   const [alwaysAllowFailed, setAlwaysAllowFailed] = useState(false);
+  const onAlwaysAllow =
+    approval.allowPersistentApproval === false ? undefined : ctx?.onAlwaysAllow;
   const retainedResolution =
     ctx?.getApprovalResolution?.(
       approval.approvalKey,
@@ -612,13 +619,13 @@ function ApprovalAffordance({
     );
   }
   const handleAlwaysAllow = async () => {
-    if (!ctx?.onAlwaysAllow || isAlwaysAllowing) return;
+    if (!onAlwaysAllow || isAlwaysAllowing) return;
     setIsAlwaysAllowing(true);
     setAlwaysAllowFailed(false);
     try {
-      await ctx.onAlwaysAllow(approval.approvalKey, toolName);
+      await onAlwaysAllow(approval.approvalKey, toolName);
       setLocalResolution("approved");
-      ctx.onApprovalResolved?.(
+      ctx?.onApprovalResolved?.(
         approval.approvalKey,
         "approved",
         toolCallId,
@@ -654,14 +661,14 @@ function ApprovalAffordance({
             className={cn(
               "inline-flex shrink-0 items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors",
               "bg-foreground text-background hover:bg-foreground/90",
-              ctx.onAlwaysAllow ? "rounded-s-md rounded-e-none" : "rounded-md",
+              onAlwaysAllow ? "rounded-s-md rounded-e-none" : "rounded-md",
               "disabled:pointer-events-none disabled:opacity-50",
             )}
           >
             <IconCheck className="h-3.5 w-3.5" />
             {t("agentChat.approval.approve")}
           </button>
-          {ctx.onAlwaysAllow && (
+          {onAlwaysAllow && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -752,7 +759,12 @@ export function ToolCallDisplay({
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
   repeatCount?: number;
   /** The latest tool shown while the overall chat turn is still active. */
   isActiveTail?: boolean;
@@ -874,7 +886,12 @@ function ToolCallDisplayGeneric({
   outcome?: "unknown";
   isActiveTail: boolean;
   structuredMeta?: Record<string, unknown>;
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
   repeatCount?: number;
   context?: string;
 }) {
@@ -1383,7 +1400,12 @@ export function ToolCallFallback({
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
   outcome?: "unknown";
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
   repeatCount?: number;
   isLatestRunning?: boolean;
   isActiveTail?: boolean;

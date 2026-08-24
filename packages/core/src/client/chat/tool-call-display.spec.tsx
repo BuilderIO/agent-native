@@ -2258,6 +2258,7 @@ describe("ApprovalAffordance", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -2365,6 +2366,32 @@ describe("ApprovalAffordance", () => {
         (button) => button.textContent,
       ),
     ).toEqual(["bash"]);
+  });
+
+  it("hides the persistent approval option for per-call-only actions", () => {
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{ onApprove: vi.fn(), onAlwaysAllow: vi.fn() }}
+        >
+          <ToolCallDisplay
+            toolName="send-email"
+            args={{}}
+            approval={{
+              approvalKey: "approval-1",
+              allowPersistentApproval: false,
+            }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["send email", "Approve", "Deny"]);
   });
 
   it("keeps Approved visible when the chat refresh remounts the tool card", () => {

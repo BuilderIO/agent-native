@@ -10,6 +10,7 @@ import type {
 } from "../../agent/types.js";
 import type { FeatureFlagDefinition } from "../../feature-flags/registry.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
+import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
@@ -81,6 +82,12 @@ export interface AgentChatPluginOptions {
    * the per-request scope gate when a tool is called.
    */
   backgroundMcpTools?: "requested" | "all";
+  /**
+   * Resolve approval metadata for connected MCP tools as they enter the agent
+   * action registry. This can require approval for selected tools and disable
+   * persistent approval for actions that must be confirmed on every call.
+   */
+  resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];
   /**
    * Everything about this app's MCP mount — whether it is mounted, which tools
    * external callers see, and the branding sent during the `initialize`
