@@ -511,8 +511,11 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-run-list {
-  visibility: hidden;
-  pointer-events: none;
+  display: none;
+}
+
+.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-rail-scroll {
+  scrollbar-gutter: auto;
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed [data-chat-first-notice] {
