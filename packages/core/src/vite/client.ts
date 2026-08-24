@@ -2231,13 +2231,17 @@ async function loadMountedEmbedRuntimeModule(
   runtimeUrl: string,
 ): Promise<string | null> {
   const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
+
+  // transform import to encode virtual modules in vite as these imports don't work in the browser
+  const result = await server.transformRequest(virtualId ?? runtimeUrl);
+  if (typeof result?.code === "string") return result.code;
+
   if (virtualId) {
     const loaded = await server.pluginContainer?.load?.(virtualId);
     if (typeof loaded === "string") return loaded;
     if (loaded && typeof loaded.code === "string") return loaded.code;
   }
-  const result = await server.transformRequest(runtimeUrl);
-  return result?.code ?? null;
+  return null;
 }
 
 function serveMountedEmbedRuntimeModule(
