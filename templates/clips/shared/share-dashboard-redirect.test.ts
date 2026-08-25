@@ -64,9 +64,9 @@ describe("resolveDashboardRedirect", () => {
       resolveDashboardRedirect({
         recordingId: "rec_1",
         canOpenDashboard: true,
-        search: "?t=1500&panel=transcript&agent_access=secret&via=slack",
+        search: "?t=1500&at=90&panel=transcript&agent_access=secret&via=slack",
       }),
-    ).toBe("/r/rec_1?t=1500&panel=transcript");
+    ).toBe("/r/rec_1?t=1500&at=90&panel=transcript");
   });
 
   it("never forwards a share access token to the authenticated route", () => {
