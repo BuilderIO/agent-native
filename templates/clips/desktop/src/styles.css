@@ -5335,6 +5335,83 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 8px 12px 12px;
 }
 
+/* Inline ask exchange: the question header and its streamed answer sit
+   directly above the composer, so asking never leaves the panel. */
+.pill-ask-thread {
+  flex-shrink: 0;
+  max-height: 45%;
+  overflow-y: auto;
+  margin: 6px 12px 0;
+  padding: 9px 12px 10px;
+  border-radius: 12px;
+  background: hsl(var(--ui-muted));
+}
+
+.pill-ask-thread-q {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pill-ask-thread-question {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-ask-thread-close {
+  display: inline-flex;
+  height: 22px;
+  width: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: -3px -4px 0 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+  cursor: pointer;
+}
+
+.pill-ask-thread-close:hover {
+  background: hsl(var(--ui-accent));
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-ask-thread-a {
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-ask-thread-caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  border-radius: 1.5px;
+  background: hsl(var(--ui-muted-foreground));
+  animation: pill-ask-caret 900ms steps(2) infinite;
+}
+
+@keyframes pill-ask-caret {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-thread-caret {
+    animation: none;
+  }
+}
+
 /* The field owns the fill, radius, and focus ring; the input is transparent
    inside it and the send button sits embedded at the trailing edge (shadcn's
    InputGroup pattern), so composing and sending read as one control. */

@@ -58,6 +58,16 @@ export function MeetingPill() {
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
   const [ask, setAsk] = useState("");
+  // Inline ask exchange (the Wispr interaction): the question and its answer
+  // render in the panel instead of ejecting to the web. The live agent
+  // transport lands with the catch-up-chip PR; the demo streams a canned
+  // answer so the interaction is designable today.
+  const [askThread, setAskThread] = useState<{
+    question: string;
+    answer: string;
+    streaming: boolean;
+  } | null>(null);
+  const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeMeetingIdRef = useRef<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
@@ -329,11 +339,41 @@ export function MeetingPill() {
     const mid = activeMeetingIdRef.current;
     if (!question || !mid) return;
     setAsk("");
+    if (pillDemoMode) {
+      if (askStreamRef.current) clearInterval(askStreamRef.current);
+      const full =
+        "You landed on three questions after swapping out the design system one. The open risk is indexing time (up to an hour); the fallback is pinning the previous index and swapping when the fresh one lands.";
+      const words = full.split(" ");
+      let i = 0;
+      setAskThread({ question, answer: "", streaming: true });
+      askStreamRef.current = setInterval(() => {
+        i += 2;
+        const done = i >= words.length;
+        setAskThread({
+          question,
+          answer: words.slice(0, i).join(" "),
+          streaming: !done,
+        });
+        if (done && askStreamRef.current) {
+          clearInterval(askStreamRef.current);
+          askStreamRef.current = null;
+        }
+      }, 60);
+      return;
+    }
     emit("clips:open-meeting", {
       meetingId: mid,
       openChat: true,
       prompt: question,
     }).catch(() => {});
+  };
+
+  const dismissAskThread = () => {
+    if (askStreamRef.current) {
+      clearInterval(askStreamRef.current);
+      askStreamRef.current = null;
+    }
+    setAskThread(null);
   };
 
   const handlePillMouseDown = (e: React.MouseEvent) => {
@@ -542,6 +582,30 @@ export function MeetingPill() {
               initialLines={preloadedLines}
             />
           </div>
+          {askThread ? (
+            <div className="pill-ask-thread" data-no-drag>
+              <div className="pill-ask-thread-q">
+                <span className="pill-ask-thread-question">
+                  {askThread.question}
+                </span>
+                <button
+                  type="button"
+                  data-no-drag
+                  className="pill-ask-thread-close"
+                  onClick={dismissAskThread}
+                  aria-label="Dismiss answer"
+                >
+                  <IconX size={13} />
+                </button>
+              </div>
+              <div className="pill-ask-thread-a">
+                {askThread.answer}
+                {askThread.streaming ? (
+                  <span className="pill-ask-thread-caret" aria-hidden />
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           {ctx.mode === "meeting" ? (
             <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
               {!finished ? (
