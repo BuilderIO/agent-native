@@ -25,7 +25,11 @@ import {
   upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant,
 } from "../workspace-connections/store.js";
-import { getSession, safeReturnPath } from "./auth.js";
+import {
+  getSession,
+  redirectWithStagedCookies,
+  safeReturnPath,
+} from "./auth.js";
 import { resolveSecret } from "./credential-provider.js";
 import {
   decodeOAuthState,
@@ -253,7 +257,7 @@ export async function handleWorkspaceProviderOAuthStart(
             }
           : {}),
       });
-      return Response.redirect(authorizationUrl, 302);
+      return redirectWithStagedCookies(event, authorizationUrl);
     },
   );
 }
@@ -433,7 +437,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       const returnPath =
         state.returnUrl ??
         `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
-      return Response.redirect(getAppUrl(event, returnPath), 302);
+      return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
     },
   );
 }
