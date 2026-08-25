@@ -1,9 +1,12 @@
 name: 🚀 Release everything
 
-# This is the deliberate stable-release button. It completes the package
-# changeset release first, then releases both desktop apps and promotes every
-# configured *.agent-native.com site from that exact post-release commit.
+# This is the stable release train. It completes the package changeset release
+# first, then releases both desktop apps and promotes every configured
+# *.agent-native.com site from that exact post-release commit.
 on:
+  schedule:
+    - cron: "17 12 * * 1-4"
+      timezone: "America/Los_Angeles"
   workflow_dispatch:
     inputs:
       releaseType:
@@ -31,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      RELEASE_TYPE: ${{ inputs.releaseType }}
+      RELEASE_TYPE: ${{ inputs.releaseType || 'patch' }}
     steps:
       - name: Release packages, then desktop apps and production sites
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
