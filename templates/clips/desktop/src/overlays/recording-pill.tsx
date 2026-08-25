@@ -494,7 +494,7 @@ export function MeetingPill() {
       askSheetExitRef.current = null;
     }
     setAskSheetClosing(false);
-    openAskSheet();
+    setAskSheetOpen(true);
   };
 
   const submitAsk = (question: string) => {
@@ -1096,7 +1096,10 @@ export function MeetingPill() {
                   disabled={stopping}
                   data-no-drag
                   variant="secondary"
-                  className="h-[34px] shrink-0 gap-[7px] rounded-full px-[13px] text-[13px] font-semibold"
+                  // `border-0`: this app opts out of Tailwind preflight (see
+                  // tailwind.css), so a shadcn variant with no border utility
+                  // inherits the UA's 2px button border.
+                  className="h-[34px] shrink-0 gap-[7px] rounded-full border-0 px-[13px] text-[13px] font-semibold"
                   aria-label={stopping ? "Stopping" : stopLabel}
                   title={stopping ? "Stopping..." : stopLabel}
                 >
