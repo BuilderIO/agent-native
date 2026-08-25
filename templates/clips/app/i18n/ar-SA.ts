@@ -526,10 +526,6 @@ const messages = {
   },
   shareUi: {
     owner: "المالك: {{email}}",
-    restrictedLinkDescription:
-      "سيعمل هذا الرابط فقط للأشخاص الذين لديهم وصول بالفعل.",
-    makingPublic: "جارٍ جعله عامًا…",
-    makePublicAndCopy: "جعله عامًا ونسخه",
     copy: "نسخ",
     copyLink: "نسخ الرابط",
     addPeopleByEmail: "إضافة أشخاص بالبريد الإلكتروني",

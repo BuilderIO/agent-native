@@ -526,10 +526,6 @@ const messages = {
   },
   shareUi: {
     owner: "소유자: {{email}}",
-    restrictedLinkDescription:
-      "이 링크는 이미 액세스 권한이 있는 사람에게만 작동합니다.",
-    makingPublic: "공개로 전환 중…",
-    makePublicAndCopy: "공개로 전환하고 복사",
     copy: "복사",
     copyLink: "링크 복사",
     addPeopleByEmail: "이메일로 사람 추가",

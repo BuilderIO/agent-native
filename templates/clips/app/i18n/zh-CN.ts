@@ -502,9 +502,6 @@ const messages = {
   },
   shareUi: {
     owner: "所有者： {{email}}",
-    restrictedLinkDescription: "此链接仅适用于已经具有访问权限的人员。",
-    makingPublic: "公开…",
-    makePublicAndCopy: "公开并复制",
     copy: "复制",
     copyLink: "复制链接",
     addPeopleByEmail: "通过电子邮件添加人员",

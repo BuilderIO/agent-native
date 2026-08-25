@@ -535,10 +535,6 @@ const messages = {
   },
   shareUi: {
     owner: "所有者: {{email}}",
-    restrictedLinkDescription:
-      "このリンクは、すでにアクセス権を持っている人のみが機能します。",
-    makingPublic: "公開中…",
-    makePublicAndCopy: "公開してコピーする",
     copy: "コピー",
     copyLink: "リンクをコピー",
     addPeopleByEmail: "メールで人を追加",

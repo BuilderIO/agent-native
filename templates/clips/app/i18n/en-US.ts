@@ -522,10 +522,6 @@ const messages = {
   },
   shareUi: {
     owner: "Owner: {{email}}",
-    restrictedLinkDescription:
-      "This link will only work for people who already have access.",
-    makingPublic: "Making public…",
-    makePublicAndCopy: "Make public and copy",
     copy: "Copy",
     copyLink: "Copy Link",
     addPeopleByEmail: "Add people by email",

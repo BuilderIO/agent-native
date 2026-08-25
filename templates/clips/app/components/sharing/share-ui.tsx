@@ -258,48 +258,6 @@ export function CopyButton({
 }
 
 // ---------------------------------------------------------------------------
-// "Make public and copy" card (shown for private/org links the user manages)
-// ---------------------------------------------------------------------------
-
-export function MakePublicCard({
-  isPending,
-  onMakePublic,
-  secondaryAction,
-}: {
-  isPending: boolean;
-  onMakePublic: () => void;
-  secondaryAction?: ReactNode;
-}) {
-  const t = useT();
-  return (
-    <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2">
-      <p className="sr-only">{t("shareUi.restrictedLinkDescription")}</p>
-      <IconLock
-        aria-hidden
-        size={14}
-        strokeWidth={1.8}
-        className="text-muted-foreground"
-      />
-      <div className="flex items-center gap-2">
-        {secondaryAction}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7"
-          onClick={onMakePublic}
-          disabled={isPending}
-        >
-          {isPending
-            ? t("shareUi.makingPublic")
-            : t("shareUi.makePublicAndCopy")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Avatar chip
 // ---------------------------------------------------------------------------
 

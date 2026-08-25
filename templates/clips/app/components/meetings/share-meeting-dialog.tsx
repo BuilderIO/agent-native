@@ -17,7 +17,6 @@ import { toast } from "sonner";
 import {
   CopyButton,
   GeneralAccessSelect,
-  MakePublicCard,
   PeopleAccessSection,
   ShareSectionLabel,
   copyToClipboard,
@@ -271,17 +270,6 @@ function LinkTab({
           className="shrink-0"
         />
       </div>
-
-      {!isPublic && canManage ? (
-        <MakePublicCard
-          isPending={visibilityPending}
-          onMakePublic={() =>
-            onVisibilityChange("public", {
-              onSuccess: () => copyToClipboard(shareUrl),
-            })
-          }
-        />
-      ) : null}
 
       <CopyButton value={shareUrl} disabled={!sharesLoaded}>
         {t("shareUi.copyLink")}

@@ -27,7 +27,6 @@ import {
   CopyButton,
   GeneralAccessSelect,
   InvitePeopleField,
-  MakePublicCard,
   PeopleAccessSection,
   ShareSectionLabel,
   copyToClipboard,
@@ -510,7 +509,6 @@ function LinkTab({
   const agentCopyValue = agentLink
     ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";
-  const showMakePublic = sharesLoaded && !isPublic && canManage;
   const moreMenuItems = [
     isLoomRecording && videoUrl
       ? {
@@ -596,17 +594,6 @@ function LinkTab({
             <div className="h-9 w-full animate-pulse rounded bg-muted" />
           </div>
         )
-      ) : null}
-
-      {showMakePublic ? (
-        <MakePublicCard
-          isPending={visibilityPending}
-          onMakePublic={() =>
-            onVisibilityChange("public", {
-              onSuccess: () => copyToClipboard(linkUrl),
-            })
-          }
-        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">

@@ -543,10 +543,6 @@ const messages = {
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
-    restrictedLinkDescription:
-      "Dieser Link funktioniert nur für Personen, die bereits Zugriff haben.",
-    makingPublic: "Öffentlich machen…",
-    makePublicAndCopy: "Veröffentlichen und kopieren",
     copy: "Kopie",
     copyLink: "Link kopieren",
     addPeopleByEmail: "Personen per E-Mail hinzufügen",
