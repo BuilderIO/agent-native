@@ -133,6 +133,7 @@ export const databasePropertyValuesSchema = z
 
 export const databasePropertyEntriesSchema = z
   .array(databasePropertyEntrySchema)
+  .min(1)
   .max(1_000)
   .optional()
   .describe(

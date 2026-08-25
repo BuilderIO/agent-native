@@ -741,9 +741,13 @@ export function databaseMutationPayloadDigest(
     | UpdateDatabaseRowMutationInput
     | UpsertDatabaseRowMutationInput,
 ) {
-  const { propertyTypeAssertions: _propertyTypeAssertions, ...canonicalInput } =
-    input;
-  return digest({ operation, ...canonicalInput });
+  const {
+    propertyTypeAssertions: _propertyTypeAssertions,
+    target,
+    ...canonicalInput
+  } = input;
+  const { authorityScope: _authorityScope, ...stableTarget } = target ?? {};
+  return digest({ operation, ...canonicalInput, target: stableTarget });
 }
 
 function assertPropertyTypeAssertions(
@@ -1187,7 +1191,6 @@ export async function createDatabaseRow(
   input: CreateDatabaseRowMutationInput,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
-  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   const inputDigest = databaseMutationPayloadDigest("create", input);
   const replay = await replayReceipt(
     initial,
@@ -1195,6 +1198,7 @@ export async function createDatabaseRow(
     inputDigest,
   );
   if (replay) return replay;
+  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, () =>
@@ -1215,6 +1219,7 @@ export async function createDatabaseRow(
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
+      assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       await touchContentDatabase(
         tx as unknown as Db,
@@ -1256,7 +1261,6 @@ export async function updateDatabaseRow(
   input: UpdateDatabaseRowMutationInput,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
-  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   await assertAccess("document", input.documentId, "editor");
   const inputDigest = databaseMutationPayloadDigest("update", input);
   const replay = await replayReceipt(
@@ -1265,6 +1269,7 @@ export async function updateDatabaseRow(
     inputDigest,
   );
   if (replay) return replay;
+  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, () =>
@@ -1285,6 +1290,7 @@ export async function updateDatabaseRow(
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
+      assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       const updated = await updateInsideTransaction(
         tx as unknown as Db,
@@ -1337,7 +1343,6 @@ export async function upsertDatabaseRow(
   input: UpsertDatabaseRowMutationInput,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
-  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   const replayKeyPropertyId = initial.database.naturalKeyPropertyId;
   const replayKeyDefinition = replayKeyPropertyId
     ? initial.definitions.find(
@@ -1365,6 +1370,7 @@ export async function upsertDatabaseRow(
     inputDigest,
   );
   if (replay) return replay;
+  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const keyPropertyId = initial.database.naturalKeyPropertyId;
   if (!keyPropertyId) {
@@ -1425,6 +1431,7 @@ export async function upsertDatabaseRow(
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
+      assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       if (locked.database.naturalKeyPropertyId !== keyPropertyId) {
         conflict("SCHEMA_REVISION_CONFLICT", "The natural key changed.");
