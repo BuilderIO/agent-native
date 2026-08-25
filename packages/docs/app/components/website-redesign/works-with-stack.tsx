@@ -2,16 +2,31 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { GridInner, PageSection } from "./page-grid";
 
-interface Logo {
+interface LogoEntry {
   name: string;
   label: string;
-  render: () => ReactNode;
+  // Real intrinsic pixel size of `src`, required alongside it so the img
+  // element always has a definite size and never collapses to 0x0 while
+  // loading (see width/height + no conflicting inline auto-sizing style
+  // below).
+  src?: string;
+  srcWidth?: number;
+  srcHeight?: number;
+  // Uploaded logo images ship with their own built-in padding baked into
+  // the asset (unlike the tight-cropped inline SVGs), so they need to fill
+  // the tile instead of being capped at the shared 55% size meant for
+  // vector marks.
+  fill?: boolean;
   // Multiplier applied on top of the shared tile cap. Marks with a lot of
   // built-in viewBox padding (sparse icons) need to scale up; marks whose
   // viewBox tightly hugs the artwork (wordmarks, solid glyphs) need to scale
   // down, so every logo reads as roughly the same visual weight. Re-tune
   // this once each placeholder below is swapped for its real mark/image.
   scale?: number;
+}
+
+interface Logo extends LogoEntry {
+  render: () => ReactNode;
 }
 
 // Placeholder while real logo art is swapped in one-by-one; replace each
@@ -44,10 +59,31 @@ function LogoPlaceholder({ label }: { label: string }) {
   );
 }
 
-const LOGOS: Logo[] = [
-  { name: "anthropic", label: "Anthropic" },
-  { name: "ChatGPT_logo", label: "ChatGPT" },
-  { name: "Vercel", label: "Vercel" },
+const LOGO_ENTRIES: LogoEntry[] = [
+  {
+    name: "anthropic",
+    label: "Anthropic",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598785896ec84d1daecd7086d7890ab3",
+    srcWidth: 552,
+    srcHeight: 552,
+    fill: true,
+  },
+  {
+    name: "ChatGPT_logo",
+    label: "ChatGPT",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2297fccd17bf4fc198c841ecaf9657b5",
+    srcWidth: 552,
+    srcHeight: 575,
+    fill: true,
+  },
+  {
+    name: "Vercel",
+    label: "Vercel",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9346ea650bed42e0bb520265445dee13",
+    srcWidth: 552,
+    srcHeight: 568,
+    fill: true,
+  },
   { name: "gitlab", label: "GitLab" },
   { name: "n8n", label: "n8n" },
   { name: "linear", label: "Linear" },
@@ -75,9 +111,24 @@ const LOGOS: Logo[] = [
   { name: "app-grid-mark", label: "app-grid-mark" },
   { name: "CF-Logo", label: "Cloudflare" },
   { name: "asana", label: "Asana" },
-].map((entry) => ({
+];
+
+const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
   ...entry,
-  render: () => <LogoPlaceholder label={entry.label} />,
+  render: () =>
+    entry.src ? (
+      <img
+        src={entry.src}
+        alt=""
+        width={entry.srcWidth}
+        height={entry.srcHeight}
+        loading="lazy"
+        decoding="async"
+        className={entry.fill ? "logo-tile-img-fill" : undefined}
+      />
+    ) : (
+      <LogoPlaceholder label={entry.label} />
+    ),
 }));
 
 export function WorksWithStack() {

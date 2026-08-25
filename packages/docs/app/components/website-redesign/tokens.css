@@ -244,6 +244,14 @@
   max-height: 55%;
 }
 
+/* Uploaded logo assets ship with their own built-in padding, unlike the
+   tight-cropped inline SVGs above, so they fill the tile instead of being
+   capped at 55%. */
+.builder-brand-tokens .logo-tile img.logo-tile-img-fill {
+  max-width: 100%;
+  max-height: 100%;
+}
+
 .builder-brand-tokens .logo-scale-wrap {
   display: flex;
   align-items: center;
