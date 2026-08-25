@@ -267,7 +267,7 @@ async function handleMcpOAuthStart(
       setResponseStatus(event, 400);
       return {
         error:
-          "HubSpot personal MCP connect is not configured for this workspace. A workspace owner must register the HubSpot MCP Auth App once; after that, any workspace member can connect a personal account.",
+          "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.",
       };
     }
     const flow: McpOAuthFlow = {
