@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { GridInner, PageSection } from "./page-grid";
 
@@ -904,12 +904,8 @@ export function WorksWithStack() {
               role="img"
             >
               <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transform: `scale(${logo.scale ?? 1})`,
-                }}
+                className="logo-scale-wrap"
+                style={{ "--logo-scale": logo.scale ?? 1 } as CSSProperties}
               >
                 {logo.render()}
               </div>
