@@ -5299,7 +5299,43 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-bottom-left-radius: 10px;
 }
 
-/* Ask composer: quiet rounded field on the muted fill, ghost actions. */
+/* Ask composer: Stop leads the line (Wispr's pattern), then the quiet
+   rounded field on the muted fill with ghost actions. */
+.pill-stop-inline {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border: none;
+  border-radius: 999px;
+  background: hsl(var(--ui-muted));
+  color: hsl(var(--ui-foreground));
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.pill-stop-inline:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+}
+
+.pill-stop-inline:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pill-stop-inline-square {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2.5px;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  background: #e0473f;
+}
+
 .pill-inner:not(.pill-inner-compact) .pill-ask-bar {
   gap: 6px;
   padding: 8px 12px 12px;

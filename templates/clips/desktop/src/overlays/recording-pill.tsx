@@ -417,11 +417,13 @@ export function MeetingPill() {
             />
           </div>
           <div className="pill-controls">
-            <span
-              className={`pill-timer${!paused && !finished ? " pill-timer-live" : ""}`}
-            >
-              {mm}:{ss}
-            </span>
+            {expanded && !detached && ctx.mode === "meeting" ? null : (
+              <span
+                className={`pill-timer${!paused && !finished ? " pill-timer-live" : ""}`}
+              >
+                {mm}:{ss}
+              </span>
+            )}
             {expanded && !finished ? (
               <button
                 type="button"
@@ -438,7 +440,7 @@ export function MeetingPill() {
                 )}
               </button>
             ) : null}
-            {!finished ? (
+            {!finished && !(expanded && !detached && ctx.mode === "meeting") ? (
               <button
                 type="button"
                 onClick={onStopClick}
@@ -543,6 +545,24 @@ export function MeetingPill() {
           </div>
           {ctx.mode === "meeting" ? (
             <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
+              {!finished ? (
+                <button
+                  type="button"
+                  onClick={onStopClick}
+                  disabled={stopping}
+                  data-no-drag
+                  className="pill-stop-inline"
+                  aria-label={stopping ? "Stopping" : stopLabel}
+                  title={stopping ? "Stopping..." : stopLabel}
+                >
+                  {stopping ? (
+                    <IconLoader2 className="pill-spinner" size={13} />
+                  ) : (
+                    <span aria-hidden className="pill-stop-inline-square" />
+                  )}
+                  Stop
+                </button>
+              ) : null}
               <input
                 data-no-drag
                 className="pill-ask-input"
