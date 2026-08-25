@@ -341,7 +341,7 @@ export function SharePeopleTab({
   sharesQuery: SharesQuery;
   canManage: boolean;
   roleCopy?: Partial<Record<Role, RoleCopy>>;
-  onError?: (err: unknown, action: "invite" | "remove") => void;
+  onError?: (err: unknown, action: "invite" | "permission" | "remove") => void;
 }) {
   const t = useT();
   const share = useActionMutation("share-resource");
@@ -377,6 +377,24 @@ export function SharePeopleTab({
           sharesQuery.refetch();
         },
         onError: (err: unknown) => onError?.(err, "invite"),
+      },
+    );
+  };
+
+  const handleChangeRole = (s: Share, nextRole: Role) => {
+    if (nextRole === s.role) return;
+    share.mutate(
+      {
+        resourceType,
+        resourceId,
+        principalType: s.principalType,
+        principalId: s.principalId,
+        role: nextRole,
+        notify: false,
+      } as any,
+      {
+        onSuccess: () => sharesQuery.refetch(),
+        onError: (err: unknown) => onError?.(err, "permission"),
       },
     );
   };
@@ -476,9 +494,35 @@ export function SharePeopleTab({
             >
               <Avatar label={s.principalId} org={s.principalType === "org"} />
               <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
-              <span className="text-xs text-muted-foreground">
-                {getRoleLabel(s.role)}
-              </span>
+              {canManage ? (
+                <Select
+                  value={s.role}
+                  onValueChange={(value) => handleChangeRole(s, value as Role)}
+                  disabled={share.isPending}
+                >
+                  <SelectTrigger className="h-7 w-[110px] text-xs">
+                    <SelectValue>{getRoleLabel(s.role)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ROLE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <div className="flex flex-col">
+                          <span>{getRoleLabel(opt.value)}</span>
+                          {getRoleCopy(opt.value)?.description ? (
+                            <span className="text-xs text-muted-foreground">
+                              {getRoleCopy(opt.value)?.description}
+                            </span>
+                          ) : null}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {getRoleLabel(s.role)}
+                </span>
+              )}
               {canManage ? (
                 <Button
                   type="button"
