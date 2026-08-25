@@ -311,6 +311,15 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .builder-brand-tokens .pillars-grid > * {
+    border-right: none;
+    border-bottom: 1px solid var(--b-border-subtle);
+  }
+
+  .builder-brand-tokens .pillars-grid > *:last-child {
+    border-bottom: none;
+  }
+
   .builder-brand-tokens .logos-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
