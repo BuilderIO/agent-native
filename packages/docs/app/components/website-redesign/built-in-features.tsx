@@ -57,7 +57,7 @@ const PILLAR_ROWS: Pillar[][] = [
 
 export function BuiltInFeatures() {
   return (
-    <PageSection>
+    <PageSection showGrid={false}>
       <GridInner
         style={{
           display: "flex",
