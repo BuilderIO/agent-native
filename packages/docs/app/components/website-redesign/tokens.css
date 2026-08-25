@@ -224,7 +224,19 @@
   justify-content: center;
   aspect-ratio: 1 / 1;
   overflow: hidden;
+  padding: var(--spacing-4);
   box-sizing: border-box;
+}
+
+/* Each logo ships with its own intrinsic SVG/img dimensions, so without a
+   shared cap they render at wildly different visual sizes next to each
+   other at every breakpoint, not just mobile. */
+.builder-brand-tokens .logo-tile svg,
+.builder-brand-tokens .logo-tile img {
+  width: auto;
+  height: auto;
+  max-width: 55%;
+  max-height: 55%;
 }
 
 .builder-brand-tokens .logo-scale-wrap {
@@ -300,22 +312,9 @@
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
-  .builder-brand-tokens .logo-tile {
-    padding: var(--spacing-4);
-  }
-
-  /* Each logo ships with its own intrinsic SVG/img dimensions, so without a
-     shared cap they render at wildly different visual sizes next to each
-     other. Only apply this at mobile's 6-column layout, where the effect was
-     tuned and verified — the 9-column desktop grid never had this problem. */
-  .builder-brand-tokens .logo-tile svg,
-  .builder-brand-tokens .logo-tile img {
-    width: auto;
-    height: auto;
-    max-width: 55%;
-    max-height: 55%;
-  }
-
+  /* These per-logo multipliers were tuned by eye against the mobile
+     6-column layout, so only apply them there — the 9-column desktop grid
+     needs the shared cap above but not this additional per-mark nudging. */
   .builder-brand-tokens .logo-scale-wrap {
     transform: scale(var(--logo-scale, 1));
   }
