@@ -9,7 +9,7 @@
  * render them as live iframes.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { ensureFusionContainer } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";

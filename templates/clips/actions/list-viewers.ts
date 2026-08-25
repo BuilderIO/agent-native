@@ -5,7 +5,7 @@
  *   pnpm action list-viewers --recordingId=<id> [--limit=12]
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";

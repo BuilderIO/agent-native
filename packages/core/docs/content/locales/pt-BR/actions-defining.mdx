@@ -270,6 +270,97 @@ POST é o padrão, e `http: { method: "GET" }` faz dele um GET. Os ganchos do Re
 - **`readOnly: true`**: pula explicitamente a atualização por polling, mesmo para actions `POST` que não mutam nada. Isso não é controle de acesso. Não restringe quem pode chamar a action, e não afeta `useActionQuery()`, `useActionMutation()` ou qualquer gancho de cliente. Seus únicos efeitos são suprimir o evento de atualização pós-chamada e tirar a action da auditoria de escrita. Para ocultar uma action do modelo, use `agentTool: false`. Para restringir quem pode chamá-la, use as opções de auth e acesso em [Acesso e Autorização](/docs/actions-access-control).
 - **`parallelSafe: true`**: permite que uma action de mutação rode ao mesmo tempo que outras chamadas de ferramenta no mesmo turno. Só defina isso quando a action for segura para rodar de forma concorrente e não depender de ordem. Actions de mutação são serializadas por padrão.
 
+## Falhar uma action {#failing}
+
+Uma action sinaliza falha lançando. Retornar `{ error: "..." }` parece sucesso para todas as partes do framework, então os disjuntores de retentativa do agente nunca contam isso e a chamada é registrada como um efeito colateral concluído.
+
+O que você lança decide quanto da mensagem sobrevive. `fail()` lança um `ActionContractError`, e esse tipo é a única razão pela qual o texto chega a quem chamou. Um simples `throw new Error("No such email")` é indistinguível de uma falha do Postgres ou de um serviço externo, então a rota de action o substitui por um 500 genérico `"Internal server error"`, mantém a mensagem real no log do servidor e a reporta ao rastreamento de erros. Guarde o throw puro para falhas internas de verdade. É para isso que o 500 serve.
+
+`fail()` aceita uma mensagem e um objeto de opções:
+
+- **message**: o texto que quem chamou lê. Escreva para uma pessoa, não para um log.
+- **options.errorCode**: um código estável e legível por máquina. Padrão: `"action_failed"`.
+- **options.statusCode**: o status HTTP da rota de action. Padrão: `400`.
+- **options.details**: contexto estruturado e seguro para quem chamou. Nunca coloque segredos ou saída bruta de driver aqui.
+
+A chamada mais simples precisa apenas de uma mensagem:
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+Nomear a causa é o que permite à UI reagir a uma falha em vez de apenas exibi-la. O código e o status sobrevivem ao transporte:
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+O navegador recebe `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` e `callAction()` expõem isso como um `Error` carregando `status`, `errorCode`, `details` e `actionMessage`.
+
+`error.message` mantém um prefixo `Action <name> failed:`, que cabe em um console e soa errado em um toast. `actionErrorMessage()` devolve apenas o texto que a action escreveu, ou `undefined` quando ninguém redigiu um:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Uma queda de rede, uma página de erro HTML de um proxy e uma simples linha de status não redigem mensagem alguma. Por isso devolvem `undefined` em vez de uma string que a UI mostraria por engano. Combine sempre com o seu próprio texto.
+
+### O que cada lançamento produz {#failure-shapes}
+
+| Lançado de `run()`                              | Status HTTP      | Corpo da resposta                            | Reportado ao rastreamento de erros |
+| ----------------------------------------------- | ---------------- | -------------------------------------------- | ---------------------------------- |
+| `fail(msg)`                                     | 400              | `{ error: msg, errorCode: "action_failed" }` | Não                                |
+| `fail(msg, { errorCode, statusCode, details })` | seu `statusCode` | `{ error, errorCode, details }`              | Não                                |
+| `new ActionContractError(msg, { errorCode })`   | 409              | `{ error, errorCode, details }`              | Não                                |
+| `new AgentActionStopError(msg)`                 | 500              | `{ error: msg }`                             | Não                                |
+| `new Error(msg)`                                | 500              | `{ error: "Internal server error" }`         | Sim                                |
+| Entrada que falha no `schema`                   | 400              | `{ error: "Invalid action parameters..." }`  | Não                                |
+
+`AgentActionStopError` é a que se lança quando o agente deve encerrar o turno em vez de ler a falha e tentar de novo. `ActionContractError` é o que `fail()` lança por você, então use-a diretamente apenas quando 409 for o status desejado.
+
+### Escolha um status sobre o qual a política de retentativa possa agir {#failure-status}
+
+`useActionQuery()` repete `429`, `502`, `503` e `504`, até três vezes, esperando 500 ms, depois 1 s, depois 2 s. Qualquer outro status é tratado como determinístico e aparece na primeira resposta. Reenviar uma requisição recusada por estar errada só compra a mesma recusa de novo. `useActionMutation()` não repete de forma alguma.
+
+Então o status não é cosmético. Uma recusa enviada como `404` custa uma ida e volta. A mesma recusa enviada como `500`, ou lançada pura, custa quatro idas e voltas e quatro relatórios de erro duplicados.
+
+Chamadores do agente não veem o status. O agente executa `run()` em processo, então recebe a mensagem diretamente, seja qual for o tipo, como `Error running <action>: <message>`. Um `errorCode` diferente do padrão `action_failed` é anexado como `(errorCode: not_found)`, para o modelo poder ramificar sem analisar a prosa. Agentes externos por MCP recebem o mesmo texto. Segredos na mensagem são removidos antes, e os disjuntores de erro repetido do agente limitam quantas vezes ele tenta de novo.
+
 ## Mantenha a superfície de actions pequena {#small-surface}
 
 Toda action que o agente pode ver ocupa um slot na lista de ferramentas do modelo, e uma lista longa e sobreposta dificulta para o modelo escolher a ferramenta certa. Projete a superfície de actions como uma API que você mantém, não uma action por botão na UI:

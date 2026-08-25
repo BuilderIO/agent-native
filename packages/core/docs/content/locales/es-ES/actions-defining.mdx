@@ -269,6 +269,97 @@ POST es el valor por defecto, y `http: { method: "GET" }` la convierte en GET. L
 - **`readOnly: true`**: omite explícitamente el refresco por sondeo, incluso para acciones POST que no mutan nada. Esto no es control de acceso. No restringe quién puede llamar a la acción, y no afecta a `useActionQuery()`, `useActionMutation()` ni a ningún hook de cliente. Sus únicos efectos son suprimir el evento de refresco posterior a la llamada y excluir la acción de la auditoría de escritura. Para ocultar una acción del modelo, usa `agentTool: false`. Para controlar quién puede llamarla, usa las opciones de autenticación y acceso en [Acceso y autorización](/docs/actions-access-control).
 - **`parallelSafe: true`**: permite que una acción mutante se ejecute al mismo tiempo que otras llamadas a herramientas del mismo turno. Actívalo solo cuando la acción sea segura para ejecutarse de forma concurrente y no dependa del orden. Las acciones mutantes se serializan por defecto.
 
+## Hacer fallar una acción {#failing}
+
+Una acción señala un fallo lanzando una excepción. Devolver `{ error: "..." }` parece un éxito para todas las partes del framework, así que los cortacircuitos de reintento del agente nunca lo cuentan y la llamada se registra como un efecto secundario completado.
+
+Lo que lanzas decide cuánto del mensaje sobrevive. `fail()` lanza un `ActionContractError`, y ese tipo es la única razón por la que el texto llega a quien llama. Un simple `throw new Error("No such email")` es indistinguible de un fallo de Postgres o de un servicio externo, así que la ruta de acción lo sustituye por un 500 genérico `"Internal server error"`, guarda el mensaje real en el log del servidor y lo reporta al seguimiento de errores. Reserva el `throw` desnudo para fallos internos genuinos. Para eso está el 500.
+
+`fail()` acepta un mensaje y un objeto de opciones:
+
+- **message**: el texto que lee quien llama. Escríbelo para una persona, no para un log.
+- **options.errorCode**: un código estable y legible por máquina. Por defecto `"action_failed"`.
+- **options.statusCode**: el estado HTTP de la ruta de acción. Por defecto `400`.
+- **options.details**: contexto estructurado y seguro para quien llama. Nunca pongas aquí secretos ni salida cruda de un driver.
+
+La llamada más simple solo necesita un mensaje:
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+Nombrar la causa es lo que permite a la UI reaccionar a un fallo en lugar de solo imprimirlo. El código y el estado sobreviven ambos al transporte:
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+El navegador recibe `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` y `callAction()` lo exponen como un `Error` que lleva `status`, `errorCode`, `details` y `actionMessage`.
+
+`error.message` conserva un prefijo `Action <name> failed:`, que encaja en una consola y se lee mal en un toast. `actionErrorMessage()` devuelve solo el texto que escribió la acción, o `undefined` si nadie redactó uno:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Un corte de red, una página de error HTML de un proxy y una simple línea de estado no redactan ningún mensaje. Por eso devuelven `undefined` en lugar de una cadena que una UI mostraría por error. Combínala siempre con tus propios textos.
+
+### Qué produce cada lanzamiento {#failure-shapes}
+
+| Lanzado desde `run()`                           | Estado HTTP     | Cuerpo de la respuesta                       | Reportado al seguimiento de errores |
+| ----------------------------------------------- | --------------- | -------------------------------------------- | ----------------------------------- |
+| `fail(msg)`                                     | 400             | `{ error: msg, errorCode: "action_failed" }` | No                                  |
+| `fail(msg, { errorCode, statusCode, details })` | tu `statusCode` | `{ error, errorCode, details }`              | No                                  |
+| `new ActionContractError(msg, { errorCode })`   | 409             | `{ error, errorCode, details }`              | No                                  |
+| `new AgentActionStopError(msg)`                 | 500             | `{ error: msg }`                             | No                                  |
+| `new Error(msg)`                                | 500             | `{ error: "Internal server error" }`         | Sí                                  |
+| Entrada que falla el `schema`                   | 400             | `{ error: "Invalid action parameters..." }`  | No                                  |
+
+`AgentActionStopError` es la que hay que lanzar cuando el agente debe terminar su turno en lugar de leer el fallo e intentarlo de nuevo. `ActionContractError` es lo que `fail()` lanza por ti, así que úsala directamente solo cuando 409 sea el estado que quieres.
+
+### Elige un estado sobre el que la política de reintentos pueda actuar {#failure-status}
+
+`useActionQuery()` reintenta `429`, `502`, `503` y `504`, hasta tres veces, con esperas de 500 ms, luego 1 s y luego 2 s. Cualquier otro estado se trata como determinista y aparece en la primera respuesta. Reenviar una petición que fue rechazada por estar mal solo compra el mismo rechazo otra vez. `useActionMutation()` no reintenta en absoluto.
+
+Así que el estado no es cosmético. Un rechazo enviado como `404` cuesta una ida y vuelta. El mismo rechazo enviado como `500`, o lanzado desnudo, cuesta cuatro idas y vueltas y cuatro informes de error duplicados.
+
+Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proceso, así que recibe el mensaje directamente sea cual sea el tipo, como `Error running <action>: <message>`. Un `errorCode` distinto del valor por defecto `action_failed` se añade como `(errorCode: not_found)`, de modo que el modelo puede ramificar sin analizar la prosa. Los agentes externos por MCP reciben el mismo texto. Los secretos del mensaje se redactan antes, y los cortacircuitos de errores repetidos del agente limitan cuántas veces vuelve a intentarlo.
+
 ## Mantén pequeña la superficie de acciones {#small-surface}
 
 Cada acción que el agente puede ver ocupa una plaza en la lista de herramientas del modelo, y una lista larga y solapada le dificulta al modelo elegir la herramienta correcta. Diseña la superficie de acciones como una API que mantienes, no como una acción por cada botón de la UI:

@@ -14,6 +14,7 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
   describeToolParameterSignature,
+  isActionContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   type ActionAutomationContext,
@@ -6629,7 +6630,17 @@ export async function runAgentLoop(opts: {
             };
           } else {
             const message = sanitizeToolErrorValue(err);
-            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+            // A code the action chose is worth more to the model than the
+            // prose alone: it can branch on `not_found` without parsing a
+            // sentence. `action_failed` is what `fail()` fills in when the
+            // author picked nothing, so it says only "it failed" — which the
+            // word "Error" already said. Appending it would be noise the
+            // breaker then has to key on.
+            const errorCode =
+              isActionContractError(err) && err.errorCode !== "action_failed"
+                ? ` (errorCode: ${err.errorCode})`
+                : "";
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
           }
           isError = true;
         }
