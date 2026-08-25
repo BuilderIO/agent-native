@@ -115,26 +115,37 @@ export function TemplateShowcase() {
               borderBottom: "1px solid var(--b-border-default)",
             }}
           >
-            {TABS.map((tab) => {
+            {TABS.map((tab, index) => {
               const Icon = tab.icon;
               return (
-                <TabItem
+                <div
                   key={tab.id}
-                  active={tab.id === activeId}
-                  onClick={() => setActiveId(tab.id)}
+                  style={{
+                    display: "grid",
+                    borderTop: "1px solid var(--b-border-subtle)",
+                    borderRight:
+                      index < TABS.length - 1
+                        ? "1px solid var(--b-border-subtle)"
+                        : "none",
+                  }}
                 >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      textTransform: "uppercase",
-                    }}
+                  <TabItem
+                    active={tab.id === activeId}
+                    onClick={() => setActiveId(tab.id)}
                   >
-                    <Icon size={16} stroke={1.75} />
-                    {tab.label}
-                  </span>
-                </TabItem>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      <Icon size={16} stroke={1.75} />
+                      {tab.label}
+                    </span>
+                  </TabItem>
+                </div>
               );
             })}
           </div>
