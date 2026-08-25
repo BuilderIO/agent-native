@@ -59,7 +59,10 @@ describe("npm package release workflow", () => {
     );
     assert.doesNotMatch(condition, /\$\{\{ !inputs\.redispatchDownstream \}\}/);
     assert.deepEqual(notify.needs, ["release"]);
-    assert.match(String(notify.if), /github\.event_name == 'workflow_dispatch'/);
+    assert.match(
+      String(notify.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
   });
 
   it("uses calculated semver bases for nightly snapshots", () => {
