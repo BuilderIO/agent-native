@@ -139,12 +139,19 @@ export function boundAiContent(value: unknown): {
     // What was ASKED is the one thing worth rescuing from an oversized
     // transcript: the rest is context the thread itself still holds, and
     // keeping as much of it as fits just ships the ceiling on every event.
-    const lastUser = value.findLast(
-      (entry) =>
+    // `findLast` is ES2023; this package compiles with lib ES2022.
+    let lastUser: unknown;
+    for (let i = value.length - 1; i >= 0; i -= 1) {
+      const entry = value[i];
+      if (
         !!entry &&
         typeof entry === "object" &&
-        (entry as { role?: unknown }).role === "user",
-    );
+        (entry as { role?: unknown }).role === "user"
+      ) {
+        lastUser = entry;
+        break;
+      }
+    }
     const kept =
       lastUser !== undefined &&
       utf8Bytes(JSON.stringify(lastUser) ?? "null") <=
