@@ -364,3 +364,22 @@ describe("CanvasContextMenu instance cluster (Go to main / Swap / Detach)", () =
     await view.cleanup();
   });
 });
+
+describe("CanvasContextMenu shortcut hints", () => {
+  it("spells shortcut hints in the viewer's own modifier words", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      onBringToFront: vi.fn(),
+      onSendToBack: vi.fn(),
+      onGroup: vi.fn(),
+    });
+
+    // happy-dom reports a non-Apple platform, which is exactly the case the
+    // hardcoded ⌘/⇧ glyphs used to get wrong.
+    expect(view.findButton("Group selection")?.textContent).toContain("Ctrl+G");
+    expect(view.container.textContent).not.toContain("⌘");
+    expect(view.container.textContent).not.toContain("⇧");
+
+    await view.cleanup();
+  });
+});

@@ -5847,6 +5847,64 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  // Option composes a different character on macOS (Option+A -> "å"), so an
+  // alt-held chord matched on e.key forwards on Windows and vanishes on a Mac.
+  // Mirrors ALT_CODE_KEYS / normalizedKey in useDesignHotkeys.ts.
+  var ALT_CODE_KEYS = {
+    KeyA: "a",
+    KeyB: "b",
+    KeyC: "c",
+    KeyD: "d",
+    KeyE: "e",
+    KeyF: "f",
+    KeyG: "g",
+    KeyH: "h",
+    KeyI: "i",
+    KeyJ: "j",
+    KeyK: "k",
+    KeyL: "l",
+    KeyM: "m",
+    KeyN: "n",
+    KeyO: "o",
+    KeyP: "p",
+    KeyQ: "q",
+    KeyR: "r",
+    KeyS: "s",
+    KeyT: "t",
+    KeyU: "u",
+    KeyV: "v",
+    KeyW: "w",
+    KeyX: "x",
+    KeyY: "y",
+    KeyZ: "z",
+    BracketRight: "]",
+    BracketLeft: "[",
+  };
+
+  function normalizedHotkeyChar(e) {
+    if (e.altKey) {
+      var fromCode = ALT_CODE_KEYS[e.code];
+      if (fromCode) return fromCode;
+    }
+    var key = e.key;
+    return key && key.length === 1 ? key.toLowerCase() : key;
+  }
+
+  function isApplePlatformBridge(): boolean {
+    var nav = navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    };
+    var platform =
+      (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+    return /Mac|iPhone|iPad|iPod/i.test(platform);
+  }
+
+  function isPlatformPrimaryChord(e): boolean {
+    return isApplePlatformBridge()
+      ? e.metaKey && !e.ctrlKey
+      : e.ctrlKey && !e.metaKey;
+  }
+
   function isShowShortcutsChord(e) {
     if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
     // macOS delivers Control+Shift+/ as "/" — Control suppresses the shifted
@@ -5872,7 +5930,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (activeTextEditEl || isEditorTypingTarget(e.target) || e.isComposing)
       return false;
     var key = e.key;
-    var normalized = key && key.length === 1 ? key.toLowerCase() : key;
+    var normalized = normalizedHotkeyChar(e);
     var primary = e.metaKey || e.ctrlKey;
     if (key === "Escape" || key === "Enter") return true;
     // Space arms Figma-style temporary hand-tool panning while the cursor is
@@ -5920,10 +5978,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "[",
           // Cmd/Ctrl+U — toggle underline (useDesignHotkeys.ts onToggleUnderline).
           "u",
-          // Cmd/Ctrl+F — find (onFind). Bridge's "primary" doesn't distinguish
-          // Cmd from Ctrl the way isPlatformPrimaryModifier does host-side, but
-          // forwarding is harmless when the host has no match for the combo.
-          "f",
           // Cmd/Ctrl+Shift+R paste-to-replace. Bare primary+r stays native
           // so browser refresh keeps its expected meaning.
           // Cmd/Ctrl+K — open the host command menu even while the iframe has
@@ -5939,34 +5993,82 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
+        // Cmd/Ctrl+F — find (onFind). Gated on the platform's own primary
+        // modifier, matching isPlatformPrimaryModifier host-side: forwarding
+        // is NOT harmless, because the shield preventDefaults before posting,
+        // so a forwarded-then-ignored macOS Ctrl+F loses browser Find.
+        (isPlatformPrimaryChord(e) &&
+          !e.altKey &&
+          !e.shiftKey &&
+          normalized === "f") ||
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
         (e.shiftKey && normalized === "r") ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.
         (e.altKey && (normalized === "b" || normalized === "k")) ||
-        // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
-        // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
-        // on LITERAL Control on every platform (never remapped to Cmd), so
-        // this mirrors that exact gate instead of the generic "primary" flag
-        // — a blanket "t" entry above would otherwise swallow the common
-        // Cmd+T "new tab" browser shortcut for a combo the host never binds.
+        // Ctrl+Alt+H/V/T distribute + tidy up: LITERAL Control on every
+        // platform, so gate on ctrlKey rather than `primary` — a blanket "t"
+        // above would swallow Cmd+T, a combo the host never binds.
         (e.ctrlKey &&
           e.altKey &&
           !e.metaKey &&
           !e.shiftKey &&
-          (normalized === "h" || normalized === "t"))
+          ["h", "v", "t"].indexOf(normalized) !== -1)
       );
     }
-    if (
-      e.shiftKey &&
-      (e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2")
-    )
-      return true;
+
+    // Non-primary families, mirroring handleDesignHotkey in
+    // useDesignHotkeys.ts. A chord absent here is dead for anyone whose focus
+    // is in the canvas iframe — where it lands the moment you click a layer.
+    if (e.altKey) {
+      if (e.shiftKey) return false;
+      // Alt+A/D/W/S/H/V align selection; Alt+1/Alt+2 navigation panels.
+      return (
+        ["a", "d", "w", "s", "h", "v"].indexOf(normalized) !== -1 ||
+        e.code === "Digit1" ||
+        e.code === "Digit2"
+      );
+    }
+    if (e.shiftKey) {
+      // Shift+A auto layout, Shift+H/V flip, Shift+X swap fill/stroke,
+      // Shift+C comments, Shift+L arrow tool, Shift+Y draw tool,
+      // Shift+N previous frame, Shift+1/2 zoom, Shift+= zoom in.
+      return (
+        ["a", "h", "v", "x", "c", "l", "y", "n", "=", "+"].indexOf(
+          normalized,
+        ) !== -1 ||
+        e.code === "Digit1" ||
+        e.code === "Digit2" ||
+        key === "1" ||
+        key === "2"
+      );
+    }
+    // Unmodified: tool shortcuts, next frame, select parent, z-order, zoom,
+    // and digit opacity.
     return (
-      !e.altKey &&
-      !e.shiftKey &&
-      ["v", "f", "r", "t", "p", "h", "c", "k"].indexOf(normalized) !== -1
+      [
+        "v",
+        "f",
+        "r",
+        "o",
+        "l",
+        "t",
+        "p",
+        "h",
+        "k",
+        "c",
+        "i",
+        "n",
+        "\\",
+        "]",
+        "[",
+        "=",
+        "+",
+        "-",
+      ].indexOf(normalized) !== -1 ||
+      /^Digit[0-9]$/.test(e.code || "") ||
+      /^[0-9]$/.test(key || "")
     );
   }
 
@@ -7804,6 +7906,89 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     nextRange.selectNodeContents(span);
     selection.addRange(nextRange);
     return true;
+  }
+
+  // Chromium's execCommand emits legacy <b>/<i>/<u> tags, which persist into
+  // the design source as child layers the text pipeline never models — T12's
+  // span normalizer above only ever sees spans. Keep these chords on the same
+  // span-based helper the inspector styling path uses.
+  var TEXT_EDIT_FORMATS: Record<
+    string,
+    {
+      property: string;
+      on: string;
+      off: string;
+      isOn: (styles: CSSStyleDeclaration) => boolean;
+    }
+  > = {
+    b: {
+      property: "font-weight",
+      on: "700",
+      off: "400",
+      isOn: function (styles) {
+        var weight = styles.fontWeight;
+        return weight === "bold" || Number(weight) >= 600;
+      },
+    },
+    i: {
+      property: "font-style",
+      on: "italic",
+      off: "normal",
+      isOn: function (styles) {
+        return styles.fontStyle === "italic";
+      },
+    },
+    u: {
+      property: "text-decoration",
+      on: "underline",
+      off: "none",
+      isOn: function (styles) {
+        return (styles.textDecorationLine || "").indexOf("underline") !== -1;
+      },
+    },
+  };
+
+  // Select-all puts the common ancestor on the editable, not on the inline
+  // span carrying the format, so the toggle has to read every text run the
+  // range actually covers or Cmd+U stops being able to turn underline off.
+  function rangeFormatIsOn(
+    range: Range,
+    spec: { isOn: (styles: CSSStyleDeclaration) => boolean },
+  ): boolean {
+    var root = range.commonAncestorContainer;
+    var rootEl = root.nodeType === 1 ? (root as Element) : root.parentElement;
+    if (!rootEl) return false;
+    var walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+    var sawText = false;
+    var current = walker.nextNode();
+    while (current) {
+      if (
+        current.nodeValue &&
+        current.nodeValue.trim() &&
+        range.intersectsNode(current)
+      ) {
+        sawText = true;
+        var parent = current.parentElement;
+        if (!parent || !spec.isOn(window.getComputedStyle(parent))) {
+          return false;
+        }
+      }
+      current = walker.nextNode();
+    }
+    return sawText ? true : spec.isOn(window.getComputedStyle(rootEl));
+  }
+
+  function applyTextEditFormat(key: string): boolean {
+    var spec = TEXT_EDIT_FORMATS[key];
+    if (!spec) return false;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || selection.rangeCount === 0) return false;
+    var range = selection.getRangeAt(0);
+    // Known gap: applyTextRangeStyle can only SET a property, so an "off"
+    // value cannot beat an inner run that sets the format itself. Toggling off
+    // works for a single covering run, not for a format split across several.
+    var next = rangeFormatIsOn(range, spec) ? spec.off : spec.on;
+    return applyTextRangeStyle(spec.property, next);
   }
 
   function showTransformBadge(
@@ -13661,21 +13846,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postDesignHotkey(ev);
         return;
       }
-      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "b") {
+      var formatKey = metaOrCtrl && !ev.altKey ? ev.key.toLowerCase() : "";
+      if (TEXT_EDIT_FORMATS[formatKey]) {
         ev.preventDefault();
-        document.execCommand("bold");
-        scheduleTextEditingChromeUpdate();
-        return;
-      }
-      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "i") {
-        ev.preventDefault();
-        document.execCommand("italic");
-        scheduleTextEditingChromeUpdate();
-        return;
-      }
-      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "u") {
-        ev.preventDefault();
-        document.execCommand("underline");
+        applyTextEditFormat(formatKey);
         scheduleTextEditingChromeUpdate();
         return;
       }

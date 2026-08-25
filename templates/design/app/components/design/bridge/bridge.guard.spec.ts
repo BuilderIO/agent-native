@@ -9836,11 +9836,14 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   shift?: boolean;
   alt?: boolean;
   ctrlOnly?: boolean;
+  /** Chord the bridge gates on the platform's own primary modifier, so the
+   *  test has to press Cmd on darwin and Ctrl everywhere else. */
+  platformPrimary?: boolean;
 }> = [
   { name: "Cmd/Ctrl+Z undo", key: "z" },
   { name: "Cmd/Ctrl+Shift+Z redo", key: "z", shift: true },
   { name: "Cmd/Ctrl+Y redo", key: "y" },
-  { name: "Cmd/Ctrl+F find", key: "f" },
+  { name: "Cmd/Ctrl+F find", key: "f", platformPrimary: true },
   { name: "Cmd/Ctrl+A select all", key: "a" },
   { name: "Cmd/Ctrl+X cut", key: "x" },
   { name: "Cmd/Ctrl+Shift+X strikethrough", key: "x", shift: true },
@@ -9927,7 +9930,11 @@ it(
         await page.evaluate(() => {
           (window as any).__bridgeMessages = [];
         });
-        const modifier = testCase.ctrlOnly ? "Control" : "Meta";
+        const modifier =
+          testCase.ctrlOnly ||
+          (testCase.platformPrimary && process.platform !== "darwin")
+            ? "Control"
+            : "Meta";
         await page.keyboard.down(modifier);
         if (testCase.alt) await page.keyboard.down("Alt");
         if (testCase.shift) await page.keyboard.down("Shift");
@@ -9941,6 +9948,125 @@ it(
         // editor-chrome.bridge.ts) — 60ms matches this file's other
         // message-polling waits (see the runtime-layer-snapshot test above).
         await page.waitForTimeout(60);
+        const messages = await readBridgeMessages(page);
+        const forwarded = messages.some(
+          (message) => message.type === "design-hotkey",
+        );
+        if (!forwarded) failures.push(testCase.name);
+      }
+
+      expect(failures).toEqual([]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+// ── shouldForwardDesignHotkey non-primary audit ─────────────────────────────
+//
+// The mirror of the primary-modifier audit above, for the families that have
+// no Cmd/Ctrl: Alt-only alignment, Shift-only transforms, and the unmodified
+// tool/arrange/zoom/opacity keys. Every row has a real handler in
+// useDesignHotkeys.ts. Alt rows carry an explicit `code` because macOS
+// composes Option+letter into a different character — matching on `key` alone
+// is what made the whole Alt family dead inside the canvas iframe.
+const NON_PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
+  name: string;
+  key: string;
+  code: string;
+  shift?: boolean;
+  alt?: boolean;
+}> = [
+  { name: "Alt+A align left", key: "a", code: "KeyA", alt: true },
+  { name: "Alt+D align right", key: "d", code: "KeyD", alt: true },
+  { name: "Alt+W align top", key: "w", code: "KeyW", alt: true },
+  { name: "Alt+S align bottom", key: "s", code: "KeyS", alt: true },
+  { name: "Alt+H align center-h", key: "h", code: "KeyH", alt: true },
+  { name: "Alt+V align center-v", key: "v", code: "KeyV", alt: true },
+  { name: "Alt+1 layers panel", key: "1", code: "Digit1", alt: true },
+  { name: "Alt+2 assets panel", key: "2", code: "Digit2", alt: true },
+  // macOS composes Option+letter (Option+A -> "å"); the bridge must still
+  // recognise these from event.code the way useDesignHotkeys.ts does.
+  {
+    name: "Option+A align left (composed key)",
+    key: "å",
+    code: "KeyA",
+    alt: true,
+  },
+  {
+    name: "Option+H align center-h (composed key)",
+    key: "˙",
+    code: "KeyH",
+    alt: true,
+  },
+  { name: "Shift+A add auto layout", key: "A", code: "KeyA", shift: true },
+  { name: "Shift+H flip horizontal", key: "H", code: "KeyH", shift: true },
+  { name: "Shift+V flip vertical", key: "V", code: "KeyV", shift: true },
+  { name: "Shift+X swap fill/stroke", key: "X", code: "KeyX", shift: true },
+  { name: "Shift+C toggle comments", key: "C", code: "KeyC", shift: true },
+  { name: "Shift+L arrow tool", key: "L", code: "KeyL", shift: true },
+  { name: "Shift+N previous frame", key: "N", code: "KeyN", shift: true },
+  { name: "Shift+Y draw tool", key: "Y", code: "KeyY", shift: true },
+  { name: "O ellipse tool", key: "o", code: "KeyO" },
+  { name: "L line tool", key: "l", code: "KeyL" },
+  { name: "I eyedropper", key: "i", code: "KeyI" },
+  { name: "N next frame", key: "n", code: "KeyN" },
+  { name: "\\ select parent", key: "\\", code: "Backslash" },
+  { name: "] bring to front", key: "]", code: "BracketRight" },
+  { name: "[ send to back", key: "[", code: "BracketLeft" },
+  { name: "= zoom in", key: "=", code: "Equal" },
+  { name: "- zoom out", key: "-", code: "Minus" },
+  { name: "5 opacity 50%", key: "5", code: "Digit5" },
+  { name: "0 opacity 100%", key: "0", code: "Digit0" },
+];
+
+it(
+  "editor chrome bridge forwards every host-handled non-primary hotkey (Alt-only, Shift-only, and unmodified families)",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><body>
+        <div id="el" data-agent-native-node-id="el" style="position:absolute;left:40px;top:40px;width:80px;height:60px;background:#6366f1">El</div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.mouse.click(80, 70);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+      await collectBridgeMessages(page);
+
+      const failures: string[] = [];
+      for (const testCase of NON_PRIMARY_HOTKEY_FORWARDING_CASES) {
+        await page.evaluate(() => {
+          (window as any).__bridgeMessages = [];
+        });
+        // Dispatched rather than typed: Playwright cannot produce a macOS
+        // Option-composed `key` (å) alongside its QWERTY `code`, which is the
+        // exact pairing these rows exist to pin.
+        await page.evaluate((chord) => {
+          document.body.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: chord.key,
+              code: chord.code,
+              altKey: Boolean(chord.alt),
+              shiftKey: Boolean(chord.shift),
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        }, testCase);
+        await page.waitForTimeout(20);
         const messages = await readBridgeMessages(page);
         const forwarded = messages.some(
           (message) => message.type === "design-hotkey",
