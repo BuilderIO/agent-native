@@ -73,6 +73,10 @@ const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
     ],
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
   },
+  {
+    serverOrigins: ["https://workspacemcp.googleapis.com"],
+    credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
 ];
 
 export interface McpOAuthFlow {
