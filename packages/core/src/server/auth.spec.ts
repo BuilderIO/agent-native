@@ -5833,8 +5833,10 @@ describe("server/auth", () => {
         'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
       );
       expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
-      expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
-      expect(html).toContain("__anStartNativeDesktopOAuth(ret, btn, err)");
+      expect(html).toContain("__anStartPopupOAuth(ret, btn, err, flowId)");
+      expect(html).toContain(
+        "__anStartNativeDesktopOAuth(ret, btn, err, flowId)",
+      );
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
@@ -5909,12 +5911,19 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
       );
-      expect(html).toContain("function __anWatchOAuthPopupClose(popup)");
+      expect(html).toContain(
+        "function __anWatchOAuthPopupClose(popup, flowId)",
+      );
       expect(html).toContain("closed = popup.closed === true");
-      expect(html).toContain("__anWatchOAuthPopupClose(popup);");
+      expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
+      expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");
+      expect(html).toContain("__anStopOAuthExchangePolling();");
+      expect(html).toContain(
+        "if (!__anIsCurrentGoogleSignInFlow(flowId)) return;",
+      );
       expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
       const recoverStart = html.indexOf(
-        "function __anRecoverGoogleSignInAfterReturn()",
+        "function __anRecoverGoogleSignInAfterReturn(flowId)",
       );
       const recoverEnd = html.indexOf(
         "function __anBindGoogleRecover()",

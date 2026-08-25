@@ -155,10 +155,9 @@ requestedApps.forEach((appName, i) => {
   // both the frontend and all /api/* routes on the one port.
   // PORT pins the dev server port (Nitro's vite plugin reads process.env.PORT
   // first when resolving the dev server port).
-  const delay = i * STAGGER_DELAY_S;
-  const prefix = delay > 0 ? `sleep ${delay} && ` : "";
+  const delayMs = Math.round(i * STAGGER_DELAY_S * 1000);
   commands.push(
-    `${prefix}APP_NAME=${appName} PORT=${port} pnpm --dir templates/${appName} exec vite`,
+    `node scripts/dev-electron-template.ts ${JSON.stringify(appName)} ${port} ${delayMs}`,
   );
   colors.push(appColors[i % appColors.length]);
 });
