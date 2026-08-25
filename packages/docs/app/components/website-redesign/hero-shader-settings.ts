@@ -90,8 +90,7 @@ function writeStoredHeroShaderSettings(settings: HeroShaderSettings) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch {
-    // Private-mode/quota storage failures just mean tweaks don't persist
-    // across reloads — the shader keeps rendering with the in-memory values.
+    // coercion-ok: Private-mode/quota storage failures just mean tweaks don't persist across reloads
   }
 }
 

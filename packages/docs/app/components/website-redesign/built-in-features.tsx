@@ -3,7 +3,7 @@ import { GridInner, PageSection } from "./page-grid";
 
 interface Pillar {
   title: string;
-  description: string;
+  description?: string;
   image?: string;
 }
 
@@ -166,17 +166,19 @@ export function BuiltInFeatures() {
                       >
                         {pillar.title}
                       </h3>
-                      <p
-                        style={{
-                          margin: 0,
-                          fontFamily: "var(--b-font-sans)",
-                          fontSize: "var(--b-t-paragraph-2)",
-                          lineHeight: 1.4,
-                          color: "var(--b-text-secondary)",
-                        }}
-                      >
-                        {pillar.description}
-                      </p>
+                      {pillar.description && (
+                        <p
+                          style={{
+                            margin: 0,
+                            fontFamily: "var(--b-font-sans)",
+                            fontSize: "var(--b-t-paragraph-2)",
+                            lineHeight: 1.4,
+                            color: "var(--b-text-secondary)",
+                          }}
+                        >
+                          {pillar.description}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}

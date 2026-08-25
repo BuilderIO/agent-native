@@ -34,8 +34,7 @@ export async function loader() {
       }
     }
   } catch {
-    // Network/API failures surface as an explicit "unavailable" (null), not a
-    // fake 0 or hardcoded fallback — the header omits the number in this case.
+    // coercion-ok: Network/API failures surface as an explicit null, not a fake value
   }
   return { starCount };
 }

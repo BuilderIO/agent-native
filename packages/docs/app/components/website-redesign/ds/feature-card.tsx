@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 interface FeatureCardProps {
   icon?: ReactNode;
   title: string;
-  description: string;
+  description?: string;
 }
 
 export function FeatureCard({ icon, title, description }: FeatureCardProps) {
@@ -31,17 +31,19 @@ export function FeatureCard({ icon, title, description }: FeatureCardProps) {
       >
         {title}
       </h3>
-      <p
-        style={{
-          margin: 0,
-          fontSize: "var(--b-t-paragraph-2)",
-          color: "var(--b-text-secondary)",
-          lineHeight: 1.4,
-          fontFamily: "var(--b-font-sans)",
-        }}
-      >
-        {description}
-      </p>
+      {description && (
+        <p
+          style={{
+            margin: 0,
+            fontSize: "var(--b-t-paragraph-2)",
+            color: "var(--b-text-secondary)",
+            lineHeight: 1.4,
+            fontFamily: "var(--b-font-sans)",
+          }}
+        >
+          {description}
+        </p>
+      )}
     </div>
   );
 }

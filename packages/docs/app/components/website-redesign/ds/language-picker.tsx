@@ -88,7 +88,7 @@ export function LanguagePicker() {
     try {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, nextPreference);
     } catch {
-      // Locale selection still works through the URL when storage is blocked.
+      // coercion-ok: Locale selection still works through the URL when storage is blocked
     }
     setOpen(false);
   }
