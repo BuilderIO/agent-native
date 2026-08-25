@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "회의 · Clips",
   },
   recordingPage: {
+    back: "뒤쪽에",
+    done: "완료",
     untitledClip: "제목 없는 클립",
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
@@ -204,8 +206,6 @@ const messages = {
     retryImport: "가져오기 재시도",
     retryUpload: "업로드 재시도",
     checkAgain: "다시 확인",
-    back: "뒤쪽에",
-    done: "완료",
     edit: "편집",
     aiTools: "AI 도구",
     enhanceRecording: "이 녹음 품질을 향상하세요",
@@ -544,7 +544,6 @@ const messages = {
     onlyYou: "나만",
     othersCount_one: "{{email}} 외 {{count}}명",
     othersCount_other: "{{email}} 외 {{count}}명",
-    shareSettings: "공유 설정",
     selectAccess: "액세스 선택",
     accessOptions: {
       public: "링크가 있는 모든 사용자가 볼 수 있음",
@@ -552,8 +551,6 @@ const messages = {
       orgFallback: "조직의 모든 사용자가 볼 수 있음",
       private: "초대된 사용자만 볼 수 있음",
     },
-    done: "완료",
-    back: "뒤로",
     visibility: {
       private: {
         label: "비공개",

@@ -18,14 +18,11 @@ import {
   CopyButton,
   GeneralAccessSelect,
   MakePublicCard,
-  PeopleAccessRow,
-  PeopleAccessSettingsBody,
+  PeopleAccessSection,
   ShareSectionLabel,
-  ShareSettingsPanel,
   copyToClipboard,
   nestedLayerDismissGuards,
   useResourceVisibilityMutation,
-  type ShareSettingsView,
   type SharesQuery,
   type SharesResponse,
   type Visibility,
@@ -100,50 +97,20 @@ function ShareMeetingContent({
     sharesQuery,
   );
   const visibilityPending = isPending || sharesQuery.isLoading;
-  const [settingsView, setSettingsView] = useState<ShareSettingsView>(null);
-  const closeSettings = () => setSettingsView(null);
 
   return (
     <div className="min-w-0 px-4 py-3">
-      {settingsView ? (
-        <ShareSettingsPanel
-          onBack={closeSettings}
-          footer={
-            <Button type="button" size="sm" onClick={closeSettings}>
-              {t("shareUi.done")}
-            </Button>
-          }
-        >
-          <PeopleAccessSettingsBody
-            resourceType="meeting"
-            resourceId={meetingId}
-            sharesQuery={sharesQuery}
-            canManage={canManage}
-            onError={(err, action) =>
-              toast.error(
-                err instanceof Error
-                  ? err.message
-                  : action === "remove"
-                    ? t("clipsFinalRaw.removePersonFailed")
-                    : t("shareMeeting.updateTranscriptSharingFailed"),
-              )
-            }
-          />
-        </ShareSettingsPanel>
-      ) : (
-        <LinkTab
-          meetingId={meetingId}
-          shareUrl={shareUrl}
-          sharesQuery={sharesQuery}
-          canManage={canManage}
-          visibility={visibility}
-          visibilityPending={visibilityPending}
-          onVisibilityChange={setResourceVisibility}
-          shareTranscript={shareTranscript}
-          transcriptReady={transcriptReady}
-          onOpenPeopleSettings={() => setSettingsView("people")}
-        />
-      )}
+      <LinkTab
+        meetingId={meetingId}
+        shareUrl={shareUrl}
+        sharesQuery={sharesQuery}
+        canManage={canManage}
+        visibility={visibility}
+        visibilityPending={visibilityPending}
+        onVisibilityChange={setResourceVisibility}
+        shareTranscript={shareTranscript}
+        transcriptReady={transcriptReady}
+      />
     </div>
   );
 }
@@ -158,7 +125,6 @@ function LinkTab({
   onVisibilityChange,
   shareTranscript,
   transcriptReady,
-  onOpenPeopleSettings,
 }: {
   meetingId: string;
   shareUrl: string;
@@ -172,7 +138,6 @@ function LinkTab({
   ) => void;
   shareTranscript: boolean;
   transcriptReady: boolean;
-  onOpenPeopleSettings: () => void;
 }) {
   const t = useT();
   const updateMeeting = useActionMutation<
@@ -256,9 +221,20 @@ function LinkTab({
       <div className="space-y-2">
         <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
         <div className="flex flex-col gap-1">
-          <PeopleAccessRow
+          <PeopleAccessSection
+            resourceType="meeting"
+            resourceId={meetingId}
             sharesQuery={sharesQuery}
-            onOpenSettings={onOpenPeopleSettings}
+            canManage={canManage}
+            onError={(err, action) =>
+              toast.error(
+                err instanceof Error
+                  ? err.message
+                  : action === "remove"
+                    ? t("clipsFinalRaw.removePersonFailed")
+                    : t("shareMeeting.updateTranscriptSharingFailed"),
+              )
+            }
           />
           <GeneralAccessSelect
             visibility={visibility}

@@ -139,6 +139,8 @@ const messages = {
     pageTitle: "اجتماع · Clips",
   },
   recordingPage: {
+    back: "خلف",
+    done: "تم",
     untitledClip: "مقطع بدون عنوان",
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
@@ -200,8 +202,6 @@ const messages = {
     retryImport: "أعد محاولة الاستيراد",
     retryUpload: "أعد محاولة التحميل",
     checkAgain: "تحقق مجددًا",
-    back: "خلف",
-    done: "تم",
     edit: "تحرير",
     aiTools: "أدوات الذكاء الاصطناعي",
     enhanceRecording: "تعزيز هذا التسجيل",
@@ -548,7 +548,6 @@ const messages = {
     othersCount_few: "{{email}} + {{count}} آخرين",
     othersCount_many: "{{email}} + {{count}} آخرًا",
     othersCount_other: "{{email}} + {{count}} آخرين",
-    shareSettings: "إعدادات المشاركة",
     selectAccess: "اختر الوصول",
     accessOptions: {
       public: "يمكن لأي شخص لديه الرابط العرض",
@@ -556,8 +555,6 @@ const messages = {
       orgFallback: "يمكن لأي شخص في مؤسستك العرض",
       private: "يمكن للأشخاص المدعوين فقط العرض",
     },
-    done: "تم",
-    back: "رجوع",
     visibility: {
       private: {
         label: "خاص",

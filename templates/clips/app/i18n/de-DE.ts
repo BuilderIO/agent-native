@@ -142,6 +142,8 @@ const messages = {
     pageTitle: "Treffen · Clips",
   },
   recordingPage: {
+    back: "Zurück",
+    done: "Fertig",
     untitledClip: "Unbenannter Clip",
     recordingNotFound: "Aufnahme nicht gefunden",
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
@@ -211,8 +213,6 @@ const messages = {
     retryImport: "Wiederholen Sie den Import",
     retryUpload: "Versuchen Sie den Upload erneut",
     checkAgain: "Erneut prüfen",
-    back: "Zurück",
-    done: "Fertig",
     edit: "Bearbeiten",
     aiTools: "KI-Tools",
     enhanceRecording: "Verbessern Sie diese Aufnahme",
@@ -561,7 +561,6 @@ const messages = {
     onlyYou: "Nur du",
     othersCount_one: "{{email}} + {{count}} weitere Person",
     othersCount_other: "{{email}} + {{count}} weitere Personen",
-    shareSettings: "Freigabeeinstellungen",
     selectAccess: "Zugriff auswählen",
     accessOptions: {
       public: "Jeder mit dem Link kann ansehen",
@@ -569,8 +568,6 @@ const messages = {
       orgFallback: "Jeder in deiner Organisation kann ansehen",
       private: "Nur eingeladene Personen können ansehen",
     },
-    done: "Fertig",
-    back: "Zurück",
     visibility: {
       private: {
         label: "Privat",

@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "Meeting · Clips",
   },
   recordingPage: {
+    back: "Back",
+    done: "Done",
     untitledClip: "Untitled Clip",
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
@@ -205,8 +207,6 @@ const messages = {
     retryImport: "Retry import",
     retryUpload: "Retry upload",
     checkAgain: "Check again",
-    back: "Back",
-    done: "Done",
     edit: "Edit",
     aiTools: "AI tools",
     enhanceRecording: "Enhance this recording",
@@ -540,7 +540,6 @@ const messages = {
     ownerRole: "Owner",
     remove: "Remove",
     noAccessYet: "No one has access yet.",
-    shareSettings: "Share Settings",
     selectAccess: "Select access",
     accessOptions: {
       public: "Anyone with the link can view",
@@ -548,8 +547,6 @@ const messages = {
       orgFallback: "Anyone in your organization can view",
       private: "Only people invited can view",
     },
-    done: "Done",
-    back: "Back",
     visibility: {
       private: {
         label: "Private",

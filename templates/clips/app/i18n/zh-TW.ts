@@ -136,6 +136,8 @@ const messages = {
     pageTitle: "會議 · Clips",
   },
   recordingPage: {
+    back: "返回",
+    done: "完成",
     untitledClip: "無標題剪輯",
     recordingNotFound: "找不到錄製",
     noAccess: "您可能無權存取此剪輯。",
@@ -194,8 +196,6 @@ const messages = {
     retryImport: "重試匯入",
     retryUpload: "重試上傳",
     checkAgain: "再次檢查",
-    back: "返回",
-    done: "完成",
     edit: "編輯",
     aiTools: "AI 工具",
     enhanceRecording: "強化此錄製",
@@ -519,7 +519,6 @@ const messages = {
     onlyYou: "僅限您",
     othersCount_one: "{{email}} 及其他 {{count}} 人",
     othersCount_other: "{{email}} 及其他 {{count}} 人",
-    shareSettings: "共用設定",
     selectAccess: "選擇存取權",
     accessOptions: {
       public: "知道連結的任何人都可檢視",
@@ -527,8 +526,6 @@ const messages = {
       orgFallback: "您所在組織中的任何人都可檢視",
       private: "僅受邀人員可檢視",
     },
-    done: "完成",
-    back: "返回",
     visibility: {
       private: {
         label: "私人",

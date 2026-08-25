@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "मीटिंग · Clips",
   },
   recordingPage: {
+    back: "पीछे",
+    done: "हो गया",
     untitledClip: "शीर्षक रहित क्लिप",
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
@@ -200,8 +202,6 @@ const messages = {
     retryImport: "आयात का पुनः प्रयास करें",
     retryUpload: "पुनः अपलोड करने का प्रयास करें",
     checkAgain: "फिर जाँचें",
-    back: "पीछे",
-    done: "हो गया",
     edit: "संपादित करें",
     aiTools: "एआई उपकरण",
     enhanceRecording: "इस रिकॉर्डिंग को बेहतर बनाएं",
@@ -538,7 +538,6 @@ const messages = {
     onlyYou: "केवल आप",
     othersCount_one: "{{email}} + {{count}} अन्य",
     othersCount_other: "{{email}} + {{count}} अन्य",
-    shareSettings: "शेयर सेटिंग्स",
     selectAccess: "पहुंच चुनें",
     accessOptions: {
       public: "लिंक वाला कोई भी व्यक्ति देख सकता है",
@@ -546,8 +545,6 @@ const messages = {
       orgFallback: "आपके संगठन में कोई भी देख सकता है",
       private: "केवल आमंत्रित लोग देख सकते हैं",
     },
-    done: "पूर्ण",
-    back: "वापस",
     visibility: {
       private: {
         label: "निजी",

@@ -6,8 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
-  IconArrowLeft,
-  IconChevronRight,
+  IconChevronDown,
   IconLink,
   IconLock,
   IconSend2,
@@ -25,6 +24,11 @@ import {
 } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -324,79 +328,51 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
-// Drill-down chrome: a clickable summary row that opens a "Share Settings"
-// sub-screen (back arrow + title + content + Done), replacing the popover's
-// main view rather than expanding inline.
+// Accordion row: a summary that expands its detail in place, so managing
+// access never takes the user out of the share popover.
 // ---------------------------------------------------------------------------
 
-export function AccessSummaryRow({
+export function AccessAccordionRow({
   icon,
   label,
   meta,
-  onClick,
   disabled,
+  children,
 }: {
   icon: ReactNode;
   label: ReactNode;
   meta?: ReactNode;
-  onClick: () => void;
   disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex w-full items-center gap-3 rounded-md px-1 py-1.5 text-start transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
-    >
-      {icon}
-      <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
-      {meta ? (
-        <span className="shrink-0 truncate text-xs text-muted-foreground">
-          {meta}
-        </span>
-      ) : null}
-      <IconChevronRight
-        aria-hidden
-        size={16}
-        className="shrink-0 text-muted-foreground/70"
-      />
-    </button>
-  );
-}
-
-export function ShareSettingsPanel({
-  title,
-  onBack,
-  children,
-  footer,
-}: {
-  title?: ReactNode;
-  onBack: () => void;
   children: ReactNode;
-  footer: ReactNode;
 }) {
-  const t = useT();
+  const [open, setOpen] = useState(false);
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="-ms-1.5 h-7 w-7 shrink-0"
-          onClick={onBack}
-          aria-label={t("shareUi.back")}
-        >
-          <IconArrowLeft size={16} />
-        </Button>
-        <div className="text-sm font-medium">
-          {title ?? t("shareUi.shareSettings")}
-        </div>
-      </div>
-      {children}
-      <div className="flex justify-end">{footer}</div>
-    </div>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger
+        disabled={disabled}
+        className="flex w-full items-center gap-3 rounded-md px-1 py-1.5 text-start transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+      >
+        {icon}
+        <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+        {meta ? (
+          <span className="shrink-0 truncate text-xs text-muted-foreground">
+            {meta}
+          </span>
+        ) : null}
+        <IconChevronDown
+          aria-hidden
+          size={16}
+          className={cn(
+            "shrink-0 text-muted-foreground/70 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="clips-collapsible-content">
+        <div className="ps-10 pt-1">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -450,11 +426,28 @@ export function GeneralAccessSelect({
           <SelectValue>{optionLabel(visibility)}</SelectValue>
         </SelectTrigger>
         <SelectContent align="start">
-          {ACCESS_ORDER.map((value) => (
-            <SelectItem key={value} value={value}>
-              {optionLabel(value)}
-            </SelectItem>
-          ))}
+          {ACCESS_ORDER.map((value) => {
+            const OptionIcon = VIS_META[value].Icon;
+            return (
+              <SelectItem
+                key={value}
+                value={value}
+                // The shared SelectItem pins its check to the inline-start edge.
+                // Move it to the trailing edge so the option icon owns the left.
+                className="ps-2 pe-8 [&>span:first-child]:start-auto [&>span:first-child]:end-2"
+              >
+                <span className="flex items-center gap-2">
+                  <OptionIcon
+                    aria-hidden
+                    size={16}
+                    strokeWidth={1.75}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                  {optionLabel(value)}
+                </span>
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
     </div>
@@ -562,12 +555,20 @@ export function InvitePeopleField({
   );
 }
 
-export function PeopleAccessRow({
+export function PeopleAccessSection({
+  resourceType,
+  resourceId,
   sharesQuery,
-  onOpenSettings,
+  canManage,
+  roleCopy,
+  onError,
 }: {
+  resourceType: string;
+  resourceId: string;
   sharesQuery: SharesQuery;
-  onOpenSettings: () => void;
+  canManage: boolean;
+  roleCopy?: Partial<Record<Role, RoleCopy>>;
+  onError?: (err: unknown, action: "changeRole" | "remove") => void;
 }) {
   const t = useT();
   const data = sharesQuery.data;
@@ -581,7 +582,7 @@ export function PeopleAccessRow({
   const [first, ...rest] = people;
 
   return (
-    <AccessSummaryRow
+    <AccessAccordionRow
       icon={
         first ? (
           <Avatar label={first} />
@@ -597,9 +598,17 @@ export function PeopleAccessRow({
             : first
       }
       meta={t("shareUi.canAccess")}
-      onClick={onOpenSettings}
       disabled={sharesQuery.isLoading}
-    />
+    >
+      <PeopleAccessSettingsBody
+        resourceType={resourceType}
+        resourceId={resourceId}
+        sharesQuery={sharesQuery}
+        canManage={canManage}
+        roleCopy={roleCopy}
+        onError={onError}
+      />
+    </AccessAccordionRow>
   );
 }
 

@@ -141,6 +141,8 @@ const messages = {
     pageTitle: "ミーティング · Clips",
   },
   recordingPage: {
+    back: "戻る",
+    done: "完了",
     untitledClip: "無題のクリップ",
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
@@ -208,8 +210,6 @@ const messages = {
     retryImport: "インポートを再試行します",
     retryUpload: "アップロードを再試行します",
     checkAgain: "再確認",
-    back: "戻る",
-    done: "完了",
     edit: "編集",
     aiTools: "AIツール",
     enhanceRecording: "この録音を強化する",
@@ -553,7 +553,6 @@ const messages = {
     onlyYou: "自分のみ",
     othersCount_one: "{{email}} 他{{count}}人",
     othersCount_other: "{{email}} 他{{count}}人",
-    shareSettings: "共有設定",
     selectAccess: "アクセス権を選択",
     accessOptions: {
       public: "リンクを知っている全員が閲覧できます",
@@ -561,8 +560,6 @@ const messages = {
       orgFallback: "組織のメンバー全員が閲覧できます",
       private: "招待した人のみ閲覧できます",
     },
-    done: "完了",
-    back: "戻る",
     visibility: {
       private: {
         label: "プライベート",

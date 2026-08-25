@@ -141,6 +141,8 @@ const messages = {
     pageTitle: "Reunião · Clips",
   },
   recordingPage: {
+    back: "Voltar",
+    done: "Concluído",
     untitledClip: "Clipe sem título",
     recordingNotFound: "Gravação não encontrada",
     noAccess: "Você pode não ter acesso a este clipe.",
@@ -207,8 +209,6 @@ const messages = {
     retryImport: "Tentar importar novamente",
     retryUpload: "Tentar enviar novamente",
     checkAgain: "Verificar novamente",
-    back: "Voltar",
-    done: "Concluído",
     edit: "Editar",
     aiTools: "Ferramentas de IA",
     enhanceRecording: "Melhore esta gravação",
@@ -553,7 +553,6 @@ const messages = {
     othersCount_one: "{{email}} + {{count}} outro",
     othersCount_many: "{{email}} + {{count}} outros",
     othersCount_other: "{{email}} + {{count}} outros",
-    shareSettings: "Configurações de compartilhamento",
     selectAccess: "Selecionar acesso",
     accessOptions: {
       public: "Qualquer pessoa com o link pode ver",
@@ -561,8 +560,6 @@ const messages = {
       orgFallback: "Qualquer pessoa na sua organização pode ver",
       private: "Somente pessoas convidadas podem ver",
     },
-    done: "Concluído",
-    back: "Voltar",
     visibility: {
       private: {
         label: "Privado",
