@@ -3,6 +3,7 @@ import {
   IPC,
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
+  type DesktopAppCreationSettingsUpdateResult,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopPrepareLocalCodeChangeRequest,
@@ -124,11 +125,17 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     (
       _event: IpcMainInvokeEvent,
       settings: Partial<DesktopAppCreationSettings>,
-    ): DesktopAppCreationSettings => {
+    ): DesktopAppCreationSettingsUpdateResult => {
       const appsRoot = normalizeDesktopAppsRoot(settings?.appsRoot);
-      if (!appsRoot) return desktopAppCreationSettings();
+      if (!appsRoot) {
+        return {
+          ok: false,
+          error: "Choose a valid folder for new apps.",
+          settings: desktopAppCreationSettings(),
+        };
+      }
       AppStore.saveDesktopAppPreferences({ appsRoot });
-      return { appsRoot };
+      return { ok: true, settings: { appsRoot } };
     },
   );
 

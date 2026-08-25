@@ -71,6 +71,7 @@ import {
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveSecret,
+  resolveSecretPair,
   resolveSecretDetailed,
 } from "./credential-provider.js";
 
@@ -138,6 +139,7 @@ beforeEach(() => {
   delete process.env.EMAIL_INBOUND_WEBHOOK_SECRET;
   delete process.env.RESEND_API_KEY;
   delete process.env.SENDGRID_API_KEY;
+  delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
@@ -1407,6 +1409,53 @@ describe("resolveSecret (generic)", () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
     expect(await resolveSecret("SOME_KEY")).toBe("v");
     delete process.env.SOME_KEY;
+  });
+});
+
+describe("resolveSecretPair", () => {
+  it("uses a complete pair from the highest-precedence scope", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockReadAppSecrets.mockImplementation(async ({ scope }: any) =>
+      scope === "user"
+        ? new Map([
+            ["GOOGLE_CLIENT_ID", { value: "user-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "user-secret" }],
+          ])
+        : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).resolves.toEqual(["user-client", "user-secret"]);
+  });
+
+  it("falls back to a complete environment pair instead of mixing sources", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    process.env.GOOGLE_CLIENT_ID = "environment-client";
+    process.env.GOOGLE_CLIENT_SECRET = "environment-secret";
+    mockReadAppSecrets.mockImplementation(async ({ scope }: any) =>
+      scope === "user"
+        ? new Map([["GOOGLE_CLIENT_ID", { value: "scoped-client" }]])
+        : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).resolves.toEqual(["environment-client", "environment-secret"]);
+  });
+
+  it("rejects an incomplete mixed-source pair", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    process.env.GOOGLE_CLIENT_SECRET = "environment-secret";
+    mockReadAppSecrets.mockImplementation(async ({ scope }: any) =>
+      scope === "user"
+        ? new Map([["GOOGLE_CLIENT_ID", { value: "scoped-client" }]])
+        : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).resolves.toBeNull();
   });
 });
 

@@ -189,6 +189,19 @@ if (dryRun) {
 }
 
 ensureElectronBinary();
+
+// The desktop shell resolves @agent-native/core, /shared-app-config, /toolkit,
+// and /code-agents-ui through their built `dist/`, not their source. A dist left
+// behind by an older checkout still loads, so the shell boots against last
+// week's code and fails in ways that look like app bugs — a missing export
+// reads as `undefined` at the call site (a dropped `workspaceSso` turns into a
+// re-login prompt; a missing host map throws on every app URL it resolves).
+// dev-lazy already prebuilds for this reason; this entry point must too.
+console.log(`\x1b[36m[dev-electron]\x1b[0m Prebuilding workspace packages...`);
+execSync("node scripts/prebuild-workspace-packages.ts dev", {
+  stdio: "inherit",
+});
+
 portsToUse.forEach(tryKillPort);
 
 console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);
