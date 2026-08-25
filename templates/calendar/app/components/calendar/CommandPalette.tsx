@@ -13,7 +13,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import * as chrono from "chrono-node";
-import { format, parseISO, parse, isValid } from "date-fns";
+import { format, parse, isValid } from "date-fns";
 
 import { cn } from "@/lib/utils";
 

@@ -4,18 +4,13 @@ name: Publish packages
 #
 #   1. Every matching ordinary merge to `main` publishes a `nightly` snapshot.
 #      It never changes the repository or moves npm's `latest` dist-tag.
-#   2. Stable releases ride changesets. A matching merge with pending
-#      changesets opens or updates the Version Packages PR (auto-merged by
-#      `auto-merge-version-packages.yml`); that PR's merge consumes the
-#      changesets and publishes to `latest`. A maintainer can also dispatch
-#      this workflow with a patch/minor/major choice to force an all-package
-#      release without waiting for a changeset to arrive.
+#   2. A maintainer dispatches this workflow with a patch/minor/major choice.
+#      That creates the normal all-package Version Packages PR. Its marked
+#      merge is the only path that publishes a stable release.
 #
-# Both stable paths produce a `[stable-release]`-marked merge commit. That
-# marker exists to keep the nightly job off the release merge — it is not a
-# gate on stable publishing, and gating the release job on it deadlocks the
-# train, because the marker can only ever appear on a PR the release job
-# itself opens.
+# Stable release merges produce a `[stable-release]`-marked commit. The
+# workflow verifies that marker belongs to the bot-owned release PR before
+# stable publication, so an ordinary merge cannot opt into the stable lane.
 #
 # Desktop-app publishing is OUT of changesets - it ships binaries via
 # electron-builder, not npm. Production desktop releases are dispatched from
@@ -75,11 +70,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-stable-merge:
+    name: Verify stable release merge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verified: ${{ steps.verify.outputs.verified }}
+    steps:
+      - name: Verify release PR and actor
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          verified=false
+          stable_marker="${{ contains(github.event.head_commit.message, '[stable-release]') }}"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            verified=true
+          elif [ "$EVENT_NAME" = "push" ] && [ "$stable_marker" = "true" ] && [ "$ACTOR" = "builder-io-integration[bot]" ]; then
+            release_prs="$RUNNER_TEMP/stable-release-pull-requests.json"
+            gh api --paginate --slurp \
+              "repos/$REPOSITORY/commits/$SHA/pulls" > "$release_prs"
+            if jq -e --arg repository "$REPOSITORY" --arg sha "$SHA" '
+              any(.[][];
+                .base.ref == "main" and
+                .head.ref == "changeset-release/main" and
+                .head.repo.full_name == $repository and
+                .user.login == "builder-io-integration[bot]" and
+                .merged_at != null and
+                .merge_commit_sha == $sha and
+                (.title | contains("[stable-release]"))
+              )
+            ' "$release_prs" >/dev/null; then
+              verified=true
+            fi
+          fi
+
+          echo "Stable release merge verified: $verified"
+          echo "verified=$verified" >> "$GITHUB_OUTPUT"
+
   publish-nightly:
     name: Publish nightly snapshot
+    needs: [verify-stable-merge]
     # A stable Version Packages merge is intentionally stable-only. All other
     # matching main pushes get the automatic nightly package snapshot.
-    if: ${{ github.event_name == 'push' && !contains(github.event.head_commit.message, '[stable-release]') }}
+    if: ${{ github.event_name == 'push' && needs.verify-stable-merge.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -196,18 +238,12 @@ jobs:
 
   release:
     name: Prepare or publish stable npm packages
-    # Runs on every matching main push, which is what keeps the changeset train
-    # moving: with pending changesets `changesets/action` opens or updates the
-    # Version Packages PR, and with none it publishes whatever that PR's merge
-    # bumped. Gating this job on `[stable-release]` (or on a dispatch) stops the
-    # PR from ever being opened, so no merge can ever carry the marker: stable
-    # publishing stalls silently while nightly keeps going green, and changesets
-    # pile up unconsumed. That is not hypothetical — it held npm `latest` at
-    # 0.169.1 for three days behind 43 unreleased changesets.
-    #
-    # A downstream redispatch only re-sends a notification for versions that are
-    # already on npm, so it must not re-enter build/publish.
-    if: ${{ !inputs.redispatchDownstream }}
+    # Ordinary main pushes are nightly-only. A manual dispatch creates the
+    # marked Version Packages PR; only that PR's merge can enter stable npm
+    # publication. A downstream redispatch only re-sends a notification for
+    # versions that are already on npm, so it must not re-enter build/publish.
+    needs: [verify-stable-merge]
+    if: ${{ !inputs.redispatchDownstream && needs.verify-stable-merge.outputs.verified == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -299,15 +335,17 @@ jobs:
   # while production stopped receiving releases.
   notify-downstream:
     name: Notify downstream repos
-    needs: [release]
-    # always(): `release` is skipped on a redispatch and may fail on a bad
-    # publish; both cases still need a written answer about the notification.
-    # Do not narrow this to marked pushes either — `release` publishes whenever
-    # no changesets are pending, which is not always a merge carrying the
-    # marker, and a notification job that skips on the run that published is
-    # the exact silent failure the paragraph above describes. The body already
-    # writes "published nothing" and exits 0, so an ordinary push is cheap.
-    if: always()
+    needs: [release, verify-stable-merge]
+    # A normal main push has no stable release job. Manual dispatches (including
+    # redispatch) and marked stable merges still need a written notification
+    # result even when the release job fails or is intentionally skipped.
+    if: |
+      always() &&
+      (
+        inputs.redispatchDownstream ||
+        github.event_name == 'workflow_dispatch' ||
+        needs.verify-stable-merge.outputs.verified == 'true'
+      )
     runs-on: ubuntu-latest
     permissions: {}
     steps:
