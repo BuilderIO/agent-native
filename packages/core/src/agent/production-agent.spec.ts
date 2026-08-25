@@ -10933,6 +10933,20 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: 0,
       }),
     ).toBe(true);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error: "Missing Authentication header",
+            errorCode: "http_401",
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("preserves the specific continuation reason for recoverable background errors", () => {

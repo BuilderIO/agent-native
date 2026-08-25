@@ -242,6 +242,7 @@ const {
   BACKGROUND_PROCESSING_RUN_STALE_MS,
   BACKGROUND_RUN_STALE_MS,
   RUN_STALE_MS,
+  resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -271,6 +272,20 @@ describe("run store", () => {
     abortRowsAffected = 1;
     __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
+  });
+
+  it("does not mark replayed provider auth failures recoverable", () => {
+    const resolved = resolveErroredRunTerminalEvent({
+      errorCode: "http_401",
+      errorDetail: "Missing Authentication header",
+    });
+
+    expect(resolved.event).toEqual({
+      type: "error",
+      error: "Missing Authentication header",
+      errorCode: "http_401",
+    });
+    expect(resolved.event).not.toHaveProperty("recoverable");
   });
 
   it("readBackgroundRunClaim parses dispatch_mode + status + diag_stage + liveness, or null when missing", async () => {
