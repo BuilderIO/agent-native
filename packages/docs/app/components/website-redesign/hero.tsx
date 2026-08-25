@@ -39,6 +39,7 @@ export function Hero() {
           }}
         >
           <h1
+            className="hero-title"
             style={{
               margin: 0,
               textAlign: "center",
@@ -63,7 +64,7 @@ export function Hero() {
             }}
           >
             Build for AI agents without building a second product for users.
-            <br />
+            <br className="hero-subtitle-break" />
             Bring your own LLM. Deploy anywhere.
           </p>
         </div>

@@ -296,6 +296,14 @@
   .builder-brand-tokens .template-showcase-panel {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .builder-brand-tokens .hero-title {
+    line-height: 1.2;
+  }
+
+  .builder-brand-tokens .hero-subtitle-break {
+    display: none;
+  }
 }
 
 @media (max-width: 480px) {
