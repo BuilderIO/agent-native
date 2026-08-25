@@ -1,4 +1,4 @@
-import { IconSettings } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconSettings } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -58,10 +58,20 @@ export function HeroShaderSettingsPanel({
   onReset,
 }: HeroShaderSettingsPanelProps) {
   const [open, setOpen] = useState(false);
-  const [panelPos, setPanelPos] = useState<{ left: number; top: number } | null>(null);
+  const [panelPos, setPanelPos] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
+
+  async function handleCopySettings() {
+    await navigator.clipboard.writeText(JSON.stringify(settings, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -165,7 +175,7 @@ export function HeroShaderSettingsPanel({
               border: "1px solid var(--b-border-default)",
               borderRadius: "var(--b-radius)",
               boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
-              zIndex: 50,
+              zIndex: 2147483647,
             }}
           >
             {FIELD_ORDER.map((key) => {
@@ -174,7 +184,8 @@ export function HeroShaderSettingsPanel({
               // Solid color mode must always render solid: gray out (and
               // disable) the accent color input instead of letting it blend
               // in while nothing in the shader is using it.
-              const disabled = key === "accentColor" && settings.colorMode !== "gradient";
+              const disabled =
+                key === "accentColor" && settings.colorMode !== "gradient";
 
               return (
                 <div
@@ -220,10 +231,15 @@ export function HeroShaderSettingsPanel({
                       onChange={(e) =>
                         onChange(
                           key,
-                          Number(e.target.value) as HeroShaderSettings[typeof key],
+                          Number(
+                            e.target.value,
+                          ) as HeroShaderSettings[typeof key],
                         )
                       }
-                      style={{ width: "100%", accentColor: "var(--b-action-primary-bg)" }}
+                      style={{
+                        width: "100%",
+                        accentColor: "var(--b-action-primary-bg)",
+                      }}
                     />
                   )}
 
@@ -274,26 +290,62 @@ export function HeroShaderSettingsPanel({
               );
             })}
 
-            <button
-              type="button"
-              onClick={onReset}
-              className="hover:text-[var(--b-text-primary)]"
+            <div
               style={{
-                fontFamily: "var(--b-font-mono)",
-                fontSize: "var(--b-t-label-2)",
-                letterSpacing: "0.02em",
-                textTransform: "uppercase",
-                color: "var(--b-text-secondary)",
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                alignSelf: "flex-start",
-                transition: "color 0.15s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--spacing-3)",
               }}
             >
-              Reset to defaults
-            </button>
+              <button
+                type="button"
+                onClick={onReset}
+                className="hover:text-[var(--b-text-primary)]"
+                style={{
+                  fontFamily: "var(--b-font-mono)",
+                  fontSize: "var(--b-t-label-2)",
+                  letterSpacing: "0.02em",
+                  textTransform: "uppercase",
+                  color: "var(--b-text-secondary)",
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  transition: "color 0.15s",
+                }}
+              >
+                Reset to defaults
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopySettings}
+                className="hover:text-[var(--b-text-primary)]"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "var(--spacing-1)",
+                  fontFamily: "var(--b-font-mono)",
+                  fontSize: "var(--b-t-label-2)",
+                  letterSpacing: "0.02em",
+                  textTransform: "uppercase",
+                  color: "var(--b-text-secondary)",
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  transition: "color 0.15s",
+                }}
+              >
+                {copied ? (
+                  <IconCheck size={13} stroke={2} />
+                ) : (
+                  <IconCopy size={13} stroke={2} />
+                )}
+                {copied ? "Copied" : "Copy settings JSON"}
+              </button>
+            </div>
           </div>,
           document.body,
         )}
