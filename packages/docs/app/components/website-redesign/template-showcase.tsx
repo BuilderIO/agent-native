@@ -216,11 +216,7 @@ export function TemplateShowcase() {
                         justifyContent: "center",
                         width: 36,
                         height: 36,
-                        border: "1px solid var(--b-action-secondary-border)",
                         borderRadius: "var(--b-radius)",
-                        color: "var(--b-text-primary)",
-                        transition:
-                          "background 0.15s, border-color 0.15s, color 0.15s",
                       }}
                     >
                       <IconArrowUpRight size={16} stroke={1.75} />

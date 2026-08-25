@@ -240,6 +240,16 @@
   background: var(--b-bg-raised);
 }
 
+.builder-brand-tokens .template-showcase-arrow {
+  border: 1px solid var(--b-action-secondary-border);
+  color: var(--b-text-primary);
+  background: transparent;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
 .builder-brand-tokens .template-showcase-cell:hover .template-showcase-arrow {
   background: var(--b-text-primary);
   border-color: var(--b-text-primary);
