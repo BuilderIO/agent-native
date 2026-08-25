@@ -1,4 +1,5 @@
 import { readEnvConfigLayer } from "./env-layer.js";
+import { readPackageConfigLayer } from "./package-layer.js";
 import { assertRunLifecycleInvariants } from "./run-lifecycle-invariants.js";
 import {
   appConfigSchema,
@@ -9,11 +10,14 @@ import {
 /**
  * Resolution order for app configuration, lowest opinion first.
  *
+ * `package` is what this app's package.json says it is — the weakest opinion
+ * there is, since nobody sets it to configure anything.
+ *
  * `legacy` is where the bespoke `configure*` / `set*` setters this schema
  * replaces write their values, so a deprecated call still works and still has
  * a stated position rather than whichever `if` happens to run first.
  */
-const LAYER_ORDER = ["env", "legacy", "app"] as const;
+const LAYER_ORDER = ["package", "env", "legacy", "app"] as const;
 
 export type AppConfigLayer = (typeof LAYER_ORDER)[number];
 
@@ -66,6 +70,7 @@ function mergeLayers(
 }
 
 function resolve(envLayer: Record<string, unknown>): AppConfig {
+  state.layers.package = readPackageConfigLayer();
   state.layers.env = envLayer as AppConfigInput;
 
   let merged: Record<string, unknown> = {};

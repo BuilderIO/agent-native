@@ -122,7 +122,6 @@ import {
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
 import {
   BUILDER_CONNECT_PARAM,
@@ -4276,7 +4275,7 @@ export function createCoreRoutesPlugin(
               const subpath = event.url?.pathname || "";
               return handleMcpOAuth(event, subpath, {
                 appId: options.mcpConnectAppId,
-                appName: options.mcpConnectAppName ?? getAppName(),
+                appName: options.mcpConnectAppName ?? getAppConfig().app.name,
               });
             }),
           );
@@ -4293,7 +4292,7 @@ export function createCoreRoutesPlugin(
         // (see createAuthGuardFn in auth.ts).
         const mcpConnectOpts = {
           appId: options.mcpConnectAppId,
-          appName: options.mcpConnectAppName ?? getAppName(),
+          appName: options.mcpConnectAppName ?? getAppConfig().app.name,
           serverName: options.mcpConnectServerName,
         };
         for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
