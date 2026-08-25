@@ -61,7 +61,11 @@ export function withFormLock<T>(
 const fieldOpSchema = z.union([
   z.object({
     op: z.literal("upsert"),
-    field: z.record(z.string(), z.any()),
+    field: z
+      .record(z.string(), z.any())
+      .describe(
+        "Complete field object with id, type, label, and required; never use shorthand strings.",
+      ),
   }),
   z.object({
     op: z.literal("remove"),
