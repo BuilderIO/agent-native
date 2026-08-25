@@ -2854,6 +2854,8 @@ export function MultiTabAssistantChat({
           )
           .map((tabId) => {
             const modelSelection = resolveThreadModelSelection(tabId);
+            const modelSelectionPending =
+              !hostManagedModels && modelListLoading && !modelSelection;
             const tabDynamicSuggestions =
               tabId === activeThreadId && !contentHidden
                 ? props.dynamicSuggestions
@@ -2943,11 +2945,15 @@ export function MultiTabAssistantChat({
                   // sub-agent tab would start a fresh run on that thread and kill
                   // the in-flight team chunk. Disable the composer and show a
                   // hint so users know to send via the orchestrator chat instead.
-                  composerDisabled={Boolean(parentMap[tabId])}
+                  composerDisabled={
+                    Boolean(parentMap[tabId]) || modelSelectionPending
+                  }
                   composerDisabledPlaceholder={
                     parentMap[tabId]
                       ? translate("agentChat.composer.subAgentReadOnly")
-                      : undefined
+                      : modelSelectionPending
+                        ? translate("agentChat.composer.loadingModels")
+                        : undefined
                   }
                 />
               </div>
