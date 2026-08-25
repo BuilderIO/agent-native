@@ -5467,6 +5467,20 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: default;
 }
 
+/* Waiting for capture to attach: never the live red, never a running clock. */
+.pill-timer-starting {
+  color: hsl(var(--ui-muted-foreground));
+  font-family: inherit;
+  font-size: 12px;
+  animation: pill-ask-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-timer-starting {
+    animation: none;
+  }
+}
+
 .pill-ask-work {
   margin-bottom: 7px;
 }

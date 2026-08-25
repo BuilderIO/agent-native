@@ -206,6 +206,10 @@ export function MeetingNotification() {
     options?: { hydrated?: boolean },
   ) {
     if (isDismissed(payload)) return;
+    // A visible reminder means a pill is likely within a minute or two. Build
+    // its webview now, hidden: on the first meeting of a session that build
+    // otherwise lands between the click and anything appearing.
+    invoke("recording_pill_prewarm").catch(() => {});
     setData(payload);
     setError(null);
     setMenuOpen(false);

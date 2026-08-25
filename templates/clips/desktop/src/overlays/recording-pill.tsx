@@ -40,6 +40,8 @@ interface PillContext {
   meetingId?: string | null;
   mode?: PillMode;
   title?: string | null;
+  /** On screen, but capture has not attached yet. Never claim "recording". */
+  starting?: boolean;
 }
 
 /**
@@ -165,6 +167,10 @@ export function MeetingPill() {
           meetingId: ev.payload?.meetingId ?? null,
           mode: ev.payload?.mode ?? "clip",
           title: ev.payload?.title ?? ctxRef.current.title ?? null,
+          // Rust re-emits this event on every `recording_pill_show` without a
+          // `starting` field. Absent means "no opinion" — coercing it to false
+          // there would race the starting flag to a live-looking pill.
+          starting: ev.payload?.starting ?? ctxRef.current.starting ?? false,
         };
         const prev = ctxRef.current;
         const isSameSession =
@@ -827,7 +833,9 @@ export function MeetingPill() {
             />
           </div>
           <div className="pill-controls">
-            {expanded && !detached && ctx.mode === "meeting" ? null : (
+            {ctx.starting ? (
+              <span className="pill-timer pill-timer-starting">Starting</span>
+            ) : expanded && !detached && ctx.mode === "meeting" ? null : (
               <span
                 className={`pill-timer${!paused && !finished ? " pill-timer-live" : ""}`}
               >
@@ -854,7 +862,7 @@ export function MeetingPill() {
               <button
                 type="button"
                 onClick={onStopClick}
-                disabled={stopping}
+                disabled={stopping || ctx.starting === true}
                 data-no-drag
                 className="pill-stop-btn"
                 aria-label={stopping ? "Stopping" : stopLabel}

@@ -428,6 +428,51 @@ fn anchored_rect(
 }
 
 #[tauri::command]
+pub async fn recording_pill_prewarm(app: AppHandle) -> Result<(), String> {
+    if app.get_webview_window(PILL_LABEL).is_some() {
+        return Ok(());
+    }
+    // Built hidden and left that way: `recording_pill_show` takes the
+    // already-alive branch afterwards, which re-anchors before showing, so a
+    // prewarmed window never appears in the wrong place — or at all, if the
+    // user dismisses the meeting instead of taking notes.
+    let win = build_pill_window(&app, false)?;
+    let _ = win;
+    Ok(())
+}
+
+/// Create the pill webview, positioned but not shown. Shared by the prewarm
+/// path and the first `recording_pill_show` of a session.
+fn build_pill_window(app: &AppHandle, expanded: bool) -> Result<WebviewWindow, String> {
+    let (w, h, x, y) = anchored_rect(app, expanded, None);
+    let url = build_overlay_url("recording-pill");
+    let win = WebviewWindowBuilder::new(app, PILL_LABEL, url)
+        .title("Recording")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the capsule gets a
+        // correctly rounded OS shadow with the window sized to the capsule
+        // exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
+        .visible(false)
+        .focused(false)
+        .accept_first_mouse(true)
+        .build()
+        .map_err(|e| {
+            eprintln!("[clips-tray] recording-pill build failed: {}", e);
+            e.to_string()
+        })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    set_capture_excluded(&win);
+    Ok(win)
+}
+
+#[tauri::command]
 pub async fn recording_pill_show(
     app: AppHandle,
     meeting_id: Option<String>,
@@ -472,32 +517,7 @@ pub async fn recording_pill_show(
     }
 
     PILL_EXPANDED.store(false, Ordering::SeqCst);
-    let (w, h, x, y) = anchored_rect(&app, false, None);
-
-    let url = build_overlay_url("recording-pill");
-    let win = WebviewWindowBuilder::new(&app, PILL_LABEL, url)
-        .title("Recording")
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        // Native elevation: on a transparent window macOS computes the
-        // shadow from the drawn content's alpha, so the capsule gets a
-        // correctly rounded OS shadow with the window sized to the capsule
-        // exactly — no transparent CSS-shadow apron eating clicks.
-        .shadow(true)
-        .visible(false)
-        .focused(false)
-        .accept_first_mouse(true)
-        .build()
-        .map_err(|e| {
-            eprintln!("[clips-tray] recording-pill build failed: {}", e);
-            e.to_string()
-        })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
-    let _ = win.set_position(PhysicalPosition::new(x, y));
-    set_capture_excluded(&win);
+    let win = build_pill_window(&app, false)?;
     configure_overlay_behavior(&win);
     show_without_activation(&win);
     start_pill_hover_tracking(&app);
