@@ -24,9 +24,25 @@ type LinkedLocalEditReceipt =
 
 function isReceipt(value: unknown): value is LinkedLocalEditReceipt {
   if (!value || typeof value !== "object") return false;
-  const status = (value as { status?: unknown }).status;
-  return ["persisted", "conflict", "unavailable", "failed"].includes(
-    String(status),
+  const receipt = value as Record<string, unknown>;
+  if (receipt.status === "persisted") {
+    return (
+      typeof receipt.content === "string" &&
+      typeof receipt.title === "string" &&
+      receipt.title.length > 0 &&
+      typeof receipt.path === "string" &&
+      receipt.path.length > 0 &&
+      (receipt.runtime === "browser" || receipt.runtime === "desktop") &&
+      (receipt.revision === undefined ||
+        (typeof receipt.revision === "string" && receipt.revision.length > 0))
+    );
+  }
+  return (
+    (receipt.status === "conflict" ||
+      receipt.status === "unavailable" ||
+      receipt.status === "failed") &&
+    typeof receipt.error === "string" &&
+    receipt.error.length > 0
   );
 }
 
@@ -34,6 +50,7 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
   ownerEmail: string;
   documentId: string;
   expectedContent: string;
+  expectedResultContent: string;
   edits: DocumentTextEdit[];
 }): Promise<LinkedLocalEditReceipt> {
   const name = linkedLocalDocumentEditActionName(args.documentId);
@@ -72,12 +89,22 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
       },
       { timeoutMs: 30_000 },
     );
-    return isReceipt(result)
-      ? result
-      : {
-          status: "failed",
-          error: "The local source returned an invalid receipt.",
-        };
+    if (!isReceipt(result)) {
+      return {
+        status: "failed",
+        error: "The local source returned an invalid receipt.",
+      };
+    }
+    if (
+      result.status === "persisted" &&
+      result.content !== args.expectedResultContent
+    ) {
+      return {
+        status: "conflict",
+        error: "The local source receipt did not match the requested edit.",
+      };
+    }
+    return result;
   } catch (error) {
     return {
       status: "failed",

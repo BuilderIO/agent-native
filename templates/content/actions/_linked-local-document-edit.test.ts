@@ -16,6 +16,7 @@ const args = {
   ownerEmail: "alice@example.com",
   documentId: "doc-1",
   expectedContent: "# Original",
+  expectedResultContent: "# Updated",
   edits: [{ find: "Original", replace: "Updated" }],
 };
 
@@ -82,5 +83,35 @@ describe("editLinkedLocalDocumentThroughBrowser", () => {
       status: "conflict",
     });
     expect(mocks.callBrowserSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects incomplete persisted receipts", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({ status: "persisted" });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("rejects a persisted receipt whose content is not the requested result", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "persisted",
+      content: "# Different",
+      title: "Different",
+      path: "fixture.mdx",
+      runtime: "browser",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({ status: "conflict" });
   });
 });

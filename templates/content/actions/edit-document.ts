@@ -241,6 +241,7 @@ export default defineAction({
         ownerEmail,
         documentId: id,
         expectedContent: existing.content ?? "",
+        expectedResultContent: applied.content,
         edits,
       });
       if (receipt.status !== "persisted") {
