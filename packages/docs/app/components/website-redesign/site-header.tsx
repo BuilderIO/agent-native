@@ -29,11 +29,6 @@ const NAV_LINKS: Array<{
     external: true,
     showArrow: true,
   },
-  {
-    label: "GitHub",
-    href: "https://github.com/BuilderIO/agent-native",
-    external: true,
-  },
 ];
 
 const GITHUB_REPO_URL = "https://github.com/BuilderIO/agent-native";
