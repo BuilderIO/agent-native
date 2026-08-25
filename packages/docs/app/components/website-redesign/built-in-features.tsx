@@ -57,7 +57,7 @@ const PILLAR_ROWS: Pillar[][] = [
 
 export function BuiltInFeatures() {
   return (
-    <PageSection showGrid={false}>
+    <PageSection>
       <GridInner
         style={{
           display: "flex",
@@ -107,8 +107,6 @@ export function BuiltInFeatures() {
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                  gap: 1,
-                  background: "var(--b-border-default)",
                 }}
               >
                 {row.map((pillar) => (

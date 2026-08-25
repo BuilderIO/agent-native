@@ -207,6 +207,10 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.builder-brand-tokens .pillars-grid > *:not(:last-child) {
+  border-right: 1px solid var(--b-border-default);
+}
+
 @media (max-width: 768px) {
   .builder-brand-tokens {
     --spacing-4: 12px;
