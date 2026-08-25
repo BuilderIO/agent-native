@@ -108,7 +108,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "n8n",
-    scale: 1.05,
+    scale: 1.35,
     render: () => (
       <svg
         width="125"
