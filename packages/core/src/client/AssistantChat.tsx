@@ -2949,14 +2949,23 @@ const AssistantChatInner = forwardRef<
       ? storedActiveRun?.turnId
       : undefined) ?? (showRunningInUI ? reconnectTurnIdRef.current : null);
   const chatRunStartedAtRef = useRef<number | null>(null);
+  const chatRunTurnIdRef = useRef<string | null>(null);
   const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
     number | null
   >(null);
   useEffect(() => {
     if (showRunningInUI) {
-      if (chatRunStartedAtRef.current == null) {
+      const startedForDifferentTurn =
+        chatRunStartedAtRef.current != null &&
+        chatRunTurnIdRef.current != null &&
+        activeChatTurnId != null &&
+        activeChatTurnId !== chatRunTurnIdRef.current;
+      if (chatRunStartedAtRef.current == null || startedForDifferentTurn) {
         chatRunStartedAtRef.current = Date.now();
+        chatRunTurnIdRef.current = activeChatTurnId ?? null;
         setLastChatRunDurationMs(null);
+      } else if (chatRunTurnIdRef.current == null && activeChatTurnId != null) {
+        chatRunTurnIdRef.current = activeChatTurnId;
       }
       return;
     }
@@ -2965,8 +2974,9 @@ const AssistantChatInner = forwardRef<
         Math.max(0, Date.now() - chatRunStartedAtRef.current),
       );
       chatRunStartedAtRef.current = null;
+      chatRunTurnIdRef.current = null;
     }
-  }, [showRunningInUI]);
+  }, [activeChatTurnId, showRunningInUI]);
   // A revealed activity label wins; otherwise keep recovery states calm and
   // product-facing. Reconnect is transport machinery, so normal replay reads as
   // ongoing work instead of exposing "Reconnecting" mid-chat.
@@ -5903,7 +5913,9 @@ const AssistantChatInner = forwardRef<
       <CheckpointContext.Provider value={checkpointCtx}>
         <MessageActionsContext.Provider value={messageActionsCtx}>
           <ApprovalContext.Provider value={approvalCtx}>
-            <ChatRunDurationContext.Provider value={lastChatRunDurationMs}>
+            <ChatRunDurationContext.Provider
+              value={showRunningInUI ? null : lastChatRunDurationMs}
+            >
               <ServerRunActiveContext.Provider value={serverRunActive}>
                 <ChatRunningRunIdContext.Provider value={activeChatRunId}>
                   <ChatRunningTurnIdContext.Provider value={activeChatTurnId}>

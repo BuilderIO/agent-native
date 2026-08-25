@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { z } from "zod";

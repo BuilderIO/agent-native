@@ -7,7 +7,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { getAppName } from "./app-name.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
@@ -266,7 +266,7 @@ export function resolveAgentNativeOgImageAppName(event?: H3Event): string {
   })?.appName;
   if (builtInAppName) return builtInAppName;
 
-  const appName = getAppName();
+  const appName = getAppConfig().app.name;
   if (appName) {
     return resolveBuiltInAuthMarketingByName(appName)?.appName ?? appName;
   }

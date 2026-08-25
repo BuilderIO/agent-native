@@ -10,7 +10,7 @@ PR 2.2 adds two executable tiers:
   existing action tests, make no model calls, and require no private provider
   credentials.
 - Gated agent evals run through `agent-native eval parity`. They are opt-in via
-  `CONTENT_PARITY_EVALS=1`, capped to four initial scenarios, and should be
+  `CONTENT_PARITY_EVALS=1`, kept to a small explicit scenario set, and should be
   reserved for manual or nightly checks.
 
 ## Deterministic Checks
@@ -33,14 +33,23 @@ cd templates/content
 CONTENT_PARITY_EVALS=1 ANTHROPIC_API_KEY=... ./node_modules/.bin/agent-native eval parity
 ```
 
+The database-create property-preservation regression has a dedicated
+fixture-only runner so it can inspect model-produced arguments without loading
+or executing unrelated Content actions:
+
+```bash
+CONTENT_PARITY_EVALS=1 pnpm eval:property-preservation
+```
+
 With `CONTENT_PARITY_EVALS` unset, parity evals return skipped rows and do not
 call the agent runner. The CLI still exits `0`, but both readable and JSON
 reports mark each row with `status: "skipped"` and a `skipReason` such as
 `Skipped because CONTENT_PARITY_EVALS is unset`.
 
-With the gate set, the eval files run the four PR 2.2 scenarios:
+With the gate set, the eval files include these scenarios:
 
 - `database-source-scope`
+- `database-create-property-preservation`
 - `document-search-edit`
 - `local-file-source-truth`
 - `builder-source-review-readonly`

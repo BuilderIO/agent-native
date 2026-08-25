@@ -1,5 +1,121 @@
 # @agent-native/core
 
+## 0.173.1
+
+### Patch Changes
+
+- 1417ba5: Give UI and agents the parts of a `fail()` failure they were missing.
+
+  Action errors now carry `actionMessage`, the text the action wrote with no
+  `Action <name> failed:` framing, plus an `actionErrorMessage()` helper exported
+  from `@agent-native/core/client/hooks`. Templates render `error.message`
+  directly, so a refusal surfaced as "Action update-brand-kit failed: That name
+  is taken." The helper returns `undefined` when nothing authored a message (a
+  network drop, a proxy's HTML error page, a bare status line), so a UI cannot
+  mistake transport noise for copy.
+
+  Tool results now include the `errorCode` an action chose, as
+  `Error running get-meeting: No such meeting (errorCode: not_found)`, on both
+  the in-app agent loop and MCP. The model can branch on the code without parsing
+  prose. `fail()`'s default `action_failed` is omitted, since it says only "it
+  failed", which the word "Error" already said.
+
+- 191f4d3: Keep the Google account chooser when connecting a managed workspace connection and preselect the signed-in identity.
+- Release all public npm packages with a patch version bump.
+- a4b36e0: Stop billing cached prompt tokens twice, and normalize what `inputTokens` means
+  across every engine.
+
+  Providers disagree: OpenAI's `prompt_tokens` includes cached tokens, Anthropic's
+  `input_tokens` excludes them. The `usage` event never said which it carried, so
+  both conventions reached `calculateCost`, which charged `inputTokens` at the
+  full input rate and then added `cacheReadTokens` / `cacheWriteTokens` on top.
+  On a long cached conversation the cache is nearly the whole prompt, so a turn
+  that cost $0.0054 was reported as $0.0478 — and every `token_usage` row for an
+  OpenAI-family model was inflated the same way.
+  - The `usage` event now documents one convention: `inputTokens` is the whole
+    prompt and INCLUDES both cache counts, which are a slice of it rather than an
+    addition. This matches the AI SDK's own `inputTokens.total` / `noCache` /
+    `cacheRead` / `cacheWrite` normalization, and the Builder gateway.
+  - `anthropic-engine` was the only ENGINE reporting the exclusive form. It now
+    adds the cache counts back, which also fixes its prompt size: a fully cached
+    turn used to report ~3 input tokens instead of the real 42,438.
+  - `calculateCost` treats the three counts as a partition and prices each token
+    exactly once. Callers with no prompt caching pass zeroes and are unaffected.
+
+  The recap CLI carried all three conventions at once and now shares this one:
+  `parseClaudeUsage` adds Anthropic's cache counts back into the prompt,
+  `parseCodexUsage` no longer strips OpenAI's cached tokens out of it (it did that
+  to compensate for the old pricing formula, so keeping both would have swung the
+  error the other way), and `parseOpenAiCompatibleUsage` was already correct.
+
+- a4b36e0: Correct the GPT-5.6 pricing rates, which matched no published tier.
+
+  The `sol` / `terra` / `luna` entries carried input and output rates that appear
+  in neither column of OpenAI's table (luna was $1.00/$6.00 per MTok against a
+  real $0.20/$1.20), and set `cacheWrite: 0` on the belief that OpenAI does not
+  bill cache writes — it does, at above the full input rate. All three now track
+  the published short-context rates:
+
+  |       | input | cached | cache write | output |
+  | ----- | ----- | ------ | ----------- | ------ |
+  | sol   | $4.00 | $0.40  | $5.00       | $20.00 |
+  | terra | $2.00 | $0.20  | $2.50       | $12.00 |
+  | luna  | $0.20 | $0.02  | $0.25       | $1.20  |
+
+  Short context on purpose: each model has a long-context tier at roughly 2x, and
+  a usage row does not preserve the request's context size, so the tier cannot be
+  recovered at pricing time.
+
+  Together with the cached-token double-billing fix, a real 11-call run drops from
+  a reported $0.8524 to $0.0358 — 24x. Pricing that run's cache writes at the
+  input rate instead reproduces PostHog's independently derived $0.0328 to the
+  cent, which is what confirms the rates.
+
+- a4b36e0: Fix tool calls rendering without their output in PostHog LLM analytics.
+
+  Engine messages shipped verbatim as `$ai_input`, in a shape PostHog does not
+  read: `tool-call` / `tool-result` parts with camelCase ids, and tool results
+  carried inside a `user` message because `EngineMessage` has no `tool` role.
+  PostHog dumps raw JSON for shapes it does not recognize, so a tool call rendered
+  as an escaped blob with its result nowhere in sight. Messages now normalize to
+  the OpenAI/Anthropic conventions PostHog reads, and attachment bodies become a
+  marker naming the media type and size instead of inlining base64.
+  - `tool_calls[].id` now carries the id the model issued rather than our span id,
+    so a call and its result actually pair. Span id remains the fallback for
+    emitters that report no call id.
+  - The byte-ceiling rescue in `boundAiContent` keeps "the last user message",
+    which in engine shape was the last tool result — so the user's question was
+    dropped from every oversized generation. Normalizing first fixes it.
+  - A tool span with `captureToolResults` off now carries an explicit "withheld"
+    marker in `$ai_output_state` instead of omitting it, matching what the error
+    path already did. An absent output state reads as a tool that returned
+    nothing, and the tool did answer.
+
+- 7265794: Prevent background chat recovery from reporting completed runs as lost.
+- 1417ba5: Make `fail()` reach the caller, and stop retrying deterministic action failures.
+
+  `fail()` threw a bare `Error`, which the action HTTP route cannot distinguish
+  from a driver or upstream blowup. Every refusal written for a person became a
+  500 `"Internal server error"` with the real message dropped and an
+  error-tracking report filed. It now raises an `ActionContractError` with a
+  default 400, so the message, `errorCode`, and `details` survive the transport,
+  and it accepts an explicit `statusCode` for causes like 404 or 409. `fail()`
+  now lives beside that error in `action.ts` and is exported from
+  `@agent-native/core/action` as well as the package root.
+
+  `defaultActionQueryRetry` retried by exclusion, so every status nobody had
+  added to its deny list was retried three times. A `useActionQuery()` read
+  refused with 400, 404, or 409 cost four executions, and a 500 cost four
+  duplicate error reports. It now retries by exception: `429`, `502`, `503`, and
+  `504`, plus one retry for status-less network failures. A 500 is an action's
+  own unhandled throw, so it is treated as deterministic and surfaces on the
+  first response.
+
+- Updated dependencies
+- Updated dependencies [a4b36e0]
+  - @agent-native/recap-cli@0.5.10
+  - @agent-native/toolkit@0.16.13
+
 ## 0.173.0
 
 ### Minor Changes

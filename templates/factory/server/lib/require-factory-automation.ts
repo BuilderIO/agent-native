@@ -1,9 +1,11 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 
+import { getDb } from "../db/index.js";
 import {
   factoryAutomationLeafName,
   readAutomationFactoryId,
+  requireExistingFactory,
 } from "./factory-scope.js";
 import type { WorkspaceMemberIdentity } from "./require-workspace-member.js";
 
@@ -78,5 +80,8 @@ export async function requireFactoryAutomation(
     throw new Error(
       "The action was not invoked by a governed Factory automation.",
     );
+  }
+  if (expectedFactoryId) {
+    await requireExistingFactory(getDb(), identity.orgId, expectedFactoryId);
   }
 }

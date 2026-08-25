@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { attachToolSearch } from "../agent/tool-search.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
@@ -14,6 +18,7 @@ import {
   filterRuntimeActionsToSurface,
   resolveProductionCodeExecutionForActionSurface,
   resolveHostedBuilderHandoff,
+  resolveConfiguredAgentModel,
   resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
@@ -1173,5 +1178,26 @@ describe("delegated tool surfaces in dev", () => {
     );
     expect(mcpPrompt).toContain("basePrompt +");
     expect(mcpPrompt).not.toContain("mcpDevPrompt");
+  });
+});
+
+describe("resolveConfiguredAgentModel", () => {
+  afterEach(() => resetAppConfigForTests());
+
+  it("returns undefined when neither layer is set, so the engine default wins", () => {
+    expect(resolveConfiguredAgentModel(undefined)).toBeUndefined();
+    expect(resolveConfiguredAgentModel({})).toBeUndefined();
+  });
+
+  it("falls back to the declared agent.model when the mount passes none", () => {
+    defineAppConfig({ agent: { model: "claude-sonnet-5" } });
+    expect(resolveConfiguredAgentModel({})).toBe("claude-sonnet-5");
+  });
+
+  it("lets the per-mount option win over the declared field", () => {
+    defineAppConfig({ agent: { model: "claude-sonnet-5" } });
+    expect(resolveConfiguredAgentModel({ model: "claude-opus-5" })).toBe(
+      "claude-opus-5",
+    );
   });
 });

@@ -192,6 +192,18 @@ const messages = {
     automationsTab: "自動化",
     agentsTab: "エージェント",
     factorySettings: "設定",
+    dangerZone: "危険な操作",
+    deleteFactory: "ファクトリーを削除",
+    deleteFactoryDescription:
+      "このファクトリーとマップ、キュー、ルール、アクティビティ、設定、ポーリング、自動化を完全に削除します。この操作は元に戻せません。",
+    deleteFactoryTitle: "{{name}} を削除しますか？",
+    deleteFactoryWarning:
+      "GitHub、Slack、Builder ですでに実行中の作業はキャンセルされません。",
+    deleteFactoryConfirmation: "確認のため {{name}} と入力してください",
+    deleteFactoryCancel: "キャンセル",
+    deleteFactoryConfirm: "ファクトリーを削除",
+    factoryDeleted: "ファクトリーを削除しました。",
+    factoryDeleteFailed: "ファクトリーを削除できませんでした。",
     agenticAppsTitle: "エージェントアプリ",
     agenticAppsEmpty:
       "このワークスペースにはまだエージェントアプリがありません。",

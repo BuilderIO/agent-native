@@ -161,11 +161,14 @@ export default function ObservabilityPage() {
 `evalSampleRate` を設定して、サンプリングされた LLM ベースの評価を有効にします。
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -257,17 +260,21 @@ PUT /_agent-native/observability/experiments/:id
 
 ## 構成 {#config}
 
-すべての設定は `observability-config` キーに保存されます:
+`defineAppConfig()` を使用してサーバー プラグインから設定します。各フィールドにはデプロイ環境変数のエイリアスもあります。宣言された構成リファレンスを参照してください。
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -302,26 +309,13 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 ## 外部プラットフォームへのエクスポート {#export}
 
-Langfuse、Datadog、Grafana、または任意の OTel 互換バックエンドにトレースを送信します。
+独自のアプリで OpenTelemetry プロバイダーを登録することで、Langfuse、Datadog、Grafana、または任意の OTel 互換バックエンドにトレースを送信します。以下の [OpenTelemetry スパン](#otel) を参照してください。
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-フレームワークは、OpenTelemetry GenAI 仕様と互換性のある `gen_ai.*` セマンティック規約スパンを発行します。
+コアは意図的にエクスポーターを同梱せず、エクスポート エンドポイントやトークンも保持しません。そのため、バックエンドの資格情報はフレームワーク構成ではなく、プロバイダーの配線 (およびボールト) に存在します。
 
 ## OpenTelemetry スパン {#otel}
 
-上記の `exporters` 構成 (社内トレースを OTLP エンドポイントに送信する) とは別に、エージェント ループは、実行、モデル呼び出し、ツール呼び出しごとに **ライブ OpenTelemetry スパン** を出力することもできます。そのため、すでに OTel コレクターを実行しているホストは、残りの分散トレースと一緒にエージェント アクティビティを確認できます。
+エージェント ループは、実行、モデル呼び出し、ツール呼び出しごとに **ライブ OpenTelemetry スパン** を出力します。そのため、すでに OTel コレクターを実行しているホストは、残りの分散トレースと一緒にエージェント アクティビティを確認できます。
 
 このレイヤーは **オプションであり、デフォルトでは何も操作されません**:
 

@@ -8,6 +8,7 @@ import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automa
 import {
   factoryIdSchema,
   readTriageConfigRow,
+  requireExistingFactory,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
@@ -239,6 +240,11 @@ export default defineAction({
           });
         pullRequestCount += 1;
       }
+      await requireExistingFactory(
+        tx as unknown as ReturnType<typeof getDb>,
+        orgId,
+        factoryId,
+      );
     });
 
     if (issues.length === 0 && pullRequests.length === 0) {
