@@ -139,10 +139,10 @@ export function AskSteps({
 
 function StepIcon({ step }: { step: AgentStep }) {
   if (step.status === "error") {
-    return <IconAlertTriangle size={12} stroke={2} aria-hidden />;
+    return <IconAlertTriangle size={15} stroke={1.75} aria-hidden />;
   }
   const Icon = KIND_ICON[step.kind];
-  return <Icon size={12} stroke={2} aria-hidden />;
+  return <Icon size={15} stroke={1.75} aria-hidden />;
 }
 
 /** The step in flight, or the last one when the run is over. */

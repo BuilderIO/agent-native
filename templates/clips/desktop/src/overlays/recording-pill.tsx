@@ -530,8 +530,25 @@ export function MeetingPill() {
 
     let release: (() => void) | null = null;
 
+    /**
+     * The segment's own content height. `scrollHeight` cannot be used: the
+     * transport buttons carry hit-target overlays that extend past their box,
+     * and scrollHeight counts that overflow — which showed up as dead space
+     * under the last control.
+     */
+    const contentHeight = () => {
+      const kids = Array.from(seg.children).filter(
+        (kid): kid is HTMLElement =>
+          kid instanceof HTMLElement &&
+          window.getComputedStyle(kid).display !== "none",
+      );
+      const gap = parseFloat(window.getComputedStyle(seg).rowGap) || 0;
+      const stacked = kids.reduce((total, kid) => total + kid.offsetHeight, 0);
+      return stacked + gap * Math.max(0, kids.length - 1);
+    };
+
     const apply = () => {
-      const target = open ? seg.scrollHeight : 0;
+      const target = open ? contentHeight() : 0;
       if (open) seg.dataset.open = "true";
       else delete seg.dataset.open;
       seg.style.transition = "";

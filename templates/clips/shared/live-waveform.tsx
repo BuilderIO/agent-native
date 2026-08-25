@@ -101,7 +101,11 @@ export function LiveWaveform({
             height: `${waveformBarPx(shown[i] ?? 0)}px`,
             borderRadius: "999px",
             background: "currentColor",
-            transition: "height 100ms ease-out",
+            // Samples land roughly every 40ms. A longer, eased transition is
+            // always retargeted mid-flight and never settles — that reads as
+            // jitter rather than as a level moving. Linear and shorter than
+            // the sample interval makes the bars one continuous motion.
+            transition: "height 70ms linear",
           }}
         />
       ))}

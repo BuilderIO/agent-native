@@ -4813,15 +4813,28 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
    pause, with no filled circle behind either. The base styles here are the
    compact pill's filled buttons, which is the wrong language for a capsule
    this small — two solid discs stacked read as a traffic light. */
+/* Sized to the glyph, not to the hit target. A 22px box around a 14px icon
+   puts 4px of dead space on the rhythm, which is why evenly-spaced boxes
+   still looked uneven — the eye measures ink, not boxes. The target is an
+   overlay instead, so it costs nothing in layout. */
 .pill-vertical .pill-pause-btn,
 .pill-vertical .pill-stop-btn {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
   margin: 0;
   padding: 0;
   border-radius: 50%;
   background: transparent;
+}
+
+.pill-vertical .pill-pause-btn::after,
+.pill-vertical .pill-stop-btn::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
 }
 
 .pill-inner-compact .pill-header.pill-vertical .pill-pause-btn {
@@ -4854,7 +4867,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-vertical .pill-wave-meter {
-  height: 22px;
+  height: 14px;
 }
 
 /* Wrapper around logo + waveform. */
@@ -4885,7 +4898,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 /* Layout only; the bars size and color themselves. */
 .pill-wave-meter {
-  height: 26px;
+  height: 14px;
 }
 
 .pill-stop-btn {
@@ -5571,7 +5584,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-ask-work-head {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -5584,7 +5597,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 2px 3px;
+  /* No horizontal padding: it reads as extra space between the chip and its
+     label, on top of the row's own gap. */
+  padding: 2px 0;
 }
 
 .pill-ask-chips[data-scrolled="true"] {
@@ -5603,13 +5618,16 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 /* Overlapped like a stack of avatars rather than spaced out as a row: the
    ring in the surface color is what cuts each chip out of the one behind it,
    so the trail reads as one object with a head instead of N buttons. */
+/* A Tabler glyph inks 75% of its box, so a 12px icon put 9px of ink inside a
+   21px ring — 43%, which reads as a glyph lost in a circle rather than one
+   set in it. 15px of icon in a 20px ring is ~56%. */
 .pill-ask-chip-icon {
   position: relative;
   display: grid;
   place-items: center;
   flex: none;
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
   margin-right: -5px;
   border: 1px solid hsl(var(--ui-border));
   border-radius: 50%;
