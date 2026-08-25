@@ -76,10 +76,16 @@ async function readProviderSettingsError(
   if (!trimmed) return undefined;
 
   try {
-    const body = JSON.parse(trimmed) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim()) {
-      return body.error.trim();
+    const body = JSON.parse(trimmed) as unknown;
+    if (body !== null && typeof body === "object") {
+      const error = (body as { error?: unknown }).error;
+      if (typeof error === "string" && error.trim()) {
+        return error.trim();
+      }
+    } else if (typeof body === "string" && body.trim()) {
+      return body.trim();
     }
+    return undefined;
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
     // Plain-text relay errors are the useful fallback for desktop requests.
