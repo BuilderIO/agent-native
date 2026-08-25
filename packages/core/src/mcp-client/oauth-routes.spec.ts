@@ -1,10 +1,10 @@
 import { mockEvent, type H3Event } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-const resolveSecretMock = vi.hoisted(() => vi.fn());
+const resolveSecretPairMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
-  resolveSecret: resolveSecretMock,
+  resolveSecretPair: resolveSecretPairMock,
 }));
 
 import {
@@ -221,6 +221,16 @@ describe("managed MCP OAuth clients", () => {
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org"),
     ).toBeNull();
     expect(
+      resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org", {
+        allowManagedOrgReconnect: true,
+      }),
+    ).toBe("org");
+    expect(
+      resolveMcpOAuthScope(new URL("https://drivemcp.googleapis.com"), "org", {
+        allowManagedOrgReconnect: true,
+      }),
+    ).toBe("org");
+    expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "user"),
     ).toBe("user");
     expect(
@@ -229,11 +239,13 @@ describe("managed MCP OAuth clients", () => {
   });
 
   it("resolves the workspace HubSpot client without exposing its secret to the browser", async () => {
-    resolveSecretMock.mockImplementation(async (key: string) => {
-      if (key === "HUBSPOT_MCP_CLIENT_ID") return "hubspot-client-id";
-      if (key === "HUBSPOT_MCP_CLIENT_SECRET") return "hubspot-client-secret";
-      return null;
-    });
+    resolveSecretPairMock.mockImplementation(
+      async ([clientIdKey, clientSecretKey]: [string, string]) =>
+        clientIdKey === "HUBSPOT_MCP_CLIENT_ID" &&
+        clientSecretKey === "HUBSPOT_MCP_CLIENT_SECRET"
+          ? ["hubspot-client-id", "hubspot-client-secret"]
+          : null,
+    );
 
     await expect(
       resolveManagedMcpOAuthClient(new URL("https://mcp.hubspot.com")),
@@ -245,15 +257,20 @@ describe("managed MCP OAuth clients", () => {
   });
 
   it("resolves the shared Google client for official Workspace MCP servers", async () => {
-    resolveSecretMock.mockImplementation(async (key: string) => {
-      if (key === "GOOGLE_CLIENT_ID") return "google-client-id";
-      if (key === "GOOGLE_CLIENT_SECRET") return "google-client-secret";
-      return null;
-    });
+    resolveSecretPairMock.mockImplementation(
+      async ([clientIdKey, clientSecretKey]: [string, string]) =>
+        clientIdKey === "GOOGLE_CLIENT_ID" &&
+        clientSecretKey === "GOOGLE_CLIENT_SECRET"
+          ? ["google-client-id", "google-client-secret"]
+          : null,
+    );
 
     for (const origin of [
       "https://gmailmcp.googleapis.com",
       "https://drivemcp.googleapis.com",
+      "https://docsmcp.googleapis.com",
+      "https://sheetsmcp.googleapis.com",
+      "https://slidesmcp.googleapis.com",
       "https://calendarmcp.googleapis.com",
       "https://chatmcp.googleapis.com",
       "https://people.googleapis.com",
@@ -270,12 +287,12 @@ describe("managed MCP OAuth clients", () => {
   });
 
   it("does not resolve a managed client for an unrelated MCP server", async () => {
-    resolveSecretMock.mockReset();
+    resolveSecretPairMock.mockReset();
 
     await expect(
       resolveManagedMcpOAuthClient(new URL("https://mcp.example.com")),
     ).resolves.toBeUndefined();
-    expect(resolveSecretMock).not.toHaveBeenCalled();
+    expect(resolveSecretPairMock).not.toHaveBeenCalled();
   });
 });
 

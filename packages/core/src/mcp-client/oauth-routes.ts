@@ -16,7 +16,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
-import { resolveSecret } from "../server/credential-provider.js";
+import { resolveSecretPair } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   getAppBasePath,
@@ -47,32 +47,28 @@ const CHUNKED_COOKIE_PREFIX = "__chunked__";
 
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
   serverOrigins: ReadonlyArray<string>;
-  clientIdKeys: ReadonlyArray<string>;
-  clientSecretKeys: ReadonlyArray<string>;
+  credentialPairs: ReadonlyArray<readonly [string, string]>;
 }> = [
   {
     serverOrigins: ["https://mcp.hubspot.com"],
-    clientIdKeys: [
-      "HUBSPOT_MCP_CLIENT_ID",
-      "HUBSPOT_INTEGRATION_CLIENT_ID",
-      "HUBSPOT_CLIENT_ID",
-    ],
-    clientSecretKeys: [
-      "HUBSPOT_MCP_CLIENT_SECRET",
-      "HUBSPOT_INTEGRATION_CLIENT_SECRET",
-      "HUBSPOT_CLIENT_SECRET",
+    credentialPairs: [
+      ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
+      ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
+      ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"],
     ],
   },
   {
     serverOrigins: [
       "https://gmailmcp.googleapis.com",
       "https://drivemcp.googleapis.com",
+      "https://docsmcp.googleapis.com",
+      "https://sheetsmcp.googleapis.com",
+      "https://slidesmcp.googleapis.com",
       "https://calendarmcp.googleapis.com",
       "https://chatmcp.googleapis.com",
       "https://people.googleapis.com",
     ],
-    clientIdKeys: ["GOOGLE_CLIENT_ID"],
-    clientSecretKeys: ["GOOGLE_CLIENT_SECRET"],
+    credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
   },
 ];
 
@@ -205,7 +201,10 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope);
+  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
+    allowManagedOrgReconnect:
+      reconnectScope === "org" && Boolean(reconnectServer),
+  });
   if (!requestedScope) {
     setResponseStatus(event, 400);
     return {
@@ -310,8 +309,13 @@ function isManagedMcpOAuthServer(serverUrl: URL): boolean {
 export function resolveMcpOAuthScope(
   serverUrl: URL,
   requestedScope: unknown,
+  options?: { allowManagedOrgReconnect?: boolean },
 ): RemoteMcpScope | null {
-  if (isManagedMcpOAuthServer(serverUrl) && requestedScope === "org") {
+  if (
+    isManagedMcpOAuthServer(serverUrl) &&
+    requestedScope === "org" &&
+    !options?.allowManagedOrgReconnect
+  ) {
     return null;
   }
   return requestedScope === "org" ? "org" : "user";
@@ -340,12 +344,10 @@ export async function resolveManagedMcpOAuthClient(
   );
   if (!client) return undefined;
 
-  for (let index = 0; index < client.clientIdKeys.length; index += 1) {
-    const [clientId, clientSecret] = await Promise.all([
-      resolveSecret(client.clientIdKeys[index]),
-      resolveSecret(client.clientSecretKeys[index]),
-    ]);
-    if (clientId && clientSecret) {
+  for (const [clientIdKey, clientSecretKey] of client.credentialPairs) {
+    const credentials = await resolveSecretPair([clientIdKey, clientSecretKey]);
+    if (credentials) {
+      const [clientId, clientSecret] = credentials;
       return {
         client_id: clientId,
         client_secret: clientSecret,
