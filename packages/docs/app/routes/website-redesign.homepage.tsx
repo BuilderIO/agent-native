@@ -4,6 +4,7 @@ import { BuiltInFeatures } from "../components/website-redesign/built-in-feature
 import { FeaturesActions } from "../components/website-redesign/features-actions";
 import { Hero } from "../components/website-redesign/hero";
 import { SiteHeader } from "../components/website-redesign/site-header";
+import { WorksWithStack } from "../components/website-redesign/works-with-stack";
 
 import tokensCss from "../components/website-redesign/tokens.css?url";
 
@@ -45,6 +46,7 @@ export default function WebsiteRedesignHomepage() {
       <Hero />
       <FeaturesActions />
       <BuiltInFeatures />
+      <WorksWithStack />
     </div>
   );
 }

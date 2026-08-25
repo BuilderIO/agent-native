@@ -211,6 +211,21 @@
   border-right: 1px solid var(--b-border-subtle);
 }
 
+.builder-brand-tokens .logos-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  border: 1px solid var(--b-border-default);
+  mix-blend-mode: luminosity;
+}
+
+.builder-brand-tokens .logo-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+
 @media (max-width: 768px) {
   .builder-brand-tokens {
     --spacing-4: 12px;
@@ -243,10 +258,18 @@
   .builder-brand-tokens .pillars-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .builder-brand-tokens .logos-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 480px) {
   .builder-brand-tokens .pillars-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .builder-brand-tokens .logos-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
