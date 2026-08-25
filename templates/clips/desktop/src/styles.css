@@ -5339,11 +5339,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
    running exchange — user questions as chat bubbles, streamed answers, and
    contextual suggestion chips. The grip resizes it; pulling it low dismisses. */
 .pill-ask-sheet {
-  position: absolute;
-  right: 0;
-  bottom: 54px;
-  left: 0;
-  z-index: 5;
+  /* In the column, not over it: an overlay would cover the newest transcript
+     lines, which is the only part of a live session anyone is reading. */
+  flex: none;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   border-top: 0.5px solid hsl(var(--ui-border));

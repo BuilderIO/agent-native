@@ -16,6 +16,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { applyFrame, settleSteps, type AgentStep } from "../lib/agent-steps";
 import {
+  ASK_SHEET_DEFAULT,
+  ASK_SHEET_DISMISS_AT,
+  clampAskSheetHeight,
+} from "../lib/ask-sheet-layout";
+import {
   type AskTurn,
   buildMeetingAskPrompt,
   MAX_ASK_HISTORY_TURNS,
@@ -81,8 +86,10 @@ export function MeetingPill() {
       steps?: AgentStep[];
     }>
   >([]);
+  // The flex column the transcript and the answer sheet divide between them.
+  const pillInnerRef = useRef<HTMLDivElement | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
-  const [askSheetHeight, setAskSheetHeight] = useState(0.62);
+  const [askSheetHeight, setAskSheetHeight] = useState(ASK_SHEET_DEFAULT);
   const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const askAbortRef = useRef<AbortController | null>(null);
   const chipsAbortRef = useRef<AbortController | null>(null);
@@ -665,6 +672,21 @@ export function MeetingPill() {
     setAskSheetOpen(false);
   };
 
+  // A split that leaves the transcript room on a tall window can starve it on a
+  // short one, so the ratio is re-clamped against the panel's real height
+  // whenever that height changes.
+  useEffect(() => {
+    const host = pillInnerRef.current;
+    if (!host || !askSheetOpen || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const total = host.clientHeight;
+      if (total <= 0) return;
+      setAskSheetHeight((current) => clampAskSheetHeight(current, total));
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [askSheetOpen]);
+
   // The sheet's grab handle: drag to resize, pull down far enough to dismiss.
   const handleSheetHandlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -674,16 +696,15 @@ export function MeetingPill() {
   const handleSheetHandlePointerMove = (e: React.PointerEvent) => {
     const drag = sheetDragRef.current;
     if (!drag) return;
-    const host = askSheetScrollRef.current?.parentElement?.parentElement;
-    const total = host?.clientHeight ?? 340;
+    const total = pillInnerRef.current?.clientHeight ?? 340;
     const next = drag.startHeight + (drag.startY - e.clientY) / total;
-    setAskSheetHeight(Math.min(0.85, Math.max(0.2, next)));
+    setAskSheetHeight(clampAskSheetHeight(next, total));
   };
   const handleSheetHandlePointerUp = () => {
     if (!sheetDragRef.current) return;
     sheetDragRef.current = null;
-    if (askSheetHeight <= 0.22) {
-      setAskSheetHeight(0.62);
+    if (askSheetHeight <= ASK_SHEET_DISMISS_AT) {
+      setAskSheetHeight(ASK_SHEET_DEFAULT);
       closeAskSheet();
     }
   };
@@ -776,6 +797,7 @@ export function MeetingPill() {
       }
     >
       <div
+        ref={pillInnerRef}
         className={`pill-inner${expanded ? "" : " pill-inner-compact"}${
           hovered ? " pill-hovered" : ""
         }`}
