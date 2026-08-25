@@ -160,6 +160,11 @@ export function HeroShaderSettingsPanel({
             id={panelId}
             role="dialog"
             aria-label="Shader tweak settings"
+            // Portaling to <body> escapes the .builder-brand-tokens wrapper
+            // that defines every --b-* var, so it must be reapplied here or
+            // the "solid" background resolves to transparent and page
+            // content shows through.
+            className="builder-brand-tokens"
             style={{
               position: "fixed",
               left: panelPos.left,
