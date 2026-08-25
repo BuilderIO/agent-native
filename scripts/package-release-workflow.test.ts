@@ -62,6 +62,7 @@ describe("npm package release workflow", () => {
       String(release.if),
       /needs\.verify-stable-merge\.outputs\.verified == 'true'/,
     );
+    assert.match(JSON.stringify(verifier), /stable_marker/);
     assert.match(JSON.stringify(verifier), /ACTOR/);
     assert.match(JSON.stringify(verifier), /commits\/\$SHA\/pulls/);
   });

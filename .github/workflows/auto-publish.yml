@@ -85,16 +85,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
           EVENT_NAME: ${{ github.event_name }}
-          MARKED: ${{ contains(github.event.head_commit.message, '[stable-release]') }}
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           verified=false
+          stable_marker="${{ contains(github.event.head_commit.message, '[stable-release]') }}"
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             verified=true
-          elif [ "$EVENT_NAME" = "push" ] && [ "$MARKED" = "true" ] && [ "$ACTOR" = "builder-io-integration[bot]" ]; then
+          elif [ "$EVENT_NAME" = "push" ] && [ "$stable_marker" = "true" ] && [ "$ACTOR" = "builder-io-integration[bot]" ]; then
             release_prs="$RUNNER_TEMP/stable-release-pull-requests.json"
             gh api --paginate --slurp \
               "repos/$REPOSITORY/commits/$SHA/pulls" > "$release_prs"
