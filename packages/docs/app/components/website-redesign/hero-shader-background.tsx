@@ -26,6 +26,7 @@ uniform float uBlinkRate;
 uniform float uSpin;
 uniform float uTurbulence;
 uniform vec3 uColor;
+uniform vec3 uBgColor;
 
 #define S(a, b, t) smoothstep(a, b, t)
 
@@ -183,7 +184,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float tt = min(iTime, 5.0);
   col *= S(0., 20., tt);
 
-  vec3 bg = mix(vec3(1.0), vec3(0.0), uDark);
+  vec3 bg = uBgColor;
 
   if (uDark < 0.5) {
     col = bg - col * 1.2;
@@ -210,6 +211,7 @@ function hexToRgb01(hex: string): [number, number, number] {
     (value & 255) / 255,
   ];
 }
+
 
 export interface HeroShaderBackgroundProps extends HeroShaderSettings {
   frameRate?: number;
@@ -317,6 +319,7 @@ export function HeroShaderBackground({
     const uSpin = gl.getUniformLocation(program, "uSpin");
     const uTurbulence = gl.getUniformLocation(program, "uTurbulence");
     const uColor = gl.getUniformLocation(program, "uColor");
+    const uBgColor = gl.getUniformLocation(program, "uBgColor");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -340,7 +343,17 @@ export function HeroShaderBackground({
       );
     }
 
+    // --b-bg-page is authored as a hex string in tokens.css and flips value
+    // under `.light .builder-brand-tokens`, so reading it here keeps the
+    // shader's backdrop identical to the page behind it in both themes
+    // instead of hardcoding pure black/white.
+    function readBgColor(): [number, number, number] {
+      const raw = getComputedStyle(container).getPropertyValue("--b-bg-page").trim();
+      return hexToRgb01(raw || "#0a0a0a");
+    }
+
     let dark = readDarkMode();
+    let bgColor = readBgColor();
 
     function easePointer(allowPointer: boolean) {
       if (!allowPointer) {
@@ -367,6 +380,7 @@ export function HeroShaderBackground({
       gl.uniform1f(uSpin, settingsRef.current.spin);
       gl.uniform1f(uTurbulence, settingsRef.current.turbulence);
       gl.uniform3f(uColor, r, g, b);
+      gl.uniform3f(uBgColor, bgColor[0], bgColor[1], bgColor[2]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -414,6 +428,7 @@ export function HeroShaderBackground({
 
     const observer = new MutationObserver(() => {
       dark = readDarkMode();
+      bgColor = readBgColor();
       if (reducedMotion) draw(20, false);
     });
     observer.observe(document.documentElement, {
