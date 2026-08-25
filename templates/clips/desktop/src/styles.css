@@ -5341,10 +5341,32 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 8px 12px 12px;
 }
 
-.pill-inner:not(.pill-inner-compact) .pill-ask-input {
+/* The field owns the fill, radius, and focus ring; the input is transparent
+   inside it and the send button sits embedded at the trailing edge (shadcn's
+   InputGroup pattern), so composing and sending read as one control. */
+.pill-inner:not(.pill-inner-compact) .pill-ask-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
   height: 34px;
+  padding: 0 4px 0 0;
   border: 1px solid transparent;
+  border-radius: 999px;
   background: hsl(var(--ui-muted));
+  transition: border-color 120ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-field:focus-within {
+  border-color: hsl(var(--ui-ring) / 0.35);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
   color: hsl(var(--ui-foreground));
   font-size: 13px;
 }
@@ -5353,17 +5375,30 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: hsl(var(--ui-muted-foreground));
 }
 
-.pill-inner:not(.pill-inner-compact) .pill-ask-input:focus {
-  background: hsl(var(--ui-muted));
-  border-color: hsl(var(--ui-ring) / 0.35);
+.pill-inner:not(.pill-inner-compact) .pill-ask-send {
+  height: 26px;
+  width: 26px;
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+  transition:
+    opacity 120ms,
+    background 120ms;
 }
 
-.pill-inner:not(.pill-inner-compact) .pill-ask-send,
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:disabled {
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+  opacity: 0.6;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
 .pill-inner:not(.pill-inner-compact) .pill-ask-open {
   color: hsl(var(--ui-muted-foreground));
 }
 
-.pill-inner:not(.pill-inner-compact) .pill-ask-send:hover:not(:disabled),
 .pill-inner:not(.pill-inner-compact) .pill-ask-open:hover {
   background: hsl(var(--ui-accent));
   color: hsl(var(--ui-foreground));

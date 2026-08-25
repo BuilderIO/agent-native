@@ -563,25 +563,27 @@ export function MeetingPill() {
                   Stop
                 </button>
               ) : null}
-              <input
-                data-no-drag
-                className="pill-ask-input"
-                value={ask}
-                onChange={(e) => setAsk(e.target.value)}
-                placeholder="Ask anything"
-                aria-label="Ask anything about this meeting"
-                disabled={!ctx.meetingId}
-              />
-              <button
-                type="submit"
-                data-no-drag
-                className="pill-ask-send"
-                disabled={!ask.trim() || !ctx.meetingId}
-                aria-label="Ask"
-                title="Ask"
-              >
-                <IconArrowUp size={13} />
-              </button>
+              <div className="pill-ask-field" data-no-drag>
+                <input
+                  data-no-drag
+                  className="pill-ask-input"
+                  value={ask}
+                  onChange={(e) => setAsk(e.target.value)}
+                  placeholder="Ask anything"
+                  aria-label="Ask anything about this meeting"
+                  disabled={!ctx.meetingId}
+                />
+                <button
+                  type="submit"
+                  data-no-drag
+                  className="pill-ask-send"
+                  disabled={!ask.trim() || !ctx.meetingId}
+                  aria-label="Ask"
+                  title="Ask"
+                >
+                  <IconArrowUp size={13} />
+                </button>
+              </div>
               <button
                 type="button"
                 data-no-drag
