@@ -18,19 +18,19 @@ export interface HeroShaderSettings {
 }
 
 export const DEFAULT_HERO_SHADER_SETTINGS: HeroShaderSettings = {
-  particleCount: 6,
+  particleCount: 3,
   color: "#595959",
   colorMode: "gradient",
   accentColor: "#1e4245",
   blinkRate: 2,
   spin: 0,
   turbulence: 0.4,
-  intensity: 1,
-  animationSpeed: 0.5,
+  intensity: 0.3,
+  animationSpeed: 0.3,
   glow: 0.1,
   scale: 0.6,
   seed: 0,
-  vignette: 0.5,
+  vignette: 1.1,
   paused: false,
 };
 
