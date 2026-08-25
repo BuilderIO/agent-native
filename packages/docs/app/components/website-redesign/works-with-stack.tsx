@@ -78,7 +78,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "gitlab",
-    scale: 1.15,
+    scale: 1.35,
     render: () => (
       <svg
         width="125"
@@ -126,7 +126,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "linear",
-    scale: 1.2,
+    scale: 1.35,
     render: () => (
       <svg
         width="125"
@@ -144,7 +144,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "contentful",
-    scale: 1.15,
+    scale: 1.35,
     render: () => (
       <svg
         width="125"
@@ -283,7 +283,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "stripe",
-    scale: 1.4,
+    scale: 1.7,
     render: () => (
       <svg
         width="125"
@@ -402,7 +402,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "dropbox-blue",
-    scale: 1.15,
+    scale: 1.4,
     render: () => (
       <svg
         width="125"
@@ -633,7 +633,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "Netlify_idmPWmzPWc_1",
-    scale: 1.3,
+    scale: 1.6,
     render: () => (
       <svg
         width="70"
@@ -719,7 +719,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "coral-circles",
-    scale: 1.5,
+    scale: 1.8,
     render: () => (
       <svg
         width="125"
@@ -795,7 +795,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "app-grid-mark",
-    scale: 1.1,
+    scale: 1.35,
     render: () => (
       <svg
         width="125"
@@ -828,7 +828,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "asana",
-    scale: 1.15,
+    scale: 1.35,
     render: () => (
       <svg
         width="125"
