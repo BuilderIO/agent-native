@@ -5,7 +5,7 @@
  * this action exists to give the editor the same permission rule it had on the
  * route it replaced.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";

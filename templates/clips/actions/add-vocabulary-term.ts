@@ -14,7 +14,7 @@
  *   pnpm action add-vocabulary-term --term="kubectl" --replacement="kubectl"
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { createError } from "h3";

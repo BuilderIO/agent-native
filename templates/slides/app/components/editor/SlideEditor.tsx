@@ -4541,6 +4541,7 @@ export default function SlideEditor({
         selected && !isSlideCanvasShell(selected) ? selected : null,
         clicked && !isSlideCanvasShell(clicked) ? clicked : null,
       );
+      const editableTextBlock = findSmartBlock(target, slideContent);
       const pointerIntent = resolveSlidesCanvasPointerIntent({
         hasSelectedObject: dragTarget !== null,
         targetWithinSelectedObject: dragTarget?.contains(target) ?? false,
@@ -4554,7 +4555,9 @@ export default function SlideEditor({
             e.clientX,
             e.clientY,
           ),
-        targetIsEditableText: Boolean(findSmartBlock(target, slideContent)),
+        targetIsEditableText: Boolean(
+          editableTextBlock && !isSlideCanvasShell(editableTextBlock),
+        ),
       });
       if (
         dragTarget &&
@@ -5054,7 +5057,13 @@ export default function SlideEditor({
     (patch: SlideStylePatch) => {
       const editing = editingElRef.current;
       const element = editing ?? resolveSelectedElement();
-      if (!element || !selectedElementSelector) return;
+      // Inline edits entered without selectElementForStyling (the text-box
+      // tool) leave selectedElementSelector null, so fall back the same way the
+      // snapshot readers do rather than dropping the write.
+      const selector =
+        selectedElementSelector ??
+        (editing ? getBuilderSelector(editing) : null);
+      if (!element || !selector) return;
 
       const inlinePatch = inlineInspectorStylePatch(patch);
       const inlineKeys = INLINE_INSPECTOR_STYLE_KEYS.filter(
@@ -5117,11 +5126,7 @@ export default function SlideEditor({
             richTextSelectionRef.current,
           )
         : undefined;
-      const snapshot = buildStyleSnapshot(
-        element,
-        selectedElementSelector,
-        inlineTextStyle,
-      );
+      const snapshot = buildStyleSnapshot(element, selector, inlineTextStyle);
       if (!editing) {
         invalidateSelectionOverlayMeasurement();
       }
@@ -5129,7 +5134,7 @@ export default function SlideEditor({
       if (!editing) {
         syncSelectionToAppState(
           buildSelectionState(getSlideSelectionMode(snapshot), [
-            selectionItemForElement(element, selectedElementSelector, snapshot),
+            selectionItemForElement(element, selector, snapshot),
           ]),
         );
       }
@@ -5211,15 +5216,25 @@ export default function SlideEditor({
         converted.focus({ preventScroll: true });
       }
 
+      // Committing while an edit is open re-renders the slide from `content`
+      // and replaces the contentEditable node; stash a draft instead and let
+      // exitInlineEdit flush it.
+      if (editing) {
+        captureInlineEditDraft(slide.id);
+        return;
+      }
+
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
       const selector = getBuilderSelector(converted);
       if (selector) selectElementForStyling(converted, selector);
     },
     [
+      captureInlineEditDraft,
       readCurrentSlideContentHtml,
       resolveSelectedElement,
       selectElementForStyling,
+      slide.id,
     ],
   );
 

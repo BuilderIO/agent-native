@@ -33,6 +33,10 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
+import {
+  isActionContractError,
+  isActionExposedToExternalAgents,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -424,6 +428,44 @@ function scopeToolSearchToAdvertised(
       },
     },
   };
+}
+
+/**
+ * Drop every action this request's surface must not reach at all.
+ *
+ * Applied to `actions` — the whole surface this request can reach — and not
+ * just to the advertised listing, because on the `--full-catalog` tier
+ * `actions` IS the callable set (see the `tools/call` handler below). An
+ * external-agent opt-out that only hid the schema would leave the action
+ * callable by name, which is the same "hidden but reachable" bug the
+ * `withoutToolSearch` comment above exists to prevent.
+ *
+ * The in-app agent never comes through here, so its tool list is unaffected.
+ */
+function withoutExternalOptOuts(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) =>
+      isActionExposedToExternalAgents(entry),
+    ),
+  );
+}
+
+/**
+ * Connector-catalog membership declared on the actions themselves.
+ *
+ * This is `mcp.connectorCatalog` with the list inverted into the action files,
+ * so a rename moves the declaration with the action instead of stranding a
+ * dead string in a plugin config. Both forms feed the same set and an app can
+ * run either or both while it migrates.
+ */
+export function declaredMcpToolNames(
+  actions: Record<string, ActionEntry>,
+): string[] {
+  return Object.entries(actions)
+    .filter(([, entry]) => entry.mcpTool === true)
+    .map(([name]) => name);
 }
 
 const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
@@ -1649,9 +1691,9 @@ export async function createMCPServerForRequest(
   // Strip from `actions`, not just the advertised set: on the full-catalog tier
   // `actions` IS the callable surface, so filtering only the listing would
   // leave `tool-search` callable but invisible.
-  const actions = flatCatalog
-    ? withoutToolSearch(mergedActions)
-    : mergedActions;
+  const actions = withoutExternalOptOuts(
+    flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
+  );
   const visibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
@@ -1674,16 +1716,18 @@ export async function createMCPServerForRequest(
   const autoReadNames = autoAuthenticatedReadNames(visibleActions, config);
   const connectorNames = new Set([
     ...(config.connectorCatalog ?? []),
+    ...declaredMcpToolNames(visibleActions),
     ...autoReadNames,
   ]);
   const denyNames = externalAgentDenySet(config);
   const automaticConnectorPolicyActive =
     config.externalAgents?.authenticatedReads === "auto";
-  // Connector-catalog tier: when a template declares a connector allow-list,
-  // serve exactly that curated surface plus any explicitly annotated
-  // authenticated reads from `externalAgents.authenticatedReads: "auto"`.
-  // This stays compact by default and keeps db-exec / seed-* / extension /
-  // browser-session footguns off the external surface.
+  // Connector-catalog tier: when a template declares a connector allow-list —
+  // as `mcp.connectorCatalog` names or as `mcpTool: true` on the actions
+  // themselves — serve exactly that curated surface plus any explicitly
+  // annotated authenticated reads from `externalAgents.authenticatedReads:
+  // "auto"`. This stays compact by default and keeps db-exec / seed-* /
+  // extension / browser-session footguns off the external surface.
   const connectorCatalogActive =
     !appCatalog &&
     (connectorNames.size > 0 || automaticConnectorPolicyActive) &&
@@ -2250,8 +2294,17 @@ export async function createMCPServerForRequest(
               : {}),
           };
         } catch (err: any) {
+          // Same contract the in-app agent gets: the message the action wrote,
+          // plus the code it chose. `action_failed` is `fail()`'s stand-in for
+          // "the author picked none", so it adds nothing here.
+          const errorCode =
+            isActionContractError(err) && err.errorCode !== "action_failed"
+              ? ` (errorCode: ${err.errorCode})`
+              : "";
           return {
-            content: [{ type: "text", text: `Error: ${err.message}` }],
+            content: [
+              { type: "text", text: `Error: ${err.message}${errorCode}` },
+            ],
             isError: true,
           };
         }

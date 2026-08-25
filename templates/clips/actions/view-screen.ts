@@ -10,7 +10,7 @@
  *   pnpm action view-screen
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
   readAppStateForCurrentTab,
@@ -210,7 +210,14 @@ async function fetchLibrary({
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
   }
-  const meetingRecordingIds = db
+  // Meeting recordings are transcript-only and live on /meetings, so keep them
+  // out of clip library views. `await db` with no chain resolves the lazy proxy
+  // from create-get-db.ts to the real instance without issuing a query; the
+  // subquery must be built off *that*. Building it off `db` hands an unresolved
+  // chain to notInArray(), which reads `.getSQL()` synchronously on a cold-start
+  // proxy. The subquery filters NULLs so NOT IN doesn't collapse to empty.
+  const resolvedDb = await db;
+  const meetingRecordingIds = resolvedDb
     .select({ id: schema.meetings.recordingId })
     .from(schema.meetings)
     .where(isNotNull(schema.meetings.recordingId));

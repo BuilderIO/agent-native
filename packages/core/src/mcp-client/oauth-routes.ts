@@ -16,7 +16,10 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
-import { resolveSecret } from "../server/credential-provider.js";
+import {
+  CredentialStoreUnavailableError,
+  resolveSecretPair,
+} from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   getAppBasePath,
@@ -45,21 +48,36 @@ const FLOW_COOKIE_CHUNK_SIZE = 2_800;
 const FLOW_COOKIE_MAX_CHUNKS = 8;
 const CHUNKED_COOKIE_PREFIX = "__chunked__";
 
-const MANAGED_MCP_OAUTH_CLIENTS = [
+const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
+  serverOrigins: ReadonlyArray<string>;
+  credentialPairs: ReadonlyArray<readonly [string, string]>;
+}> = [
   {
-    serverOrigin: "https://mcp.hubspot.com",
-    clientIdKeys: [
-      "HUBSPOT_MCP_CLIENT_ID",
-      "HUBSPOT_INTEGRATION_CLIENT_ID",
-      "HUBSPOT_CLIENT_ID",
-    ],
-    clientSecretKeys: [
-      "HUBSPOT_MCP_CLIENT_SECRET",
-      "HUBSPOT_INTEGRATION_CLIENT_SECRET",
-      "HUBSPOT_CLIENT_SECRET",
+    serverOrigins: ["https://mcp.hubspot.com"],
+    credentialPairs: [
+      ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
+      ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
+      ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"],
     ],
   },
-] as const;
+  {
+    serverOrigins: [
+      "https://gmailmcp.googleapis.com",
+      "https://drivemcp.googleapis.com",
+      "https://docsmcp.googleapis.com",
+      "https://sheetsmcp.googleapis.com",
+      "https://slidesmcp.googleapis.com",
+      "https://calendarmcp.googleapis.com",
+      "https://chatmcp.googleapis.com",
+      "https://people.googleapis.com",
+    ],
+    credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+  {
+    serverOrigins: ["https://workspacemcp.googleapis.com"],
+    credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+];
 
 export interface McpOAuthFlow {
   name: string;
@@ -190,7 +208,10 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope);
+  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
+    allowManagedOrgReconnect:
+      reconnectScope === "org" && Boolean(reconnectServer),
+  });
   if (!requestedScope) {
     setResponseStatus(event, 400);
     return {
@@ -253,7 +274,7 @@ async function handleMcpOAuthStart(
       setResponseStatus(event, 400);
       return {
         error:
-          "HubSpot personal MCP connect is not configured for this workspace. A workspace owner must register the HubSpot MCP Auth App once; after that, any workspace member can connect a personal account.",
+          "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.",
       };
     }
     const flow: McpOAuthFlow = {
@@ -277,26 +298,52 @@ async function handleMcpOAuthStart(
     };
     setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
     return redirectWithStagedCookies(event, started.authorizationUrl.href);
-  } catch {
-    setResponseStatus(event, 400);
-    return {
-      error:
-        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
-    };
+  } catch (error) {
+    const failure = resolveMcpOAuthStartError(error);
+    setResponseStatus(event, failure.status);
+    return failure.body;
   }
 }
 
+export function resolveMcpOAuthStartError(error: unknown): {
+  status: 400 | 503;
+  body: { error: string; errorCode?: string; retryable?: boolean };
+} {
+  if (error instanceof CredentialStoreUnavailableError) {
+    return {
+      status: 503,
+      body: {
+        error: error.message,
+        errorCode: error.errorCode,
+        retryable: error.retryable,
+      },
+    };
+  }
+  return {
+    status: 400,
+    body: {
+      error:
+        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+    },
+  };
+}
+
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
-  return MANAGED_MCP_OAUTH_CLIENTS.some(
-    (client) => client.serverOrigin === serverUrl.origin,
+  return MANAGED_MCP_OAUTH_CLIENTS.some((client) =>
+    client.serverOrigins.includes(serverUrl.origin),
   );
 }
 
 export function resolveMcpOAuthScope(
   serverUrl: URL,
   requestedScope: unknown,
+  options?: { allowManagedOrgReconnect?: boolean },
 ): RemoteMcpScope | null {
-  if (isManagedMcpOAuthServer(serverUrl) && requestedScope === "org") {
+  if (
+    isManagedMcpOAuthServer(serverUrl) &&
+    requestedScope === "org" &&
+    !options?.allowManagedOrgReconnect
+  ) {
     return null;
   }
   return requestedScope === "org" ? "org" : "user";
@@ -320,17 +367,15 @@ export function stripMcpOAuthAppBasePath(
 export async function resolveManagedMcpOAuthClient(
   serverUrl: URL,
 ): Promise<StoredOAuthClientInformation | undefined> {
-  const client = MANAGED_MCP_OAUTH_CLIENTS.find(
-    (candidate) => candidate.serverOrigin === serverUrl.origin,
+  const client = MANAGED_MCP_OAUTH_CLIENTS.find((candidate) =>
+    candidate.serverOrigins.includes(serverUrl.origin),
   );
   if (!client) return undefined;
 
-  for (let index = 0; index < client.clientIdKeys.length; index += 1) {
-    const [clientId, clientSecret] = await Promise.all([
-      resolveSecret(client.clientIdKeys[index]),
-      resolveSecret(client.clientSecretKeys[index]),
-    ]);
-    if (clientId && clientSecret) {
+  for (const [clientIdKey, clientSecretKey] of client.credentialPairs) {
+    const credentials = await resolveSecretPair([clientIdKey, clientSecretKey]);
+    if (credentials) {
+      const [clientId, clientSecret] = credentials;
       return {
         client_id: clientId,
         client_secret: clientSecret,

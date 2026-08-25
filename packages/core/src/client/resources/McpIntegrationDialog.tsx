@@ -398,7 +398,7 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
-    if (hasOrg) {
+    if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
       return;
@@ -427,7 +427,7 @@ export function McpIntegrationDialog({
 
   const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
     if (!mcpServersQuery.isSuccess) return;
-    if (hasOrg) {
+    if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
       return;
@@ -485,7 +485,7 @@ export function McpIntegrationDialog({
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
-    if (hasOrg) {
+    if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
       return;
@@ -870,6 +870,19 @@ export function McpIntegrationDialog({
                         {t(selected.setupNoteKey)}
                       </p>
                     ) : null}
+                    <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">
+                          {t("mcpIntegrations.personalConnection")}
+                        </p>
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">
+                          {t("mcpIntegrations.personalDescription")}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {t("mcpIntegrations.personal")}
+                      </span>
+                    </div>
                     {selected.docsUrl ? (
                       <a
                         href={selected.docsUrl}
@@ -1064,17 +1077,6 @@ export function McpIntegrationDialog({
               ) : null}
               {selectedRequiresSetup ? (
                 <div className="ms-auto flex items-center gap-2">
-                  {selected?.docsUrl ? (
-                    <a
-                      href={selected.docsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent"
-                    >
-                      {t("mcpIntegrations.viewSetup")}
-                      <IconExternalLink className="h-3 w-3" />
-                    </a>
-                  ) : null}
                   {selected?.authMode === "oauth" && (
                     <button
                       type="button"

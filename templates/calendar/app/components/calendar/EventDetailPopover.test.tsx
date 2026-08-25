@@ -666,6 +666,58 @@ describe("EventDetailPopover characterization", () => {
     expect(endTimeTrigger?.textContent).toBe("1:00 PM");
   });
 
+  it("prefers the viewer's calendar timezone over the event's stored timezone when seeding the time editor", () => {
+    // Same instant as the previous test, but this event was created in a
+    // different zone (America/Los_Angeles) than the viewer's currently
+    // configured Calendar Settings timezone (America/New_York, passed as the
+    // `timezone` prop). The grid always converts into the viewer's zone, so
+    // this popover must match it instead of falling back to the event's own
+    // stored creation zone.
+    vi.stubEnv("TZ", "UTC");
+    const event = baseEvent({
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      startTimeZone: "America/Los_Angeles",
+      endTimeZone: "America/Los_Angeles",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          timezone="America/New_York"
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openPopoverButtons = () =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter(
+        (button) => button.textContent === "Mock open popover",
+      );
+
+    const startTimePopoverButton = openPopoverButtons()[1];
+    const endTimePopoverButton = openPopoverButtons()[2];
+    expect(startTimePopoverButton).toBeTruthy();
+    expect(endTimePopoverButton).toBeTruthy();
+    act(() => {
+      startTimePopoverButton!.click();
+      endTimePopoverButton!.click();
+    });
+
+    const startTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.start"]',
+    );
+    const endTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.end"]',
+    );
+    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
+    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+  });
+
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {
     const event = baseEvent({
       id: "event-2",

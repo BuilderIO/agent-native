@@ -1,0 +1,91 @@
+{
+  "@agent-native/docs": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 23054523,
+    "server-agent-background": 13204810
+  },
+  "analytics": {
+    "agent-native-recurring-jobs": 1758,
+    "analytics-alert-cron": 1566,
+    "analytics-alert-sweep-background": 22027040,
+    "analytics-bigquery-backfill-background": 22027074,
+    "analytics-bigquery-backfill-cron": 1049,
+    "analytics-rollup-backfill-background": 22027067,
+    "analytics-rollup-backfill-cron": 1044,
+    "dashboard-report-cron": 1065,
+    "dashboard-report-sweep-background": 22027890,
+    "server": 38691313,
+    "server-agent-background": 29304502,
+    "session-replay-retention-cron": 1197,
+    "session-replay-retention-sweep-background": 22027071,
+    "uptime-monitor-cron": 1560,
+    "uptime-monitor-sweep-background": 22027036
+  },
+  "assets": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 47974585,
+    "server-agent-background": 41401561
+  },
+  "brain": {
+    "agent-native-recurring-jobs": 1758,
+    "brain-queue-sweep-background": 24956109,
+    "server": 24956109,
+    "server-agent-background": 17511219
+  },
+  "calendar": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 22139899,
+    "server-agent-background": 15361339
+  },
+  "chat": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 19283423,
+    "server-agent-background": 12632830
+  },
+  "clips": {
+    "agent-native-recurring-jobs": 1758,
+    "clips-brain-export-sweep-background": 37853594,
+    "server": 37853594,
+    "server-agent-background": 17930650
+  },
+  "content": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 41767636,
+    "server-agent-background": 25753432
+  },
+  "dispatch": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 35066699,
+    "server-agent-background": 35071363
+  },
+  "factory": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 19830916,
+    "server-agent-background": 19835580
+  },
+  "forms": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 22385614,
+    "server-agent-background": 16416362
+  },
+  "macros": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 19486875,
+    "server-agent-background": 12898938
+  },
+  "mail": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 43725619,
+    "server-agent-background": 37119590
+  },
+  "plan": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 25092838,
+    "server-agent-background": 16780809
+  },
+  "slides": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 73610035,
+    "server-agent-background": 65116570
+  }
+}

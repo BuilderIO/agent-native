@@ -229,6 +229,31 @@ export async function canUpdateAutomationResource(
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
+/**
+ * Factory is a shared team workspace: any current org member may queue Run now
+ * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
+ * on creator-or-admin `canUpdate`.
+ */
+export async function canQueueAutomationRunNow(
+  actorInput: AutomationActor,
+  resource: Resource,
+  scope: AutomationScope,
+): Promise<boolean> {
+  const { meta } = parseJobResource(resource.content);
+  const actor = normalizeActor(actorInput);
+  if (!jobBelongsToApp(meta, actor.appId)) return false;
+  const access = await mutationAccess(actor, resource, meta);
+  if (access.canUpdate) return true;
+  const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
+  return (
+    scope === "organization" &&
+    Boolean(resourceOrgId) &&
+    actor.orgId === resourceOrgId &&
+    actor.appId === "factory" &&
+    meta.domain === "factory"
+  );
+}
+
 function assertExplicitAutomation(
   resource: Resource,
 ): Omit<AutomationDefinition, "name" | "scope" | "canUpdate"> {

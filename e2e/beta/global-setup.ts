@@ -138,7 +138,7 @@ async function globalSetup(): Promise<void> {
         }
 
         console.log(
-          `[beta-e2e]   ${site.id}: session ok as ${identity.email}${needsKey.has(site.id) ? ", dedicated key installed" : ""}`,
+          `[beta-e2e]   ${site.id}: session ok as ${identity.email}${needsKey.has(site.id) ? `, ${resolvedKey.source} OpenAI key installed` : ""}`,
         );
       } catch (error) {
         failures.push(

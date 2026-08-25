@@ -1,5 +1,60 @@
 # @agent-native/dispatch
 
+## 0.31.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.15
+
+## 0.31.19
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.14
+
+## 0.31.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- eff9004: Include available and connected apps in Dispatch app search results.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.13
+
+## 0.31.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.12
+
+## 0.31.16
+
+### Patch Changes
+
+- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
+
+## 0.31.15
+
+### Patch Changes
+
+- c595519: Automations page now writes the selected automation into a `?automationId=` URL param instead of untracked local state, so a selected row can be linked, reloaded, and reached with browser Back on both `/automations` and `/admin/automations`.
+- c595519: Fix a workspace app opened from Dispatch chat-first mode on a narrow viewport mounting its own full-screen agent chat rail on top of the already full-screen side surface panel.
+- c595519: Fix the chat-first side surface panel's close toggle being stacked beneath the panel it controls on viewports at or below 767px, which made the panel undismissable.
+- d74aff9: Keep Dispatch's Feedback, Search, and Collapse controls flush with the bottom of the left sidebar.
+- af1b3bb: Derive the chat model selection localStorage key through one exported helper, `chatModelSelectionStorageKey`. `useChatModels` takes the raw key while `MultiTabAssistantChat` takes only the namespace suffix, so a hero composer that passed the same string to both wrote to a different key than the chat beside it and never saw its model picks.
+- Updated dependencies [6c2e431]
+- Updated dependencies [af1b3bb]
+- Updated dependencies [c595519]
+- Updated dependencies [9735e4d]
+- Updated dependencies [15b86eb]
+  - @agent-native/toolkit@0.16.11
+
 ## 0.31.14
 
 ### Patch Changes

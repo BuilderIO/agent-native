@@ -69,6 +69,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/hosted-harness/actions/set-hosted-harness-enabled",
   },
   {
+    name: "set-tool-approval-policy",
+    specifier: "@agent-native/core/agent/actions/set-tool-approval-policy",
+  },
+  {
     name: "share-resource",
     specifier: "@agent-native/core/sharing/actions/share-resource",
   },

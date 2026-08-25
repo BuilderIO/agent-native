@@ -180,6 +180,29 @@ describe("inferAutoLayoutFromChildren", () => {
     expect(result.padding).toBe(10);
   });
 
+  it("keeps a stack of rows wider than the stack is tall in column flow", () => {
+    const container = { x: 0, y: 0, width: 424, height: 176 };
+    const children: AlignableRect[] = [
+      { id: "a", x: 12, y: 12, width: 400, height: 40 },
+      { id: "b", x: 12, y: 64, width: 400, height: 40 },
+      { id: "c", x: 12, y: 116, width: 400, height: 40 },
+    ];
+    const result = inferAutoLayoutFromChildren(container, children);
+    expect(result.direction).toBe("column");
+    expect(result.gap).toBe(12);
+  });
+
+  it("keeps a right-aligned stack of unequal rows in column flow", () => {
+    const container = { x: 0, y: 0, width: 400, height: 140 };
+    const children: AlignableRect[] = [
+      { id: "a", x: 0, y: 0, width: 400, height: 40 },
+      { id: "b", x: 360, y: 60, width: 40, height: 40 },
+    ];
+    expect(inferAutoLayoutFromChildren(container, children).direction).toBe(
+      "column",
+    );
+  });
+
   it("matches Figma's vertical default with no children", () => {
     const container = { x: 0, y: 0, width: 100, height: 100 };
     const result = inferAutoLayoutFromChildren(container, []);

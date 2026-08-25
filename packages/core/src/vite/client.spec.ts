@@ -89,6 +89,45 @@ describe("Nitro dev startup recovery", () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it("settles readiness before the first document request", () => {
+    vi.useFakeTimers();
+    try {
+      const entry = {
+        id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
+        transformResult: { code: "entry" },
+      };
+      const environment = {
+        moduleGraph: { idToModuleMap: new Map([[entry.id, entry]]) },
+      };
+      let time = 0;
+      let middleware:
+        | ((req: unknown, res: unknown, next: () => void) => void)
+        | undefined;
+      _nitroStartupGate({ now: () => time, settleMs: 100 }).configureServer?.({
+        environments: { nitro: environment },
+        middlewares: {
+          use: vi.fn((handler) => {
+            middleware = handler;
+          }),
+        },
+      } as never);
+
+      // The interval observes readiness while no browser request is present.
+      time = 150;
+      vi.advanceTimersByTime(100);
+
+      const next = vi.fn();
+      middleware?.(
+        { headers: { accept: "text/html" }, method: "GET" },
+        { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+        next,
+      );
+      expect(next).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("turns a transient document error into a quiet retry page", () => {
     let middleware:
       | ((
@@ -338,6 +377,35 @@ describe("dev server mounted path helpers", () => {
     expect(assetRequest.headers.accept).toBe("image/png");
   });
 
+  it("normalizes the browser's real speculation-rules auto-fetch destination", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+
+    // Real Chromium tags its native speculation-rules auto-fetch with this
+    // exact destination, never absent — the forwarder must still normalize
+    // it, or Nitro's dev classifier treats it as a static asset and 404s.
+    const request: any = {
+      url: "/_agent-native/speculation-rules.json",
+      headers: {
+        accept: "application/speculationrules+json",
+        "sec-fetch-dest": "speculationrules",
+      },
+    };
+    const next = vi.fn();
+    middleware?.(request, {}, next);
+    expect(request.headers["sec-fetch-dest"]).toBe("empty");
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it("preserves document and iframe destinations for embed-start", () => {
     const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
     let middleware: Function | null = null;
@@ -416,16 +484,16 @@ describe("dev server mounted path helpers", () => {
     await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
 
     expect(next).not.toHaveBeenCalled();
-    expect(server.pluginContainer.load).toHaveBeenCalledWith(
+    expect(server.transformRequest).toHaveBeenCalledWith(
       "\0virtual:react-router/browser-manifest",
     );
-    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(server.pluginContainer.load).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith(
       "content-type",
       "text/javascript",
     );
     expect(res.end).toHaveBeenCalledWith(
-      'window.__loaded = "\\u0000virtual:react-router/browser-manifest";',
+      'export const url = "\\u0000virtual:react-router/browser-manifest";',
     );
   });
 
@@ -1635,6 +1703,38 @@ describe("agentNative Vite plugin preset", () => {
       dir: "/deps",
       sourcemap: false,
     });
+  });
+
+  it("does not re-emit Vite's deprecated rollupOptions alias", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    // Vite 8 hands plugins a config where `rollupOptions` is a getter alias of
+    // `rolldownOptions`. Spreading it back out alongside our own
+    // `rolldownOptions` makes Vite warn that this plugin set both.
+    const aliasSection = (rolldownOptions: unknown) => {
+      const section: any = { rolldownOptions };
+      Object.defineProperty(section, "rollupOptions", {
+        get: () => section.rolldownOptions,
+        enumerable: true,
+        configurable: true,
+      });
+      return section;
+    };
+
+    const config = (await configPlugin.config(
+      {
+        build: aliasSection({}),
+        optimizeDeps: aliasSection({ plugins: [{ name: "app-dep-plugin" }] }),
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    expect(Object.hasOwn(config.optimizeDeps, "rollupOptions")).toBe(false);
+    expect(Object.hasOwn(config.build, "rollupOptions")).toBe(false);
+    expect(
+      config.optimizeDeps.rolldownOptions.plugins.map((p: any) => p.name),
+    ).toEqual(["app-dep-plugin", "agent-native:no-dep-prebundle-sourcemaps"]);
   });
 
   it("restores dep prebundle sourcemaps when AGENT_NATIVE_DEP_SOURCEMAPS=1", async () => {

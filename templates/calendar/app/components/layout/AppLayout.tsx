@@ -29,6 +29,7 @@ import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { prefetchPeopleContacts } from "@/hooks/use-people";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 import { Sidebar } from "./Sidebar";
 
@@ -228,6 +229,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
   const hasAccounts = (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const canOfferGoogleOAuthSetup = useMemo(
+    () => shouldOfferGoogleOAuthSetup(),
+    [],
+  );
   const isSettingsPage =
     location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/");
@@ -267,7 +272,10 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   useEffect(() => {
     if (!hasAccounts) return;
-    void prefetchPeopleContacts(queryClient);
+    void Promise.all([
+      prefetchPeopleContacts(queryClient),
+      prefetchPeopleContacts(queryClient, "directory"),
+    ]);
   }, [hasAccounts, queryClient]);
 
   useEffect(() => {
@@ -437,11 +445,13 @@ export function AppLayout({ children }: AppLayoutProps) {
 
                   {/* Show the full-page Google prompt only on the calendar view. */}
                   {!googleStatus.isLoading &&
-                  !googleStatus.isError &&
                   !hasAccounts &&
                   !eventDraft &&
                   isCalendarPage &&
-                  !isSettingsPage ? (
+                  !isSettingsPage &&
+                  (googleStatus.data?.configured === true ||
+                    canOfferGoogleOAuthSetup ||
+                    googleStatus.isError) ? (
                     <main className="agent-native-app-main flex-1 overflow-y-auto">
                       <GoogleConnectBanner variant="hero" />
                     </main>

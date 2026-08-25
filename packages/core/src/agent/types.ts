@@ -306,15 +306,30 @@ export type AgentChatEvent =
        * without producing any forwarded event, so the backstop's clock saw pure
        * silence and killed demonstrably-alive runs at 150s. `trackInFlightWork`
        * counts this pair exactly like `tool_start`/`tool_done`: an engine call
-       * in flight suspends the backstop, bounded by the in-loop watchdog the
-       * same way a tool call is bounded by its own timeout.
+       * in flight suspends the backstop.
+       *
+       * WHAT BOUNDS THE SUSPENDED WINDOW, now that the in-loop watchdogs are
+       * gone: the engine's own first-event abort covers a call that never
+       * speaks, and the chunk/run budget covers everything after that. An
+       * in-stream wedge AFTER the first frame is therefore caught by the budget
+       * rather than by a dedicated clock — a deliberate trade, because no clock
+       * here could tell it apart from a model composing a large tool argument.
        *
        * Deliberately NOT a keepalive: a keepalive proves the transport is up,
-       * this proves the loop is inside a model call it will be held accountable
-       * for by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`.
+       * this proves the loop is inside a model call.
        */
       type: "model_stream";
       status: "start" | "end";
+      /** Why the model stopped, on the closing event: `end_turn`, `tool_use`,
+       *  `max_tokens`, `stop_sequence`, `error`. Absent when the stream was cut
+       *  before the engine reported one — a truncated call and a call that
+       *  ended cleanly must stay distinguishable. */
+      reason?:
+        | "end_turn"
+        | "tool_use"
+        | "max_tokens"
+        | "stop_sequence"
+        | "error";
     }
   | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {

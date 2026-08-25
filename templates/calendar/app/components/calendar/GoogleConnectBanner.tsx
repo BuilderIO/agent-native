@@ -4,6 +4,7 @@ import {
   oauthRedirectUri,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconCalendarCheck,
   IconX,
@@ -72,6 +73,15 @@ const STATUS_POLL_INTERVAL_MS = 2000;
 // permanently stuck and stall the interval forever.
 const STATUS_POLL_ABORT_MS = Math.max(10_000, STATUS_POLL_INTERVAL_MS * 4);
 
+function startManagedGoogleOAuth(): void {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  startWorkspaceProviderOAuth("google_calendar", {
+    appId: "calendar",
+    returnPath,
+    scope: "user",
+  });
+}
+
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
@@ -93,6 +103,7 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const googleConfigured = googleStatus.data?.configured === true;
   const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
@@ -297,15 +308,17 @@ export function GoogleConnectBanner({
   }, [wantAddAccount, addAccountUrl.data, isBuilderFrame]);
 
   function handleConnect() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     setDesktopAuthIssue(null);
     if (isDesktopGoogleAuth) {
       startDesktopGoogleAuth({ previousAccountCount: accounts.length });
       return;
     }
-    setWantAuthUrl(true);
+    startManagedGoogleOAuth();
   }
 
   function handleAddAccount() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     if (isDesktopGoogleAuth) {
       startDesktopGoogleAuth({
         addAccount: true,
@@ -313,7 +326,7 @@ export function GoogleConnectBanner({
       });
       return;
     }
-    setWantAddAccount(true);
+    startManagedGoogleOAuth();
   }
 
   async function handleJsonUpload(file: File) {
@@ -371,6 +384,15 @@ export function GoogleConnectBanner({
   }
 
   if (dismissed) return null;
+  if (!googleStatus.data && !canOfferOAuthSetup && !googleStatus.isError)
+    return null;
+  if (
+    !googleConfigured &&
+    !canOfferOAuthSetup &&
+    !hasAccounts &&
+    !googleStatus.isError
+  )
+    return null;
 
   if (variant === "hero") {
     return (
@@ -384,25 +406,35 @@ export function GoogleConnectBanner({
         <p className="mt-2 max-w-xs text-[13px] text-muted-foreground leading-relaxed">
           {t("googleConnect.syncEventsDescription")}
         </p>
-        <Button
-          size="sm"
-          className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
-          onClick={handleConnect}
-          disabled={
-            authUrl.isLoading ||
-            authUrl.isFetching ||
-            isGoogleDesktopAuthPending
-          }
-        >
-          <GoogleIcon className="h-3.5 w-3.5" />
-          {authUrl.isLoading
-            ? t("common.connecting")
-            : hasAccounts
-              ? t("googleConnect.addAccount")
-              : allConfigured
-                ? t("googleConnect.connectGoogle")
+        {googleStatus.isError ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
+          <Button
+            size="sm"
+            className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
+            onClick={handleConnect}
+            disabled={
+              authUrl.isLoading ||
+              authUrl.isFetching ||
+              isGoogleDesktopAuthPending
+            }
+          >
+            <GoogleIcon className="h-3.5 w-3.5" />
+            {authUrl.isLoading
+              ? t("common.connecting")
+              : hasAccounts
+                ? t("googleConnect.addAccount")
                 : t("googleConnect.connectGoogle")}
-        </Button>
+          </Button>
+        ) : null}
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -419,12 +451,14 @@ export function GoogleConnectBanner({
                 className="group flex items-center gap-1.5 text-xs text-muted-foreground"
               >
                 <span>{account.email}</span>
-                <button
-                  onClick={() => disconnectGoogle.mutate(account.email)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/25 hover:text-foreground/50"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
+                {!account.shared && (
+                  <button
+                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/25 hover:text-foreground/50"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -464,25 +498,29 @@ export function GoogleConnectBanner({
                 className="group flex items-center gap-1.5 text-xs text-foreground/60"
               >
                 <span className="truncate">{account.email}</span>
-                <button
-                  onClick={() => disconnectGoogle.mutate(account.email)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
+                {!account.shared && (
+                  <button
+                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
-            <button
-              onClick={handleAddAccount}
-              disabled={
-                addAccountUrl.isLoading ||
-                addAccountUrl.isFetching ||
-                isGoogleDesktopAuthPending
-              }
-              className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
-            >
-              {t("googleConnect.addAccountWithPlus")}
-            </button>
+            {(googleConfigured || canOfferOAuthSetup) && (
+              <button
+                onClick={handleAddAccount}
+                disabled={
+                  addAccountUrl.isLoading ||
+                  addAccountUrl.isFetching ||
+                  isGoogleDesktopAuthPending
+                }
+                className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
+              >
+                {t("googleConnect.addAccountWithPlus")}
+              </button>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -499,6 +537,17 @@ export function GoogleConnectBanner({
           onDismiss={() => setDesktopAuthIssue(null)}
           className="mx-4 mb-3"
         />
+        {googleStatus.isError && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mx-4 mb-2"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        )}
       </div>
     );
   }
@@ -522,7 +571,17 @@ export function GoogleConnectBanner({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured && canOfferOAuthSetup ? (
+          {googleStatus.isError ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={() => void googleStatus.refetch()}
+              disabled={googleStatus.isFetching}
+            >
+              {t("common.retry")}
+            </Button>
+          ) : showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"

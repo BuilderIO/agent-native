@@ -1295,6 +1295,11 @@ describe("AgentEngine registry", () => {
         ),
         deleteSetting: vi.fn(),
       }));
+      // The enclosing beforeEach already registered an always-null
+      // settings/store factory and imported through it. `doMock` only governs
+      // the NEXT import, so without this reset the module instance built there
+      // keeps answering and this failure marker is never seen.
+      vi.resetModules();
 
       const { registerAgentEngine, detectEngineFromEnvForRequest } =
         await import("./registry.js");

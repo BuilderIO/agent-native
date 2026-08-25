@@ -243,6 +243,7 @@ import {
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsPanel } from "@/components/design/KeyboardShortcutsPanel";
 import {
   LayersPanel,
@@ -353,6 +354,7 @@ import {
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   isDesignHotkeyEditableTarget,
   isShowKeyboardShortcutsHotkey,
@@ -822,6 +824,9 @@ export default function DesignEditorRoute() {
 function DesignEditor() {
   // ── Session, route params, design identity ─────────────────────────────────
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const { id } = useParams<{ id: string }>();
   const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
@@ -1364,7 +1369,7 @@ function DesignEditor() {
   } | null>(null);
   const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
-    useState<DesignLeftPanel>("file");
+    useState<DesignLeftPanel | null>("file");
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
@@ -6096,9 +6101,9 @@ function DesignEditor() {
     latestActiveContentRef.current = activeContent;
   }, [activeContent]);
   useEffect(() => {
-    if (!initialGenerationChromeLimited || activeLeftPanel === "agent") return;
+    if (!initialGenerationChromeLimited) return;
     setActiveLeftPanel("agent");
-  }, [activeLeftPanel, initialGenerationChromeLimited]);
+  }, [initialGenerationChromeLimited]);
   const fileContentById = useMemo(() => {
     const map = new Map<string, string>();
     for (const file of files) {
@@ -13585,6 +13590,7 @@ function DesignEditor() {
       !responsiveInteractActive &&
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
+    canClaimBoundChords: canEditDesign,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
     // F always means Frame; without forcing the mode it would reuse whichever
     // sub-tool the dropdown last selected.
@@ -16677,7 +16683,8 @@ function DesignEditor() {
     ],
   );
 
-  // canGroup: 2+ DOM-node layers selected in the active screen (not file rows).
+  // canGroup: 1+ DOM-node layers selected in the active screen (not file
+  // rows). Figma groups a single object too — the wrapper takes its bounds.
   const fileIdSet = new Set(files.map((f) => f.id));
   const selectedDomLayerIds = selectedLayerIds.filter(
     (id) => !id.startsWith("__") && !fileIdSet.has(id),
@@ -16698,7 +16705,7 @@ function DesignEditor() {
     canEditDesign &&
     viewMode === "single" &&
     Boolean(activeFile) &&
-    selectedDomLayerIds.length >= 2 &&
+    selectedDomLayerIds.length >= 1 &&
     selectedLayersUseCompatibleSourceBackend;
   // canUngroup: one or more DOM-node layers selected (L16: handleUngroupSelection
   // loops all selected containers), and EVERY selected layer must be a
@@ -18346,12 +18353,12 @@ function DesignEditor() {
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
             <DropdownMenuItem onClick={handleUndo} disabled={!canUndo}>
               {t("designEditor.undo")}
-              <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcut("$mod+z")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleRedo} disabled={!canRedo}>
               {t("designEditor.redo")}
               <DropdownMenuShortcut>
-                {"⇧⌘Z" /* i18n-ignore keyboard shortcut */}
+                {shortcut("$mod+shift+z")}
               </DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -18360,7 +18367,7 @@ function DesignEditor() {
               disabled={!activeFile}
             >
               {"Duplicate" /* i18n-ignore design menu command */}
-              <DropdownMenuShortcut>⌘D</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcut("$mod+d")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleDeleteSelection}
@@ -18407,7 +18414,7 @@ function DesignEditor() {
           <DropdownMenuShortcut>
             {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
                 the browser consumes it before the page ever sees it. */}
-            {"⌃⇧?" /* i18n-ignore keyboard shortcut */}
+            {shortcut("ctrl+shift+?")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {isSignedIn && (
@@ -18523,7 +18530,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom in" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            {"Cmd Plus" /* i18n-ignore shortcut key label */}
+            {shortcut("$mod+=")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -18532,7 +18539,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom out" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            {"Cmd Minus" /* i18n-ignore shortcut key label */}
+            {shortcut("$mod+-")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -18541,7 +18548,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom to fit" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            ⇧1
+            {shortcut("shift+1")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {[50, 100, 200].map((preset) => (
@@ -18565,7 +18572,7 @@ function DesignEditor() {
             </span>
             {preset === 100 ? (
               <DropdownMenuShortcut className="tracking-normal">
-                ⌘0
+                {shortcut("$mod+0")}
               </DropdownMenuShortcut>
             ) : null}
           </DropdownMenuItem>
@@ -19030,10 +19037,13 @@ function DesignEditor() {
     onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,
     onStylesChange: handleStylesChange,
-    motionKeyframeState,
-    onToggleMotionKeyframe: canEditDesign
-      ? handleToggleMotionKeyframe
+    motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? motionKeyframeState
       : undefined,
+    onToggleMotionKeyframe:
+      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign
+        ? handleToggleMotionKeyframe
+        : undefined,
     breakpointContext,
     onExport: handleInspectorExport,
     onRenderExportPreview: handleRenderExportPreview,
@@ -19106,15 +19116,23 @@ function DesignEditor() {
                   : undefined
               }
               motionOpen={motionDockOpen}
-              motionDisabled={!activeFile}
+              motionDisabled={!activeFile || initialGenerationChromeLimited}
               projectMenu={hostEmbeddedEditor ? null : projectMenu}
               onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
-              onPanelChange={setActiveLeftPanel}
+              onPanelChange={(panel) => {
+                if (panel === null && initialGenerationChromeLimited) return;
+                setActiveLeftPanel(panel);
+              }}
             />
             <div
               ref={leftSidebarContentRef}
-              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
-              style={{ width: leftContentWidth }}
+              aria-hidden={activeLeftPanel === null}
+              className={cn(
+                "flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
+                activeLeftPanel === null &&
+                  "pointer-events-none invisible border-r-0",
+              )}
+              style={{ width: activeLeftPanel ? leftContentWidth : 0 }}
             >
               <div
                 className={cn(
@@ -19348,13 +19366,15 @@ function DesignEditor() {
                 </>
               ) : null}
             </div>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={t("layersPanel.title")}
-              className="absolute right-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
-              onPointerDown={(event) => startSidebarResize("left", event)}
-            />
+            {activeLeftPanel ? (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("layersPanel.title")}
+                className="absolute right-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
+                onPointerDown={(event) => startSidebarResize("left", event)}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -20492,7 +20512,11 @@ function DesignEditor() {
           closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
           canvas iframe; track/duration edits autosave through apply-motion-edit. */}
-      {!hostOwnsChrome && activeFile && motionDockMounted ? (
+      {!hostOwnsChrome &&
+      SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+      !initialGenerationChromeLimited &&
+      activeFile &&
+      motionDockMounted ? (
         <MotionDock
           tracks={motionTracks}
           durationMs={motionDurationMs}

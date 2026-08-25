@@ -143,8 +143,11 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
+const hasClipsAndPlanBuildOverride = clipsBuild.includes(
+  '[[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
+);
 if (
-  !clipsBuild.includes('[[ "$SOURCE_TEMPLATE" == "clips" ]]') ||
+  !hasClipsAndPlanBuildOverride ||
   !clipsBuild.includes("agentNativePrebuiltBuild=true") ||
   !clipsBuild.includes("agentNativePrebuiltDatabaseUrl=") ||
   !clipsBuild.includes("agentNativePrebuiltAuthSecret=") ||
@@ -156,7 +159,7 @@ if (
   )
 ) {
   issues.push(
-    `${reusablePath} must provide Clips build-only env overrides without running production migrations`,
+    `${reusablePath} must provide Clips and Plan build-only env overrides without running production migrations`,
   );
 }
 const manageConcurrency = asRecord(

@@ -7,7 +7,7 @@
  * has not been synced yet, this throws with guidance to call sync-fusion-app.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";

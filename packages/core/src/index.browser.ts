@@ -89,6 +89,8 @@ export { parseArgs, camelCaseArgs } from "./scripts/parse-args.js";
 // defineAction — used by template actions, no Node.js deps
 export {
   defineAction,
+  fail,
+  type FailOptions,
   ActionContractError,
   isActionContractError,
   type ActionContractErrorOptions,

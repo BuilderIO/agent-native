@@ -1,0 +1,210 @@
+---
+title: "Kalender: Funktionen"
+description: "Alle wichtigen Kalender-Funktionen, darunter Ansichten, Verfügbarkeit, Terminsuche und Buchungslinks, jeweils mit Einrichtungsschritten."
+---
+
+# Funktionen
+
+Alle wichtigen Kalender-Funktionen: wie sie funktionieren und wie Sie sie einrichten. Einen Überblick finden Sie unter [Kalender](/docs/template-calendar), die vollständige Liste der Eingabeaufforderungen unter [Mit dem Agent sprechen](/docs/template-calendar-agent).
+
+## Kalenderansichten
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd033f1071872452687ea570ed2ab6da3?alt=media&token=c6318aee-94cc-4898-be16-32b8fbf4fb2f&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Eine kurze Tour durch die Kalenderansicht."
+  caption="Eine Tour durch die Kalenderansicht, einschließlich der Ansicht des Kalenders einer anderen Person und dem Hinzufügen von Terminen."
+  autoplay={true}
+  loop={true}
+/>
+
+Wechseln Sie über die Symbolleiste zwischen Tages-, Wochen- und Monatsansicht. Jede Ansicht liest direkt aus Ihrem echten, verbundenen Google Calendar. Nichts ist zwischengespeichert oder künstlich erzeugt.
+
+- **Mehrere Konten** werden im selben Raster farbcodiert angezeigt, wenn Sie mehr als ein Google-Konto verbinden (geschäftlich + privat).
+- **Schreibgeschützte ICS-/`webcal://`-Feeds** decken Dinge wie Firmenfeiertage, einen Konferenzplan oder den öffentlichen Kalender eines Teamkollegen ab. Sie werden mit einer eigenen Farbe in dieselbe Ansicht eingemischt, auch wenn Sie Termine aus einem Feed nicht bearbeiten können.
+- **Legen Sie den Kalender eines Teamkollegen darüber**, damit dessen Termine neben Ihren eigenen erscheinen, jeweils in einer eigenen Farbe. Das hilft, wenn eine Führungskraft den Zeitplan eines direkt unterstellten Mitarbeiters prüfen muss.
+- **Teilnehmerzeitzonen** zeigen die lokale Startzeit eines Gastes, wenn Google sie meldet, oder anhand einer gespeicherten Überschreibung pro Gast, wenn nicht.
+- **Arbeitsorte** (zu Hause, im Büro, anderswo) werden als echter Status angezeigt, nicht als generisches ganztägiges Ereignis, und blockieren nie Ihre Verfügbarkeit. **Wiederkehrende Termine** werden durchgängig unterstützt. Bearbeiten Sie ein einzelnes Vorkommen oder die gesamte Serie.
+
+<Callout tone="warning">
+
+Wenn ein Teil Ihres Zeitplans nicht geladen werden kann, sei es, weil das Token eines Kontos abgelaufen ist oder eine Feed-URL ein Timeout auslöst, teilt Ihnen die App mit, welche Quelle fehlgeschlagen ist, statt einfach einen leeren Tag anzuzeigen. Ein leerer Kalender und eine unterbrochene Verbindung sehen absichtlich unterschiedlich aus, damit Sie „nichts geladen“ nie mit „nichts geplant“ verwechseln.
+
+</Callout>
+
+<Steps>
+
+### Kalender verbinden
+
+Öffnen Sie **Einstellungen**, klicken Sie auf **Google Calendar verbinden** und bestätigen Sie. Verbinden Sie auf die gleiche Weise weitere Konten, wenn Sie privat und geschäftlich überlagern möchten.
+
+### Einen schreibgeschützten Feed abonnieren
+
+Fügen Sie unter **Einstellungen → Externe Kalender** eine ICS- oder `webcal://`-URL ein.
+
+### Den Kalender eines Teamkollegen überlagern
+
+Bitten Sie den Agenten: „Füge Priyas Kalender in Blau zu meiner Ansicht hinzu“, oder fügen Sie ihn unter **Einstellungen → Overlays** hinzu.
+
+</Steps>
+
+## Terminsuche
+
+Bitten Sie den Agenten, eine Zeit zu finden, und er prüft Ihre Verfügbarkeit und Ihre echten Google Calendar-Termine. Wenn Sie andere Personen nennen, prüft er auch deren Frei/Belegt-Status und schlägt dann konkrete Slots vor. Sobald Sie einen auswählen, bucht der Agent ihn direkt in Google Calendar.
+
+Wenn Sie mit jemand Neuem einen Termin vereinbaren, suchen Sie nach Namen oder E-Mail, statt eine exakte Adresse einzutippen. Kalender durchsucht Ihre Google-Kontakte und Ihr Workspace-Verzeichnis, sodass Sie fragen können „wer ist Dana bei Acme“ oder „finde Personen namens Priya“ und echte Treffer zur Auswahl erhalten.
+
+<Diagram id="doc-block-calendar3" title="Von der Verfügbarkeit zum gebuchten Termin" summary="Der Agent kombiniert Ihre Verfügbarkeitsregeln, Ihre bestehenden Termine und (falls genannt) den Frei/Belegt-Status anderer Teilnehmer, bevor er Slots vorschlägt.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Ihre Verfügbarkeit<br /><small class="diagram-muted"
+        >wöchentliche Stunden, Puffer, Vorlaufzeit</small
+      >
+    </div>
+    <div class="diagram-box">
+      Bestehende Termine<br /><small class="diagram-muted"
+        >Google Calendar, in Echtzeit</small
+      >
+    </div>
+    <div class="diagram-box">
+      Frei/Belegt-Status der Teilnehmer<br /><small class="diagram-muted"
+        >wenn Sie Personen nennen</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Zeit finden</span
+    ><small class="diagram-muted">mögliche Slots</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Sie wählen einen aus</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Termin in Google Calendar erstellt</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<Steps>
+
+### Nach einem Slot fragen
+
+„Finde nächste Woche einen einstündigen Slot mit Sam und Priya.“
+
+### Einen auswählen
+
+Der Agent schlägt konkrete Slots vor. Wählen Sie einen im Chat aus oder aus den vorgeschlagenen Optionen in der Oberfläche.
+
+### Gebucht
+
+Der Agent erstellt den Termin direkt in Google Calendar, und er erscheint sofort in Ihrer Ansicht.
+
+</Steps>
+
+## Buchungslinks
+
+Buchungslinks sind öffentliche Seiten, auf denen jeder eine Zeit auswählen und direkt in Ihren Kalender buchen kann. Das ist der Calendly-artige Teil von Kalender: Richten Sie Termintypen und die Verfügbarkeit ein, aus der sie schöpfen, und verfolgen Sie, wer bucht.
+
+### Termintypen
+
+Ein Termintyp ist ein bestimmter Buchungslink, wie „15-Min-Intro“ oder „30-Min-Demo“, jeweils mit eigener Dauer, eigenen Feldern und eigener Konferenzwahl.
+
+<Steps>
+
+### Einen Termintyp erstellen
+
+Geben Sie ihm einen Titel und eine Dauer (etwa „15-Min-Intro“ mit 15 Minuten), und bitten Sie dann den Agenten oder klicken Sie auf **Neuer Buchungslink**.
+
+### Optionen hinzufügen
+
+Legen Sie alternative Dauern fest, damit ein Besucher auf demselben Link zwischen 15, 30 oder 60 Minuten wählen kann, benutzerdefinierte Felder, um einen Firmennamen oder ein Thema zu erfassen, eine Konferenzwahl (Google Meet, Zoom oder ein benutzerdefinierter Link), eine Farbe und erforderliche Co-Hosts, also weitere Personen, die ebenfalls frei sein müssen, bevor ein Slot angeboten wird. Wenn jemand bucht, werden alle (Sie und Ihre Co-Hosts) zu dem daraus entstehenden Google Calendar-Termin eingeladen.
+
+### Zoom verbinden (optional)
+
+Google Meet erfordert keine Einrichtung. Es wird auf die gleiche Weise hinzugefügt, wie jede Google Calendar-Einladung einen Meet-Link erhält. Für Zoom verbinden Sie Ihr Konto einmal über **Einstellungen**. Danach erstellt jeder auf Zoom eingestellte Termintyp für jede neue Buchung ein echtes Zoom-Meeting und hängt den Beitrittslink an die Bestätigung an.
+
+### Teilen
+
+Teilen Sie die öffentliche URL überall. Gewähren Sie einem Teamkollegen über das **Freigeben**-Menü des Links Betrachter-, Bearbeiter- oder Admin-Zugriff, wenn er auch bei der Verwaltung helfen soll. Das ist unabhängig vom öffentlichen Buchungszugriff, den jeder mit der URL hat, solange der Link aktiv ist.
+
+</Steps>
+
+Jeder Termintyp hat eine öffentliche URL unter `/book/{your-booking-name}/{slug}`, zum Beispiel `/book/steve/30min`. Ihr Buchungsname wird beim ersten Erstellen eines Links automatisch aus Ihrer E-Mail-Adresse generiert, und Sie können ihn später in den Einstellungen ändern (bis zu dreimal alle 30 Tage, da er Teil jedes öffentlichen Links ist, den Sie geteilt haben).
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3dda132ad91b44dfa11c9d4e4b9e1b79?alt=media&token=b25577a1-ef91-48f8-a474-e5a39b246c25&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Video, das zeigt, wie ein neuer Buchungstermintyp erstellt wird."
+  caption="Video, das zeigt, wie ein neuer Buchungstermintyp erstellt wird."
+  autoplay={true}
+  loop={true}
+/>
+
+- **Einen Termintyp umbenennen**: Ändern Sie den URL-Slug jederzeit, zum Beispiel von `/book/steve/into-call` zu `/book/steve/intro`. Die alte URL funktioniert weiterhin: Besucher, die sie noch haben, werden automatisch zur neuen weitergeleitet, sodass nichts, was Sie bereits geteilt haben, kaputtgeht.
+
+### Verfügbarkeit
+
+Verfügbarkeit ist ein wöchentlicher Zeitplan: an welchen Tagen Sie arbeiten und zu welchen Stunden Sie an jedem davon verfügbar sind, plus Ihre Zeitzone. Darüber hinaus können Sie eine **Pufferzeit** zwischen Terminen festlegen, damit keine Rückenanschluss-Buchungen entstehen, eine **Mindestvorlaufzeit**, damit niemand Sie für in fünf Minuten buchen kann, **wie weit im Voraus** Personen buchen können (Vorlauffenster), und eine **Standard-Slotlänge** für neue Termintypen.
+
+Der Agent liest denselben Zeitplan, den die Oberfläche bearbeitet, sodass „Stelle meine Stunden werktags auf 9 bis 17 Uhr“ und das Ziehen der Schieberegler im Tab Verfügbarkeit zum gleichen Ergebnis führen.
+
+<Steps>
+
+### Ihre wöchentlichen Stunden festlegen
+
+Wechseln Sie zum Tab **Verfügbarkeit** und aktivieren Sie die Tage und Stunden, an denen Sie verfügbar sind, bei Bedarf pro Tag einzeln.
+
+### Puffer und Vorlaufzeit hinzufügen
+
+Legen Sie eine **Pufferzeit** zwischen Terminen und ein **Mindestvorlaufzeit**-Fenster fest, damit niemand Sie für in fünf Minuten buchen kann.
+
+### Vorlauffenster und Standard-Slotlänge festlegen
+
+Legen Sie fest, wie weit im Voraus Personen buchen können, und die Standarddauer, mit der neue Termintypen beginnen.
+
+</Steps>
+
+Oder fragen Sie einfach den Agenten: „Blockiere Freitagnachmittage in meiner Verfügbarkeit.“
+
+### Buchungen
+
+Ein Besucher wählt eine verfügbare Zeit aus Ihrer echten Verfügbarkeit, füllt Name, E-Mail und alle von Ihnen hinzugefügten benutzerdefinierten Felder aus und bestätigt dann. Er erhält eine Bestätigung mit einem privaten Verwaltungslink. Eine Anmeldung ist nicht erforderlich, da der Link selbst als Zugangsnachweis dient.
+
+- **Buchungen verwalten**: Sie (der Gastgeber) sehen jede Buchung, vergangen und anstehend, gefiltert nach alle, bestätigt oder abgesagt, im Tab **Buchungen**.
+- **Verschieben oder Absagen**: Besucher nutzen ihren Verwaltungslink, um zu einem anderen freien Slot zu wechseln oder ganz abzusagen, ohne ein Konto zu benötigen. Sie können eine Buchung auch selbst im Tab **Buchungen** absagen.
+
+Oder fragen Sie den Agenten: „Zeig mir die Buchungen dieser Woche.“
+
+## Wie geht es weiter?
+
+- [**Kalender**](/docs/template-calendar) — der Überblick und die ersten Schritte
+- [**Mit dem Agent sprechen**](/docs/template-calendar-agent) — jede Eingabeaufforderung nach Aufgabe, Anwendungsstatus und Erweiterungen
+- [**Kalender in einem Multi-App-Arbeitsbereich**](/docs/template-calendar-integrations) — Integrationsstrategien und die Verbindung zu Dispatch
+- [**Entwicklerhandbuch**](/docs/template-calendar-developers) — die Aktionen und das Datenmodell hinter diesen Funktionen
+- [**Freigabe**](/docs/sharing) — das Freigabemodell, auf dem Buchungslinks aufbauen

@@ -21,6 +21,7 @@ import { triageConfig } from "../db/schema.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
 import {
   DEFAULT_FACTORY_ID,
+  assignCreatedByIfMissing,
   factoryAutomationJobPath,
   factoryConfigRowId,
   patchAutomationResource,
@@ -39,8 +40,6 @@ import {
 } from "../triage/review-skill-alignment.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
-const DEFAULT_SLACK_CHANNEL_ID = "C0ATH3CCZT4";
-const DEFAULT_SLACK_CHANNEL_NAME = "product-agent-native-feedback";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
 
 type AutomationRunFinishedEvent = {
@@ -543,7 +542,7 @@ export async function ensureFactoryAutomations(
       repaired = setFrontmatterField(repaired, "appId", "factory");
       repaired = setFrontmatterField(repaired, "orgId", orgId);
       repaired = setFrontmatterField(repaired, "factoryId", factoryId);
-      repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
+      repaired = assignCreatedByIfMissing(repaired, ownerEmail);
       repaired = setFrontmatterField(repaired, "runAs", "creator");
       if (!frontmatterField(repaired, "model")) {
         repaired = setFrontmatterField(repaired, "model", seed.model);
@@ -627,6 +626,7 @@ export async function syncFactoryAutomationEnabledStates(
           readAutomationFactoryId(
             definition.meta,
             definition.resource.content,
+            definition.resource.path,
           ) === factoryId,
       )
       .map(async (definition) => {
@@ -687,16 +687,15 @@ async function ensureDefaultTriageConfig(
   }
   const now = new Date().toISOString();
   const repository = defaultRepository();
-  const pollingEnabled = 1;
   const githubPollingEnabled = defaultGithubPollingEnabled() ? 1 : 0;
   await db.insert(triageConfig).values({
     id: factoryConfigRowId(orgId, factoryId),
     factoryId,
     slackWorkspace: "primary",
-    slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
-    slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
+    slackChannelId: null,
+    slackChannelName: null,
     builderSlackUserId: null,
-    pollingEnabled,
+    pollingEnabled: 0,
     githubPollingEnabled,
     sentryPollingEnabled: 0,
     lastSlackTs: null,

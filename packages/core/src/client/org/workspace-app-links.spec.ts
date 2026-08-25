@@ -6,6 +6,7 @@ import {
   isWorkspaceAppEnvironment,
   parseWorkspaceAppLinks,
   visibleOrgAppLinks,
+  workspaceAppFetchUrls,
 } from "./workspace-app-links.js";
 
 describe("org switcher app links", () => {
@@ -90,5 +91,21 @@ describe("org switcher app links", () => {
     expect(visible.links).toHaveLength(9);
     expect(visible.links[0]?.id).toBe("dispatch");
     expect(visible.overflowCount).toBe(4);
+  });
+
+  it("uses the authenticated action before any local workspace manifest", () => {
+    const actionUrl =
+      "/_agent-native/actions/list-workspace-apps?includeAgentCards=false";
+
+    expect(
+      workspaceAppFetchUrls({
+        VITE_WORKSPACE_GATEWAY_URL: "https://workspace.example.test",
+      }),
+    ).toEqual([actionUrl]);
+    expect(
+      workspaceAppFetchUrls({
+        VITE_WORKSPACE_GATEWAY_URL: "http://127.0.0.1:8080",
+      }),
+    ).toEqual([actionUrl, "http://127.0.0.1:8080/_workspace/apps"]);
   });
 });

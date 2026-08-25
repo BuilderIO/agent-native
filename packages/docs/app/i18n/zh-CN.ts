@@ -1655,6 +1655,55 @@ const zhCN = {
         builderPrivacyFull: "Builder.io 隐私政策",
       },
     },
+    about: {
+      eyebrow: "关于 Agent-Native",
+      title: "为代理与人打造的开源应用",
+      intro:
+        "Agent-Native 是一个开源框架，用于构建让 AI 代理与用户界面共享相同操作、数据和应用状态的应用程序。",
+      sections: {
+        project: {
+          title: "共享的运行模型",
+          body: "Agent-Native 将代理和界面视为平等伙伴。同一个 action 可以驱动 UI 控件、代理工具、HTTP 端点、MCP 或 A2A 能力、CLI 命令和可审计流程。共享的 SQL 状态让人的视图和代理的视图保持一致，而不是再创建一套隐藏系统。",
+        },
+        openSource: {
+          title: "默认开源",
+          body: "源代码以 MIT 许可证发布在 BuilderIO/agent-native 仓库中。开发者可以检查实现、在本地运行、选择数据库和模型供应商，并根据产品需求进行调整。托管的 Agent-Native 服务与 fork 和自托管部署分开运营。",
+        },
+        hosted: {
+          title: "托管与自托管",
+          body: "Builder.io 在 agent-native.com 运营托管的 Agent-Native 应用和文档。框架也适合希望部署和维护自己应用的团队。相同的 action 合约、访问边界、代理指令和公开协议都可以在源代码和文档中检查。",
+        },
+        community: {
+          title: "公开构建",
+          body: "项目通过 GitHub issue、pull request、文档和 Agent-Native 社区公开开发。阅读文档了解架构，查看源代码验证实现，或加入社区讨论使用场景并贡献改进。",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "联系",
+      title: "联系 Builder.io 了解 Agent-Native",
+      intro:
+        "使用以下支持、源码和社区渠道提问、报告问题、提出改进建议，或反馈 Agent-Native 的安全问题。",
+      emailLabel: "发送邮件至 support@builder.io",
+      sections: {
+        support: {
+          title: "产品与托管服务支持",
+          body: "如果你对托管应用、账户访问、文档问题或无法解决的行为有疑问，请发送邮件至 support@builder.io。请提供公开 URL、最小可复现描述以及相关请求或运行标识。请勿在支持邮件中发送密码、API 密钥、Bearer token 或私有客户数据。",
+        },
+        source: {
+          title: "开源项目与社区",
+          body: "使用 GitHub 仓库报告源码问题、提出功能建议、提交 pull request 或讨论实现。Discord 适合需要和其他开发者交流的问题。请先搜索已有 issue 和文档，以便维护者获得必要的背景信息。",
+        },
+        security: {
+          title: "安全报告",
+          body: "不要在公开 issue 或聊天中披露尚未修复的漏洞。请通过可用的安全渠道联系 Builder.io，只提供复现和评估所需的信息。请勿在普通支持请求中提供凭据、私有数据或漏洞利用材料。",
+        },
+        legal: {
+          title: "法律与隐私",
+          body: "有关隐私的问题请先阅读 Agent-Native 隐私政策和 Builder.io 法律资源，再联系支持团队。Builder.io, Inc. 地址为 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States。托管服务条款和自托管责任见服务条款。",
+        },
+      },
+    },
     terms: {
       eyebrow: "服务条款",
       title: "Agent-Native 托管应用程序",
@@ -1898,8 +1947,8 @@ const zhCN = {
     calendar: "日历",
     calendarOverview: "概览",
     calendarAgent: "与 Agent 对话",
-    calendarScheduling: "日程与可用性",
-    calendarBookingLinks: "预订链接",
+    calendarFeatures: "功能",
+    calendarIntegrations: "跨应用使用",
     calendarDevelopers: "开发者指南",
     content: "内容",
     contentOverview: "概览",

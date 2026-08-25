@@ -72,6 +72,8 @@ export default defineAction({
           threadTs: item.threadTs,
           coverage: hasMore ? "partial" : "complete",
           messageCount: messages.length,
+          itemTitle: item.title,
+          itemSummary: item.summary,
         },
       },
       factoryId,

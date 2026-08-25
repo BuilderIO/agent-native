@@ -275,6 +275,7 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
 export {
   buildRuntimeConfigPrompt,
   formatRuntimeConfigReport,
@@ -529,6 +530,8 @@ export {
   exchangeWorkspaceProviderOAuthCode,
   handleWorkspaceProviderOAuthCallback,
   handleWorkspaceProviderOAuthStart,
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
@@ -538,6 +541,7 @@ export {
 } from "./workspace-provider-oauth.js";
 
 export {
+  CredentialStoreUnavailableError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -641,6 +645,8 @@ export {
 } from "./email.js";
 export {
   defineTransactionalEmail,
+  defineTransactionalEmails,
+  replaceTransactionalEmails,
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,

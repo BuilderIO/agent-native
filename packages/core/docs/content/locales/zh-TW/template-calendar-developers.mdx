@@ -1,0 +1,485 @@
+---
+title: "行事曆：開發者指南"
+description: "快速入門、完整的 action 清單、資料模型、路由，以及如何擴充行事曆範本。"
+---
+
+# 開發者指南
+
+本頁面適用於任何要自訂或擴充行事曆範本的人：快速入門、每個 action、資料模型、路由介面，以及如何新增內容。這個應用程式的功能說明請參閱 [行事曆](/docs/template-calendar)。
+
+## 快速入門
+
+這一節將完整說明如何從尚未安裝任何東西，一路走到連線 Google Calendar。無論
+您使用的是 macOS 上的終端機，還是 Windows 上的 PowerShell/命令提示字元，
+指令都完全相同，因為它們都是純粹的 Node.js 工具。
+
+<Steps>
+
+### 建立應用程式
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+cd my-calendar
+pnpm install
+```
+
+這需要先安裝 [Node.js](https://nodejs.org) 22 或更新版本，以及
+[pnpm](https://pnpm.io)。如果您還沒有安裝，或還沒有設定 LLM 連線
+（Builder.io、Anthropic/OpenAI 金鑰，或本機 Ollama），請參閱
+[開始使用](/docs/getting-started)。
+
+### 啟動開發伺服器
+
+```bash
+pnpm dev
+```
+
+應用程式會在 `http://localhost:8082` 開啟。如果沒有自動開啟，請在瀏覽器中
+造訪這個網址。即使尚未連線 Google，行事曆也能完全正常運作。只有在您嘗試執
+行需要 Google 連線的 action，卻還沒連線時，才會遇到錯誤。
+
+### 連線 Google Calendar
+
+在應用程式中，開啟**設定**，在**一般**分頁找到**Google Calendar**卡片，然
+後點選**連線 Google Calendar**。這會開啟一個設定精靈：
+
+1. **建立 Google Cloud 專案**（如果您還沒有可用的專案）：在
+   [Google Cloud Console](https://console.cloud.google.com/) 中，點選頁面
+   頂部附近的專案下拉選單，然後選擇**新增專案**。輸入任意名稱，點選
+   **建立**，然後等待通知顯示已準備完成。繼續之前，請確認它已在同一個下拉
+   選單中被選取。
+2. **啟用 API**：選取您的專案後，前往**APIs & Services → Library**，搜尋
+   「Google Calendar API」，開啟它，然後點選**啟用**。
+3. **設定同意畫面**：在**APIs & Services → OAuth consent screen**下設定
+   一個同意畫面（開發階段選擇「External」即可）。
+4. **建立憑證**：在**APIs & Services → Credentials**下，建立一個型別為
+   「Web application」的 OAuth 用戶端 ID，並將
+   `http://localhost:8082/_agent-native/google/callback` 新增為已授權的
+   重新導向 URI（8082 是行事曆的預設開發連接埠）。
+5. **新增憑證**：下載憑證 JSON 檔案並在精靈中上傳，或切換到「手動貼上」，
+   直接輸入用戶端 ID 和用戶端密鑰。
+
+行事曆會把這些資訊儲存到自己的密鑰儲存區，而不是 `.env` 檔案，因此這個步驟
+在 Windows 和 macOS 上完全相同。連線之後，權杖會自動重新整理。
+
+### 連線 Zoom（可選）
+
+與 Google 不同，Zoom 沒有設定表單。請在專案根目錄建立一個 `.env` 檔案（或
+加入到現有的檔案中），內容如下：
+
+```text
+ZOOM_CLIENT_ID=your-client-id
+ZOOM_CLIENT_SECRET=your-client-secret
+```
+
+從一個 [Zoom OAuth 應用程式](https://marketplace.zoom.us/)取得用戶端 ID 和
+密鑰（Zoom Marketplace → Develop → Build App → OAuth），並將
+`/_agent-native/zoom/callback` 設為重新導向 URI，然後重新啟動 `pnpm dev`，
+讓它套用新的數值。若未連線 Zoom，預訂連結仍然可以提供 Google Meet，只是
+無法使用 Zoom。
+
+</Steps>
+
+<Callout tone="warning">
+
+在 Windows 上，有些編輯器在儲存名為 `.env` 的檔案時，會加上隱藏的 `.txt`
+副檔名，變成行事曆永遠不會讀取的 `.env.txt`。請在檔案總管中開啟「檔案名稱
+副檔名」（檢視分頁），並確認儲存的檔案名稱正好是 `.env`，後面沒有任何其他
+內容。
+
+</Callout>
+
+<Callout tone="info">
+
+**活動存在於 Google Calendar 中，而不是 SQL。** 每一個活動 action 都會直接呼叫 Google Calendar API，本機並沒有活動資料表。只有預訂連結、預訂、可用性和連線狀態會儲存在本機。切勿使用原始 SQL 讀取或寫入活動資料。
+
+</Callout>
+
+## Action 清單
+
+每一個操作都是 `templates/calendar/actions/` 目錄下的一個 TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`。
+
+### 活動與來賓
+
+活動資料存在於 Google Calendar 中，絕不會存在 SQL 裡。
+
+| Action                   | 功能說明                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `list-events`            | 列出某個日期範圍內的活動                                                                  |
+| `search-events`          | 依查詢字串搜尋活動                                                                        |
+| `get-event`              | 依 id 讀取一個活動                                                                        |
+| `create-event`           | 建立一個活動，包括重複規則（RRULE）、工作地點，以及狀態類型（`outOfOffice`、`focusTime`） |
+| `update-event`           | 更新一個活動，包括重複規則、工作地點，以及狀態類型                                        |
+| `delete-event`           | 刪除一個活動                                                                              |
+| `manage-event-draft`     | 在任何內容被寫入或來賓收到通知之前，先暫存一個尚未傳送的邀請供使用者審核                  |
+| `rsvp-event`             | 接受、拒絕，或將邀請標記為暫定                                                            |
+| `get-attendee-timezones` | 讀取個別來賓的時區覆寫設定                                                                |
+| `set-attendee-timezone`  | 設定個別來賓的時區覆寫，讓對方的當地時間持續正確顯示                                      |
+
+### 可用性與尋找時段
+
+| Action                | 功能說明                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `get-availability`    | 讀取每週時間表、時區、緩衝時間、通知時間，以及提前預訂範圍設定                              |
+| `update-availability` | 更新每週時間表、時區、緩衝時間、通知時間，以及提前預訂範圍設定                              |
+| `check-availability`  | 找出某一天的空閒時段                                                                        |
+| `find-a-time`         | 針對主辦人和指名的與會者進行共用的空閒時段搜尋，結合 Google 的空閒/忙碌狀態與本機的行程衝突 |
+
+### 預訂連結與預訂
+
+| Action                   | 功能說明                                    |
+| ------------------------ | ------------------------------------------- |
+| `create-booking-link`    | 建立一個預訂連結                            |
+| `update-booking-link`    | 更新一個預訂連結                            |
+| `duplicate-booking-link` | 複製一個預訂連結，包括共同主持人（`hosts`） |
+| `list-booking-links`     | 列出可存取的預訂連結                        |
+| `list-bookings`          | 列出已確認的預約                            |
+
+### 外部行事曆
+
+唯讀的 ICS 訂閱來源。
+
+| Action                      | 功能說明                   |
+| --------------------------- | -------------------------- |
+| `add-external-calendar`     | 訂閱唯讀的 ICS/webcal 來源 |
+| `list-external-calendars`   | 列出已訂閱的來源           |
+| `remove-external-calendar`  | 移除一個已訂閱的來源       |
+| `update-external-calendars` | 更新已訂閱的來源           |
+
+### 人員與疊加
+
+| Action                  | 功能說明                                         |
+| ----------------------- | ------------------------------------------------ |
+| `search-people`         | 搜尋 Google 聯絡人和 Workspace 目錄              |
+| `get-overlay-people`    | 讀取哪些其他人的行事曆已固定疊加到您的檢視畫面中 |
+| `update-overlay-people` | 更新哪些其他人的行事曆已固定疊加到您的檢視畫面中 |
+
+### Zoom
+
+| Action            | 功能說明                                                                                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-zoom-status` | 讀取目前使用者的 Zoom 連線狀態。連線和取消連線是透過 `/_agent-native/zoom/*` 路由進行，而不是透過 action，因為 OAuth 需要已登入的瀏覽器工作階段 |
+
+### Google Calendar 連線與同步
+
+| Action                    | 功能說明                                  |
+| ------------------------- | ----------------------------------------- |
+| `connect-google-calendar` | 傳回已登入瀏覽器工作階段的 OAuth 連線網址 |
+| `sync-google-calendar`    | 強制重新同步                              |
+
+### 設定與偏好
+
+| Action                               | 功能說明                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| `get-settings`                       | 讀取使用者層級的設定                                                         |
+| `update-settings`                    | 更新使用者層級的設定                                                         |
+| `update-calendar-visual-preferences` | 更新僅限本機的顯示偏好設定（活動顏色、隱藏週末）。絕不會動到 Google Calendar |
+
+### 導覽與 UI 狀態
+
+| Action        | 功能說明                         |
+| ------------- | -------------------------------- |
+| `navigate`    | 將 UI 移動到某個檢視、日期或活動 |
+| `view-screen` | 為代理讀回目前的檢視畫面         |
+
+### 提供者 API 升級呼叫
+
+原始的 Google Calendar（以及已連線的 CRM）API，用於上述 actions 範圍過窄的情況。
+
+| Action                  | 功能說明                                                 |
+| ----------------------- | -------------------------------------------------------- |
+| `provider-api-catalog`  | 列出可直接呼叫的原始提供者 API                           |
+| `provider-api-docs`     | 讀取某個原始提供者 API 端點的文件                        |
+| `provider-api-request`  | 直接呼叫原始的 Google Calendar（或已連線的 CRM）API      |
+| `list-staged-datasets`  | 列出已暫存供查詢用的大型掃描結果，而不是直接傳回原始結果 |
+| `query-staged-dataset`  | 查詢一個暫存資料集                                       |
+| `delete-staged-dataset` | 刪除一個暫存資料集                                       |
+
+## 資料模型
+
+定義於 `templates/calendar/server/db/schema.ts`。只有非活動資料會儲存在本機，活動本身存在於 Google Calendar 中。
+
+<DataModel
+  id="doc-block-calendar6"
+  title="行事曆資料模型"
+  summary={
+    "只有非活動資料會儲存在本機，活動本身存在於 Google Calendar 中。預訂連結使用 ownableColumns，因此適用共用系統。預訂使用者名稱是另一個獨立的保留資料表，因為一個使用者名稱會在該使用者擁有的所有連結之間共用。"
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly 風格的連結定義（可擁有）",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "slug",
+          type: "string",
+          note: "唯一，公開頁面位於 /book/{username}/{slug}",
+        },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "duration", type: "int", note: "主要時長（分鐘）" },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "替代時長",
+        },
+        {
+          name: "hosts",
+          type: "json",
+          nullable: true,
+          note: "除擁有者外的必要共同主持人",
+        },
+        { name: "customFields", type: "json", nullable: true },
+        {
+          name: "conferencing",
+          type: "json",
+          nullable: true,
+          note: "none | google_meet | zoom | custom",
+        },
+        { name: "color", type: "string", nullable: true },
+        { name: "isActive", type: "bool", note: "暫停但不刪除" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "來自公開預訂頁面的已確認預約",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "slug", type: "string", fk: "booking_links.slug" },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "start", type: "datetime" },
+        { name: "end", type: "datetime" },
+        { name: "eventTitle", type: "string", nullable: true },
+        { name: "notes", type: "string", nullable: true },
+        {
+          name: "fieldResponses",
+          type: "json",
+          nullable: true,
+          note: "自訂欄位的回應內容",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+          note: "Zoom、Google Meet 或自訂",
+        },
+        { name: "googleEventId", type: "string", nullable: true },
+        {
+          name: "calendarAccountId",
+          type: "string",
+          nullable: true,
+          note: "擁有該活動的已連線帳戶",
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "支撐 /booking/manage/{token}",
+        },
+        { name: "status", type: "enum", note: "confirmed | cancelled" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "在連結的 slug 重新命名後，讓舊的公開網址繼續可用",
+      fields: [
+        { name: "oldSlug", type: "string", pk: true },
+        {
+          name: "newSlug",
+          type: "string",
+          note: "該連結目前的 slug",
+        },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_usernames",
+      name: "booking_usernames",
+      note: "保留 /book/{username}/{slug} 中的 {username} 區段，每位擁有者一個",
+      fields: [
+        { name: "username", type: "string", pk: true },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "唯一，每位使用者一個預訂使用者名稱",
+        },
+        { name: "createdAt", type: "datetime" },
+        { name: "updatedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_username_changes",
+      name: "booking_username_changes",
+      note: "強制執行「每 30 天最多變更 3 次」速率限制的稽核記錄",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "oldUsername", type: "string", nullable: true },
+        { name: "newUsername", type: "string" },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "預訂連結的共用授權",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "linkId", type: "id", fk: "booking_links.id" },
+        { name: "principal", type: "string", note: "使用者或組織" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "擁有預訂",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "擁有共用授權",
+    },
+  ]}
+/>
+
+可用性規則儲存在每個使用者的設定中，鍵值為 `calendar-availability`。疊加人員儲存在 `calendar-overlay-people` 鍵值下。與會者時區覆寫儲存在 `attendee-timezones` 鍵值下。已訂閱的 ICS 來源儲存在 `external-calendars` 鍵值下。Google 和 Zoom 的 OAuth 權杖儲存在框架的 `oauth_tokens` 資料表中。暫時性的 UI 狀態（目前檢視、日期、選取的活動）儲存在 `application_state` 的 `navigation` 鍵值下。
+
+## 逐步解析一個 action
+
+`create-booking-link` 展示了值得在任何 action 中重複使用的模式：在輸入資料碰到資料庫之前先進行驗證、跨兩個資料表強制執行一項規則、安全地解析已登入的使用者，以及只在一個地方將彈性的輸入格式標準化一次，而不是在每個讀取端都重複處理。
+
+<AnnotatedCode
+  id="doc-block-calendar8"
+  title="建立預訂連結"
+  filename="templates/calendar/actions/create-booking-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport {\n  getRequestUserEmail,\n  getRequestOrgId,\n} from "@agent-native/core/server/request-context";\nimport { eq } from "drizzle-orm";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";\nimport {\n  rowToBookingLink,\n  serializeBookingHosts,\n} from "../server/lib/booking-link-utils.js";\n\nconst hostsSchema = z\n  .union([\n    z.array(\n      z.union([\n        z.string(),\n        z.object({\n          email: z.string(),\n          displayName: z.string().optional(),\n        }),\n      ]),\n    ),\n    z.string(),\n  ])\n  .optional();\n\nexport default defineAction({\n  description:\n    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",\n  schema: z.object({\n    title: z.string().min(1).describe("Booking link title"),\n    slug: z\n      .string()\n      .min(1)\n      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)\n      .describe("URL slug, lowercase words separated by hyphens"),\n    duration: z.coerce\n      .number()\n      .int()\n      .min(5)\n      .max(24 * 60)\n      .describe("Default duration in minutes"),\n    description: z.string().optional().describe("Description"),\n    durations: z\n      .array(\n        z.coerce\n          .number()\n          .int()\n          .min(5)\n          .max(24 * 60),\n      )\n      .optional()\n      .describe("Optional duration choices, e.g. [30,45,60]"),\n    hosts: hostsSchema.describe(\n      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",\n    ),\n    customFields: z.array(z.any()).optional().describe("Custom form fields"),\n    conferencing: z.any().optional().describe("Conferencing configuration"),\n    color: z.string().optional().describe("Display color"),\n    isActive: z.boolean().optional().describe("Whether the link is active"),\n  }),\n  run: async (args) => {\n    const body = args as Record<string, any>;\n    const durationInput = normalizeBookingDurationInput({\n      duration: body.duration,\n      durations: body.durations,\n    });\n    if ("error" in durationInput) {\n      throw new Error(durationInput.error);\n    }\n    const slug = String(body.slug).trim().toLowerCase();\n    const [existingLink, existingRedirect] = await Promise.all([\n      getDb()\n        .select({ id: schema.bookingLinks.id })\n        .from(schema.bookingLinks)\n        .where(eq(schema.bookingLinks.slug, slug)),\n      getDb()\n        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })\n        .from(schema.bookingSlugRedirects)\n        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),\n    ]);\n\n    if (existingLink.length > 0 || existingRedirect.length > 0) {\n      throw new Error("A booking link with this slug already exists");\n    }\n\n    const now = new Date().toISOString();\n    const id = nanoid();\n    const ownerEmail = (() => {\n      const e = getRequestUserEmail();\n      if (!e) throw new Error("no authenticated user");\n      return e;\n    })();\n    await getDb()\n      .insert(schema.bookingLinks)\n      .values({\n        id,\n        slug,\n        title: String(body.title).trim(),\n        description: body.description ? String(body.description).trim() : null,\n        duration: durationInput.duration,\n        durations: durationInput.durations\n          ? JSON.stringify(durationInput.durations)\n          : null,\n        hosts: serializeBookingHosts(body.hosts, ownerEmail),\n        customFields: body.customFields\n          ? JSON.stringify(body.customFields)\n          : null,\n        conferencing: body.conferencing\n          ? JSON.stringify(body.conferencing)\n          : null,\n        color: body.color ? String(body.color).trim() : null,\n        isActive: body.isActive ?? true,\n        ownerEmail,\n        orgId: getRequestOrgId(),\n        createdAt: now,\n        updatedAt: now,\n      });\n\n    const created = await getDb()\n      .select()\n      .from(schema.bookingLinks)\n      .where(eq(schema.bookingLinks.id, id));\n    return rowToBookingLink(created[0]);\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "37-41",
+      label: "Slug 格式會先進行驗證",
+      note: "這個正規表示式會在任何內容碰到資料庫之前，強制要求網址 slug 必須是小寫且以連字號分隔，因此格式錯誤的 slug 永遠不會進入下面的唯一性檢查。",
+    },
+    {
+      lines: "59-61",
+      label: "共同主持人是選填的",
+      note: "省略 `hosts` 會建立一個單人連結。非空的清單則會變成必要的共同主持人，`find-a-time` 提供時段之前，他們也必須是有空的。",
+    },
+    {
+      lines: "76-90",
+      label: "一個 slug 必須在兩個資料表中都是空的",
+      note: "一個新的 slug 必須在 `booking_links` 和 `booking_slug_redirects` 這兩個資料表中都尚未被使用。否則，一個全新的連結可能會悄悄佔用某個網址，而這個網址其實是一個較舊、已重新命名的連結仍在將訪客轉送過來的來源。",
+    },
+    {
+      lines: "94-98",
+      label: "已登入的使用者只解析一次，並收斂型別",
+      note: "`getRequestUserEmail()` 會回傳 `string | undefined`，因為理論上一個未經驗證的呼叫是沒有已登入使用者的。把它包在一個立即執行的函式中，可以讓 action 在真的發生這種情況時當場丟出錯誤，這樣 `ownerEmail` 在函式的其餘部分就是一個單純的 `string`，而不需要之後每一行都重新檢查一次。",
+    },
+    {
+      lines: "110",
+      label: "共同主持人的輸入只標準化一次",
+      note: "`serializeBookingHosts` 接受電子郵件、以逗號分隔的字串，或 `{email, displayName}` 物件，並永遠儲存成相同的 JSON 格式，因此每個讀取端只需要處理一種格式。",
+    },
+  ]}
+/>
+
+## 路由參考
+
+<FileTree
+  id="doc-block-calendar7"
+  title="行事曆範本版面配置"
+  entries={[
+    {
+      path: "actions/",
+      note: "每一個可供代理呼叫的 action，涵蓋活動、可用性、預訂、人員、Zoom、共用",
+    },
+    {
+      path: "app/routes/_app._index.tsx",
+      note: "主要的行事曆檢視（日/週/月）",
+    },
+    { path: "app/routes/_app.agent.tsx", note: "全頁代理聊天分頁" },
+    {
+      path: "app/routes/_app.availability.tsx",
+      note: "可用性編輯器",
+    },
+    {
+      path: "app/routes/_app.booking-links._index.tsx",
+      note: "預訂連結清單，`_app.booking-links.$id.tsx` 用於編輯單一連結",
+    },
+    { path: "app/routes/_app.bookings.tsx", note: "已確認的預訂清單" },
+    {
+      path: "app/routes/_app.extensions.tsx",
+      note: "擴充功能小工具路由",
+    },
+    {
+      path: "app/routes/_app.settings.tsx",
+      note: "Google/Zoom 連線、可用性預設值、共用",
+    },
+    {
+      path: "app/routes/book.$username.$slug.tsx",
+      note: "公開預訂頁面（標準格式：/book/{username}/{slug}）",
+    },
+    {
+      path: "app/routes/booking.manage.$token.tsx",
+      note: "訪客的重新安排/取消頁面",
+    },
+    {
+      path: "app/routes/event.tsx",
+      note: "代理在聊天中嵌入的獨立行內活動預覽頁面",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle 資料表，包括 booking_links、bookings、booking_usernames、shares",
+    },
+    { path: "server/lib/zoom.ts", note: "Zoom OAuth ＋ 建立會議" },
+    {
+      path: "server/lib/google-calendar.ts",
+      note: "Google Calendar API 用戶端",
+    },
+    {
+      path: "shared/api.ts",
+      note: "伺服器和用戶端共用的 TypeScript 型別",
+    },
+  ]}
+/>
+
+為了讓網址格式變更之前分享出去的連結繼續有效，仍保留兩個舊版路由：`book.$slug.tsx`（沒有使用者名稱區段）和 `meet.$username.$slug.tsx`，兩者都會正規化為 `/book/:username/:slug`。`_app.team.tsx` 會重新導向到 `/settings/organization`，團隊管理位於設定中，不是獨立的頁面。
+
+## 自訂它
+
+應用程式的每個部分都是可編輯的原始碼。從這裡開始：
+
+- `templates/calendar/actions/`，新增一個包含 `defineAction` 的檔案，即可向代理和前端同時公開新功能。
+- `templates/calendar/app/routes/`，也就是上面列出的 UI。
+- `templates/calendar/server/db/schema.ts`，使用 Drizzle 新增欄位或資料表。請保持程式碼與方言無關，讓範本能在 SQLite、Postgres、Turso、D1 和 Neon 上執行。
+- `templates/calendar/server/lib/`，提供者整合：`google-calendar.ts`、`zoom.ts`、`people-search.ts`、`ical-fetcher.ts`、`find-time.ts`、`provider-api.ts`。
+- `templates/calendar/AGENTS.md`，代理指令。當您教代理新的功能或慣例時，請更新這個檔案。
+- `templates/calendar/.agents/skills/`，代理遵循的詳細模式。相關 skills：`event-management`、`availability-booking`、`real-time-sync`、`storing-data`、`delegate-to-agent`、`frontend-design`。
+- `templates/calendar/shared/api.ts`，伺服器和用戶端共用的 TypeScript 型別（`CalendarEvent`、`BookingLink`、`ExternalCalendar`、`ConferencingConfig` 等）。
+
+如果您新增一項功能，請記得更新這四個區域：UI、action、skill 或 AGENTS.md 條目，以及代理需要看到的任何 application state。這正是讓代理和 UI 保持一致的關鍵。
+
+## 接下來
+
+- [**行事曆**](/docs/template-calendar) — 總覽和入門步驟
+- [**功能**](/docs/template-calendar-features) — 這些 actions 和這個資料模型所驅動的使用者體驗行為
+- [**與 Agent 對話**](/docs/template-calendar-agent) — 代理如何在這些 actions 和原始的 Google Calendar API 之間做選擇
+- [**行事曆的跨應用使用**](/docs/template-calendar-integrations) — 這些 actions 如何公開給其他應用程式和調度
+- [**Actions**](/docs/actions-overview) — 這個範本所建立於其上的 action 系統
+- [**共用**](/docs/sharing) — `booking_link_shares` 所使用的共用授權模型

@@ -1,4 +1,5 @@
 import {
+  chatModelSelectionStorageKey,
   navigateWithAgentChatViewTransition,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
@@ -29,7 +30,11 @@ import {
 } from "./app-list-row";
 import { CreateAppPopover } from "./create-app-popover";
 import { useSetPageTitle } from "./layout/HeaderActions";
-import { mergeOtherAppEntries, OtherAppsSection } from "./other-apps-section";
+import {
+  filterOtherAppEntries,
+  mergeOtherAppEntries,
+  OtherAppsSection,
+} from "./other-apps-section";
 import { Button } from "./ui/button";
 import {
   Collapsible,
@@ -71,7 +76,7 @@ function CommandPanel() {
     selectedEffort,
     selectedEngine,
     selectedModel,
-  } = useChatModels({ storageKey: "dispatch" });
+  } = useChatModels({ storageKey: chatModelSelectionStorageKey("dispatch") });
   const navigate = useNavigate();
   const promptSuggestions = [
     t("dispatch.pages.suggestionOnboardingApp", {
@@ -186,13 +191,20 @@ function AppsPanel({
   const filteredPendingApps = orderedPendingApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
+  const otherAppEntries = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates: curatedTemplates,
+      connectedApps,
+      workspaceApps: apps,
+    }),
+    searchQuery,
+  );
   const hasSearchResults =
-    filteredActiveApps.length > 0 || filteredPendingApps.length > 0;
-  const otherAppEntries = mergeOtherAppEntries({
-    templates: curatedTemplates,
-    connectedApps,
-    workspaceApps: apps,
-  });
+    filteredActiveApps.length > 0 ||
+    filteredPendingApps.length > 0 ||
+    otherAppEntries.length > 0;
+  const otherAppsLoading = curatedTemplatesLoading || connectedAppsLoading;
+  const otherAppsError = curatedTemplatesError || connectedAppsError;
   const showSkeletons =
     isLoading && activeApps.length === 0 && pendingApps.length === 0;
 
@@ -207,7 +219,10 @@ function AppsPanel({
                 View all
               </Link>
             </Button>
-            {!showSkeletons && visibleApps.length > 0 ? (
+            {!showSkeletons &&
+            (visibleApps.length > 0 ||
+              otherAppEntries.length > 0 ||
+              Boolean(searchQuery.trim())) ? (
               <WorkspaceAppSearch
                 className="w-[220px]"
                 query={searchQuery}
@@ -239,7 +254,10 @@ function AppsPanel({
       ) : null}
       {showSkeletons ? (
         <OverviewAppsSkeleton />
-      ) : searchQuery.trim() && !hasSearchResults ? (
+      ) : searchQuery.trim() &&
+        !hasSearchResults &&
+        !otherAppsLoading &&
+        !otherAppsError ? (
         <WorkspaceAppSearchEmpty
           query={searchQuery}
           onClear={() => setSearchQuery("")}
@@ -269,21 +287,20 @@ function AppsPanel({
                 })}
               </p>
             ) : null}
-            {!searchQuery.trim() ? (
-              <OtherAppsSection
-                templates={curatedTemplates}
-                connectedApps={connectedApps}
-                workspaceApps={apps}
-                templatesLoading={curatedTemplatesLoading}
-                connectedAppsLoading={connectedAppsLoading}
-                templatesError={curatedTemplatesError}
-                connectedAppsError={connectedAppsError}
-                onRetryTemplates={onRetryCuratedTemplates}
-                onRetryConnectedApps={onRetryConnectedApps}
-                heading={null}
-                embeddedInList
-              />
-            ) : null}
+            <OtherAppsSection
+              templates={curatedTemplates}
+              connectedApps={connectedApps}
+              workspaceApps={apps}
+              templatesLoading={curatedTemplatesLoading}
+              connectedAppsLoading={connectedAppsLoading}
+              templatesError={curatedTemplatesError}
+              connectedAppsError={connectedAppsError}
+              query={searchQuery}
+              onRetryTemplates={onRetryCuratedTemplates}
+              onRetryConnectedApps={onRetryConnectedApps}
+              heading={null}
+              embeddedInList
+            />
           </AppList>
         </>
       )}

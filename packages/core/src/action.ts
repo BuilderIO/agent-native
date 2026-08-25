@@ -155,8 +155,10 @@ export type ActionAuthorize<TArgs> = (
 ) => void | boolean | Promise<void | boolean>;
 
 export interface AgentActionStopOptions {
-  /** Optional stable code surfaced in run metadata and tests. */
+  /** Optional stable code safe to surface in run metadata and action transports. */
   errorCode?: string;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
   /** Optional short tool-result text. Defaults to the user-facing message. */
   toolResult?: string;
 }
@@ -204,6 +206,40 @@ export function isActionContractError(
   );
 }
 
+/** Transport metadata for a {@link fail} message. */
+export interface FailOptions {
+  /** Stable machine-readable code. Default: `"action_failed"`. */
+  errorCode?: string;
+  /** HTTP status for the action route. Default: `400`. */
+  statusCode?: number;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Abort an action with a message the caller is meant to read.
+ *
+ * Raises an `ActionContractError`, which is the only reason the message
+ * survives the action HTTP route: an ordinary `throw new Error(...)` is
+ * indistinguishable from a driver or upstream blowup there, so it is replaced
+ * by a generic 500 `"Internal server error"` and reported to error tracking.
+ * Raising through `fail()` is what declares the text safe to echo.
+ *
+ * Default `statusCode` is 400 so a browser query does not retry a refusal
+ * three more times. Pass an explicit status for a different deterministic
+ * cause (`404`, `409`) or a genuinely transient one (`503`, which is retried).
+ *
+ * The CLI runner (`pnpm script`) catches it and exits 1. In-server callers
+ * (agent tools, A2A) get it back as a tool-call error — no process.exit.
+ */
+export function fail(message: string, options: FailOptions = {}): never {
+  throw new ActionContractError(message, {
+    errorCode: options.errorCode ?? "action_failed",
+    statusCode: options.statusCode ?? 400,
+    ...(options.details === undefined ? {} : { details: options.details }),
+  });
+}
+
 /**
  * Throw from an action when the agent should stop the current turn instead of
  * feeding the failure back to the model for another retry.
@@ -211,12 +247,14 @@ export function isActionContractError(
 export class AgentActionStopError extends Error {
   readonly agentNativeStop = true;
   readonly errorCode?: string;
+  readonly details?: Record<string, unknown>;
   readonly toolResult?: string;
 
   constructor(message: string, options: AgentActionStopOptions = {}) {
     super(message);
     this.name = "AgentActionStopError";
     this.errorCode = options.errorCode;
+    this.details = options.details;
     this.toolResult = options.toolResult;
   }
 }
@@ -511,6 +549,49 @@ interface DefineActionWithSchema<
    *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
    *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
+  /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
+   *  A2A action surface, which shares the same policy).
+   *
+   *  **Defaults to `agentTool`, not to `true`**: an action hidden from the
+   *  agent is hidden from outside agents too, so one flag stays one decision.
+   *  Declaring `mcpTool` overrides that inheritance in both directions.
+   *
+   *  - `false` — hard veto. The action is absent from `tools/list` AND from
+   *    `tools/call` on every MCP tier, including the rare `--full-catalog`
+   *    opt-in, while the in-app agent still calls it normally. Use it for
+   *    actions that only make sense with an in-app screen, a live session, or
+   *    the framework's own UI on the other end.
+   *  - `true` — the action-owned form of `mcp.connectorCatalog` membership:
+   *    this action is served on the curated external catalog. Declaring it on
+   *    any action activates the connector tier for the app, which is what lets
+   *    a template delete its hand-maintained `connectorCatalog` name list.
+   *    Paired with `agentTool: false` it makes the action MCP-only — external
+   *    agents get it, the app's own agent does not.
+   *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
+   *    whether it is advertised up front or found through `tool-search`.
+   *
+   *  Membership is not permission: an external caller still passes the OAuth
+   *  scope, `externalAgents` policy, and `publicAgent` checks. Resolved by
+   *  `isActionExposedToExternalAgents` below, which every external surface
+   *  reads instead of testing these two fields itself. */
+  mcpTool?: boolean;
+  /** Whether this action's schema is held back from the agent's FIRST-REQUEST
+   *  tool list and loaded on demand through `tool-search` instead. The
+   *  action-owned form of the plugin's `initialToolNames` array, so the app's
+   *  starter surface is declared beside each action rather than in a list that
+   *  drifts as actions are renamed.
+   *
+   *  - `false` — always in the initial set. As soon as ANY action declares
+   *    this, the derived default flips from "every one of the app's own
+   *    actions" to "the ones that opted in", which is what makes deleting
+   *    `initialToolNames` a real trim rather than a rename.
+   *  - `true` — never in the DERIVED set. An explicit `initialToolNames` entry
+   *    still wins, so a stale list is never silently overridden.
+   *  - `undefined` (default) — unchanged behavior.
+   *
+   *  This is about first-turn context cost, not access: a deferred action is
+   *  still callable the moment `tool-search` returns it. */
+  deferLoading?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
@@ -680,6 +761,15 @@ interface DefineActionWithParams<
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
   agentTool?: boolean;
+  /** Whether this action is exposed to external agents over MCP / direct A2A.
+   *  Defaults to `agentTool`. `false` is a hard veto on every MCP tier; `true`
+   *  declares curated connector-catalog membership, and with `agentTool:
+   *  false` makes the action MCP-only. See the schema overload above. */
+  mcpTool?: boolean;
+  /** Whether this action's schema is held back from the agent's first-request
+   *  tool list and loaded through `tool-search` instead. The action-owned form
+   *  of the plugin's `initialToolNames`. See the schema overload above. */
+  deferLoading?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
@@ -762,6 +852,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
+  readonly mcpTool?: boolean;
+  readonly deferLoading?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
@@ -810,7 +902,7 @@ export interface ActionDefinition<TInput, TReturn> {
  * ArkType) for runtime validation and full type inference:
  *
  * ```ts
- * import { defineAction } from "@agent-native/core";
+ * import { defineAction } from "@agent-native/core/action";
  * import { z } from "zod";
  *
  * export default defineAction({
@@ -968,6 +1060,19 @@ export function defineAction(options: any) {
   // from the agent tool surfaces; undefined is preserved (treated as exposed).
   const agentTool: boolean | undefined =
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
+  // mcpTool / deferLoading: like `agentTool`, `undefined` is a distinct third
+  // state and must survive to the entry. Both flags mean something different
+  // when declared than when omitted — an explicit `mcpTool: true` puts the
+  // action on the curated external catalog, and an explicit
+  // `deferLoading: false` narrows the derived first-request set — so
+  // collapsing undefined to the default here would erase the declaration the
+  // surfaces read.
+  const mcpTool: boolean | undefined =
+    typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const deferLoading: boolean | undefined =
+    typeof options.deferLoading === "boolean"
+      ? options.deferLoading
+      : undefined;
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
@@ -1023,6 +1128,8 @@ export function defineAction(options: any) {
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
+    ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }
@@ -1067,6 +1174,51 @@ export function defineAction(options: any) {
       : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
   };
+}
+
+/**
+ * Whether an action is exposed to EXTERNAL agents — MCP and the direct A2A
+ * action surface. The one resolver every surface asks; nothing downstream
+ * re-derives this from the two raw fields.
+ *
+ * `mcpTool` DEFAULTS TO `agentTool` rather than to a flat `true`, so hiding an
+ * action from the agent hides it from outside agents too and one flag stays
+ * one decision. Declaring `mcpTool` overrides that inheritance in both
+ * directions:
+ *
+ *   agentTool: false                → hidden from every agent surface
+ *   agentTool: false, mcpTool: true → MCP-only: external agents get it, the
+ *                                     app's own agent does not
+ *   mcpTool: false                  → in-app only, whatever `agentTool` says
+ *
+ * The MCP-only combination needs the plugin to route those actions around the
+ * `filterAgentTools` gate — see `mcpOnlyActions` in `agent-chat-plugin.ts`.
+ */
+export function isActionExposedToExternalAgents(entry: {
+  agentTool?: boolean;
+  mcpTool?: boolean;
+}): boolean {
+  return typeof entry.mcpTool === "boolean"
+    ? entry.mcpTool
+    : entry.agentTool !== false;
+}
+
+/**
+ * Whether an action is hidden from EVERY agent surface — the in-app agent and
+ * external agents alike.
+ *
+ * The runtime backstops (`executeAgentToolCall`, `searchToolRegistry`) use
+ * this rather than `agentTool === false`: each caller already passes a
+ * surface-scoped registry, so the backstop's job is to catch an entry that no
+ * surface should ever run, not to re-litigate which surface this is. Testing
+ * `agentTool` alone made those two refuse the MCP-only actions their own
+ * caller had deliberately handed them.
+ */
+export function isActionHiddenFromEveryAgentSurface(entry: {
+  agentTool?: boolean;
+  mcpTool?: boolean;
+}): boolean {
+  return entry.agentTool === false && entry.mcpTool !== true;
 }
 
 /**

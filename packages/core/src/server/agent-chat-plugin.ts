@@ -38,6 +38,7 @@ import {
 } from "../a2a/task-store.js";
 import type { Message as A2AMessage } from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
+import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -50,6 +51,7 @@ import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
+  isAgentChatDurableBackgroundEnabled,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
@@ -86,7 +88,6 @@ import {
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
-import { clientAbortReason } from "../agent/run-loop-with-resume.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
@@ -177,6 +178,7 @@ import {
   getHubStatus,
   isHubServeEnabled,
 } from "../mcp-client/index.js";
+import { declaredMcpToolNames } from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -314,6 +316,7 @@ import {
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
   DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
   filterAgentTools,
+  filterMcpOnlyActions,
   filterPublicAgentActions,
   filterDirectA2AActions,
   filterReadOnlyActions,
@@ -423,6 +426,21 @@ export { resolveRecurringJobsBuildMarker };
 export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+/**
+ * The model this mount runs with, when the caller does not pass one per request.
+ *
+ * The plugin option is the top layer because it is per-mount; `agent.model`
+ * (`AGENT_MODEL`) is the declared layer below it, so a deployment can pin a
+ * model without editing app source. Read through here rather than off
+ * `options` directly — every raw `options?.model` site is a place the declared
+ * field silently does nothing.
+ */
+export function resolveConfiguredAgentModel(
+  options?: Pick<AgentChatPluginOptions, "model">,
+): string | undefined {
+  return options?.model ?? getAppConfig().agent.model;
+}
 
 export function resolveInteractiveAgentRunOptions(
   options?: Pick<
@@ -1105,6 +1123,20 @@ export function createAgentChatPlugin(
         filterAgentTools(discoveredActionsAll),
         disabledFrameworkGroups,
       );
+      // MCP-only actions: `agentTool: false` with an explicit `mcpTool: true`.
+      // `filterAgentTools` above just dropped them — correctly, since the app's
+      // own agent must not see them — so the external surfaces below re-merge
+      // this set instead of reading the unfiltered registries. Keep it OUT of
+      // `allScripts`, the chat/A2A/ask_app loops, and every prompt: an
+      // `ask_app` run is the app's own agent, which `agentTool: false` already
+      // answered. Only the direct MCP and A2A tool surfaces get these.
+      const mcpOnlyActions = filterFrameworkToolGroups(
+        filterMcpOnlyActions({
+          ...discoveredActionsAll,
+          ...templateScriptsAll,
+        }),
+        disabledFrameworkGroups,
+      );
       // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
       // concurrent requests on a long-lived Node process — overlapping
@@ -1617,6 +1649,15 @@ export function createAgentChatPlugin(
           })
         : undefined;
 
+      // The surface external agents get: everything the app's agent has, plus
+      // the MCP-only actions the agent filter removed. The agent sets win on a
+      // name collision, which by construction cannot happen — an action is in
+      // one set or the other, never both.
+      const externalActions = { ...mcpOnlyActions, ...allScripts };
+      const externalFullActions = mcpFullActions
+        ? { ...mcpOnlyActions, ...mcpFullActions }
+        : undefined;
+
       const { mountA2A } = await import("../a2a/server.js");
       mountA2A(nitroApp, {
         appId: options?.appId,
@@ -1624,9 +1665,9 @@ export function createAgentChatPlugin(
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
-        skills: buildPublicAgentA2ASkills(allScripts),
+        skills: buildPublicAgentA2ASkills(externalActions),
         authenticatedSkills: buildAuthenticatedAgentA2ASkills(
-          mcpFullActions ?? allScripts,
+          externalFullActions ?? externalActions,
           mcpOptions,
         ),
         publicSkillsOnly: true,
@@ -1634,7 +1675,7 @@ export function createAgentChatPlugin(
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
-            mcpFullActions ?? allScripts,
+            externalFullActions ?? externalActions,
             mcpOptions,
           );
           const entry = actions[action];
@@ -1667,7 +1708,7 @@ export function createAgentChatPlugin(
         },
         executeApproval: async (approval) => {
           const result = await executeAgentToolCall({
-            actions: mcpFullActions ?? allScripts,
+            actions: externalFullActions ?? externalActions,
             name: approval.tool,
             input: approval.input,
             callId: approval.callId,
@@ -1912,7 +1953,7 @@ export function createAgentChatPlugin(
           // below so it stays out of every identity/access path.
           const a2aCallerModelHint = correlation.callerModel;
           const model = resolveDelegatedRunModel(a2aEngine, {
-            explicitModel: options?.model,
+            explicitModel: resolveConfiguredAgentModel(options),
             storedModel: a2aStoredModel,
             callerModelHint: a2aCallerModelHint,
           });
@@ -1931,7 +1972,7 @@ export function createAgentChatPlugin(
               // "caller-hint" for a rejected hint would send the next person
               // debugging this in exactly the wrong direction.
               `modelSource=${
-                options?.model
+                resolveConfiguredAgentModel(options)
                   ? "configured"
                   : a2aStoredModel
                     ? "stored"
@@ -2041,7 +2082,14 @@ export function createAgentChatPlugin(
             effectiveInitialToolNames,
             {
               receiverOwnsObjective,
-              localCapabilityNames: mcpOptions.connectorCatalog,
+              // Same curated set the MCP mount serves: config names plus the
+              // actions that declare `mcpTool: true` themselves.
+              localCapabilityNames: [
+                ...new Set([
+                  ...(mcpOptions.connectorCatalog ?? []),
+                  ...declaredMcpToolNames(a2aActions),
+                ]),
+              ],
             },
           );
 
@@ -2201,8 +2249,9 @@ export function createAgentChatPlugin(
               // bare `runAgentLoop` — no resume at all on a delegated turn.
               useHostedDefault: true,
               backgroundFunction:
-                options?.durableBackgroundRuns === true &&
-                isInBackgroundFunctionRuntime(),
+                isAgentChatDurableBackgroundEnabled({
+                  appOptIn: options?.durableBackgroundRuns,
+                }) && isInBackgroundFunctionRuntime(),
             },
             {
               telemetry: {
@@ -2455,8 +2504,8 @@ export function createAgentChatPlugin(
             `Agent-native ${options?.appId ?? "app"} agent`,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
-          actions: allScripts,
-          productionActions: mcpFullActions,
+          actions: externalActions,
+          productionActions: externalFullActions,
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
@@ -2495,7 +2544,7 @@ export function createAgentChatPlugin(
               appId: options?.appId,
             });
             const mcpModelCandidate =
-              options?.model ??
+              resolveConfiguredAgentModel(options) ??
               (await getStoredModelForEngine(mcpEngine, {
                 appId: options?.appId,
               })) ??
@@ -2641,8 +2690,9 @@ export function createAgentChatPlugin(
                 // never configured `runSoftTimeoutMs` gets no resume at all.
                 useHostedDefault: true,
                 backgroundFunction:
-                  options?.durableBackgroundRuns === true &&
-                  isInBackgroundFunctionRuntime(),
+                  isAgentChatDurableBackgroundEnabled({
+                    appOptIn: options?.durableBackgroundRuns,
+                  }) && isInBackgroundFunctionRuntime(),
               },
               {
                 telemetry: {
@@ -2765,84 +2815,79 @@ export function createAgentChatPlugin(
         // queued-message save can clobber the assistant message we just
         // appended here, or vice versa.
         await withThreadDataLock(threadId, async () => {
-          try {
-            const thread = await getThread(threadId);
-            if (!thread) {
-              throw new Error(
-                `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
-              );
-            }
-            const assistantMsg = buildAssistantMessage(
-              run.events ?? [],
-              run.runId,
-              {
-                suppressInternalContinuation: true,
-                turnId:
-                  typeof run.turnId === "string" && run.turnId
-                    ? run.turnId
-                    : undefined,
-                runDurationMs:
-                  typeof run.startedAt === "number" &&
-                  Number.isFinite(run.startedAt)
-                    ? Math.max(0, Date.now() - run.startedAt)
-                    : undefined,
-              },
+          const thread = await getThread(threadId);
+          if (!thread) {
+            throw new Error(
+              `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
             );
-            if (!assistantMsg) {
-              // No content produced — just bump timestamp
-              await updateThreadData(
-                threadId,
-                thread.threadData,
-                thread.title,
-                thread.preview,
-                thread.messageCount,
-              );
-              return;
-            }
-
-            // Parse existing thread_data, append assistant message only if
-            // the frontend hasn't already saved it (avoids duplicates when
-            // the client is still connected during a normal flow).
-            let repo: any;
-            try {
-              repo = JSON.parse(thread.threadData || "{}");
-            } catch {
-              repo = {};
-            }
-            if (!Array.isArray(repo.messages)) repo.messages = [];
-
-            repo = foldAssistantTurn(repo, assistantMsg, {
-              runId: run.runId,
+          }
+          const assistantMsg = buildAssistantMessage(
+            run.events ?? [],
+            run.runId,
+            {
+              suppressInternalContinuation: true,
               turnId:
                 typeof run.turnId === "string" && run.turnId
                   ? run.turnId
                   : undefined,
-            });
-
-            // Store debug metadata so we can inspect what the LLM actually
-            // received (system prompt, model, engine) when diagnosing issues.
-            const runCtx = getRequestRunContext();
-            const debug = {
-              runId: run.runId,
-              systemPrompt: runCtx?.systemPrompt,
-              model: runCtx?.model ?? resolvedModel,
-              engine: runCtx?.engine?.name ?? "unknown",
-              timestamp: Date.now(),
-            };
-            repo = appendThreadDebugHistory(repo, debug);
-
-            const meta = extractThreadMeta(repo);
+              runDurationMs:
+                typeof run.startedAt === "number" &&
+                Number.isFinite(run.startedAt)
+                  ? Math.max(0, Date.now() - run.startedAt)
+                  : undefined,
+            },
+          );
+          if (!assistantMsg) {
+            // No content produced — just bump timestamp
             await updateThreadData(
               threadId,
-              JSON.stringify(repo),
-              meta.title || thread.title,
-              meta.preview || thread.preview,
-              repo.messages.length,
+              thread.threadData,
+              thread.title,
+              thread.preview,
+              thread.messageCount,
             );
-          } catch (err) {
-            // Run completion is only successful once thread_data is durable.
-            throw err;
+            return;
           }
+
+          // Parse existing thread_data, append assistant message only if
+          // the frontend hasn't already saved it (avoids duplicates when
+          // the client is still connected during a normal flow).
+          let repo: any;
+          try {
+            repo = JSON.parse(thread.threadData || "{}");
+          } catch {
+            repo = {};
+          }
+          if (!Array.isArray(repo.messages)) repo.messages = [];
+
+          repo = foldAssistantTurn(repo, assistantMsg, {
+            runId: run.runId,
+            turnId:
+              typeof run.turnId === "string" && run.turnId
+                ? run.turnId
+                : undefined,
+          });
+
+          // Store debug metadata so we can inspect what the LLM actually
+          // received (system prompt, model, engine) when diagnosing issues.
+          const runCtx = getRequestRunContext();
+          const debug = {
+            runId: run.runId,
+            systemPrompt: runCtx?.systemPrompt,
+            model: runCtx?.model ?? resolvedModel,
+            engine: runCtx?.engine?.name ?? "unknown",
+            timestamp: Date.now(),
+          };
+          repo = appendThreadDebugHistory(repo, debug);
+
+          const meta = extractThreadMeta(repo);
+          await updateThreadData(
+            threadId,
+            JSON.stringify(repo),
+            meta.title || thread.title,
+            meta.preview || thread.preview,
+            repo.messages.length,
+          );
         });
 
         // Keep SQL run completion gated only on durable thread data. Follow-up
@@ -3077,7 +3122,8 @@ export function createAgentChatPlugin(
         string,
         (event: import("../agent/types.js").AgentChatEvent) => void
       >();
-      const resolvedModel = options?.model ?? DEFAULT_ANTHROPIC_MODEL;
+      const resolvedModel =
+        resolveConfiguredAgentModel(options) ?? DEFAULT_ANTHROPIC_MODEL;
 
       // The action set a sub-agent inherits. Shared between the spawn-time team
       // tool and the `_process-run` processor route below so the durable run
@@ -3633,7 +3679,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runtimeContext,
           );
         },
-        model: options?.model,
+        model: resolveConfiguredAgentModel(options),
         appId: options?.appId,
         hostedHarnessConfig,
         apiKey: options?.apiKey,
@@ -3757,7 +3803,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     runtimeContextForEvent(event),
                 );
               },
-              model: options?.model,
+              model: resolveConfiguredAgentModel(options),
               appId: options?.appId,
               apiKey: options?.apiKey,
               ...resolveInteractiveAgentRunOptions(options),
@@ -3986,7 +4032,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runtimeContext,
             );
           },
-          model: options?.model,
+          model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
           apiKey: options?.apiKey,
           ...resolveInteractiveAgentRunOptions(options),
@@ -6603,7 +6649,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ...(job?.meta.mcpTools ?? []),
           ],
           apiKey: options?.apiKey,
-          model: options?.model,
+          model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
         };
         runNowSchedulerDeps = schedulerDeps;
@@ -7110,7 +7156,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...(automation?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
-            model: options?.model,
+            model: resolveConfiguredAgentModel(options),
             appId: options?.appId,
           });
           if (process.env.DEBUG)

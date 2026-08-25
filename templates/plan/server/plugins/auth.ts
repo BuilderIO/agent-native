@@ -48,6 +48,7 @@ export default createAuthPlugin({
   // auth so the UI does not create placeholder plans for signed-out visitors.
   workspaceAppPublicPaths: [
     "/",
+    "/chat",
     "/plans",
     "/plans/plan_",
     "/recaps",

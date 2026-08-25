@@ -1,12 +1,19 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   closeAutoFocus: null as
     | ((event: { preventDefault: () => void }) => void)
     | null,
+  renderSlide: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -28,6 +35,7 @@ vi.mock("@tabler/icons-react", () => ({
   IconPalette: () => <span />,
   IconPencil: () => <span />,
   IconPlus: () => <span />,
+  IconShare2: () => <span />,
   IconStar: () => <span />,
   IconStarFilled: () => <span />,
   IconTrash: () => <span />,
@@ -47,7 +55,16 @@ vi.mock("@/lib/deck-preview-frame", () => ({
 }));
 
 vi.mock("./SlideRenderer", () => ({
-  default: () => <div />,
+  default: (props: unknown) => {
+    mocks.renderSlide(props);
+    return <div data-testid="slide-renderer" />;
+  },
+}));
+
+vi.mock("../editor/ShareDialog", () => ({
+  default: ({ open }: { open?: boolean }) => (
+    <div data-testid="share-dialog" data-open={String(Boolean(open))} />
+  ),
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -103,6 +120,7 @@ const deck: Deck = {
 afterEach(() => {
   cleanup();
   mocks.closeAutoFocus = null;
+  mocks.renderSlide.mockClear();
   vi.useRealTimers();
 });
 
@@ -132,5 +150,48 @@ describe("DeckCard delete flow", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onDelete).toHaveBeenCalledOnce();
     expect(onDelete).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("renders the first-slide preview returned by the light deck listing", () => {
+    render(
+      <DeckCard
+        deck={{ ...deck, slides: [], previewSlide: deck.slides[0] }}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("slide-renderer")).toBeTruthy();
+    expect(mocks.renderSlide).toHaveBeenCalledWith(
+      expect.objectContaining({ slide: deck.slides[0] }),
+    );
+  });
+
+  it("opens sharing after the overflow menu finishes closing", async () => {
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "share.title" }));
+    expect(screen.getByTestId("share-dialog").getAttribute("data-open")).toBe(
+      "false",
+    );
+    const closeEvent = { preventDefault: vi.fn() };
+    mocks.closeAutoFocus?.(closeEvent);
+    expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("share-dialog").getAttribute("data-open")).toBe(
+        "true",
+      ),
+    );
   });
 });

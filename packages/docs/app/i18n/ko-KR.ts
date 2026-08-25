@@ -1676,6 +1676,55 @@ const koKR = {
         builderPrivacyFull: "Builder.io 개인정보 보호정책",
       },
     },
+    about: {
+      eyebrow: "Agent-Native 소개",
+      title: "에이전트와 사람을 위한 오픈 소스 앱",
+      intro:
+        "Agent-Native는 AI 에이전트와 사용자 인터페이스가 같은 액션, 데이터, 애플리케이션 상태를 공유하는 앱을 만들기 위한 오픈 소스 프레임워크입니다.",
+      sections: {
+        project: {
+          title: "공유 운영 모델",
+          body: "Agent-Native는 에이전트와 인터페이스를 동등한 파트너로 다룹니다. 하나의 액션이 UI 컨트롤, 에이전트 도구, HTTP 엔드포인트, MCP 또는 A2A 기능, CLI 명령과 감사 가능한 워크플로를 지원합니다. 공유 SQL 상태가 사람의 화면과 에이전트의 화면을 일치시킵니다.",
+        },
+        openSource: {
+          title: "기본값은 오픈 소스",
+          body: "소스 코드는 MIT 라이선스로 BuilderIO/agent-native 저장소에서 제공됩니다. 개발자는 구현을 검토하고 로컬에서 실행하며 데이터베이스와 모델 공급자를 선택하고 제품에 맞게 조정할 수 있습니다. 호스팅 서비스는 fork 및 자체 배포와 별도로 운영됩니다.",
+        },
+        hosted: {
+          title: "호스팅과 자체 호스팅",
+          body: "Builder.io는 agent-native.com에서 Agent-Native 호스팅 앱과 문서를 운영합니다. 직접 앱을 배포하고 운영하려는 팀도 이 프레임워크를 사용할 수 있습니다. 액션 계약, 접근 경계, 에이전트 지침과 공개 프로토콜은 코드와 문서에서 확인할 수 있습니다.",
+        },
+        community: {
+          title: "공개적으로 만드는 프로젝트",
+          body: "프로젝트는 GitHub issue, pull request, 문서와 Agent-Native 커뮤니티를 통해 공개적으로 개발됩니다. 문서에서 아키텍처를 배우고, 코드에서 구현을 검증하고, 사용 사례를 논의하거나 변경 사항에 기여할 수 있습니다.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "문의",
+      title: "Agent-Native에 대해 Builder.io에 문의",
+      intro:
+        "Agent-Native에 대한 질문, 문제 신고, 개선 제안 또는 보안 우려는 아래 지원, 소스, 커뮤니티 채널을 이용해 주세요.",
+      emailLabel: "support@builder.io로 이메일 보내기",
+      sections: {
+        support: {
+          title: "제품 및 호스팅 서비스 지원",
+          body: "호스팅 앱, 계정 접근, 문서 문제 또는 해결할 수 없는 동작에 대한 질문은 support@builder.io로 보내 주세요. 공개 URL, 재현 가능한 최소 설명과 관련 요청 또는 실행 ID를 포함하세요. 비밀번호, API 키, Bearer 토큰 또는 비공개 고객 데이터를 보내지 마세요.",
+        },
+        source: {
+          title: "오픈 소스 프로젝트와 커뮤니티",
+          body: "소스 코드 버그, 기능 제안, pull request와 구현 논의에는 GitHub 저장소를 사용하세요. 다른 개발자와 대화가 도움이 되는 질문에는 Discord를 이용할 수 있습니다. 먼저 issue와 문서를 검색해 유지관리자가 필요한 맥락을 확인할 수 있게 하세요.",
+        },
+        security: {
+          title: "보안 신고",
+          body: "패치되지 않은 취약점을 공개 issue나 채팅에 올리지 마세요. 이용 가능한 보안 채널로 Builder.io에 연락하고 재현과 평가에 필요한 정보만 제공하세요. 일반 지원 요청에 자격 증명, 비공개 데이터 또는 악용 자료를 포함하지 마세요.",
+        },
+        legal: {
+          title: "법률 및 개인정보 보호",
+          body: "개인정보 보호 질문은 지원팀에 연락하기 전에 Agent-Native 개인정보 처리방침과 Builder.io 법률 자료를 확인하세요. Builder.io, Inc. 주소는 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States입니다. 호스팅 서비스 약관과 자체 호스팅 책임은 서비스 약관에 설명되어 있습니다.",
+        },
+      },
+    },
     terms: {
       eyebrow: "서비스 약관",
       title: "Agent-Native 호스팅된 애플리케이션",
@@ -1924,8 +1973,8 @@ const koKR = {
     calendar: "캘린더",
     calendarOverview: "개요",
     calendarAgent: "Agent와 대화",
-    calendarScheduling: "일정 및 가용성",
-    calendarBookingLinks: "예약 링크",
+    calendarFeatures: "기능",
+    calendarIntegrations: "앱 간 사용",
     calendarDevelopers: "개발자 가이드",
     content: "콘텐츠",
     contentOverview: "개요",

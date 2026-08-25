@@ -256,8 +256,17 @@ fn build_menu_with_meetings(
     )?;
     let devtools_item =
         MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Cmd+Alt+I"))?;
+    let version_item = MenuItem::with_id(
+        app,
+        "version",
+        format!("Clips v{}", env!("CARGO_PKG_VERSION")),
+        false,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
+    let separator3 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -268,6 +277,9 @@ fn build_menu_with_meetings(
             &paste_last_dictation_item,
             &region_guides_item,
             &devtools_item,
+            &separator2,
+            &version_item,
+            &separator3,
             &quit_item,
         ],
     )?;

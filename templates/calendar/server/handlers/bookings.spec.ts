@@ -175,11 +175,22 @@ describe("booking availability", () => {
     );
   });
 
-  it("marks owner availability unavailable when Google is not connected", async () => {
+  it("falls back to schedule-only availability, skipping Google conflict checks, when the owner has not connected Google", async () => {
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(false);
+    const existingBooking = {
+      start: "2026-07-20T16:00:00.000Z",
+      end: "2026-07-20T16:30:00.000Z",
+    };
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([existingBooking]),
+        }),
+      }),
+    } as any;
 
     const result = await getConflictItems({
-      db: {} as any,
+      db,
       ownerEmail: "host@example.com",
       hostEmails: ["host@example.com"],
       conflictSlugs: ["meeting-45"],
@@ -189,11 +200,10 @@ describe("booking availability", () => {
     });
 
     expect(result).toEqual({
-      items: [],
-      unavailableReason:
-        "Calendar availability unavailable for host@example.com",
+      items: [{ start: existingBooking.start, end: existingBooking.end }],
     });
     expect(googleCalendar.getFreeBusy).not.toHaveBeenCalled();
+    expect(googleCalendar.listEvents).not.toHaveBeenCalled();
   });
 
   it("marks owner availability unavailable when Google free/busy reports errors, ignoring any listEvents data", async () => {

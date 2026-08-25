@@ -116,6 +116,21 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
             "`false` に設定すると、すべてのエージェント ツール一覧から非表示になります。「アクセスと認可」を参照してください。",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "agentTool",
+          description:
+            "`agentTool` を継承します。`false` に設定すると、MCP と A2A 経由の外部エージェントから非表示になります。`true` に設定すると、厳選されたカタログに属することを宣言します。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "deferLoading",
+          type: "boolean",
+          optional: true,
+          description:
+            "`false` に設定すると、そのアクションはエージェントの最初のツール一覧に残ります。`true` に設定すると、`tool-search` を通じて必要になった時点で読み込まれます。下記の「アクションのサーフェスを小さく保つ」を参照してください。",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -254,6 +269,97 @@ POST がデフォルトで、`http: { method: "GET" }` を指定すると GET �
 - **`readOnly: true`**: 何も変更しない `POST` アクションであっても、明示的にポーリング再フェッチをスキップします。これはアクセス制御ではありません。誰がこのアクションを呼び出せるかを制限するものではなく、`useActionQuery()`、`useActionMutation()`、その他どのクライアント フックにも影響しません。唯一の効果は、呼び出し後のリフレッシュ イベントを抑制することと、書き込み監査からアクションを除外することです。モデルからアクションを隠すには `agentTool: false` を使ってください。呼び出せる相手を制御するには、[アクセスと認可](/docs/actions-access-control) の認証・アクセス オプションを使ってください。
 - **`parallelSafe: true`**: 変更を伴うアクションを、同じターン内の他のツール呼び出しと同時に実行できるようにします。同時実行しても安全で、順序に依存しない場合にのみ設定してください。変更を伴うアクションは、デフォルトでは直列に実行されます。
 
+## アクションを失敗させる {#failing}
+
+アクションは throw することで失敗を伝えます。代わりに `{ error: "..." }` を返すと、フレームワークのあらゆる部分からは成功に見えます。そのためエージェントのリトライ ブレーカーはそれを数えず、呼び出しは完了した副作用として記録されます。
+
+何を throw するかが、メッセージがどれだけ生き残るかを決めます。`fail()` は `ActionContractError` を投げます。テキストが呼び出し元に届くのは、この型であることが唯一の理由です。素の `throw new Error("No such email")` は Postgres や上流の障害と区別できないため、アクション ルートはそれを汎用的な 500 `"Internal server error"` に置き換え、本当のメッセージはサーバー ログにとどめ、エラー トラッキングへ報告します。素の throw は本物の内部障害のために取っておいてください。500 はそのためにあります。
+
+`fail()` はメッセージとオプション オブジェクトを受け取ります。
+
+- **message**: 呼び出し元が読むテキスト。ログ向けではなく、人向けに書いてください。
+- **options.errorCode**: 安定した機械可読のコード。既定値は `"action_failed"` です。
+- **options.statusCode**: アクション ルートの HTTP ステータス。既定値は `400` です。
+- **options.details**: 呼び出し元向けの安全な構造化コンテキスト。シークレットやドライバーの生出力を入れてはいけません。
+
+最も単純な呼び出しに必要なのはメッセージだけです。
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+原因に名前を付けることで、UI は失敗を表示するだけでなく分岐できるようになります。コードとステータスはどちらもトランスポートを通過します。
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+ブラウザーは `{ error, errorCode, details }` を受け取ります。`useActionQuery()`、`useActionMutation()`、`callAction()` はいずれも `status`、`errorCode`、`details`、`actionMessage` を持つ `Error` として公開します。
+
+`error.message` には `Action <name> failed:` という接頭辞が残ります。これはコンソール向けであり、トーストでは不自然に読めます。`actionErrorMessage()` はアクションが書いたテキストだけを返し、誰も書いていない場合は `undefined` を返します。
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+ネットワーク切断、プロキシーの HTML エラー ページ、素のステータス行はメッセージを書きません。そのため、UI が誤って表示してしまう文字列ではなく `undefined` を返します。必ず自前の文言と組み合わせてください。
+
+### 各 throw が生成するもの {#failure-shapes}
+
+| `run()` からの throw                            | HTTP ステータス       | レスポンス ボディ                            | エラー トラッキングへの報告 |
+| ----------------------------------------------- | --------------------- | -------------------------------------------- | --------------------------- |
+| `fail(msg)`                                     | 400                   | `{ error: msg, errorCode: "action_failed" }` | なし                        |
+| `fail(msg, { errorCode, statusCode, details })` | 指定した `statusCode` | `{ error, errorCode, details }`              | なし                        |
+| `new ActionContractError(msg, { errorCode })`   | 409                   | `{ error, errorCode, details }`              | なし                        |
+| `new AgentActionStopError(msg)`                 | 500                   | `{ error: msg }`                             | なし                        |
+| `new Error(msg)`                                | 500                   | `{ error: "Internal server error" }`         | あり                        |
+| `schema` 検証に失敗した入力                     | 400                   | `{ error: "Invalid action parameters..." }`  | なし                        |
+
+`AgentActionStopError` は、エージェントが失敗を読んで再試行するのではなくターンを終えるべきときに投げます。`ActionContractError` は `fail()` が代わりに投げてくれるので、409 が望むステータスである場合にだけ直接使ってください。
+
+### リトライ ポリシーが判断できるステータスを選ぶ {#failure-status}
+
+`useActionQuery()` は `429`、`502`、`503`、`504` を最大 3 回、500 ミリ秒、1 秒、2 秒とバックオフしながら再試行します。それ以外のステータスは決定的として扱われ、最初のレスポンスで表面化します。誤っていたために拒否されたリクエストを送り直しても、同じ拒否をもう一度買うだけです。`useActionMutation()` は一切再試行しません。
+
+つまりステータスは飾りではありません。`404` として送られた拒否は 1 往復で済みます。同じ拒否を `500` として送る、あるいは素で throw すると、4 往復と 4 件の重複エラー レポートを要します。
+
+エージェントからの呼び出しではステータスは見えません。エージェントは `run()` をプロセス内で実行するため、型に関わらずメッセージを直接、`Error running <action>: <message>` の形で受け取ります。既定値 `action_failed` 以外の `errorCode` は `(errorCode: not_found)` として付加されるので、モデルは文章を解析せずに分岐できます。MCP 経由の外部エージェントも同じテキストを受け取ります。メッセージ内のシークレットは事前に伏せられ、繰り返しエラーに対するエージェント独自のブレーカーが再試行の回数を制限します。
+
 ## アクション サーフェスを小さく保つ {#small-surface}
 
 エージェントから見えるアクションはすべて、モデルのツール一覧の枠を1つ消費します。一覧が長く、重複が多いほど、モデルが正しいツールを選ぶのが難しくなります。UI のボタン1つにつきアクション1つを作るのではなく、自分たちが保守する API のようにアクション サーフェスを設計してください。
@@ -261,6 +367,7 @@ POST がデフォルトで、`http: { method: "GET" }` を指定すると GET �
 - `update-name`、`update-order`、`update-color` のようなフィールドごとの複数のアクションよりも、オプション フィールドのパッチを受け取る **CRUD スタイルの `update` アクションを1つ** 用意することを優先してください。呼び出し元は、変更されたフィールドだけを送信すればよくなります。
 - クエリやフィルターごとに新しい読み取りアクションを追加する前に、まずより汎用的な選択肢を検討してください。プロバイダー データには [provider API トリオ](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`、`provider-api-docs`、`provider-api-request`)、アプリ データには開発用の `db-query` ツールがあります。
 - UI 専用またはプログラム的なアクションには、[`agentTool: false`](/docs/actions-access-control#agent-tool) を付けてください。フロントエンドや HTTP からは引き続き呼び出せますが、モデルのツール一覧の枠は消費しません。
+- エージェントが常に使うごく少数のアクションには `deferLoading: false` を付けてください。最初のモデル リクエストで送られるのは、それらのスキーマです。それ以外は、エージェントが必要としたときに `tool-search` を通じてオンデマンドで読み込まれます。1つでもこの形で除外すると、印の付いていないアクションはすべて後回しになるので、1つずつではなく、開始時に必要な一式をまとめて印を付けてください。これはアクセス制御ではなく、最初のターンのコストの話です。後回しにしたアクションも、`tool-search` が返した時点で呼び出せます。プラグインの `initialToolNames` 配列をアクション側で表現したもので、アプリはどちらを使ってもかまいません。
 - UI がもう使わなくなったアクションは、モデルに公開したままにせず、削除するか非表示にしてください。
 
 このリポジトリには、助言用のヘルパー `node scripts/audit-template-actions.mjs [template ...]` (エイリアス `pnpm actions:audit`) が含まれています。これはテンプレートの `actions/` フォルダをスキャンし、UI がもう使っていない可能性のあるアクションと、1つにまとめられそうなフィールドごとのアクション群にフラグを立てます。常に終了コード 0 を返して CI を落とすことはなく、そのヒューリスティックは控えめなので、その出力はエラーではなく提案として扱ってください。

@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "child_process";
+import { execFile, execFileSync, spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -1075,9 +1075,8 @@ function cleanupOnFailure(targetDir: string): void {
  * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
  * that don't already exist into the current directory so pre-existing files
  * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
- * the staging dir. Git init/commit is skipped when the current directory is
- * already a repo so we never write an unexpected commit into the user's
- * history.
+ * the staging dir. Git init/commit is skipped when the scaffold lands inside a
+ * repo so we never write an unexpected commit into the user's history.
  */
 function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
   if (!inPlace) {
@@ -1094,8 +1093,91 @@ function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
 }
 
 function tryGitInitUnlessRepo(dir: string): void {
-  if (fs.existsSync(path.join(dir, ".git"))) return;
+  // Only "git says there is no repository here" earns an init. A discovery
+  // failure has to fall through to doing nothing.
+  if (discoverEnclosingRepo(dir).state !== "outside") return;
   tryGitInit(dir);
+}
+
+/**
+ * The variables that bind git to a particular repository.
+ *
+ * Deliberately narrower than git's `local_repo_env`: that list also clears
+ * `GIT_CONFIG*`, because git is entering a different repository and the
+ * caller's `-c` overrides were scoped to the old one. Here the caller is
+ * configuring the scaffold that is about to exist, so `init.defaultBranch`,
+ * `core.hooksPath` and `commit.gpgsign` have to survive.
+ */
+const GIT_REPO_LOCATION_ENV = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_INTERNAL_SUPER_PREFIX",
+  "GIT_NAMESPACE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_QUARANTINE_PATH",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+];
+
+/**
+ * Env with any inherited repository context dropped.
+ *
+ * Whatever launched the process — a hook, a `rebase --exec`, a `receive-pack`
+ * quarantine — may have pinned git to its own repository. Inheriting that makes
+ * discovery answer about that repository rather than the directory being
+ * scaffolded, and makes an init write into it. Picking the variables off one at
+ * a time invites the next gap, so mirror the list git clears for exactly this
+ * reason. The discovery controls are deliberately not in it: where the search
+ * stops really is the caller's to configure.
+ */
+function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of GIT_REPO_LOCATION_ENV) delete env[key];
+  return env;
+}
+
+type RepoDiscovery =
+  | { state: "inside"; root: string }
+  | { state: "outside" }
+  | { state: "unknown"; reason: string };
+
+/**
+ * Whether `dir` sits inside a repository, as git itself resolves it.
+ *
+ * Matching a `.git` entry by hand looks equivalent and is not: discovery also
+ * turns on symlinked paths, filesystem boundaries, `GIT_CEILING_DIRECTORIES`
+ * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`. Running git is free here, since the
+ * only alternative to finding a repo is shelling out to `git init` anyway.
+ *
+ * "No repository" and "could not tell" are separate answers on purpose. Git
+ * exits 128 for a checkout it refuses — dubious ownership, a corrupt gitfile —
+ * as readily as for a genuinely repo-less directory, and reading the first as
+ * the second is how a guard against nested repositories comes to create one.
+ * `LC_ALL` is pinned so the message they are told apart by is not translated.
+ */
+function discoverEnclosingRepo(dir: string): RepoDiscovery {
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...envWithoutRepoOverrides(), LC_ALL: "C" },
+  });
+  if (result.error) return { state: "unknown", reason: result.error.message };
+  if (result.status === 0) {
+    const root = result.stdout.trim();
+    return root
+      ? { state: "inside", root }
+      : { state: "unknown", reason: "git reported no toplevel" };
+  }
+  const stderr = (result.stderr ?? "").trim();
+  if (/not a git repository/i.test(stderr)) return { state: "outside" };
+  return { state: "unknown", reason: stderr || `git exited ${result.status}` };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -2207,6 +2289,7 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
+  discoverEnclosingRepo as _discoverEnclosingRepo,
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
@@ -3841,9 +3924,10 @@ function hasTrackingTemplate(content: string): boolean {
 }
 
 function tryGitInit(dir: string): boolean {
+  const env = envWithoutRepoOverrides();
   try {
-    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
-    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe" });
+    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe", env });
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe", env });
     execFileSync(
       "git",
       ["commit", "-m", "Initial commit from agent-native create"],
@@ -3851,7 +3935,7 @@ function tryGitInit(dir: string): boolean {
         cwd: dir,
         stdio: "pipe",
         env: {
-          ...process.env,
+          ...env,
           GIT_AUTHOR_NAME: "agent-native",
           GIT_AUTHOR_EMAIL: "noreply@agent-native.com",
           GIT_COMMITTER_NAME: "agent-native",

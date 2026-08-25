@@ -99,18 +99,48 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           { preserveCustomModels },
         )
       : (currentModelCandidate ?? DEFAULT_MODEL);
+  // Readiness has to be resolved here: `requiredEnvVars` alone cannot see
+  // vault-stored keys or the deploy-injected Builder gateway lane, so a client
+  // that re-derives it from env keys marks working engines unconfigured.
+  const engineEntries = await Promise.all(
+    engines.map(async (e) => {
+      // Resolved per engine, not across the set: one provider whose credential
+      // store is momentarily unreadable must not reject the whole listing. The
+      // chat refresh catches that rejection and renders an empty catalog, so a
+      // single unrelated provider would make every engine unselectable — the
+      // exact symptom this readiness plumbing exists to fix.
+      //
+      // A read error is its own state, left as `configured: undefined` so the
+      // client falls back to its env heuristic. Folding it into `false` would
+      // claim the engine needs an API key when nobody actually knows.
+      let configured: boolean | undefined;
+      let configuredError: string | undefined;
+      try {
+        configured = await isStoredEngineUsableForRequest(
+          { engine: e.name, model: e.defaultModel },
+          e,
+        );
+      } catch (error) {
+        configuredError =
+          error instanceof Error ? error.message : String(error);
+      }
+      return {
+        name: e.name,
+        label: e.label,
+        description: e.description,
+        defaultModel: e.defaultModel,
+        supportedModels: e.supportedModels,
+        capabilities: e.capabilities,
+        requiredEnvVars: e.requiredEnvVars,
+        installPackage: e.installPackage,
+        packageInstalled: isAgentEnginePackageInstalled(e),
+        configured,
+        configuredError,
+      };
+    }),
+  );
   const result = {
-    engines: engines.map((e) => ({
-      name: e.name,
-      label: e.label,
-      description: e.description,
-      defaultModel: e.defaultModel,
-      supportedModels: e.supportedModels,
-      capabilities: e.capabilities,
-      requiredEnvVars: e.requiredEnvVars,
-      installPackage: e.installPackage,
-      packageInstalled: isAgentEnginePackageInstalled(e),
-    })),
+    engines: engineEntries,
     current: envUnavailable
       ? null
       : {
