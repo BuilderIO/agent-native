@@ -269,6 +269,97 @@ POST डिफ़ॉल्ट है, और `http: { method: "GET" }` इसे
 - **`readOnly: true`**: poll-refresh को स्पष्ट रूप से छोड़ देता है, यहां तक कि उन POST actions के लिए भी जो कुछ भी mutate नहीं करते। यह access control नहीं है। यह प्रतिबंधित नहीं करता कि action को कौन कॉल कर सकता है, और यह `useActionQuery()`, `useActionMutation()`, या किसी client हुक को प्रभावित नहीं करता। इसके एकमात्र प्रभाव हैं post-call refresh इवेंट को दबाना और action को write-auditing से बाहर करना। किसी action को मॉडल से छिपाने के लिए, `agentTool: false` का उपयोग करें। यह गेट करने के लिए कि इसे कौन कॉल कर सकता है, [Access & Authorization](/docs/actions-access-control) पर auth और access विकल्पों का उपयोग करें।
 - **`parallelSafe: true`**: किसी mutating action को उसी टर्न में अन्य tool calls के साथ एक ही समय पर चलने देता है। इसे तभी सेट करें जब action समवर्ती रूप से चलने के लिए सुरक्षित हो और order पर निर्भर न हो। Mutating actions डिफ़ॉल्ट रूप से serialize होते हैं।
 
+## किसी action को fail करना {#failing}
+
+कोई action throw करके failure बताता है। इसके बजाय `{ error: "..." }` return करना framework के हर हिस्से को success जैसा दिखता है, इसलिए एजेंट के retry breakers इसे कभी गिनते नहीं और call एक पूरा हुआ side effect मान लिया जाता है।
+
+आप क्या throw करते हैं, यह तय करता है कि message कितना बचता है। `fail()` एक `ActionContractError` throw करता है, और यही type अकेली वजह है कि text caller तक पहुँचता है। सादा `throw new Error("No such email")` किसी Postgres या upstream गड़बड़ी से अलग नहीं पहचाना जा सकता, इसलिए action route उसे एक सामान्य 500 `"Internal server error"` से बदल देता है, असली message सर्वर लॉग में ही रखता है, और उसे error tracking को रिपोर्ट करता है। सादा throw असली internal faults के लिए बचाकर रखें। 500 इसी के लिए है।
+
+`fail()` एक message और एक options object लेता है:
+
+- **message**: वह text जो caller पढ़ता है। इसे किसी व्यक्ति के लिए लिखें, log के लिए नहीं।
+- **options.errorCode**: एक स्थिर, machine-readable code। डिफ़ॉल्ट `"action_failed"`।
+- **options.statusCode**: action route के लिए HTTP status। डिफ़ॉल्ट `400`।
+- **options.details**: caller के लिए सुरक्षित structured context। यहाँ कभी secrets या driver का raw output न रखें।
+
+सबसे सरल call को सिर्फ़ एक message चाहिए:
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+कारण को नाम देने से ही UI किसी failure पर branch कर पाता है, न कि उसे सिर्फ़ छाप देता है। code और status दोनों transport से बचकर निकलते हैं:
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+ब्राउज़र को `{ error, errorCode, details }` मिलता है। `useActionQuery()`, `useActionMutation()` और `callAction()` सभी इसे `status`, `errorCode`, `details` और `actionMessage` लिए हुए एक `Error` के रूप में सामने लाते हैं।
+
+`error.message` में `Action <name> failed:` prefix बना रहता है, जो console के लिए ठीक है पर toast में गलत पढ़ा जाता है। `actionErrorMessage()` सिर्फ़ वही text लौटाता है जो action ने लिखा, और अगर किसी ने नहीं लिखा तो `undefined`:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+नेटवर्क टूटना, proxy का HTML error page, और सिर्फ़ एक status line कोई message नहीं लिखते। इसलिए वे `undefined` लौटाते हैं, न कि ऐसी string जो UI गलती से दिखा दे। इसे हमेशा अपनी copy के साथ इस्तेमाल करें।
+
+### हर throw क्या पैदा करता है {#failure-shapes}
+
+| `run()` से throw                                | HTTP status       | Response body                                | Error tracking को रिपोर्ट |
+| ----------------------------------------------- | ----------------- | -------------------------------------------- | ------------------------- |
+| `fail(msg)`                                     | 400               | `{ error: msg, errorCode: "action_failed" }` | नहीं                      |
+| `fail(msg, { errorCode, statusCode, details })` | आपका `statusCode` | `{ error, errorCode, details }`              | नहीं                      |
+| `new ActionContractError(msg, { errorCode })`   | 409               | `{ error, errorCode, details }`              | नहीं                      |
+| `new AgentActionStopError(msg)`                 | 500               | `{ error: msg }`                             | नहीं                      |
+| `new Error(msg)`                                | 500               | `{ error: "Internal server error" }`         | हाँ                       |
+| ऐसा input जो `schema` में fail हो               | 400               | `{ error: "Invalid action parameters..." }`  | नहीं                      |
+
+`AgentActionStopError` तब throw करें जब एजेंट को failure पढ़कर दोबारा कोशिश करने के बजाय अपनी turn खत्म करनी चाहिए। `ActionContractError` वही है जो `fail()` आपके लिए throw करता है, इसलिए उसे सीधे तभी इस्तेमाल करें जब 409 ही आपका मनचाहा status हो।
+
+### ऐसा status चुनें जिस पर retry policy काम कर सके {#failure-status}
+
+`useActionQuery()` सिर्फ़ `429`, `502`, `503` और `504` को दोबारा आज़माता है, ज़्यादा से ज़्यादा तीन बार, 500ms फिर 1s फिर 2s के अंतराल पर। बाकी हर status को deterministic माना जाता है और वह पहली ही response पर सामने आ जाता है। जो request गलत होने की वजह से ठुकराई गई थी, उसे दोबारा भेजने से वही इनकार दोबारा मिलता है। `useActionMutation()` बिल्कुल retry नहीं करता।
+
+तो status सजावट नहीं है। `404` के रूप में भेजा गया इनकार एक round trip लेता है। वही इनकार `500` के रूप में भेजा जाए, या सादा throw किया जाए, तो चार round trips और चार दोहरी error रिपोर्ट लगती हैं।
+
+एजेंट callers को status नहीं दिखता। एजेंट `run()` को in-process चलाता है, इसलिए type चाहे जो हो, उसे message सीधे `Error running <action>: <message>` के रूप में मिलता है। डिफ़ॉल्ट `action_failed` के अलावा कोई `errorCode` हो तो वह `(errorCode: not_found)` के रूप में जोड़ दिया जाता है, ताकि model गद्य पढ़े बिना उस पर branch कर सके। MCP के ज़रिए बाहरी एजेंट भी यही text पाते हैं। message में मौजूद secrets पहले हटा दिए जाते हैं, और दोहराई गई errors के लिए एजेंट के अपने breakers तय करते हैं कि वह कितनी बार दोबारा कोशिश करे।
+
 ## Action सतह को छोटा रखें {#small-surface}
 
 जो भी action एजेंट देख सकता है वह मॉडल की tool list में एक स्लॉट लेता है, और एक लंबी, ओवरलैपिंग लिस्ट मॉडल के लिए सही टूल चुनना मुश्किल बना देती है। action सतह को एक ऐसे API की तरह डिज़ाइन करें जिसे आप मेंटेन करते हैं, न कि UI में हर बटन के लिए एक action:

@@ -54,6 +54,7 @@ import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
+import { useThinkingDisplay } from "../thinking-display.js";
 import {
   BashCell,
   EditCell,
@@ -1634,8 +1635,9 @@ function isReconnectToolSummaryPart(
 
 /**
  * Completed reasoning and tool calls share one outer "Worked for…"
- * disclosure. Reasoning cells inside it render their prose directly so
- * opening that summary never reveals a redundant second disclosure.
+ * disclosure. Inside it a reasoning cell keeps its own disclosure — the tool
+ * calls it sits between are collapsible there, and reasoning that could not be
+ * collapsed was the longest thing in an opened summary by far.
  */
 const WorkSummaryContentContext = React.createContext(false);
 
@@ -1666,15 +1668,18 @@ export function ReasoningCell({
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
+  const display = useThinkingDisplay();
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
-  const [open, setOpen] = useState(defaultOpen ?? true);
+  // Only "expanded" honours a caller's request to start open. "collapsed"
+  // keeps every cell shut until the reader asks for it, which is the point of
+  // the mode — a live cell that opens itself is what pushes the answer off
+  // screen mid-turn.
+  const startOpen = display === "expanded" ? (defaultOpen ?? true) : false;
+  const [open, setOpen] = useState(startOpen);
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
+  const previousDisplayRef = useRef(display);
   const trimmed = text.trim();
-  // Reasoning is already a compact live status surface. Rendering the latest
-  // chunk directly avoids a second character-level queue that can lag behind
-  // the model and make the surrounding chat look like it is jumping.
-  const visibleText = trimmed;
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {
@@ -1690,15 +1695,17 @@ export function ReasoningCell({
     wasReplacedRef.current = collapseWhenReplaced;
   }, [collapseWhenReplaced]);
 
-  if (!trimmed && !isStreaming) return null;
+  // Switching the preference re-applies it to cells already on screen, so the
+  // change is visible on the turn the reader is looking at rather than only on
+  // the next one.
+  useEffect(() => {
+    if (previousDisplayRef.current === display) return;
+    previousDisplayRef.current = display;
+    setOpen(startOpen);
+  }, [display, startOpen]);
 
-  if (embeddedInWorkSummary) {
-    return (
-      <div className="pb-1 pl-5 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-        {visibleText || (isStreaming ? "…" : "")}
-      </div>
-    );
-  }
+  if (display === "hidden") return null;
+  if (!trimmed && !isStreaming) return null;
 
   const label = isStreaming
     ? t("agentChat.status.thinking")
@@ -1712,7 +1719,7 @@ export function ReasoningCell({
   const showTail = isStreaming && open;
 
   return (
-    <div className="my-0.5 w-full">
+    <div className={cn("w-full", embeddedInWorkSummary ? "my-0" : "my-0.5")}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -1732,10 +1739,26 @@ export function ReasoningCell({
         )}
       </button>
       <AnimatedCollapse open={open}>
-        <div className={cn("pl-5 pb-1", showTail && "reasoning-cell-tail")}>
-          <div className="text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {visibleText || (isStreaming ? "…" : "")}
-          </div>
+        <div className={cn("ps-5 pb-1", showTail && "reasoning-cell-tail")}>
+          {trimmed ? (
+            // Reasoning summaries arrive as markdown — OpenAI's carry `**bold**`
+            // headers — so a pre-wrap block shows the source characters. Smoothing
+            // stays off: a second character-level queue lags the model and makes
+            // the surrounding chat jump.
+            <div className="agent-reasoning-markdown text-[13px] leading-relaxed text-muted-foreground">
+              <SmoothMarkdownText
+                text={trimmed}
+                streaming={isStreaming}
+                animateStreaming={false}
+                resetKey="reasoning"
+                statusType={isStreaming ? "running" : "complete"}
+              />
+            </div>
+          ) : (
+            <div className="text-[13px] leading-relaxed text-muted-foreground">
+              {isStreaming ? "…" : ""}
+            </div>
+          )}
         </div>
       </AnimatedCollapse>
     </div>

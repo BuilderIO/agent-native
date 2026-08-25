@@ -3302,14 +3302,29 @@ export function createAgentChatAdapter(
               continue;
             }
 
-            const activeRunId =
-              active?.active === true && active.runId
-                ? String(active.runId)
-                : null;
             const activeTurnId =
               typeof active?.turnId === "string" ? active.turnId : "";
             const activeStatus =
               typeof active?.status === "string" ? active.status : "";
+            const reportedRunId = active?.runId ? String(active.runId) : null;
+            // Some deployed readers report a terminal snapshot with
+            // `active: false` while the row is being released. It is still
+            // authoritative when it names this turn or a run we already
+            // claimed; dropping it creates a false idle gap and eventually
+            // reports a completed run as lost.
+            const isTerminalSnapshot =
+              reportedRunId !== null &&
+              (activeStatus === "completed" ||
+                activeStatus === "errored" ||
+                activeStatus === "aborted" ||
+                activeStatus === "truncated") &&
+              (activeTurnId === turnId ||
+                attemptedRunIds.includes(reportedRunId));
+            const activeRunId =
+              reportedRunId !== null &&
+              (active?.active === true || isTerminalSnapshot)
+                ? reportedRunId
+                : null;
             // Only follow runs belonging to THIS turn (server-chained
             // successors reuse the turnId) or runs we already attached to.
             const isOurRun =

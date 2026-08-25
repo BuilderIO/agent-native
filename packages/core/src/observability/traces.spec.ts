@@ -898,7 +898,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       (events[0]?.properties?.["$ai_error"] as { message: string })?.message,
     ).toContain("withheld");
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
-    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
+    // The output side says withheld rather than going absent: an empty
+    // `$ai_output_state` reads as a tool that returned nothing, which is a
+    // different fact about the run than one whose answer we chose not to ship.
+    expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
 
     events.length = 0;
     await run(true);
@@ -1097,6 +1100,106 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     // The call is still visible — that it happened is not the secret.
     expect(call?.function.name).toBe("search");
     expect(call?.function).not.toHaveProperty("arguments");
+  });
+
+  // A backend pairs a tool call with its result by id. Emitting our span id on
+  // the call while the transcript carries the model's meant they never matched,
+  // so every tool call in PostHog rendered with its output nowhere in sight.
+  it("pairs a tool call with its result by the id the model issued", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "search" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, messages }) => {
+        send({ type: "model_stream", status: "start" });
+        send({
+          type: "tool_start",
+          id: "call_abc",
+          tool: "search",
+          input: { query: "gold" },
+        });
+        send({ type: "model_stream", status: "end" });
+        send({
+          type: "tool_done",
+          id: "call_abc",
+          tool: "search",
+          result: "no rows",
+        });
+        // What the engine appends for the next round-trip: a tool result has
+        // no `tool` role to live in, so it rides inside a `user` message.
+        messages.push({
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_abc",
+              toolName: "search",
+              toolInput: '{"query":"gold"}',
+              content: "no rows",
+            },
+          ],
+        });
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "Nothing found." });
+        send({ type: "model_stream", status: "end" });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-callid-pairing",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const choices = events[0]?.properties?.["$ai_output_choices"] as Array<{
+      tool_calls?: Array<{ id: string }>;
+    }>;
+    const callId = choices?.[0]?.tool_calls?.[0]?.id;
+    expect(callId).toBe("call_abc");
+    // The span id namespace never reaches the transcript, so it can never pair.
+    expect(callId).not.toMatch(/^span-/);
+
+    // The second round-trip saw the result, normalized into a `tool` message
+    // carrying the same id — which is what makes the two halves one call.
+    const laterInput = events
+      .flatMap((event) => (event.properties?.["$ai_input"] as unknown[]) ?? [])
+      .find(
+        (message) =>
+          !!message &&
+          typeof message === "object" &&
+          (message as { role?: string }).role === "tool",
+      ) as { tool_call_id?: string; content?: string } | undefined;
+    expect(laterInput?.tool_call_id).toBe("call_abc");
+    expect(laterInput?.content).toBe("no rows");
   });
 
   it("keeps tool detail in invocation order and pairs parallel calls by id", async () => {
@@ -2533,6 +2636,75 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generation?.properties?.tool_calls).toBe(1);
   });
 
+  // The shared event is stamped when the operation BEGAN — Mixpanel, Amplitude,
+  // webhooks and Agent Native Analytics read it verbatim. PostHog's
+  // timestamp-is-end convention is applied in its own provider.
+  it("stamps generations and spans at the moment they began", async () => {
+    const clock = manualClock();
+    const runStart = Date.now();
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        clock.advance(4000);
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        clock.advance(1000);
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        send({ type: "model_stream", status: "start" });
+        clock.advance(2000);
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 2,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-started-at",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const startOf = (event: TrackingEvent): number =>
+      Date.parse(event.timestamp!) - runStart;
+
+    const generations = byName.get("$ai_generation") ?? [];
+    const span = byName.get("$ai_span")?.[0];
+    expect(generations).toHaveLength(2);
+    // Call one ran 0–4s, its tool 4–5s, call two 5–7s.
+    expect(startOf(generations[0])).toBe(0);
+    expect(startOf(span!)).toBe(4000);
+    expect(startOf(generations[1])).toBe(5000);
+    expect(generations[1]?.properties?.created_at_ms).toBe(runStart + 5000);
+  });
+
   // The fallback still has to exist for engines that never bracket their model
   // calls, but a latency built on it must not be mistaken for a measured one.
   it("labels a derived latency when the engine emits no model_stream", async () => {
@@ -2731,10 +2903,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generationLatency).toBe(0.03);
   });
 
-  // PostHog plots a span from its event timestamp forward by `$ai_latency`. A
-  // span stamped at completion therefore drew the tool starting where it ended
-  // and running past the end of the run that contains it.
-  it("timestamps a tool span at its start, not its completion", async () => {
+  // A span's own timestamp is the tool's start, and `$ai_latency` its duration,
+  // so the two together must land inside the run that contains it.
+  it("places a tool span inside the run that contains it", async () => {
     const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
     registerTrackingProvider({
@@ -2786,8 +2957,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(span).toBeDefined();
 
     // The trace is stamped at run start; the tool ran for the whole 40ms of it,
-    // so the span starts exactly where the trace does. Stamped at completion it
-    // started at the run's end and ran 40ms past it.
+    // so the span resolves to exactly the run's window.
     const runStartMs = Date.parse(trace!.timestamp);
     const runEndMs = runStartMs + (trace!.properties?.duration_ms as number);
     const spanStartMs = Date.parse(span!.timestamp);
@@ -3002,7 +3172,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(events).toHaveLength(1);
     expect(events[0]?.properties?.["$ai_is_error"]).toBe(false);
-    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
+    // Withheld, not absent — the tool answered, this app just does not export
+    // what it said. The real result never appears either way.
+    expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
+    expect(JSON.stringify(events[0])).not.toContain("three matching rows");
 
     events.length = 0;
     await run(true);

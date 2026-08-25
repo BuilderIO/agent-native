@@ -8,7 +8,7 @@
  *   pnpm action finalize-recording --id=<recordingId>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   deleteAppState,

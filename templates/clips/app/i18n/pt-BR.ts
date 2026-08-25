@@ -145,6 +145,7 @@ const messages = {
     recordingNotFound: "Gravação não encontrada",
     noAccess: "Você pode não ter acesso a este clipe.",
     backToLibrary: "Voltar à biblioteca",
+    sharedWithYou: "Compartilhado com você",
     storageStillDisconnected: "O armazenamento ainda não está conectado",
     finishBuilderOrS3:
       "Conclua o pop-up Builder.io ou configure o armazenamento S3 e tente novamente.",
@@ -526,6 +527,7 @@ const messages = {
     height: "Altura",
     autoplay: "Reprodução automática",
     startAt: "Começar em (segundos)",
+    startAtTimestamp: "Começar em {{time}}",
     embedCode: "Código de incorporação",
     sharePlainTitle: "Compartilhar {{title}}",
   },

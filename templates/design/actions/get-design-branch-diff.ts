@@ -20,7 +20,7 @@
  * returns `ctaRequired: true` with a "Make it real" CTA.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
