@@ -52,21 +52,9 @@ function GridLines({ positions = LINE_POSITIONS }: GridLinesProps) {
 interface PageSectionProps extends HTMLAttributes<HTMLElement> {
   as?: ElementType;
   showGrid?: boolean;
-  gridLines?: "all" | "edges" | "middle";
+  gridLines?: "all" | "edges";
   children?: ReactNode;
   style?: CSSProperties;
-}
-
-// Sections that render their own bordered box flush with the 0%/100% edges
-// (e.g. the logos grid) already draw a crisp edge themselves; layering the
-// decorative edge line from GridLines at that exact same coordinate produces
-// a doubled/fuzzed line where the two independently-antialiased 1px strokes
-// don't quite land on the same device pixel. "middle" keeps the 1/3 and 2/3
-// lines for visual consistency with the rest of the page, but skips 0/100%.
-function gridLinePositions(gridLines: PageSectionProps["gridLines"]) {
-  if (gridLines === "edges") return [0, 1];
-  if (gridLines === "middle") return [1 / 3, 2 / 3];
-  return LINE_POSITIONS;
 }
 
 export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
@@ -93,7 +81,11 @@ export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
         }}
         {...rest}
       >
-        {showGrid && <GridLines positions={gridLinePositions(gridLines)} />}
+        {showGrid && (
+          <GridLines
+            positions={gridLines === "edges" ? [0, 1] : LINE_POSITIONS}
+          />
+        )}
         {children}
       </Tag>
     );
