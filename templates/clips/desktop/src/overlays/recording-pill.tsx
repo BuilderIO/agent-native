@@ -15,6 +15,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LiveWaveform } from "../components/live-waveform";
+import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import { applyFrame, settleSteps, type AgentStep } from "../lib/agent-steps";
 import {
@@ -34,6 +35,9 @@ import { loadStoredServerUrl } from "../lib/url";
 import { AskSteps } from "./ask-steps";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
+
+/** Matches `pill-ask-sheet-out` in styles.css. */
+const ASK_SHEET_EXIT_MS = 200;
 
 type PillMode = "meeting" | "clip";
 
@@ -95,6 +99,10 @@ export function MeetingPill() {
   // The flex column the transcript and the answer sheet divide between them.
   const pillInnerRef = useRef<HTMLDivElement | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
+  /** Held open for the exit animation. A drawer that vanishes on close reads
+   *  as a bug even when the entrance is right. */
+  const [askSheetClosing, setAskSheetClosing] = useState(false);
+  const askSheetExitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [askSheetHeight, setAskSheetHeight] = useState(ASK_SHEET_DEFAULT);
   const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const askAbortRef = useRef<AbortController | null>(null);
@@ -353,6 +361,10 @@ export function MeetingPill() {
       }
       askAbortRef.current?.abort();
       askAbortRef.current = null;
+      if (askSheetExitRef.current) {
+        clearTimeout(askSheetExitRef.current);
+        askSheetExitRef.current = null;
+      }
       if (demoLevelTimerRef.current) {
         clearInterval(demoLevelTimerRef.current);
         demoLevelTimerRef.current = null;
@@ -476,6 +488,15 @@ export function MeetingPill() {
     return done ? settleSteps(steps) : steps;
   };
 
+  const openAskSheet = () => {
+    if (askSheetExitRef.current) {
+      clearTimeout(askSheetExitRef.current);
+      askSheetExitRef.current = null;
+    }
+    setAskSheetClosing(false);
+    openAskSheet();
+  };
+
   const submitAsk = (question: string) => {
     const mid = activeMeetingIdRef.current;
     if (!question || !mid) return;
@@ -487,7 +508,7 @@ export function MeetingPill() {
         : "You landed on three questions after swapping out the design system one. The open risk is indexing time (up to an hour); the fallback is pinning the previous index and swapping when the fresh one lands.";
       const words = canned.split(" ");
       let i = 0;
-      setAskSheetOpen(true);
+      openAskSheet();
       setAskMessages((m) => [
         ...m,
         { role: "user", text: question },
@@ -520,7 +541,7 @@ export function MeetingPill() {
     askAbortRef.current?.abort();
     const controller = new AbortController();
     askAbortRef.current = controller;
-    setAskSheetOpen(true);
+    openAskSheet();
     setAskMessages((m) => [
       // A superseded in-flight answer keeps its partial text; drop its caret.
       ...m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
@@ -693,7 +714,13 @@ export function MeetingPill() {
     setAskMessages((m) =>
       m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
     );
-    setAskSheetOpen(false);
+    setAskSheetClosing(true);
+    if (askSheetExitRef.current) clearTimeout(askSheetExitRef.current);
+    askSheetExitRef.current = setTimeout(() => {
+      askSheetExitRef.current = null;
+      setAskSheetClosing(false);
+      setAskSheetOpen(false);
+    }, ASK_SHEET_EXIT_MS);
   };
 
   // A split that leaves the transcript room on a tall window can starve it on a
@@ -991,6 +1018,7 @@ export function MeetingPill() {
           {askSheetOpen ? (
             <div
               className="pill-ask-sheet"
+              data-state={askSheetClosing ? "closing" : "open"}
               style={{ height: `${Math.round(askSheetHeight * 100)}%` }}
               data-no-drag
             >
@@ -1044,15 +1072,17 @@ export function MeetingPill() {
                       },
                     ]
                 ).map((chip) => (
-                  <button
+                  <Button
                     key={chip.label}
                     type="button"
+                    variant="outline"
+                    size="sm"
                     data-no-drag
-                    className="pill-ask-chip"
+                    className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
                     onClick={() => submitAsk(chip.ask)}
                   >
                     {chip.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -1060,22 +1090,23 @@ export function MeetingPill() {
           {ctx.mode === "meeting" ? (
             <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
               {!finished ? (
-                <button
+                <Button
                   type="button"
                   onClick={onStopClick}
                   disabled={stopping}
                   data-no-drag
-                  className="pill-stop-inline"
+                  variant="secondary"
+                  className="h-[34px] shrink-0 gap-[7px] rounded-full px-[13px] text-[13px] font-semibold"
                   aria-label={stopping ? "Stopping" : stopLabel}
                   title={stopping ? "Stopping..." : stopLabel}
                 >
                   {stopping ? (
-                    <IconLoader2 className="pill-spinner" size={13} />
+                    <Spinner className="size-[13px]" />
                   ) : (
                     <span aria-hidden className="pill-stop-inline-square" />
                   )}
                   Stop
-                </button>
+                </Button>
               ) : null}
               <div className="pill-ask-field" data-no-drag>
                 <input

@@ -5265,32 +5265,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 /* Ask composer: Stop leads the line (Wispr's pattern), then the quiet
    rounded field on the muted fill with ghost actions. */
-.pill-stop-inline {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 13px;
-  border: none;
-  border-radius: 999px;
-  background: hsl(var(--ui-muted));
-  color: hsl(var(--ui-foreground));
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 120ms;
-}
-
-.pill-stop-inline:hover:not(:disabled) {
-  background: hsl(var(--ui-accent));
-}
-
-.pill-stop-inline:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
 .pill-stop-inline-square {
   display: block;
   width: 10px;
@@ -5317,19 +5291,73 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-direction: column;
   border-top: 0.5px solid hsl(var(--ui-border));
   border-radius: 14px 14px 0 0;
-  background: hsl(var(--ui-popover) / 0.99);
-  box-shadow: 0 -10px 30px hsl(var(--ui-foreground) / 0.06);
-  animation: pill-ask-sheet-in 200ms cubic-bezier(0.3, 0, 0, 1);
+  background: hsl(var(--ui-popover));
+  box-shadow: var(--elevation-sheet);
+  /* Travels rather than fades: the panel arrives from the edge it belongs to,
+     on the same curve the framework's drawers use. */
+  animation: pill-ask-sheet-in 320ms var(--ease-drawer);
+}
+
+.pill-ask-sheet[data-state="closing"] {
+  animation: pill-ask-sheet-out 200ms var(--ease-collapse) forwards;
+  pointer-events: none;
+}
+
+/* The panel leads; its contents follow a beat later, so the drawer reads as
+   one object arriving instead of a card and its text appearing together. */
+.pill-ask-sheet > * {
+  animation: pill-ask-sheet-content 260ms var(--ease-out-strong) both;
+  animation-delay: 90ms;
+}
+
+.pill-ask-sheet[data-state="closing"] > * {
+  animation: none;
 }
 
 @keyframes pill-ask-sheet-in {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(100%);
+  }
+  60% {
+    opacity: 1;
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes pill-ask-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@keyframes pill-ask-sheet-content {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Motion is the affordance here, not decoration — reduced motion keeps the
+   state change, drops the travel. */
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-sheet,
+  .pill-ask-sheet[data-state="closing"],
+  .pill-ask-sheet > * {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
   }
 }
 
@@ -5344,7 +5372,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  padding: 7px 0 3px;
+  /* 18px of grabbable height around a 4px handle: the affordance is the
+     target, not the glyph. */
+  padding: 8px 0 6px;
   cursor: grab;
   touch-action: none;
 }
@@ -5355,14 +5385,22 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .pill-ask-sheet-handle {
   display: block;
-  width: 36px;
+  width: 32px;
   height: 4px;
   border-radius: 999px;
-  background: hsl(var(--ui-border));
+  background: hsl(var(--ui-muted-foreground) / 0.35);
+  transition:
+    background 160ms var(--ease-collapse),
+    transform 160ms var(--ease-collapse);
+}
+
+.pill-ask-sheet-grip:active .pill-ask-sheet-handle {
+  transform: scaleX(1.12);
+  background: hsl(var(--ui-muted-foreground) / 0.7);
 }
 
 .pill-ask-sheet-grip:hover .pill-ask-sheet-handle {
-  background: hsl(var(--ui-muted-foreground));
+  background: hsl(var(--ui-muted-foreground) / 0.55);
 }
 
 .pill-ask-sheet-scroll {
@@ -5414,27 +5452,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .pill-ask-suggestions::-webkit-scrollbar {
   display: none;
-}
-
-.pill-ask-chip {
-  flex-shrink: 0;
-  padding: 5px 11px;
-  border: 0.5px solid hsl(var(--ui-border));
-  border-radius: 999px;
-  background: hsl(var(--ui-popover));
-  color: hsl(var(--ui-foreground));
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 120ms;
-}
-
-.pill-ask-chip:hover:not(:disabled) {
-  background: hsl(var(--ui-accent));
-}
-
-.pill-ask-chip:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* Waiting for capture to attach: never the live red, never a running clock. */
@@ -5501,9 +5518,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: hsl(var(--ui-popover));
   opacity: 0.5;
   transition:
-    opacity 160ms cubic-bezier(0.3, 0, 0, 1),
-    transform 160ms cubic-bezier(0.3, 0, 0, 1),
-    border-color 160ms cubic-bezier(0.3, 0, 0, 1);
+    opacity 160ms var(--ease-out-strong),
+    transform 160ms var(--ease-out-strong),
+    border-color 160ms var(--ease-out-strong);
 }
 
 .pill-ask-chip-icon:last-child {

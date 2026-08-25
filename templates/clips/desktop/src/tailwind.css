@@ -165,6 +165,23 @@
  * color. Only tailwind.css maps these into Tailwind's namespace.
  */
 :root {
+  /* Motion and elevation, mirroring `--ease-*` in
+     packages/core/src/styles/agent-native.css. The desktop app carries no
+     dependency on core, so the curves are restated here rather than
+     hand-typed at each call site — four copies of one bezier is how two
+     surfaces end up moving differently. */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-collapse: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Layered rather than one soft blur: a hairline for the edge, a tight
+     contact shadow for the lift, a wide ambient one for depth. A single
+     30px blur reads as a smudge at this size. */
+  --elevation-sheet:
+    0 -0.5px 0 hsl(var(--ui-foreground) / 0.07),
+    0 -6px 16px -6px hsl(var(--ui-foreground) / 0.1),
+    0 -20px 40px -20px hsl(var(--ui-foreground) / 0.14);
+
   /* The live audio meter is this green on every surface — recorder, meeting
      pill, dictation bar. It lived inside `.record-pill-scope`, so meters
      outside that scope silently fell back to inherited text color. */
