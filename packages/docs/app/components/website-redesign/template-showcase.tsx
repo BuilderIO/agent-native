@@ -1,4 +1,5 @@
 import {
+  IconArrowUpRight,
   IconPalette,
   IconPresentation,
   IconScissors,
@@ -7,7 +8,6 @@ import {
 import { useState, type ComponentType } from "react";
 import { Link } from "react-router";
 
-import { Button } from "./ds/button";
 import { TabItem } from "./ds/tab-item";
 import { GridInner, PageSection } from "./page-grid";
 
@@ -206,13 +206,25 @@ export function TemplateShowcase() {
                     >
                       {tab.body}
                     </p>
-                    <Button
-                      variant="secondary-icon"
-                      tabIndex={-1}
-                      aria-label={`Explore ${tab.label}`}
+                    <span
+                      aria-hidden="true"
+                      className="template-showcase-arrow"
+                      style={{
+                        alignSelf: "flex-start",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 36,
+                        height: 36,
+                        border: "1px solid var(--b-action-secondary-border)",
+                        borderRadius: "var(--b-radius)",
+                        color: "var(--b-text-primary)",
+                        transition:
+                          "background 0.15s, border-color 0.15s, color 0.15s",
+                      }}
                     >
-                      {null}
-                    </Button>
+                      <IconArrowUpRight size={16} stroke={1.75} />
+                    </span>
                   </Link>
                   <div
                     style={{
