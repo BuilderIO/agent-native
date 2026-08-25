@@ -96,13 +96,13 @@ answers already present. A detail found anywhere in that evidence is available
 context - never ask the reporter to repeat it.
 
 Look for resolution or ownership signals before classifying an item as missing
-evidence. A substantive reply from `@agent-native` or any participant that
-identifies the cause, supplies the repro, links a fix, or says the issue is
-fixed, landed, or being fixed is evidence, not a clarification gap. Verify the
-claim when needed and record the item as already owned, fixed, or in progress;
-do not ask a duplicate question while that work is being verified or handed
-off. Ask only when one concrete reporter or product detail still blocks a safe
-fix after this review.
+evidence. A substantive reply from the invoking Slack identity, a legacy
+`@agent-native` message, or any participant that identifies the cause, supplies
+the repro, links a fix, or says the issue is fixed, landed, or being fixed is
+evidence, not a clarification gap. Verify the claim when needed and record the
+item as already owned, fixed, or in progress; do not ask a duplicate question
+while that work is being verified or handed off. Ask only when one concrete
+reporter or product detail still blocks a safe fix after this review.
 
 Every human-facing feedback reply starts with a brief thank-you. When
 clarification is genuinely required, say `thanks for the feedback -` first and
@@ -223,15 +223,17 @@ instead of **Fixed** until verification is complete.
 When this skill is used by `address-feedback-with-replies`, that skill's Slack
 reply states take precedence: a Slack thread must receive **Fixed**, **In
 progress**, or **Clarification needed** for the current run. **In progress** is
-valid only when `@agent-native` or another participant already owns the issue
-or is actively fixing it; it is an open handoff that the next run must resolve
-to **Fixed** or **Clarification needed**. Do not post **Not fixed yet**, **Needs
+valid only when the invoking Slack identity, a legacy `@agent-native` message,
+or another participant already owns the issue or is actively fixing it; it is
+an open handoff that the next run must resolve to **Fixed** or **Clarification
+needed**. Do not post **Not fixed yet**, **Needs
 clarification**, or a bare **Verification pending** status in Slack. Ask one
 concrete, plain-language clarification question only when reporter or product
-input is still missing after the complete-thread and resolution-signal checks. If
-`@agent-native` or another participant already found, fixed, or is fixing the
-issue, do not ask the reporter to restate it - verify the claim or continue the
-existing ownership instead. Start any **In progress** or clarification reply
+input is still missing after the complete-thread and resolution-signal checks.
+If the invoking Slack identity, a legacy `@agent-native` message, or another
+participant already found, fixed, or is fixing the issue, do not ask the
+reporter to restate it - verify the claim or continue the existing ownership
+instead. Start any **In progress** or clarification reply
 with a thank-you. For clarification, ask the question second;
 **Clarification needed** remains an internal ledger state and must not appear as
 the reporter-facing opening. **Clarification needed** is the one timing
