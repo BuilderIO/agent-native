@@ -18,13 +18,10 @@ import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { flushSync } from "react-dom";
 
-// Transparent apron around the pill, sized to ITS shadow rather than the
-// 18px shared overlay default: `0 12px 34px` extends ~46px below and ~34px
-// to the sides, and anything past the window edge clips into a hard
-// rectangle that shows on light backgrounds. 40px keeps the visible falloff
-// inside the window (the last few px of blur tail are imperceptible). Must
-// match the gutter in Rust `show_toolbar` and the wrapper padding below.
-const OVERLAY_SHADOW_GUTTER = 40;
+// The window is sized to the pill exactly; elevation is the native NSWindow
+// shadow (see show_toolbar), so there is no transparent apron to eat clicks
+// or fight screen-edge docking.
+const OVERLAY_SHADOW_GUTTER = 0;
 const SEG_MS = 180;
 const HOVER_INTENT_MS = 150;
 // Within this distance of the right screen edge the pill anchors its RIGHT
@@ -290,9 +287,8 @@ export function RecordingPill() {
         win.scaleFactor(),
         currentMonitor(),
       ]);
-      const gutter = Math.round(OVERLAY_SHADOW_GUTTER * scale);
-      const w = Math.ceil(contentW * scale) + gutter * 2;
-      const h = Math.ceil(contentH * scale) + gutter * 2;
+      const w = Math.ceil(contentW * scale);
+      const h = Math.ceil(contentH * scale);
       let x = pos.x;
       if (monitor) {
         const monRight = monitor.position.x + monitor.size.width;
@@ -300,10 +296,22 @@ export function RecordingPill() {
           pos.x + size.width >=
           monRight - Math.round(RIGHT_EDGE_ANCHOR_PX * scale);
         if (nearRightEdge) x = pos.x + size.width - w;
+        // Never let growth push past the screen edge — macOS shoves the
+        // window back and the correction fights the next resize.
+        x = Math.min(x, monRight - w);
+        x = Math.max(x, monitor.position.x);
       }
       const y = pos.y + size.height - h;
-      await win.setSize(new PhysicalSize(w, h));
-      await win.setPosition(new PhysicalPosition(x, y));
+      // Order the ops so the window never transiently overhangs: when the
+      // origin moves left/up (right-anchored growth), move first, then
+      // grow; otherwise grow first, then move.
+      if (x < pos.x || y < pos.y) {
+        await win.setPosition(new PhysicalPosition(x, y));
+        await win.setSize(new PhysicalSize(w, h));
+      } else {
+        await win.setSize(new PhysicalSize(w, h));
+        await win.setPosition(new PhysicalPosition(x, y));
+      }
     });
   }
 
@@ -1006,7 +1014,7 @@ export function RecordingPill() {
   return (
     <div
       data-tw-surface
-      className="record-pill-scope flex h-screen w-screen select-none items-end p-[40px]"
+      className="record-pill-scope flex h-screen w-screen select-none items-end"
     >
       <div aria-live="polite" className="sr-only">
         {announcement}
@@ -1014,7 +1022,7 @@ export function RecordingPill() {
       {mode === "done" ? (
         <div
           ref={cardRef}
-          className={`w-[340px] flex-none rounded-[14px] border-[0.5px] border-[var(--pill-card-border)] bg-[var(--pill-card-surface)] p-4 record-pill-card-shadow ${reducedRef.current ? "" : "record-pill-card-in"}`}
+          className={`w-[340px] flex-none rounded-[14px] border-[0.5px] border-[var(--pill-card-border)] bg-[var(--pill-card-surface)] p-4 ${reducedRef.current ? "" : "record-pill-card-in"}`}
         >
           <div className="mb-3 flex items-center gap-2.5">
             <span className="flex size-8 flex-none items-center justify-center rounded-full bg-[var(--pill-card-badge-bg)] text-[var(--pill-card-badge)]">
@@ -1094,7 +1102,7 @@ export function RecordingPill() {
           onMouseLeave={handleMouseLeave}
           onFocusCapture={handleFocusCapture}
           onBlurCapture={handleBlurCapture}
-          className={`flex h-[42px] flex-none items-center rounded-full bg-[var(--pill-chrome)] p-1.5 text-[var(--pill-on-chrome)] record-pill-shadow ${enabled ? "" : "opacity-80"}`}
+          className={`flex h-[42px] flex-none items-center rounded-full bg-[var(--pill-chrome)] p-1.5 text-[var(--pill-on-chrome)] ${enabled ? "" : "opacity-80"}`}
         >
           <button
             type="button"

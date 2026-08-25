@@ -1023,16 +1023,14 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     mark_popover_shown(&app);
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    // The pill's shadow (0 12px 34px) needs more room than the shared 18px
-    // overlay gutter or it clips into a hard rectangle on light backgrounds.
-    // Must match OVERLAY_SHADOW_GUTTER in record-pill.tsx.
-    let gutter: u32 = (40.0 * scale).round() as u32;
+    // The window is sized to the pill EXACTLY — elevation comes from the
+    // native NSWindow shadow (shadow(true) below), which macOS derives from
+    // the drawn rounded shape. A transparent CSS-shadow apron is never used
+    // here: its invisible margin eats clicks and fights screen-edge docking.
     // CSS is authored in logical px, while this command sizes the native
     // window in physical px.
-    let content_w: u32 = (248.0 * scale).round() as u32;
-    let content_h: u32 = (42.0 * scale).round() as u32;
-    let w: u32 = content_w + gutter * 2;
-    let h: u32 = content_h + gutter * 2;
+    let w: u32 = (248.0 * scale).round() as u32;
+    let h: u32 = (42.0 * scale).round() as u32;
     // Bottom-center by default; a user-dragged position wins when it still
     // lands on the tray monitor (clamped so a monitor change can't strand
     // the pill off-screen).
@@ -1062,11 +1060,11 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        // IMPORTANT: native window shadow MUST stay off — macOS draws it
-        // based on the rectangular window bounds, not the rounded React
-        // content, so it shows up as a hard-edged black rectangle around
-        // the rounded pill.
-        .shadow(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the capsule gets a
+        // correctly rounded OS shadow with the window sized to the pill
+        // exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
         .visible(false)
         .focused(false);
     // macOS: without this, the first click on an unfocused window is

@@ -341,19 +341,6 @@
   opacity: 0;
 }
 
-.record-pill-shadow {
-  box-shadow:
-    /* guard:allow-raw-color — theme-invariant capture chrome, spec shadow */
-    0 12px 34px rgba(0, 0, 0, 0.35),
-    /* guard:allow-raw-color — theme-invariant capture chrome, spec shadow */ 0
-      2px 6px rgba(0, 0, 0, 0.25);
-}
-
-.record-pill-card-shadow {
-  /* guard:allow-raw-color — theme-invariant capture chrome, spec shadow */
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
-}
-
 .record-pill-card-in {
   animation: record-pill-card-in 220ms var(--pill-ease);
 }
