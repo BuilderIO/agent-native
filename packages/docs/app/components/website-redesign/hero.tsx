@@ -75,10 +75,10 @@ export function Hero() {
               gap: "var(--spacing-6)",
             }}
           >
-            <Button variant="cta" icon={null}>
+            <Button variant="cta" icon={null} href="/apps">
               GET STARTED
             </Button>
-            <Button variant="secondary" icon={null}>
+            <Button variant="secondary" icon={null} href="/docs">
               LEARN MORE
             </Button>
           </div>

@@ -10,6 +10,7 @@ import type {
   ReactNode,
   RefAttributes,
 } from "react";
+import { Link } from "react-router";
 
 export type ButtonVariant =
   | "cta"
@@ -158,9 +159,30 @@ export function Button({
     .join(" ");
 
   if ("href" in rest && rest.href !== undefined) {
-    const { href, ...anchorRest } = rest as ButtonAsAnchor;
+    const { href, target, ...anchorRest } = rest as ButtonAsAnchor;
+    // Same-site paths (no explicit target) go through react-router's Link so
+    // navigation doesn't force a full page reload; external/new-tab links stay
+    // plain anchors.
+    if (href.startsWith("/") && !target) {
+      return (
+        <Link
+          to={href}
+          style={style}
+          className={interactiveClass}
+          {...anchorRest}
+        >
+          {content}
+        </Link>
+      );
+    }
     return (
-      <a href={href} style={style} className={interactiveClass} {...anchorRest}>
+      <a
+        href={href}
+        target={target}
+        style={style}
+        className={interactiveClass}
+        {...anchorRest}
+      >
         {content}
       </a>
     );
