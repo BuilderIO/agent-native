@@ -543,7 +543,6 @@ const messages = {
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
-    generalAccess: "Allgemeiner Zugang",
     restrictedLinkDescription:
       "Dieser Link funktioniert nur für Personen, die bereits Zugriff haben.",
     makingPublic: "Öffentlich machen…",
@@ -564,6 +563,12 @@ const messages = {
     othersCount_other: "{{email}} + {{count}} weitere Personen",
     shareSettings: "Freigabeeinstellungen",
     selectAccess: "Zugriff auswählen",
+    accessOptions: {
+      public: "Jeder mit dem Link kann ansehen",
+      org: "Jeder in {{orgName}} kann ansehen",
+      orgFallback: "Jeder in deiner Organisation kann ansehen",
+      private: "Nur eingeladene Personen können ansehen",
+    },
     done: "Fertig",
     back: "Zurück",
     visibility: {

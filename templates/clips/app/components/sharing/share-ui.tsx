@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import {
   IconArrowLeft,
   IconChevronRight,
@@ -25,7 +26,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 
 export type Visibility = "private" | "org" | "public";
 export type Role = "viewer" | "commenter" | "editor" | "admin";
-export type ShareSettingsView = "people" | "access" | null;
+export type ShareSettingsView = "people" | null;
 
 export interface RoleCopy {
   label: string;
@@ -401,39 +401,13 @@ export function ShareSettingsPanel({
 }
 
 // ---------------------------------------------------------------------------
-// General access — summary row + radio picker
+// General access — inline dropdown, phrased as what the audience can do
 // ---------------------------------------------------------------------------
 
-export function GeneralAccessRow({
-  visibility,
-  isPending,
-  onOpenSettings,
-}: {
-  visibility: Visibility;
-  isPending: boolean;
-  onOpenSettings: () => void;
-}) {
-  const t = useT();
-  const meta = VIS_META[visibility];
-  return (
-    <AccessSummaryRow
-      icon={
-        <span
-          aria-hidden
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
-          <meta.Icon size={16} strokeWidth={1.75} />
-        </span>
-      }
-      label={t("shareUi.generalAccess")}
-      meta={t(`shareUi.visibility.${visibility}.label`)}
-      onClick={onOpenSettings}
-      disabled={isPending}
-    />
-  );
-}
+/** Widest audience first, so the riskiest choice is never buried. */
+const ACCESS_ORDER: Visibility[] = ["public", "org", "private"];
 
-export function GeneralAccessSettingsBody({
+export function GeneralAccessSelect({
   visibility,
   canManage,
   isPending,
@@ -445,43 +419,44 @@ export function GeneralAccessSettingsBody({
   onChange: (next: Visibility) => void;
 }) {
   const t = useT();
+  const { data: org } = useOrg();
+  const orgName = org?.orgName;
+  const meta = VIS_META[visibility];
+
+  const optionLabel = (value: Visibility) => {
+    if (value !== "org") return t(`shareUi.accessOptions.${value}`);
+    return orgName
+      ? t("shareUi.accessOptions.org", { orgName })
+      : t("shareUi.accessOptions.orgFallback");
+  };
+
   return (
-    <div className="space-y-2">
-      <ShareSectionLabel>{t("shareUi.selectAccess")}</ShareSectionLabel>
-      <RadioGroup
+    <div className="flex items-center gap-3 px-1 py-1.5">
+      <span
+        aria-hidden
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+      >
+        <meta.Icon size={16} strokeWidth={1.75} />
+      </span>
+      <Select
         value={visibility}
         onValueChange={(v) => onChange(v as Visibility)}
-        className="gap-1"
+        disabled={!canManage || isPending}
       >
-        {(Object.keys(VIS_META) as Visibility[]).map((k) => {
-          const optMeta = VIS_META[k];
-          return (
-            <label
-              key={k}
-              htmlFor={`visibility-${k}`}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-1 py-2",
-                canManage && !isPending && "cursor-pointer hover:bg-muted/50",
-              )}
-            >
-              <RadioGroupItem
-                id={`visibility-${k}`}
-                value={k}
-                disabled={!canManage || isPending}
-              />
-              <optMeta.Icon
-                aria-hidden
-                size={16}
-                strokeWidth={1.75}
-                className="shrink-0 text-muted-foreground"
-              />
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {t(`shareUi.visibility.${k}.label`)}
-              </span>
-            </label>
-          );
-        })}
-      </RadioGroup>
+        <SelectTrigger
+          aria-label={t("shareUi.selectAccess")}
+          className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus:ring-0 focus:ring-offset-0"
+        >
+          <SelectValue>{optionLabel(visibility)}</SelectValue>
+        </SelectTrigger>
+        <SelectContent align="start">
+          {ACCESS_ORDER.map((value) => (
+            <SelectItem key={value} value={value}>
+              {optionLabel(value)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

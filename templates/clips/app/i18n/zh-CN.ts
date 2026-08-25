@@ -502,7 +502,6 @@ const messages = {
   },
   shareUi: {
     owner: "所有者： {{email}}",
-    generalAccess: "一般访问",
     restrictedLinkDescription: "此链接仅适用于已经具有访问权限的人员。",
     makingPublic: "公开…",
     makePublicAndCopy: "公开并复制",
@@ -522,6 +521,12 @@ const messages = {
     othersCount_other: "{{email}} 及其他 {{count}} 人",
     shareSettings: "共享设置",
     selectAccess: "选择访问权限",
+    accessOptions: {
+      public: "知道链接的任何人都可查看",
+      org: "{{orgName}} 中的任何人都可查看",
+      orgFallback: "您所在组织中的任何人都可查看",
+      private: "仅受邀人员可查看",
+    },
     done: "完成",
     back: "返回",
     visibility: {

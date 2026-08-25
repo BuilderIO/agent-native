@@ -502,7 +502,6 @@ const messages = {
   },
   shareUi: {
     owner: "擁有者： {{email}}",
-    generalAccess: "一般存取",
     restrictedLinkDescription: "此連結僅適用於已經具有存取權限的人員。",
     makingPublic: "公開…",
     makePublicAndCopy: "公開並複製",
@@ -522,6 +521,12 @@ const messages = {
     othersCount_other: "{{email}} 及其他 {{count}} 人",
     shareSettings: "共用設定",
     selectAccess: "選擇存取權",
+    accessOptions: {
+      public: "知道連結的任何人都可檢視",
+      org: "{{orgName}} 中的任何人都可檢視",
+      orgFallback: "您所在組織中的任何人都可檢視",
+      private: "僅受邀人員可檢視",
+    },
     done: "完成",
     back: "返回",
     visibility: {

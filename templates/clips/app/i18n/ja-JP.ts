@@ -535,7 +535,6 @@ const messages = {
   },
   shareUi: {
     owner: "所有者: {{email}}",
-    generalAccess: "一般アクセス",
     restrictedLinkDescription:
       "このリンクは、すでにアクセス権を持っている人のみが機能します。",
     makingPublic: "公開中…",
@@ -556,6 +555,12 @@ const messages = {
     othersCount_other: "{{email}} 他{{count}}人",
     shareSettings: "共有設定",
     selectAccess: "アクセス権を選択",
+    accessOptions: {
+      public: "リンクを知っている全員が閲覧できます",
+      org: "{{orgName}} のメンバー全員が閲覧できます",
+      orgFallback: "組織のメンバー全員が閲覧できます",
+      private: "招待した人のみ閲覧できます",
+    },
     done: "完了",
     back: "戻る",
     visibility: {

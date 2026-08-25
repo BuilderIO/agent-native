@@ -25,8 +25,7 @@ import { toast } from "sonner";
 
 import {
   CopyButton,
-  GeneralAccessRow,
-  GeneralAccessSettingsBody,
+  GeneralAccessSelect,
   InvitePeopleField,
   MakePublicCard,
   PeopleAccessRow,
@@ -304,27 +303,18 @@ function ShareRecordingContent({
             </Button>
           }
         >
-          {settingsView === "people" ? (
-            <PeopleAccessSettingsBody
-              resourceType="recording"
-              resourceId={recordingId}
-              sharesQuery={sharesQuery}
-              canManage={canManage}
-              roleCopy={{
-                commenter: {
-                  label: t("shareUi.recordingCommenter.label"),
-                  description: t("shareUi.recordingCommenter.description"),
-                },
-              }}
-            />
-          ) : (
-            <GeneralAccessSettingsBody
-              visibility={visibility}
-              canManage={canManage}
-              isPending={visibilityPending}
-              onChange={(next) => setResourceVisibility(next)}
-            />
-          )}
+          <PeopleAccessSettingsBody
+            resourceType="recording"
+            resourceId={recordingId}
+            sharesQuery={sharesQuery}
+            canManage={canManage}
+            roleCopy={{
+              commenter: {
+                label: t("shareUi.recordingCommenter.label"),
+                description: t("shareUi.recordingCommenter.description"),
+              },
+            }}
+          />
         </ShareSettingsPanel>
       ) : (
         <Tabs defaultValue="link">
@@ -359,7 +349,6 @@ function ShareRecordingContent({
               hasPassword={hasPassword}
               canViewShares={canViewShares}
               onOpenPeopleSettings={() => setSettingsView("people")}
-              onOpenAccessSettings={() => setSettingsView("access")}
             />
           </TabsContent>
 
@@ -401,7 +390,6 @@ function LinkTab({
   hasPassword,
   canViewShares,
   onOpenPeopleSettings,
-  onOpenAccessSettings,
 }: {
   recordingId: string;
   recordingTitle?: string;
@@ -422,7 +410,6 @@ function LinkTab({
   hasPassword?: boolean;
   canViewShares: boolean;
   onOpenPeopleSettings: () => void;
-  onOpenAccessSettings: () => void;
 }) {
   const t = useT();
   const isPublic = visibility === "public";
@@ -613,10 +600,11 @@ function LinkTab({
                 sharesQuery={sharesQuery}
                 onOpenSettings={onOpenPeopleSettings}
               />
-              <GeneralAccessRow
+              <GeneralAccessSelect
                 visibility={visibility}
+                canManage={canManage}
                 isPending={visibilityPending}
-                onOpenSettings={onOpenAccessSettings}
+                onChange={onVisibilityChange}
               />
             </div>
           </div>

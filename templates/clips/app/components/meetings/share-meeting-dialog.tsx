@@ -16,8 +16,7 @@ import { toast } from "sonner";
 
 import {
   CopyButton,
-  GeneralAccessRow,
-  GeneralAccessSettingsBody,
+  GeneralAccessSelect,
   MakePublicCard,
   PeopleAccessRow,
   PeopleAccessSettingsBody,
@@ -115,30 +114,21 @@ function ShareMeetingContent({
             </Button>
           }
         >
-          {settingsView === "people" ? (
-            <PeopleAccessSettingsBody
-              resourceType="meeting"
-              resourceId={meetingId}
-              sharesQuery={sharesQuery}
-              canManage={canManage}
-              onError={(err, action) =>
-                toast.error(
-                  err instanceof Error
-                    ? err.message
-                    : action === "remove"
-                      ? t("clipsFinalRaw.removePersonFailed")
-                      : t("shareMeeting.updateTranscriptSharingFailed"),
-                )
-              }
-            />
-          ) : (
-            <GeneralAccessSettingsBody
-              visibility={visibility}
-              canManage={canManage}
-              isPending={visibilityPending}
-              onChange={(next) => setResourceVisibility(next)}
-            />
-          )}
+          <PeopleAccessSettingsBody
+            resourceType="meeting"
+            resourceId={meetingId}
+            sharesQuery={sharesQuery}
+            canManage={canManage}
+            onError={(err, action) =>
+              toast.error(
+                err instanceof Error
+                  ? err.message
+                  : action === "remove"
+                    ? t("clipsFinalRaw.removePersonFailed")
+                    : t("shareMeeting.updateTranscriptSharingFailed"),
+              )
+            }
+          />
         </ShareSettingsPanel>
       ) : (
         <LinkTab
@@ -152,7 +142,6 @@ function ShareMeetingContent({
           shareTranscript={shareTranscript}
           transcriptReady={transcriptReady}
           onOpenPeopleSettings={() => setSettingsView("people")}
-          onOpenAccessSettings={() => setSettingsView("access")}
         />
       )}
     </div>
@@ -170,7 +159,6 @@ function LinkTab({
   shareTranscript,
   transcriptReady,
   onOpenPeopleSettings,
-  onOpenAccessSettings,
 }: {
   meetingId: string;
   shareUrl: string;
@@ -185,7 +173,6 @@ function LinkTab({
   shareTranscript: boolean;
   transcriptReady: boolean;
   onOpenPeopleSettings: () => void;
-  onOpenAccessSettings: () => void;
 }) {
   const t = useT();
   const updateMeeting = useActionMutation<
@@ -273,10 +260,11 @@ function LinkTab({
             sharesQuery={sharesQuery}
             onOpenSettings={onOpenPeopleSettings}
           />
-          <GeneralAccessRow
+          <GeneralAccessSelect
             visibility={visibility}
+            canManage={canManage}
             isPending={visibilityPending}
-            onOpenSettings={onOpenAccessSettings}
+            onChange={onVisibilityChange}
           />
         </div>
       </div>

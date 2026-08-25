@@ -522,7 +522,6 @@ const messages = {
   },
   shareUi: {
     owner: "Owner: {{email}}",
-    generalAccess: "General access",
     restrictedLinkDescription:
       "This link will only work for people who already have access.",
     makingPublic: "Making public…",
@@ -543,6 +542,12 @@ const messages = {
     noAccessYet: "No one has access yet.",
     shareSettings: "Share Settings",
     selectAccess: "Select access",
+    accessOptions: {
+      public: "Anyone with the link can view",
+      org: "Anyone in {{orgName}} can view",
+      orgFallback: "Anyone in your organization can view",
+      private: "Only people invited can view",
+    },
     done: "Done",
     back: "Back",
     visibility: {
