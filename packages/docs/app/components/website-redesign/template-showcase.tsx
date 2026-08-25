@@ -271,9 +271,9 @@ export function TemplateShowcase() {
                     loading="lazy"
                     decoding="async"
                     style={{
-                      maxWidth: "100%",
-                      maxHeight: "100%",
-                      objectFit: "contain",
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
                       display: "block",
                     }}
                   />
