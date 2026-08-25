@@ -208,7 +208,7 @@
 }
 
 .builder-brand-tokens .pillars-grid > *:not(:last-child) {
-  border-right: 1px solid var(--b-border-default);
+  border-right: 1px solid var(--b-border-subtle);
 }
 
 @media (max-width: 768px) {
