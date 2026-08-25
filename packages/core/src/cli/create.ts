@@ -1093,21 +1093,24 @@ function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
 }
 
 function tryGitInitUnlessRepo(dir: string): void {
-  if (findEnclosingRepo(dir)) return;
+  // Only "git says there is no repository here" earns an init. A discovery
+  // failure has to fall through to doing nothing.
+  if (discoverEnclosingRepo(dir).state !== "outside") return;
   tryGitInit(dir);
 }
 
 /**
- * Git's own `local_repo_env`: everything git clears from the environment when
- * it runs a command against a different repository, plus the quarantine path
- * `receive-pack` exports around hooks.
+ * The variables that bind git to a particular repository.
+ *
+ * Deliberately narrower than git's `local_repo_env`: that list also clears
+ * `GIT_CONFIG*`, because git is entering a different repository and the
+ * caller's `-c` overrides were scoped to the old one. Here the caller is
+ * configuring the scaffold that is about to exist, so `init.defaultBranch`,
+ * `core.hooksPath` and `commit.gpgsign` have to survive.
  */
-const GIT_LOCAL_REPO_ENV = [
+const GIT_REPO_LOCATION_ENV = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
-  "GIT_CONFIG",
-  "GIT_CONFIG_COUNT",
-  "GIT_CONFIG_PARAMETERS",
   "GIT_DIR",
   "GIT_GRAFT_FILE",
   "GIT_IMPLICIT_WORK_TREE",
@@ -1136,30 +1139,45 @@ const GIT_LOCAL_REPO_ENV = [
  */
 function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
   const env = { ...process.env };
-  for (const key of GIT_LOCAL_REPO_ENV) delete env[key];
+  for (const key of GIT_REPO_LOCATION_ENV) delete env[key];
   return env;
 }
 
+type RepoDiscovery =
+  | { state: "inside"; root: string }
+  | { state: "outside" }
+  | { state: "unknown"; reason: string };
+
 /**
- * Root of the repository containing `dir`, as git itself resolves it.
+ * Whether `dir` sits inside a repository, as git itself resolves it.
  *
  * Matching a `.git` entry by hand looks equivalent and is not: discovery also
  * turns on symlinked paths, filesystem boundaries, `GIT_CEILING_DIRECTORIES`
- * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`, and getting any of them wrong in the
- * over-eager direction silently leaves a scaffold with no repository at all.
- * Running git is free here because the only alternative to finding a repo is
- * shelling out to `git init` anyway.
+ * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`. Running git is free here, since the
+ * only alternative to finding a repo is shelling out to `git init` anyway.
+ *
+ * "No repository" and "could not tell" are separate answers on purpose. Git
+ * exits 128 for a checkout it refuses — dubious ownership, a corrupt gitfile —
+ * as readily as for a genuinely repo-less directory, and reading the first as
+ * the second is how a guard against nested repositories comes to create one.
+ * `LC_ALL` is pinned so the message they are told apart by is not translated.
  */
-function findEnclosingRepo(dir: string): string | undefined {
+function discoverEnclosingRepo(dir: string): RepoDiscovery {
   const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
     cwd: dir,
     encoding: "utf8",
-    env: envWithoutRepoOverrides(),
+    env: { ...envWithoutRepoOverrides(), LC_ALL: "C" },
   });
-  // A non-zero exit is git answering "no work tree here". A spawn error means
-  // git is unusable, and an init attempt has nothing to add in that case.
-  if (result.error || result.status !== 0) return undefined;
-  return result.stdout.trim() || undefined;
+  if (result.error) return { state: "unknown", reason: result.error.message };
+  if (result.status === 0) {
+    const root = result.stdout.trim();
+    return root
+      ? { state: "inside", root }
+      : { state: "unknown", reason: "git reported no toplevel" };
+  }
+  const stderr = (result.stderr ?? "").trim();
+  if (/not a git repository/i.test(stderr)) return { state: "outside" };
+  return { state: "unknown", reason: stderr || `git exited ${result.status}` };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -2271,7 +2289,7 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
-  findEnclosingRepo as _findEnclosingRepo,
+  discoverEnclosingRepo as _discoverEnclosingRepo,
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,

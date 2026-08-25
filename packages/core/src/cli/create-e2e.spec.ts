@@ -532,6 +532,23 @@ describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
     expect(git(unrelated, ["rev-list", "--all", "--count"])).toBe("0");
   });
 
+  it("does not init when git cannot tell whether a repo encloses the target", async () => {
+    const dir = path.join(tmpDir, "unreadable-parent");
+    fs.mkdirSync(dir, { recursive: true });
+    // Refused for a reason other than "not a git repository"; treating that as
+    // "no repo here" is how this guard would create the nesting it prevents.
+    fs.writeFileSync(path.join(dir, ".git"), "garbage");
+    process.chdir(dir);
+
+    await createApp("cautious-app", { template: "headless" });
+
+    const scaffold = path.join(dir, "cautious-app");
+    expect(fs.existsSync(path.join(scaffold, "actions", "hello.ts"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(scaffold, ".git"))).toBe(false);
+  });
+
   it("still inits a repo for a scaffold outside any checkout", async () => {
     process.chdir(tmpDir);
 

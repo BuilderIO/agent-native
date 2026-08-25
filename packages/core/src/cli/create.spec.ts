@@ -14,7 +14,7 @@ import {
   _communityTemplateTrustMessage,
   _fixPackageJsonName,
   _fixWebManifestName,
-  _findEnclosingRepo,
+  _discoverEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
   _parseCommunityTemplateSelection,
@@ -1227,20 +1227,23 @@ describe("findEnclosingRepo", () => {
     const { root, nested } = makeTree();
     initRepo(root);
 
-    expect(_findEnclosingRepo(nested)).toBe(root);
+    expect(_discoverEnclosingRepo(nested)).toEqual({ state: "inside", root });
   });
 
   it("finds the target itself when it is the repo", () => {
     const { nested } = makeTree();
     initRepo(nested);
 
-    expect(_findEnclosingRepo(nested)).toBe(nested);
+    expect(_discoverEnclosingRepo(nested)).toEqual({
+      state: "inside",
+      root: nested,
+    });
   });
 
   it("returns undefined when nothing above the target is a repo", () => {
     const { nested } = makeTree();
 
-    expect(_findEnclosingRepo(nested)).toBeUndefined();
+    expect(_discoverEnclosingRepo(nested).state).toBe("outside");
   });
 
   it("follows a symlinked path to the real repository", () => {
@@ -1250,7 +1253,7 @@ describe("findEnclosingRepo", () => {
     fs.symlinkSync(nested, link, "dir");
 
     try {
-      expect(_findEnclosingRepo(link)).toBe(root);
+      expect(_discoverEnclosingRepo(link)).toEqual({ state: "inside", root });
     } finally {
       fs.unlinkSync(link);
     }
@@ -1265,10 +1268,24 @@ describe("findEnclosingRepo", () => {
 
     process.env.GIT_DIR = path.join(unrelated, ".git");
     try {
-      expect(_findEnclosingRepo(nested)).toBeUndefined();
+      expect(_discoverEnclosingRepo(nested).state).toBe("outside");
     } finally {
       delete process.env.GIT_DIR;
     }
+  });
+
+  it("reports unknown, not outside, when discovery fails", () => {
+    const { root, nested } = makeTree();
+    // A corrupt gitfile makes git refuse the checkout with a fatal that is not
+    // "not a git repository" — the same shape as dubious ownership.
+    fs.writeFileSync(path.join(root, ".git"), "garbage");
+
+    const discovery = _discoverEnclosingRepo(nested);
+
+    expect(discovery.state).toBe("unknown");
+    expect("reason" in discovery ? discovery.reason : "").toMatch(
+      /invalid gitfile/i,
+    );
   });
 
   it("stops where GIT_CEILING_DIRECTORIES says git should", () => {
@@ -1277,7 +1294,7 @@ describe("findEnclosingRepo", () => {
 
     process.env.GIT_CEILING_DIRECTORIES = path.join(root, "a");
     try {
-      expect(_findEnclosingRepo(nested)).toBeUndefined();
+      expect(_discoverEnclosingRepo(nested).state).toBe("outside");
     } finally {
       delete process.env.GIT_CEILING_DIRECTORIES;
     }
