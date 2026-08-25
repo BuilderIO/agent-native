@@ -213,7 +213,7 @@
 
 .builder-brand-tokens .logos-grid {
   display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   border: 1px solid var(--b-border-default);
   mix-blend-mode: luminosity;
 }
