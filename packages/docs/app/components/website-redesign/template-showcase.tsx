@@ -296,7 +296,7 @@ export function TemplateShowcase() {
                     style={{
                       margin: 0,
                       fontFamily: "var(--b-font-sans)",
-                      fontSize: "var(--b-t-paragraph-3)",
+                      fontSize: 14,
                       lineHeight: 1.4,
                       color: "var(--b-text-secondary)",
                     }}
