@@ -1,5 +1,6 @@
 import { useLoaderData } from "react-router";
 
+import { getGithubStarCount } from "../../lib/github-star-count";
 import { BottomCta } from "../components/website-redesign/bottom-cta";
 import { BuiltInFeatures } from "../components/website-redesign/built-in-features";
 import { FeaturesActions } from "../components/website-redesign/features-actions";
@@ -19,23 +20,7 @@ export const meta = () => [
 ];
 
 export async function loader() {
-  let starCount: number | null = null;
-  try {
-    const res = await fetch(
-      "https://api.github.com/repos/BuilderIO/agent-native",
-      {
-        headers: { Accept: "application/vnd.github+json" },
-      },
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (typeof data.stargazers_count === "number") {
-        starCount = data.stargazers_count;
-      }
-    }
-  } catch {
-    // coercion-ok: Network/API failures surface as an explicit null, not a fake value
-  }
+  const starCount = await getGithubStarCount();
   return { starCount };
 }
 
