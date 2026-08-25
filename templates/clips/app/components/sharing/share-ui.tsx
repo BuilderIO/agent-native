@@ -320,9 +320,8 @@ export function AccessAccordionRow({
         ) : null}
         <IconChevronDown
           aria-hidden
-          size={16}
           className={cn(
-            "shrink-0 text-muted-foreground/70 transition-transform",
+            "h-4 w-4 shrink-0 opacity-50 transition-transform",
             open && "rotate-180",
           )}
         />

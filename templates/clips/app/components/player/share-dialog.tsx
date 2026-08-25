@@ -623,7 +623,7 @@ function LinkTab({
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="ghost" className="ms-auto gap-1">
                 {t("shareDialog.more")}
-                <IconChevronDown size={16} />
+                <IconChevronDown className="h-4 w-4 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
