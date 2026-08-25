@@ -500,6 +500,28 @@ describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
     );
   });
 
+  it("inits the scaffold's own repo even with an unrelated GIT_DIR inherited", async () => {
+    const unrelated = path.join(tmpDir, "unrelated");
+    fs.mkdirSync(unrelated, { recursive: true });
+    git(unrelated, ["init"]);
+    process.chdir(tmpDir);
+
+    process.env.GIT_DIR = path.join(unrelated, ".git");
+    try {
+      await createApp("env-override-app", { template: "headless" });
+    } finally {
+      delete process.env.GIT_DIR;
+    }
+
+    const scaffold = path.join(tmpDir, "env-override-app");
+    expect(fs.existsSync(path.join(scaffold, ".git"))).toBe(true);
+    expect(git(scaffold, ["log", "-1", "--pretty=%s"])).toBe(
+      "Initial commit from agent-native create",
+    );
+    // The commit landed in the scaffold, not in whatever GIT_DIR pointed at.
+    expect(git(unrelated, ["rev-list", "--all", "--count"])).toBe("0");
+  });
+
   it("still inits a repo for a scaffold outside any checkout", async () => {
     process.chdir(tmpDir);
 

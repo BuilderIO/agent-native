@@ -1256,6 +1256,21 @@ describe("findEnclosingRepo", () => {
     }
   });
 
+  it("ignores an inherited GIT_DIR pointing at an unrelated repo", () => {
+    const { nested } = makeTree();
+    const unrelated = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "unrelated-repo-")),
+    );
+    initRepo(unrelated);
+
+    process.env.GIT_DIR = path.join(unrelated, ".git");
+    try {
+      expect(_findEnclosingRepo(nested)).toBeUndefined();
+    } finally {
+      delete process.env.GIT_DIR;
+    }
+  });
+
   it("stops where GIT_CEILING_DIRECTORIES says git should", () => {
     const { root, nested } = makeTree();
     initRepo(root);

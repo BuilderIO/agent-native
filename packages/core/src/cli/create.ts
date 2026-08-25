@@ -1098,6 +1098,31 @@ function tryGitInitUnlessRepo(dir: string): void {
 }
 
 /**
+ * Env with git's repository-location overrides removed.
+ *
+ * `GIT_DIR` and friends pin git to a repository chosen by whatever launched the
+ * process — a hook, a `rebase --exec` — so inheriting them makes discovery
+ * answer about that repository instead of the directory being scaffolded, and
+ * makes an init write into it. The discovery controls stay: where the search
+ * stops really is the caller's to configure.
+ */
+function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+  ]) {
+    delete env[key];
+  }
+  return env;
+}
+
+/**
  * Root of the repository containing `dir`, as git itself resolves it.
  *
  * Matching a `.git` entry by hand looks equivalent and is not: discovery also
@@ -1111,6 +1136,7 @@ function findEnclosingRepo(dir: string): string | undefined {
   const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
     cwd: dir,
     encoding: "utf8",
+    env: envWithoutRepoOverrides(),
   });
   // A non-zero exit is git answering "no work tree here". A spawn error means
   // git is unusable, and an init attempt has nothing to add in that case.
@@ -3862,9 +3888,10 @@ function hasTrackingTemplate(content: string): boolean {
 }
 
 function tryGitInit(dir: string): boolean {
+  const env = envWithoutRepoOverrides();
   try {
-    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
-    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe" });
+    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe", env });
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe", env });
     execFileSync(
       "git",
       ["commit", "-m", "Initial commit from agent-native create"],
@@ -3872,7 +3899,7 @@ function tryGitInit(dir: string): boolean {
         cwd: dir,
         stdio: "pipe",
         env: {
-          ...process.env,
+          ...env,
           GIT_AUTHOR_NAME: "agent-native",
           GIT_AUTHOR_EMAIL: "noreply@agent-native.com",
           GIT_COMMITTER_NAME: "agent-native",
