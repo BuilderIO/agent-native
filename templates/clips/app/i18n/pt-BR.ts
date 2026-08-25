@@ -1013,7 +1013,6 @@ const messages = {
     editComment: "Editar comentário",
     commentButton: "Comentar",
     composerPlaceholder: "Adicionar um comentário…",
-    addEmoji: "Adicionar emoji",
   },
   shareMeeting: {
     pageTitle: "Notas da reunião · Clips",

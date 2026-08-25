@@ -988,7 +988,6 @@ const messages = {
     editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
-    addEmoji: "Add emoji",
   },
   shareMeeting: {
     pageTitle: "Meeting notes · Clips",

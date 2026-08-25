@@ -1017,7 +1017,6 @@ const messages = {
     editComment: "Modifier le commentaire",
     commentButton: "Commenter",
     composerPlaceholder: "Ajouter un commentaire…",
-    addEmoji: "Ajouter un emoji",
   },
   shareMeeting: {
     pageTitle: "Notes de réunion · Clips",

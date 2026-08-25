@@ -950,7 +950,6 @@ const messages = {
     editComment: "编辑评论",
     commentButton: "评论",
     composerPlaceholder: "添加评论…",
-    addEmoji: "添加表情",
   },
   shareMeeting: {
     pageTitle: "会议笔记 · Clips",

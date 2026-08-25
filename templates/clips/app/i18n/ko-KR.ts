@@ -991,7 +991,6 @@ const messages = {
     editComment: "댓글 편집",
     commentButton: "댓글",
     composerPlaceholder: "댓글 추가…",
-    addEmoji: "이모지 추가",
   },
   shareMeeting: {
     pageTitle: "회의 노트 · Clips",

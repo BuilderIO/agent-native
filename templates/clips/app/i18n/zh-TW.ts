@@ -949,7 +949,6 @@ const messages = {
     editComment: "編輯評論",
     commentButton: "留言",
     composerPlaceholder: "新增留言…",
-    addEmoji: "新增表情符號",
   },
   shareMeeting: {
     pageTitle: "會議筆記 · Clips",

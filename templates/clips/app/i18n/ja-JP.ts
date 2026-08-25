@@ -1005,7 +1005,6 @@ const messages = {
     editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
-    addEmoji: "絵文字を追加",
   },
   shareMeeting: {
     pageTitle: "会議メモ · Clips",

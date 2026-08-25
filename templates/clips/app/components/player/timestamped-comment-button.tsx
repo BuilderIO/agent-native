@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconMessagePlus, IconMoodSmile } from "@tabler/icons-react";
+import { IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -74,23 +74,6 @@ export function TimestampedCommentBar({
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, []);
 
-  const insertAtCursor = (text: string) => {
-    const el = textareaRef.current;
-    if (!el) {
-      setDraft(draft + text);
-      return;
-    }
-    const start = el.selectionStart ?? draft.length;
-    const end = el.selectionEnd ?? draft.length;
-    const next = draft.slice(0, start) + text + draft.slice(end);
-    setDraft(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = start + text.length;
-      el.setSelectionRange(pos, pos);
-    });
-  };
-
   const submit = () => {
     const content = draft.trim();
     if (!content) return;
@@ -130,19 +113,7 @@ export function TimestampedCommentBar({
           rows={2}
           className="min-h-[3rem] resize-none border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         />
-        <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-muted-foreground"
-              aria-label={t("commentsPanel.addEmoji")}
-              onClick={() => insertAtCursor("🙂")}
-            >
-              <IconMoodSmile className="h-4 w-4" />
-            </Button>
-          </div>
+        <div className="mt-2 flex items-center justify-end">
           <div className="flex items-center gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>
               {t("common.cancel")}
