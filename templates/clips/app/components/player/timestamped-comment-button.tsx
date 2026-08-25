@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconMessagePlus, IconAt, IconMoodSmile } from "@tabler/icons-react";
+import { IconMessagePlus, IconMoodSmile } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -132,16 +132,6 @@ export function TimestampedCommentBar({
         />
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-muted-foreground"
-              aria-label={t("commentsPanel.mentionSomeone")}
-              onClick={() => insertAtCursor("@")}
-            >
-              <IconAt className="h-4 w-4" />
-            </Button>
             <Button
               type="button"
               variant="ghost"

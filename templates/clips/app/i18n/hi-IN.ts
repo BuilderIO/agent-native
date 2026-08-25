@@ -982,7 +982,6 @@ const messages = {
     editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
-    mentionSomeone: "किसी का उल्लेख करें",
     addEmoji: "इमोजी जोड़ें",
   },
   shareMeeting: {

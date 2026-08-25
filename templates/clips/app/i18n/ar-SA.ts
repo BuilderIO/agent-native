@@ -1001,7 +1001,6 @@ const messages = {
     editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
-    mentionSomeone: "أذكر شخصًا",
     addEmoji: "أضف رمزًا تعبيريًا",
   },
   shareMeeting: {

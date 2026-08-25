@@ -1026,7 +1026,6 @@ const messages = {
     editComment: "Kommentar bearbeiten",
     commentButton: "Kommentar",
     composerPlaceholder: "Kommentar hinzufügen…",
-    mentionSomeone: "Jemanden erwähnen",
     addEmoji: "Emoji hinzufügen",
   },
   shareMeeting: {
