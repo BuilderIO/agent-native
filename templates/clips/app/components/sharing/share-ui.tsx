@@ -295,29 +295,50 @@ export function AccessAccordionRow({
   label,
   meta,
   disabled,
+  open,
+  onOpenChange,
   children,
 }: {
   icon: ReactNode;
   label: ReactNode;
   meta?: ReactNode;
   disabled?: boolean;
-  children: ReactNode;
+  /** Controlled so callers can show a different summary while expanded. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children?: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const summary = (
+    <>
+      {icon}
+      <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+      {meta ? (
+        <span className="shrink-0 truncate text-xs text-muted-foreground">
+          {meta}
+        </span>
+      ) : null}
+    </>
+  );
+
+  // With nothing to reveal, stay a static row rather than offer a chevron and
+  // hover affordance that expand into an empty panel. The spacer keeps the
+  // trailing text aligned with rows that do have a chevron.
+  if (!children) {
+    return (
+      <div className="flex w-full items-center gap-3 px-1 py-1.5">
+        {summary}
+        <span aria-hidden className="h-4 w-4 shrink-0" />
+      </div>
+    );
+  }
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleTrigger
         disabled={disabled}
-        className="flex w-full items-center gap-3 rounded-md px-1 py-1.5 text-start transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+        className="flex w-full cursor-pointer items-center gap-3 rounded-md px-1 py-1.5 text-start transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
       >
-        {icon}
-        <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
-        {meta ? (
-          <span className="shrink-0 truncate text-xs text-muted-foreground">
-            {meta}
-          </span>
-        ) : null}
+        {summary}
         <IconChevronDown
           aria-hidden
           className={cn(
@@ -327,7 +348,7 @@ export function AccessAccordionRow({
         />
       </CollapsibleTrigger>
       <CollapsibleContent className="clips-collapsible-content">
-        <div className="ps-10 pt-1">{children}</div>
+        <div className="pt-1">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -364,50 +385,50 @@ export function GeneralAccessSelect({
   };
 
   return (
-    <div className="flex items-center gap-3 px-1 py-1.5">
-      <span
-        aria-hidden
-        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+    <Select
+      value={visibility}
+      onValueChange={(v) => onChange(v as Visibility)}
+      disabled={!canManage || isPending}
+    >
+      {/* The trigger spans the whole row so the hover affordance matches the
+          hit area. The icon is a bare svg, not a wrapped span, because the
+          shared trigger applies line-clamp to every direct span child. */}
+      <SelectTrigger
+        aria-label={t("shareUi.selectAccess")}
+        className="h-auto w-full cursor-pointer justify-start gap-3 rounded-md border-0 bg-transparent px-1 py-1.5 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start"
       >
-        <meta.Icon size={16} strokeWidth={1.75} />
-      </span>
-      <Select
-        value={visibility}
-        onValueChange={(v) => onChange(v as Visibility)}
-        disabled={!canManage || isPending}
-      >
-        <SelectTrigger
-          aria-label={t("shareUi.selectAccess")}
-          className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus:ring-0 focus:ring-offset-0"
-        >
-          <SelectValue>{optionLabel(visibility)}</SelectValue>
-        </SelectTrigger>
-        <SelectContent align="start">
-          {ACCESS_ORDER.map((value) => {
-            const OptionIcon = VIS_META[value].Icon;
-            return (
-              <SelectItem
-                key={value}
-                value={value}
-                // The shared SelectItem pins its check to the inline-start edge.
-                // Move it to the trailing edge so the option icon owns the left.
-                className="ps-2 pe-8 [&>span:first-child]:start-auto [&>span:first-child]:end-2"
-              >
-                <span className="flex items-center gap-2">
-                  <OptionIcon
-                    aria-hidden
-                    size={16}
-                    strokeWidth={1.75}
-                    className="shrink-0 text-muted-foreground"
-                  />
-                  {optionLabel(value)}
-                </span>
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
-    </div>
+        <meta.Icon
+          aria-hidden
+          strokeWidth={1.75}
+          className="h-7 w-7 shrink-0 rounded-full bg-muted p-1.5 text-muted-foreground"
+        />
+        <SelectValue>{optionLabel(visibility)}</SelectValue>
+      </SelectTrigger>
+      <SelectContent align="start">
+        {ACCESS_ORDER.map((value) => {
+          const OptionIcon = VIS_META[value].Icon;
+          return (
+            <SelectItem
+              key={value}
+              value={value}
+              // The shared SelectItem pins its check to the inline-start edge.
+              // Move it to the trailing edge so the option icon owns the left.
+              className="ps-2 pe-8 [&>span:first-child]:start-auto [&>span:first-child]:end-2"
+            >
+              <span className="flex items-center gap-2">
+                <OptionIcon
+                  aria-hidden
+                  size={16}
+                  strokeWidth={1.75}
+                  className="shrink-0 text-muted-foreground"
+                />
+                {optionLabel(value)}
+              </span>
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -537,6 +558,15 @@ export function PeopleAccessSection({
     [data],
   );
   const [first, ...rest] = people;
+  const [open, setOpen] = useState(false);
+
+  // Expanded, the trigger stops being a summary and becomes `first`'s own row,
+  // since the people below it are the remainder of the list.
+  const firstShare = data?.shares.find((s) => s.principalId === first);
+  const firstRole = firstShare
+    ? (roleCopy?.[firstShare.role]?.label ??
+      t(`shareUi.roles.${firstShare.role}`))
+    : t("shareUi.ownerRole");
 
   return (
     <AccessAccordionRow
@@ -550,21 +580,26 @@ export function PeopleAccessSection({
       label={
         !first
           ? t("shareUi.onlyYou")
-          : rest.length > 0
-            ? t("shareUi.othersCount", { count: rest.length, email: first })
-            : first
+          : open || rest.length === 0
+            ? first
+            : t("shareUi.othersCount", { count: rest.length, email: first })
       }
-      meta={t("shareUi.canAccess")}
+      meta={open && first ? firstRole : t("shareUi.canAccess")}
       disabled={sharesQuery.isLoading}
+      open={open}
+      onOpenChange={setOpen}
     >
-      <PeopleAccessSettingsBody
-        resourceType={resourceType}
-        resourceId={resourceId}
-        sharesQuery={sharesQuery}
-        canManage={canManage}
-        roleCopy={roleCopy}
-        onError={onError}
-      />
+      {rest.length > 0 ? (
+        <PeopleAccessSettingsBody
+          resourceType={resourceType}
+          resourceId={resourceId}
+          sharesQuery={sharesQuery}
+          canManage={canManage}
+          roleCopy={roleCopy}
+          onError={onError}
+          excludePrincipalId={first}
+        />
+      ) : null}
     </AccessAccordionRow>
   );
 }
@@ -576,6 +611,7 @@ export function PeopleAccessSettingsBody({
   canManage,
   roleCopy,
   onError,
+  excludePrincipalId,
 }: {
   resourceType: string;
   resourceId: string;
@@ -583,12 +619,18 @@ export function PeopleAccessSettingsBody({
   canManage: boolean;
   roleCopy?: Partial<Record<Role, RoleCopy>>;
   onError?: (err: unknown, action: "changeRole" | "remove") => void;
+  /** Principal already shown in the summary row, so it is not listed twice. */
+  excludePrincipalId?: string;
 }) {
   const t = useT();
   const share = useActionMutation("share-resource");
   const unshare = useActionMutation("unshare-resource");
   const data = sharesQuery.data;
-  const shares = data?.shares ?? [];
+  const ownerEmail = data?.ownerEmail ?? null;
+  const showOwner = ownerEmail !== null && ownerEmail !== excludePrincipalId;
+  const shares = (data?.shares ?? []).filter(
+    (s) => s.principalId !== excludePrincipalId,
+  );
   const getRoleLabel = (value: Role) =>
     roleCopy?.[value]?.label ?? t(`shareUi.roles.${value}`);
 
@@ -625,10 +667,10 @@ export function PeopleAccessSettingsBody({
 
   return (
     <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto p-0 m-0">
-      {data?.ownerEmail ? (
+      {showOwner ? (
         <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-          <Avatar label={data.ownerEmail} />
-          <span className="min-w-0 flex-1 truncate">{data.ownerEmail}</span>
+          <Avatar label={ownerEmail} />
+          <span className="min-w-0 flex-1 truncate">{ownerEmail}</span>
           <span className="text-xs text-muted-foreground">
             {t("shareUi.ownerRole")}
           </span>
@@ -678,7 +720,7 @@ export function PeopleAccessSettingsBody({
         </li>
       ))}
 
-      {!shares.length && !data?.ownerEmail ? (
+      {!shares.length && !showOwner ? (
         <li className="px-1 py-1.5 text-sm text-muted-foreground">
           {t("shareUi.noAccessYet")}
         </li>

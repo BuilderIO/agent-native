@@ -290,7 +290,7 @@ function ShareRecordingContent({
     <div className={cn("min-w-0 px-4 py-3", reserveCloseButton && "pe-12")}>
       <Tabs defaultValue="link">
         {tabCount > 1 ? (
-          <TabsList className="inline-flex h-auto w-auto justify-start gap-1 rounded-none bg-transparent p-0">
+          <TabsList className="mb-1 inline-flex h-auto w-auto justify-start gap-1 rounded-none bg-transparent p-0">
             <TabsTrigger value="link" className={SHARE_TAB_CLASS}>
               {t("shareDialog.link")}
             </TabsTrigger>
