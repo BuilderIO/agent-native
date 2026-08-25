@@ -5916,6 +5916,18 @@ describe("server/auth", () => {
       );
       expect(html).toContain("function __anHandleOAuthPopupClosed(flowId)");
       expect(html).toContain("var __anOAuthPopupCloseGraceMs = 5000;");
+      expect(html).toContain("var __anNativeOAuthFlowId = null;");
+      expect(html).toContain("var __anNativeOAuthRequestPending = false;");
+      expect(html).toContain("var __anNativeOAuthAbandonGraceMs = 5000;");
+      expect(html).toContain("function __anBeginNativeOAuth(flowId)");
+      expect(html).toContain(
+        "function __anScheduleNativeOAuthAbandonment(flowId)",
+      );
+      expect(html).toContain("__anFinalizeNativeOAuthAbandonment(flowId);");
+      expect(html).toContain("__anNativeOAuthRequestPending = true;");
+      expect(html).toContain("__anNativeOAuthRequestPending = false;");
+      expect(html).toContain("__anBeginNativeOAuth(flowId);");
+      expect(html).toContain("__anMarkNativeOAuthPolling(flowId);");
       expect(html).toContain(
         "if (__anOAuthPollTimer) {\n        __anOAuthPopupCloseGraceTimer = setTimeout(function()",
       );
@@ -5927,7 +5939,7 @@ describe("server/auth", () => {
       expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
       expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");
       expect(html).toContain(
-        "if (!flowId && (__anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;",
+        "if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;",
       );
       expect(html).toContain("__anStopOAuthExchangePolling();");
       expect(html).toContain(

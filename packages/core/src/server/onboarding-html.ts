@@ -2841,6 +2841,7 @@ ${signInJourneyInlineScript()}
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
       __anStopOAuthPopupWatch();
+      __anStopNativeOAuthAbandonment();
       __anGoogleSignInInFlight = false;
       __anClearGoogleSignInFlow();
       __anMagicLinkInFlight = false;
@@ -3115,6 +3116,10 @@ ${identitySsoScript}
     var __anOAuthPopupWatchTimer = null;
     var __anOAuthPopupCloseGraceTimer = null;
     var __anOAuthPopupCloseGraceMs = 5000;
+    var __anNativeOAuthFlowId = null;
+    var __anNativeOAuthRequestPending = false;
+    var __anNativeOAuthAbandonGraceTimer = null;
+    var __anNativeOAuthAbandonGraceMs = 5000;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
     var __anGoogleSignInFlowId = null;
@@ -3185,6 +3190,48 @@ ${identitySsoScript}
         __anOAuthPopupCloseGraceTimer = null;
       }
     }
+    function __anStopNativeOAuthAbandonment() {
+      if (__anNativeOAuthAbandonGraceTimer) {
+        clearTimeout(__anNativeOAuthAbandonGraceTimer);
+        __anNativeOAuthAbandonGraceTimer = null;
+      }
+      __anNativeOAuthFlowId = null;
+      __anNativeOAuthRequestPending = false;
+    }
+    function __anBeginNativeOAuth(flowId) {
+      __anStopNativeOAuthAbandonment();
+      __anNativeOAuthFlowId = flowId;
+      __anNativeOAuthRequestPending = true;
+    }
+    function __anMarkNativeOAuthPolling(flowId) {
+      if (__anNativeOAuthFlowId !== flowId) return;
+      __anNativeOAuthRequestPending = false;
+    }
+    function __anIsCurrentNativeOAuth(flowId) {
+      return __anNativeOAuthFlowId === flowId && __anIsCurrentGoogleSignInFlow(flowId);
+    }
+    function __anFinalizeNativeOAuthAbandonment(flowId) {
+      if (!__anIsCurrentNativeOAuth(flowId) || !__anOAuthPollTimer) return;
+      __anStopNativeOAuthAbandonment();
+      if (__anInvalidateGoogleSignInFlow(flowId)) {
+        __anStopOAuthExchangePolling();
+        __anRecoverGoogleSignInAfterReturn(flowId);
+      }
+    }
+    function __anScheduleNativeOAuthAbandonment(flowId) {
+      // Returning focus is the only signal that the system-browser ceremony was
+      // abandoned. Preserve the exchange poll briefly for a late deep-link.
+      if (
+        !__anIsCurrentNativeOAuth(flowId) ||
+        __anNativeOAuthRequestPending ||
+        !__anOAuthPollTimer ||
+        __anNativeOAuthAbandonGraceTimer
+      ) return;
+      __anNativeOAuthAbandonGraceTimer = setTimeout(function() {
+        __anNativeOAuthAbandonGraceTimer = null;
+        __anFinalizeNativeOAuthAbandonment(flowId);
+      }, __anNativeOAuthAbandonGraceMs);
+    }
     function __anBeginGoogleSignInFlow(flowId) {
       __anGoogleSignInFlowId = flowId;
       __anGoogleSignInRecoveryFlowId = null;
@@ -3206,7 +3253,7 @@ ${identitySsoScript}
     function __anCanRecoverGoogleSignInFlow(flowId, expectedFlowId) {
       // Focus can return while either the system-browser exchange or the popup
       // exchange is still active. Let that exchange finish before recovering.
-      if (!flowId && (__anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;
+      if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;
       if (flowId) {
         return __anGoogleSignInInFlight &&
           !__anGoogleSignInFlowId &&
@@ -3255,6 +3302,7 @@ ${identitySsoScript}
     function __anShowAuthExchangeError(err, btn, message, kind) {
       __anStopOAuthExchangePolling();
       __anStopOAuthPopupWatch();
+      __anStopNativeOAuthAbandonment();
       err.textContent = message;
       err.classList.add('show', 'error');
       btn.disabled = false;
@@ -3275,6 +3323,10 @@ ${identitySsoScript}
       // button is stuck disabled with no error path firing for up to 5 minutes.
       // Re-enable it so they can retry. Wait briefly first so a genuinely
       // in-flight exchange can still finish and navigate without a flicker.
+      if (!flowId && __anNativeOAuthFlowId) {
+        __anScheduleNativeOAuthAbandonment(__anNativeOAuthFlowId);
+        return;
+      }
       var expectedFlowId = flowId || __anGoogleSignInFlowId;
       if (!__anCanRecoverGoogleSignInFlow(flowId, expectedFlowId)) return;
       setTimeout(function() {
@@ -3446,9 +3498,11 @@ ${identitySsoScript}
         return;
       }
       var oauthReturn = ret;
+      __anBeginNativeOAuth(flowId);
       __anSetOAuthDebug('Preparing Google sign-in in system browser', flowId);
       __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
         if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
+        __anMarkNativeOAuthPolling(flowId);
         __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
         __anOpenOAuthUrl(url);
         __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
