@@ -84,6 +84,7 @@ The verified owner exceptions are:
  - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
    app
  - Sid (`sidmohanty11`) - Design
+ - Manu (`manucorporat`) - any app or framework area
 
 For a verified PR authored by Alice and limited to Content app or template
 behavior, including supporting shared framework or Desktop plumbing required
@@ -105,6 +106,11 @@ auto-approve by default, including that owner's UX changes, refactors, failed
 or pending checks, and ordinary unresolved human or bot feedback. The owner
 exception overrides the normal UX-owner, narrow-refactor, check, and
 review-resolution gates.
+
+For a verified PR authored by Manu (`manucorporat`), auto-approve by default
+regardless of app scope, UX implications, refactors, failed or pending checks,
+or ordinary unresolved human or bot feedback. This exception does not waive the
+ultra-scary safety gate or the external-author prohibition.
 
 For a verified PR authored by `kapunahelewong` or Wes (`bwreid`), auto-approve
 by default when the PR is docs-only. Docs-only means documentation content,
