@@ -11,7 +11,7 @@ bill cache writes — it does, at above the full input rate. All three now track
 the published short-context rates:
 
 |       | input | cached | cache write | output |
-|-------|-------|--------|-------------|--------|
+| ----- | ----- | ------ | ----------- | ------ |
 | sol   | $4.00 | $0.40  | $5.00       | $20.00 |
 | terra | $2.00 | $0.20  | $2.50       | $12.00 |
 | luna  | $0.20 | $0.02  | $0.25       | $1.20  |
