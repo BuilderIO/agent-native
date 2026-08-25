@@ -142,7 +142,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 | `isValidPath(p)`        | `boolean`                | 驗證一個相對路徑（不可有路徑穿越、不可為絕對路徑）。                                                                       |
 | `isValidProjectPath(p)` | `boolean`                | 驗證一個專案 slug（例如 `my-project` 或 `group/my-project`）。                                                             |
 | `ensureDir(dir)`        | `void`                   | `mkdir -p` 輔助函式。                                                                                                      |
-| `fail(message)`         | `never`                  | 拋出一個錯誤以中止腳本。CLI 執行器會攔截它並以代碼 1 結束。伺服器內的呼叫者（代理工具、A2A）則會改為收到一個工具呼叫錯誤。 |
+| `fail(message, options?)` | `never`                | 以呼叫方需要閱讀的訊息中止執行。它會拋出 `ActionContractError`，因此訊息、`errorCode` 與 `statusCode` 能通過 action 路由保留下來，而不會變成一個通用的 500。CLI 執行器會攔截它並以代碼 1 結束。伺服器內的呼叫者（代理工具、A2A）會收到一個工具呼叫錯誤。參見[讓 action 失敗](/docs/actions-defining#failing)。 從 `@agent-native/core` 與 `@agent-native/core/action` 兩處匯出。 |
 
 ## 下一步是什麼
 

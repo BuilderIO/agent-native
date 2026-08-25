@@ -183,7 +183,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 | `isValidPath(p)`        | `boolean`                | 상대 경로를 검증합니다(트래버설 없음, 절대 경로 없음).                                                                                                                   |
 | `isValidProjectPath(p)` | `boolean`                | 프로젝트 슬러그를 검증합니다(예: `my-project` 또는 `group/my-project`).                                                                                                  |
 | `ensureDir(dir)`        | `void`                   | `mkdir -p` 도우미입니다.                                                                                                                                                 |
-| `fail(message)`         | `never`                  | 스크립트를 중단시키기 위해 오류를 던집니다. CLI 러너는 이를 잡아 종료 코드 1로 끝냅니다. 서버 내부 호출자(에이전트 도구, A2A)는 대신 이를 도구 호출 오류로 돌려받습니다. |
+| `fail(message, options?)` | `never`                | 호출자가 읽도록 의도된 메시지로 중단합니다. `ActionContractError`를 던지므로 메시지, `errorCode`, `statusCode`가 일반적인 500이 되는 대신 action 라우트를 그대로 통과합니다. CLI 러너는 이를 잡아 종료 코드 1로 끝냅니다. 서버 내부 호출자(에이전트 도구, A2A)는 이를 도구 호출 오류로 돌려받습니다. [Action 실패시키기](/docs/actions-defining#failing)를 참조하세요. `@agent-native/core`와 `@agent-native/core/action` 양쪽에서 export 됩니다. |
 
 ## 다음 단계
 

@@ -142,7 +142,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 | `isValidPath(p)`        | `boolean`                | يتحقق من صحة مسار نسبي (بلا اجتياز، بلا مسار مطلق).                                                                                             |
 | `isValidProjectPath(p)` | `boolean`                | يتحقق من صحة معرّف مشروع مختصر (slug) (مثل `my-project` أو `group/my-project`).                                                                 |
 | `ensureDir(dir)`        | `void`                   | مساعد `mkdir -p`.                                                                                                                               |
-| `fail(message)`         | `never`                  | يطرح خطأً لإجهاض نص برمجي. يلتقطه مُشغِّل CLI ويخرج برمز 1. يحصل عليه المستدعون داخل الخادم (أدوات الوكيل، A2A) كخطأ استدعاء أداة بدلاً من ذلك. |
+| `fail(message, options?)` | `never`                | يُجهض التنفيذ برسالة مُعدّة ليقرأها المُستدعي. يطرح `ActionContractError`، فتبقى الرسالة و`errorCode` و`statusCode` عبر مسار الإجراء بدلاً من أن تتحول إلى خطأ 500 عام. يلتقطه مُشغِّل CLI ويخرج برمز 1. يحصل عليه المستدعون داخل الخادم (أدوات الوكيل، A2A) كخطأ استدعاء أداة. انظر [إفشال إجراء](/docs/actions-defining#failing). يُصدَّر من `@agent-native/core` ومن `@agent-native/core/action` معًا. |
 
 ## ما هي الخطوة التالية
 

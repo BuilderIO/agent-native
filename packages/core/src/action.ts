@@ -206,6 +206,40 @@ export function isActionContractError(
   );
 }
 
+/** Transport metadata for a {@link fail} message. */
+export interface FailOptions {
+  /** Stable machine-readable code. Default: `"action_failed"`. */
+  errorCode?: string;
+  /** HTTP status for the action route. Default: `400`. */
+  statusCode?: number;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Abort an action with a message the caller is meant to read.
+ *
+ * Raises an `ActionContractError`, which is the only reason the message
+ * survives the action HTTP route: an ordinary `throw new Error(...)` is
+ * indistinguishable from a driver or upstream blowup there, so it is replaced
+ * by a generic 500 `"Internal server error"` and reported to error tracking.
+ * Raising through `fail()` is what declares the text safe to echo.
+ *
+ * Default `statusCode` is 400 so a browser query does not retry a refusal
+ * three more times. Pass an explicit status for a different deterministic
+ * cause (`404`, `409`) or a genuinely transient one (`503`, which is retried).
+ *
+ * The CLI runner (`pnpm script`) catches it and exits 1. In-server callers
+ * (agent tools, A2A) get it back as a tool-call error — no process.exit.
+ */
+export function fail(message: string, options: FailOptions = {}): never {
+  throw new ActionContractError(message, {
+    errorCode: options.errorCode ?? "action_failed",
+    statusCode: options.statusCode ?? 400,
+    ...(options.details === undefined ? {} : { details: options.details }),
+  });
+}
+
 /**
  * Throw from an action when the agent should stop the current turn instead of
  * feeding the failure back to the model for another retry.

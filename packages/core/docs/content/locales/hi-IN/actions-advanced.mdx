@@ -142,7 +142,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 | `isValidPath(p)`        | `boolean`                | एक relative path को वैलिडेट करता है (कोई traversal नहीं, कोई absolute नहीं)।                                                                                                                                      |
 | `isValidProjectPath(p)` | `boolean`                | एक project slug को वैलिडेट करता है (जैसे `my-project` या `group/my-project`)।                                                                                                                                     |
 | `ensureDir(dir)`        | `void`                   | `mkdir -p` हेल्पर।                                                                                                                                                                                                |
-| `fail(message)`         | `never`                  | किसी स्क्रिप्ट को abort करने के लिए एक error throw करता है। CLI runner इसे पकड़ता है और कोड 1 के साथ exit करता है। In-server कॉलर्स (एजेंट टूल, A2A) को इसके बजाय यह एक tool-call error के रूप में वापस मिलता है। |
+| `fail(message, options?)` | `never`                | ऐसे message के साथ abort करता है जिसे caller पढ़ने के लिए है। यह `ActionContractError` throw करता है, इसलिए message, `errorCode` और `statusCode` एक सामान्य 500 बनने के बजाय action route से बचे रहते हैं। CLI runner इसे पकड़ता है और कोड 1 के साथ exit करता है। In-server कॉलर्स (एजेंट टूल, A2A) को यह एक tool-call error के रूप में वापस मिलता है। देखें [किसी action को fail करना](/docs/actions-defining#failing)। `@agent-native/core` और `@agent-native/core/action` दोनों से export किया जाता है। |
 
 ## आगे क्या
 

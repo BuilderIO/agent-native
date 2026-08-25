@@ -142,7 +142,7 @@ Dies sind kleine Helfer zum Schreiben von Skripten, aus demselben `@agent-native
 | `isValidPath(p)`        | `boolean`                | Validiert einen relativen Pfad (keine Traversierung, kein absoluter Pfad).                                                                                                                     |
 | `isValidProjectPath(p)` | `boolean`                | Validiert einen Projekt-Slug (z. B. `my-project` oder `group/my-project`).                                                                                                                     |
 | `ensureDir(dir)`        | `void`                   | `mkdir -p`-Helfer.                                                                                                                                                                             |
-| `fail(message)`         | `never`                  | Wirft einen Fehler, um ein Skript abzubrechen. Der CLI-Runner fängt ihn ab und beendet mit Code 1. In-Server-Aufrufer (Agent-Tools, A2A) bekommen ihn stattdessen als Tool-Call-Fehler zurück. |
+| `fail(message, options?)` | `never`                | Bricht mit einer Nachricht ab, die der Aufrufer lesen soll. Wirft einen `ActionContractError`, sodass Nachricht, `errorCode` und `statusCode` die Action-Route überstehen, statt zu einem generischen 500 zu werden. Der CLI-Runner fängt ihn ab und beendet mit Code 1. In-Server-Aufrufer (Agent-Tools, A2A) bekommen ihn als Tool-Call-Fehler zurück. Siehe [Eine Action fehlschlagen lassen](/docs/actions-defining#failing). Exportiert aus `@agent-native/core` und `@agent-native/core/action`. |
 
 ## Was kommt als nächstes?
 

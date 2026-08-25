@@ -142,7 +142,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 | `isValidPath(p)`        | `boolean`                | 校验一个相对路径(不允许目录穿越,不允许绝对路径)。                                                                                  |
 | `isValidProjectPath(p)` | `boolean`                | 校验一个项目 slug(例如 `my-project` 或 `group/my-project`)。                                                                       |
 | `ensureDir(dir)`        | `void`                   | `mkdir -p` 辅助函数。                                                                                                              |
-| `fail(message)`         | `never`                  | 抛出一个错误来中止一个脚本。CLI 运行器会捕获它并以退出码 1 结束。服务端内部的调用者(代理工具、A2A)会把它当作一次工具调用错误收到。 |
+| `fail(message, options?)` | `never`                | 以调用方需要阅读的消息中止执行。它抛出 `ActionContractError`，因此消息、`errorCode` 和 `statusCode` 能通过 action 路由保留下来，而不会变成一个通用的 500。CLI 运行器会捕获它并以退出码 1 结束。服务端内部的调用者(代理工具、A2A)会把它当作一次工具调用错误收到。参见[让 action 失败](/docs/actions-defining#failing)。 从 `@agent-native/core` 和 `@agent-native/core/action` 两处导出。 |
 
 ## 下一步
 

@@ -269,6 +269,81 @@ POST est la valeur par défaut, et `http: { method: "GET" }` en fait un GET. Les
 - **`readOnly: true`** : désactive explicitement le rafraîchissement par interrogation, même pour des actions POST qui ne modifient rien. Ce n’est pas un contrôle d’accès. Cela ne restreint pas qui peut appeler l’action, et cela n’affecte ni `useActionQuery()`, ni `useActionMutation()`, ni aucun hook client. Ses seuls effets sont de supprimer l’événement de rafraîchissement post-appel et de faire sortir l’action de l’audit des écritures. Pour masquer une action au modèle, utilisez `agentTool: false`. Pour restreindre qui peut l’appeler, utilisez les options d’authentification et d’accès sur [Accès et autorisation](/docs/actions-access-control).
 - **`parallelSafe: true`** : autorise une action de mutation à s’exécuter en même temps que d’autres appels d’outil du même tour. Ne définissez ceci que lorsque l’action est sûre à exécuter en parallèle et ne dépend pas de l’ordre. Les actions de mutation se sérialisent par défaut.
 
+## Faire échouer une action {#failing}
+
+Une action signale un échec en levant une erreur. Renvoyer `{ error: "..." }` ressemble à un succès pour toutes les parties du framework, donc les disjoncteurs de reprise de l’agent ne le comptent jamais et l’appel est enregistré comme un effet de bord terminé.
+
+Ce que vous levez décide de ce qui survit du message. `fail()` lève une `ActionContractError`, et c’est ce type qui est la seule raison pour laquelle le texte atteint l’appelant. Un simple `throw new Error("No such email")` est indiscernable d’une panne Postgres ou d’un service en amont, donc la route d’action le remplace par un 500 générique `"Internal server error"`, garde le vrai message dans le journal serveur et le remonte au suivi d’erreurs. Réservez le `throw` nu aux véritables défaillances internes. C’est à cela que sert le 500.
+
+`fail()` accepte un message et un objet d’options :
+
+- **message**: le texte que lit l’appelant. Écrivez-le pour une personne, pas pour un journal.
+- **options.errorCode**: un code stable, lisible par une machine. Vaut `"action_failed"` par défaut.
+- **options.statusCode**: le statut HTTP de la route d’action. Vaut `400` par défaut.
+- **options.details**: un contexte structuré et sûr pour l’appelant. N’y mettez jamais de secrets ni de sortie brute d’un pilote.
+
+L’appel le plus simple ne demande qu’un message :
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+Nommer la cause est ce qui permet à l’UI de réagir à un échec au lieu de seulement l’afficher. Le code et le statut survivent tous deux au transport :
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+Le navigateur reçoit `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` et `callAction()` l’exposent comme une `Error` portant `status`, `errorCode` et `details`.
+
+### Ce que produit chaque levée {#failure-shapes}
+
+| Levé depuis `run()` | Statut HTTP | Corps de la réponse | Remonté au suivi d’erreurs |
+| --- | --- | --- | --- |
+| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | Non |
+| `fail(msg, { errorCode, statusCode, details })` | votre `statusCode` | `{ error, errorCode, details }` | Non |
+| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | Non |
+| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | Non |
+| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | Oui |
+| Entrée qui échoue au `schema` | 400 | `{ error: "Invalid action parameters..." }` | Non |
+
+`AgentActionStopError` est celle à lever quand l’agent doit terminer son tour plutôt que lire l’échec et réessayer. `ActionContractError` est ce que `fail()` lève pour vous, donc ne l’utilisez directement que si 409 est le statut voulu.
+
+### Choisir un statut sur lequel la politique de reprise peut agir {#failure-status}
+
+`useActionQuery()` réessaie `429`, `502`, `503` et `504`, jusqu’à trois fois, avec un délai de 500 ms puis 1 s puis 2 s. Tout autre statut est traité comme déterministe et remonte dès la première réponse. Renvoyer une requête refusée parce qu’elle était incorrecte ne fait que racheter le même refus. `useActionMutation()` ne réessaie pas du tout.
+
+Le statut n’est donc pas cosmétique. Un refus envoyé en `404` coûte un aller-retour. Le même refus envoyé en `500`, ou levé nu, coûte quatre allers-retours et quatre rapports d’erreur en double.
+
+Les appelants agents ne voient rien de tout cela. L’agent exécute `run()` en processus, il reçoit donc le message levé directement quel que soit son type, et ses propres disjoncteurs d’erreurs répétées bornent le nombre de nouvelles tentatives.
+
 ## Garder la surface d’actions restreinte {#small-surface}
 
 Chaque action visible par l’agent prend une place dans la liste d’outils du modèle, et une liste longue et redondante rend plus difficile pour le modèle de choisir le bon outil. Concevez la surface d’actions comme une API que vous maintenez, pas une action par bouton de l’UI :

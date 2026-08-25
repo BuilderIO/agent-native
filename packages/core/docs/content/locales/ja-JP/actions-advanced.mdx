@@ -142,7 +142,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 | `isValidPath(p)`        | `boolean`                | 相対パスを検証します (トラバーサルなし、絶対パスなし)。                                                                                                                                                   |
 | `isValidProjectPath(p)` | `boolean`                | プロジェクトのスラッグを検証します (例: `my-project` や `group/my-project`)。                                                                                                                             |
 | `ensureDir(dir)`        | `void`                   | `mkdir -p` のヘルパーです。                                                                                                                                                                               |
-| `fail(message)`         | `never`                  | エラーをスローしてスクリプトを中断します。CLI ランナーはこれを捕捉し、終了コード 1 で終了します。サーバー内の呼び出し元 (エージェント ツール、A2A) には、代わりにツール呼び出しのエラーとして返されます。 |
+| `fail(message, options?)` | `never`                | 呼び出し元が読むことを想定したメッセージで中断します。`ActionContractError` をスローするため、メッセージ、`errorCode`、`statusCode` が汎用的な 500 にならずにアクション ルートを通過します。CLI ランナーはこれを捕捉し、終了コード 1 で終了します。サーバー内の呼び出し元 (エージェント ツール、A2A) にはツール呼び出しのエラーとして返されます。[アクションを失敗させる](/docs/actions-defining#failing) を参照してください。 `@agent-native/core` と `@agent-native/core/action` の両方からエクスポートされます。 |
 
 ## 次は何ですか
 

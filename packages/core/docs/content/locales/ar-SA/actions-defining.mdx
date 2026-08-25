@@ -267,6 +267,81 @@ POST هو الافتراضي، ويجعله `http: { method: "GET" }` GET. تس�
 - **`readOnly: true`**: يتخطى إعادة تحديث الاستقصاء صراحة، حتى لأجل actions من نوع POST لا تغيّر أي شيء. هذا ليس تحكمًا في الوصول. فهو لا يقيّد من يمكنه استدعاء الـ action، ولا يؤثر على `useActionQuery()` أو `useActionMutation()` أو أي خطاف عميل. تأثيراه الوحيدان هما كبت حدث إعادة التحديث بعد الاستدعاء، واستبعاد الـ action من تدقيق الكتابة. لإخفاء action عن النموذج، استخدم `agentTool: false`. للتحكم في من يمكنه استدعاءه، استخدم خيارات المصادقة والوصول في [الوصول والتخويل](/docs/actions-access-control).
 - **`parallelSafe: true`**: يسمح لـ action يغيّر البيانات بالعمل في الوقت نفسه مع استدعاءات أدوات أخرى في الدور نفسه. لا تضبط هذا إلا عندما يكون تشغيل الـ action بالتزامن آمنًا ولا يعتمد على الترتيب. تُسلسَل actions التي تغيّر البيانات بشكل افتراضي.
 
+## إفشال إجراء {#failing}
+
+يبلّغ الإجراء عن الفشل عبر الطرح. أما إعادة `{ error: "..." }` فتبدو نجاحًا لكل جزء من إطار العمل، لذا لا تحسبها قواطع إعادة المحاولة لدى الوكيل أبدًا، ويُسجَّل الاستدعاء كأثر جانبي مكتمل.
+
+ما تطرحه هو ما يحدد مقدار ما يبقى من الرسالة. يطرح `fail()` خطأ `ActionContractError`، وهذا النوع تحديدًا هو السبب الوحيد لوصول النص إلى المستدعي. أما `throw new Error("No such email")` المجرد فلا يمكن تمييزه عن عطل في Postgres أو في خدمة أعلى السلسلة، لذا يستبدله مسار الإجراء بخطأ 500 عام `"Internal server error"`، ويُبقي الرسالة الحقيقية في سجل الخادم، ويبلّغ عنها إلى تتبّع الأخطاء. احتفظ بالطرح المجرد للأعطال الداخلية الحقيقية. فهذا ما وُجد الخطأ 500 من أجله.
+
+يقبل `fail()` رسالة وكائن خيارات:
+
+- **message**: النص الذي يقرأه المستدعي. اكتبه لشخص، لا لسجلّ.
+- **options.errorCode**: رمز ثابت مقروء آليًا. القيمة الافتراضية `"action_failed"`.
+- **options.statusCode**: حالة HTTP لمسار الإجراء. القيمة الافتراضية `400`.
+- **options.details**: سياق منظَّم وآمن للمستدعي. لا تضع هنا أسرارًا أو مخرجات خام من مشغّل قاعدة البيانات.
+
+أبسط استدعاء لا يحتاج سوى رسالة:
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+تسمية السبب هي ما يتيح لواجهة المستخدم التفرّع على الفشل بدلًا من طباعته فقط. ويبقى كل من الرمز والحالة عبر طبقة النقل:
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+يستقبل المتصفح `{ error, errorCode, details }`. وتُظهرها `useActionQuery()` و`useActionMutation()` و`callAction()` جميعًا ككائن `Error` يحمل `status` و`errorCode` و`details`.
+
+### ما ينتجه كل طرح {#failure-shapes}
+
+| مطروح من `run()` | حالة HTTP | جسم الاستجابة | مُبلَّغ إلى تتبّع الأخطاء |
+| --- | --- | --- | --- |
+| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | لا |
+| `fail(msg, { errorCode, statusCode, details })` | الـ `statusCode` الذي تحدده | `{ error, errorCode, details }` | لا |
+| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | لا |
+| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | لا |
+| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | نعم |
+| مدخل يفشل في `schema` | 400 | `{ error: "Invalid action parameters..." }` | لا |
+
+اطرح `AgentActionStopError` عندما ينبغي للوكيل إنهاء دوره بدل قراءة الفشل والمحاولة مجددًا. أما `ActionContractError` فهو ما يطرحه `fail()` نيابة عنك، فلا تستخدمه مباشرة إلا حين تكون 409 هي الحالة المطلوبة.
+
+### اختر حالة يمكن لسياسة إعادة المحاولة أن تتصرف بناءً عليها {#failure-status}
+
+تعيد `useActionQuery()` المحاولة مع `429` و`502` و`503` و`504` فقط، حتى ثلاث مرات، بتراجع مقداره 500 مللي ثانية ثم ثانية واحدة ثم ثانيتان. أما كل حالة أخرى فتُعامَل كحالة حتمية وتظهر مع أول استجابة. وإعادة إرسال طلب رُفض لأنه خاطئ لا تشتري سوى الرفض نفسه مرة أخرى. ولا تعيد `useActionMutation()` المحاولة إطلاقًا.
+
+لذا فالحالة ليست زينة. الرفض المُرسَل بوصفه `404` يكلّف رحلة ذهاب وإياب واحدة. والرفض نفسه مُرسَلًا بوصفه `500`، أو مطروحًا مجردًا، يكلّف أربع رحلات وأربعة تقارير أخطاء مكررة.
+
+لا يرى المستدعون من جهة الوكيل شيئًا من هذا. فالوكيل ينفّذ `run()` داخل العملية نفسها، ومن ثم يتلقى الرسالة المطروحة مباشرة أيًا كان نوعها، وقواطعه الخاصة بالأخطاء المتكررة هي ما يحدّ من عدد محاولاته.
+
 ## أبقِ سطح actions صغيرًا {#small-surface}
 
 يشغل كل action يمكن للوكيل رؤيته فتحة في قائمة أدوات النموذج، وتجعل القائمة الطويلة والمتداخلة اختيار النموذج للأداة الصحيحة أصعب. صمّم سطح actions مثل API تصونه، وليس action واحدًا لكل زر في واجهة المستخدم:

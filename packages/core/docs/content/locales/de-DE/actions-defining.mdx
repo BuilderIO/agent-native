@@ -269,6 +269,81 @@ POST ist der Standard, und `http: { method: "GET" }` macht daraus ein GET. Die R
 - **`readOnly: true`**: überspringt explizit die Poll-Aktualisierung, auch für POST-Actions, die nichts mutieren. Dies ist keine Zugriffskontrolle. Es beschränkt nicht, wer die Action aufrufen darf, und beeinflusst nicht `useActionQuery()`, `useActionMutation()` oder einen anderen Client-Hook. Die einzigen Effekte sind, das Refresh-Ereignis nach dem Aufruf zu unterdrücken und die Action vom Write-Auditing abzumelden. Um eine Action vor dem Modell zu verbergen, verwenden Sie `agentTool: false`. Um zu steuern, wer sie aufrufen darf, verwenden Sie die Auth- und Zugriffsoptionen unter [Zugriff & Autorisierung](/docs/actions-access-control).
 - **`parallelSafe: true`**: erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen. Setzen Sie dies nur, wenn die Action sicher gleichzeitig laufen kann und nicht von der Reihenfolge abhängt. Mutierende Actions werden standardmäßig serialisiert.
 
+## Eine Action fehlschlagen lassen {#failing}
+
+Eine Action meldet ein Scheitern, indem sie wirft. `{ error: "..." }` zurückzugeben sieht für jeden Teil des Frameworks wie Erfolg aus, also zählen die Retry-Schutzschalter des Agenten es nie und der Aufruf wird als abgeschlossener Seiteneffekt protokolliert.
+
+Was du wirfst, entscheidet, wie viel von der Nachricht überlebt. `fail()` wirft einen `ActionContractError`, und genau dieser Typ ist der einzige Grund, warum der Text den Aufrufer erreicht. Ein blankes `throw new Error("No such email")` ist von einem Postgres- oder Upstream-Ausfall nicht zu unterscheiden, also ersetzt die Action-Route es durch ein generisches 500 `"Internal server error"`, behält die echte Nachricht im Server-Log und meldet sie an das Error-Tracking. Hebe den blanken Throw für echte interne Fehler auf. Dafür ist die 500 da.
+
+`fail()` nimmt eine Nachricht und ein Options-Objekt:
+
+- **message**: der Text, den der Aufrufer liest. Schreibe ihn für einen Menschen, nicht für ein Log.
+- **options.errorCode**: ein stabiler, maschinenlesbarer Code. Standard: `"action_failed"`.
+- **options.statusCode**: der HTTP-Status für die Action-Route. Standard: `400`.
+- **options.details**: sicherer strukturierter Kontext für den Aufrufer. Niemals Secrets oder rohe Treiberausgabe hier ablegen.
+
+Der einfachste Aufruf braucht nur eine Nachricht:
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+Die Ursache zu benennen ist das, was die UI auf einen Fehler reagieren lässt, statt ihn nur auszugeben. Code und Status überstehen beide den Transport:
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+Der Browser erhält `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` und `callAction()` reichen es als `Error` mit `status`, `errorCode` und `details` weiter.
+
+### Was jeder Throw erzeugt {#failure-shapes}
+
+| Geworfen aus `run()` | HTTP-Status | Response-Body | An Error-Tracking gemeldet |
+| --- | --- | --- | --- |
+| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | Nein |
+| `fail(msg, { errorCode, statusCode, details })` | dein `statusCode` | `{ error, errorCode, details }` | Nein |
+| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | Nein |
+| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | Nein |
+| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | Ja |
+| Eingabe, die am `schema` scheitert | 400 | `{ error: "Invalid action parameters..." }` | Nein |
+
+`AgentActionStopError` wirfst du, wenn der Agent seinen Zug beenden soll, statt den Fehler zu lesen und es erneut zu versuchen. `ActionContractError` ist das, was `fail()` für dich wirft, greife also nur direkt darauf zurück, wenn 409 der gewünschte Status ist.
+
+### Wähle einen Status, auf den die Retry-Policy reagieren kann {#failure-status}
+
+`useActionQuery()` wiederholt `429`, `502`, `503` und `504`, bis zu dreimal, mit 500 ms, dann 1 s, dann 2 s Wartezeit. Jeder andere Status gilt als deterministisch und erscheint bei der ersten Antwort. Eine Anfrage erneut zu senden, die als falsch abgelehnt wurde, kauft nur dieselbe Ablehnung noch einmal. `useActionMutation()` wiederholt überhaupt nicht.
+
+Der Status ist also nicht kosmetisch. Eine als `404` gesendete Ablehnung kostet einen Roundtrip. Dieselbe Ablehnung als `500` gesendet oder blank geworfen kostet vier Roundtrips und vier doppelte Fehlerberichte.
+
+Agent-Aufrufer sehen davon nichts. Der Agent führt `run()` im Prozess aus, bekommt die geworfene Nachricht also direkt, unabhängig vom Typ, und seine eigenen Schutzschalter für wiederholte Fehler begrenzen, wie oft er es erneut versucht.
+
 ## Die Action-Oberfläche klein halten {#small-surface}
 
 Jede Action, die der Agent sehen kann, belegt einen Platz in der Tool-Liste des Modells, und eine lange, sich überschneidende Liste erschwert es dem Modell, das richtige Tool auszuwählen. Gestalten Sie die Action-Oberfläche wie eine API, die Sie pflegen, nicht wie eine Action pro Schaltfläche in der UI:
