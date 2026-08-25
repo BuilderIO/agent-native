@@ -36,7 +36,14 @@ describe("npm package release workflow", () => {
     assert(publishStep);
 
     assert.match(String(nightly.if), /github\.event_name == 'push'/);
-    assert.match(String(nightly.if), /\[stable-release\]/);
+    assert.match(
+      String(nightly.if),
+      /needs\.verify-stable-merge\.outputs\.verified != 'true'/,
+    );
+    assert.doesNotMatch(
+      String(nightly.if),
+      /contains\(github\.event\.head_commit\.message/,
+    );
     assert.match(source, /--snapshot nightly/);
     assert.equal(
       (publishStep.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG,
@@ -46,22 +53,42 @@ describe("npm package release workflow", () => {
     assert.doesNotMatch(source, /AGENT_NATIVE_NPM_DIST_TAG: beta/);
   });
 
+  it("rejects a marked ordinary push from the stable lane", () => {
+    const verifier = jobs["verify-stable-merge"] as Workflow;
+    const release = jobs.release as Workflow;
+
+    assert.doesNotMatch(String(release.if), /head_commit\.message/);
+    assert.match(
+      String(release.if),
+      /needs\.verify-stable-merge\.outputs\.verified == 'true'/,
+    );
+    assert.match(JSON.stringify(verifier), /ACTOR/);
+    assert.match(JSON.stringify(verifier), /commits\/\$SHA\/pulls/);
+  });
+
   it("keeps stable releases behind a manual dispatch or marked merge", () => {
+    const verifier = jobs["verify-stable-merge"] as Workflow;
+    const verifierSource = JSON.stringify(verifier);
     const release = jobs.release as Workflow;
     const condition = String(release.if);
     const notify = jobs["notify-downstream"] as Workflow;
 
-    assert.match(condition, /^!inputs\.redispatchDownstream\s*&&/);
-    assert.match(condition, /github\.event_name == 'workflow_dispatch'/);
     assert.match(
       condition,
-      /github\.event_name == 'push' && contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+      /needs\.verify-stable-merge\.outputs\.verified == 'true'/,
     );
-    assert.doesNotMatch(condition, /\$\{\{ !inputs\.redispatchDownstream \}\}/);
-    assert.deepEqual(notify.needs, ["release"]);
+    assert.match(verifierSource, /commits\/\$SHA\/pulls/);
+    assert.match(verifierSource, /changeset-release\/main/);
+    assert.match(verifierSource, /builder-io-integration\[bot\]/);
+    assert.match(verifierSource, /merge_commit_sha == \$sha/);
+    assert.deepEqual(notify.needs, ["release", "verify-stable-merge"]);
     assert.match(
       String(notify.if),
       /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(notify.if),
+      /needs\.verify-stable-merge\.outputs\.verified == 'true'/,
     );
   });
 
