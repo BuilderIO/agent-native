@@ -113,4 +113,19 @@ export const appConfig = z.object({
       env: ["VITE_AGENT_NATIVE_TEMPLATE"],
       doc: "First-party template this app was generated from.",
     }),
+
+  // ── package.json-derived branding ───────────────────────────────────────
+  //
+  // Filled by the `package` layer (the lowest one), which matches this app's
+  // package.json against the first-party template table. Deliberately no `env`
+  // alias on either: `slug` selects the per-app mailbox on agent-native.com, so
+  // it must not be settable by an ambient string on the host. The layer is the
+  // only writer, and it only ever emits a name the template table already
+  // contains.
+  slug: z.string().min(1).optional().meta({
+    doc: "First-party template slug, matched from package.json. Selects the per-app transactional email sender.",
+  }),
+  description: z.string().min(1).optional().meta({
+    doc: "One-line description of the app, from first-party template metadata.",
+  }),
 });

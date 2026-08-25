@@ -11,7 +11,7 @@
  * site — keeps the transactional look-and-feel consistent.
  */
 
-import { getAppName, getAppSlug, getAppDescription } from "./app-name.js";
+import { getAppConfig } from "../app-config/index.js";
 import { renderEmail, emailStrong } from "./email-template.js";
 
 /** Shared reply-to for the framework's transactional emails. */
@@ -39,7 +39,7 @@ function stripCrlf(s: string): string {
 }
 
 function resolveAppName(): string {
-  return stripCrlf(getAppName() || "Agent Native");
+  return stripCrlf(getAppConfig().app.name || "Agent Native");
 }
 
 /**
@@ -48,7 +48,7 @@ function resolveAppName(): string {
  * own name so its users aren't told they signed up for an Agent Native app.
  */
 function resolveBrand(slug: string | undefined): string {
-  const appName = getAppName();
+  const appName = getAppConfig().app.name;
   if (!appName) return "Agent Native";
   return slug ? `Agent-Native ${stripCrlf(appName)}` : stripCrlf(appName);
 }
@@ -131,10 +131,10 @@ export function renderVerifySignupEmail(
   args: RenderVerifySignupEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const slug = getAppSlug();
+  const slug = getAppConfig().app.slug;
   const brand = resolveBrand(slug);
   const description = slug
-    ? (VERIFY_EMAIL_DESCRIPTIONS[slug] ?? getAppDescription())
+    ? (VERIFY_EMAIL_DESCRIPTIONS[slug] ?? getAppConfig().app.description)
     : undefined;
 
   const paragraphs = [
@@ -179,7 +179,7 @@ export function renderMagicLinkEmail(
   args: RenderMagicLinkEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const slug = getAppSlug();
+  const slug = getAppConfig().app.slug;
   const brand = resolveBrand(slug);
   const { html, text } = renderEmail({
     brandName: brand,
@@ -220,7 +220,7 @@ export function renderResetPasswordEmail(
   const email = stripCrlf(args.email);
   // Match the verification email branding so password resets are clearly tied
   // to the specific app. No value pitch here — it's a security email.
-  const slug = getAppSlug();
+  const slug = getAppConfig().app.slug;
   const brand = resolveBrand(slug);
 
   const { html, text } = renderEmail({
