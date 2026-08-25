@@ -45,9 +45,13 @@ const FLOW_COOKIE_CHUNK_SIZE = 2_800;
 const FLOW_COOKIE_MAX_CHUNKS = 8;
 const CHUNKED_COOKIE_PREFIX = "__chunked__";
 
-const MANAGED_MCP_OAUTH_CLIENTS = [
+const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
+  serverOrigins: ReadonlyArray<string>;
+  clientIdKeys: ReadonlyArray<string>;
+  clientSecretKeys: ReadonlyArray<string>;
+}> = [
   {
-    serverOrigin: "https://mcp.hubspot.com",
+    serverOrigins: ["https://mcp.hubspot.com"],
     clientIdKeys: [
       "HUBSPOT_MCP_CLIENT_ID",
       "HUBSPOT_INTEGRATION_CLIENT_ID",
@@ -59,7 +63,18 @@ const MANAGED_MCP_OAUTH_CLIENTS = [
       "HUBSPOT_CLIENT_SECRET",
     ],
   },
-] as const;
+  {
+    serverOrigins: [
+      "https://gmailmcp.googleapis.com",
+      "https://drivemcp.googleapis.com",
+      "https://calendarmcp.googleapis.com",
+      "https://chatmcp.googleapis.com",
+      "https://people.googleapis.com",
+    ],
+    clientIdKeys: ["GOOGLE_CLIENT_ID"],
+    clientSecretKeys: ["GOOGLE_CLIENT_SECRET"],
+  },
+];
 
 export interface McpOAuthFlow {
   name: string;
@@ -287,8 +302,8 @@ async function handleMcpOAuthStart(
 }
 
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
-  return MANAGED_MCP_OAUTH_CLIENTS.some(
-    (client) => client.serverOrigin === serverUrl.origin,
+  return MANAGED_MCP_OAUTH_CLIENTS.some((client) =>
+    client.serverOrigins.includes(serverUrl.origin),
   );
 }
 
@@ -320,8 +335,8 @@ export function stripMcpOAuthAppBasePath(
 export async function resolveManagedMcpOAuthClient(
   serverUrl: URL,
 ): Promise<StoredOAuthClientInformation | undefined> {
-  const client = MANAGED_MCP_OAUTH_CLIENTS.find(
-    (candidate) => candidate.serverOrigin === serverUrl.origin,
+  const client = MANAGED_MCP_OAUTH_CLIENTS.find((candidate) =>
+    candidate.serverOrigins.includes(serverUrl.origin),
   );
   if (!client) return undefined;
 

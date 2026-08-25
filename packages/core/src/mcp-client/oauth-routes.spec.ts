@@ -244,6 +244,31 @@ describe("managed MCP OAuth clients", () => {
     });
   });
 
+  it("resolves the shared Google client for official Workspace MCP servers", async () => {
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      if (key === "GOOGLE_CLIENT_ID") return "google-client-id";
+      if (key === "GOOGLE_CLIENT_SECRET") return "google-client-secret";
+      return null;
+    });
+
+    for (const origin of [
+      "https://gmailmcp.googleapis.com",
+      "https://drivemcp.googleapis.com",
+      "https://calendarmcp.googleapis.com",
+      "https://chatmcp.googleapis.com",
+      "https://people.googleapis.com",
+    ]) {
+      await expect(
+        resolveManagedMcpOAuthClient(new URL(`${origin}/mcp/v1`)),
+      ).resolves.toEqual({
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      });
+      expect(resolveMcpOAuthScope(new URL(origin), "org")).toBeNull();
+    }
+  });
+
   it("does not resolve a managed client for an unrelated MCP server", async () => {
     resolveSecretMock.mockReset();
 
