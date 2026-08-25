@@ -1,4 +1,6 @@
+import { IconArrowUpRight } from "@tabler/icons-react";
 import type { CSSProperties, ReactNode } from "react";
+import { Link } from "react-router";
 
 import { GridInner, PageSection } from "./page-grid";
 
@@ -345,6 +347,15 @@ export function WorksWithStack() {
               </div>
             </div>
           ))}
+          <Link
+            to="/apps"
+            aria-label="Explore apps built with Agent-Native"
+            className="logo-tile works-with-stack-arrow-tile"
+          >
+            <span className="template-showcase-arrow works-with-stack-arrow">
+              <IconArrowUpRight size={40} stroke={1.75} />
+            </span>
+          </Link>
         </div>
       </GridInner>
     </PageSection>
