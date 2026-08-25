@@ -36,6 +36,12 @@ import { AskSteps } from "./ask-steps";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
+/** A cursor crossing the capsule should not open it. Matches the recorder. */
+const HOVER_INTENT_MS = 150;
+
+/** The capsule's one spacing step, matched in styles.css. */
+const TRANSPORT_GAP_PX = 8;
+
 /** Longer than any reveal transition. Past this the browser is not advancing
  *  the animation, so the reveal has to finish itself. */
 const TRANSITION_STALL_MS = 400;
@@ -519,43 +525,73 @@ export function MeetingPill() {
     if (expanded || detached || ctx.mode !== "meeting" || finished) return;
     const seg = transportRef.current;
     if (!seg) return;
-    const target = hovered ? seg.scrollHeight : 0;
-    if (hovered) seg.dataset.open = "true";
-    else delete seg.dataset.open;
-    seg.style.transition = "";
-    seg.style.height = `${target}px`;
-    seg.style.opacity = hovered ? "1" : "0";
-    if (hovered) syncCapsuleWindow(target);
+    // Nothing to pause or end until capture has attached.
+    const open = hovered && !ctx.starting;
 
-    // This window is never the key window, and the browser can stop advancing
-    // animations in one — the transition then never progresses and the capsule
-    // stays stuck at the size it started from. Wait for the real transition,
-    // and if it never arrives, drop it and snap to the end. The recorder
-    // pill's segment growth is force-snapped the same way.
-    let settled = false;
-    const settle = () => {
-      if (settled) return;
-      settled = true;
-      if (!hovered) syncCapsuleWindow(0);
-    };
-    const forceSnap = () => {
-      if (settled) return;
-      seg.style.transition = "none";
-      seg.style.height = `${target}px`;
-      seg.style.opacity = hovered ? "1" : "0";
-      // Read back so the snapped value is committed before the transition
-      // is restored, or the restore just re-animates from the old value.
-      void seg.offsetHeight;
+    let release: (() => void) | null = null;
+
+    const apply = () => {
+      const target = open ? seg.scrollHeight : 0;
+      if (open) seg.dataset.open = "true";
+      else delete seg.dataset.open;
       seg.style.transition = "";
-      settle();
+      seg.style.height = `${target}px`;
+      seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
+      seg.style.opacity = open ? "1" : "0";
+      // Grow the window first so the capsule has somewhere to open into. It
+      // is transparent below the capsule, so the extra frame is invisible
+      // until the segment fills it.
+      if (open) syncCapsuleWindow(target + TRANSPORT_GAP_PX);
+
+      // This window is never the key window, and the browser can stop
+      // advancing animations in one — the transition then never progresses
+      // and the capsule stays at the size it started from. Wait for the real
+      // transition, and if it never arrives, drop it and snap to the end.
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        if (!open) syncCapsuleWindow(0);
+      };
+      const forceSnap = () => {
+        if (settled) return;
+        seg.style.transition = "none";
+        seg.style.height = `${target}px`;
+        seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
+        seg.style.opacity = open ? "1" : "0";
+        // Read back so the snapped value commits before the transition is
+        // restored, or the restore just re-animates from the old value.
+        void seg.offsetHeight;
+        seg.style.transition = "";
+        settle();
+      };
+      seg.addEventListener("transitionend", settle, { once: true });
+      const stalled = setTimeout(forceSnap, TRANSITION_STALL_MS);
+      release = () => {
+        seg.removeEventListener("transitionend", settle);
+        clearTimeout(stalled);
+      };
     };
-    seg.addEventListener("transitionend", settle, { once: true });
-    const stalled = setTimeout(forceSnap, TRANSITION_STALL_MS);
+
+    // Opening waits out a cursor that is only passing over. Closing does not,
+    // so the capsule never lingers open under a cursor that has left.
+    let intent: ReturnType<typeof setTimeout> | null = null;
+    if (open && !seg.dataset.open) intent = setTimeout(apply, HOVER_INTENT_MS);
+    else apply();
+
     return () => {
-      seg.removeEventListener("transitionend", settle);
-      clearTimeout(stalled);
+      if (intent) clearTimeout(intent);
+      release?.();
     };
-  }, [hovered, expanded, detached, ctx.mode, finished, syncCapsuleWindow]);
+  }, [
+    hovered,
+    expanded,
+    detached,
+    ctx.mode,
+    ctx.starting,
+    finished,
+    syncCapsuleWindow,
+  ]);
 
   const handleTranscriptLines = useCallback(
     (lines: TranscriptLine[]) => {

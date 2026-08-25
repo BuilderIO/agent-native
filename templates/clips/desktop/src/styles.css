@@ -4664,6 +4664,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
+  /* Pinned to the top of its window. The window is pre-grown before the
+     capsule opens, and a centred capsule would jump upward the instant that
+     happens — the growth has to come out of the bottom edge only. */
+  align-self: flex-start;
   /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
      height. A fixed radius on the ~44x64 vertical form looks like a rounded
      rectangle. */
@@ -4736,10 +4740,13 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 /* Collapsed = vertical capsule: logo on top, waveform below. */
 .pill-inner-compact .pill-header.pill-vertical {
   flex-direction: column;
-  gap: 6px;
+  /* No gap here: the transport segment owns the space above itself, so at
+     rest it contributes nothing and the capsule closes flush under the
+     meter. Spacing lives inside each group instead, all on one 8px step. */
+  gap: 0;
   height: auto;
   width: auto;
-  padding: 10px 8px;
+  padding: 9px 8px;
   cursor: pointer;
 }
 
@@ -4760,7 +4767,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-vertical .pill-controls {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+  /* The space above the transport is a margin, animated with the height. As
+     padding it could not collapse below its own 8px, so the capsule kept a
+     dead band under the meter while closed. */
+  margin-top: 0;
   height: 0;
   min-height: 0;
   max-width: none;
@@ -4769,6 +4780,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
   transition:
     height 220ms var(--ease-drawer),
+    margin-top 220ms var(--ease-drawer),
     opacity 160ms var(--ease-out-strong);
 }
 
@@ -4833,10 +4845,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: #e0473f;
 }
 
-.pill-vertical .pill-controls {
-  gap: 6px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .pill-vertical .pill-controls,
   .pill-vertical .pill-controls > * {
@@ -4858,7 +4866,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
 }
 
 .pill-timer {
