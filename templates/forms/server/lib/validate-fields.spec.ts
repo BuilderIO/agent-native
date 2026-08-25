@@ -18,7 +18,7 @@ describe("normalizeFieldIds", () => {
 
   it("leaves an already-valid id untouched", () => {
     const [field] = normalizeFieldIds([
-      { id: "email", type: "text", label: "Email" },
+      { id: "email", type: "text", label: "Email", required: false },
     ]) as Array<{ id: string }>;
 
     expect(field.id).toBe("email");
@@ -26,8 +26,8 @@ describe("normalizeFieldIds", () => {
 
   it("disambiguates generated ids so two fields never collide", () => {
     const fields = normalizeFieldIds([
-      { type: "text", label: "Name" },
-      { type: "text", label: "Name" },
+      { type: "text", label: "Name", required: false },
+      { type: "text", label: "Name", required: false },
     ]) as Array<{ id: string }>;
 
     expect(fields[0].id).not.toBe(fields[1].id);
@@ -35,9 +35,9 @@ describe("normalizeFieldIds", () => {
   });
 
   it("falls back to a generic id when the label is empty or unusable", () => {
-    const [field] = normalizeFieldIds([{ type: "text", label: "" }]) as Array<{
-      id: string;
-    }>;
+    const [field] = normalizeFieldIds([
+      { type: "text", label: "", required: false },
+    ]) as Array<{ id: string }>;
 
     expect(field.id).toMatch(FIELD_ID_PATTERN);
   });
@@ -47,9 +47,26 @@ describe("normalizeFieldIds", () => {
     // helper only fills in MISSING ids, it must never launder an attacker
     // -controlled string into looking "generated".
     const fields = normalizeFieldIds([
-      { id: 'x" onfocus="alert(1)', type: "text", label: "Name" },
+      {
+        id: 'x" onfocus="alert(1)',
+        type: "text",
+        label: "Name",
+        required: false,
+      },
     ]) as Array<{ id: string }>;
     expect(fields[0].id).toMatch(FIELD_ID_PATTERN);
     expect(fields[0].id).not.toContain("onfocus");
+  });
+
+  it("rejects incomplete field objects before they can be persisted", () => {
+    expect(() => assertValidFields([{ id: "name" }])).toThrow(
+      "field #1 has an invalid type",
+    );
+    expect(() =>
+      assertValidFields([{ id: "name", type: "text", required: false }]),
+    ).toThrow("field #1 label must be a string");
+    expect(() =>
+      assertValidFields([{ id: "name", type: "text", label: "Name" }]),
+    ).toThrow("field #1 required must be a boolean");
   });
 });

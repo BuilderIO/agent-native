@@ -93,8 +93,8 @@ describe("patch-form-fields concurrent writes", () => {
       id: "form-race",
       status: "draft",
       fields: JSON.stringify([
-        { id: "field-a", type: "text", label: "A" },
-        { id: "field-b", type: "text", label: "B" },
+        { id: "field-a", type: "text", label: "A", required: false },
+        { id: "field-b", type: "text", label: "B", required: false },
       ]),
     });
   });
@@ -108,7 +108,12 @@ describe("patch-form-fields concurrent writes", () => {
         ops: [
           {
             op: "upsert",
-            field: { id: "field-a", type: "text", label: "A updated" },
+            field: {
+              id: "field-a",
+              type: "text",
+              label: "A updated",
+              required: false,
+            },
           },
         ],
       }),
@@ -117,7 +122,12 @@ describe("patch-form-fields concurrent writes", () => {
         ops: [
           {
             op: "upsert",
-            field: { id: "field-b", type: "text", label: "B updated" },
+            field: {
+              id: "field-b",
+              type: "text",
+              label: "B updated",
+              required: false,
+            },
           },
         ],
       }),
