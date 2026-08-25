@@ -3204,6 +3204,9 @@ ${identitySsoScript}
       return true;
     }
     function __anCanRecoverGoogleSignInFlow(flowId, expectedFlowId) {
+      // Focus can return while either the system-browser exchange or the popup
+      // exchange is still active. Let that exchange finish before recovering.
+      if (!flowId && (__anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;
       if (flowId) {
         return __anGoogleSignInInFlight &&
           !__anGoogleSignInFlowId &&

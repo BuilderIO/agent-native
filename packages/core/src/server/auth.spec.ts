@@ -5926,6 +5926,9 @@ describe("server/auth", () => {
       expect(html).toContain("closed = popup.closed === true");
       expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
       expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");
+      expect(html).toContain(
+        "if (!flowId && (__anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;",
+      );
       expect(html).toContain("__anStopOAuthExchangePolling();");
       expect(html).toContain(
         "if (!__anIsCurrentGoogleSignInFlow(flowId)) return;",

@@ -7,7 +7,7 @@
  * By default starts the core template set (mail, calendar, slides, etc.).
  * Pass --apps to override, e.g.: --apps calendar,slides
  */
-import { spawn, execSync } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 
@@ -87,14 +87,68 @@ const portsToUse = requestedApps
   .filter(Boolean) as number[];
 portsToUse.push(FRAME_PORT);
 
-function tryKillPort(port: number) {
-  try {
-    const pids = execSync(`lsof -ti :${port}`, { encoding: "utf8" }).trim();
-    if (pids) {
-      execSync(`kill -9 ${pids.split("\n").join(" ")}`, { stdio: "ignore" });
+function listeningPidsForPort(port: number): number[] {
+  if (process.platform === "win32") {
+    const output = execFileSync("netstat", ["-ano", "-p", "tcp"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const pids = new Set<number>();
+    for (const line of output.split(/\r?\n/)) {
+      const fields = line.trim().split(/\s+/);
+      if (
+        fields[0]?.toUpperCase() !== "TCP" ||
+        fields[3]?.toUpperCase() !== "LISTENING"
+      ) {
+        continue;
+      }
+      const localAddress = fields[1] ?? "";
+      const localPort = localAddress.slice(localAddress.lastIndexOf(":") + 1);
+      const pid = Number(fields[4]);
+      if (localPort === String(port) && Number.isInteger(pid) && pid > 0) {
+        pids.add(pid);
+      }
     }
+    return [...pids];
+  }
+
+  const output = execFileSync("lsof", ["-ti", `:${port}`], {
+    encoding: "utf8",
+  });
+  const pids: number[] = [];
+  for (const value of output.split(/\s+/)) {
+    if (!value) continue;
+    const pid = Number(value);
+    if (Number.isInteger(pid) && pid > 0) pids.push(pid);
+  }
+  return pids;
+}
+
+function tryKillPort(port: number) {
+  let pids: number[];
+  try {
+    pids = listeningPidsForPort(port);
   } catch {
     // Port not in use — fine
+    return;
+  }
+
+  for (const pid of pids) {
+    try {
+      if (process.platform === "win32") {
+        // Vite is launched through pnpm/concurrently, so kill the full tree;
+        // terminating only the listener leaves its wrapper alive for relaunch.
+        execFileSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } else {
+        execFileSync("kill", ["-9", String(pid)], { stdio: "ignore" });
+      }
+    } catch {
+      // coercion-ok: a raced process exit means cleanup already happened.
+      // The process may have exited between discovery and termination.
+    }
   }
 }
 
