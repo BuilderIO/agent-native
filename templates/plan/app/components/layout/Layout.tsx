@@ -48,6 +48,7 @@ function isPlanDetailRoute(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -88,11 +89,11 @@ export function Layout({ children }: LayoutProps) {
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
-  const chatRoute = location.pathname === "/chat";
+  const chatRoute = pathname === "/chat";
   const { session, isLoading: sessionLoading } = useSession();
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "plans",
-    activePath: location.pathname,
+    activePath: pathname,
     enabled: !chatRoute,
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("plans");
@@ -102,8 +103,7 @@ export function Layout({ children }: LayoutProps) {
     requireActiveHandoff: true,
   });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
-  const hideAppHeader =
-    location.pathname === "/plans" && !sessionLoading && !session;
+  const hideAppHeader = pathname === "/plans" && !sessionLoading && !session;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed
     : sidebarCollapsed;

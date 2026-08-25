@@ -223,14 +223,15 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const sessionBypass =
-    location.pathname === "/chat" ||
-    location.pathname === "/plans" ||
-    location.pathname.startsWith("/plans/") ||
-    location.pathname === "/recaps" ||
-    location.pathname.startsWith("/recaps/") ||
-    location.pathname === "/local-plans" ||
-    location.pathname.startsWith("/local-plans/");
+    pathname === "/chat" ||
+    pathname === "/plans" ||
+    pathname.startsWith("/plans/") ||
+    pathname === "/recaps" ||
+    pathname.startsWith("/recaps/") ||
+    pathname === "/local-plans" ||
+    pathname.startsWith("/local-plans/");
   const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
   return (
     // Pass the plan-specific styled Toaster via `toaster` so only one sonner

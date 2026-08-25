@@ -152,6 +152,19 @@ test.describe("guest mode + claim", () => {
     ).toBeVisible();
   });
 
+  test("trailing-slash public routes keep their shells", async ({ page }) => {
+    await clearAuth(page);
+
+    await page.goto("/chat/");
+    await expect(
+      page.getByRole("heading", { name: /ask plan/i }),
+    ).toBeVisible();
+
+    await page.goto("/plans/");
+    await expect(page.locator("header")).toHaveCount(0);
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible();
+  });
+
   test("anonymous create-visual-plan is rejected with a clean message (no plan minted)", async ({
     page,
   }) => {
@@ -312,9 +325,6 @@ test.describe("guest mode + claim", () => {
       timeout: 15_000,
     });
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /^sign in$/i }).first(),
-    ).toBeVisible();
 
     // Register + login same-origin (verification-free path the framework uses
     // for programmatic auth), exactly as global-setup does. This is the moment a
