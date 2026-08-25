@@ -45,6 +45,8 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/2cfece5cf2f775fdee7ef93e0419bb61056ae43e?width=134"
         alt=""
+        width={68}
+        height={68}
         loading="lazy"
         decoding="async"
         style={{ width: "auto", height: "auto" }}
@@ -204,6 +206,8 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/d1884c5d20eec797ecc506e533839faeb689d5bd?width=111"
         alt=""
+        width={56}
+        height={67}
         loading="lazy"
         decoding="async"
         style={{
@@ -748,6 +752,8 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/5c0a9ded77f7985b88e6ee2fcf7065dcd7a44d04?width=249"
         alt=""
+        width={118}
+        height={124}
         loading="lazy"
         decoding="async"
         style={{ width: "auto", height: "auto", objectFit: "contain" }}
@@ -824,6 +830,8 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/049051ae49d7f80faa5f1083887d07a174aa07fe?width=132"
         alt=""
+        width={66}
+        height={31}
         loading="lazy"
         decoding="async"
         style={{
