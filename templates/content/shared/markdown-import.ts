@@ -160,11 +160,48 @@ function containsUnsupportedBlockSyntax(markdown: string): boolean {
     const value = line.trimStart();
     return (
       /^(?:import|export)\s/.test(value) ||
-      /^[{}]/.test(value) ||
-      /^<!--/.test(value) ||
-      /^<\/?[A-Za-z][\w.-]*(?:\s|\/?>)/.test(value)
+      /(^|[^\\])[{}]/.test(line) ||
+      line.includes("<!--") ||
+      /<\/?[A-Za-z][\w.-]*(?:\s|\/?>)/.test(line)
     );
   });
+}
+
+export function canNormalizeMarkdownPipeTableRegion(
+  markdown: string,
+  start: number,
+  end: number,
+): boolean {
+  const withoutCrLf = markdown.split("\r\n").join("");
+  if (
+    (markdown.includes("\r\n") && withoutCrLf.includes("\n")) ||
+    containsUnsupportedBlockSyntax(markdown) ||
+    start < 0 ||
+    end > markdown.length ||
+    start >= end ||
+    (start > 0 && markdown[start - 1] !== "\n") ||
+    (end < markdown.length && markdown[end] !== "\r" && markdown[end] !== "\n")
+  ) {
+    return false;
+  }
+
+  let activeFence: { marker: "`" | "~"; length: number } | null = null;
+  for (const line of markdown.slice(0, start).split(/\r?\n/)) {
+    if (activeFence) {
+      if (closesFence(line, activeFence)) activeFence = null;
+      continue;
+    }
+    activeFence = fenceMarker(line);
+  }
+  if (activeFence) return false;
+
+  const regionLines = markdown.slice(start, end).split(/\r?\n/);
+  if (regionLines.some((line) => /^(?: {1,}|\t|>)/.test(line))) return false;
+  const followingLine = markdown
+    .slice(end)
+    .replace(/^\r?\n/, "")
+    .split(/\r?\n/, 1)[0];
+  return !followingLine.trim() || splitPipeRow(followingLine) === null;
 }
 
 export function normalizeImportedMarkdownStructures(

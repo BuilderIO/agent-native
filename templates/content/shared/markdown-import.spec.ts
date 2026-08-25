@@ -180,6 +180,15 @@ describe("Markdown import normalization", () => {
     expect(result.normalizedPipeTables).toBe(1);
     expect(result.content).not.toMatch(/(?<!\r)\n/);
     expect(result.content).toContain("<td>A</td>\r\n<td>B</td>");
+    expect(result.content.endsWith("\r\n")).toBe(true);
+  });
+
+  it("preserves a trailing newline after an EOF table", () => {
+    const markdown = "| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+
+    expect(
+      normalizeImportedMarkdownStructures(markdown).content.endsWith("\n"),
+    ).toBe(true);
   });
 
   it("fails closed for mixed source line endings", () => {
@@ -209,6 +218,16 @@ describe("Markdown import normalization", () => {
       ["export const value = `", "| A | B |", "| --- | --- |", "`;"].join("\n"),
     ],
     ["HTML comment", ["<!--", "| A | B |", "| --- | --- |", "-->"].join("\n")],
+    [
+      "inline multiline HTML comment",
+      ["Before <!-- comment", "", "| A | B |", "| --- | --- |", "-->"].join(
+        "\n",
+      ),
+    ],
+    [
+      "inline multiline MDX expression",
+      ["Before {`comment", "", "| A | B |", "| --- | --- |", "`}"].join("\n"),
+    ],
     ["raw HTML", ["<pre>", "| A | B |", "| --- | --- |", "</pre>"].join("\n")],
   ])(
     "does not normalize table-shaped text inside %s source",

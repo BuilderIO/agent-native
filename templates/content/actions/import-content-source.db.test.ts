@@ -271,6 +271,34 @@ describe("import-content-source descriptions", () => {
       persistedContentUnchanged: true,
     });
 
+    const fencedWithBlankLine = ["```md", "example", "", table, "```"].join(
+      "\n",
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({
+        content: fencedWithBlankLine,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.documents.id, documentId));
+    const fencedWithBlankLineResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        editDocumentAction.run({
+          id: documentId,
+          find: table,
+          transform: "normalize-pipe-table",
+          reuseLabels: [],
+        }),
+    );
+    expect(fencedWithBlankLineResult).toMatchObject({
+      status: "unsupported",
+      reason: "unsafe-document-context",
+      applied: 0,
+      verified: true,
+      persistedContentUnchanged: true,
+    });
+
     const partialTable = ["| A | B |", "| --- | --- |"].join("\n");
     const largerTable = [partialTable, "| 1 | 2 |"].join("\n");
     await getDb()
