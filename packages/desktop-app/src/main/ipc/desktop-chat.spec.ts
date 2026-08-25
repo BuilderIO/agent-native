@@ -51,5 +51,12 @@ describe("desktop chat relay target URLs", () => {
     expect(
       shouldForwardRequestHeader("x-agent-native-surface", "desktop"),
     ).toBe(true);
+    expect(
+      shouldForwardRequestHeader(
+        "x-internal",
+        "secret",
+        new Set(["connection", "x-internal"]),
+      ),
+    ).toBe(false);
   });
 });

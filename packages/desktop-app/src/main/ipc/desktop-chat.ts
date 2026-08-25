@@ -136,11 +136,12 @@ function requestHeaderValue(
 export function shouldForwardRequestHeader(
   name: string,
   value: string | string[] | undefined,
+  blockedHeaders: ReadonlySet<string> = RESTRICTED_REQUEST_HEADERS,
 ): boolean {
   const normalizedName = name.toLowerCase();
   return (
     value !== undefined &&
-    !RESTRICTED_REQUEST_HEADERS.has(normalizedName) &&
+    !blockedHeaders.has(normalizedName) &&
     normalizedName !== "host" &&
     normalizedName !== "origin" &&
     normalizedName !== "referer" &&
@@ -230,8 +231,16 @@ async function proxyRequest(
     upstream.chunkedEncoding = true;
   }
 
+  const blockedHeaders = new Set(RESTRICTED_REQUEST_HEADERS);
+  for (const connectionToken of (
+    requestHeaderValue(request.headers.connection) ?? ""
+  ).split(",")) {
+    const normalizedToken = connectionToken.trim().toLowerCase();
+    if (normalizedToken) blockedHeaders.add(normalizedToken);
+  }
+
   for (const [name, value] of Object.entries(request.headers)) {
-    if (!shouldForwardRequestHeader(name, value)) continue;
+    if (!shouldForwardRequestHeader(name, value, blockedHeaders)) continue;
     const headerValue = requestHeaderValue(value);
     if (headerValue !== undefined) upstream.setHeader(name, headerValue);
   }

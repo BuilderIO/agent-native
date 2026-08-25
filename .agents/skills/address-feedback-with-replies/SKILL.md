@@ -85,10 +85,11 @@ public URL.
   Slack as unavailable and do not write.
 - Use that same connected identity for channel history, thread replies,
   reactions, and Slack metadata. Use cursors until the requested history or
-  thread is complete. A read-back must match the target channel, timestamp,
-  thread parent, workspace, and invoking `user_id` where Slack returns an
-  author. A reaction read-back must include the invoking user in the reaction's
-  user list.
+  thread is complete. A reply read-back must include author metadata matching
+  the invoking `user_id`; missing author data is unverified and cannot satisfy
+  the reply ledger. It must also match the target channel, timestamp, thread
+  parent, and workspace. A reaction read-back must include the invoking user
+  in the reaction's user list.
 - After every reaction or reply, re-read through the same connected identity
   and verify the reaction or reply exists before continuing.
 

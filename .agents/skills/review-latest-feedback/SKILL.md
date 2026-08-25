@@ -163,7 +163,7 @@ derive `<codex_task_id>` from a fresh per-tick run id. If the scheduler cannot
 expose a stable id, require the external persistence mechanism to provide one
 before claiming scheduled coverage. This is local Codex state, not a recap and
 not a file committed to
-a worktree. The ledger has `schema_version`, `codex_task_id`,
+a worktree. The ledger has `schema_version`, `codex_task_id`, `slack_identity`,
 `owner_identities`, and an `items` map keyed by
 `<slack_channel_id>:<parent_ts>`. Each item has
 `parent_ts`, `clarification_ts`, `last_recheck_at`, `next_recheck_at`,
@@ -175,13 +175,17 @@ it through a temporary file plus rename so a killed heartbeat cannot leave a
 partial cursor. The scheduled heartbeat must use the same path and protocol on
 the next run, then append the loaded and updated rows to its recap.
 
-Initialize `owner_identities` with the invoking Slack identity. During the
-required full-thread read, inspect **Fixed** and **Clarification needed**
-replies from every author, not only the invoking identity. Scheduled discovery
-first queries all exact terminal replies in the channel, joins them to
-eye-marked parents, and reads each candidate thread without an author filter.
-If the full thread or assignment establishes a new investigator or owner, add
-that identity and persist it in the ledger before applying the owner filter on
+For a fresh manual run, verify and persist the invoking Slack profile as
+`slack_identity`. A scheduled run must load that stable `{ team_id, user_id }`
+identity from the ledger and require the current connected profile to match it
+before reading or writing. If it is missing or mismatched, record Slack as
+unavailable and do not claim scheduled coverage or initialize a new owner.
+Initialize `owner_identities` from the persisted identity. During the required
+full-thread read, inspect **Fixed** and **Clarification needed** replies from
+every author. Scheduled discovery first queries all exact terminal replies,
+joins them to eye-marked parents, and reads each candidate thread without an
+author filter. If the full thread or assignment establishes a new investigator
+or owner, add that identity and persist it before applying the owner filter on
 later scans. A known-owner filter may optimize subsequent reads, but it must
 never gate this bootstrap query. If no recurring automation is available, say
 that the follow-up is manual and do not claim scheduled coverage exists.
