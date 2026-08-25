@@ -485,6 +485,16 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
       cacheReadTokens: 50,
       cacheWriteTokens: 10,
     });
+    // `inputTokens` is the whole prompt and the cache counts are a slice of it,
+    // never an addition — `ai`'s `asLanguageModelUsage` maps `inputTokens.total`
+    // with `noCache` / `cacheRead` / `cacheWrite` beneath it. `calculateCost`
+    // subtracts to price each token once, so an exclusive value here would bill
+    // the cached tokens twice.
+    expect(
+      (usage as any).inputTokens -
+        (usage as any).cacheReadTokens -
+        (usage as any).cacheWriteTokens,
+    ).toBe(40);
   });
 
   it("falls back to deprecated cachedInputTokens on pre-v6 usage shapes", () => {

@@ -898,7 +898,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       (events[0]?.properties?.["$ai_error"] as { message: string })?.message,
     ).toContain("withheld");
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
-    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
+    // The output side says withheld rather than going absent: an empty
+    // `$ai_output_state` reads as a tool that returned nothing, which is a
+    // different fact about the run than one whose answer we chose not to ship.
+    expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
 
     events.length = 0;
     await run(true);
@@ -1097,6 +1100,106 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     // The call is still visible — that it happened is not the secret.
     expect(call?.function.name).toBe("search");
     expect(call?.function).not.toHaveProperty("arguments");
+  });
+
+  // A backend pairs a tool call with its result by id. Emitting our span id on
+  // the call while the transcript carries the model's meant they never matched,
+  // so every tool call in PostHog rendered with its output nowhere in sight.
+  it("pairs a tool call with its result by the id the model issued", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "search" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, messages }) => {
+        send({ type: "model_stream", status: "start" });
+        send({
+          type: "tool_start",
+          id: "call_abc",
+          tool: "search",
+          input: { query: "gold" },
+        });
+        send({ type: "model_stream", status: "end" });
+        send({
+          type: "tool_done",
+          id: "call_abc",
+          tool: "search",
+          result: "no rows",
+        });
+        // What the engine appends for the next round-trip: a tool result has
+        // no `tool` role to live in, so it rides inside a `user` message.
+        messages.push({
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_abc",
+              toolName: "search",
+              toolInput: '{"query":"gold"}',
+              content: "no rows",
+            },
+          ],
+        });
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "Nothing found." });
+        send({ type: "model_stream", status: "end" });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-callid-pairing",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const choices = events[0]?.properties?.["$ai_output_choices"] as Array<{
+      tool_calls?: Array<{ id: string }>;
+    }>;
+    const callId = choices?.[0]?.tool_calls?.[0]?.id;
+    expect(callId).toBe("call_abc");
+    // The span id namespace never reaches the transcript, so it can never pair.
+    expect(callId).not.toMatch(/^span-/);
+
+    // The second round-trip saw the result, normalized into a `tool` message
+    // carrying the same id — which is what makes the two halves one call.
+    const laterInput = events
+      .flatMap((event) => (event.properties?.["$ai_input"] as unknown[]) ?? [])
+      .find(
+        (message) =>
+          !!message &&
+          typeof message === "object" &&
+          (message as { role?: string }).role === "tool",
+      ) as { tool_call_id?: string; content?: string } | undefined;
+    expect(laterInput?.tool_call_id).toBe("call_abc");
+    expect(laterInput?.content).toBe("no rows");
   });
 
   it("keeps tool detail in invocation order and pairs parallel calls by id", async () => {
@@ -3069,7 +3172,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(events).toHaveLength(1);
     expect(events[0]?.properties?.["$ai_is_error"]).toBe(false);
-    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
+    // Withheld, not absent — the tool answered, this app just does not export
+    // what it said. The real result never appears either way.
+    expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
+    expect(JSON.stringify(events[0])).not.toContain("three matching rows");
 
     events.length = 0;
     await run(true);

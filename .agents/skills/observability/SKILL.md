@@ -325,21 +325,46 @@ Constraints that are not visible from the emit site:
   PostHog's schema; a name it does not define today it may define tomorrow with
   a different meaning. Ours are plain (`duration_ms`, `input_truncated`,
   `spans_dropped`), which also keeps them out of PostHog's `$ai_*` aggregation.
-- **Trace-level input/output state lives only on `$ai_trace`.** PostHog reads a
-  trace's input and output from that event and never from its children, so
-  `$ai_input_state` / `$ai_output_state` have to be set there or the trace
-  detail view is empty.
+- **`$ai_trace` carries no `$ai_input_state` / `$ai_output_state`.** Content
+  rides the generations; a trace-level copy repeated the run's prompt and answer
+  on a second event. PostHog reads a trace's input and output from that event
+  and from nowhere else, so the visible cost is that traces list with a null
+  input and a conversation is titled from the first generation's `$ai_input`
+  instead. Measured, not assumed — check whether that title is still wrong
+  before trading the duplication back.
 
-- **One generation per run, not per model round-trip.** The engine layer reports
-  aggregate usage through `onUsage` and exposes no per-step hook, so a multi-step
-  run collapses into a single generation carrying the whole message list.
-  Per-round-trip latency and intermediate turns are unavailable without a new
-  seam in `ai-sdk-engine.ts` / `builder-engine.ts`. Do not describe the current
-  output as per-step.
+- **One generation per model round-trip.** Engines that bracket their calls with
+  `model_stream` get one `$ai_generation` each, with that call's tools as its
+  children. Only an engine that never brackets falls back to a single aggregate
+  generation covering the whole run, and it is reported as one.
+- **Messages are rewritten into PostHog's shape before they ship.**
+  `toPostHogMessages()` in `posthog-ai.ts` maps engine parts onto the
+  OpenAI/Anthropic conventions PostHog reads: `tool-call` becomes `tool_calls`,
+  and a `tool-result` — which the engine has to carry inside a `user` message,
+  because `EngineMessage` has no `tool` role — becomes its own `role: "tool"`
+  message. Skipping this is not cosmetic: PostHog dumps raw JSON for shapes it
+  does not know, and the byte-ceiling rescue in `boundAiContent` keeps "the last
+  user message", which in engine shape is the last tool result rather than the
+  question. Attachment bodies become a marker naming the media type and size —
+  base64 renders as nothing in PostHog and spends the whole ceiling.
+- **A tool call and its result pair on the id the MODEL issued.** The span id is
+  a separate namespace that never appears in the transcript, so emitting it on
+  `tool_calls[].id` leaves PostHog with a call and a result that never match and
+  every tool call renders with no output. Span id is the fallback only for
+  emitters that report no call id.
 - **Disabled capture omits the field rather than sending an empty one.** An
   empty array is indistinguishable from a run that genuinely had no messages.
   Truncated content is marked, and a run over the span cap stamps
-  `spans_dropped` — a truncated run must not read as a complete one.
+  `spans_dropped` — a truncated run must not read as a complete one. The one
+  deliberate exception is a tool span's `$ai_output_state` with
+  `captureToolResults` off: it carries an explicit "withheld" marker, because an
+  absent output state reads as a tool that returned nothing, and the tool did
+  answer.
+- **A tool that RETURNS an error envelope is a success here.** `$ai_is_error`
+  and `failed_tools` follow the tool event's `isError`, which the agent sets
+  when an action throws. An action that returns `{ error: ... }` instead is
+  counted as a healthy call by every rollup on this page. Fix it in the action
+  (`fail()`), not by teaching this layer to sniff payload shapes.
 - **The structural tool-call list ships even when content capture is off.**
   Backends derive their tool tags from tool-call blocks inside the output
   choices and from nothing else, so tool names (without arguments) are always
