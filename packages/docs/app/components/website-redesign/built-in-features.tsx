@@ -17,6 +17,7 @@ const PILLAR_ROWS: Pillar[][] = [
     {
       title: "Embedded agent chat",
       description: "Let users delegate work, ask questions, and review results without leaving the app.",
+      image: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F08e92cf529774b4e9f46f3ce41ed3509",
     },
     {
       title: "Shared application state",
