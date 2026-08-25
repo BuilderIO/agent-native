@@ -23,14 +23,23 @@ export function InstallCommand() {
   }
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label="Copy install command"
+      className="hover:text-[var(--b-text-primary)]"
       style={{
-        display: "flex",
+        display: "inline-flex",
         alignItems: "center",
         gap: "var(--spacing-2)",
         fontFamily: "var(--b-font-mono)",
         fontSize: "var(--b-t-label-1)",
         color: "var(--b-text-secondary)",
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        transition: "color 0.15s",
       }}
     >
       <span aria-hidden="true">&gt;</span>
@@ -47,32 +56,14 @@ export function InstallCommand() {
       >
         {INSTALL_COMMAND}
       </code>
-      <button
-        type="button"
-        onClick={handleCopy}
-        aria-label="Copy install command"
-        className="hover:text-[var(--b-text-primary)]"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "transparent",
-          border: "none",
-          padding: 0,
-          color: "var(--b-text-secondary)",
-          cursor: "pointer",
-          transition: "color 0.15s",
-        }}
-      >
-        {copied ? (
-          <IconCheck size={14} stroke={1.75} />
-        ) : (
-          <IconCopy size={14} stroke={1.75} />
-        )}
-      </button>
+      {copied ? (
+        <IconCheck size={14} stroke={1.75} aria-hidden="true" />
+      ) : (
+        <IconCopy size={14} stroke={1.75} aria-hidden="true" />
+      )}
       <span aria-live="polite" className="sr-only">
         {copied ? "Copied!" : ""}
       </span>
-    </div>
+    </button>
   );
 }
