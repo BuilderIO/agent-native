@@ -25,7 +25,7 @@ export function Hero() {
           flexDirection: "column",
           alignItems: "center",
           gap: "var(--spacing-12)",
-          padding: "var(--spacing-30) var(--spacing-10) var(--spacing-20)",
+          padding: "var(--spacing-50) var(--spacing-10) var(--spacing-40)",
         }}
       >
         <div
