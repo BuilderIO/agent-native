@@ -29,7 +29,7 @@ Content (prompts, tool args, tool results) is **redacted by default**. Opt in th
 
 ```ts
 // server/plugins/config.ts
-import { defineAppConfig } from "@agent-native/core";
+import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {

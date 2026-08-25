@@ -160,7 +160,7 @@ export default function ObservabilityPage() {
 
 ```ts
 // server/plugins/config.ts
-import { defineAppConfig } from "@agent-native/core";
+import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
@@ -262,6 +262,8 @@ PUT /_agent-native/observability/experiments/:id
 
 ```ts
 // server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
 export default defineAppConfig({
   observability: {
     enabled: true, // Master switch

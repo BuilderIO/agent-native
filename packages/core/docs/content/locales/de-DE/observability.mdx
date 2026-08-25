@@ -160,7 +160,7 @@ Aktivieren Sie die auf Stichproben basierende LLM-Auswertung, indem Sie `evalSam
 
 ```ts
 // server/plugins/config.ts
-import { defineAppConfig } from "@agent-native/core";
+import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
@@ -262,6 +262,8 @@ Wird von einem Server-Plugin mit `defineAppConfig()` gesetzt. Jedes Feld hat au√
 
 ```ts
 // server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
 export default defineAppConfig({
   observability: {
     enabled: true, // Master switch

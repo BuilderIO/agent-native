@@ -162,7 +162,7 @@ Ative a avaliação baseada em amostra de LLM configurando `evalSampleRate`:
 
 ```ts
 // server/plugins/config.ts
-import { defineAppConfig } from "@agent-native/core";
+import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
@@ -264,6 +264,8 @@ Definido a partir de um plugin de servidor com `defineAppConfig()`. Cada campo t
 
 ```ts
 // server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
 export default defineAppConfig({
   observability: {
     enabled: true, // Master switch

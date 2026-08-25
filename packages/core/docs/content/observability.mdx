@@ -153,7 +153,7 @@ Enable sampled LLM-based evaluation by setting `evalSampleRate`:
 
 ```ts
 // server/plugins/config.ts
-import { defineAppConfig } from "@agent-native/core";
+import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
@@ -255,6 +255,8 @@ Set from a server plugin with `defineAppConfig()`. Every field also has a deploy
 
 ```ts
 // server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
 export default defineAppConfig({
   observability: {
     enabled: true, // Master switch

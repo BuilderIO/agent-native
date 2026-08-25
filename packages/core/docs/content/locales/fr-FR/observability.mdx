@@ -162,7 +162,7 @@ Activez l'évaluation basée sur LLM échantillonnée en définissant `evalSampl
 
 ```ts
 // server/plugins/config.ts
-import { defineAppConfig } from "@agent-native/core";
+import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
@@ -264,6 +264,8 @@ Défini depuis un plugin serveur avec `defineAppConfig()`. Chaque champ possède
 
 ```ts
 // server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
 export default defineAppConfig({
   observability: {
     enabled: true, // Master switch
