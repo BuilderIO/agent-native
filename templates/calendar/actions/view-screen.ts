@@ -55,11 +55,6 @@ async function fetchEventsForRange(
   }
 }
 
-function dateKeyFromParts(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
