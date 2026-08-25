@@ -153,6 +153,40 @@
   background: var(--b-gradient-blue);
 }
 
+.light .builder-brand-tokens {
+  --c-neutral-800: #e0e0d7;
+  --c-blue-300: #00677f;
+  --c-blue-400: #00677f;
+
+  --b-bg-page: #faf9f5;
+  --b-bg-surface: #faf9f5;
+  --b-bg-raised: #ffffff;
+  --b-bg-prominent: #f0efeb;
+  --b-bg-translucent: #faf9f5e6;
+  --b-bg-alternative: #e5f8fa;
+
+  --b-text-primary: #0a0a0a;
+  --b-text-secondary: #3d3d3d;
+  --b-text-highlight: #1a1a1a;
+  --b-text-link: #00677f;
+  --b-text-eyebrow: #00677f;
+
+  --b-border-default: #cac9c6;
+  --b-border-subtle: #e0e0d7;
+  --b-border-title-row: #ababab;
+
+  --b-action-primary-bg: #00677f;
+  --b-action-primary-hover: #00566a;
+  --b-action-primary-text: #ffffff;
+  --b-action-primary-border: #00677f;
+  --b-action-secondary-text: #0a0a0a;
+  --b-action-tab-bg: #faf9f5;
+  --b-action-tab-bg-active: #e5f8fa;
+  --b-action-tab-bg-hover: #f0efeb;
+  --b-action-tab-text-active: #004f63;
+  --b-action-tab-text-hover: #0a0a0a;
+}
+
 .builder-brand-tokens .blue-gradient-text {
   background: var(--b-gradient-blue);
   -webkit-background-clip: text;
