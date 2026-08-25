@@ -216,6 +216,8 @@
   grid-template-columns: repeat(9, minmax(0, 1fr));
   border-top: 1px solid var(--b-border-default);
   border-bottom: 1px solid var(--b-border-default);
+  border-left: 1px solid var(--b-border-subtle);
+  border-right: 1px solid var(--b-border-subtle);
 }
 
 .builder-brand-tokens .logo-tile {
