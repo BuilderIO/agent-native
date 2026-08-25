@@ -2,7 +2,7 @@ import {
   IconArrowUpRight,
   IconPalette,
   IconPresentation,
-  IconScissors,
+  IconVideo,
   type IconProps,
 } from "@tabler/icons-react";
 import { useState, type ComponentType } from "react";
@@ -28,7 +28,7 @@ const TABS: ShowcaseTab[] = [
   {
     id: "clips",
     label: "Clips",
-    icon: IconScissors,
+    icon: IconVideo,
     titlePrimary: "Familiar clip editor.",
     titleSecondary: "Automated by the agent.",
     body: "Give users a familiar clip editor, and let the agent transcribe, trim, and caption footage automatically.",
