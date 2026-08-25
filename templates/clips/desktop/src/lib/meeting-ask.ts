@@ -35,15 +35,25 @@ export function buildMeetingAskPrompt(
   meetingId: string,
   meetingTitle: string | null | undefined,
   question: string,
+  recentTranscript?: string,
 ): string {
   const title = meetingTitle?.trim();
   const label = title ? ` ("${title}")` : "";
+  // The framing matters: this is a capable agent with the app's action
+  // surface and the workspace's integrations, not a transcript reader — an
+  // earlier read-only framing made "can you book that?" come back as a
+  // quote of the transcript.
+  const transcriptBlock = recentTranscript?.trim()
+    ? ["Recent transcript (most recent last):", recentTranscript.trim(), ""]
+    : [];
   return [
-    `You are answering a quick question asked from inside the live meeting ${meetingId}${label}.`,
-    `First read the meeting with the get-meeting action (id ${meetingId}) — transcript, notes, attendees — and use search-meetings only if the question needs related meetings.`,
-    `Answer from the meeting content in short plain text for a small overlay: no headings, no tables. Stay scoped to this meeting.`,
+    `You are the meeting assistant inside the live meeting ${meetingId}${label}, answering in a small overlay.`,
+    ...transcriptBlock,
+    `When the user asks you to DO something (book a meeting, draft an email, create a task, follow up), do it with your available actions and connected integrations, then confirm exactly what you did. If the integration you need is not connected, say which one is missing. Never just repeat the transcript back as the answer to a request.`,
+    `For questions, answer from the recent transcript above first; use get-meeting (id ${meetingId}) for the full transcript, notes, and attendees, and search-meetings for other meetings.`,
+    `Keep replies short plain text: no headings, no tables.`,
     "",
-    `Question: ${question}`,
+    `Request: ${question}`,
   ].join("\n");
 }
 
@@ -63,6 +73,12 @@ export async function streamMeetingAsk(opts: {
   history: AskTurn[];
   signal: AbortSignal;
   onTextDelta: (delta: string) => void;
+  /** Recent transcript lines injected inline so simple asks need no tool trip. */
+  recentTranscript?: string;
+  /** Server-authored progress labels ("Reading the meeting…") as tools run. */
+  onActivity?: (label: string) => void;
+  /** Replaces the scaffolded prompt entirely (chip generation). */
+  promptOverride?: string;
 }): Promise<string> {
   const base = opts.serverUrl.replace(/\/+$/, "");
   // Watchdog shares one controller with the caller's signal; `timedOut` tells
@@ -89,11 +105,14 @@ export async function streamMeetingAsk(opts: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         // Scaffolded prompt for the model; raw question for persisted display.
-        message: buildMeetingAskPrompt(
-          opts.meetingId,
-          opts.meetingTitle,
-          opts.question,
-        ),
+        message:
+          opts.promptOverride ??
+          buildMeetingAskPrompt(
+            opts.meetingId,
+            opts.meetingTitle,
+            opts.question,
+            opts.recentTranscript,
+          ),
         displayMessage: opts.question,
         history: opts.history.slice(-MAX_ASK_HISTORY_TURNS),
         usageLabel: "meeting-pill",
@@ -142,13 +161,20 @@ export async function streamMeetingAsk(opts: {
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6).trim();
           if (!raw) continue;
-          let ev: { type?: string; text?: string; error?: string };
+          let ev: {
+            type?: string;
+            text?: string;
+            error?: string;
+            label?: string;
+          };
           try {
             ev = JSON.parse(raw);
           } catch {
             continue;
           }
-          if (ev.type === "text" && ev.text) {
+          if (ev.type === "activity" && ev.label) {
+            opts.onActivity?.(ev.label);
+          } else if (ev.type === "text" && ev.text) {
             answer += ev.text;
             opts.onTextDelta(ev.text);
           } else if (ev.type === "error") {

@@ -72,12 +72,41 @@ export function MeetingPill() {
   // branch streams canned answers so the interaction stays designable in a
   // plain browser tab.
   const [askMessages, setAskMessages] = useState<
-    Array<{ role: "user" | "assistant"; text: string; streaming?: boolean }>
+    Array<{
+      role: "user" | "assistant";
+      text: string;
+      streaming?: boolean;
+      activity?: string;
+    }>
   >([]);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
   const [askSheetHeight, setAskSheetHeight] = useState(0.62);
   const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const askAbortRef = useRef<AbortController | null>(null);
+  const chipsAbortRef = useRef<AbortController | null>(null);
+  const chipsFetchedAtRef = useRef(0);
+  const [askChips, setAskChips] = useState<
+    Array<{ label: string; ask: string }>
+  >([]);
+
+  /** The last ~2 minutes of transcript, capped, most recent last — inlined
+   * into the ask scaffold so simple questions need no tool round trip and
+   * chip generation sees what was just said. */
+  const recentTranscriptText = () => {
+    const lines = transcriptLinesRef.current;
+    const latest = lines[lines.length - 1]?.startMs ?? null;
+    const windowed =
+      latest === null
+        ? lines.slice(-20)
+        : lines.filter(
+            (l) => l.startMs === null || latest - l.startMs <= 120_000,
+          );
+    let out = windowed
+      .map((l) => `${speakerFor(l.source)}: ${l.text}`)
+      .join("\n");
+    if (out.length > 2_400) out = out.slice(-2_400);
+    return out;
+  };
   // Follow-up context for the live transport: prior scaffolded questions and
   // final answers, sent as `history` with each ask (no threadId — see
   // `streamMeetingAsk`). Reset with the session.
@@ -158,6 +187,10 @@ export function MeetingPill() {
         // abort any in-flight answer so it can't stream into the wrong sheet.
         askAbortRef.current?.abort();
         askAbortRef.current = null;
+        chipsAbortRef.current?.abort();
+        chipsAbortRef.current = null;
+        chipsFetchedAtRef.current = 0;
+        setAskChips([]);
         askHistoryRef.current = [];
         setAskMessages([]);
         setAskSheetOpen(false);
@@ -382,6 +415,7 @@ export function MeetingPill() {
   const submitAsk = (question: string) => {
     const mid = activeMeetingIdRef.current;
     if (!question || !mid) return;
+    refreshAskChips();
     if (pillDemoMode) {
       if (askStreamRef.current) clearInterval(askStreamRef.current);
       const canned = question.toLowerCase().includes("miss")
@@ -439,7 +473,16 @@ export function MeetingPill() {
       const scroller = askSheetScrollRef.current;
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
     };
+    const setActivity = (label: string | undefined) => {
+      if (controller.signal.aborted) return;
+      setAskMessages((m) => {
+        const last = m[m.length - 1];
+        if (!last || last.role !== "assistant" || !last.streaming) return m;
+        return [...m.slice(0, -1), { ...last, activity: label }];
+      });
+    };
     const title = ctxRef.current.title ?? null;
+    const recentTranscript = recentTranscriptText();
     void (async () => {
       try {
         const answer = await streamMeetingAsk({
@@ -449,13 +492,23 @@ export function MeetingPill() {
           question,
           history: askHistoryRef.current,
           signal: controller.signal,
-          onTextDelta: appendToAnswer,
+          recentTranscript,
+          onActivity: (label) => setActivity(label),
+          onTextDelta: (delta) => {
+            setActivity(undefined);
+            appendToAnswer(delta);
+          },
         });
         if (controller.signal.aborted) return;
         const exchange: AskTurn[] = [
           {
             role: "user",
-            content: buildMeetingAskPrompt(mid, title, question),
+            content: buildMeetingAskPrompt(
+              mid,
+              title,
+              question,
+              recentTranscript,
+            ),
           },
           { role: "assistant", content: answer },
         ];
@@ -495,6 +548,63 @@ export function MeetingPill() {
     if (!question) return;
     setAsk("");
     submitAsk(question);
+  };
+
+  /** Chips are proposed by the agent from the recent transcript (tools off,
+   * JSON only), so they track what was actually just said — a spoken "we
+   * should meet Wednesday at 7" should surface a booking chip. Static
+   * fallbacks cover failures and the first seconds of a meeting. */
+  const refreshAskChips = () => {
+    if (pillDemoMode) return;
+    const mid = activeMeetingIdRef.current;
+    if (!mid) return;
+    const now = Date.now();
+    if (now - chipsFetchedAtRef.current < 60_000) return;
+    chipsFetchedAtRef.current = now;
+    const transcript = recentTranscriptText();
+    if (!transcript.trim()) return;
+    chipsAbortRef.current?.abort();
+    const controller = new AbortController();
+    chipsAbortRef.current = controller;
+    void streamMeetingAsk({
+      serverUrl: loadStoredServerUrl(),
+      meetingId: mid,
+      meetingTitle: ctxRef.current.title ?? null,
+      question: "chips",
+      history: [],
+      signal: controller.signal,
+      onTextDelta: () => {},
+      promptOverride: [
+        "Do not use any tools. Reply with ONLY a JSON array, no prose and no code fences.",
+        "Based on this live-meeting transcript excerpt, propose up to 3 quick assistant actions or questions the user is most likely to want right now. Prefer concrete actions grounded in what was said (booking something mentioned, drafting a follow-up, checking whether a topic was discussed in past meetings).",
+        'Each array item: {"label": "chip text, 24 chars max", "ask": "the full request to run"}.',
+        "",
+        "Transcript (most recent last):",
+        transcript,
+      ].join("\n"),
+    })
+      .then((raw) => {
+        if (controller.signal.aborted) return;
+        const match = raw.match(/\[[\s\S]*\]/);
+        if (!match) return;
+        const parsed = JSON.parse(match[0]) as Array<{
+          label?: unknown;
+          ask?: unknown;
+        }>;
+        const chips = parsed
+          .filter(
+            (c) => typeof c.label === "string" && typeof c.ask === "string",
+          )
+          .slice(0, 3)
+          .map((c) => ({
+            label: (c.label as string).slice(0, 28),
+            ask: c.ask as string,
+          }));
+        if (chips.length) setAskChips(chips);
+      })
+      .catch(() => {
+        // Chip generation is a garnish: failures keep the static fallbacks.
+      });
   };
 
   const closeAskSheet = () => {
@@ -811,6 +921,9 @@ export function MeetingPill() {
                   ) : (
                     <div key={i} className="pill-ask-msg-assistant">
                       {m.text}
+                      {m.streaming && m.activity ? (
+                        <span className="pill-ask-activity">{m.activity}</span>
+                      ) : null}
                       {m.streaming ? (
                         <span className="pill-ask-thread-caret" aria-hidden />
                       ) : null}
@@ -819,19 +932,28 @@ export function MeetingPill() {
                 )}
               </div>
               <div className="pill-ask-suggestions" data-no-drag>
-                {[
-                  "What did I miss?",
-                  "Summarize decisions",
-                  "Suggest questions",
-                ].map((chip) => (
+                {(askChips.length
+                  ? askChips
+                  : [
+                      { label: "What did I miss?", ask: "What did I miss?" },
+                      {
+                        label: "Summarize decisions",
+                        ask: "Summarize the decisions made so far",
+                      },
+                      {
+                        label: "Suggest questions",
+                        ask: "Suggest questions I should ask next",
+                      },
+                    ]
+                ).map((chip) => (
                   <button
-                    key={chip}
+                    key={chip.label}
                     type="button"
                     data-no-drag
                     className="pill-ask-chip"
-                    onClick={() => submitAsk(chip)}
+                    onClick={() => submitAsk(chip.ask)}
                   >
-                    {chip}
+                    {chip.label}
                   </button>
                 ))}
               </div>
