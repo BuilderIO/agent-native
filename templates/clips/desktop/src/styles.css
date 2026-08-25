@@ -5395,15 +5395,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   opacity: 0.85;
 }
 
-.pill-inner:not(.pill-inner-compact) .pill-ask-open {
-  color: hsl(var(--ui-muted-foreground));
-}
-
-.pill-inner:not(.pill-inner-compact) .pill-ask-open:hover {
-  background: hsl(var(--ui-accent));
-  color: hsl(var(--ui-foreground));
-}
-
 .pill-pause-btn {
   display: inline-flex;
   height: 28px;

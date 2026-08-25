@@ -4,7 +4,6 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconCopy,
-  IconExternalLink,
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
@@ -584,22 +583,6 @@ export function MeetingPill() {
                   <IconArrowUp size={13} />
                 </button>
               </div>
-              <button
-                type="button"
-                data-no-drag
-                className="pill-ask-open"
-                onClick={() => {
-                  const mid = activeMeetingIdRef.current;
-                  if (mid)
-                    emit("clips:open-meeting", { meetingId: mid }).catch(
-                      () => {},
-                    );
-                }}
-                aria-label="Open in browser"
-                title="Open this meeting in the browser"
-              >
-                <IconExternalLink size={13} />
-              </button>
             </form>
           ) : null}
         </div>
