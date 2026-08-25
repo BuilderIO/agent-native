@@ -145,9 +145,28 @@ function closesFence(
   return new RegExp(`^ {0,3}${markerRun}[ \\t]*$`).test(line);
 }
 
+function containsUnsupportedBlockSyntax(markdown: string): boolean {
+  return markdown.split(/\r?\n/).some((line) => {
+    const value = line.trimStart();
+    return (
+      /^(?:import|export)\s/.test(value) ||
+      /^[{}]/.test(value) ||
+      /^<!--/.test(value) ||
+      /^<\/?[A-Za-z][\w.-]*(?:\s|\/?>)/.test(value)
+    );
+  });
+}
+
 export function normalizeImportedMarkdownStructures(
   markdown: string,
 ): MarkdownImportNormalizationResult {
+  const withoutCrLf = markdown.split("\r\n").join("");
+  const hasMixedLineEndings =
+    markdown.includes("\r\n") && withoutCrLf.includes("\n");
+  if (hasMixedLineEndings || containsUnsupportedBlockSyntax(markdown)) {
+    return { content: markdown, normalizedPipeTables: 0 };
+  }
+  const lineEnding = markdown.includes("\r\n") ? "\r\n" : "\n";
   const lines = markdown.split(/\r?\n/);
   const output: string[] = [];
   let normalizedPipeTables = 0;
@@ -184,7 +203,8 @@ export function normalizeImportedMarkdownStructures(
     while (cursor < lines.length && lines[cursor].trim()) {
       const row = splitPipeRow(lines[cursor]);
       if (!row || row.length !== header.length) {
-        malformedCandidate = lines[cursor].trim().startsWith("|");
+        malformedCandidate =
+          row !== null || lines[cursor].trim().startsWith("|");
         break;
       }
       tableLines.push(lines[cursor]);
@@ -200,10 +220,13 @@ export function normalizeImportedMarkdownStructures(
       continue;
     }
 
-    output.push(normalized.content);
+    output.push(normalized.content.split("\n").join(lineEnding));
     normalizedPipeTables++;
     index += tableLines.length - 1;
   }
 
-  return { content: output.join("\n"), normalizedPipeTables };
+  if (normalizedPipeTables === 0) {
+    return { content: markdown, normalizedPipeTables };
+  }
+  return { content: output.join(lineEnding), normalizedPipeTables };
 }

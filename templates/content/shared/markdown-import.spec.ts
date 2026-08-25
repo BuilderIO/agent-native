@@ -107,4 +107,60 @@ describe("Markdown import normalization", () => {
       normalizedPipeTables: 0,
     });
   });
+
+  it("preserves CRLF source byte-for-byte when no table is normalized", () => {
+    const markdown = "Before\r\n\r\n```mermaid\r\nflowchart LR\r\n```\r\n";
+
+    expect(normalizeImportedMarkdownStructures(markdown)).toEqual({
+      content: markdown,
+      normalizedPipeTables: 0,
+    });
+  });
+
+  it("uses CRLF consistently when a CRLF table is normalized", () => {
+    const markdown = "| A | B |\r\n| --- | --- |\r\n| 1 | 2 |\r\n";
+    const result = normalizeImportedMarkdownStructures(markdown);
+
+    expect(result.normalizedPipeTables).toBe(1);
+    expect(result.content).not.toMatch(/(?<!\r)\n/);
+    expect(result.content).toContain("<td>A</td>\r\n<td>B</td>");
+  });
+
+  it("fails closed for mixed source line endings", () => {
+    const markdown = "| A | B |\r\n| --- | --- |\n| 1 | 2 |";
+
+    expect(normalizeImportedMarkdownStructures(markdown)).toEqual({
+      content: markdown,
+      normalizedPipeTables: 0,
+    });
+  });
+
+  it("fails closed for a malformed body row without an outer pipe", () => {
+    const markdown = ["| A | B |", "| --- | --- |", "one | two | three"].join(
+      "\n",
+    );
+
+    expect(normalizeImportedMarkdownStructures(markdown)).toEqual({
+      content: markdown,
+      normalizedPipeTables: 0,
+    });
+  });
+
+  it.each([
+    ["MDX expression", ["{`", "| A | B |", "| --- | --- |", "`}"].join("\n")],
+    [
+      "MDX module",
+      ["export const value = `", "| A | B |", "| --- | --- |", "`;"].join("\n"),
+    ],
+    ["HTML comment", ["<!--", "| A | B |", "| --- | --- |", "-->"].join("\n")],
+    ["raw HTML", ["<pre>", "| A | B |", "| --- | --- |", "</pre>"].join("\n")],
+  ])(
+    "does not normalize table-shaped text inside %s source",
+    (_name, markdown) => {
+      expect(normalizeImportedMarkdownStructures(markdown)).toEqual({
+        content: markdown,
+        normalizedPipeTables: 0,
+      });
+    },
+  );
 });

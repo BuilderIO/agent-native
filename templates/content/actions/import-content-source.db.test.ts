@@ -227,6 +227,28 @@ describe("import-content-source descriptions", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     expect(afterAmbiguous.content).toBe(repeated);
+
+    const overlapping = "aaaa";
+    await getDb()
+      .update(schema.documents)
+      .set({ content: overlapping, updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    const overlappingResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        editDocumentAction.run({
+          id: documentId,
+          find: "aaa",
+          transform: "normalize-pipe-table",
+          reuseLabels: [],
+        }),
+    );
+    expect(overlappingResult).toMatchObject({
+      status: "ambiguous",
+      applied: 0,
+      verified: true,
+      persistedContentUnchanged: true,
+    });
   });
 
   it("requires editor access before importing into an organization space", async () => {

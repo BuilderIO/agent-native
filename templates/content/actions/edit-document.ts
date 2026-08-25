@@ -28,6 +28,18 @@ interface TextEdit {
   replace: string;
 }
 
+function countOverlappingOccurrences(content: string, find: string): number {
+  let count = 0;
+  let offset = 0;
+  while (offset <= content.length - find.length) {
+    const match = content.indexOf(find, offset);
+    if (match === -1) break;
+    count++;
+    offset = match + 1;
+  }
+  return count;
+}
+
 const reuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
   itemVersionId: z.string().min(1).optional(),
@@ -139,7 +151,10 @@ export default defineAction({
         );
       }
       if (!args.find) throw new Error("--find is required with --transform");
-      const matches = (existing.content ?? "").split(args.find).length - 1;
+      const matches = countOverlappingOccurrences(
+        existing.content ?? "",
+        args.find,
+      );
       if (matches === 0) {
         return verifyUnchangedTransformResult({
           status: "no-match" as const,
@@ -327,6 +342,7 @@ export default defineAction({
     // intentional external edit apart from a stale autosave echo.
     const now = new Date().toISOString();
     let stale = false;
+    let persistedTransformContent: string | undefined;
     await db.transaction(async (tx: any) => {
       const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
       const updated = await tx
@@ -340,10 +356,16 @@ export default defineAction({
               )
             : eq(schema.documents.id, id),
         )
-        .returning({ id: schema.documents.id });
+        .returning({
+          id: schema.documents.id,
+          content: schema.documents.content,
+        });
       if (transformResult && updated.length === 0) {
         stale = true;
         return;
+      }
+      if (transformResult) {
+        persistedTransformContent = updated[0]?.content;
       }
       for (const field of primaryBlocksFields) {
         await persistBlocksFieldIdentity({
@@ -391,12 +413,7 @@ export default defineAction({
     }
 
     if (transformResult) {
-      const [persisted] = await db
-        .select({ content: schema.documents.content })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, id))
-        .limit(1);
-      if (!persisted || persisted.content !== content) {
+      if (persistedTransformContent !== content) {
         throw new Error(
           "Pipe-table repair could not verify the persisted document body.",
         );
