@@ -110,11 +110,11 @@ owner's UX changes, refactors, failed or pending checks, and ordinary unresolved
 human or bot feedback. The owner exception overrides the normal UX-owner,
 narrow-refactor, check, and review-resolution gates.
 
-For a verified PR authored by Sid, or by Enzo when the PR is Factory-specific,
-auto-approve by default, including that owner's UX changes, refactors, failed
-or pending checks, and ordinary unresolved human or bot feedback. The owner
-exception overrides the normal UX-owner, narrow-refactor, check, and
-review-resolution gates.
+For a verified PR authored by Sid, or by Enzo (`enzoames`) when the PR is
+Factory-specific, auto-approve by default, including that owner's UX changes,
+refactors, failed or pending checks, and ordinary unresolved human or bot
+feedback. The owner exception overrides the normal UX-owner, narrow-refactor,
+check, and review-resolution gates.
 
 For a verified PR authored by Manu (`manucorporat`), auto-approve by default
 regardless of app scope, UX implications, refactors, failed or pending checks,
