@@ -34,6 +34,7 @@ import {
   ShareSectionLabel,
   ShareSettingsPanel,
   copyToClipboard,
+  nestedLayerDismissGuards,
   useResourceVisibilityMutation,
   type ShareSettingsView,
   type SharesQuery,
@@ -41,6 +42,7 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -66,6 +68,10 @@ import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
 import { preferredThumbnailVariant } from "../../../shared/share-meta";
+
+/** Compact pill tabs: active tab reads as a raised chip, inactive as plain text. */
+const SHARE_TAB_CLASS =
+  "h-7 rounded-md border border-transparent px-3 text-xs font-medium text-muted-foreground transition-colors data-[state=active]:border-border data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:shadow-none";
 
 function absoluteAppUrl(path: string): string {
   if (typeof window === "undefined") return "";
@@ -141,6 +147,7 @@ export function ShareRecordingPopover({
       {/* Keep the layer class in app source so Tailwind emits it for Clips. */}
       <PopoverContent
         align="end"
+        {...nestedLayerDismissGuards()}
         className="z-[260] w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
         <ShareRecordingContent
@@ -322,20 +329,12 @@ function ShareRecordingContent({
       ) : (
         <Tabs defaultValue="link">
           {tabCount > 1 ? (
-            <TabsList
-              className={`grid w-full rounded-xl bg-muted/70 p-1 ${tabCount === 3 ? "grid-cols-3" : "grid-cols-2"}`}
-            >
-              <TabsTrigger
-                value="link"
-                className="h-10 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border"
-              >
+            <TabsList className="inline-flex h-auto w-auto justify-start gap-1 rounded-none bg-transparent p-0">
+              <TabsTrigger value="link" className={SHARE_TAB_CLASS}>
                 {t("shareDialog.link")}
               </TabsTrigger>
               {canEmbed ? (
-                <TabsTrigger
-                  value="embed"
-                  className="h-10 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border"
-                >
+                <TabsTrigger value="embed" className={SHARE_TAB_CLASS}>
                   {t("shareDialog.embed")}
                 </TabsTrigger>
               ) : null}
@@ -641,18 +640,19 @@ function LinkTab({
         />
       ) : null}
 
-      <div className="flex items-center justify-between gap-3">
-        <Label className="text-sm" htmlFor="share-from-timestamp">
-          {t("shareDialog.startAtTimestamp", {
-            time: formatMs(timestampMs),
-          })}
-        </Label>
-        <Switch
+      <Label
+        className="flex items-center gap-2 text-sm font-normal"
+        htmlFor="share-from-timestamp"
+      >
+        <Checkbox
           id="share-from-timestamp"
           checked={shareFromTimestamp}
-          onCheckedChange={setShareFromTimestamp}
+          onCheckedChange={(checked) => setShareFromTimestamp(checked === true)}
         />
-      </div>
+        {t("shareDialog.startAtTimestamp", {
+          time: formatMs(timestampMs),
+        })}
+      </Label>
 
       <div className="flex items-center gap-2">
         <CopyButton
@@ -662,7 +662,7 @@ function LinkTab({
           {t("shareUi.copyLink")}
         </CopyButton>
         {moreMenuItems.length > 0 ? (
-          <DropdownMenu>
+          <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="ghost" className="gap-1">
                 {t("shareDialog.more")}

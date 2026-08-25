@@ -90,6 +90,50 @@ export function copyToClipboard(value: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// Keeping the share popover open across nested layers
+// ---------------------------------------------------------------------------
+
+const NESTED_LAYER_SELECTOR = [
+  "[data-radix-popper-content-wrapper]",
+  "[data-radix-menu-content]",
+  "[data-radix-select-viewport]",
+  "[role='menu']",
+  "[role='listbox']",
+  "[data-sonner-toaster]",
+].join(",");
+
+function isNestedLayerTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element && target.closest(NESTED_LAYER_SELECTOR) !== null
+  );
+}
+
+/**
+ * Dropdown and select layers are portalled to the body, so Radix reads their
+ * clicks and focus moves as "outside" the share popover and dismisses it. Spread
+ * these on `PopoverContent` so only genuinely outside interactions close it.
+ */
+export function nestedLayerDismissGuards(): {
+  onPointerDownOutside: (
+    event: CustomEvent<{ originalEvent: PointerEvent }>,
+  ) => void;
+  onFocusOutside: (event: CustomEvent<{ originalEvent: FocusEvent }>) => void;
+} {
+  return {
+    onPointerDownOutside: (event) => {
+      if (isNestedLayerTarget(event.detail.originalEvent.target)) {
+        event.preventDefault();
+      }
+    },
+    onFocusOutside: (event) => {
+      if (isNestedLayerTarget(event.detail.originalEvent.target)) {
+        event.preventDefault();
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Optimistic visibility mutation (resource-agnostic)
 // ---------------------------------------------------------------------------
 
@@ -493,7 +537,7 @@ export function InvitePeopleField({
   return (
     <div className="space-y-2">
       <div className="flex items-stretch gap-2">
-        <div className="flex min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input">
+        <div className="flex h-9 min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
           <Input
             type="email"
             placeholder={t("shareUi.addPeopleByEmail")}
@@ -503,10 +547,10 @@ export function InvitePeopleField({
               if (e.key === "Enter") handleAdd();
             }}
             autoComplete="off"
-            className="h-9 flex-1 border-0 shadow-none focus-visible:ring-0"
+            className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
           <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-            <SelectTrigger className="h-9 w-auto shrink-0 border-0 border-s border-input shadow-none focus:ring-0">
+            <SelectTrigger className="h-full w-auto shrink-0 gap-1 rounded-none border-0 bg-transparent px-3 text-sm text-muted-foreground shadow-none focus:ring-0 focus:ring-offset-0">
               <SelectValue>{t(`shareUi.roles.${role}`)}</SelectValue>
             </SelectTrigger>
             <SelectContent align="end">

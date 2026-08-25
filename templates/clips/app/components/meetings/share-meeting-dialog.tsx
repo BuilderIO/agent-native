@@ -24,6 +24,7 @@ import {
   ShareSectionLabel,
   ShareSettingsPanel,
   copyToClipboard,
+  nestedLayerDismissGuards,
   useResourceVisibilityMutation,
   type ShareSettingsView,
   type SharesQuery,
@@ -57,6 +58,7 @@ export function ShareMeetingPopover({
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="end"
+        {...nestedLayerDismissGuards()}
         className="max-h-[calc(100vh-1rem)] w-[440px] max-w-[calc(100vw-1rem)] overflow-y-auto border-border p-0"
       >
         <ShareMeetingContent
