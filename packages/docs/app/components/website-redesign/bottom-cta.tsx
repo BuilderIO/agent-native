@@ -26,9 +26,9 @@ export function BottomCta() {
           }}
         >
           <h2
+            className="bottom-cta-title"
             style={{
               margin: 0,
-              maxWidth: 300,
               textAlign: "center",
               fontFamily: "var(--b-font-sans)",
               fontSize: "var(--b-t-heading-1)",

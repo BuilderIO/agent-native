@@ -323,6 +323,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .builder-brand-tokens .bottom-cta-title {
+    max-width: 300px;
+  }
+
   .builder-brand-tokens .hero-title {
     line-height: 1.2;
   }
