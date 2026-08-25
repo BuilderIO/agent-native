@@ -129,6 +129,8 @@ vi.mock("./connect-store.js", () => ({
 }));
 
 const { handleMcpConnect } = await import("./connect-route.js");
+const { defineAppConfig, resetAppConfigForTests } =
+  await import("../app-config/index.js");
 
 function ev(opts: {
   method?: string;
@@ -651,5 +653,50 @@ describe("handleMcpConnect", () => {
       );
       expect((await res.json()).status).toBe("expired");
     });
+  });
+});
+
+// Every beta deployment is `beta.<app>.agent-native.com`, so the leading
+// hostname label is `beta` for all of them. Deriving the server name from it
+// gave all 18 apps the same id, and a client keys its MCP config by that id —
+// so connecting a second beta app silently replaced the first.
+describe("server name on a multi-label host", () => {
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue({
+      email: "u@example.com",
+      orgId: "org-1",
+    });
+  });
+  afterEach(() => resetAppConfigForTests());
+
+  async function serverNameFor(host: string): Promise<string> {
+    const res = await handleMcpConnect(
+      ev({ method: "POST", host, body: { label: "laptop", ttlDays: 30 } }),
+      "/token",
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()).serverName;
+  }
+
+  it("uses declared app identity instead of the leading hostname label", async () => {
+    defineAppConfig({ app: { id: "mail" } });
+    expect(await serverNameFor("beta.mail.agent-native.com")).toBe(
+      "agent-native-mail",
+    );
+  });
+
+  it("distinguishes two beta apps that share a leading label", async () => {
+    defineAppConfig({ app: { id: "mail" } });
+    const mail = await serverNameFor("beta.mail.agent-native.com");
+    resetAppConfigForTests();
+    defineAppConfig({ app: { id: "calendar" } });
+    const calendar = await serverNameFor("beta.calendar.agent-native.com");
+    expect(mail).not.toBe(calendar);
+  });
+
+  it("still falls back to the hostname when nothing declares an identity", async () => {
+    expect(await serverNameFor("mail.agent-native.com")).toBe(
+      "agent-native-mail",
+    );
   });
 });
