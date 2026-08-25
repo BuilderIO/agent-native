@@ -33,8 +33,23 @@ const child = spawn(pnpm, ["--dir", `templates/${appName}`, "exec", "vite"], {
   stdio: "inherit",
 });
 
+let stopping = false;
+function stopChild(signal: NodeJS.Signals): void {
+  if (stopping) return;
+  stopping = true;
+  if (process.platform === "win32" && child.pid) {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    killer.once("error", () => child.kill());
+    return;
+  }
+  child.kill(signal);
+}
+
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.on(signal, () => child.kill(signal));
+  process.on(signal, () => stopChild(signal));
 }
 
 child.once("error", () => process.exit(1));
