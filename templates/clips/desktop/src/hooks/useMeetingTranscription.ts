@@ -98,6 +98,7 @@ export function useMeetingTranscription({
   const pendingPillInitRef = useRef<{
     meetingId: string;
     initialNotes: string;
+    title?: string;
     preloadedLines?: PillTranscriptLine[];
   } | null>(null);
 
@@ -549,7 +550,7 @@ export function useMeetingTranscription({
         };
 
         callClipsAction<{
-          meeting?: { userNotesMd?: string };
+          meeting?: { userNotesMd?: string; title?: string | null };
           transcript?: { segmentsJson?: string | null } | null;
         }>("get-meeting", { id: resolvedMeetingId }, { method: "GET" })
           .then((data) => {
@@ -559,11 +560,21 @@ export function useMeetingTranscription({
             if (pendingPillInitRef.current?.meetingId !== resolvedMeetingId)
               return;
             const initialNotes = data?.meeting?.userNotesMd ?? "";
+            const title = data?.meeting?.title ?? undefined;
             pendingPillInitRef.current = {
               meetingId: resolvedMeetingId,
               initialNotes,
+              title,
               preloadedLines: pillTranscriptLines(session.lines),
             };
+            // A pill that mounted before this fetch resolved learns the
+            // meeting title here; same meetingId+mode means the pill applies
+            // it without resetting its session state.
+            emit("clips:pill-context", {
+              meetingId: resolvedMeetingId,
+              mode: "meeting",
+              title,
+            }).catch(() => {});
             emit("clips:meeting-notes-init", {
               meetingId: resolvedMeetingId,
               initialNotes,
@@ -824,6 +835,7 @@ export function useMeetingTranscription({
         emit("clips:pill-context", {
           meetingId: pending.meetingId,
           mode: "meeting",
+          title: pending.title,
         }).catch(() => {});
         emit("clips:meeting-notes-init", {
           meetingId: pending.meetingId,

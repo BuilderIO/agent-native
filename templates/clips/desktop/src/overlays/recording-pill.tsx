@@ -27,6 +27,7 @@ type PillMode = "meeting" | "clip";
 interface PillContext {
   meetingId?: string | null;
   mode?: PillMode;
+  title?: string | null;
 }
 
 /**
@@ -40,6 +41,8 @@ interface PillContext {
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
  * sizing the window when the user toggles the chevron.
  */
+const pillDemoMode = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
+
 export function MeetingPill() {
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -96,6 +99,7 @@ export function MeetingPill() {
         const next: PillContext = {
           meetingId: ev.payload?.meetingId ?? null,
           mode: ev.payload?.mode ?? "clip",
+          title: ev.payload?.title ?? ctxRef.current.title ?? null,
         };
         const prev = ctxRef.current;
         const isSameSession =
@@ -188,6 +192,38 @@ export function MeetingPill() {
     // Signal that all listeners are registered. app.tsx listens for this and
     // re-emits the pill context and transcript preload for a fresh window.
     emit("clips:pill-ready", {}).catch(() => {});
+    if (pillDemoMode) {
+      ctxRef.current = {
+        mode: "meeting",
+        meetingId: "demo",
+        title: "Promotion readiness review",
+      };
+      setCtx(ctxRef.current);
+      activeMeetingIdRef.current = "demo";
+      setExpanded(true);
+      setPreloadedLines([
+        {
+          source: "system",
+          text: "So XIE went through a bunch of different questions and we've settled on three. Yesterday we just swapped one completely out because it used to be a design system question.",
+          startMs: 406_000,
+        },
+        {
+          source: "system",
+          text: "but the design system indexing can take up to an hour. And so.",
+          startMs: 417_000,
+        },
+        {
+          source: "mic",
+          text: "Alright, that makes sense. Do we have a fallback if the indexing is still running when the review starts?",
+          startMs: 431_000,
+        },
+        {
+          source: "system",
+          text: "We can pin the previous index and swap when the fresh one lands.",
+          startMs: 449_000,
+        },
+      ] as FinalLine[]);
+    }
     return () => {
       stopped = true;
       unlistens.forEach((u) => {
@@ -338,13 +374,20 @@ export function MeetingPill() {
     invoke("recording_pill_hide").catch(() => {});
   };
 
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const mm = String(Math.floor(elapsed / 60));
   const ss = String(elapsed % 60).padStart(2, "0");
   const stopLabel =
     ctx.mode === "meeting" ? "Stop transcription" : "Stop recording";
 
   return (
-    <div className="pill-outer">
+    <div
+      className="pill-outer"
+      style={
+        pillDemoMode
+          ? { width: 480, height: 340, margin: 40, position: "relative" }
+          : undefined
+      }
+    >
       <div
         className={`pill-inner${expanded ? "" : " pill-inner-compact"}${
           hovered ? " pill-hovered" : ""
@@ -363,14 +406,21 @@ export function MeetingPill() {
           onClick={!expanded && !detached ? handlePillMediaClick : undefined}
         >
           <div className="pill-media">
-            <PillLogo className="pill-logo" />
+            {expanded && !detached ? null : <PillLogo className="pill-logo" />}
+            {expanded && !detached && ctx.mode === "meeting" ? (
+              <span className="pill-title" title={ctx.title ?? undefined}>
+                {ctx.title || "Meeting notes"}
+              </span>
+            ) : null}
             <LiveAudioBars
               compact={!expanded && !detached}
               className="pill-wave-meter"
             />
           </div>
           <div className="pill-controls">
-            <span className="pill-timer">
+            <span
+              className={`pill-timer${!paused && !finished ? " pill-timer-live" : ""}`}
+            >
               {mm}:{ss}
             </span>
             {expanded && !finished ? (
@@ -402,7 +452,24 @@ export function MeetingPill() {
                 {stopping ? (
                   <IconLoader2 className="pill-spinner" size={14} />
                 ) : (
-                  <IconPlayerStopFilled size={14} />
+                  <span aria-hidden className="pill-stop-square" />
+                )}
+              </button>
+            ) : null}
+            {expanded && !finished ? (
+              <button
+                type="button"
+                data-no-drag
+                className="pill-copy-btn"
+                onClick={handleCopyTranscript}
+                disabled={!hasTranscriptLines}
+                aria-label="Copy transcript"
+                title="Copy transcript"
+              >
+                {transcriptCopied ? (
+                  <IconCheck size={14} />
+                ) : (
+                  <IconCopy size={14} />
                 )}
               </button>
             ) : null}
@@ -470,24 +537,6 @@ export function MeetingPill() {
             </div>
           ) : null}
           <div className="pill-transcript-area">
-            <div className="pill-pane-label pill-pane-label-row">
-              <span>Transcript</span>
-              <button
-                type="button"
-                data-no-drag
-                className="pill-copy-btn"
-                onClick={handleCopyTranscript}
-                disabled={!hasTranscriptLines}
-                aria-label="Copy transcript"
-                title="Copy transcript"
-              >
-                {transcriptCopied ? (
-                  <IconCheck size={12} />
-                ) : (
-                  <IconCopy size={12} />
-                )}
-              </button>
-            </div>
             <LiveTranscript
               onLinesChange={handleTranscriptLines}
               initialLines={preloadedLines}

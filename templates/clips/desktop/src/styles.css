@@ -5131,6 +5131,208 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-bottom-left-radius: 4px;
 }
 
+/* ---- Expanded meeting panel: a themed reading surface --------------------
+   The collapsed capsule stays dark capture chrome (it floats over arbitrary
+   content), but the EXPANDED panel is for reading, so it follows the system
+   theme and borrows the record pill's control grammar: a red stop square as
+   the live indicator + save action, bare ghost glyphs for everything else.
+   All rules are scoped to the expanded state and override the dark base. */
+
+.pill-inner:not(.pill-inner-compact) {
+  background: hsl(var(--ui-popover) / 0.98);
+  color: hsl(var(--ui-foreground));
+  border: 0.5px solid hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-header {
+  gap: 6px;
+  padding: 4px 8px 0 14px;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-media {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.pill-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: hsl(var(--ui-foreground));
+  transition: color 150ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer-live {
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+}
+
+.pill-stop-square {
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn {
+  height: 30px;
+  width: 30px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:disabled {
+  opacity: 0.4;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-divider {
+  background: hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-error {
+  background: hsl(var(--ui-destructive) / 0.1);
+  border-color: hsl(var(--ui-destructive) / 0.3);
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-banner {
+  border-color: hsl(var(--ui-success) / 0.35);
+  background: hsl(var(--ui-success) / 0.1);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-text {
+  color: hsl(var(--ui-success));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open {
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open:hover {
+  opacity: 0.9;
+  background: hsl(var(--ui-primary));
+}
+
+/* Transcript: uniform left alignment for reading — the speaker label, not
+   the side, carries who is talking. */
+.pill-inner:not(.pill-inner-compact) .lt-chat {
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-empty {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you,
+.pill-inner:not(.pill-inner-compact) .lt-row-them {
+  align-items: flex-start;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 0 2px 2px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-label,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-label {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-bubble {
+  max-width: 92%;
+  padding: 7px 11px;
+  border-radius: 10px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-bubble,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-bubble {
+  background: hsl(var(--ui-muted));
+  color: hsl(var(--ui-foreground));
+  border-bottom-right-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+/* Ask composer: quiet rounded field on the muted fill, ghost actions. */
+.pill-inner:not(.pill-inner-compact) .pill-ask-bar {
+  gap: 6px;
+  padding: 8px 12px 12px;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input {
+  height: 34px;
+  border: 1px solid transparent;
+  background: hsl(var(--ui-muted));
+  color: hsl(var(--ui-foreground));
+  font-size: 13px;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input::placeholder {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input:focus {
+  background: hsl(var(--ui-muted));
+  border-color: hsl(var(--ui-ring) / 0.35);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send,
+.pill-inner:not(.pill-inner-compact) .pill-ask-open {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:hover:not(:disabled),
+.pill-inner:not(.pill-inner-compact) .pill-ask-open:hover {
+  background: hsl(var(--ui-accent));
+  color: hsl(var(--ui-foreground));
+}
+
 .pill-pause-btn {
   display: inline-flex;
   height: 28px;
