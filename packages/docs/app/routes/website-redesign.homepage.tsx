@@ -1,5 +1,6 @@
 import { useLoaderData } from "react-router";
 
+import { BuiltInFeatures } from "../components/website-redesign/built-in-features";
 import { FeaturesActions } from "../components/website-redesign/features-actions";
 import { Hero } from "../components/website-redesign/hero";
 import { SiteHeader } from "../components/website-redesign/site-header";
@@ -43,6 +44,7 @@ export default function WebsiteRedesignHomepage() {
       <SiteHeader starCount={starCount} />
       <Hero />
       <FeaturesActions />
+      <BuiltInFeatures />
     </div>
   );
 }

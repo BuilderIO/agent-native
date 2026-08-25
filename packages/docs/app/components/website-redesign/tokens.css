@@ -203,6 +203,10 @@
   color: #000;
 }
 
+.builder-brand-tokens .pillars-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 @media (max-width: 768px) {
   .builder-brand-tokens {
     --spacing-4: 12px;
@@ -230,5 +234,15 @@
     --b-t-paragraph-3: 12px;
     --b-t-label-1: 14px;
     --b-t-label-2: 11px;
+  }
+
+  .builder-brand-tokens .pillars-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .builder-brand-tokens .pillars-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
