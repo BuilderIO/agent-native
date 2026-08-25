@@ -102,6 +102,7 @@ import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { recordingShareUrl } from "@/lib/recording-link";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { cn } from "@/lib/utils";
 
 import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
@@ -270,31 +271,6 @@ export function BackButton({ onBack }: { onBack: () => void }) {
   );
 }
 
-function parseTimeParam(raw: string | null): number {
-  if (!raw) return 0;
-  const value = raw.trim();
-  if (!value) return 0;
-
-  if (/^\d+(\.\d+)?$/.test(value)) {
-    return Math.floor(parseFloat(value) * 1000);
-  }
-
-  if (/^\d+:\d+(:\d+)?$/.test(value)) {
-    const parts = value.split(":").map((part) => parseInt(part, 10));
-    if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
-    if (parts.length === 3) {
-      return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
-    }
-  }
-
-  const match = value.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
-  if (!match) return 0;
-  const hours = parseInt(match[1] ?? "0", 10);
-  const minutes = parseInt(match[2] ?? "0", 10);
-  const seconds = parseInt(match[3] ?? "0", 10);
-  return (hours * 3600 + minutes * 60 + seconds) * 1000;
-}
-
 export default function RecordingPage() {
   const t = useT();
   useAutoTitleBridge();
@@ -302,7 +278,9 @@ export default function RecordingPage() {
   const { recordingId } = useParams<{ recordingId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const startMs = parseTimeParam(searchParams.get("t"));
+  const startMs = parseTimeParam(
+    searchParams.get("at") ?? searchParams.get("t"),
+  );
   const panelParam = searchParams.get("panel");
   const { session, isLoading: sessionLoading } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
@@ -310,19 +288,12 @@ export default function RecordingPage() {
   const [panel, setPanel] = useState<SidePanel>("comments");
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [currentMs, setCurrentMs] = useState(0);
+  const [currentMs, setCurrentMs] = useState(startMs);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
   const [commentDraft, setCommentDraft] = useState("");
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const isCompactLayout = useIsCompactRecordingLayout();
-  // Resolve the playback position for reactions/comments. Native <video> exposes
-  // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
-  // live time bridge, so we fall back to the last position the player reported
-  // via onTimeUpdate (seek/initial start).
-  const resolvePlaybackMs = useCallback(() => {
-    return playerRef.current?.getCurrentOriginalMs() ?? currentMs;
-  }, [currentMs]);
   // The compact layout stacks the panel below the video, so switching tabs
   // alone leaves the user looking at the player. Desktop always renders the
   // side aside, so nothing to scroll there.
@@ -458,6 +429,14 @@ export default function RecordingPage() {
   }, [recordingId, playerDataForbidden, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  const playbackMs = resolveStartMs(currentMs, recording?.durationMs);
+  // Resolve the playback position for reactions/comments. Native <video> exposes
+  // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
+  // live time bridge, so we fall back to the last position the player reported
+  // via onTimeUpdate (seek/initial start).
+  const resolvePlaybackMs = useCallback(() => {
+    return playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
+  }, [playbackMs]);
   const verificationPending = recording?.verificationPending === true;
   const role = playerDataQ.data?.role as
     | "owner"
@@ -541,14 +520,14 @@ export default function RecordingPage() {
       {
         view: "recording",
         recordingId: recording.id,
-        currentMs: Math.max(0, Math.round(currentMs)),
+        currentMs: Math.round(playbackMs),
         durationMs: recording.durationMs,
         panel,
         updatedAt: new Date(now).toISOString(),
       },
       { requestSource: browserTabId },
     ).catch(() => {});
-  }, [browserTabId, currentMs, panel, recording?.durationMs, recording?.id]);
+  }, [browserTabId, panel, playbackMs, recording?.durationMs, recording?.id]);
   const appStateVersion = useChangeVersions(["app-state", "action"]);
   const generatedWorkflowQ = useQuery<GeneratedWorkflowState | null>({
     queryKey: [
@@ -615,6 +594,9 @@ export default function RecordingPage() {
   const viewerReshareOnly =
     (role === "viewer" || role === "commenter") &&
     (recording?.visibility === "public" || recording?.visibility === "org");
+  const isPrivateRecipient =
+    (role === "viewer" || role === "commenter") &&
+    recording?.visibility === "private";
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked
       ? (recording?.videoUrl ?? null)
@@ -1064,16 +1046,22 @@ export default function RecordingPage() {
                 ) : null}
               </p>
             </div>
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              recordingTitle={recording.title}
-              initialVisibility={recording.visibility}
-              initialRole={role}
-              hasPassword={Boolean(recording.hasPassword)}
-              viewerReshareOnly={viewerReshareOnly}
-            >
-              <ClipsShareTrigger label={t("recordingPage.share")} />
-            </ShareRecordingPopover>
+            {isPrivateRecipient ? (
+              <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
+                {t("recordingPage.sharedWithYou")}
+              </span>
+            ) : (
+              <ShareRecordingPopover
+                recordingId={recording.id}
+                recordingTitle={recording.title}
+                initialVisibility={recording.visibility}
+                initialRole={role}
+                hasPassword={Boolean(recording.hasPassword)}
+                viewerReshareOnly={viewerReshareOnly}
+              >
+                <ClipsShareTrigger label={t("recordingPage.share")} />
+              </ShareRecordingPopover>
+            )}
           </header>
 
           <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 p-4 sm:p-6">
@@ -1283,7 +1271,7 @@ export default function RecordingPage() {
             segments={transcriptSegments}
             fullText={transcriptFullText}
             durationMs={recording.durationMs}
-            currentMs={currentMs}
+            currentMs={playbackMs}
             onSeek={(ms) => playerRef.current?.seek(ms)}
             status={
               requestTranscript.isPending && transcriptStatus === "failed"
@@ -1322,7 +1310,7 @@ export default function RecordingPage() {
           <CommentsPanel
             recordingId={recording.id}
             comments={comments}
-            currentMs={currentMs}
+            currentMs={playbackMs}
             currentUserEmail={session?.email}
             enableComments={recording.enableComments}
             canComment={canComment}
@@ -1602,20 +1590,27 @@ export default function RecordingPage() {
           ) : null}
 
           {!editing ? (
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              recordingTitle={recording.title}
-              initialVisibility={recording.visibility}
-              initialRole={role}
-              videoUrl={shareVideoUrl}
-              thumbnailUrl={recording.thumbnailUrl}
-              animatedThumbnailUrl={recording.animatedThumbnailUrl}
-              isLoomRecording={isLoomEmbedBacked}
-              hasPassword={Boolean(recording.hasPassword)}
-              viewerReshareOnly={viewerReshareOnly}
-            >
-              <ClipsShareTrigger label={t("recordingPage.share")} />
-            </ShareRecordingPopover>
+            isPrivateRecipient ? (
+              <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
+                {t("recordingPage.sharedWithYou")}
+              </span>
+            ) : (
+              <ShareRecordingPopover
+                recordingId={recording.id}
+                recordingTitle={recording.title}
+                initialVisibility={recording.visibility}
+                initialRole={role}
+                videoUrl={shareVideoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
+                animatedThumbnailUrl={recording.animatedThumbnailUrl}
+                isLoomRecording={isLoomEmbedBacked}
+                currentMs={playbackMs}
+                hasPassword={Boolean(recording.hasPassword)}
+                viewerReshareOnly={viewerReshareOnly}
+              >
+                <ClipsShareTrigger label={t("recordingPage.share")} />
+              </ShareRecordingPopover>
+            )
           ) : null}
 
           {canDelete || canDownloadRecording ? (
@@ -1662,7 +1657,7 @@ export default function RecordingPage() {
                   defaultSpeed={
                     parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
                   }
-                  startMs={startMs}
+                  startMs={resolveStartMs(startMs, recording.durationMs)}
                   comments={comments}
                   chapters={chapters}
                   reactions={reactions}

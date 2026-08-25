@@ -106,97 +106,97 @@ action 都会直接调用 Google Calendar API，本地并没有活动表。只�
 
 活动数据存放在 Google Calendar 中，从不存放在 SQL 里。
 
-| Action | 作用 |
-| --- | --- |
-| `list-events` | 列出某个日期范围内的活动 |
-| `search-events` | 按查询条件搜索活动 |
-| `get-event` | 按 id 读取一个活动 |
-| `create-event` | 创建一个活动，包括重复规则（RRULE）、工作地点，以及状态类型（`outOfOffice`、`focusTime`） |
-| `update-event` | 更新一个活动，包括重复规则、工作地点和状态类型 |
-| `delete-event` | 删除一个活动 |
-| `manage-event-draft` | 在写入任何数据或通知参会者之前，暂存一份尚未发送的邀请供用户审核 |
-| `rsvp-event` | 接受、拒绝或将邀请标记为待定 |
-| `get-attendee-timezones` | 读取按参会者设置的时区覆盖 |
-| `set-attendee-timezone` | 设置某位参会者的时区覆盖，以便其本地时间能够正确显示 |
+| Action                   | 作用                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `list-events`            | 列出某个日期范围内的活动                                                                  |
+| `search-events`          | 按查询条件搜索活动                                                                        |
+| `get-event`              | 按 id 读取一个活动                                                                        |
+| `create-event`           | 创建一个活动，包括重复规则（RRULE）、工作地点，以及状态类型（`outOfOffice`、`focusTime`） |
+| `update-event`           | 更新一个活动，包括重复规则、工作地点和状态类型                                            |
+| `delete-event`           | 删除一个活动                                                                              |
+| `manage-event-draft`     | 在写入任何数据或通知参会者之前，暂存一份尚未发送的邀请供用户审核                          |
+| `rsvp-event`             | 接受、拒绝或将邀请标记为待定                                                              |
+| `get-attendee-timezones` | 读取按参会者设置的时区覆盖                                                                |
+| `set-attendee-timezone`  | 设置某位参会者的时区覆盖，以便其本地时间能够正确显示                                      |
 
 ### 可用性和查找时段
 
-| Action | 作用 |
-| --- | --- |
-| `get-availability` | 读取每周日程、时区、缓冲时间、提前通知和提前预订窗口设置 |
-| `update-availability` | 更新每周日程、时区、缓冲时间、提前通知和提前预订窗口设置 |
-| `check-availability` | 查找某一天的空闲时段 |
-| `find-a-time` | 在组织者和指名的参会者之间共享搜索空闲时段，结合 Google 忙闲状态和本地冲突 |
+| Action                | 作用                                                                       |
+| --------------------- | -------------------------------------------------------------------------- |
+| `get-availability`    | 读取每周日程、时区、缓冲时间、提前通知和提前预订窗口设置                   |
+| `update-availability` | 更新每周日程、时区、缓冲时间、提前通知和提前预订窗口设置                   |
+| `check-availability`  | 查找某一天的空闲时段                                                       |
+| `find-a-time`         | 在组织者和指名的参会者之间共享搜索空闲时段，结合 Google 忙闲状态和本地冲突 |
 
 ### 预订链接和预订记录
 
-| Action | 作用 |
-| --- | --- |
-| `create-booking-link` | 创建一个预订链接 |
-| `update-booking-link` | 更新一个预订链接 |
+| Action                   | 作用                                        |
+| ------------------------ | ------------------------------------------- |
+| `create-booking-link`    | 创建一个预订链接                            |
+| `update-booking-link`    | 更新一个预订链接                            |
 | `duplicate-booking-link` | 复制一个预订链接，包括联合主持人（`hosts`） |
-| `list-booking-links` | 列出可访问的预订链接 |
-| `list-bookings` | 列出已确认的预约 |
+| `list-booking-links`     | 列出可访问的预订链接                        |
+| `list-bookings`          | 列出已确认的预约                            |
 
 ### 外部日历
 
 只读的 ICS 订阅源。
 
-| Action | 作用 |
-| --- | --- |
-| `add-external-calendar` | 订阅一个只读的 ICS/webcal 订阅源 |
-| `list-external-calendars` | 列出已订阅的订阅源 |
-| `remove-external-calendar` | 移除一个已订阅的订阅源 |
-| `update-external-calendars` | 更新已订阅的订阅源 |
+| Action                      | 作用                             |
+| --------------------------- | -------------------------------- |
+| `add-external-calendar`     | 订阅一个只读的 ICS/webcal 订阅源 |
+| `list-external-calendars`   | 列出已订阅的订阅源               |
+| `remove-external-calendar`  | 移除一个已订阅的订阅源           |
+| `update-external-calendars` | 更新已订阅的订阅源               |
 
 ### 人员和叠加
 
-| Action | 作用 |
-| --- | --- |
-| `search-people` | 搜索 Google 联系人和 Workspace 目录 |
-| `get-overlay-people` | 读取被固定叠加到您视图中的其他人员 |
-| `update-overlay-people` | 更新被固定叠加到您视图中的其他人员 |
+| Action                  | 作用                                |
+| ----------------------- | ----------------------------------- |
+| `search-people`         | 搜索 Google 联系人和 Workspace 目录 |
+| `get-overlay-people`    | 读取被固定叠加到您视图中的其他人员  |
+| `update-overlay-people` | 更新被固定叠加到您视图中的其他人员  |
 
 ### Zoom
 
-| Action | 作用 |
-| --- | --- |
+| Action            | 作用                                                                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `get-zoom-status` | 读取当前用户的 Zoom 连接状态。连接和断开连接通过 `/_agent-native/zoom/*` 路由完成，而不是通过 action，因为 OAuth 需要已登录的浏览器会话 |
 
 ### Google Calendar 连接与同步
 
-| Action | 作用 |
-| --- | --- |
+| Action                    | 作用                                    |
+| ------------------------- | --------------------------------------- |
 | `connect-google-calendar` | 为已登录的浏览器会话返回 OAuth 连接 URL |
-| `sync-google-calendar` | 强制重新同步 |
+| `sync-google-calendar`    | 强制重新同步                            |
 
 ### 设置和偏好
 
-| Action | 作用 |
-| --- | --- |
-| `get-settings` | 读取用户级设置 |
-| `update-settings` | 更新用户级设置 |
+| Action                               | 作用                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------ |
+| `get-settings`                       | 读取用户级设置                                                                 |
+| `update-settings`                    | 更新用户级设置                                                                 |
 | `update-calendar-visual-preferences` | 更新仅本地生效的显示偏好设置（活动颜色、隐藏周末）。绝不会触及 Google Calendar |
 
 ### 导航和界面状态
 
-| Action | 作用 |
-| --- | --- |
-| `navigate` | 将界面切换到某个视图、日期或活动 |
-| `view-screen` | 向代理回传当前视图信息 |
+| Action        | 作用                             |
+| ------------- | -------------------------------- |
+| `navigate`    | 将界面切换到某个视图、日期或活动 |
+| `view-screen` | 向代理回传当前视图信息           |
 
 ### Provider API 升级调用
 
 原始的 Google Calendar（以及已连接的 CRM）API，用于上述 actions 覆盖范围过窄的情况。
 
-| Action | 作用 |
-| --- | --- |
-| `provider-api-catalog` | 列出可直接调用的原始 provider API |
-| `provider-api-docs` | 读取某个原始 provider API 接口的文档 |
-| `provider-api-request` | 直接调用原始的 Google Calendar（或已连接的 CRM）API |
-| `list-staged-datasets` | 列出为查询而暂存的大规模扫描结果，而不是直接返回原始结果 |
-| `query-staged-dataset` | 查询一个暂存数据集 |
-| `delete-staged-dataset` | 删除一个暂存数据集 |
+| Action                  | 作用                                                     |
+| ----------------------- | -------------------------------------------------------- |
+| `provider-api-catalog`  | 列出可直接调用的原始 provider API                        |
+| `provider-api-docs`     | 读取某个原始 provider API 接口的文档                     |
+| `provider-api-request`  | 直接调用原始的 Google Calendar（或已连接的 CRM）API      |
+| `list-staged-datasets`  | 列出为查询而暂存的大规模扫描结果，而不是直接返回原始结果 |
+| `query-staged-dataset`  | 查询一个暂存数据集                                       |
+| `delete-staged-dataset` | 删除一个暂存数据集                                       |
 
 ## 数据模型
 

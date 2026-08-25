@@ -5,6 +5,7 @@ import {
   DESIGN_SHORTCUT_CATEGORIES,
   DESIGN_SHORTCUTS,
   formatShortcutKeycaps,
+  formatShortcutLabel,
 } from "./keyboard-shortcuts";
 
 describe("keyboard shortcuts catalog", () => {
@@ -70,5 +71,22 @@ describe("keyboard shortcuts catalog", () => {
       "?",
     ]);
     expect(formatShortcutKeycaps("+", true)).toEqual(["+"]);
+  });
+  it("orders Windows modifiers Ctrl, Alt, Shift and never doubles Ctrl", () => {
+    expect(formatShortcutKeycaps("$mod+alt+g", false)).toEqual([
+      "Ctrl",
+      "Alt",
+      "G",
+    ]);
+    expect(formatShortcutKeycaps("$mod+alt+g", true)).toEqual(["⌥", "⌘", "G"]);
+    expect(formatShortcutKeycaps("ctrl+$mod+t", false)).toEqual(["Ctrl", "T"]);
+  });
+
+  it("spells menu hints for the viewer's platform, not the author's Mac", () => {
+    expect(formatShortcutLabel("$mod+shift+r", true)).toBe("⇧⌘R");
+    expect(formatShortcutLabel("$mod+shift+r", false)).toBe("Ctrl+Shift+R");
+    expect(formatShortcutLabel("alt+a", true)).toBe("⌥A");
+    expect(formatShortcutLabel("alt+a", false)).toBe("Alt+A");
+    expect(formatShortcutLabel("", true)).toBe("");
   });
 });

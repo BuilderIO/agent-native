@@ -7,15 +7,25 @@ import { Button } from "@/components/ui/button";
 
 export type SignedOutShareCta = "signin" | "try_clips";
 
-export function buildShareSignInHref(recordingId: string): string {
-  return buildSignInReturnHref({ returnTo: `/share/${recordingId}` });
+export function buildShareSignInHref(
+  recordingId: string,
+  startAt?: string | null,
+): string {
+  const params = new URLSearchParams();
+  if (startAt) params.set("at", startAt);
+  const query = params.toString();
+  return buildSignInReturnHref({
+    returnTo: `/share/${recordingId}${query ? `?${query}` : ""}`,
+  });
 }
 
 export function SignedOutShareActions({
   recordingId,
+  startAt,
   onCtaClick,
 }: {
   recordingId: string;
+  startAt?: string | null;
   onCtaClick?: (cta: SignedOutShareCta) => void;
 }) {
   const t = useT();
@@ -24,7 +34,7 @@ export function SignedOutShareActions({
     <>
       <Button variant="outline" size="sm" asChild>
         <a
-          href={buildShareSignInHref(recordingId)}
+          href={buildShareSignInHref(recordingId, startAt)}
           className="gap-1.5"
           onClick={() => onCtaClick?.("signin")}
         >

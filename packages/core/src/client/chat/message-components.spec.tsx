@@ -1011,6 +1011,22 @@ describe("isCollapsibleAssistantWorkPart", () => {
     expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
   });
 
+  it("stops counting reasoning as work once thinking is hidden", () => {
+    // Otherwise a reasoning-only turn renders an empty "Worked for…" wrapper.
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "hidden"),
+    ).toBe(false);
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "expanded"),
+    ).toBe(true);
+    expect(
+      isCollapsibleAssistantWorkPart(
+        { type: "tool-call", toolName: "read-file" },
+        "hidden",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps custom UI outside collapsed work", () => {
     expect(
       isCollapsibleAssistantWorkPart({
@@ -1130,6 +1146,21 @@ describe("groupAssistantWorkParts", () => {
 
     expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
     expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
+  });
+
+  it("leaves hidden reasoning out of the work group", () => {
+    const parts = [
+      { type: "reasoning" },
+      { type: "tool-call", toolCallId: "tc_1", toolName: "read-file" },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "hidden")).toBeNull();
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "collapsed")).toEqual([
+      "group-work",
+    ]);
+    expect(groupAssistantWorkParts(parts[1], 1, parts, "hidden")).toEqual([
+      "group-work",
+    ]);
   });
 });
 

@@ -12,6 +12,12 @@
  * PostHog's `$session_id`: the latter is the browser session used for session
  * replay, and the two are different lifetimes.
  *
+ * Events are stamped when the operation BEGAN, which is what every backend
+ * except PostHog reads verbatim. PostHog alone treats an AI event's timestamp
+ * as the moment the operation ended and recovers the start by subtracting
+ * `$ai_latency`; that shift lives in its provider, not here, so one backend's
+ * convention cannot move everyone else's clock.
+ *
  * PostHog DERIVES a trace's latency, tokens and cost from its children — its
  * trace query sums `$ai_latency` over every event whose `$ai_parent_id` is the
  * trace or absent, and sums tokens/cost over `$ai_generation` / `$ai_embedding`

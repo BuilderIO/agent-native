@@ -259,6 +259,52 @@ describe("tracking providers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("shifts AI event times to the operation's end for PostHog only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const {
+      flushTracking,
+      registerBuiltinProviders,
+      registerTrackingProvider,
+      track,
+    } = await freshTrackingModules();
+
+    const fanOut: TrackingEvent[] = [];
+    registerBuiltinProviders();
+    registerTrackingProvider({
+      name: "qa-fan-out",
+      track: (e) => fanOut.push(e),
+    });
+
+    const startedAt = Date.parse("2026-08-24T21:55:59.154Z");
+    track(
+      "$ai_generation",
+      { $ai_trace_id: "run-1", $ai_latency: 6.52 },
+      { userId: "u1", occurredAt: startedAt },
+    );
+    track(
+      "$ai_trace",
+      { $ai_trace_id: "run-1" },
+      { userId: "u1", occurredAt: startedAt },
+    );
+    await flushTracking();
+
+    const posted = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body));
+    // PostHog reads an AI event's timestamp as the operation's END and
+    // subtracts `$ai_latency` to recover the start.
+    expect(posted[0].timestamp).toBe("2026-08-24T21:56:05.674Z");
+    // The trace carries no latency, so there is nothing to shift.
+    expect(posted[1].timestamp).toBe("2026-08-24T21:55:59.154Z");
+    // Every other backend keeps the start it was given — they read the
+    // timestamp verbatim and never reconstruct anything from `$ai_latency`.
+    expect(fanOut.map((e) => e.timestamp)).toEqual([
+      "2026-08-24T21:55:59.154Z",
+      "2026-08-24T21:55:59.154Z",
+    ]);
+  });
+
   it("reshapes tracked exceptions into PostHog's $exception_list", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

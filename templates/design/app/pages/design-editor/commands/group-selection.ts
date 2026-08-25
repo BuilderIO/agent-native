@@ -95,7 +95,7 @@ export function runGroupSelection({
   const nodeIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
-  if (nodeIds.length < 2) return;
+  if (nodeIds.length === 0) return;
   const patch = applyVisualEdit(baseContent, {
     kind: "wrapNodes",
     targetIds: nodeIds,

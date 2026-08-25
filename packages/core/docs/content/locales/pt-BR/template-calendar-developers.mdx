@@ -115,97 +115,97 @@ Cada operação é um arquivo TypeScript em `templates/calendar/actions/`, monta
 
 Os dados de eventos vivem no Google Calendar, nunca no SQL.
 
-| Action | O que faz |
-| --- | --- |
-| `list-events` | Lista eventos em um intervalo de datas |
-| `search-events` | Busca eventos por consulta |
-| `get-event` | Lê um evento pelo id |
-| `create-event` | Cria um evento, incluindo recorrência (RRULE), locais de trabalho e tipos de status (`outOfOffice`, `focusTime`) |
-| `update-event` | Atualiza um evento, incluindo recorrência, locais de trabalho e tipos de status |
-| `delete-event` | Exclui um evento |
-| `manage-event-draft` | Prepara um convite não enviado para revisão do usuário antes que algo seja gravado ou os convidados sejam notificados |
-| `rsvp-event` | Aceita, declina ou marca como tentativo em um convite |
-| `get-attendee-timezones` | Lê as substituições de fuso horário por convidado |
-| `set-attendee-timezone` | Define uma substituição de fuso horário por convidado para que o horário local dele continue aparecendo corretamente |
+| Action                   | O que faz                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `list-events`            | Lista eventos em um intervalo de datas                                                                                |
+| `search-events`          | Busca eventos por consulta                                                                                            |
+| `get-event`              | Lê um evento pelo id                                                                                                  |
+| `create-event`           | Cria um evento, incluindo recorrência (RRULE), locais de trabalho e tipos de status (`outOfOffice`, `focusTime`)      |
+| `update-event`           | Atualiza um evento, incluindo recorrência, locais de trabalho e tipos de status                                       |
+| `delete-event`           | Exclui um evento                                                                                                      |
+| `manage-event-draft`     | Prepara um convite não enviado para revisão do usuário antes que algo seja gravado ou os convidados sejam notificados |
+| `rsvp-event`             | Aceita, declina ou marca como tentativo em um convite                                                                 |
+| `get-attendee-timezones` | Lê as substituições de fuso horário por convidado                                                                     |
+| `set-attendee-timezone`  | Define uma substituição de fuso horário por convidado para que o horário local dele continue aparecendo corretamente  |
 
 ### Disponibilidade e busca de horários
 
-| Action | O que faz |
-| --- | --- |
-| `get-availability` | Lê a programação semanal, o fuso horário, o buffer, o aviso prévio e as configurações da janela de antecedência |
-| `update-availability` | Atualiza a programação semanal, o fuso horário, o buffer, o aviso prévio e as configurações da janela de antecedência |
-| `check-availability` | Encontra horários disponíveis para uma data |
-| `find-a-time` | Busca compartilhada de horários livres entre um organizador e participantes mencionados, combinando o livre/ocupado do Google com conflitos locais |
+| Action                | O que faz                                                                                                                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | Lê a programação semanal, o fuso horário, o buffer, o aviso prévio e as configurações da janela de antecedência                                    |
+| `update-availability` | Atualiza a programação semanal, o fuso horário, o buffer, o aviso prévio e as configurações da janela de antecedência                              |
+| `check-availability`  | Encontra horários disponíveis para uma data                                                                                                        |
+| `find-a-time`         | Busca compartilhada de horários livres entre um organizador e participantes mencionados, combinando o livre/ocupado do Google com conflitos locais |
 
 ### Links de reserva e reservas
 
-| Action | O que faz |
-| --- | --- |
-| `create-booking-link` | Cria um link de reserva |
-| `update-booking-link` | Atualiza um link de reserva |
+| Action                   | O que faz                                                |
+| ------------------------ | -------------------------------------------------------- |
+| `create-booking-link`    | Cria um link de reserva                                  |
+| `update-booking-link`    | Atualiza um link de reserva                              |
 | `duplicate-booking-link` | Duplica um link de reserva, incluindo co-hosts (`hosts`) |
-| `list-booking-links` | Lista os links de reserva acessíveis |
-| `list-bookings` | Lista os compromissos confirmados |
+| `list-booking-links`     | Lista os links de reserva acessíveis                     |
+| `list-bookings`          | Lista os compromissos confirmados                        |
 
 ### Calendários externos
 
 Feeds ICS somente leitura.
 
-| Action | O que faz |
-| --- | --- |
-| `add-external-calendar` | Assina um feed ICS/webcal somente leitura |
-| `list-external-calendars` | Lista os feeds assinados |
-| `remove-external-calendar` | Remove um feed assinado |
-| `update-external-calendars` | Atualiza os feeds assinados |
+| Action                      | O que faz                                 |
+| --------------------------- | ----------------------------------------- |
+| `add-external-calendar`     | Assina um feed ICS/webcal somente leitura |
+| `list-external-calendars`   | Lista os feeds assinados                  |
+| `remove-external-calendar`  | Remove um feed assinado                   |
+| `update-external-calendars` | Atualiza os feeds assinados               |
 
 ### Pessoas e overlays
 
-| Action | O que faz |
-| --- | --- |
-| `search-people` | Busca nos Contatos do Google e no diretório do Workspace |
-| `get-overlay-people` | Lê as outras pessoas cujos calendários estão fixados na sua visualização |
+| Action                  | O que faz                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `search-people`         | Busca nos Contatos do Google e no diretório do Workspace                       |
+| `get-overlay-people`    | Lê as outras pessoas cujos calendários estão fixados na sua visualização       |
 | `update-overlay-people` | Atualiza as outras pessoas cujos calendários estão fixados na sua visualização |
 
 ### Zoom
 
-| Action | O que faz |
-| --- | --- |
+| Action            | O que faz                                                                                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get-zoom-status` | Lê o status da conexão do Zoom do usuário atual. Conectar e desconectar acontecem através das rotas `/_agent-native/zoom/*`, não de uma action, já que o OAuth precisa da sessão do navegador autenticada |
 
 ### Conexão e sincronização do Google Calendar
 
-| Action | O que faz |
-| --- | --- |
+| Action                    | O que faz                                                             |
+| ------------------------- | --------------------------------------------------------------------- |
 | `connect-google-calendar` | Retorna a URL de conexão OAuth para a sessão do navegador autenticada |
-| `sync-google-calendar` | Força uma nova sincronização |
+| `sync-google-calendar`    | Força uma nova sincronização                                          |
 
 ### Configurações e preferências
 
-| Action | O que faz |
-| --- | --- |
-| `get-settings` | Lê as configurações no nível do usuário |
-| `update-settings` | Atualiza as configurações no nível do usuário |
+| Action                               | O que faz                                                                                                                   |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `get-settings`                       | Lê as configurações no nível do usuário                                                                                     |
+| `update-settings`                    | Atualiza as configurações no nível do usuário                                                                               |
 | `update-calendar-visual-preferences` | Atualiza preferências de exibição somente locais (cores dos eventos, fins de semana ocultos). Nunca toca no Google Calendar |
 
 ### Navegação e estado da UI
 
-| Action | O que faz |
-| --- | --- |
-| `navigate` | Move a interface para uma visualização, data ou evento |
-| `view-screen` | Lê a visualização atual de volta para o agente |
+| Action        | O que faz                                              |
+| ------------- | ------------------------------------------------------ |
+| `navigate`    | Move a interface para uma visualização, data ou evento |
+| `view-screen` | Lê a visualização atual de volta para o agente         |
 
 ### Escalonamento para a API do provedor
 
 A API bruta do Google Calendar (e do CRM conectado), para quando as actions acima são muito limitadas.
 
-| Action | O que faz |
-| --- | --- |
-| `provider-api-catalog` | Lista as APIs brutas do provedor disponíveis para chamar diretamente |
-| `provider-api-docs` | Lê a documentação de um endpoint bruto da API do provedor |
-| `provider-api-request` | Chama a API bruta do Google Calendar (ou do CRM conectado) diretamente |
-| `list-staged-datasets` | Lista escaneamentos grandes preparados para consulta em vez de retornar resultados brutos |
-| `query-staged-dataset` | Consulta um dataset preparado |
-| `delete-staged-dataset` | Exclui um dataset preparado |
+| Action                  | O que faz                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `provider-api-catalog`  | Lista as APIs brutas do provedor disponíveis para chamar diretamente                      |
+| `provider-api-docs`     | Lê a documentação de um endpoint bruto da API do provedor                                 |
+| `provider-api-request`  | Chama a API bruta do Google Calendar (ou do CRM conectado) diretamente                    |
+| `list-staged-datasets`  | Lista escaneamentos grandes preparados para consulta em vez de retornar resultados brutos |
+| `query-staged-dataset`  | Consulta um dataset preparado                                                             |
+| `delete-staged-dataset` | Exclui um dataset preparado                                                               |
 
 ## Modelo de dados
 
@@ -425,7 +425,10 @@ As regras de disponibilidade ficam em configurações por usuário, na chave `ca
       path: "app/routes/_app._index.tsx",
       note: "a visualização principal do calendário (dia/semana/mês)",
     },
-    { path: "app/routes/_app.agent.tsx", note: "aba de chat do agente em página inteira" },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "aba de chat do agente em página inteira",
+    },
     {
       path: "app/routes/_app.availability.tsx",
       note: "o editor de disponibilidade",
@@ -434,7 +437,10 @@ As regras de disponibilidade ficam em configurações por usuário, na chave `ca
       path: "app/routes/_app.booking-links._index.tsx",
       note: "lista de links de reserva. _app.booking-links.$id.tsx edita um",
     },
-    { path: "app/routes/_app.bookings.tsx", note: "lista de reservas confirmadas" },
+    {
+      path: "app/routes/_app.bookings.tsx",
+      note: "lista de reservas confirmadas",
+    },
     {
       path: "app/routes/_app.extensions.tsx",
       note: "rotas de widgets de extensão",
