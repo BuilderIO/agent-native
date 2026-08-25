@@ -14,6 +14,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { LiveWaveform } from "../components/live-waveform";
+import { Spinner } from "../components/ui/spinner";
 import { applyFrame, settleSteps, type AgentStep } from "../lib/agent-steps";
 import {
   ASK_SHEET_DEFAULT,
@@ -30,7 +32,6 @@ import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
 import { loadStoredServerUrl } from "../lib/url";
 import { AskSteps } from "./ask-steps";
-import { LiveAudioBars } from "./live-audio-bars";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
@@ -827,14 +828,18 @@ export function MeetingPill() {
                 {ctx.title || "Meeting notes"}
               </span>
             ) : null}
-            <LiveAudioBars
-              compact={!expanded && !detached}
+            <LiveWaveform
               className="pill-wave-meter"
+              bars={expanded && !detached ? 5 : 4}
+              dimmed={paused || finished}
             />
           </div>
           <div className="pill-controls">
             {ctx.starting ? (
-              <span className="pill-timer pill-timer-starting">Starting</span>
+              <span className="pill-timer pill-timer-starting">
+                <Spinner className="size-3" />
+                Starting
+              </span>
             ) : expanded && !detached && ctx.mode === "meeting" ? null : (
               <span
                 className={`pill-timer${!paused && !finished ? " pill-timer-live" : ""}`}

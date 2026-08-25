@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  advanceMeterLevels,
+  advanceWaveform,
   combinedMeterLevel,
-  decayMeterLevel,
+  createWaveformState,
   EMPTY_METER_SOURCES,
   foldMeterSources,
-  METER_BAR_COUNT,
-  METER_IDLE_HEIGHT,
-  meterBarHeight,
   nextMeterLevel,
+  WAVEFORM_BAR_COUNT,
+  WAVEFORM_GAIN_FLOOR,
+  waveformBarPx,
+  WAVEFORM_MIN_PX,
 } from "./audio-meter";
 
 describe("nextMeterLevel", () => {
@@ -33,58 +34,57 @@ describe("nextMeterLevel", () => {
   });
 });
 
-describe("decayMeterLevel", () => {
-  it("settles to silence after speech stops", () => {
-    let level = 1;
-    for (let i = 0; i < 40; i++) level = decayMeterLevel(level);
-    expect(level).toBe(0);
+describe("advanceWaveform", () => {
+  it("scrolls: the newest sample lands last and the oldest falls off", () => {
+    let state = createWaveformState();
+    for (const level of [0.2, 0.4, 0.6, 0.8, 1]) {
+      state = advanceWaveform(state, level);
+    }
+    expect(state.history).toHaveLength(WAVEFORM_BAR_COUNT);
+    const loudest = advanceWaveform(state, 1).history;
+    expect(loudest[loudest.length - 1]).toBeCloseTo(1);
+  });
+
+  it("uses the room's own range, not an absolute one", () => {
+    // Capture peaks rarely pass ~0.3 even when someone is shouting. Against a
+    // fixed scale that is a flat meter, which is the bug this replaced.
+    let quiet = createWaveformState();
+    for (let i = 0; i < 12; i += 1) quiet = advanceWaveform(quiet, 0.06);
+    const shown = quiet.history[quiet.history.length - 1];
+    expect(shown).toBeGreaterThan(0.8);
+  });
+
+  it("drops when the room goes quiet after a loud moment", () => {
+    let state = createWaveformState();
+    state = advanceWaveform(state, 1);
+    state = advanceWaveform(state, 0.05);
+    const latest = state.history[state.history.length - 1];
+    expect(latest).toBeLessThan(0.3);
+  });
+
+  it("keeps a floor under the rolling peak", () => {
+    // Without it, silence drives the gain to zero and the first whisper pins
+    // the meter to full height.
+    let state = createWaveformState();
+    for (let i = 0; i < 200; i += 1) state = advanceWaveform(state, 0);
+    expect(state.gain).toBe(WAVEFORM_GAIN_FLOOR);
+  });
+
+  it("treats a malformed sample as silence rather than a spike", () => {
+    const state = advanceWaveform(createWaveformState(), Number.NaN);
+    expect(state.history[state.history.length - 1]).toBe(0);
   });
 });
 
-describe("advanceMeterLevels", () => {
-  it("travels the newest sample across the bars", () => {
-    let levels = new Array(METER_BAR_COUNT).fill(0);
-    levels = advanceMeterLevels(levels, 0.9);
-    expect(levels[0]).toBe(0.9);
-    levels = advanceMeterLevels(levels, 0.2);
-    expect(levels).toEqual([0.2, 0.9, 0]);
-    expect(levels).toHaveLength(METER_BAR_COUNT);
-  });
-});
-
-describe("foldMeterSources", () => {
-  it("keeps the far end's level up while the local mic is silent", () => {
-    let levels = EMPTY_METER_SOURCES;
-    // Mic and system buffers interleave on one event stream. Someone else
-    // talking on a muted-side call must still drive the meter.
-    for (let i = 0; i < 10; i++) {
-      levels = foldMeterSources(levels, "system", 0.6);
-      levels = foldMeterSources(levels, "mic", 0);
-    }
-    expect(combinedMeterLevel(levels)).toBe(0.6);
-    expect(levels.mic).toBe(0);
-  });
-});
-
-describe("meterBarHeight", () => {
-  it("idles as a short dot at silence", () => {
-    for (let i = 0; i < METER_BAR_COUNT; i++) {
-      expect(meterBarHeight(0, i)).toBeCloseTo(METER_IDLE_HEIGHT * 100);
-    }
+describe("waveformBarPx", () => {
+  it("keeps a resting meter visible as a row of dots", () => {
+    expect(waveformBarPx(0)).toBe(WAVEFORM_MIN_PX);
+    expect(waveformBarPx(1)).toBeGreaterThan(WAVEFORM_MIN_PX);
   });
 
-  it("grows monotonically with volume", () => {
-    const quiet = meterBarHeight(0.1, 1);
-    const talking = meterBarHeight(0.5, 1);
-    const loud = meterBarHeight(1, 1);
-    expect(quiet).toBeLessThan(talking);
-    expect(talking).toBeLessThan(loud);
-    expect(loud).toBeCloseTo(100);
-  });
-
-  it("never exceeds the meter box", () => {
-    for (let i = 0; i < METER_BAR_COUNT; i++) {
-      expect(meterBarHeight(1, i)).toBeLessThanOrEqual(100);
-    }
+  it("clamps rather than rendering a negative or oversized bar", () => {
+    expect(waveformBarPx(-3)).toBe(WAVEFORM_MIN_PX);
+    expect(waveformBarPx(9)).toBe(waveformBarPx(1));
+    expect(waveformBarPx(Number.NaN)).toBe(WAVEFORM_MIN_PX);
   });
 });

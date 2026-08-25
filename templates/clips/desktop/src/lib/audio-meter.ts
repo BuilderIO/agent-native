@@ -1,25 +1,83 @@
 /**
- * Level math for the Granola-style waveform meter on the recording pill.
+ * Level math for the one waveform meter the product uses.
  *
- * Kept separate from the React overlay so the "bars must track how loud people
- * are talking" behaviour is unit-testable without a DOM.
+ * Every live meter — record pill, meeting pill, dictation bar — renders
+ * `LiveWaveform` over this state, so "how loud is it right now" is answered the
+ * same way everywhere. Kept out of the React layer so the behaviour is
+ * unit-testable without a DOM.
  */
 
-/** Per-bar scale. The middle bar swings widest, like Granola's meter. */
-export const METER_BAR_GAINS = [0.72, 1, 0.84];
-export const METER_BAR_COUNT = METER_BAR_GAINS.length;
-/** Height (0-1) each bar keeps at silence, so the meter idles as three dots. */
-export const METER_IDLE_HEIGHT = 0.14;
-/** Multiplier applied on every sample tick when no louder audio arrives. */
-export const METER_LEVEL_DECAY = 0.82;
-/** Floor a new sample must clear, so the meter falls smoothly instead of snapping. */
-export const METER_ATTACK_DECAY = 0.55;
+/** Slots in the scrolling waveform. Five reads as a signal; three reads as a
+ *  glyph, and the meter is supposed to be the audio, not decoration. */
+export const WAVEFORM_BAR_COUNT = 5;
+
+/** Height in px at silence and at full scale, so a resting meter is a row of
+ *  dots rather than an empty gap. */
+export const WAVEFORM_MIN_PX = 3;
+export const WAVEFORM_RANGE_PX = 11;
+
+/** Floor for the rolling peak. Without it, a silent room drives the gain to
+ *  zero and the first whisper pins the meter to full height. */
+export const WAVEFORM_GAIN_FLOOR = 0.04;
+
+/** How fast the rolling peak forgets a loud moment. */
+export const WAVEFORM_GAIN_DECAY = 0.985;
+
+/** After this long with no capture buffer the meter falls flat. Capture keeps
+ *  emitting through silence, so this only covers pause and teardown — where a
+ *  frozen tall bar would claim someone is still talking. */
+export const WAVEFORM_IDLE_MS = 350;
+
 /**
- * How long the meter waits for the next capture buffer before decaying on its
- * own. Capture drives the bars; this only covers pause / teardown, where the
- * events stop and a frozen tall bar would claim someone is still talking.
+ * One meter's state: the scrolling samples and the rolling peak they are
+ * measured against.
  */
-export const METER_IDLE_MS = 120;
+export interface WaveformState {
+  history: number[];
+  gain: number;
+}
+
+export function createWaveformState(): WaveformState {
+  return {
+    history: new Array(WAVEFORM_BAR_COUNT).fill(0),
+    gain: WAVEFORM_GAIN_FLOOR,
+  };
+}
+
+/**
+ * Push one sample through the meter.
+ *
+ * Raw capture peaks rarely pass ~0.3 even when someone is shouting, so a fixed
+ * scale leaves the meter nearly flat no matter how loud the room is. Samples
+ * are normalized against a slowly-decaying rolling peak instead, the way a
+ * real meter's auto-gain works, and the history scrolls so the bars are the
+ * signal moving past rather than five copies of one number.
+ */
+export function advanceWaveform(
+  state: WaveformState,
+  incoming: number,
+): WaveformState {
+  const level = Number.isFinite(incoming)
+    ? Math.max(0, Math.min(1, incoming))
+    : 0;
+  const gain = Math.max(
+    level,
+    state.gain * WAVEFORM_GAIN_DECAY,
+    WAVEFORM_GAIN_FLOOR,
+  );
+  const normalized = Math.min(1, level / gain) ** 0.7;
+  return { gain, history: [...state.history.slice(1), normalized] };
+}
+
+/** Bar height in px for one normalized sample. */
+export function waveformBarPx(sample: number): number {
+  const safe = Number.isFinite(sample) ? Math.max(0, Math.min(1, sample)) : 0;
+  return WAVEFORM_MIN_PX + Math.round(safe * WAVEFORM_RANGE_PX);
+}
+
+/** How far a source's level may fall on one frame before a new sample lands,
+ *  so the meter drops smoothly instead of snapping to the newest buffer. */
+const METER_ATTACK_DECAY = 0.55;
 
 /** Fold an incoming 0-1 audio level into the current level. */
 export function nextMeterLevel(current: number, incoming: number): number {
@@ -50,31 +108,4 @@ export function foldMeterSources(
 /** What the bars show: whichever side of the conversation is louder. */
 export function combinedMeterLevel(levels: MeterSourceLevels): number {
   return Math.max(levels.mic, levels.system);
-}
-
-/** One decay tick. Snaps to silence below a threshold so bars settle at rest. */
-export function decayMeterLevel(current: number): number {
-  const decayed = current * METER_LEVEL_DECAY;
-  return decayed < 0.01 ? 0 : decayed;
-}
-
-/**
- * Push the newest sample onto the front of the meter's history. Bar 0 shows
- * the newest level and older levels travel outward, so the bars ripple against
- * each other instead of moving as one block.
- */
-export function advanceMeterLevels(levels: number[], sample: number): number[] {
-  return [sample, ...levels.slice(0, METER_BAR_COUNT - 1)];
-}
-
-/**
- * Bar height as a percentage of the meter's box. Peak levels from speech taps
- * are often quiet even when speech is clear, so a gentle curve keeps the meter
- * responsive without turning background noise into a full-height signal.
- */
-export function meterBarHeight(level: number, barIndex: number): number {
-  const gain = METER_BAR_GAINS[barIndex] ?? 1;
-  const safe = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0;
-  const shaped = safe > 0 ? Math.min(1, Math.pow(safe, 0.45) * 1.25) : 0;
-  return (METER_IDLE_HEIGHT + shaped * gain * (1 - METER_IDLE_HEIGHT)) * 100;
 }

@@ -829,36 +829,27 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   vector-effect: non-scaling-stroke;
 }
 
-/* One variable owns the meter's height and the bars scale off it — every rule
-   that resizes the meter sets `--meter-height`, not `height`. Two rules setting
-   `height` independently is how the box and the bars drifted apart before. */
-.live-audio-bars {
-  --meter-height: 26px;
+/* The one live meter. Bar heights come from the component (they are the
+   signal, in px); everything here is box and color. Bars take `currentColor`,
+   so a surface tints the meter by setting a color on the parent instead of
+   forking the component. */
+.live-waveform {
   display: inline-flex;
-  width: 48px;
-  height: var(--meter-height);
   align-items: center;
   justify-content: center;
-  gap: 4px;
   flex-shrink: 0;
+  transition: opacity 150ms ease-out;
 }
 
-.live-audio-bars-compact {
-  --meter-height: 22px;
-  width: 21px;
-  gap: 3px;
-}
-
-.live-audio-bar {
+.live-waveform-bar {
   display: block;
-  width: 3px;
   border-radius: 999px;
-  background: rgba(132, 204, 22, 0.98);
-  transition: height 90ms ease-out;
+  background: currentColor;
+  transition: height 100ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .live-audio-bar {
+  .live-waveform-bar {
     transition: none;
   }
 }
@@ -4280,8 +4271,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   justify-content: center;
 }
 
-.flow-bar-canvas {
-  display: block;
+.flow-bar-meter {
+  height: 18px;
+  /* The dictation bar is its own dark chrome, not a themed surface, so the
+     meter is tinted to read on it. */
+  /* guard:allow-raw-color — flow-bar chrome is fixed, not theme-driven */
+  color: #ffffffe6;
 }
 
 .flow-bar-processing {
@@ -4788,8 +4783,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-vertical .pill-wave-meter {
-  --meter-height: 22px;
-  width: 21px;
+  height: 22px;
 }
 
 /* Wrapper around logo + waveform. */
@@ -4810,12 +4804,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-variant-numeric: tabular-nums;
 }
 
-/* Layout only. `display` must stay flex here — a `block` override collapses
-   the meter's bars into a single stacked column instead of a waveform. */
+/* Layout and tint only; the bars size themselves. */
 .pill-wave-meter {
-  --meter-height: 26px;
-  width: 48px;
-  flex-shrink: 0;
+  height: 26px;
+  color: hsl(var(--ui-foreground) / 0.75);
 }
 
 .pill-stop-btn {
@@ -5469,16 +5461,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 /* Waiting for capture to attach: never the live red, never a running clock. */
 .pill-timer-starting {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: hsl(var(--ui-muted-foreground));
   font-family: inherit;
   font-size: 12px;
-  animation: pill-ask-chip-pulse 1.6s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pill-timer-starting {
-    animation: none;
-  }
 }
 
 .pill-ask-work {
