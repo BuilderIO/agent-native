@@ -3275,7 +3275,9 @@ ${identitySsoScript}
     function __anBindGoogleRecover() {
       if (__anGoogleRecoverBound) return;
       __anGoogleRecoverBound = true;
-      window.addEventListener('focus', __anRecoverGoogleSignInAfterReturn);
+      window.addEventListener('focus', function() {
+        __anRecoverGoogleSignInAfterReturn();
+      });
       document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'visible') __anRecoverGoogleSignInAfterReturn();
       });

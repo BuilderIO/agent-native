@@ -5922,6 +5922,9 @@ describe("server/auth", () => {
         "if (!__anIsCurrentGoogleSignInFlow(flowId)) return;",
       );
       expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
+      expect(html).toContain(
+        "window.addEventListener('focus', function() {\n        __anRecoverGoogleSignInAfterReturn();\n      });",
+      );
       const recoverStart = html.indexOf(
         "function __anRecoverGoogleSignInAfterReturn(flowId)",
       );
