@@ -1224,7 +1224,7 @@ export function RecordingPill() {
                 onClick={() => enterConfirm("restart")}
                 disabled={!enabled || !!pendingAction}
                 aria-label="Restart recording"
-                className="ml-2 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
+                className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
               >
                 <IconRefresh size={14} stroke={2} aria-hidden />
               </button>
@@ -1233,7 +1233,7 @@ export function RecordingPill() {
                 onClick={() => enterConfirm("delete")}
                 disabled={!enabled || !!pendingAction}
                 aria-label="Delete recording"
-                className="ml-2 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
+                className="ml-0 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
               >
                 <IconTrash size={14} stroke={2} aria-hidden />
               </button>
