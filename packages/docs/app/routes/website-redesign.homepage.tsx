@@ -6,6 +6,7 @@ import { FeaturesActions } from "../components/website-redesign/features-actions
 import { Footer } from "../components/website-redesign/footer";
 import { Hero } from "../components/website-redesign/hero";
 import { SiteHeader } from "../components/website-redesign/site-header";
+import { TemplateShowcase } from "../components/website-redesign/template-showcase";
 import { WorksWithStack } from "../components/website-redesign/works-with-stack";
 
 import tokensCss from "../components/website-redesign/tokens.css?url";
@@ -49,6 +50,7 @@ export default function WebsiteRedesignHomepage() {
       <FeaturesActions />
       <BuiltInFeatures />
       <WorksWithStack />
+      <TemplateShowcase />
       <BottomCta />
       <Footer />
     </div>

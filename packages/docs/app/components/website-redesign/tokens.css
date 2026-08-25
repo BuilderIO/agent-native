@@ -226,6 +226,11 @@
   overflow: hidden;
 }
 
+.builder-brand-tokens .template-showcase-panel {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+}
+
 @media (max-width: 768px) {
   .builder-brand-tokens {
     --spacing-4: 12px;
@@ -261,6 +266,10 @@
 
   .builder-brand-tokens .logos-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .builder-brand-tokens .template-showcase-panel {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
