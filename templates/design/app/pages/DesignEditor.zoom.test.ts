@@ -1,3 +1,4 @@
+import { DEFAULT_CANVAS_MIN_FIT_ZOOM } from "@shared/canvas-math";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -686,6 +687,21 @@ describe("computeFitCameraForFrames", () => {
     expect(camera).not.toBeNull();
     // The union bounds span ~1200x1200 — must zoom out to fit both.
     expect(camera!.zoom).toBeLessThan(100);
+  });
+
+  it("floors a fit of absurdly wide content where the canvas still paints", () => {
+    // A generated screen root can be html W 16384; an honest fit lands near 3%
+    // and the overview reads as empty.
+    const frames = [
+      { id: "a", geometry: { x: 0, y: 0, width: 16384, height: 1304 } },
+    ];
+    const camera = computeFitCameraForFrames(frames, {
+      width: 800,
+      height: 600,
+    });
+    expect(camera).not.toBeNull();
+    expect((800 - 128) / 16384).toBeLessThan(0.1);
+    expect(camera!.zoom).toBe(DEFAULT_CANVAS_MIN_FIT_ZOOM);
   });
 
   it("clamps the computed zoom to the shared canvas zoom range", () => {

@@ -9,14 +9,18 @@ export const zoomBridgeScript: string = `"use strict";
     var target = document.documentElement || document.body || document;
     function onWheel(e) {
       if (!(e.ctrlKey || e.metaKey)) return;
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       try {
         window.parent.postMessage(
           {
             type: "pinch-zoom-wheel",
             deltaY: e.deltaY,
             clientX: e.clientX,
-            clientY: e.clientY
+            clientY: e.clientY,
+            // The parent classifies wheel vs trackpad pinch from these; dropping
+            // them puts every pinch on the discrete-notch curve.
+            ctrlKey: !!e.ctrlKey,
+            metaKey: !!e.metaKey
           },
           "*"
         );

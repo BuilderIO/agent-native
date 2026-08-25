@@ -51,7 +51,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       return number;
     }
     function stopNativeInteraction(e) {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     }
@@ -72,7 +72,8 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }
     }
     function onWheel(e) {
-      if (!wheelEnabled) return;
+      var zoomIntent = !!(e.ctrlKey || e.metaKey);
+      if (!wheelEnabled && !zoomIntent) return;
       stopNativeInteraction(e);
       postToParent({
         type: "embedded-canvas-wheel",

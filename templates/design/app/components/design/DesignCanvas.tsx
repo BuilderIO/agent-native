@@ -5,6 +5,12 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { type ReviewThread } from "@agent-native/core/client/review";
+import {
+  clampZoomFactor,
+  resolveZoomGestureDevice,
+  zoomFactorForWheelDelta,
+  type ZoomGestureDevice,
+} from "@agent-native/core/client/zoom-gesture";
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
@@ -1239,6 +1245,7 @@ export function DesignCanvas({
   // Queue them here until ready fires (or the iframe finishes loading, as a
   // fallback for older/interact-mode documents that never inject the chrome
   // bridge and thus never post ready) and flush in order.
+  const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
@@ -1516,6 +1523,19 @@ export function DesignCanvas({
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
         .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
     [interactMode],
+  );
+  // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
+  // it can carry the real first-paint value: forwarding that arrives only by
+  // postMessage stays dead until the handshake, and is stranded by a swap.
+  const embeddedGestureBridgeForSrcdoc = useMemo(
+    () =>
+      EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
+        "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
+        isEmbeddedFrame && !interactMode ? "true" : "false",
+      )
+        .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
+        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
+    [interactMode, isEmbeddedFrame],
   );
   const includeLiveEditEditorChrome = !interactMode && !readOnly;
   const liveEditBridgeScript = useMemo(
@@ -2420,7 +2440,7 @@ export function DesignCanvas({
       ZOOM_BRIDGE_SCRIPT +
       NAV_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
-      embeddedGestureBridgeForCurrentState +
+      embeddedGestureBridgeForSrcdoc +
       editorChromeBridge +
       imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
@@ -2468,7 +2488,7 @@ export function DesignCanvas({
     interactMode,
     isEmbeddedFrame,
     embeddedFrameBackground,
-    embeddedGestureBridgeForCurrentState,
+    embeddedGestureBridgeForSrcdoc,
     iframeRenderContent,
     transparentBackground,
   ]);
@@ -3147,6 +3167,10 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "pinch-zoom-wheel") {
+        // An embedded frame's zoom belongs to the parent canvas, which already
+        // gets the same gesture as embedded-canvas-wheel. Both bridges are
+        // installed in every document, so without this the two apply twice.
+        if (isEmbeddedFrame) return;
         if (!onZoomChange) return;
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;
@@ -3158,15 +3182,21 @@ export function DesignCanvas({
         // handler above applies to its own wheel deltas/coordinates).
         const rawDeltaY = Number(e.data.deltaY);
         if (!Number.isFinite(rawDeltaY)) return;
-        // Mirror usePinchZoom's algorithm here. We can't reliably re-dispatch
-        // a synthetic WheelEvent to trigger the hook's listener — untrusted
-        // events are inconsistent across browsers — so just compute the
-        // next zoom directly using the same exponential factor + cursor-anchor
-        // math. Clamp range matches the usePinchZoom call above
-        // (DEFAULT_CANVAS_MIN_ZOOM–DEFAULT_CANVAS_MAX_ZOOM).
+        // A synthetic WheelEvent cannot reliably reach usePinchZoom's listener,
+        // so this path computes the factor itself — from the same module, never
+        // re-derived by hand, or the two curves drift apart again.
+        pinchZoomDeviceRef.current = resolveZoomGestureDevice({
+          deltaY: rawDeltaY,
+          deltaMode: 0,
+          ctrlKey: Boolean(e.data.ctrlKey),
+          metaKey: Boolean(e.data.metaKey),
+          atMs: performance.now(),
+          previous: pinchZoomDeviceRef.current,
+        });
         const currentZoom = zoomRef.current;
-        const clampedDelta = Math.max(-50, Math.min(50, rawDeltaY));
-        const factor = Math.exp(-clampedDelta * 0.01);
+        const factor = clampZoomFactor(
+          zoomFactorForWheelDelta(rawDeltaY, pinchZoomDeviceRef.current.pinch),
+        );
         const nextZoom = Math.max(
           DEFAULT_CANVAS_MIN_ZOOM,
           Math.min(DEFAULT_CANVAS_MAX_ZOOM, currentZoom * factor),

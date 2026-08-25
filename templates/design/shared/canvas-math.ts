@@ -282,6 +282,17 @@ export const DEFAULT_ASSIGNED_REGION_MAX_COLUMNS = 3;
 export const DEFAULT_CANVAS_MIN_ZOOM = 2;
 export const DEFAULT_CANVAS_MAX_ZOOM = 25600;
 
+/**
+ * Floor for a FIT, which is not the floor for a manual zoom. A generated
+ * screen root can be 16384px wide; fitting that honestly lands near 3%, where
+ * the canvas paints nothing recognisable and reads as empty. Content wider
+ * than the viewport at this zoom stays reachable by panning.
+ */
+export const DEFAULT_CANVAS_MIN_FIT_ZOOM = 10;
+
+/** Breathing room a fit leaves around the fitted bounds, in screen px. */
+export const CANVAS_FIT_PADDING_PX = 64;
+
 export function screenToCanvasPoint(
   point: CanvasPoint,
   camera: CanvasCamera,
@@ -511,7 +522,7 @@ export function getCameraForBounds(
   bounds: FrameBounds | FrameGeometry | null,
   viewport: CanvasSize,
   {
-    paddingScreenPx = 48,
+    paddingScreenPx = CANVAS_FIT_PADDING_PX,
     canvasPadding = 0,
     minZoom = 10,
     maxZoom = 400,

@@ -133,6 +133,7 @@
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/settings": "./dist/client/settings/index.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
+    "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/uploads": "./dist/client/uploads/index.js",
     "./client/widgets": "./dist/client/widgets/index.js",
