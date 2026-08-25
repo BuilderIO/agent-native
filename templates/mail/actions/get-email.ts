@@ -45,20 +45,16 @@ export default defineAction({
       );
       if (!found) throw new Error("Email not found.");
       const email = { ...found, accountEmail: args.accountEmail };
-      return JSON.stringify(
-        ctx?.caller === "mcp"
-          ? {
-              accountEmail: args.accountEmail,
-              email,
-              readOnlyGuarantee: {
-                mailboxLabels: "preserved",
-                gmailModifyOperations: 0,
-              },
-            }
-          : email,
-        null,
-        2,
-      );
+      return ctx?.caller === "mcp"
+        ? {
+            accountEmail: args.accountEmail,
+            email,
+            readOnlyGuarantee: {
+              mailboxLabels: "preserved",
+              gmailModifyOperations: 0,
+            },
+          }
+        : email;
     }
 
     const accounts = await getAccessTokens();
@@ -71,20 +67,16 @@ export default defineAction({
       const labelMap = await fetchLabelMap(account.accessToken);
       const msg = await gmailGetMessage(account.accessToken, args.id, "full");
       const email = gmailToEmailMessage(msg, account.email, labelMap);
-      return JSON.stringify(
-        ctx?.caller === "mcp"
-          ? {
-              accountEmail: account.email,
-              email,
-              readOnlyGuarantee: {
-                mailboxLabels: "preserved",
-                gmailModifyOperations: 0,
-              },
-            }
-          : email,
-        null,
-        2,
-      );
+      return ctx?.caller === "mcp"
+        ? {
+            accountEmail: account.email,
+            email,
+            readOnlyGuarantee: {
+              mailboxLabels: "preserved",
+              gmailModifyOperations: 0,
+            },
+          }
+        : email;
     } catch (err: any) {
       if (err?.message?.includes("404")) throw new Error("Email not found.");
       throw new Error(err?.message ?? "Gmail API error");

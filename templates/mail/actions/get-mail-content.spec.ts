@@ -98,11 +98,9 @@ describe("exact Mail body reads", () => {
     const labelsBefore = [...message.labelIds];
     mocks.gmailGetMessage.mockResolvedValue(message);
 
-    const result = JSON.parse(
-      await getEmail.run(
-        { accountEmail: OWNER, id: message.id },
-        { caller: "mcp", userEmail: OWNER },
-      ),
+    const result = await getEmail.run(
+      { accountEmail: OWNER, id: message.id },
+      { caller: "mcp", userEmail: OWNER },
     );
 
     expect(mocks.fetchLabelMap).toHaveBeenCalledOnce();
@@ -134,11 +132,9 @@ describe("exact Mail body reads", () => {
     const labelsBefore = messages.map((message) => [...message.labelIds]);
     mocks.gmailGetThread.mockResolvedValue({ messages });
 
-    const result = JSON.parse(
-      await getThread.run(
-        { accountEmail: OTHER, id: "thread-1" },
-        { caller: "mcp", userEmail: OWNER },
-      ),
+    const result = await getThread.run(
+      { accountEmail: OTHER, id: "thread-1" },
+      { caller: "mcp", userEmail: OWNER },
     );
 
     expect(mocks.fetchLabelMap).toHaveBeenCalledOnce();
@@ -192,17 +188,13 @@ describe("exact Mail body reads", () => {
       emails: [rawMessage("message-1", "thread-1")],
     });
 
-    const email = JSON.parse(
-      await getEmail.run(
-        { accountEmail: "local", id: "message-1" },
-        { caller: "mcp", userEmail: OWNER },
-      ),
+    const email = await getEmail.run(
+      { accountEmail: "local", id: "message-1" },
+      { caller: "mcp", userEmail: OWNER },
     );
-    const thread = JSON.parse(
-      await getThread.run(
-        { accountEmail: "local", id: "thread-1" },
-        { caller: "mcp", userEmail: OWNER },
-      ),
+    const thread = await getThread.run(
+      { accountEmail: "local", id: "thread-1" },
+      { caller: "mcp", userEmail: OWNER },
     );
 
     expect(email).toMatchObject({

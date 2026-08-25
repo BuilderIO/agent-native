@@ -79,20 +79,16 @@ export default defineAction({
             date: m.date,
           }))
         : messages;
-      return JSON.stringify(
-        ctx?.caller === "mcp"
-          ? {
-              accountEmail: args.accountEmail,
-              messages: result,
-              readOnlyGuarantee: {
-                mailboxLabels: "preserved",
-                gmailModifyOperations: 0,
-              },
-            }
-          : result,
-        null,
-        2,
-      );
+      return ctx?.caller === "mcp"
+        ? {
+            accountEmail: args.accountEmail,
+            messages: result,
+            readOnlyGuarantee: {
+              mailboxLabels: "preserved",
+              gmailModifyOperations: 0,
+            },
+          }
+        : result;
     }
 
     const accounts = await getAccessTokens();
@@ -134,20 +130,16 @@ export default defineAction({
           }))
         : messages;
 
-      return JSON.stringify(
-        ctx?.caller === "mcp"
-          ? {
-              accountEmail: account.email,
-              messages: result,
-              readOnlyGuarantee: {
-                mailboxLabels: "preserved",
-                gmailModifyOperations: 0,
-              },
-            }
-          : result,
-        null,
-        2,
-      );
+      return ctx?.caller === "mcp"
+        ? {
+            accountEmail: account.email,
+            messages: result,
+            readOnlyGuarantee: {
+              mailboxLabels: "preserved",
+              gmailModifyOperations: 0,
+            },
+          }
+        : result;
     } catch (err: any) {
       if (err?.message?.includes("404")) throw new Error("Thread not found.");
       throw new Error(err?.message ?? "Gmail API error");
