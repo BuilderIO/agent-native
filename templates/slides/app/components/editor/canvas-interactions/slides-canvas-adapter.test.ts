@@ -211,6 +211,18 @@ describe("Slides canvas interaction adapter", () => {
     ).toBe("edit-text");
   });
 
+  it("moves the selected object from whitespace over its selection perimeter", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: false,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: true,
+        targetIsEditableText: false,
+      }),
+    ).toBe("move-object-perimeter");
+  });
+
   it("passes semantic commands through the supplied HTML persistence adapter", () => {
     const dispatch = vi.fn(() => ({ handled: true }) as const);
     const core = createSlidesCanvasInteractionCore({
