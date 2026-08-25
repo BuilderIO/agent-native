@@ -24,7 +24,7 @@
  *   or edits it; the list itself is not an import/sync cache.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
@@ -372,6 +372,7 @@ export default defineAction({
               await recordCalendarFetchError(
                 account,
                 new Error("Token refresh failed"),
+                { needsReauth: true },
               ),
             );
             continue;

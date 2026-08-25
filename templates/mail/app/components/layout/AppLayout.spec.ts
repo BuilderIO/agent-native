@@ -58,6 +58,15 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
   });
 
+  it("does not let loaded pages inflate server-backed label badges", () => {
+    const source = appLayoutSource();
+
+    expect(source).not.toContain("Math.max(serverCount, localCount)");
+    expect(source).toContain(
+      'typeof serverCount === "number" && useServerLabelCounts',
+    );
+  });
+
   it("preserves labels and exposes a retry when Gmail label reads fail", () => {
     const source = appLayoutSource();
 
@@ -65,6 +74,23 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("isError: labelsError");
     expect(source).toContain("refetch: refetchLabels");
     expect(source).toContain('role="alert"');
+  });
+
+  // Repro: with no Google account connected, `view` for an unmatched URL
+  // (e.g. /this-route-should-not-exist-xyz) was still "not settings" and
+  // "not draft-queue", so the no-accounts takeover replaced `{children}` —
+  // the routed NotFound page — with the Google-connect banner instead. The
+  // page's <title> was correct (computed separately in $view.tsx's meta())
+  // while the rendered body silently became the inbox shell.
+  it("only shows the Google-connect takeover for a known mail view", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'import { isKnownMailView } from "@/routes/$view";',
+    );
+    expect(source).toContain(
+      "isKnownMailView(view) &&\n          (googleConfigured || canOfferGoogleOAuthSetup) ? (\n            <GoogleConnectBanner",
+    );
   });
 });
 

@@ -1,5 +1,127 @@
-import { runMigrations } from "@agent-native/core/db";
+import { runMigrations, type DbExec } from "@agent-native/core/db";
 import { defineNitroPlugin } from "@agent-native/core/server";
+
+import {
+  factoryConfigSqlRowFromQuery,
+  isUniqueConstraintError,
+  planDefaultFactoryConfigReconciliation,
+  planSlackChannelConflictClears,
+  type FactoryConfigSqlRow,
+} from "../lib/factory-config-reconcile.js";
+
+async function writeReconciledFactoryConfig(
+  exec: DbExec,
+  plan: {
+    fromId: string;
+    row: FactoryConfigSqlRow;
+    deleteIds: string[];
+  },
+): Promise<void> {
+  const { row } = plan;
+  await exec.execute({
+    sql: `UPDATE factory_config SET
+      id = ?,
+      factory_id = ?,
+      slack_workspace = ?,
+      slack_channel_id = ?,
+      slack_channel_name = ?,
+      builder_slack_user_id = ?,
+      polling_enabled = ?,
+      last_slack_ts = ?,
+      slack_history_cursor = ?,
+      repository = ?,
+      github_polling_enabled = ?,
+      sentry_polling_enabled = ?,
+      sentry_org_slug = ?,
+      sentry_project_slug = ?,
+      sentry_environment = ?,
+      last_sentry_seen_at = ?,
+      automation_failure_alerts_enabled = ?,
+      automation_failure_alert_email = ?,
+      last_automation_failure_alert_key = ?,
+      last_automation_failure_alert_at = ?,
+      owner_email = ?,
+      created_at = ?,
+      updated_at = ?
+      WHERE id = ? AND org_id = ?`,
+    args: [
+      row.id,
+      row.factory_id,
+      row.slack_workspace ?? "primary",
+      row.slack_channel_id,
+      row.slack_channel_name,
+      row.builder_slack_user_id,
+      row.polling_enabled ?? 0,
+      row.last_slack_ts,
+      row.slack_history_cursor,
+      row.repository,
+      row.github_polling_enabled ?? 0,
+      row.sentry_polling_enabled ?? 0,
+      row.sentry_org_slug,
+      row.sentry_project_slug,
+      row.sentry_environment,
+      row.last_sentry_seen_at,
+      row.automation_failure_alerts_enabled ?? 1,
+      row.automation_failure_alert_email,
+      row.last_automation_failure_alert_key,
+      row.last_automation_failure_alert_at,
+      row.owner_email ?? "",
+      row.created_at ?? new Date().toISOString(),
+      row.updated_at ?? new Date().toISOString(),
+      plan.fromId,
+      row.org_id,
+    ],
+  });
+  for (const deleteId of plan.deleteIds) {
+    await exec.execute({
+      sql: `DELETE FROM factory_config WHERE id = ? AND org_id = ?`,
+      args: [deleteId, row.org_id],
+    });
+  }
+}
+
+async function reconcileDefaultFactoryConfigRows(): Promise<void> {
+  const { getDbExec } = await import("@agent-native/core/db");
+  const exec = getDbExec();
+  const defaultFactoryId = "product-feedback";
+  const configRows = await exec.execute({
+    sql: `SELECT * FROM factory_config
+          WHERE factory_id IS NULL OR factory_id = '' OR factory_id = ?`,
+    args: [defaultFactoryId],
+  });
+  const rows = (configRows.rows ?? [])
+    .map((row) => factoryConfigSqlRowFromQuery(row as Record<string, unknown>))
+    .filter((row): row is FactoryConfigSqlRow => row !== null);
+  for (const plan of planDefaultFactoryConfigReconciliation(
+    rows,
+    defaultFactoryId,
+  )) {
+    await writeReconciledFactoryConfig(exec, plan);
+  }
+}
+
+async function clearDuplicateSlackChannelAssignments(): Promise<void> {
+  const { getDbExec } = await import("@agent-native/core/db");
+  const exec = getDbExec();
+  const configRows = await exec.execute({
+    sql: `SELECT * FROM factory_config`,
+    args: [],
+  });
+  const rows = (configRows.rows ?? [])
+    .map((row) => factoryConfigSqlRowFromQuery(row as Record<string, unknown>))
+    .filter((row): row is FactoryConfigSqlRow => row !== null);
+  for (const clear of planSlackChannelConflictClears(rows)) {
+    await exec.execute({
+      sql: `UPDATE factory_config SET
+        slack_channel_id = NULL,
+        slack_channel_name = NULL,
+        last_slack_ts = NULL,
+        slack_history_cursor = NULL
+        WHERE id = ? AND org_id = ?`,
+      args: [clear.id, clear.org_id],
+    });
+  }
+}
 
 const migrations = [
   {
@@ -293,6 +415,108 @@ const migrations = [
     sql: `
       ALTER TABLE factory_config ADD COLUMN builder_slack_user_id TEXT;
     `,
+  },
+  {
+    version: 20,
+    name: "factory-runtime-factory-id-columns",
+    sql: `
+      ALTER TABLE factory_config ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_items ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_rules ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_decisions ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_runs ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_feedback ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_audit_events ADD COLUMN factory_id TEXT;
+    `,
+  },
+  {
+    version: 21,
+    name: "factory-runtime-factory-id-backfill",
+    sql: {},
+    run: async () => {
+      const { getDbExec } = await import("@agent-native/core/db");
+      const exec = getDbExec();
+      const defaultFactoryId = "product-feedback";
+      const tables = [
+        "factory_config",
+        "factory_items",
+        "factory_rules",
+        "factory_decisions",
+        "factory_runs",
+        "factory_feedback",
+        "factory_audit_events",
+      ] as const;
+      for (const table of tables) {
+        await exec.execute({
+          sql: `UPDATE ${table} SET factory_id = ? WHERE factory_id IS NULL OR factory_id = ''`,
+          args: [defaultFactoryId],
+        });
+      }
+      const configRows = await exec.execute({
+        sql: `SELECT id, org_id FROM factory_config WHERE factory_id = ?`,
+        args: [defaultFactoryId],
+      });
+      for (const row of configRows.rows ?? []) {
+        const orgId = String(row.org_id ?? "");
+        const id = String(row.id ?? "");
+        if (!orgId || id.includes(":")) continue;
+        const nextId = `${orgId}:${defaultFactoryId}`;
+        const existing = await exec.execute({
+          sql: `SELECT id FROM factory_config WHERE id = ? AND org_id = ?`,
+          args: [nextId, orgId],
+        });
+        if ((existing.rows?.length ?? 0) > 0) continue;
+        try {
+          await exec.execute({
+            sql: `UPDATE factory_config SET id = ? WHERE id = ? AND org_id = ?`,
+            args: [nextId, id, orgId],
+          });
+        } catch (error) {
+          if (isUniqueConstraintError(error)) continue;
+          throw error;
+        }
+      }
+    },
+  },
+  {
+    version: 22,
+    name: "factory-items-org-factory-dedupe-index",
+    sql: `
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_items_org_factory_dedupe_idx
+        ON factory_items (org_id, factory_id, dedupe_key);
+      CREATE INDEX IF NOT EXISTS factory_items_org_factory_status_idx
+        ON factory_items (org_id, factory_id, status, updated_at);
+      CREATE INDEX IF NOT EXISTS factory_audit_events_org_factory_created_idx
+        ON factory_audit_events (org_id, factory_id, created_at);
+    `,
+  },
+  {
+    version: 23,
+    name: "factory-items-drop-org-dedupe-index",
+    sql: `
+      DROP INDEX IF EXISTS factory_items_org_dedupe_idx;
+    `,
+  },
+  {
+    version: 24,
+    name: "factory-config-org-slack-channel-unique",
+    run: async () => {
+      await reconcileDefaultFactoryConfigRows();
+      await clearDuplicateSlackChannelAssignments();
+    },
+    sql: `
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_config_org_slack_channel_idx
+        ON factory_config (org_id, slack_channel_id)
+        WHERE slack_channel_id IS NOT NULL AND slack_channel_id != '';
+    `,
+  },
+  {
+    version: 25,
+    name: "factory-config-reconcile-legacy-rows",
+    sql: {},
+    run: async () => {
+      await reconcileDefaultFactoryConfigRows();
+    },
   },
 ];
 

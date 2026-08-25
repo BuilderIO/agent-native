@@ -179,4 +179,63 @@ describe("agent tool approval store", () => {
       "consume unavailable",
     );
   });
+
+  it("stores and reads an action-type policy in the owner/org scope", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [{ allowed: 1 }], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    const { isAgentToolAlwaysAllowed, setAgentToolApprovalPolicy } =
+      await import("./tool-approval-store.js");
+
+    await setAgentToolApprovalPolicy({
+      binding: {
+        ownerEmail: "Owner@Example.com",
+        orgId: binding.orgId,
+        toolName: binding.toolName,
+      },
+      enabled: true,
+    });
+    await expect(
+      isAgentToolAlwaysAllowed({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        toolName: binding.toolName,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isAgentToolAlwaysAllowed({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        toolName: "delete-resource",
+      }),
+    ).resolves.toBe(false);
+
+    const policyRead = dbMocks.execute.mock.calls[3]?.[0] as {
+      sql: string;
+      args: unknown[];
+    };
+    expect(policyRead.sql).toContain("agent_tool_approval_policies");
+    expect(policyRead.args).toEqual([
+      binding.ownerEmail,
+      binding.orgId,
+      binding.orgId,
+      binding.toolName,
+    ]);
+  });
+
+  it("fails closed when the policy store cannot be read", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockRejectedValueOnce(new Error("policy unavailable"));
+    const { isAgentToolAlwaysAllowed } =
+      await import("./tool-approval-store.js");
+
+    await expect(isAgentToolAlwaysAllowed(binding)).rejects.toThrow(
+      "policy unavailable",
+    );
+  });
 });

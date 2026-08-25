@@ -10,7 +10,7 @@
  *   pnpm action list-vocabulary
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc } from "drizzle-orm";
 import { z } from "zod";

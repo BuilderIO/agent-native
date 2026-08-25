@@ -44,9 +44,8 @@ mod macos {
 
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
-        // kIOHIDRequestTypeListenEvent = 1; returns IOHIDAccessType where
-        // kIOHIDAccessTypeGranted = 0, kIOHIDAccessTypeDenied = 1, kIOHIDAccessTypeUnknown = 2
-        fn IOHIDCheckAccess(request_type: u32) -> i32;
+        // This is the preflight for the CGEventTap used by the Fn listener.
+        fn CGPreflightListenEventAccess() -> bool;
     }
 
     pub fn check_all() -> PermissionStatuses {
@@ -85,6 +84,6 @@ mod macos {
     }
 
     fn check_input_monitoring() -> bool {
-        unsafe { IOHIDCheckAccess(1) == 0 }
+        unsafe { CGPreflightListenEventAccess() }
     }
 }

@@ -628,6 +628,26 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           });
           return (promise as any)[prop].bind(promise);
         }
+        // drizzle-orm duck-types "is this an SQL entity" by reading these two
+        // properties directly off a value — synchronously, without awaiting
+        // (see `isSQLWrapper` in drizzle-orm/sql/sql.js). Because this proxy's
+        // target is a function, answering that probe with another proxy would
+        // make an un-awaited chain (e.g. a subquery chain embedded as a raw
+        // value instead of being awaited — the pattern that broke
+        // list-recordings.ts) masquerade as a resolved SQL entity. drizzle
+        // then calls `.getSQL()` on it, which duck-types as a wrapper again,
+        // forever — `RangeError: Maximum call stack size exceeded` deep
+        // inside drizzle internals instead of a message pointing at the
+        // actual bug. Fail loudly here instead, at the point of misuse.
+        if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+          throw new Error(
+            "getDb(): accessed an unresolved query chain synchronously " +
+              `(reading '${String(prop)}'). This chain was embedded as a raw ` +
+              "value instead of being awaited first — e.g. a subquery passed " +
+              "straight into another expression. Await the chain before " +
+              "using its result.",
+          );
+        }
         // Symbol.toStringTag, Symbol.iterator, etc. — return another proxy
         // Property access (e.g. db.query) — record and return another proxy
         return createLazyProxy(ready, [...chain, { prop }]);

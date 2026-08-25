@@ -210,7 +210,7 @@ describe("createApp", { timeout: 30000 }, () => {
     );
     // Imports from the bare package root, which is server-safe so a headless
     // app loads it without React / @tanstack/react-query installed.
-    expect(hello).toContain('from "@agent-native/core"');
+    expect(hello).toContain('from "@agent-native/core/action"');
     expect(hello).toContain("defineAction");
     expect(hello).toContain('http: { method: "GET" }');
     expect(hello).toContain("readOnly: true");

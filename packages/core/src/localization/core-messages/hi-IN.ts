@@ -3,10 +3,13 @@ import type { AgentChatTranslation } from "../core-messages.js";
 const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
+  "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
+  "approval.alwaysAllowActionHint": "स्वीकृत करें और इस कार्रवाई को हमेशा अनुमति दें",
   "approval.approve": "स्वीकृत करें",
   "approval.approved": "स्वीकृत। {{tool}} को फिर से चलाया जा रहा है...",
   "approval.denied": "अस्वीकृत। {{tool}} नहीं चला।",
   "approval.deny": "अस्वीकार करें",
+  "approval.moreOptions": "अनुमति के और विकल्प",
   "approval.question": "क्या {{tool}} को चलाने की अनुमति दें?",
   "auth.expiredDescription":
     "आपका सत्र समाप्त हो गया हो सकता है। दोबारा कनेक्ट करने के लिए लॉग आउट करके फिर लॉग इन करें।",
@@ -35,6 +38,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "डायग्नोस्टिक कॉपी करें",
   "aboutAgentNative.unknown": "अज्ञात",
   "common.agent": "एजेंट",
+  "agentPanel.mode": "मोड",
+  "agentPanel.uiMode": "यूआई",
   "common.cancel": "रद्द करें",
   "common.collapse": "समेटें",
   "common.connect": "कनेक्ट करें",
@@ -290,7 +295,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। इस ऐप में “एजेंट प्रबंधित करें” → “LLM” खोलें, फिर Builder.io कनेक्ट करें या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -498,6 +503,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "लिंक वाले लोग इसे फिर भी खोल सकते हैं।",
   "share.loading": "लोड हो रहा है...",
   "share.loadMore": "और लोड करें",
+  "share.loadFailed": "साझाकरण सेटिंग्स लोड नहीं की जा सकीं।",
   "share.loadPeopleFailed": "लोगों को लोड नहीं किया जा सका।",
   "share.noAccess": "अभी किसी के पास एक्सेस नहीं है।",
   "share.noMatches": "कोई मिलान नहीं मिला।",
@@ -561,6 +567,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "{{count}} बार दोहराया गया",
   "tool.result": "परिणाम",
   "tool.subAgentTask": "सब-एजेंट कार्य",
+  "thinking.collapsed": "संक्षिप्त",
+  "thinking.display": "विचार प्रदर्शन",
+  "thinking.expanded": "विस्तृत",
+  "thinking.hidden": "छिपा हुआ",
   "tool.thought": "विचार",
   "tool.thoughtFor": "{{duration}} तक सोचा",
   "tool.viewOutput": "{{tool}} का आउटपुट देखें",

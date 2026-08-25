@@ -138,6 +138,12 @@ El marco calcula un índice de frustración (0-100) a partir de señales de conv
 
 Interpretación de la puntuación: 0-20 = saludable, 20-40 = fricción, 40-60 = insatisfecho, 60+ = sesión interrumpida.
 
+### Comentarios en PostHog {#posthog-feedback}
+
+Los pulgares, las categorías y el texto libre emiten todos `$ai_feedback`. En cambio, la vista de comentarios del análisis de LLM de PostHog lee un evento `survey sent`, así que asigna a `POSTHOG_AI_FEEDBACK_SURVEY_ID` la encuesta que PostHog crea desde la pestaña **Feedback** de un seguimiento. Ese único id es toda la configuración; sin él no se envía ningún evento de encuesta.
+
+Un voto con el pulgar responde a la primera pregunta de la encuesta con el índice de opción de PostHog (`1` arriba, `2` abajo), y el texto libre tras un pulgar hacia abajo responde a la repregunta, de modo que el texto nunca cae donde va la valoración. Ambos llevan un mismo id de envío por mensaje valorado, que es como PostHog los une en una sola respuesta, y un pulgar hacia abajo queda marcado como incompleto hasta que llega su repregunta.
+
 ## Evaluaciones automatizadas {#evals}
 
 Cinco puntuadores deterministas se ejecutan después de cada ejecución del agente:

@@ -13,17 +13,42 @@ export interface AgentWebPage {
   lastmod?: string | Date;
 }
 
+export interface AgentWebResource {
+  title: string;
+  url: string;
+  description?: string;
+}
+
+export interface AgentWebOrganization {
+  name: string;
+  url?: string;
+  sameAs?: string[];
+  contactPoint?: {
+    "@type": "ContactPoint";
+    contactType: string;
+    email?: string;
+    telephone?: string;
+    url?: string;
+  };
+  address?: {
+    "@type": "PostalAddress";
+    streetAddress?: string;
+    addressLocality?: string;
+    addressRegion?: string;
+    postalCode?: string;
+    addressCountry?: string;
+  };
+}
+
 export interface BuildAgentWebStaticFilesOptions {
   siteName: string;
   siteUrl: string;
   description?: string;
   pages: AgentWebPage[];
   config: AgentWebConfig;
-  organization?: {
-    name: string;
-    url?: string;
-    sameAs?: string[];
-  };
+  developerResources?: AgentWebResource[];
+  whenToUse?: string[];
+  organization?: AgentWebOrganization;
 }
 
 export interface AgentWebStaticFile {
@@ -157,11 +182,27 @@ ${entries}
 export function buildLlmsTxt(
   options: Omit<BuildAgentWebStaticFilesOptions, "config">,
 ): string {
+  const developerResources = options.developerResources ?? [];
+  const whenToUse = options.whenToUse ?? [];
   const lines = [
     `# ${options.siteName}`,
     "",
     options.description ? `> ${options.description}` : undefined,
     options.description ? "" : undefined,
+    whenToUse.length ? "## When to use this" : undefined,
+    ...whenToUse.map((instruction) => `- ${instruction}`),
+    whenToUse.length ? "" : undefined,
+    developerResources.length ? "## Developer resources" : undefined,
+    ...developerResources.map((resource) => {
+      const description = resource.description
+        ? `: ${resource.description}`
+        : "";
+      return `- [${resource.title}](${absoluteResourceUrl(
+        options.siteUrl,
+        resource.url,
+      )})${description}`;
+    }),
+    developerResources.length ? "" : undefined,
     "## Pages",
     ...options.pages.map((page) => {
       const description = page.description ? `: ${page.description}` : "";
@@ -186,11 +227,27 @@ export function buildLlmsTxt(
 export function buildLlmsFullTxt(
   options: Omit<BuildAgentWebStaticFilesOptions, "config">,
 ): string {
+  const developerResources = options.developerResources ?? [];
+  const whenToUse = options.whenToUse ?? [];
   const lines = [
     `# ${options.siteName}`,
     "",
     options.description ?? "",
     "",
+    whenToUse.length ? "## When to use this" : undefined,
+    ...whenToUse.map((instruction) => `- ${instruction}`),
+    whenToUse.length ? "" : undefined,
+    developerResources.length ? "## Developer resources" : undefined,
+    ...developerResources.map((resource) => {
+      const description = resource.description
+        ? `: ${resource.description}`
+        : "";
+      return `- [${resource.title}](${absoluteResourceUrl(
+        options.siteUrl,
+        resource.url,
+      )})${description}`;
+    }),
+    developerResources.length ? "" : undefined,
     ...options.pages.flatMap((page) => [
       `## ${page.title}`,
       "",
@@ -215,11 +272,7 @@ export function buildBaseJsonLd(options: {
   siteName: string;
   siteUrl: string;
   description?: string;
-  organization?: {
-    name: string;
-    url?: string;
-    sameAs?: string[];
-  };
+  organization?: AgentWebOrganization;
 }) {
   const siteUrl = trimTrailingSlash(options.siteUrl);
   return [
@@ -230,6 +283,12 @@ export function buildBaseJsonLd(options: {
       url: options.organization?.url ?? siteUrl,
       ...(options.organization?.sameAs?.length
         ? { sameAs: options.organization.sameAs }
+        : {}),
+      ...(options.organization?.contactPoint
+        ? { contactPoint: options.organization.contactPoint }
+        : {}),
+      ...(options.organization?.address
+        ? { address: options.organization.address }
         : {}),
     },
     {
@@ -286,6 +345,7 @@ export function buildMarkdownResponseHeaders(
   return {
     "content-type": "text/markdown; charset=utf-8",
     "x-markdown-tokens": String(estimateMarkdownTokens(options.markdown)),
+    vary: "Accept, Accept-Encoding",
     link: `<${absoluteUrl(options.siteUrl, "/llms.txt")}>; rel="llms-txt", <${absoluteUrl(
       options.siteUrl,
       markdownUrlForPage(options.pagePath, options.markdownPath),
@@ -320,6 +380,12 @@ export function absoluteUrl(siteUrl: string, pagePath: string): string {
   const base = trimTrailingSlash(siteUrl);
   const path = normalizePagePath(pagePath);
   return `${base}${path}`;
+}
+
+function absoluteResourceUrl(siteUrl: string, resourceUrl: string): string {
+  return /^https?:\/\//i.test(resourceUrl)
+    ? resourceUrl
+    : absoluteUrl(siteUrl, resourceUrl);
 }
 
 function normalizePagePath(pagePath: string): string {

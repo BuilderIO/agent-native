@@ -8,13 +8,60 @@
  * The actual MediaRecorder stop and chunked-upload finalize are UI gestures.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import shareResource from "@agent-native/core/sharing/actions/share-resource";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeOwnerEmail } from "../server/lib/recordings.js";
+
+type ShareableResourceType = "meeting" | "recording";
+
+async function sharePublicMeetingResourcesWithParticipants(args: {
+  meetingId: string;
+  recordingId: string | null;
+  recordingVisibility: string | null | undefined;
+  ownerEmail: string;
+  participants: Array<{ email: string }>;
+}) {
+  const ownerEmail = normalizeOwnerEmail(args.ownerEmail);
+  const participantEmails = [
+    ...new Set(
+      args.participants
+        .map((participant) => normalizeOwnerEmail(participant.email))
+        .filter((email) => email && email !== ownerEmail),
+    ),
+  ];
+  if (!participantEmails.length) return;
+
+  const resources: Array<{
+    resourceType: ShareableResourceType;
+    resourceId: string;
+  }> = [
+    { resourceType: "meeting", resourceId: args.meetingId },
+    ...(args.recordingId && args.recordingVisibility === "public"
+      ? [{ resourceType: "recording" as const, resourceId: args.recordingId }]
+      : []),
+  ];
+
+  await Promise.all(
+    resources.flatMap(({ resourceType, resourceId }) =>
+      participantEmails.map((principalId) =>
+        shareResource.run({
+          resourceType,
+          resourceId,
+          principalType: "user",
+          principalId,
+          role: "viewer",
+          notify: false,
+        }),
+      ),
+    ),
+  );
+}
 
 export default defineAction({
   description:
@@ -23,7 +70,7 @@ export default defineAction({
     meetingId: z.string().describe("Meeting id"),
   }),
   run: async (args) => {
-    await assertAccess("meeting", args.meetingId, "editor");
+    const access = await assertAccess("meeting", args.meetingId, "editor");
     const db = getDb();
     const nowIso = new Date().toISOString();
 
@@ -39,12 +86,24 @@ export default defineAction({
     // no way for the UI to distinguish "notes coming" from "nothing was ever
     // captured". Match finalize-meeting's own empty-transcript handling.
     let hasTranscript = false;
+    let recordingVisibility: string | null | undefined;
     if (meeting.recordingId) {
-      const [transcript] = await db
-        .select({ fullText: schema.recordingTranscripts.fullText })
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-        .limit(1);
+      const [transcriptRows, recordingRows] = await Promise.all([
+        db
+          .select({ fullText: schema.recordingTranscripts.fullText })
+          .from(schema.recordingTranscripts)
+          .where(
+            eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
+          )
+          .limit(1),
+        db
+          .select({ visibility: schema.recordings.visibility })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, meeting.recordingId))
+          .limit(1),
+      ]);
+      const transcript = transcriptRows[0];
+      recordingVisibility = recordingRows[0]?.visibility;
       hasTranscript = Boolean(transcript?.fullText?.trim());
     }
 
@@ -74,6 +133,28 @@ export default defineAction({
         requestedAt: nowIso,
       });
     }
+
+    // Public resources are intentionally link-only and therefore stay out of
+    // the signed-in Meetings/Shared lists. Calendar participants are the one
+    // known audience we can safely admit without making every public meeting
+    // discoverable, so grant them standard viewer access when the call ends.
+    if (
+      meeting.visibility === "public" &&
+      (access.role === "owner" || access.role === "admin")
+    ) {
+      const participants = await db
+        .select({ email: schema.meetingParticipants.email })
+        .from(schema.meetingParticipants)
+        .where(eq(schema.meetingParticipants.meetingId, args.meetingId));
+      await sharePublicMeetingResourcesWithParticipants({
+        meetingId: args.meetingId,
+        recordingId: meeting.recordingId ?? null,
+        recordingVisibility,
+        ownerEmail: meeting.ownerEmail,
+        participants,
+      });
+    }
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return { meetingId: args.meetingId, recordingId: meeting.recordingId };

@@ -1,10 +1,11 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
+import { isGoogleNotFoundError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
@@ -71,25 +72,39 @@ export default defineAction({
         ? "none"
         : (args.sendUpdates ?? (shouldNotifyGuests ? "all" : "none")),
     };
-    const eventForNotification = shouldNotifyGuests
-      ? await googleCalendar.getEvent(googleEventId, {
-          ownerEmail,
-          accountEmail,
-        })
-      : undefined;
+    let eventForNotification;
+    try {
+      eventForNotification = shouldNotifyGuests
+        ? await googleCalendar.getEvent(googleEventId, {
+            ownerEmail,
+            accountEmail,
+          })
+        : undefined;
 
-    if (args.removeOnly) {
-      await googleCalendar.removeEventFromCalendar(
-        googleEventId,
-        { ownerEmail, accountEmail },
-        options,
-      );
-    } else {
-      await googleCalendar.deleteEvent(
-        googleEventId,
-        { ownerEmail, accountEmail },
-        options,
-      );
+      if (args.removeOnly) {
+        await googleCalendar.removeEventFromCalendar(
+          googleEventId,
+          { ownerEmail, accountEmail },
+          options,
+        );
+      } else {
+        await googleCalendar.deleteEvent(
+          googleEventId,
+          { ownerEmail, accountEmail },
+          options,
+        );
+      }
+    } catch (error) {
+      if (!isGoogleNotFoundError(error)) throw error;
+
+      return {
+        success: true,
+        alreadyAbsent: true,
+        id: `google-${googleEventId}`,
+        accountEmail,
+        scope: args.scope,
+        removedOnly: args.removeOnly ?? false,
+      };
     }
 
     const guestNotification =
@@ -105,6 +120,7 @@ export default defineAction({
 
     return {
       success: true,
+      alreadyAbsent: false,
       id: `google-${googleEventId}`,
       accountEmail,
       scope: args.scope,

@@ -401,7 +401,8 @@ function truncatePromptResourceContent(
   return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. ${hint}]`;
 }
 
-function promptResourceBlock(input: {
+/** @internal exported for unit tests only */
+export function promptResourceBlock(input: {
   name: string;
   scope: string;
   content: string;
@@ -422,7 +423,16 @@ function promptResourceBlock(input: {
   const pathAttr = normalizedPath
     ? ` path="${escapeXmlAttribute(normalizedPath)}"`
     : "";
-  return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${content}\n</resource>`;
+  // Neutralize both halves of the fence in the body. These files (AGENTS.md,
+  // LEARNINGS.md, shared memory) hold text the agent wrote from emails, web
+  // pages and tool output. Escaping only the closing tag is not enough: a
+  // forged OPENING tag survives verbatim and the real trailing `</resource>`
+  // closes it, so the smuggled text still reads as its own framework-issued
+  // block. Neutralize the `<` of anything that could read as the fence tag, in
+  // any spacing a model would still parse (`< /resource >` closes it just as
+  // convincingly), so the body cannot address the fence at all.
+  const fenced = content.replace(/<(?=\s*\/?\s*resource\b)/gi, "&lt;");
+  return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${fenced}\n</resource>`;
 }
 
 /**

@@ -21,6 +21,7 @@ export interface FactoryAuditInput {
   action: string;
   kind: FactoryAuditKind;
   status?: FactoryAuditStatus;
+  factoryId?: string | null;
   itemId?: string | null;
   source?: string | null;
   sourceUrl?: string | null;
@@ -55,8 +56,10 @@ export async function recordFactoryAudit(
   context: ActionRunContext | undefined,
   identity: { userEmail: string; orgId: string },
   input: FactoryAuditInput,
+  factoryId?: string | null,
 ): Promise<void> {
   if (context?.caller !== "automation" || !context.runId) return;
+  const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
   await getDb()
     .insert(factoryAuditEvents)
     .values({
@@ -64,6 +67,7 @@ export async function recordFactoryAudit(
       automationRunId: context.runId,
       automationThreadId: context.threadId ?? null,
       automationName: context.automation?.triggerName ?? null,
+      factoryId: resolvedFactoryId,
       itemId: input.itemId ?? null,
       source: input.source ?? null,
       sourceUrl: input.sourceUrl ?? null,

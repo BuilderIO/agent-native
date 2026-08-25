@@ -1770,10 +1770,39 @@ export function createBuilderBrowserCallbackErrorPage(
 
 export interface RunBuilderAgentArgs {
   prompt: string;
+  context?: string;
   projectId?: string;
   branchName?: string;
   userEmail?: string;
   userId?: string;
+}
+
+export const BUILDER_AGENT_CONTEXT_MAX_CHARS = 32_000;
+
+export function normalizeBuilderAgentContext(
+  value: unknown,
+): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("context must be a string");
+  }
+  const context = value.trim();
+  if (!context) return undefined;
+  if (context.length > BUILDER_AGENT_CONTEXT_MAX_CHARS) {
+    throw new Error(
+      `context must be ${BUILDER_AGENT_CONTEXT_MAX_CHARS} characters or fewer`,
+    );
+  }
+  return context;
+}
+
+export function buildBuilderAgentUserPrompt(
+  prompt: string,
+  context?: string,
+): string {
+  const normalizedContext = normalizeBuilderAgentContext(context);
+  if (!normalizedContext) return prompt;
+  return `${prompt.trim()}\n\n<context>\n${normalizedContext}\n</context>`;
 }
 
 export interface RunBuilderAgentResult {
@@ -2126,13 +2155,14 @@ export async function runBuilderAgent(
   if (!builderUserEmail && !builderUserId) {
     throw new Error("userEmail or userId is required");
   }
+  const userPrompt = buildBuilderAgentUserPrompt(args.prompt, args.context);
 
   const url = new URL("/agents/run", getBuilderApiHost());
   url.searchParams.set("apiKey", creds.publicKey);
 
   const postRun = async (actor: { userEmail?: string; userId?: string }) => {
     const body: Record<string, unknown> = {
-      userMessage: { userPrompt: args.prompt },
+      userMessage: { userPrompt },
       projectId,
     };
     if (args.branchName) body.branchName = args.branchName;

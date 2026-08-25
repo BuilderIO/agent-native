@@ -5,13 +5,14 @@ import {
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import {
-  isOAuthConnected,
   getOAuthAccounts,
+  getCredentialContext,
   getRequestOrgId,
   resolveSecret,
   runWithRequestContext,
   resolveGoogleProviderCredentialCandidatesWithReader,
 } from "@agent-native/core/server";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 
 import type {
   CalendarEvent,
@@ -29,12 +30,39 @@ import {
   calendarDeleteEvent,
   calendarPatchEvent,
   calendarUpdateEvent,
+  isGoogleEventAbsentError,
   peopleGetProfile,
 } from "./google-api.js";
+import { getCalendarProviderApiRuntime } from "./provider-api.js";
 import {
   alignSeriesRecurrenceToStart,
   shiftSeriesDateValue,
 } from "./series-recurrence.js";
+
+type ManagedCalendarClient = {
+  email: string;
+  accessToken: string;
+};
+
+async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | null> {
+  if (!getCredentialContext()) return null;
+  const connection = await resolveWorkspaceConnectionForApp({
+    appId: "calendar",
+    provider: "google_calendar",
+    requireConnected: true,
+  });
+  if (!connection.available) return null;
+  const credential =
+    await getCalendarProviderApiRuntime().resolveOAuthAccessToken({
+      provider: "google_calendar",
+    });
+  if (!credential.accountId) {
+    throw new Error(
+      "The connected Google Calendar workspace account has no account id.",
+    );
+  }
+  return { email: credential.accountId, accessToken: credential.accessToken };
+}
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -53,6 +81,16 @@ interface GoogleTokens {
   token_type?: string;
   scope?: string;
   photoUrl?: string;
+}
+
+const CALENDAR_SCOPE_PREFIX = "https://www.googleapis.com/auth/calendar.";
+
+function hasCalendarScope(tokens: Record<string, unknown>): boolean {
+  const scope = tokens.scope;
+  if (typeof scope !== "string" || !scope.trim()) return true;
+  return scope
+    .split(/[\s,]+/)
+    .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX));
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -562,8 +600,10 @@ export async function getClient(
   email: string | undefined,
 ): Promise<{ accessToken: string } | null> {
   if (!email) return null;
-  const accounts = await listOAuthAccountsByOwner("google", email);
-  if (accounts.length === 0) return null;
+  const accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
+  if (accounts.length === 0) return resolveManagedCalendarClient();
 
   const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
 
@@ -584,7 +624,9 @@ export interface GoogleAccountSelection {
 export async function getDefaultAccountSelection(
   ownerEmail: string,
 ): Promise<GoogleAccountSelection> {
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasCalendarScope(account.tokens));
   const account =
     accounts.find(
       (candidate) =>
@@ -592,6 +634,10 @@ export async function getDefaultAccountSelection(
         ownerEmail.trim().toLowerCase(),
     ) ?? accounts[0];
   if (!account) {
+    const managed = await resolveManagedCalendarClient();
+    if (managed) {
+      return { ownerEmail, accountEmail: managed.email };
+    }
     throw new Error(
       "Google Calendar not connected. Connect via Settings first.",
     );
@@ -605,12 +651,21 @@ export async function getClientForAccount({
   accountEmail,
 }: GoogleAccountSelection): Promise<{ accessToken: string }> {
   const normalizedAccountEmail = accountEmail.trim().toLowerCase();
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasCalendarScope(account.tokens));
   const account = accounts.find(
     (candidate) =>
       candidate.accountId.trim().toLowerCase() === normalizedAccountEmail,
   );
   if (!account) {
+    const managed = await resolveManagedCalendarClient();
+    if (
+      managed &&
+      managed.email.trim().toLowerCase() === normalizedAccountEmail
+    ) {
+      return { accessToken: managed.accessToken };
+    }
     throw new Error(
       `Google Calendar account not connected for this user: ${accountEmail}`,
     );
@@ -654,7 +709,9 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
   errors: Array<{ email: string; error: string }>;
 }> {
   if (!forEmail) return { clients: [], errors: [] };
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
 
   const clients: Array<{ email: string; accessToken: string }> = [];
   const errors: Array<{ email: string; error: string }> = [];
@@ -682,6 +739,18 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
     }
   }
 
+  if (clients.length === 0) {
+    try {
+      const managed = await resolveManagedCalendarClient();
+      if (managed) clients.push(managed);
+    } catch (err: any) {
+      errors.push({
+        email: "workspace",
+        error: err?.message || "Workspace Google Calendar connection failed",
+      });
+    }
+  }
+
   return { clients, errors };
 }
 
@@ -695,7 +764,9 @@ export async function getOwnedAccountEmails(
   forEmail?: string,
 ): Promise<string[]> {
   if (!forEmail) return [];
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
   return accounts.map((account) => account.accountId);
 }
 
@@ -716,7 +787,47 @@ export async function getClientsForAccountsWithErrors(
       resolvedAccounts: [],
     };
   }
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
+  if (accounts.length === 0) {
+    const managed = await resolveManagedCalendarClient();
+    if (!managed) {
+      if (accountEmails?.length) {
+        throw new Error(
+          `Google Calendar account not connected for this user: ${accountEmails.join(", ")}`,
+        );
+      }
+      return {
+        clients: [],
+        errors: [],
+        requestedAccounts: [],
+        resolvedAccounts: [],
+      };
+    }
+    const requestedAccounts = Array.from(
+      new Set(
+        (accountEmails ?? [managed.email])
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+    if (
+      requestedAccounts.some(
+        (email) => email !== managed.email.trim().toLowerCase(),
+      )
+    ) {
+      throw new Error(
+        `Google Calendar account not connected for this user: ${requestedAccounts.join(", ")}`,
+      );
+    }
+    return {
+      clients: [managed],
+      errors: [],
+      requestedAccounts,
+      resolvedAccounts: [managed.email],
+    };
+  }
   const byNormalized = new Map(
     accounts.map((account) => [
       account.accountId.trim().toLowerCase(),
@@ -765,15 +876,22 @@ export async function getClientsForAccountsWithErrors(
 }
 
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  return isOAuthConnected("google", forEmail ?? "");
+  if (!forEmail) return false;
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
+  return Boolean(await resolveManagedCalendarClient());
 }
 
 export async function getConnectedAccounts(
   forEmail?: string,
 ): Promise<string[]> {
   if (!forEmail) return [];
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
-  return accounts.map((a) => a.accountId);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
+  if (accounts.length > 0) return accounts.map((a) => a.accountId);
+  const managed = await resolveManagedCalendarClient();
+  return managed ? [managed.email] : [];
 }
 
 export async function getPrimaryAccountPhotoUrl(
@@ -781,7 +899,9 @@ export async function getPrimaryAccountPhotoUrl(
 ): Promise<string | undefined> {
   if (!forEmail) return undefined;
   const fallbackUserImage = await getBetterAuthUserImage(forEmail);
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
   const account = accounts.find((a) => a.accountId === forEmail) ?? accounts[0];
   if (!account) return fallbackUserImage;
 
@@ -805,16 +925,22 @@ export async function getAuthStatus(
   forEmail?: string,
   orgId?: string,
 ): Promise<GoogleAuthStatus> {
-  const oauthAccounts = await getOAuthAccounts("google", forEmail);
+  const oauthAccounts = (await getOAuthAccounts("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
 
   if (oauthAccounts.length === 0) {
-    return { connected: false, accounts: [] };
+    const managed = await resolveManagedCalendarClient();
+    return managed
+      ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
+      : { connected: false, accounts: [] };
   }
 
   const result: Array<{
     email: string;
     expiresAt?: string;
     photoUrl?: string;
+    shared?: boolean;
   }> = [];
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -1582,8 +1708,14 @@ export async function deleteEvent(
     return;
   }
 
-  const instanceStart = instance.start?.dateTime || instance.start?.date || "";
-  const isAllDay = !instance.start?.dateTime;
+  const instanceStart =
+    instance.originalStartTime?.dateTime ||
+    instance.originalStartTime?.date ||
+    instance.start?.dateTime ||
+    instance.start?.date ||
+    "";
+  const isAllDay =
+    !instance.originalStartTime?.dateTime && !instance.start?.dateTime;
 
   // Compute UNTIL value (day before this instance)
   const cutoff = new Date(instanceStart);
@@ -1623,6 +1755,56 @@ export async function deleteEvent(
     { recurrence: updatedRecurrence },
     { sendUpdates },
   );
+
+  // Truncating the master does not remove materialized exceptions after the
+  // cutoff, so remove those exceptions as well.
+  const instanceStartMs = Date.parse(instanceStart);
+  const exceptionIds = new Set<string>([googleEventId]);
+  let pageToken: string | undefined;
+  do {
+    const response = await calendarListEvents(client.accessToken, "primary", {
+      singleEvents: false,
+      showDeleted: true,
+      maxResults: 2500,
+      pageToken,
+    });
+    for (const event of response?.items || []) {
+      if (event.recurringEventId !== recurringEventId) continue;
+      const originalStart =
+        event.originalStartTime?.dateTime ||
+        event.originalStartTime?.date ||
+        event.start?.dateTime ||
+        event.start?.date;
+      const originalStartMs =
+        typeof originalStart === "string" ? Date.parse(originalStart) : NaN;
+      if (
+        event.id &&
+        Number.isFinite(instanceStartMs) &&
+        Number.isFinite(originalStartMs) &&
+        originalStartMs >= instanceStartMs
+      ) {
+        exceptionIds.add(event.id);
+      }
+    }
+    pageToken =
+      typeof response?.nextPageToken === "string"
+        ? response.nextPageToken
+        : undefined;
+  } while (pageToken);
+
+  for (const eventId of exceptionIds) {
+    try {
+      await calendarDeleteEvent(
+        client.accessToken,
+        "primary",
+        eventId,
+        sendUpdates,
+      );
+    } catch (error) {
+      // A generated occurrence may already be gone once the master is trimmed.
+      if (!isGoogleEventAbsentError(error)) throw error;
+    }
+  }
 }
 
 /**

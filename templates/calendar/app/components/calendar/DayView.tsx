@@ -297,7 +297,7 @@ const DayEventCard = memo(function DayEventCard({
       style={{
         ...posStyle,
         left: `calc(${li.left}% + ${li.indent}px)`,
-        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
+        width: `calc(${li.width}% - ${li.indent + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100

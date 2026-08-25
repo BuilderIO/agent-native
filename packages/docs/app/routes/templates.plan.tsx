@@ -5,13 +5,12 @@ import {
   IconBrandVisualStudio,
   IconBraces,
   IconCheck,
-  IconCopy,
   IconFolders,
   IconHierarchy,
   IconLayoutKanban,
   IconLink,
 } from "@tabler/icons-react";
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useRef } from "react";
 
 import { BuilderImage } from "../components/builder-image";
 import { SectionDivider } from "../components/SectionDivider";
@@ -61,11 +60,6 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "plan")!;
-
-const INSTALL_COMMAND = "npx @agent-native/core@latest skills add visual-plan";
-const AGENT_PROMPT = `Install the Agent-Native Plans skill
-(${INSTALL_COMMAND}),
-then run /visual-plan on my current branch before writing any code.`;
 
 const PLAN_VIDEO_PREVIEWS = [
   {
@@ -129,7 +123,6 @@ const PlanVideoCarousel = forwardRef<PlanVideoCarouselHandle>(
           >
             <BuilderImage
               src={video.thumbnail}
-              sizes="(max-width: 768px) 82vw, 300px"
               alt=""
               loading="lazy"
               decoding="async"
@@ -153,18 +146,7 @@ const PlanVideoCarousel = forwardRef<PlanVideoCarouselHandle>(
 
 export default function PlanTemplate() {
   const t = useT();
-  const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const videoCarouselRef = useRef<PlanVideoCarouselHandle>(null);
-
-  function handleCopyAgentPrompt() {
-    navigator.clipboard.writeText(AGENT_PROMPT);
-    setAgentPromptCopied(true);
-    trackEvent("copy agent prompt", {
-      template: template.slug,
-      location: "landing_page_final_cta",
-    });
-    setTimeout(() => setAgentPromptCopied(false), 2000);
-  }
   const capabilities = [
     {
       icon: IconLayoutKanban,
@@ -232,7 +214,7 @@ export default function PlanTemplate() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            {t("templateDetail.badge", { name: template.name })}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={
@@ -248,8 +230,7 @@ export default function PlanTemplate() {
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fde31fbcbb81b4b799146d46dd4719eb0"
-            sizes="(max-width: 900px) 100vw, 800px"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffbe161e4e98a4d5780baeb156a3eddff"
             crossOrigin="anonymous"
             alt={t("templateLanding.plan.s001")}
             loading="lazy"
@@ -579,32 +560,14 @@ export default function PlanTemplate() {
       <TemplateFinalCta
         eyebrow={
           <span
-            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+            className="font-mono text-sm font-semibold tracking-[0.14em]"
             style={{ color: template.color }}
           >
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateLanding.plan.s057")}
-        actions={
-          <div className="flex w-full min-w-0 items-center gap-6 rounded-md border border-[var(--docs-border)] bg-[var(--code-bg)] px-4 py-3 sm:px-5">
-            <p className="m-0 min-w-0 flex-1 whitespace-pre-wrap font-mono text-sm leading-6 text-[var(--fg)] sm:text-base">
-              {AGENT_PROMPT}
-            </p>
-            <button
-              type="button"
-              onClick={handleCopyAgentPrompt}
-              aria-label="Copy agent prompt"
-              className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
-            >
-              {agentPromptCopied ? (
-                <IconCheck aria-hidden="true" className="size-[18px]" />
-              ) : (
-                <IconCopy aria-hidden="true" className="size-[18px]" />
-              )}
-            </button>
-          </div>
-        }
+        template={template}
       >
         <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
           {t("templateLanding.plan.s058")}

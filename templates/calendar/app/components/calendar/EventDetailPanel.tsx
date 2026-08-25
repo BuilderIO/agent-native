@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getDisplayDateInTimezone } from "@/lib/calendar-timezone";
 import { getEditableEventTitle } from "@/lib/event-form-utils";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import { cn } from "@/lib/utils";
@@ -73,6 +74,7 @@ interface EventDetailPanelProps {
   onClose: () => void;
   onDelete: (eventId: string) => void;
   onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  timezone?: string;
 }
 
 function formatDuration(start: string, end: string): string {
@@ -120,6 +122,7 @@ export function EventDetailPanel({
   onClose,
   onDelete,
   onTitleSave,
+  timezone,
 }: EventDetailPanelProps) {
   const t = useT();
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
@@ -447,15 +450,39 @@ export function EventDetailPanel({
                     ) : (
                       <>
                         <span className="text-foreground">
-                          {format(parseISO(event.start), "h:mm a")}
+                          {format(
+                            getDisplayDateInTimezone(
+                              event.start,
+                              timezone ??
+                                event.startTimeZone ??
+                                event.endTimeZone,
+                            ),
+                            "h:mm a",
+                          )}
                           {" → "}
-                          {format(parseISO(event.end), "h:mm a")}
+                          {format(
+                            getDisplayDateInTimezone(
+                              event.end,
+                              timezone ??
+                                event.endTimeZone ??
+                                event.startTimeZone,
+                            ),
+                            "h:mm a",
+                          )}
                         </span>
                         <span className="ml-2 text-muted-foreground/70">
                           {formatDuration(event.start, event.end)}
                         </span>
                         <div className="mt-0.5 text-muted-foreground">
-                          {format(parseISO(event.start), "EEE MMM d")}
+                          {format(
+                            getDisplayDateInTimezone(
+                              event.start,
+                              timezone ??
+                                event.startTimeZone ??
+                                event.endTimeZone,
+                            ),
+                            "EEE MMM d",
+                          )}
                         </div>
                       </>
                     )}

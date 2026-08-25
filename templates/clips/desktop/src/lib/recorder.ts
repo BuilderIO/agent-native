@@ -1738,6 +1738,9 @@ async function saveRecordingTranscript(
         fullText: text,
         segments: transcript.segments,
         source: transcript.source ?? "whisper",
+        ...(transcript.failureReason
+          ? { failureReason: transcript.failureReason }
+          : {}),
       }),
       signal: AbortSignal.timeout(TRANSCRIPT_SAVE_TIMEOUT_MS),
     });

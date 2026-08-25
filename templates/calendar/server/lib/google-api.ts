@@ -113,6 +113,31 @@ export function createOAuth2Client(
 // Authenticated fetch helper
 // ---------------------------------------------------------------------------
 
+export class GoogleApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(`Google API error (${status}): ${message}`);
+    this.name = "GoogleApiError";
+    this.status = status;
+  }
+}
+
+export function isGoogleNotFoundError(error: unknown): boolean {
+  return (
+    (error instanceof GoogleApiError && error.status === 404) ||
+    (error instanceof Error && /^Google API error \(404\):/.test(error.message))
+  );
+}
+
+export function isGoogleEventAbsentError(error: unknown): boolean {
+  return (
+    isGoogleNotFoundError(error) ||
+    (error instanceof GoogleApiError && error.status === 410) ||
+    (error instanceof Error && /^Google API error \(410\):/.test(error.message))
+  );
+}
+
 export async function googleFetch(
   url: string,
   accessToken: string,
@@ -133,7 +158,7 @@ export async function googleFetch(
       (data as any)?.error?.message ||
       (data as any)?.error_description ||
       res.statusText;
-    throw new Error(`Google API error (${res.status}): ${msg}`);
+    throw new GoogleApiError(res.status, msg);
   }
 
   return data;
@@ -347,6 +372,7 @@ export function calendarListEvents(
     timeMax?: string;
     q?: string;
     singleEvents?: boolean;
+    showDeleted?: boolean;
     orderBy?: string;
     maxResults?: number;
     pageToken?: string;

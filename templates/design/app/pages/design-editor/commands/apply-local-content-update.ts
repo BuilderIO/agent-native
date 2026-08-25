@@ -7,6 +7,7 @@ import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import {
   LOCAL_EDIT_ORIGIN,
   TAB_ID,
@@ -289,17 +290,16 @@ export function runApplyLocalContentUpdate(
     const ytext = ydoc.getText("content");
     if (ytext.toString() !== nextContent) {
       if (!yjsHistoryAvailable) {
-        // Untracked full rewrite (recordHistory:false callers such as the
+        // Untracked write (recordHistory:false callers such as the
         // code-layer id-stamping effect, or history-suppressed replays) —
         // see U1 note above: clear the undo stack so a stale tracked
         // delta can't be replayed against content it no longer matches.
         undoManagerRef.current?.clear(true, false);
       }
-      ydoc.transact(
-        () => {
-          ytext.delete(0, ytext.length);
-          ytext.insert(0, nextContent);
-        },
+      writeCollabText(
+        ydoc,
+        ytext,
+        nextContent,
         yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
       );
     }

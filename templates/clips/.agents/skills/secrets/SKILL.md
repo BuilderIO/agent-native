@@ -19,10 +19,17 @@ data, and generated extension/app content may mention credential **names** such
 as `OPENAI_API_KEY`, but must not contain real API keys, tokens, webhook URLs,
 signing secrets, OAuth refresh tokens, or private Builder/customer data.
 
-Secret values are supplied at runtime through deployment configuration, the
-encrypted `app_secrets` vault, `saveCredential` / `resolveCredential`, OAuth, or
-`${keys.NAME}` substitution. Examples must use obvious placeholders such as
-`<OPENAI_API_KEY>` or `${keys.SLACK_WEBHOOK}`, not real-looking copied values.
+Provider secret values are supplied at runtime through the encrypted
+`app_secrets` vault, `saveCredential` / `resolveCredential`, OAuth, or
+`${keys.NAME}` substitution. Deployment configuration is reserved for
+deploy-level secrets and non-provider configuration. Examples must use obvious
+placeholders such as `<OPENAI_API_KEY>` or `${keys.SLACK_WEBHOOK}`, not
+real-looking copied values.
+
+Provider credentials and provider account identifiers are workspace data. Use
+standard workspace connections and org/workspace vault scopes; never put them
+in `.env` or deployment environment variables, and never add a provider-specific
+action or startup bootstrap just to write a credential for one organization.
 
 ## Credential Modeling Preflight
 

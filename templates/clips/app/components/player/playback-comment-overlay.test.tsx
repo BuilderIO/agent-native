@@ -98,7 +98,13 @@ describe("PlaybackCommentOverlay", () => {
     act(() => {
       root.render(
         <PlaybackCommentOverlay
-          comments={[{ ...comment, content: "# Label\n\n**Bold** and `code`" }]}
+          comments={[
+            {
+              ...comment,
+              content:
+                "# Label\n\n**Bold**, `code`, and [link](https://example.com)",
+            },
+          ]}
           currentMs={12_500}
         />,
       );
@@ -108,6 +114,22 @@ describe("PlaybackCommentOverlay", () => {
     expect(container.querySelector("strong")?.textContent).toBe("Bold");
     expect(container.querySelector("code")?.textContent).toBe("code");
     expect(container.textContent).toContain("Label");
+    expect(
+      container.querySelector('[class*="line-clamp-3"]')?.className,
+    ).toContain("text-background dark:text-foreground");
+    expect(container.querySelector("a")?.className).toContain(
+      "text-background",
+    );
+    expect(container.querySelector("a")?.className).toContain(
+      "dark:text-foreground",
+    );
+    expect(container.querySelector("code")?.className).toContain(
+      "bg-background/15 text-background",
+    );
+    expect(container.querySelector("code")?.className).toContain(
+      "dark:bg-foreground/15 dark:text-foreground",
+    );
+    expect(container.innerHTML).not.toContain("text-primary-foreground");
 
     act(() => root.unmount());
     container.remove();

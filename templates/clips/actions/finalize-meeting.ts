@@ -10,7 +10,7 @@
  * Idempotent: rerunning replaces the previous summary + action item rows.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import type { VoiceContextPack } from "@agent-native/core/voice";
@@ -26,6 +26,17 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 // path. It can recover a pending row only after that row has gone stale, which
 // handles crashed processes without stealing an active text-model run.
 const PENDING_STALE_MS = 2 * 60 * 1000;
+
+export function skippedFinalizeResult(meetingId: string) {
+  return {
+    meetingId,
+    summaryMd: "",
+    bullets: [],
+    actionItems: [],
+    provider: null,
+    skipped: "no-transcript" as const,
+  };
+}
 
 function trimContextValue(value: string, maxChars: number): string {
   const trimmed = value.replace(/\0/g, "").trim();
@@ -80,6 +91,11 @@ export default defineAction({
           updatedAt: nowIso,
         })
         .where(eq(schema.meetings.id, args.meetingId));
+      // The desktop stop path can finish before its final transcript flush
+      // lands. That is a completed recording without notes, not an action
+      // failure worth returning as HTTP 500; the explicit regenerate flow
+      // still receives the actionable error below.
+      if (!args.force) return skippedFinalizeResult(args.meetingId);
       throw new Error(
         `Cannot finalize meeting ${args.meetingId} — no transcript text available yet.`,
       );

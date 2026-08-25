@@ -3,10 +3,13 @@ import type { AgentChatTranslation } from "../core-messages.js";
 const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "始终允许",
   "approval.alwaysAllowHint": "批准并始终允许此完全相同的命令",
+  "approval.alwaysAllowAction": "始终允许此操作",
+  "approval.alwaysAllowActionHint": "批准并始终允许此操作",
   "approval.approve": "批准",
   "approval.approved": "已批准。正在重新运行 {{tool}}...",
   "approval.denied": "已拒绝。{{tool}} 未运行。",
   "approval.deny": "拒绝",
+  "approval.moreOptions": "更多批准选项",
   "approval.question": "批准运行 {{tool}}？",
   "auth.expiredDescription":
     "您的会话可能已过期。请退出登录后重新登录以恢复连接。",
@@ -34,6 +37,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "复制诊断信息",
   "aboutAgentNative.unknown": "未知",
   "common.agent": "智能体",
+  "agentPanel.mode": "模式",
+  "agentPanel.uiMode": "界面",
   "common.cancel": "取消",
   "common.collapse": "收起",
   "common.connect": "连接",
@@ -277,7 +282,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
   "errorMessages.noProviderConnected":
-    "尚未连接任何 LLM 提供商。打开此应用的“管理智能体”→“LLM”，然后连接 Builder.io 或添加提供商密钥。",
+    "尚未连接任何 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后连接 Builder.io（提供免费套餐）或添加提供商密钥。",
   "errorMessages.openBuilderSpaceSettings": "打开 Builder 空间设置",
   "errorMessages.providerAuthentication":
     "模型提供商拒绝了已保存的 API 密钥。请在设置 → 集成 → API 密钥中更新密钥，然后重试。",
@@ -477,6 +482,7 @@ const messages: AgentChatTranslation = {
   "share.hideInSearch": "在搜索中隐藏",
   "share.linkCanStillOpen": "拥有链接的人员仍可打开此内容。",
   "share.loadMore": "加载更多",
+  "share.loadFailed": "无法加载共享设置。",
   "share.loadPeopleFailed": "无法加载人员。",
   "share.loading": "正在加载...",
   "share.noAccess": "尚无任何人拥有访问权限。",
@@ -540,6 +546,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "重复了 {{count}} 次",
   "tool.result": "结果",
   "tool.subAgentTask": "子智能体任务",
+  "thinking.collapsed": "折叠",
+  "thinking.display": "思考显示",
+  "thinking.expanded": "展开",
+  "thinking.hidden": "隐藏",
   "tool.thought": "思考",
   "tool.thoughtFor": "思考了 {{duration}}",
   "tool.viewOutput": "查看 {{tool}} 输出",

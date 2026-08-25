@@ -355,17 +355,24 @@ export function SettingsTabsPage({
     ? defaultTab
     : (tabs[0]?.id ?? "general");
   const tabGroups = useMemo(() => {
-    const groups: Array<{ id: string; tabs: SettingsTabItem[] }> = [];
+    // Keyed by group id so tabs sharing a group merge into one section even
+    // when another group's tabs sit between them in `tabs` — adjacency-only
+    // merging left same-id groups duplicated (and rendered with duplicate
+    // React keys) whenever the tab list interleaved groups.
+    const groupsById = new Map<
+      string,
+      { id: string; tabs: SettingsTabItem[] }
+    >();
     for (const tab of tabs) {
       const groupId = tab.group ?? "app";
-      const previousGroup = groups.at(-1);
-      if (previousGroup?.id === groupId) {
-        previousGroup.tabs.push(tab);
+      const group = groupsById.get(groupId);
+      if (group) {
+        group.tabs.push(tab);
       } else {
-        groups.push({ id: groupId, tabs: [tab] });
+        groupsById.set(groupId, { id: groupId, tabs: [tab] });
       }
     }
-    return groups;
+    return Array.from(groupsById.values());
   }, [tabs]);
   const tabGroupLabels: Record<string, string> = {
     app: "Personal",

@@ -11,7 +11,7 @@ import {
 } from "./route-discovery.js";
 
 const defineActionSource = (httpConfig: string, body = "") =>
-  `import { defineAction } from "@agent-native/core";\n` +
+  `import { defineAction } from "@agent-native/core/action";\n` +
   `export default defineAction({\n` +
   `  tool: { description: "ok", parameters: {} },\n` +
   (httpConfig ? `  http: ${httpConfig},\n` : "") +
@@ -196,7 +196,7 @@ describe("discoverActionFiles", () => {
       fs.mkdirSync(actionsDir);
       fs.writeFileSync(
         path.join(actionsDir, "real-action.ts"),
-        `import { defineAction } from "@agent-native/core";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`,
+        `import { defineAction } from "@agent-native/core/action";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`,
       );
       fs.writeFileSync(
         path.join(actionsDir, "real-action.spec.ts"),

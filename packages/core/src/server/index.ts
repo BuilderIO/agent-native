@@ -529,6 +529,8 @@ export {
   exchangeWorkspaceProviderOAuthCode,
   handleWorkspaceProviderOAuthCallback,
   handleWorkspaceProviderOAuthStart,
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
@@ -538,6 +540,7 @@ export {
 } from "./workspace-provider-oauth.js";
 
 export {
+  CredentialStoreUnavailableError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -591,6 +594,7 @@ export {
   type BuilderDesignSystemIndexFromSourcesOptions,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemStatus,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,
   type BuilderDesignSystemGitHubSource,
@@ -640,6 +644,8 @@ export {
 } from "./email.js";
 export {
   defineTransactionalEmail,
+  defineTransactionalEmails,
+  replaceTransactionalEmails,
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,

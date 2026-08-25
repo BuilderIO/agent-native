@@ -3,10 +3,13 @@ import type { AgentChatTranslation } from "../core-messages.js";
 const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "Sempre permitir",
   "approval.alwaysAllowHint": "Aprovar e sempre permitir este comando exato",
+  "approval.alwaysAllowAction": "Sempre permitir esta ação",
+  "approval.alwaysAllowActionHint": "Aprovar e sempre permitir esta ação",
   "approval.approve": "Aprovar",
   "approval.approved": "Aprovado. Executando {{tool}} novamente...",
   "approval.denied": "Negado. {{tool}} não foi executado.",
   "approval.deny": "Negar",
+  "approval.moreOptions": "Mais opções de aprovação",
   "approval.question": "Aprovar a execução de {{tool}}?",
   "auth.expiredDescription":
     "Sua sessão pode ter expirado. Saia e entre novamente para restabelecer a conexão.",
@@ -35,6 +38,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
   "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
+  "agentPanel.mode": "Modo",
+  "agentPanel.uiMode": "Interface",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",
   "common.connect": "Conectar",
@@ -203,6 +208,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "Repetido {{count}} vezes",
   "tool.result": "Resultado",
   "tool.subAgentTask": "Tarefa do subagente",
+  "thinking.collapsed": "Recolhido",
+  "thinking.display": "Raciocínio",
+  "thinking.expanded": "Expandido",
+  "thinking.hidden": "Oculto",
   "tool.thought": "Raciocínio",
   "tool.thoughtFor": "Raciocinou por {{duration}}",
   "tool.viewOutput": "Ver saída de {{tool}}",
@@ -472,7 +481,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
   "errorMessages.noProviderConnected":
-    "Nenhum provedor de LLM está conectado. Abra “Gerenciar agente” → “LLM” para este app e conecte o Builder.io ou adicione uma chave de provedor.",
+    "Nenhum provedor de LLM está conectado. Abra Configurações > Agente > Provedores de IA e conecte o Builder.io (nível gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir as configurações do espaço do Builder",
   "errorMessages.providerAuthentication":
@@ -582,6 +591,8 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "Pessoas com o link ainda podem abrir isto.",
   "share.loading": "Carregando...",
   "share.loadMore": "Ver mais",
+  "share.loadFailed":
+    "Não foi possível carregar as configurações de compartilhamento.",
   "share.loadPeopleFailed": "Não foi possível carregar pessoas.",
   "share.noAccess": "Ninguém tem acesso ainda.",
   "share.noMatches": "Nenhuma correspondência.",

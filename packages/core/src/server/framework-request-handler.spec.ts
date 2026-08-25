@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import {
   markFrameworkRoutesReadyBeforeBootstrap,
@@ -82,6 +86,8 @@ describe("framework request handler", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS;
+    delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
+    resetAppConfigForTests();
     vi.restoreAllMocks();
   });
 
@@ -356,6 +362,40 @@ describe("framework request handler", () => {
     await expect(
       dispatch(nitroApp, "/.well-known/agent-card.json"),
     ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("does not auto-mount a default plugin slot refused by plugins.disabled", async () => {
+    process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chat";
+    resetAppConfigForTests();
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("honours a plugins.disabled set by a server plugin that runs after bootstrap starts", async () => {
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+    // Nitro does not await async plugins, so a later `defineAppConfig()` still
+    // lands before bootstrap reads the mount set.
+    defineAppConfig({ plugins: { disabled: ["agent-chat"] } });
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("surfaces an unknown plugins.disabled slot instead of dropping every default plugin", () => {
+    process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chatt";
+    resetAppConfigForTests();
+
+    expect(() => getH3App(createNitroApp())).toThrow(/"disabled"/);
   });
 
   it("does not block unrelated framework routes on route-scoped plugin init", async () => {

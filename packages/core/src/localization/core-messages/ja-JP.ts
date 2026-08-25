@@ -4,10 +4,13 @@ const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
+  "approval.alwaysAllowAction": "このアクションを常に許可",
+  "approval.alwaysAllowActionHint": "承認してこのアクションを常に許可します",
   "approval.approve": "承認",
   "approval.approved": "承認しました。{{tool}} を再実行しています...",
   "approval.denied": "拒否しました。{{tool}} は実行されませんでした。",
   "approval.deny": "拒否",
+  "approval.moreOptions": "その他の承認オプション",
   "approval.question": "{{tool}} の実行を承認しますか？",
   "auth.expiredDescription":
     "セッションの有効期限が切れた可能性があります。再接続するには、ログアウトしてからもう一度ログインしてください。",
@@ -36,6 +39,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "診断情報をコピー",
   "aboutAgentNative.unknown": "不明",
   "common.agent": "エージェント",
+  "agentPanel.mode": "モード",
+  "agentPanel.uiMode": "UI",
   "common.cancel": "キャンセル",
   "common.collapse": "折りたたむ",
   "common.connect": "接続",
@@ -297,7 +302,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
   "errorMessages.noProviderConnected":
-    "LLM プロバイダーが接続されていません。このアプリの「エージェントを管理」→「LLM」を開き、Builder.io を接続するか、プロバイダーキーを追加してください。",
+    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）に接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
   "errorMessages.providerAuthentication":
     "モデルプロバイダーが保存済みの API キーを拒否しました。設定 → 連携 → API キーでキーを更新してから再試行してください。",
@@ -506,6 +511,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen":
     "リンクを知っているユーザーは引き続き開くことができます。",
   "share.loadMore": "さらに読み込む",
+  "share.loadFailed": "共有設定を読み込めませんでした。",
   "share.loadPeopleFailed": "ユーザーを読み込めませんでした。",
   "share.loading": "読み込み中...",
   "share.noAccess": "アクセスできるユーザーはまだいません。",
@@ -570,6 +576,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "{{count}} 回繰り返しました",
   "tool.result": "結果",
   "tool.subAgentTask": "サブエージェントのタスク",
+  "thinking.collapsed": "折りたたみ",
+  "thinking.display": "思考の表示",
+  "thinking.expanded": "展開",
+  "thinking.hidden": "非表示",
   "tool.thought": "思考",
   "tool.thoughtFor": "{{duration}} 思考しました",
   "tool.viewOutput": "{{tool}} の出力を表示",

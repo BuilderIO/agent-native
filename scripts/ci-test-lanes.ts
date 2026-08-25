@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 /**
- * Split the full fast-test suite for non-docs PRs into balanced CI lanes. There
- * is deliberately NO change-based selection within this suite: every workspace
- * test package runs when the suite is selected, so a test can never be silently
- * skipped. Docs-only PRs bypass this script and use the focused docs job.
+ * Split fast-test packages into balanced CI lanes. Full-suite runs deliberately
+ * have NO change-based selection: every workspace test package runs when the
+ * suite is selected, so a test can never be silently skipped. Targeted runs
+ * resolve the dependency closure from CI_WORKSPACE_FILTERS, then shard the
+ * concrete test packages in that closure. Docs-only PRs bypass this script and
+ * use the focused docs job.
  * This script only decides which lane each package runs in, purely to
  * parallelise wall-clock.
  *
- * @agent-native/core is handled by its own dedicated CI job (isolated so it can
- * run uncapped), so it is excluded here. Every OTHER test package is partitioned
- * across the lanes, and the script asserts the partition covers all of them
- * exactly once — if a new package is added it lands in a lane automatically, and
- * a bug that dropped one would fail this job rather than pass silently.
+ * In full mode, @agent-native/core is handled by its own dedicated CI job
+ * (isolated so it can run uncapped), so it is excluded here. Every other test
+ * package is partitioned across the lanes. Targeted mode includes core in the
+ * same package partition because the selected closure is already bounded. In
+ * both modes, the script asserts the partition covers all selected test
+ * packages exactly once - if a package is dropped, the lane plan fails rather
+ * than passing silently.
  *
  * Balance weight is each package's live fast-test file count, read from the tree
  * at run time — no hardcoded table, nothing to maintain.
@@ -19,8 +23,10 @@
  * Runs on plain `node --experimental-strip-types` with zero dependencies so CI
  * can invoke it before `pnpm install`.
  */
+import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const ROOT = process.cwd();
 const CORE = "@agent-native/core"; // isolated in its own CI job
@@ -49,6 +55,10 @@ interface Pkg {
   name: string;
   dir: string;
 }
+
+type PnpmWorkspace = {
+  name?: unknown;
+};
 
 function discoverTestPackages(): Pkg[] {
   const out: Pkg[] = [];
@@ -82,6 +92,90 @@ function discoverTestPackages(): Pkg[] {
     out.push({ name: pj.name, dir });
   }
   return out;
+}
+
+function pnpmCommand(): string {
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
+
+function readTargetedFilters(): string[] | undefined {
+  const raw = process.env.CI_WORKSPACE_FILTERS;
+  if (raw === undefined) return undefined;
+  if (raw.trim().length === 0) {
+    throw new Error(
+      "CI_WORKSPACE_FILTERS must be a non-empty JSON array of non-empty strings",
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `CI_WORKSPACE_FILTERS must be valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.some((filter) => typeof filter !== "string" || filter.length === 0)
+  ) {
+    throw new Error(
+      "CI_WORKSPACE_FILTERS must be a non-empty JSON array of non-empty strings",
+    );
+  }
+
+  return parsed;
+}
+
+function resolveTestPackages(
+  all: Pkg[],
+  filters: string[] | undefined,
+): { packages: Pkg[]; targeted: boolean } {
+  if (!filters) return { packages: all, targeted: false };
+
+  const args = [
+    "-r",
+    "list",
+    ...filters.flatMap((filter) => ["--filter", filter]),
+    "--depth=-1",
+    "--json",
+  ];
+  const output = execFileSync(pnpmCommand(), args, {
+    encoding: "utf8",
+  });
+
+  let workspaces: unknown;
+  try {
+    workspaces = JSON.parse(output);
+  } catch (error) {
+    throw new Error(
+      `pnpm list returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!Array.isArray(workspaces)) {
+    throw new Error("pnpm list did not return a workspace array");
+  }
+
+  const selectedNames = new Set(
+    workspaces.map((workspace, index) => {
+      const name =
+        workspace && typeof workspace === "object"
+          ? (workspace as PnpmWorkspace).name
+          : undefined;
+      if (typeof name !== "string" || name.length === 0) {
+        throw new Error(
+          `pnpm list returned an invalid workspace entry at index ${index}`,
+        );
+      }
+      return name;
+    }),
+  );
+  const packages = all.filter((pkg) => selectedNames.has(pkg.name));
+
+  return { packages, targeted: true };
 }
 
 function countTestFiles(dir: string): number {
@@ -170,14 +264,21 @@ function emit(key: string, value: string): void {
 }
 
 function summarize(lanes: Lane[], coreFiles: number): void {
+  const targeted = process.env.CI_WORKSPACE_FILTERS !== undefined;
   const lines = [
-    "## Fast tests — full suite, sharded",
+    `## Fast tests — ${targeted ? "targeted" : "full suite"}, sharded`,
     "",
-    `Every test package runs. \`${CORE}\` runs on its own uncapped lane (${coreFiles} files); the rest are split across ${lanes.length} balanced lanes.`,
+    targeted && lanes.length === 0
+      ? "No affected workspace has a test script; targeted fast tests are skipped."
+      : targeted
+        ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes.`
+        : `Every test package runs. \`${CORE}\` runs on its own uncapped lane (${coreFiles} files); the rest are split across ${lanes.length} balanced lanes.`,
     "",
     "| lane | test files | packages |",
     "| --- | ---: | --- |",
-    `| core | ${coreFiles} | ${CORE} |`,
+    ...(process.env.CI_WORKSPACE_FILTERS
+      ? []
+      : [`| core | ${coreFiles} | ${CORE} |`]),
     ...lanes.map(
       (l) => `| ${l.lane} | ${l.files} | ${l.packages.join(", ")} |`,
     ),
@@ -190,14 +291,24 @@ function summarize(lanes: Lane[], coreFiles: number): void {
 
 function main(): void {
   const all = discoverTestPackages();
-  const core = all.find((p) => p.name === CORE);
-  const rest = all.filter((p) => p.name !== CORE);
+  const { packages: selected, targeted } = resolveTestPackages(
+    all,
+    readTargetedFilters(),
+  );
+  const core = targeted ? undefined : selected.find((p) => p.name === CORE);
+  const rest = targeted ? selected : selected.filter((p) => p.name !== CORE);
 
   const lanes = partition(rest, LANES);
   assertFullCoverage(lanes, rest);
 
   emit("matrix", JSON.stringify({ include: lanes }));
+  emit("has_tests", String(rest.length > 0));
   summarize(lanes, core ? countTestFiles(core.dir) : 0);
 }
 
-main();
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main();
+}

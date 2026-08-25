@@ -26,6 +26,7 @@ import {
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
 
+import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
@@ -43,6 +44,9 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  prepareLocalSqliteUrl,
+  sqliteFilenameFromUrl,
+  retrySqliteBusy,
 } from "../db/client.js";
 import {
   CORE_RESET_PASSWORD_EMAIL_ID,
@@ -66,6 +70,7 @@ import {
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
+  type SignupOrigin,
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
@@ -114,6 +119,113 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
   return !!existing?.user?.email;
 }
 
+/**
+ * The canonical Better Auth user id for an email, or `undefined` when there
+ * is no row (or the adapter is unavailable).
+ *
+ * Signup events must carry this id, not the identity provider's subject id:
+ * the virality panels self-join `auth_user_id` against `referrer_user`, and
+ * `referrer_user` is always a Better Auth id, so a Google profile id in that
+ * column silently joins to nothing.
+ */
+export async function getBetterAuthUserIdForEmail(
+  email: string,
+): Promise<string | undefined> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) return undefined;
+  try {
+    const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
+      includeAccounts: false,
+    });
+    return existing?.user?.id || undefined;
+  } catch (error) {
+    // coercion-ok: this is analytics enrichment on the sign-in path. Failing
+    // the sign-in over it would be worse, and the only consequence is one
+    // event missing `auth_user_id` — never a wrong id. Logged, not swallowed.
+    console.error(
+      "[auth] failed to resolve the canonical user id for a signup event",
+      error,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * The endpoint context Better Auth (1.6.x) hands to `user.create.after`. It is
+ * `null` for any row created through `internalAdapter` outside an endpoint —
+ * see `emitSignupEventForCreatedUser`.
+ */
+export interface BetterAuthUserCreateContext {
+  headers?: Headers | null;
+  request?: { headers?: Headers | null; url?: string } | null;
+}
+
+/**
+ * Emit the `signup` event for a freshly created Better Auth `user` row — but
+ * only when that row is an actual person signing up.
+ *
+ * Better Auth runs its create hook on every `user` insert. Only inserts made
+ * through one of its HTTP endpoints carry the originating request; everything
+ * that reaches the row through `internalAdapter` directly gets a null context,
+ * because `getCurrentAuthContext()` throws outside an endpoint. Two production
+ * paths do exactly that, and neither is an acquisition:
+ *
+ *   - `ensureCanonicalUserForLegacySession` backfills a canonical row for
+ *     someone who signed up long ago, on an ordinary authenticated request.
+ *   - `ensureGoogleAuthIdentity` provisions the canonical row during the Google
+ *     callback, whose own attributed event `createOAuthSession` emits.
+ *
+ * Emitting for those is what broke campaign reporting: they arrived with no
+ * browser context and were recorded as `referral_source: "direct"`, so ~94% of
+ * `better-auth` signups were unattributable rows that were never signups, and
+ * one person provisioned across sibling apps counted as a dozen. A row insert
+ * is not an acquisition, so a context-free insert emits nothing at all.
+ */
+export async function emitSignupEventForCreatedUser(
+  user: { id?: string; email?: string; name?: string | null },
+  context?: BetterAuthUserCreateContext | null,
+): Promise<void> {
+  const email = user?.email;
+  if (!email) return;
+
+  const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
+  if (!requestHeaders) return;
+
+  const scoped = hasContinuationLocalRequestContext()
+    ? getRequestContext()
+    : undefined;
+  let attribution: Record<string, string> | undefined;
+  let anonymousId: string | undefined;
+  try {
+    const browser =
+      // The signed magic-link token is the only source that survives the link
+      // being opened in a different browser than the one that requested it.
+      (context?.request?.url?.includes("newUserCallbackURL")
+        ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
+        : undefined) ??
+      scoped?.signupAttribution ??
+      signupAttributionContextFromHeaders(requestHeaders) ??
+      signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
+    attribution = browser?.attribution;
+    anonymousId = browser?.anonymousId;
+  } catch (err) {
+    // Analytics must never block signup, but a parse failure is not "this
+    // visitor came direct" — leave both unset so the event shows the gap
+    // instead of inventing a source for it.
+    console.error("[auth] failed to derive signup attribution", err);
+  }
+
+  await trackSignupEvent({
+    authProvider: "better-auth",
+    origin: scoped?.signupOrigin ?? "browser_signup",
+    authUserId: user.id,
+    email,
+    name: user.name,
+    attribution,
+    anonymousId,
+  });
+}
+
 /** Return whether the canonical user has a verified Google account link. */
 export async function hasGoogleAuthIdentity(
   email: string,
@@ -131,6 +243,7 @@ export async function hasGoogleAuthIdentity(
 
 export async function trackSignupEvent({
   authProvider,
+  origin,
   authUserId,
   email,
   name,
@@ -138,6 +251,7 @@ export async function trackSignupEvent({
   anonymousId,
 }: {
   authProvider: string;
+  origin: SignupOrigin;
   authUserId?: string;
   email: string;
   name?: string | null;
@@ -146,7 +260,9 @@ export async function trackSignupEvent({
    * cookie (see `server/attribution.ts`). Snake_case keys such as
    * `referral_source`, `referrer_user`, and the UTM passthrough are merged
    * into the `signup` event so we can measure where new users came from.
-   * `undefined` values are dropped; a missing object is a clean no-op.
+   * `undefined` values are dropped; a missing object is a clean no-op — and
+   * it must stay a no-op rather than defaulting to `direct`, so a signup we
+   * could not attribute stays visibly different from an unattributed visit.
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
@@ -169,6 +285,7 @@ export async function trackSignupEvent({
     {
       ...resolveSignupTrackingProperties(),
       auth_provider: authProvider,
+      signup_origin: origin,
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
@@ -392,6 +509,19 @@ export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
   requireEmailVerification: boolean;
   disableSignUp: boolean;
 } {
+  const declared = getAppConfig().auth.requireEmailVerification;
+  if (declared !== undefined) {
+    // A declared policy is the whole policy — it outranks both the hosted
+    // derivation below and AUTH_SKIP_EMAIL_VERIFICATION. Choosing `false` is
+    // choosing to accept an unverified email as a login credential, so the
+    // signup lock that exists to prevent exactly that comes off with it.
+    return {
+      requireEmailVerification: declared && emailConfigured,
+      // Verification that no provider can deliver would strand every new
+      // account on an unverifiable signup, so refuse the signup instead.
+      disableSignUp: declared && !emailConfigured,
+    };
+  }
   const hosted = process.env.NODE_ENV === "production" || isDeployPreview();
   return {
     requireEmailVerification:
@@ -764,7 +894,12 @@ export async function getBetterAuth(
   if (_auth) return _auth;
   if (_initPromise) return _initPromise;
 
-  _initPromise = createBetterAuthInstance(config);
+  // A failed boot must not be cached: every later request would replay the same
+  // stale error with no way back short of restarting the process.
+  _initPromise = createBetterAuthInstance(config).catch((error) => {
+    _initPromise = undefined;
+    throw error;
+  });
   _auth = await _initPromise;
   return _auth;
 }
@@ -1447,61 +1582,13 @@ async function createBetterAuthInstance(
               request?: { headers?: Headers | null; url?: string } | null;
             } | null,
           ) => {
-            // When a newly-created user's email has pending org invitations
-            // (common when someone is invited *before* they've signed up),
-            // auto-accept them so the user lands in the org on their very
-            // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
-            // Derive first-touch referral attribution from the request's
-            // cookie header. Never let attribution parsing throw or block
-            // signup — on any error fall back to `direct`.
-            let attribution: Record<string, string> | undefined;
-            let anonymousId: string | undefined;
-            try {
-              const cookieHeader =
-                context?.headers?.get("cookie") ??
-                context?.request?.headers?.get("cookie") ??
-                null;
-              const scopedSignupAttribution =
-                hasContinuationLocalRequestContext()
-                  ? getRequestContext()?.signupAttribution
-                  : undefined;
-              const requestSignupAttribution =
-                signupAttributionContextFromCookieHeader(cookieHeader);
-              const headerSignupAttribution =
-                signupAttributionContextFromHeaders(context?.headers) ??
-                signupAttributionContextFromHeaders(context?.request?.headers);
-              const magicLinkAttribution = context?.request?.url?.includes(
-                "newUserCallbackURL",
-              )
-                ? readMagicLinkSignupAttribution(
-                    context.request.url,
-                    getAuthSecret(),
-                  )
-                : undefined;
-              attribution =
-                magicLinkAttribution?.attribution ??
-                scopedSignupAttribution?.attribution ??
-                headerSignupAttribution?.attribution ??
-                requestSignupAttribution.attribution;
-              anonymousId =
-                magicLinkAttribution?.anonymousId ??
-                scopedSignupAttribution?.anonymousId ??
-                headerSignupAttribution?.anonymousId ??
-                requestSignupAttribution.anonymousId;
-            } catch (err) {
-              console.error("[auth] failed to derive signup attribution", err);
-              attribution = undefined;
-            }
-            await trackSignupEvent({
-              authProvider: "better-auth",
-              authUserId: user.id,
-              email,
-              name: user.name,
-              attribution,
-              anonymousId,
-            });
+
+            await emitSignupEventForCreatedUser(user, context);
+
+            // Invitations and domain auto-join are about the row existing, not
+            // about how it got here, so they run for backfills too.
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
@@ -1671,11 +1758,22 @@ async function createBetterAuthInstance(
  * as the shared app connection. Better Auth uses its own SQLite handle, so the
  * app connection's busy timeout does not protect first-run account creation.
  */
-export function configureLocalSqlite(sqlite: {
+export async function configureLocalSqlite(sqlite: {
   pragma(statement: string): unknown;
-}): void {
+  close?(): void;
+}): Promise<void> {
   sqlite.pragma("busy_timeout = 10000");
-  sqlite.pragma("journal_mode = WAL");
+  try {
+    // Vite can start a replacement Nitro runtime while the previous instance is
+    // still releasing app.db, and the busy timeout can expire during that
+    // handoff, so retry the idempotent WAL negotiation.
+    await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+      rethrow: true,
+    });
+  } catch (error) {
+    sqlite.close?.();
+    throw error;
+  }
 }
 
 export async function buildDatabaseConfig(
@@ -1772,9 +1870,11 @@ export async function buildDatabaseConfig(
   if (url.startsWith("file:") || !url.includes("://")) {
     // Local SQLite via better-sqlite3
     const { default: Database } = await import("better-sqlite3");
-    const filePath = url.replace(/^file:/, "");
-    const sqlite = new Database(filePath);
-    configureLocalSqlite(sqlite);
+    const sqliteUrl = await prepareLocalSqliteUrl(
+      url.startsWith("file:") ? url : `file:${url}`,
+    );
+    const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
+    await configureLocalSqlite(sqlite);
     const { drizzle } = await import("drizzle-orm/better-sqlite3");
     const db = drizzle(sqlite, { schema: sqliteAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");

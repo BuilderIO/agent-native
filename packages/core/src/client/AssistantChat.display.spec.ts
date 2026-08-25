@@ -157,6 +157,7 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain(
       "writeAssistantChatComposerDraft(composerDraftScope, text)",
     );
+    expect(source).toContain("const composerDraftScope = tabId || threadId;");
     expect(source).toContain("initialTextKey={composerDraftScope}");
     expect(source).toContain("draftScope={composerDraftScope}");
   });
@@ -1563,8 +1564,8 @@ describe("tool approval continuation", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
-    const start = source.indexOf("onApprove: (approvalKey: string) => {");
-    const end = source.indexOf("...(approvalActions?.onDeny", start);
+    const start = source.indexOf("const approveToolCall = useCallback");
+    const end = source.indexOf("const approvalCtx = useMemo", start);
     const approvalSource = source.slice(start, end);
 
     expect(start).toBeGreaterThan(-1);
@@ -2265,7 +2266,29 @@ describe("chat submit and stop hardening", () => {
     expect(dequeueSource).toContain(
       "setQueueWakeVersion((version) => version + 1);",
     );
+    expect(dequeueSource).toContain("ACTIVE_RUN_CLEAR_RETRY_DELAY_MS");
+    expect(dequeueSource).toContain("if (!runCleared)");
     expect(dequeueSource).toContain("queueWakeVersion,");
+  });
+
+  it("uses the server-active snapshot to keep a handoff queued", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const serverRunStart = source.indexOf(
+      "const serverRunState = useRunStuckDetection({",
+    );
+    const runningStart = source.indexOf(
+      "const { isRunning, showRunningInUI } = resolveAssistantChatRunningState({",
+    );
+    const runningEnd = source.indexOf("const textStreaming", runningStart);
+    const runningSource = source.slice(runningStart, runningEnd);
+
+    expect(serverRunStart).toBeGreaterThan(-1);
+    expect(runningStart).toBeGreaterThan(serverRunStart);
+    expect(runningSource).toContain(
+      "hasActiveServerRun: hasActiveServerRun || serverRunActive",
+    );
   });
 });
 
@@ -2273,6 +2296,7 @@ describe("waitForThreadRunToClear", () => {
   afterEach(() => {
     clearActiveRun();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("reattaches to a deferred successor instead of clearing its queued follow-up", async () => {
@@ -2304,6 +2328,44 @@ describe("waitForThreadRunToClear", () => {
       runId: "run-deferred-successor",
       lastSeq: -1,
     });
+  });
+
+  it("does not release a queued follow-up after a transient idle snapshot", async () => {
+    vi.useFakeTimers();
+    const activeRun = (runId: string) => ({
+      active: true,
+      runId,
+      status: "running",
+      lastProgressAt: Date.now(),
+      serverNow: Date.now(),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => activeRun("run-original"),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ active: false, status: "completed" }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => activeRun("run-successor"),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resultPromise = waitForThreadRunToClear(
+      "/_agent-native/agent-chat",
+      "thread-handoff",
+    );
+    for (let poll = 0; poll < 40; poll += 1) {
+      await vi.advanceTimersByTimeAsync(150);
+    }
+
+    await expect(resultPromise).resolves.toBe(false);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
+    expect(getActiveRun()?.runId).toBe("run-successor");
   });
 
   it("uses server-relative run progress when deciding whether an active run is stale", () => {

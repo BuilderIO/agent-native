@@ -213,6 +213,13 @@ function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
+  return [info.message, info.details].some(
+    (value): value is string =>
+      typeof value === "string" && /desktop app chat relay failed/i.test(value),
+  );
+}
+
 // ─── BuilderConnectCta ────────────────────────────────────────────────────────
 // Renders a single row with left-aligned copy and a right-aligned action.
 // Click opens the Builder OAuth popup via the shared
@@ -505,7 +512,8 @@ export function RunErrorRecoveryCard({
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
-  const shouldShowMissingProviderSetup = isMissingLlmProviderRunError(info);
+  const shouldShowProviderSetup =
+    isMissingLlmProviderRunError(info) || isDesktopChatRelayRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
@@ -594,7 +602,7 @@ export function RunErrorRecoveryCard({
     }
   }, [builderReconnectResolved, onDismiss]);
 
-  if (shouldShowMissingProviderSetup) {
+  if (shouldShowProviderSetup) {
     return (
       <div className="w-full">
         <BuilderSetupCard

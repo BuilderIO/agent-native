@@ -782,9 +782,9 @@ export async function runJobNow(
   owner: string,
   name: string,
   deps: SchedulerDeps,
-  options: { historyId?: string } = {},
+  options: { historyId?: string; path?: string } = {},
 ): Promise<JobExecutionResult> {
-  const path = `jobs/${name}.md`;
+  const path = options.path ?? `jobs/${name}.md`;
   const resource = await resourceGetByPath(owner, path);
   if (!resource) throw new Error(`Automation "${name}" not found.`);
   const { meta, body } = parseJobFrontmatter(resource.content);
@@ -814,6 +814,7 @@ export async function runQueuedAutomation(
   }
   const result = await runJobNow(queued.owner, queued.automation, deps, {
     historyId,
+    path: queued.path,
   });
   return {
     skipped: false,

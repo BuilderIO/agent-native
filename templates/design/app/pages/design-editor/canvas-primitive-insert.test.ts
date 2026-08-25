@@ -157,6 +157,28 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     ).toBeGreaterThan(innerAt);
   });
 
+  it("positions a pen path nested in a frame in that frame's coordinates", () => {
+    const withFrame =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "frame",
+        geometry: { x: 40, y: 120, width: 600, height: 400 },
+      }) ?? "";
+    const html =
+      appendCanvasPrimitiveToHtml(withFrame, {
+        kind: "path",
+        nodeId: "vector",
+        geometry: { x: 100, y: 240, width: 200, height: 130 },
+        pathData: "M 100 340 L 200 240 L 300 370",
+      }) ?? "";
+    const vectorAt = html.indexOf('data-agent-native-node-id="vector"');
+    const style = html.slice(vectorAt, html.indexOf(">", vectorAt));
+    // Screen-absolute values here render the vector offset by the frame's own
+    // origin — 60,120 is 100,240 expressed inside a frame at 40,120.
+    expect(style).toContain("left:60px");
+    expect(style).toContain("top:120px");
+  });
+
   it("gives text in a dark frame a light fill even on a light page", () => {
     const withDarkFrame =
       appendCanvasPrimitiveToHtml(

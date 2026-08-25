@@ -144,6 +144,7 @@ const messages = {
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
     backToLibrary: "Back to library",
+    sharedWithYou: "Shared with you",
     storageStillDisconnected: "Storage still isn't connected",
     finishBuilderOrS3:
       "Finish the Builder.io popup or configure S3-compatible storage, then try again.",
@@ -351,6 +352,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "Untitled meeting",
+    recordedBy: "Recorded by {{name}}",
     unassigned: "Unassigned",
     them: "Them",
     me: "Me",
@@ -358,6 +360,10 @@ const messages = {
     meetingRemoved: "Meeting removed",
     couldNotRemoveMeeting: "Couldn't remove meeting",
     couldNotLoadMeeting: "Couldn't load this meeting.",
+    retry: "Retry",
+    meetingNotFound: "Meeting not found",
+    meetingUnavailable: "This meeting isn't available.",
+    noAccess: "You may not have access to this meeting.",
     transcriptCopied: "Transcript copied",
     couldNotCopyTranscript: "Couldn't copy transcript",
     allMeetings: "All meetings",
@@ -510,6 +516,7 @@ const messages = {
     height: "Height",
     autoplay: "Autoplay",
     startAt: "Start at (seconds)",
+    startAtTimestamp: "Start at {{time}}",
     embedCode: "Embed code",
   },
   shareUi: {

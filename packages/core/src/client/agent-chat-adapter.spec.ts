@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  MAX_FOLLOWED_BACKGROUND_RUNS,
+} from "../app-config/run-lifecycle-invariants.js";
+import {
   getActiveRun,
   getPendingTurn,
   clearActiveRun,
@@ -13,8 +17,6 @@ import {
   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
-  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
-  MAX_FOLLOWED_BACKGROUND_RUNS,
 } from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
@@ -7902,6 +7904,84 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("replays a terminal snapshot even when the active flag has already cleared", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Started " },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-terminal-after-release",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: false,
+          runId: "run-terminal-after-release",
+          threadId: "thread-terminal-after-release",
+          turnId: requestTurnId,
+          status: "completed",
+          terminalReason: "done",
+          dispatchMode: "background-processing",
+        });
+      }
+      if (url.includes("/runs/run-terminal-after-release/events")) {
+        return backgroundSseResponse(
+          [{ type: "text", text: "finished" }, { type: "done" }],
+          "run-terminal-after-release",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-terminal-after-release",
+      threadId: "thread-terminal-after-release",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+    const last = results.at(-1) as any;
+
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.content.map((part: any) => part.text).join(" ")).toContain(
+      "finished",
+    );
+    expect(last.content.map((part: any) => part.text).join(" ")).not.toContain(
+      "no continuation appeared",
+    );
+  });
+
   it("never condemns a run because the /runs/active poll itself failed", async () => {
     // "The poll failed" is not "the run is gone". A 5xx from this route used
     // to coerce to active=false, fall into the no-active-run branch, and drive
@@ -8170,7 +8250,7 @@ describe("createAgentChatAdapter", () => {
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     } = await import("../agent/run-store.js");
     const { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } =
-      await import("../agent/run-manager.js");
+      await import("../app-config/run-lifecycle-invariants.js");
 
     const worstCaseFirstAttemptMs =
       UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
@@ -8229,12 +8309,19 @@ describe("createAgentChatAdapter", () => {
     // The client is a backstop for a silent server, not the primary limit:
     // it fires on a clock and cannot tell looping from working. Anything that
     // is NOT progressing is already caught by BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
-    // and the repeated-terminal-reason detector. Imports the REAL server
-    // constants so this breaks the moment either side drifts.
-    const { BACKGROUND_SOFT_TIMEOUT_CEILING_MS } =
-      await import("../agent/run-manager.js");
-    const { MAX_TURN_WALL_CLOCK_MS, MAX_BACKGROUND_RUN_CONTINUATIONS } =
-      await import("../agent/production-agent.js");
+    // and the repeated-terminal-reason detector.
+    //
+    // This pins the DEFAULTS. It is no longer the whole enforcement: the server
+    // bounds below are runtime-configurable, so a deployment can move them
+    // without touching a constant this test can see. The live check is
+    // `assertRunLifecycleInvariants`, which asserts the same three
+    // relationships against the RESOLVED configuration when it resolves. Keep
+    // both — this one fails fast on a bad default, that one on a bad deploy.
+    const {
+      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+      MAX_BACKGROUND_RUN_CONTINUATIONS,
+      MAX_TURN_WALL_CLOCK_MS,
+    } = await import("../app-config/run-lifecycle-invariants.js");
 
     // A single full-length chunk must fit inside the whole-turn client budget
     // with room for more than one of them; this is the exact inversion that

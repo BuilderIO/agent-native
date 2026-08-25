@@ -1,11 +1,11 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 
 export default defineAction({
   description:
-    "Get personal or workspace LLM usage, spend or Builder.io credit spend, app attribution, prompt previews, and recent activity metrics for Dispatch.",
+    "Get personal or workspace LLM usage, spend or Builder.io credit spend, app attribution, prompt previews, and recent activity metrics for Dispatch. Workspace results also include monthlyByUser credit rows and workspaceAppCreationsByUserMonth rows from the shared token_usage and Dispatch audit tables.",
   schema: z.object({
     sinceDays: z.coerce
       .number()
@@ -26,5 +26,13 @@ export default defineAction({
       .describe("Optional workspace member email to filter all usage to."),
   }),
   http: { method: "GET" },
+  readOnly: true,
+  parallelSafe: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: true,
+    isConsequential: false,
+  },
   run: async (args) => listDispatchUsageMetrics(args),
 });

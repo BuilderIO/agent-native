@@ -39,7 +39,10 @@ export interface ScreenVisualStyleChangeArgs {
     selector: string,
     styles: Record<string, string>,
     elementInfo?: ElementInfo,
-    metadata?: { originalStyles?: Record<string, string> },
+    metadata?: {
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   overviewScreens: OverviewScreen[];
   recordPendingVisualStyleEdit: (
@@ -49,6 +52,7 @@ export interface ScreenVisualStyleChangeArgs {
     elementInfo?: ElementInfo,
     metadata?: {
       originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
       interactionState?: InteractionState;
     },
   ) => void;
@@ -75,7 +79,10 @@ export function runScreenVisualStyleChange(
   selector: string,
   styles: Record<string, string>,
   elementInfo?: ElementInfo,
-  metadata?: { originalStyles?: Record<string, string> },
+  metadata?: {
+    originalStyles?: Record<string, string>;
+    preserveSelection?: boolean;
+  },
 ) {
   if (screenId === activeFile?.id) {
     handleVisualStyleChange(selector, styles, elementInfo, metadata);

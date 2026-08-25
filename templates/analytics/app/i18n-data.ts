@@ -468,6 +468,9 @@ const enUS = {
     adminOnlyTitle: "Admin access required",
     adminOnlyDescription:
       "Only organization owners and admins can open Analytics admin tools.",
+    roleUnavailableTitle: "Couldn't verify your access",
+    roleUnavailableDescription:
+      "We couldn't check your organization role: {{message}}",
     notTracked: "Not tracked",
     visibilityprivate: "Private",
     visibilityorg: "Shared with org",
@@ -13018,6 +13021,8 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "需要管理员权限",
       adminOnlyDescription:
         "只有组织所有者和管理员可以打开 Analytics 管理工具。",
+      roleUnavailableTitle: "无法验证你的访问权限",
+      roleUnavailableDescription: "无法检查你的组织角色：{{message}}",
       notTracked: "未跟踪",
       visibilityprivate: "私有",
       visibilityorg: "与组织共享",
@@ -13066,6 +13071,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Se requiere acceso de administrador",
       adminOnlyDescription:
         "Solo los propietarios y administradores de la organización pueden abrir las herramientas de administración de Analytics.",
+      roleUnavailableTitle: "No se pudo verificar tu acceso",
+      roleUnavailableDescription:
+        "No pudimos comprobar tu rol en la organización: {{message}}",
       notTracked: "No registrado",
       visibilityprivate: "Privado",
       visibilityorg: "Compartido con la organización",
@@ -13114,6 +13122,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Accès administrateur requis",
       adminOnlyDescription:
         "Seuls les propriétaires et administrateurs de l'organisation peuvent ouvrir les outils d'administration Analytics.",
+      roleUnavailableTitle: "Impossible de vérifier votre accès",
+      roleUnavailableDescription:
+        "Nous n'avons pas pu vérifier votre rôle dans l'organisation : {{message}}",
       notTracked: "Non suivi",
       visibilityprivate: "Privé",
       visibilityorg: "Partagé avec l'organisation",
@@ -13162,6 +13173,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Adminzugriff erforderlich",
       adminOnlyDescription:
         "Nur Organisationsinhaber und Administratoren können Analytics-Admin-Tools öffnen.",
+      roleUnavailableTitle: "Zugriff konnte nicht überprüft werden",
+      roleUnavailableDescription:
+        "Deine Organisationsrolle konnte nicht überprüft werden: {{message}}",
       notTracked: "Nicht erfasst",
       visibilityprivate: "Privat",
       visibilityorg: "Mit Organisation geteilt",
@@ -13210,6 +13224,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "管理者アクセスが必要です",
       adminOnlyDescription:
         "組織の所有者と管理者のみが Analytics 管理ツールを開けます。",
+      roleUnavailableTitle: "アクセス権を確認できませんでした",
+      roleUnavailableDescription:
+        "組織内のロールを確認できませんでした: {{message}}",
       notTracked: "未追跡",
       visibilityprivate: "非公開",
       visibilityorg: "組織と共有",
@@ -13257,6 +13274,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "관리자 권한 필요",
       adminOnlyDescription:
         "조직 소유자와 관리자만 Analytics 관리 도구를 열 수 있습니다.",
+      roleUnavailableTitle: "접근 권한을 확인할 수 없습니다",
+      roleUnavailableDescription:
+        "조직 역할을 확인하지 못했습니다: {{message}}",
       notTracked: "추적 안 됨",
       visibilityprivate: "비공개",
       visibilityorg: "조직과 공유됨",
@@ -13305,6 +13325,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "Acesso de administrador necessário",
       adminOnlyDescription:
         "Somente proprietários e administradores da organização podem abrir as ferramentas administrativas do Analytics.",
+      roleUnavailableTitle: "Não foi possível verificar seu acesso",
+      roleUnavailableDescription:
+        "Não conseguimos verificar sua função na organização: {{message}}",
       notTracked: "Não rastreado",
       visibilityprivate: "Privado",
       visibilityorg: "Compartilhado com a organização",
@@ -13352,6 +13375,9 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "एडमिन access आवश्यक है",
       adminOnlyDescription:
         "केवल organization owners और admins Analytics admin tools खोल सकते हैं।",
+      roleUnavailableTitle: "आपका access सत्यापित नहीं किया जा सका",
+      roleUnavailableDescription:
+        "हम आपकी organization role जांच नहीं सके: {{message}}",
       notTracked: "ट्रैक नहीं किया गया",
       visibilityprivate: "निजी",
       visibilityorg: "संगठन के साथ साझा",
@@ -13400,6 +13426,8 @@ const translatedDashboardAdminTranslations = {
       adminOnlyTitle: "مطلوب وصول مسؤول",
       adminOnlyDescription:
         "يمكن لمالكي المؤسسة والمسؤولين فقط فتح أدوات إدارة Analytics.",
+      roleUnavailableTitle: "تعذر التحقق من وصولك",
+      roleUnavailableDescription: "تعذر التحقق من دورك في المؤسسة: {{message}}",
       notTracked: "غير متتبع",
       visibilityprivate: "خاص",
       visibilityorg: "مشترك مع المؤسسة",

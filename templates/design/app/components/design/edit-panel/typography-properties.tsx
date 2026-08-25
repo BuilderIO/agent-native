@@ -22,6 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -40,6 +41,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 import { ScrubInput } from "../inspector";
@@ -174,6 +176,9 @@ function TypographyDetailsPopover({
   onTextCaseChange: (value: string) => void;
 }) {
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TypographyDetailsTab>("basics");
 
@@ -249,7 +254,7 @@ function TypographyDetailsPopover({
               <InspectorSegment>
                 <InspectorIconButton
                   label={t("editPanel.textDecorations.underline")}
-                  shortcut="⌘U"
+                  shortcut={shortcut("$mod+u")}
                   active={underlineActive}
                   onClick={onToggleUnderline}
                 >
@@ -257,7 +262,7 @@ function TypographyDetailsPopover({
                 </InspectorIconButton>
                 <InspectorIconButton
                   label={t("editPanel.textDecorations.strikethrough")}
-                  shortcut="⌘⇧X"
+                  shortcut={shortcut("$mod+shift+x")}
                   active={strikethroughActive}
                   onClick={onToggleStrikethrough}
                 >

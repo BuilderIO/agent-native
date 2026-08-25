@@ -425,6 +425,12 @@ const ptBR = {
     source: "Fonte",
     readDocs: "Leia os documentos",
     signIn: "Entrar",
+    tryTemplateFree: "Experimente {{name}} grátis",
+    designForFree: "Crie de graça",
+    recordForFree: "Grave de graça",
+    getStarted: "Começar",
+    freeAndOpenSource: "100% grátis • código aberto",
+    viewAllApps: "Ver todos os apps",
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
@@ -438,7 +444,7 @@ const ptBR = {
       "Aplicativos independentes mantidos por seus autores. Instale a partir de um repositório público do GitHub ou experimente uma versão hospedada quando disponível.",
     submitCommunityTemplate: "Enviar seu modelo",
     communityEmpty:
-      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent Native focado em um repositório público e envie-o para o catálogo.",
+      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado em um repositório público e envie-o para o catálogo.",
     publishGuide: "Ler o guia de publicação",
     communityTrust:
       "Modelos da comunidade são código de terceiros. Revise o repositório, a licença, as dependências e os scripts de instalação antes de executá-lo.",
@@ -1679,6 +1685,55 @@ const ptBR = {
         builderPrivacyFull: "Builder.io Política de Privacidade",
       },
     },
+    about: {
+      eyebrow: "Sobre o Agent-Native",
+      title: "Apps de código aberto para agentes e pessoas",
+      intro:
+        "Agent-Native é um framework de código aberto para criar aplicações em que agentes de IA e interfaces compartilham as mesmas ações, dados e estado da aplicação.",
+      sections: {
+        project: {
+          title: "Um modelo operacional compartilhado",
+          body: "O Agent-Native trata o agente e a interface como parceiros iguais. Uma ação pode alimentar um controle de UI, uma ferramenta do agente, uma rota HTTP, uma capacidade MCP ou A2A, um comando de CLI e um fluxo auditável. O estado SQL compartilhado mantém a visão humana e a do agente alinhadas.",
+        },
+        openSource: {
+          title: "Código aberto por padrão",
+          body: "O código-fonte está disponível sob a licença MIT no repositório BuilderIO/agent-native. Desenvolvedores podem inspecioná-lo, executá-lo localmente, escolher seus provedores de banco e modelos e adaptá-lo ao produto. Os serviços hospedados são operados separadamente de forks e implantações próprias.",
+        },
+        hosted: {
+          title: "Hospedado e autohospedado",
+          body: "A Builder.io opera as aplicações hospedadas e a documentação do Agent-Native em agent-native.com. O framework também atende equipes que querem implantar e manter suas próprias aplicações. Os contratos de ações, limites de acesso, instruções de agentes e protocolos públicos podem ser revisados no código e na documentação.",
+        },
+        community: {
+          title: "Construído em público",
+          body: "O projeto é desenvolvido abertamente por meio de issues, pull requests, documentação e da comunidade Agent-Native. Leia a documentação para entender a arquitetura, consulte o código para verificar uma implementação ou participe da comunidade para discutir um caso de uso e contribuir.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "Contato",
+      title: "Entre em contato com a Builder.io sobre o Agent-Native",
+      intro:
+        "Use os canais de suporte, código e comunidade para fazer perguntas, relatar problemas, sugerir melhorias ou comunicar uma preocupação de segurança sobre o Agent-Native.",
+      emailLabel: "Enviar e-mail para support@builder.io",
+      sections: {
+        support: {
+          title: "Suporte do produto e do serviço hospedado",
+          body: "Para dúvidas sobre uma aplicação hospedada, acesso à conta, um problema na documentação ou um comportamento que você não consegue resolver, escreva para support@builder.io. Inclua a URL pública, uma descrição reproduzível e identificadores relevantes. Não envie senhas, chaves de API, tokens bearer ou dados privados de clientes.",
+        },
+        source: {
+          title: "Projeto de código aberto e comunidade",
+          body: "Use o repositório no GitHub para bugs no código, propostas, pull requests e discussões de implementação. O Discord é útil para perguntas que se beneficiam da conversa com outros desenvolvedores. Pesquise primeiro as issues e a documentação para fornecer o contexto necessário aos mantenedores.",
+        },
+        security: {
+          title: "Relatos de segurança",
+          body: "Não divulgue uma vulnerabilidade sem correção em uma issue ou chat público. Entre em contato com a Builder.io pelo canal de segurança disponível e forneça apenas os detalhes necessários para reproduzir e avaliar o relato. Mantenha credenciais, dados privados e material de exploração fora do suporte comum.",
+        },
+        legal: {
+          title: "Legal e privacidade",
+          body: "Para dúvidas de privacidade, consulte a política de privacidade do Agent-Native e os recursos legais da Builder.io antes de falar com o suporte. A Builder.io, Inc. fica em 95 3rd Street, 2nd Floor, San Francisco, CA 94103, Estados Unidos. Os termos do serviço hospedado e as responsabilidades de autohospedagem estão nos Termos de Serviço.",
+        },
+      },
+    },
     terms: {
       eyebrow: "Termos de Serviço",
       title: "Agent-Native aplicativos hospedados",
@@ -1929,8 +1984,8 @@ const ptBR = {
     calendar: "Calendário",
     calendarOverview: "Visão geral",
     calendarAgent: "Conversar com o Agent",
-    calendarScheduling: "Agendamento e disponibilidade",
-    calendarBookingLinks: "Links de reserva",
+    calendarFeatures: "Funcionalidades",
+    calendarIntegrations: "Uso entre apps",
     calendarDevelopers: "Guia do desenvolvedor",
     content: "Conteúdo",
     contentOverview: "Visão geral",

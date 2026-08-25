@@ -1,6 +1,7 @@
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "../shared/agent-sidebar-url.js";
 import { hasChatThreadDeepLink } from "./chat-thread-url.js";
 
@@ -110,6 +111,7 @@ export function getAgentSidebarUrlOpenOverride(): boolean | null {
     const url = new URL(window.location.href);
     const value = url.searchParams.get(AGENT_SIDEBAR_QUERY_PARAM);
     if (value === AGENT_SIDEBAR_QUERY_VALUE_CLOSED) return false;
+    if (value === AGENT_SIDEBAR_QUERY_VALUE_OPEN) return true;
   } catch {}
   return null;
 }
