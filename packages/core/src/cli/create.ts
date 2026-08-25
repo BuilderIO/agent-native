@@ -1075,9 +1075,8 @@ function cleanupOnFailure(targetDir: string): void {
  * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
  * that don't already exist into the current directory so pre-existing files
  * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
- * the staging dir. Git init/commit is skipped when the current directory is
- * already a repo so we never write an unexpected commit into the user's
- * history.
+ * the staging dir. Git init/commit is skipped when the scaffold lands inside a
+ * repo so we never write an unexpected commit into the user's history.
  */
 function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
   if (!inPlace) {
@@ -1094,8 +1093,27 @@ function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
 }
 
 function tryGitInitUnlessRepo(dir: string): void {
-  if (fs.existsSync(path.join(dir, ".git"))) return;
+  if (findEnclosingRepo(dir)) return;
   tryGitInit(dir);
+}
+
+/**
+ * Nearest ancestor of `dir` (inclusive) holding a `.git` entry.
+ *
+ * Checking only `dir` leaves `create <name>` run from inside a checkout with a
+ * repo nested in another one. Copying such a scaffold into its parent — the
+ * `cp -a scaffold/. .` that finishing a generated workspace usually ends with —
+ * drags `.git/HEAD` along and silently moves the parent onto the scaffold's
+ * branch, taking the working tree with it.
+ */
+function findEnclosingRepo(dir: string): string | undefined {
+  let current = path.resolve(dir);
+  for (;;) {
+    if (fs.existsSync(path.join(current, ".git"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

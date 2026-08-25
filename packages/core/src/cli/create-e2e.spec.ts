@@ -475,6 +475,43 @@ describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
     return { readme, gitignore, head: git(dir, ["rev-parse", "HEAD"]) };
   }
 
+  it("does not nest a repo when scaffolding into an existing checkout", async () => {
+    const dir = path.join(tmpDir, "outer-repo");
+    const { head } = setupExistingRepo(dir);
+    const branch = git(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    process.chdir(dir);
+
+    await createApp("generated-workspace", { template: "headless" });
+
+    const scaffold = path.join(dir, "generated-workspace");
+    expect(fs.existsSync(path.join(scaffold, "actions", "hello.ts"))).toBe(
+      true,
+    );
+
+    // A nested .git here is what a later `cp -a generated-workspace/. .` drags
+    // over the parent's HEAD.
+    expect(fs.existsSync(path.join(scaffold, ".git"))).toBe(false);
+
+    // The enclosing repo is left exactly as it was.
+    expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+    expect(git(dir, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe(branch);
+    expect(git(dir, ["status", "--porcelain"])).toContain(
+      "?? generated-workspace/",
+    );
+  });
+
+  it("still inits a repo for a scaffold outside any checkout", async () => {
+    process.chdir(tmpDir);
+
+    await createApp("standalone-app", { template: "headless" });
+
+    const scaffold = path.join(tmpDir, "standalone-app");
+    expect(fs.existsSync(path.join(scaffold, ".git"))).toBe(true);
+    expect(git(scaffold, ["log", "-1", "--pretty=%s"])).toBe(
+      "Initial commit from agent-native create",
+    );
+  });
+
   it("preserves .git, README.md, .gitignore and existing history", async () => {
     const dir = path.join(tmpDir, "in-place-app");
     const { readme, gitignore, head } = setupExistingRepo(dir);
