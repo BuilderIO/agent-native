@@ -5013,8 +5013,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   opacity: 0.5;
 }
 
-.pill-ask-send,
-.pill-ask-open {
+.pill-ask-send {
   display: inline-flex;
   height: 28px;
   width: 28px;
@@ -5044,11 +5043,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-ask-send:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-.pill-ask-open:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f5f5f5;
 }
 
 .lt-chat {
