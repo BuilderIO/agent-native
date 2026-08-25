@@ -51,6 +51,7 @@ export function FeaturesActions() {
         <img
           src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052eaec881c436c94f1cfbf5a14a6d1"
           alt="One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI"
+          crossOrigin="anonymous"
           style={{
             display: "block",
             width: "100%",
