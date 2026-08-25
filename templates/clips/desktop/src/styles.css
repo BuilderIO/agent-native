@@ -5232,6 +5232,14 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0 8px 0 14px;
 }
 
+/* Everything in the header that is not text rides the measured shift, so the
+   glyphs sit on the title's optical centre rather than on its box centre.
+   Zero until measured, so a missing measurement changes nothing. */
+.pill-inner:not(.pill-inner-compact) .pill-controls,
+.pill-inner:not(.pill-inner-compact) .pill-wave-meter {
+  transform: translateY(var(--header-ink-shift, 0px));
+}
+
 .pill-inner:not(.pill-inner-compact) .pill-media {
   display: flex;
   min-width: 0;

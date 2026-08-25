@@ -36,6 +36,10 @@ import { AskSteps } from "./ask-steps";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
+/** Cap height as a fraction of font size, for the system faces this stack
+ *  resolves to. Used to find a line of text's optical centre. */
+const CAP_HEIGHT_RATIO = 0.72;
+
 /** A cursor crossing the capsule should not open it. Matches the recorder. */
 const HOVER_INTENT_MS = 150;
 
@@ -610,35 +614,78 @@ export function MeetingPill() {
     syncCapsuleWindow,
   ]);
 
-  // Dev-only alignment probe. Chrome and WKWebView resolve system-font metrics
-  // differently, so header alignment measured in the browser preview does not
-  // prove anything about the shipped webview — this prints the real numbers
-  // into the dev log. Remove once the header is confirmed.
+  /**
+   * Put the header's glyphs on the title's optical centre line.
+   *
+   * Flexbox centres boxes, and a text box is not centred on its own ink: the
+   * ink sits wherever the font's ascent, descent and half-leading put it.
+   * Chrome and this app's webview do not resolve `-apple-system` to the same
+   * metrics — measured in the shipped webview, the controls sat 3.68px below
+   * the title's cap centre while Chrome put them within 0.15px. So the row is
+   * aligned by measurement rather than by construction: the shift is computed
+   * from the real rendered text and applied to everything that is not text.
+   */
   useEffect(() => {
-    if (!import.meta.env.DEV || !expanded || pillDemoMode) return;
-    const timer = setTimeout(() => {
-      const title = document.querySelector(".pill-title");
-      const controls = document.querySelector(".pill-controls");
-      if (!title || !controls) return;
+    if (!expanded || pillDemoMode) return;
+    let frame = 0;
+    const align = () => {
+      const header = pillInnerRef.current?.querySelector(".pill-header");
+      const title = header?.querySelector(".pill-title");
+      const controls = header?.querySelector<HTMLElement>(".pill-controls");
+      if (!header || !title || !controls) return;
       const marker = document.createElement("span");
       marker.style.cssText = "display:inline-block;width:0;height:0;";
       title.appendChild(marker);
       const baseline = marker.getBoundingClientRect().top;
       title.removeChild(marker);
+      if (!baseline) return;
       const fontSize = parseFloat(window.getComputedStyle(title).fontSize);
-      const capCentre = baseline - (fontSize * 0.72) / 2;
-      const inks = Array.from(controls.querySelectorAll("button")).map(
-        (btn) => {
-          const rect = btn.getBoundingClientRect();
-          return `${btn.getAttribute("aria-label")}=${((rect.top + rect.bottom) / 2).toFixed(2)}`;
-        },
+      // Cap centre: half a cap-height above the baseline. 0.72em is the cap
+      // ratio for the system faces this stack resolves to, and a few
+      // hundredths of an em either way is invisible at 13px.
+      const capCentre = baseline - (fontSize * CAP_HEIGHT_RATIO) / 2;
+      const rect = controls.getBoundingClientRect();
+      const shift = capCentre - (rect.top + rect.bottom) / 2;
+      (header as HTMLElement).style.setProperty(
+        "--header-ink-shift",
+        `${shift.toFixed(2)}px`,
       );
+    };
+    // After layout, and again on the next frame so a late font swap lands.
+    align();
+    frame = requestAnimationFrame(align);
+    const timer = setTimeout(align, 400);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [expanded, ctx.title, ctx.starting, finished]);
+
+  // Dev-only: the capsule's glyphs have no text to align to, so this reports
+  // their horizontal ink centres from the shipped webview. Chrome measures
+  // them dead-centre; this says whether the app's engine agrees.
+  useEffect(() => {
+    if (!import.meta.env.DEV || expanded || pillDemoMode) return;
+    const timer = setTimeout(() => {
+      const capsule = pillInnerRef.current;
+      const seg = transportRef.current;
+      if (!capsule || !seg) return;
+      const centre =
+        (capsule.getBoundingClientRect().left +
+          capsule.getBoundingClientRect().right) /
+        2;
+      const offsetOf = (el: Element | null) => {
+        if (!el) return "n/a";
+        const rect = el.getBoundingClientRect();
+        if (!rect.width) return "hidden";
+        return ((rect.left + rect.right) / 2 - centre).toFixed(2);
+      };
       console.warn(
-        `[clips-pill] header alignment capCentre=${capCentre.toFixed(2)} ${inks.join(" ")}`,
+        `[clips-pill] capsule ink logo=${offsetOf(capsule.querySelector(".pill-logo"))} meter=${offsetOf(capsule.querySelector(".pill-wave-meter"))} pause=${offsetOf(seg.querySelector(".pill-pause-btn"))} stop=${offsetOf(seg.querySelector(".pill-stop-square"))}`,
       );
-    }, 800);
+    }, 1200);
     return () => clearTimeout(timer);
-  }, [expanded]);
+  }, [expanded, hovered]);
 
   const handleTranscriptLines = useCallback(
     (lines: TranscriptLine[]) => {
