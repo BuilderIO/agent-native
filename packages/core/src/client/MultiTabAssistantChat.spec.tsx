@@ -158,7 +158,11 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn(async () => null) }));
 vi.mock("./use-action.js", () => actionMocks);
 
 /** Serve the three requests refreshEngines makes so the catalog is non-empty. */
-function stubCatalog(engines: unknown[], configuredKeys: string[]) {
+function stubCatalog(
+  engines: unknown[],
+  configuredKeys: string[],
+  builderConfigured = false,
+) {
   invalidateClientStatusRequests();
   actionMocks.callAction.mockResolvedValue({ engines } as never);
   vi.stubGlobal(
@@ -171,7 +175,7 @@ function stubCatalog(engines: unknown[], configuredKeys: string[]) {
         );
       }
       if (url.includes("builder/status")) {
-        return Response.json({ configured: false });
+        return Response.json({ configured: builderConfigured });
       }
       return Response.json({ value: null });
     }),
@@ -182,8 +186,12 @@ function stubCatalog(engines: unknown[], configuredKeys: string[]) {
  * Mounts a fresh instance after stubbing, because `refreshEngines` runs once on
  * mount — the shared root from `beforeEach` has already resolved an empty list.
  */
-async function mountWithCatalog(engines: unknown[], configuredKeys: string[]) {
-  stubCatalog(engines, configuredKeys);
+async function mountWithCatalog(
+  engines: unknown[],
+  configuredKeys: string[],
+  builderConfigured = false,
+) {
+  stubCatalog(engines, configuredKeys, builderConfigured);
   const el = document.createElement("div");
   document.body.appendChild(el);
   const localRoot = createRoot(el);
@@ -368,6 +376,24 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
     ).toBe("high");
+  });
+
+  it("defaults a fresh chat to a configured model group", async () => {
+    const view = await mountWithCatalog(
+      [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-5-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+      ],
+      [],
+      true,
+    );
+
+    expect(view.engineOf()).toBe("builder");
+    await view.cleanup();
   });
 
   // The engines fetch is still in flight when an app-initiated first turn

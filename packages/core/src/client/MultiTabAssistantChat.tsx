@@ -178,7 +178,17 @@ function resolveModelSelection(
   selection: ModelSelection | undefined,
   groups: EngineModelGroup[],
 ): ModelSelection | undefined {
-  if (!selection?.model) return undefined;
+  if (!selection?.model) {
+    const group = groups.find((candidate) => candidate.configured);
+    const model = group?.models[0];
+    return group && model
+      ? {
+          model,
+          engine: group.engine,
+          effort: resolveReasoningEffortSelection(model, undefined),
+        }
+      : undefined;
+  }
   // Engine precedence turns on whether the catalog OFFERS the supplied engine,
   // not on whether that engine advertises this model:
   //   offered      → honor it. A gateway's advertised list is its built-in
