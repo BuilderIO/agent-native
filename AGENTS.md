@@ -70,6 +70,9 @@ contract.
   or updating a PR from a worktree, use that worktree's current branch and cwd
   for the commit, push, and PR operation; do not copy changes into the shared
   checkout.
+- Put all repo-local temporary files, scratch output, and inspection artifacts
+  in the root `.tmp/` directory only; it is gitignored. Do not create ad hoc
+  temporary files in other repository paths.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - On every response, consider whether the chat title still matches the work.
