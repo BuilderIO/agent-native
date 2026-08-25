@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { extractCssVars } from "@agent-native/core/server/design-token-utils";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";

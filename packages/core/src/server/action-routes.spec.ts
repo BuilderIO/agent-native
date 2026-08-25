@@ -384,6 +384,62 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("echoes a fail() message instead of a generic 500", async () => {
+    const { fail } = await import("../scripts/utils.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      getMeeting: {
+        run: vi.fn(async () => {
+          fail("No such meeting", { errorCode: "not_found", statusCode: 404 });
+        }),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(404);
+    expect(result).toEqual({
+      error: "No such meeting",
+      errorCode: "not_found",
+    });
+  });
+
+  it("keeps a bare thrown Error as a generic 500", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      getMeeting: {
+        run: vi
+          .fn()
+          .mockRejectedValue(new Error('relation "meetings" does not exist')),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(500);
+    expect(result).toEqual({ error: "Internal server error" });
+  });
+
   it("preserves safe action contract metadata for retryable server failures", async () => {
     const { ActionContractError } = await import("../action.js");
     const { mountActionRoutes } = await import("./action-routes.js");

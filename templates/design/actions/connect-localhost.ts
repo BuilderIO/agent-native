@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";

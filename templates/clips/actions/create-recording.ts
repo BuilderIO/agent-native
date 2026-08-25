@@ -9,7 +9,7 @@
  *   pnpm action create-recording --title="Quick demo"
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import type { UploadMode } from "@shared/recording-core.js";

@@ -19,7 +19,7 @@ describe("generateActionRegistryForProject", () => {
       fs.writeFileSync(path.join(root, ".gitignore"), "");
       fs.writeFileSync(
         path.join(actionsDir, "real-action.ts"),
-        `import { defineAction } from "@agent-native/core";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`,
+        `import { defineAction } from "@agent-native/core/action";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`,
       );
       fs.writeFileSync(
         path.join(actionsDir, "real-action.spec.ts"),
@@ -107,7 +107,7 @@ describe("generateActionRegistryForProject", () => {
       const actionPath = path.join(actionsDir, "create-note.ts");
       fs.writeFileSync(
         actionPath,
-        `import { defineAction } from "@agent-native/core";\nexport default defineAction({ tool: { description: "Create a note", parameters: { type: "object", properties: {} } }, run: async () => ({ ok: true }) });\n`,
+        `import { defineAction } from "@agent-native/core/action";\nexport default defineAction({ tool: { description: "Create a note", parameters: { type: "object", properties: {} } }, run: async () => ({ ok: true }) });\n`,
       );
       watcher.emit("add", actionPath);
 

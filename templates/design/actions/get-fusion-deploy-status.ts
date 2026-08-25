@@ -5,7 +5,7 @@
  * app linkage and asks Builder for the current deploy status.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getFusionDeploys } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
