@@ -5,11 +5,17 @@ import { GridInner, PageSection } from "./page-grid";
 interface Logo {
   name: string;
   render: () => ReactNode;
+  // Multiplier applied on top of the shared tile cap. Marks with a lot of
+  // built-in viewBox padding (sparse icons) need to scale up; marks whose
+  // viewBox tightly hugs the artwork (wordmarks, solid glyphs) need to scale
+  // down, so every logo reads as roughly the same visual weight.
+  scale?: number;
 }
 
 const LOGOS: Logo[] = [
   {
     name: "anthropic",
+    scale: 0.85,
     render: () => (
       <svg
         width="59"
@@ -34,6 +40,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "ChatGPT_logo",
+    scale: 1.1,
     render: () => (
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/2cfece5cf2f775fdee7ef93e0419bb61056ae43e?width=134"
@@ -44,6 +51,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "Vercel",
+    scale: 0.75,
     render: () => (
       <svg
         width="64"
@@ -70,6 +78,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "gitlab",
+    scale: 1.15,
     render: () => (
       <svg
         width="125"
@@ -99,6 +108,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "n8n",
+    scale: 1.05,
     render: () => (
       <svg
         width="125"
@@ -116,6 +126,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "linear",
+    scale: 1.2,
     render: () => (
       <svg
         width="125"
@@ -133,6 +144,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "contentful",
+    scale: 1.15,
     render: () => (
       <svg
         width="125"
@@ -158,6 +170,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "github",
+    scale: 1.15,
     render: () => (
       <svg
         width="125"
@@ -184,6 +197,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "PayPal-Monogram-FullColor-RGB",
+    scale: 1.15,
     render: () => (
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/d1884c5d20eec797ecc506e533839faeb689d5bd?width=111"
@@ -198,6 +212,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "figma",
+    scale: 0.95,
     render: () => (
       <svg
         width="45"
@@ -231,6 +246,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "Slack_Technologies_Logo",
+    scale: 1.15,
     render: () => (
       <svg
         width="62"
@@ -267,6 +283,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "stripe",
+    scale: 1.4,
     render: () => (
       <svg
         width="125"
@@ -286,6 +303,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "Box,_Inc._logo",
+    scale: 0.8,
     render: () => (
       <svg
         width="73"
@@ -310,6 +328,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "supabase-logo-icon",
+    scale: 0.95,
     render: () => (
       <svg
         width="61"
@@ -365,6 +384,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "hubspot-blob",
+    scale: 1.1,
     render: () => (
       <svg
         width="125"
@@ -382,6 +402,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "dropbox-blue",
+    scale: 1.15,
     render: () => (
       <svg
         width="125"
@@ -415,6 +436,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "sentry",
+    scale: 1.1,
     render: () => (
       <svg
         width="125"
@@ -432,6 +454,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "canva-icon",
+    scale: 0.9,
     render: () => (
       <svg
         width="71"
@@ -520,6 +543,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "zapier-logomark",
+    scale: 0.8,
     render: () => (
       <svg
         width="67"
@@ -573,6 +597,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "hubspot",
+    scale: 1.6,
     render: () => (
       <svg
         width="125"
@@ -590,6 +615,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "notion",
+    scale: 1.3,
     render: () => (
       <svg
         width="125"
@@ -607,6 +633,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "Netlify_idmPWmzPWc_1",
+    scale: 1.3,
     render: () => (
       <svg
         width="70"
@@ -655,6 +682,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "context7",
+    scale: 0.85,
     render: () => (
       <svg
         width="50"
@@ -691,6 +719,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "coral-circles",
+    scale: 1.5,
     render: () => (
       <svg
         width="125"
@@ -710,6 +739,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "Linear logo 113",
+    scale: 1.3,
     render: () => (
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/5c0a9ded77f7985b88e6ee2fcf7065dcd7a44d04?width=249"
@@ -720,6 +750,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "target-mark",
+    scale: 1.15,
     render: () => (
       <svg
         width="125"
@@ -737,6 +768,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "webflow",
+    scale: 0.95,
     render: () => (
       <svg
         width="67"
@@ -763,6 +795,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "app-grid-mark",
+    scale: 1.1,
     render: () => (
       <svg
         width="125"
@@ -780,6 +813,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "CF-Logo",
+    scale: 1.3,
     render: () => (
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/049051ae49d7f80faa5f1083887d07a174aa07fe?width=132"
@@ -794,6 +828,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "asana",
+    scale: 1.15,
     render: () => (
       <svg
         width="125"
@@ -868,7 +903,16 @@ export function WorksWithStack() {
               aria-label={logo.name}
               role="img"
             >
-              {logo.render()}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transform: `scale(${logo.scale ?? 1})`,
+                }}
+              >
+                {logo.render()}
+              </div>
             </div>
           ))}
         </div>
