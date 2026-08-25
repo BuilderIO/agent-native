@@ -603,26 +603,8 @@ function LinkTab({
         >
           {t("shareUi.copyLink")}
         </CopyButton>
-        {moreMenuItems.length > 0 ? (
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" className="gap-1">
-                {t("shareDialog.more")}
-                <IconChevronDown size={16} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {moreMenuItems.map((item) => (
-                <DropdownMenuItem key={item.key} onSelect={item.onSelect}>
-                  <item.icon size={16} aria-hidden />
-                  {item.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
         <Label
-          className="ms-auto flex items-center gap-2 text-sm font-normal"
+          className="flex items-center gap-2 text-sm font-normal"
           htmlFor="share-from-timestamp"
         >
           <Checkbox
@@ -636,6 +618,24 @@ function LinkTab({
             time: formatMs(timestampMs),
           })}
         </Label>
+        {moreMenuItems.length > 0 ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" className="ms-auto gap-1">
+                {t("shareDialog.more")}
+                <IconChevronDown size={16} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {moreMenuItems.map((item) => (
+                <DropdownMenuItem key={item.key} onSelect={item.onSelect}>
+                  <item.icon size={16} aria-hidden />
+                  {item.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
       <Separator />
