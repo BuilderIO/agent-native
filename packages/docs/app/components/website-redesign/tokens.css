@@ -226,6 +226,11 @@
   overflow: hidden;
   padding: var(--spacing-4);
   box-sizing: border-box;
+  /* Monochrome marks below use fill="currentColor" instead of a hardcoded
+     white so they stay visible against --b-bg-page in both themes, rather
+     than disappearing once the light theme makes the page background
+     near-white too. */
+  color: var(--b-text-primary);
 }
 
 /* Each logo ships with its own intrinsic SVG/img dimensions, so without a
