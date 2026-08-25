@@ -10,7 +10,7 @@ import {
   getThread,
   postThreadReply,
 } from "../connectors/slack.js";
-import { createSlackReader } from "./slack-client";
+import { createSlackReader, isAgentNativeSlackUserName } from "./slack-client";
 
 vi.mock("../connectors/slack.js", () => ({
   addEyesReaction: vi.fn(),
@@ -120,6 +120,44 @@ describe("createSlackReader", () => {
       "not @agent-native",
     );
     expect(mockedGetChannelHistory).not.toHaveBeenCalled();
+  });
+
+  it("accepts the Slack bot username without the hyphen Slack drops", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-agent-native",
+      userName: "agentnative",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await expect(
+      reader.getChannelHistory("primary", "C123"),
+    ).resolves.toBeDefined();
+    expect(mockedGetChannelHistory).toHaveBeenCalled();
+  });
+
+  it("rejects hyphen-padded lookalikes of the Agent-Native bot handle", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-agent-native",
+      userName: "agent--native",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await expect(reader.getChannelHistory("primary", "C123")).rejects.toThrow(
+      "not @agent-native",
+    );
+    expect(mockedGetChannelHistory).not.toHaveBeenCalled();
+  });
+
+  it("treats only the two supported Slack bot handles as Agent Native", () => {
+    expect(isAgentNativeSlackUserName("@agent-native")).toBe(true);
+    expect(isAgentNativeSlackUserName("agentnative")).toBe(true);
+    expect(isAgentNativeSlackUserName("agent--native")).toBe(false);
+    expect(isAgentNativeSlackUserName("agent-native-")).toBe(false);
+    expect(isAgentNativeSlackUserName("other-bot")).toBe(false);
   });
 
   it("exposes bounded thread reads and the two typed write methods", async () => {

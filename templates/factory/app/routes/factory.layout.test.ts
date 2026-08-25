@@ -9,9 +9,11 @@ function readSource() {
 describe("Factory route factory switching", () => {
   it("remounts Settings and Automations when factoryId changes", () => {
     const source = readSource();
+    expect(source).toContain("<FactorySettingsView");
     expect(source).toContain(
-      "<FactorySettingsView key={factoryId} factoryId={factoryId} />",
+      "factoryName={graphData?.factory.name ?? graph.name}",
     );
+    expect(source).toContain("onDeleted={goToFactoryList}");
     expect(source).toContain(
       "<AutomationsView key={factoryId} factoryId={factoryId} t={t} />",
     );
