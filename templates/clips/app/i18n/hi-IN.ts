@@ -515,6 +515,7 @@ const messages = {
     startAt: "प्रारंभ करें (सेकंड)",
     startAtTimestamp: "{{time}} पर शुरू करें",
     embedCode: "एम्बेड कोड",
+    more: "अधिक",
     sharePlainTitle: "{{title}} साझा करें",
   },
   shareUi: {
@@ -525,6 +526,7 @@ const messages = {
     makingPublic: "सार्वजनिक किया जा रहा है…",
     makePublicAndCopy: "सार्वजनिक करें और कॉपी करें",
     copy: "कॉपी करें",
+    copyLink: "लिंक कॉपी करें",
     addPeopleByEmail: "ईमेल से लोगों को जोड़ें",
     invite: "आमंत्रित करें",
     notifyPeople: "लोगों को सूचित करें",
@@ -532,6 +534,15 @@ const messages = {
     ownerRole: "स्वामी",
     remove: "हटाएं",
     noAccessYet: "अभी किसी के पास पहुंच नहीं है।",
+    whoHasAccess: "किसके पास पहुंच है",
+    canAccess: "पहुंच सकते हैं",
+    onlyYou: "केवल आप",
+    othersCount_one: "{{email}} + {{count}} अन्य",
+    othersCount_other: "{{email}} + {{count}} अन्य",
+    shareSettings: "शेयर सेटिंग्स",
+    selectAccess: "पहुंच चुनें",
+    done: "पूर्ण",
+    back: "वापस",
     visibility: {
       private: {
         label: "निजी",

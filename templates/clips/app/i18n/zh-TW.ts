@@ -497,6 +497,7 @@ const messages = {
     startAt: "開始時間（秒）",
     startAtTimestamp: "從 {{time}} 開始",
     embedCode: "嵌入程式碼",
+    more: "更多",
     sharePlainTitle: "分享 {{title}}",
   },
   shareUi: {
@@ -506,6 +507,7 @@ const messages = {
     makingPublic: "公開…",
     makePublicAndCopy: "公開並複製",
     copy: "複製",
+    copyLink: "複製連結",
     addPeopleByEmail: "透過電子郵件新增人員",
     invite: "邀請",
     notifyPeople: "通知成員",
@@ -513,6 +515,15 @@ const messages = {
     ownerRole: "擁有者",
     remove: "移除",
     noAccessYet: "目前還沒有人可以存取。",
+    whoHasAccess: "誰擁有存取權",
+    canAccess: "可存取",
+    onlyYou: "僅限您",
+    othersCount_one: "{{email}} 及其他 {{count}} 人",
+    othersCount_other: "{{email}} 及其他 {{count}} 人",
+    shareSettings: "共用設定",
+    selectAccess: "選擇存取權",
+    done: "完成",
+    back: "返回",
     visibility: {
       private: {
         label: "私人",

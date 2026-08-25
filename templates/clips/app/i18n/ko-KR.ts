@@ -521,6 +521,7 @@ const messages = {
     startAt: "(초)에 시작",
     startAtTimestamp: "{{time}}부터 시작",
     embedCode: "임베드 코드",
+    more: "더 보기",
     sharePlainTitle: "{{title}} 공유",
   },
   shareUi: {
@@ -531,6 +532,7 @@ const messages = {
     makingPublic: "공개로 전환 중…",
     makePublicAndCopy: "공개로 전환하고 복사",
     copy: "복사",
+    copyLink: "링크 복사",
     addPeopleByEmail: "이메일로 사람 추가",
     invite: "초대",
     notifyPeople: "사람들에게 알림",
@@ -538,6 +540,15 @@ const messages = {
     ownerRole: "소유자",
     remove: "제거",
     noAccessYet: "아직 액세스 권한이 있는 사람이 없습니다.",
+    whoHasAccess: "액세스 권한이 있는 사람",
+    canAccess: "액세스 가능",
+    onlyYou: "나만",
+    othersCount_one: "{{email}} 외 {{count}}명",
+    othersCount_other: "{{email}} 외 {{count}}명",
+    shareSettings: "공유 설정",
+    selectAccess: "액세스 선택",
+    done: "완료",
+    back: "뒤로",
     visibility: {
       private: {
         label: "비공개",

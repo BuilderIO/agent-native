@@ -538,6 +538,7 @@ const messages = {
     startAt: "Beginnen bei (Sekunden)",
     startAtTimestamp: "Bei {{time}} starten",
     embedCode: "Einbettungscode",
+    more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
   },
   shareUi: {
@@ -548,6 +549,7 @@ const messages = {
     makingPublic: "Öffentlich machen…",
     makePublicAndCopy: "Veröffentlichen und kopieren",
     copy: "Kopie",
+    copyLink: "Link kopieren",
     addPeopleByEmail: "Personen per E-Mail hinzufügen",
     invite: "Einladen",
     notifyPeople: "Benachrichtigen Sie die Leute",
@@ -555,6 +557,15 @@ const messages = {
     ownerRole: "Eigentümer",
     remove: "Entfernen",
     noAccessYet: "Noch hat niemand Zugriff.",
+    whoHasAccess: "Wer hat Zugriff",
+    canAccess: "Kann zugreifen",
+    onlyYou: "Nur du",
+    othersCount_one: "{{email}} + {{count}} weitere Person",
+    othersCount_other: "{{email}} + {{count}} weitere Personen",
+    shareSettings: "Freigabeeinstellungen",
+    selectAccess: "Zugriff auswählen",
+    done: "Fertig",
+    back: "Zurück",
     visibility: {
       private: {
         label: "Privat",

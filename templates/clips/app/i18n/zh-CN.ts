@@ -497,6 +497,7 @@ const messages = {
     startAt: "开始时间（秒）",
     startAtTimestamp: "从 {{time}} 开始",
     embedCode: "嵌入代码",
+    more: "更多",
     sharePlainTitle: "分享 {{title}}",
   },
   shareUi: {
@@ -506,6 +507,7 @@ const messages = {
     makingPublic: "公开…",
     makePublicAndCopy: "公开并复制",
     copy: "复制",
+    copyLink: "复制链接",
     addPeopleByEmail: "通过电子邮件添加人员",
     invite: "邀请",
     notifyPeople: "通知人们",
@@ -513,6 +515,15 @@ const messages = {
     ownerRole: "所有者",
     remove: "消除",
     noAccessYet: "目前还没有人可以访问。",
+    whoHasAccess: "谁拥有访问权限",
+    canAccess: "可访问",
+    onlyYou: "仅限你",
+    othersCount_one: "{{email}} 及其他 {{count}} 人",
+    othersCount_other: "{{email}} 及其他 {{count}} 人",
+    shareSettings: "共享设置",
+    selectAccess: "选择访问权限",
+    done: "完成",
+    back: "返回",
     visibility: {
       private: {
         label: "私人的",

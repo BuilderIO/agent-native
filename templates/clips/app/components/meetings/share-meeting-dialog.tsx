@@ -4,7 +4,6 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
 import {
   useCallback,
   useEffect,
@@ -16,12 +15,17 @@ import {
 import { toast } from "sonner";
 
 import {
-  CopyField,
-  GeneralAccessSelect,
+  CopyButton,
+  GeneralAccessRow,
+  GeneralAccessSettingsBody,
   MakePublicCard,
-  SharePeopleTab,
+  PeopleAccessRow,
+  PeopleAccessSettingsBody,
+  ShareSectionLabel,
+  ShareSettingsPanel,
   copyToClipboard,
   useResourceVisibilityMutation,
+  type ShareSettingsView,
   type SharesQuery,
   type SharesResponse,
   type Visibility,
@@ -32,6 +36,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 
 export interface ShareMeetingPopoverProps {
@@ -73,6 +78,7 @@ function ShareMeetingContent({
   shareTranscript: boolean;
   transcriptReady: boolean;
 }) {
+  const t = useT();
   const shareUrl = useMemo(
     () => `${window.location.origin}${appPath(`/share/meeting/${meetingId}`)}`,
     [meetingId],
@@ -85,17 +91,68 @@ function ShareMeetingContent({
 
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
+  const visibility: Visibility =
+    (data?.visibility as Visibility | null) ?? "private";
+  const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
+    "meeting",
+    meetingId,
+    sharesQuery,
+  );
+  const visibilityPending = isPending || sharesQuery.isLoading;
+  const [settingsView, setSettingsView] = useState<ShareSettingsView>(null);
+  const closeSettings = () => setSettingsView(null);
 
   return (
     <div className="min-w-0 px-4 py-3">
-      <LinkTab
-        meetingId={meetingId}
-        shareUrl={shareUrl}
-        sharesQuery={sharesQuery}
-        canManage={canManage}
-        shareTranscript={shareTranscript}
-        transcriptReady={transcriptReady}
-      />
+      {settingsView ? (
+        <ShareSettingsPanel
+          onBack={closeSettings}
+          footer={
+            <Button type="button" size="sm" onClick={closeSettings}>
+              {t("shareUi.done")}
+            </Button>
+          }
+        >
+          {settingsView === "people" ? (
+            <PeopleAccessSettingsBody
+              resourceType="meeting"
+              resourceId={meetingId}
+              sharesQuery={sharesQuery}
+              canManage={canManage}
+              onError={(err, action) =>
+                toast.error(
+                  err instanceof Error
+                    ? err.message
+                    : action === "remove"
+                      ? t("clipsFinalRaw.removePersonFailed")
+                      : t("shareMeeting.updateTranscriptSharingFailed"),
+                )
+              }
+            />
+          ) : (
+            <GeneralAccessSettingsBody
+              visibility={visibility}
+              canManage={canManage}
+              isPending={visibilityPending}
+              onChange={(next) => setResourceVisibility(next)}
+            />
+          )}
+        </ShareSettingsPanel>
+      ) : (
+        <LinkTab
+          meetingId={meetingId}
+          shareUrl={shareUrl}
+          sharesQuery={sharesQuery}
+          canManage={canManage}
+          visibility={visibility}
+          visibilityPending={visibilityPending}
+          onVisibilityChange={setResourceVisibility}
+          shareTranscript={shareTranscript}
+          transcriptReady={transcriptReady}
+          onOpenPeopleSettings={() => setSettingsView("people")}
+          onOpenAccessSettings={() => setSettingsView("access")}
+        />
+      )}
     </div>
   );
 }
@@ -105,15 +162,28 @@ function LinkTab({
   shareUrl,
   sharesQuery,
   canManage,
+  visibility,
+  visibilityPending,
+  onVisibilityChange,
   shareTranscript,
   transcriptReady,
+  onOpenPeopleSettings,
+  onOpenAccessSettings,
 }: {
   meetingId: string;
   shareUrl: string;
   sharesQuery: SharesQuery;
   canManage: boolean;
+  visibility: Visibility;
+  visibilityPending: boolean;
+  onVisibilityChange: (
+    next: Visibility,
+    options?: { onSuccess?: () => void },
+  ) => void;
   shareTranscript: boolean;
   transcriptReady: boolean;
+  onOpenPeopleSettings: () => void;
+  onOpenAccessSettings: () => void;
 }) {
   const t = useT();
   const updateMeeting = useActionMutation<
@@ -121,14 +191,7 @@ function LinkTab({
     { id: string; shareTranscript: boolean }
   >("update-meeting");
   const [includeTranscript, setIncludeTranscript] = useState(shareTranscript);
-  const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
-    "meeting",
-    meetingId,
-    sharesQuery,
-  );
   const data = sharesQuery.data;
-  const visibility: Visibility =
-    (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
   const sharesLoaded = data?.visibility != null;
   const createAgentLink = useActionMutation("create-agent-resource-link");
@@ -136,7 +199,6 @@ function LinkTab({
   const agentLinkRequestIdRef = useRef(0);
   const [agentLink, setAgentLink] = useState("");
   const [agentLinkError, setAgentLinkError] = useState(false);
-  const [agentDetailsOpen, setAgentDetailsOpen] = useState(false);
 
   useEffect(() => {
     createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
@@ -172,10 +234,6 @@ function LinkTab({
     };
   }, [isPublic, loadAgentLink, meetingId, sharesLoaded, visibility]);
 
-  useEffect(() => {
-    if (isPublic) setAgentDetailsOpen(false);
-  }, [isPublic]);
-
   const agentShareDisabled =
     sharesQuery.isLoading ||
     !sharesLoaded ||
@@ -206,23 +264,20 @@ function LinkTab({
 
   return (
     <div className="space-y-3">
-      <CopyField
-        label={
-          isPublic
-            ? t("clipsFinalRaw.shareLink")
-            : t("shareDialog.shareWithHumans")
-        }
-        value={shareUrl}
-        disabled={!sharesLoaded}
-      />
-
-      <GeneralAccessSelect
-        visibility={visibility}
-        canManage={canManage}
-        isPending={isPending}
-        onChange={(next) => setResourceVisibility(next)}
-        showDescription={false}
-      />
+      <div className="space-y-2">
+        <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
+        <div className="flex flex-col gap-1">
+          <PeopleAccessRow
+            sharesQuery={sharesQuery}
+            onOpenSettings={onOpenPeopleSettings}
+          />
+          <GeneralAccessRow
+            visibility={visibility}
+            isPending={visibilityPending}
+            onOpenSettings={onOpenAccessSettings}
+          />
+        </div>
+      </div>
 
       <div className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2.5">
         <div className="min-w-0">
@@ -251,71 +306,53 @@ function LinkTab({
         />
       </div>
 
-      <SharePeopleTab
-        resourceType="meeting"
-        resourceId={meetingId}
-        sharesQuery={sharesQuery}
-        canManage={canManage}
-        onError={(err, action) =>
-          toast.error(
-            err instanceof Error
-              ? err.message
-              : action === "invite"
-                ? t("clipsFinalRaw.inviteFailed")
-                : t("clipsFinalRaw.removePersonFailed"),
-          )
-        }
-      />
-
       {!isPublic && canManage ? (
         <MakePublicCard
-          isPending={isPending}
+          isPending={visibilityPending}
           onMakePublic={() =>
-            setResourceVisibility("public", {
+            onVisibilityChange("public", {
               onSuccess: () => copyToClipboard(shareUrl),
             })
           }
         />
       ) : null}
 
-      <ShareAgentsSection
-        label={t("shareDialog.shareWithAgents")}
-        open={agentDetailsOpen}
-        onOpenChange={setAgentDetailsOpen}
-        contentClassName="clips-collapsible-content"
-      >
-        <div className="space-y-2">
-          <CopyField
-            label={t("shareDialog.shareLink")}
+      <CopyButton value={shareUrl} disabled={!sharesLoaded}>
+        {t("shareUi.copyLink")}
+      </CopyButton>
+
+      <Separator />
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
+            {t("shareDialog.shareWithAgents")}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("shareMeeting.agentLinkDescription")}
+          </p>
+        </div>
+        {agentLinkError ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => void loadAgentLink()}
+            disabled={createAgentLink.isPending}
+          >
+            {t("shareDialog.retryAgentLink")}
+          </Button>
+        ) : (
+          <CopyButton
             value={visibleAgentLink}
             disabled={agentShareDisabled}
-          />
-          {sharesLoaded ? (
-            <>
-              <p className="text-xs text-muted-foreground">
-                {t("shareMeeting.agentLinkDescription")}
-              </p>
-              {agentLinkError ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                  <p className="text-xs text-muted-foreground">
-                    {t("shareDialog.agentLinkUnavailable")}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7"
-                    onClick={() => void loadAgentLink()}
-                    disabled={createAgentLink.isPending}
-                  >
-                    {t("shareDialog.retryAgentLink")}
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      </ShareAgentsSection>
+            className="shrink-0"
+          >
+            {t("shareUi.copy")}
+          </CopyButton>
+        )}
+      </div>
     </div>
   );
 }

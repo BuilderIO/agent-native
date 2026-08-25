@@ -530,6 +530,7 @@ const messages = {
     startAt: "(秒)から開始",
     startAtTimestamp: "{{time}} から開始",
     embedCode: "埋め込みコード",
+    more: "その他",
     sharePlainTitle: "{{title}}を共有する",
   },
   shareUi: {
@@ -540,6 +541,7 @@ const messages = {
     makingPublic: "公開中…",
     makePublicAndCopy: "公開してコピーする",
     copy: "コピー",
+    copyLink: "リンクをコピー",
     addPeopleByEmail: "メールで人を追加",
     invite: "招待",
     notifyPeople: "人々に通知する",
@@ -547,6 +549,15 @@ const messages = {
     ownerRole: "所有者",
     remove: "取り除く",
     noAccessYet: "まだ誰もアクセスしていません。",
+    whoHasAccess: "アクセスできる人",
+    canAccess: "アクセス可能",
+    onlyYou: "自分のみ",
+    othersCount_one: "{{email}} 他{{count}}人",
+    othersCount_other: "{{email}} 他{{count}}人",
+    shareSettings: "共有設定",
+    selectAccess: "アクセス権を選択",
+    done: "完了",
+    back: "戻る",
     visibility: {
       private: {
         label: "プライベート",
