@@ -187,6 +187,7 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
+import { isProviderAuthenticationError } from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -2831,6 +2832,8 @@ const AssistantChatInner = forwardRef<
   const [dismissedRunErrorKey, setDismissedRunErrorKey] = useState<
     string | null
   >(null);
+  const [dismissedProviderAuthErrorKey, setDismissedProviderAuthErrorKey] =
+    useState<string | null>(null);
   const userStoppedRunRef = useRef<{
     at: number;
     runId?: string;
@@ -4564,6 +4567,7 @@ const AssistantChatInner = forwardRef<
         ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
       });
       setDismissedRunErrorKey(null);
+      setDismissedProviderAuthErrorKey(null);
       // An errored continuation must not keep showing "Resuming" — there is
       // no further chunk coming to clear it.
       clearAutoResume();
@@ -5125,6 +5129,7 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      setDismissedProviderAuthErrorKey(null);
       setComposerError(null);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
@@ -5658,7 +5663,6 @@ const AssistantChatInner = forwardRef<
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
-  const showMissingKeySetup = engineSetupRequired && !authError;
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -5700,6 +5704,30 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  const providerAuthErrorKey =
+    visibleRunError &&
+    isProviderAuthenticationError(
+      [visibleRunError.message, visibleRunError.details]
+        .filter(Boolean)
+        .join("\n"),
+      visibleRunError.errorCode,
+    )
+      ? visibleRunErrorKey
+      : null;
+  const showProviderAuthSetup =
+    providerAuthErrorKey !== null &&
+    providerAuthErrorKey !== dismissedProviderAuthErrorKey &&
+    !authError &&
+    (showRunningInUI || !shouldShowRunError);
+  const showMissingKeySetup =
+    (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const handleProviderSetupConnected = useCallback(() => {
+    handleBuilderConnected();
+    if (providerAuthErrorKey === null) return;
+    setDismissedProviderAuthErrorKey(providerAuthErrorKey);
+    setDismissedRunErrorKey(providerAuthErrorKey);
+    setRunErrorInfo(null);
+  }, [handleBuilderConnected, providerAuthErrorKey]);
   // The banner covers one run; every failed turn it does not cover keeps its own
   // inline marker, so a failure stays visible after the next prompt.
   const messageActionsCtx = useMemo(
@@ -6449,7 +6477,7 @@ const AssistantChatInner = forwardRef<
                                 attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
-                                onConnected={handleBuilderConnected}
+                                onConnected={handleProviderSetupConnected}
                               />
                             ) : null}
                             {/* Input area */}
