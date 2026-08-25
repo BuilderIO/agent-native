@@ -4,6 +4,7 @@ import { GridInner, PageSection } from "./page-grid";
 interface Pillar {
   title: string;
   description: string;
+  image?: string;
 }
 
 const PILLAR_ROWS: Pillar[][] = [
@@ -11,6 +12,7 @@ const PILLAR_ROWS: Pillar[][] = [
     {
       title: "React UI",
       description: "Give users familiar screens for browsing, editing, and reviewing work.",
+      image: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F30ea21dfcd2445678458fb256063a794",
     },
     {
       title: "Embedded agent chat",
@@ -111,7 +113,23 @@ export function BuiltInFeatures() {
                     key={pillar.title}
                     style={{ display: "flex", flexDirection: "column", background: "var(--b-bg-page)" }}
                   >
-                    {rowIndex === 0 && <ImgPlaceholder aspectRatio="416 / 406" label="" />}
+                    {rowIndex === 0 &&
+                      (pillar.image ? (
+                        <img
+                          src={pillar.image}
+                          alt=""
+                          crossOrigin="anonymous"
+                          style={{
+                            width: "100%",
+                            aspectRatio: "416 / 406",
+                            borderRadius: "var(--b-radius)",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      ) : (
+                        <ImgPlaceholder aspectRatio="416 / 406" label="" />
+                      ))}
                     <div
                       style={{
                         display: "flex",
