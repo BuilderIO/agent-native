@@ -127,94 +127,99 @@ function FooterNavLink({ label, href, external }: FooterLink) {
 
 export function Footer() {
   return (
-    <PageSection as="footer" showGrid={false}>
-      <GridInner
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-start",
-          gap: "var(--spacing-12)",
-          padding: "var(--spacing-16) var(--spacing-20)",
-          borderBottom: "1px solid var(--b-border-default)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: "var(--spacing-4)",
-            width: 320,
-            flex: "1 1 240px",
-          }}
-        >
-          <Link
-            to="/website-redesign/homepage"
-            aria-label="Agent-Native"
-            style={{ display: "flex", color: "var(--b-text-primary)" }}
-          >
-            <Logo width={160} height={19} />
-          </Link>
-          <p
-            style={{
-              margin: 0,
-              color: "var(--b-text-secondary)",
-              fontFamily: "var(--b-font-sans)",
-              fontSize: "var(--b-t-paragraph-2)",
-            }}
-          >
-            The agentic application framework.
-          </p>
-        </div>
-
-        <div
+    <PageSection
+      as="footer"
+      showGrid={false}
+      style={{ borderTop: "1px solid var(--b-border-default)" }}
+    >
+      <div style={{ borderBottom: "1px solid var(--b-border-default)" }}>
+        <GridInner
           style={{
             display: "flex",
             flexWrap: "wrap",
             alignItems: "flex-start",
-            gap: "var(--spacing-8)",
-            flex: "3 1 480px",
+            gap: "var(--spacing-12)",
+            padding: "var(--spacing-16) var(--spacing-20)",
           }}
         >
-          {COLUMNS.map((column) => (
-            <div
-              key={column.title}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: "var(--spacing-4)",
+              width: 320,
+              flex: "1 1 240px",
+            }}
+          >
+            <Link
+              to="/website-redesign/homepage"
+              aria-label="Agent-Native"
+              style={{ display: "flex", color: "var(--b-text-primary)" }}
+            >
+              <Logo width={160} height={19} />
+            </Link>
+            <p
               style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "flex-start",
-                gap: "var(--spacing-4)",
-                flex: "1 1 120px",
+                margin: 0,
+                color: "var(--b-text-secondary)",
+                fontFamily: "var(--b-font-sans)",
+                fontSize: "var(--b-t-paragraph-2)",
               }}
             >
-              <p
-                className="m-0 uppercase"
-                style={{
-                  color: "var(--b-text-secondary)",
-                  fontFamily: "var(--b-font-mono)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: "0.02em",
-                }}
-              >
-                {column.title}
-              </p>
+              The agentic application framework.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "flex-start",
+              gap: "var(--spacing-8)",
+              flex: "3 1 480px",
+            }}
+          >
+            {COLUMNS.map((column) => (
               <div
+                key={column.title}
                 style={{
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "flex-start",
-                  gap: "var(--spacing-3)",
+                  gap: "var(--spacing-4)",
+                  flex: "1 1 120px",
                 }}
               >
-                {column.links.map((link) => (
-                  <FooterNavLink key={link.label} {...link} />
-                ))}
+                <p
+                  className="m-0 uppercase"
+                  style={{
+                    color: "var(--b-text-secondary)",
+                    fontFamily: "var(--b-font-mono)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  {column.title}
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    gap: "var(--spacing-3)",
+                  }}
+                >
+                  {column.links.map((link) => (
+                    <FooterNavLink key={link.label} {...link} />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </GridInner>
+            ))}
+          </div>
+        </GridInner>
+      </div>
 
       <GridInner
         style={{
