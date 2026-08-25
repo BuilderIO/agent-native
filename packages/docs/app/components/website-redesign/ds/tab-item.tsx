@@ -7,11 +7,18 @@ interface TabItemProps {
   forceState?: "active" | "hover" | "inactive";
 }
 
+const TAB_BUTTON_SELECTOR = "button[data-tab-item=true]";
+
 function focusAdjacentTab(e: KeyboardEvent<HTMLButtonElement>, offset: number) {
+  // TabItem is sometimes wrapped in its own div for per-tab borders, so the
+  // immediate parent may only contain this one button. Walk up to the
+  // shared tablist ancestor first and fall back to the direct parent when
+  // there isn't one (e.g. a bare row of tabs).
+  const scope =
+    e.currentTarget.closest('[role="tablist"]') ??
+    e.currentTarget.parentElement;
   const tabItems = Array.from(
-    e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
-      'button[data-tab-item="true"]',
-    ) ?? [],
+    scope?.querySelectorAll<HTMLButtonElement>(TAB_BUTTON_SELECTOR) ?? [],
   );
   const currentIndex = tabItems.indexOf(e.currentTarget);
   if (currentIndex === -1) return;

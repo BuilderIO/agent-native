@@ -258,6 +258,10 @@ export function HeroShaderBackground({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
+  const animationControlRef = useRef<{
+    start: () => void;
+    stop: () => void;
+  } | null>(null);
 
   // Tweak values are read fresh every frame from this ref instead of
   // re-running the WebGL-init effect, so dragging a slider updates the
@@ -518,13 +522,25 @@ export function HeroShaderBackground({
       attributeFilter: ["class", "data-theme"],
     });
 
+    // Tracks hero visibility so the RAF loop can stop entirely once scrolled
+    // past instead of waking every frame just to no-op.
+    let isVisible = true;
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        isVisible = entry?.isIntersecting ?? true;
+        if (isVisible) startAnimation();
+      },
+      { threshold: 0 },
+    );
+    visibilityObserver.observe(container);
+
     const startTime = performance.now();
     let lastFrame = 0;
     const frameBudget = 1000 / Math.max(1, frameRate);
     const reducedMotionStaticTime = 20;
 
     function render(now: number) {
-      if (reducedMotion) {
+      if (reducedMotion || !isVisible || settingsRef.current.paused) {
         rafRef.current = 0;
         return;
       }
@@ -533,16 +549,16 @@ export function HeroShaderBackground({
       if (now - lastFrame < frameBudget) return;
       lastFrame = now;
 
-      const rect = container.getBoundingClientRect();
-      if (rect.bottom < 0 || rect.top > window.innerHeight) return;
-
-      if (settingsRef.current.paused) return;
-
       draw((now - startTime) * 0.001);
     }
 
     function startAnimation() {
-      if (!rafRef.current) {
+      if (
+        !rafRef.current &&
+        !reducedMotion &&
+        isVisible &&
+        !settingsRef.current.paused
+      ) {
         rafRef.current = requestAnimationFrame(render);
       }
     }
@@ -553,6 +569,11 @@ export function HeroShaderBackground({
         rafRef.current = 0;
       }
     }
+
+    animationControlRef.current = {
+      start: startAnimation,
+      stop: stopAnimation,
+    };
 
     function handleReducedMotionChange() {
       reducedMotion = reducedMotionQuery?.matches ?? false;
@@ -573,6 +594,7 @@ export function HeroShaderBackground({
 
     return () => {
       stopAnimation();
+      animationControlRef.current = null;
       if (reducedMotionQuery) {
         reducedMotionQuery.removeEventListener(
           "change",
@@ -580,6 +602,7 @@ export function HeroShaderBackground({
         );
       }
       observer.disconnect();
+      visibilityObserver.disconnect();
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("mousemove", handlePointerMove);
@@ -592,6 +615,13 @@ export function HeroShaderBackground({
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
   }, [frameRate]);
+
+  // `paused` is otherwise only read from a ref inside the render loop so
+  // toggling it doesn't tear down the GL context; that also means the RAF
+  // loop needs an explicit nudge to resume once it's stopped itself.
+  useEffect(() => {
+    if (!paused) animationControlRef.current?.start();
+  }, [paused]);
 
   return (
     <div

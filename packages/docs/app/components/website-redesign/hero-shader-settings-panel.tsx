@@ -58,32 +58,26 @@ export function HeroShaderSettingsPanel({
   onReset,
 }: HeroShaderSettingsPanelProps) {
   const [open, setOpen] = useState(false);
-  const [panelPos, setPanelPos] = useState<{
-    left: number;
-    top: number;
-  } | null>(null);
   const [copied, setCopied] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
   async function handleCopySettings() {
-    await navigator.clipboard.writeText(JSON.stringify(settings, null, 2));
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(settings, null, 2));
+    } catch {
+      // coercion-ok: clipboard permission/availability failures mean the
+      // copy silently didn't happen, so skip the success feedback below
+      // rather than falsely claiming it worked
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
   useEffect(() => {
     if (!open) return;
-
-    // Position is computed from the trigger's real screen position and the
-    // panel is portaled to <body> so it opens *downward* without being
-    // clipped by the hero's `overflow: hidden` section.
-    function updatePosition() {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (rect) setPanelPos({ left: rect.left, top: rect.bottom + 8 });
-    }
-    updatePosition();
 
     function close(e: MouseEvent | TouchEvent) {
       if (
@@ -104,14 +98,10 @@ export function HeroShaderSettingsPanel({
     document.addEventListener("mousedown", close);
     document.addEventListener("touchstart", close);
     document.addEventListener("keydown", handleKey);
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("touchstart", close);
       document.removeEventListener("keydown", handleKey);
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
     };
   }, [open]);
 
@@ -153,7 +143,6 @@ export function HeroShaderSettingsPanel({
       </button>
 
       {open &&
-        panelPos &&
         createPortal(
           <div
             ref={panelRef}
@@ -163,23 +152,24 @@ export function HeroShaderSettingsPanel({
             // Portaling to <body> escapes the .builder-brand-tokens wrapper
             // that defines every --b-* var, so it must be reapplied here or
             // the "solid" background resolves to transparent and page
-            // content shows through.
+            // content shows through. Pinned as a full-height sidebar
+            // (rather than anchored to the trigger button) so it stays put
+            // regardless of scroll position.
             className="builder-brand-tokens"
             style={{
               position: "fixed",
-              left: panelPos.left,
-              top: panelPos.top,
-              width: 280,
-              maxHeight: `calc(100vh - ${panelPos.top + 16}px)`,
+              left: 0,
+              top: 0,
+              height: "100vh",
+              width: 300,
               overflowY: "auto",
               display: "flex",
               flexDirection: "column",
               gap: "var(--spacing-4)",
               padding: "var(--spacing-4)",
               background: "var(--b-bg-prominent)",
-              border: "1px solid var(--b-border-default)",
-              borderRadius: "var(--b-radius)",
-              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
+              borderRight: "1px solid var(--b-border-default)",
+              boxShadow: "8px 0 24px rgba(0, 0, 0, 0.35)",
               zIndex: 2147483647,
             }}
           >

@@ -13,14 +13,20 @@ interface CodeBlockProps {
   code?: string;
   language?: string;
   tabs?: CodeBlockTab[];
+  activeTab?: number;
+  onTabChange?: (index: number) => void;
 }
 
 export function CodeBlock({
   code,
   language = "typescript",
   tabs,
+  activeTab: controlledActiveTab,
+  onTabChange,
 }: CodeBlockProps) {
-  const [activeTab, setActiveTab] = useState(0);
+  const [uncontrolledActiveTab, setUncontrolledActiveTab] = useState(0);
+  const activeTab = controlledActiveTab ?? uncontrolledActiveTab;
+  const setActiveTab = onTabChange ?? setUncontrolledActiveTab;
 
   if (tabs && tabs.length > 0) {
     const active = tabs[activeTab];

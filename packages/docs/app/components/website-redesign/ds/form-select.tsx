@@ -23,9 +23,9 @@ export function FormSelect<T extends string>({
         flexDirection: "column",
         gap: "var(--spacing-2)",
       }}
-      id={id}
     >
       <label
+        htmlFor={id}
         style={{
           fontFamily: "var(--b-font-mono)",
           fontSize: "var(--b-t-label-2)",
@@ -36,7 +36,7 @@ export function FormSelect<T extends string>({
       >
         {label}
       </label>
-      <Select options={options} value={value} onChange={onChange} />
+      <Select id={id} options={options} value={value} onChange={onChange} />
     </div>
   );
 }

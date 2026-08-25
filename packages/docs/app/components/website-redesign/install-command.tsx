@@ -14,8 +14,15 @@ export function InstallCommand() {
     };
   }, []);
 
-  function handleCopy() {
-    navigator.clipboard.writeText(INSTALL_COMMAND).catch(() => {});
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(INSTALL_COMMAND);
+    } catch {
+      // coercion-ok: clipboard permission/availability failures mean the
+      // copy silently didn't happen, so skip the success feedback below
+      // rather than falsely claiming it worked
+      return;
+    }
     setCopied(true);
     trackEvent("copy install command", { command: INSTALL_COMMAND });
     if (timeoutRef.current) clearTimeout(timeoutRef.current);

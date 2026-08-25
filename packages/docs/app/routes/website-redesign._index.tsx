@@ -467,11 +467,13 @@ export default function WebsiteRedesignHomepage() {
               />
               <Radio
                 label="Option A"
+                name="radio-demo"
                 checked={radioValue === "a"}
                 onChange={() => setRadioValue("a")}
               />
               <Radio
                 label="Option B"
+                name="radio-demo"
                 checked={radioValue === "b"}
                 onChange={() => setRadioValue("b")}
               />
@@ -546,7 +548,11 @@ export default function WebsiteRedesignHomepage() {
             ))}
           </div>
           <div style={{ marginTop: "var(--spacing-4)" }}>
-            <CodeBlock tabs={SNIPPET_TABS} />
+            <CodeBlock
+              tabs={SNIPPET_TABS}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+            />
           </div>
         </GridInner>
       </PageSection>

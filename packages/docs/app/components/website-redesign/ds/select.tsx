@@ -7,6 +7,7 @@ interface SelectOption<T> {
 }
 
 interface SelectProps<T extends string> {
+  id?: string;
   options: SelectOption<T>[];
   value: T;
   onChange: (value: T) => void;
@@ -14,6 +15,7 @@ interface SelectProps<T extends string> {
 }
 
 export function Select<T extends string>({
+  id,
   options,
   value,
   onChange,
@@ -97,6 +99,7 @@ export function Select<T extends string>({
     <div style={{ position: "relative", display: "inline-block" }}>
       <button
         ref={triggerRef}
+        id={id}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
