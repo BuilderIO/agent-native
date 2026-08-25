@@ -12,6 +12,7 @@ use super::*;
 use screencapturekit::error::SCError;
 use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
 use std::io::{Seek, SeekFrom, Write};
+use std::sync::RwLock;
 
 /// `AVAssetWriter.status` raw value for `.completed`.
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
@@ -1017,6 +1018,7 @@ struct CustomScreenCaptureOutputHandler {
     /// writer's timeline.
     stream_generation: u64,
     active_stream_generation: Arc<AtomicU64>,
+    callback_admission: Arc<RwLock<()>>,
     /// At most one temporary Clips writer may mirror this physical producer.
     /// It deliberately lives beside the callback handler rather than the
     /// audio bus: the bus has one producer contract and must never publish a
@@ -1291,11 +1293,16 @@ impl Clone for CustomScreenCaptureWriter {
 
 impl CustomScreenCaptureOutputHandler {
     fn replacement_stream(&self) -> Self {
+        let _admission = self
+            .callback_admission
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
         let stream_generation = self.active_stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
         Self {
             writer: self.writer.clone(),
             stream_generation,
             active_stream_generation: Arc::clone(&self.active_stream_generation),
+            callback_admission: Arc::clone(&self.callback_admission),
             clip_sink: Arc::clone(&self.clip_sink),
             recording_enabled: Arc::clone(&self.recording_enabled),
             mic_ready: self.mic_ready.clone(),
@@ -1303,7 +1310,15 @@ impl CustomScreenCaptureOutputHandler {
         }
     }
 
-    fn accepts_sample(&self) -> bool {
+    fn invalidate_stream(&self) {
+        let _admission = self
+            .callback_admission
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        self.active_stream_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn is_current(&self) -> bool {
         stream_generation_is_current(
             self.active_stream_generation.load(Ordering::SeqCst),
             self.stream_generation,
@@ -1325,7 +1340,10 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
         sample_buffer: screencapturekit::cm::CMSampleBuffer,
         of_type: SCStreamOutputType,
     ) {
-        if !self.accepts_sample() {
+        let Ok(_admission) = self.callback_admission.read() else {
+            return;
+        };
+        if !self.is_current() {
             return;
         }
         if matches!(of_type, SCStreamOutputType::Microphone) {
@@ -3793,6 +3811,7 @@ impl CustomCaptureResume {
     /// hold so it never reads the silence as a stall and rebuilds.
     pub(crate) fn pause(&self) {
         self.watch.set_paused(true);
+        self.handler.invalidate_stream();
         if let Ok(guard) = self.stream.lock() {
             let _ = guard.stop_capture();
         }
@@ -4183,14 +4202,28 @@ fn spawn_capture_watchdog(
                     .map_err(|e| format!("start_capture failed: {e:?}"))
             }) {
                 Ok(new_stream) => {
-                    if shutdown.load(Ordering::SeqCst)
-                        || writer.appends_closed.load(Ordering::SeqCst)
-                    {
-                        let _ = new_stream.stop_capture();
+                    let mut pending_stream = Some(new_stream);
+                    let install = if let Ok(mut guard) = stream.lock() {
+                        if shutdown.load(Ordering::SeqCst)
+                            || writer.appends_closed.load(Ordering::SeqCst)
+                            || watch.is_paused()
+                            || !replacement_handler.is_current()
+                        {
+                            false
+                        } else {
+                            *guard = pending_stream
+                                .take()
+                                .expect("pending watchdog stream is available");
+                            true
+                        }
+                    } else {
+                        false
+                    };
+                    if !install {
+                        if let Some(stream) = pending_stream {
+                            let _ = stream.stop_capture();
+                        }
                         return;
-                    }
-                    if let Ok(mut guard) = stream.lock() {
-                        *guard = new_stream;
                     }
                     // Discard any stop note the deliberate teardown of the old
                     // stream raised; otherwise a later poll would consume it as
@@ -4298,6 +4331,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         writer: writer.clone(),
         stream_generation: 0,
         active_stream_generation: Arc::new(AtomicU64::new(0)),
+        callback_admission: Arc::new(RwLock::new(())),
         clip_sink: Arc::clone(&clip_sink),
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
