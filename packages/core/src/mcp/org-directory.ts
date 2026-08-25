@@ -152,12 +152,14 @@ function scopedCacheKey(
     orgDomain?: string;
   },
   includeDirectoryApp = false,
+  strictValidation = true,
 ): string {
   return [
     origin,
     `user:${auth.userEmail ?? ""}`,
     `org:${auth.orgId ?? auth.orgDomain ?? ""}`,
     `include-directory:${includeDirectoryApp ? "1" : "0"}`,
+    `validation:${strictValidation ? "strict" : "permissive"}`,
   ].join("|");
 }
 
@@ -174,11 +176,13 @@ function serviceScopedCacheKey(
   origin: string,
   orgId: string,
   includeDirectoryApp = false,
+  strictValidation = true,
 ): string {
   return [
     origin,
     `service-org:${orgId}`,
     `include-directory:${includeDirectoryApp ? "1" : "0"}`,
+    `validation:${strictValidation ? "strict" : "permissive"}`,
   ].join("|");
 }
 
@@ -205,8 +209,9 @@ export interface FetchOrgAppsOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-export async function fetchOrgAppsResult(
+async function fetchOrgAppsResultInternal(
   opts?: FetchOrgAppsOptions,
+  strictValidation = true,
 ): Promise<OrgDirectoryFetchResult> {
   const env = opts?.env ?? process.env;
   const origin = resolveOrgDirectoryOrigin(env);
@@ -229,6 +234,7 @@ export async function fetchOrgAppsResult(
       origin,
       serviceOrgId,
       opts?.includeDirectoryApp,
+      strictValidation,
     );
     const cached = cache.get(serviceCacheKey);
     if (cached && cached.expiresAt > Date.now()) {
@@ -247,7 +253,12 @@ export async function fetchOrgAppsResult(
 
     if (!cacheKey) {
       const now = Date.now();
-      cacheKey = scopedCacheKey(origin, auth, opts?.includeDirectoryApp);
+      cacheKey = scopedCacheKey(
+        origin,
+        auth,
+        opts?.includeDirectoryApp,
+        strictValidation,
+      );
       const cached = cache.get(cacheKey);
       if (cached && cached.expiresAt > now) {
         return { status: "available", apps: stripSelf(cached.apps) };
@@ -270,9 +281,11 @@ export async function fetchOrgAppsResult(
         const json = (await res.json()) as { apps?: unknown };
         if (!Array.isArray(json?.apps))
           return { status: "unavailable", reason: "invalid-response" };
-        const apps = json.apps
-          .map(normalizeApp)
-          .filter((a): a is OrgApp => a !== null);
+        const normalizedApps = json.apps.map(normalizeApp);
+        if (strictValidation && normalizedApps.some((app) => app === null)) {
+          return { status: "unavailable", reason: "invalid-response" };
+        }
+        const apps = normalizedApps.filter((a): a is OrgApp => a !== null);
         if (cacheKey) {
           cache.set(cacheKey, {
             apps,
@@ -307,10 +320,16 @@ export async function fetchOrgAppsResult(
   return { status: "unavailable", reason: "authorization" };
 }
 
+export async function fetchOrgAppsResult(
+  opts?: FetchOrgAppsOptions,
+): Promise<OrgDirectoryFetchResult> {
+  return fetchOrgAppsResultInternal(opts, true);
+}
+
 export async function fetchOrgApps(
   opts?: FetchOrgAppsOptions,
 ): Promise<OrgApp[]> {
-  const result = await fetchOrgAppsResult(opts);
+  const result = await fetchOrgAppsResultInternal(opts, false);
   return result.status === "available" ? result.apps : [];
 }
 

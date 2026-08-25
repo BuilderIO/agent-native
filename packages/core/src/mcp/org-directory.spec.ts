@@ -422,6 +422,42 @@ describe("fetchOrgApps", () => {
     });
   });
 
+  it("rejects and does not cache a partly malformed strict response", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              { id: "calendar", name: "Calendar", url: "https://cal.acme.com" },
+              { bogus: true },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              { id: "calendar", name: "Calendar", url: "https://cal.acme.com" },
+            ],
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [expect.objectContaining({ id: "calendar" })],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("caches a successful fetch (not re-fetched on every call)", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const fetchSpy = vi.fn(
