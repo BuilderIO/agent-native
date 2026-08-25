@@ -17,6 +17,7 @@ interface ShowcaseTab {
   id: string;
   label: string;
   icon: TablerIcon;
+  title: string;
   body: string;
   image: string;
   href: string;
@@ -27,6 +28,7 @@ const TABS: ShowcaseTab[] = [
     id: "clips",
     label: "Clips",
     icon: IconScissors,
+    title: "Familiar clip editor",
     body: "Give users a familiar clip editor, and let the agent transcribe, trim, and caption footage automatically.",
     image:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fab7beeb1f62548fab6e2a710d880a20c?format=webp&width=800",
@@ -36,6 +38,7 @@ const TABS: ShowcaseTab[] = [
     id: "slides",
     label: "Slides",
     icon: IconPresentation,
+    title: "Decks, drafted together",
     body: "Build decks together — the agent drafts slides, tightens copy, and keeps every version in sync.",
     image:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b196d8d24c44914a021d1577f10879b",
@@ -45,6 +48,7 @@ const TABS: ShowcaseTab[] = [
     id: "design",
     label: "Design",
     icon: IconPalette,
+    title: "Shared creative canvas",
     body: "Sketch flows and mini apps on a shared canvas the agent can generate, edit, and ship alongside you.",
     image:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F75026532fe204acbab72d41dbeb34305?format=webp&width=800&height=1200",
@@ -156,11 +160,27 @@ export function TemplateShowcase() {
                     style={{
                       display: "flex",
                       flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      textAlign: "center",
                       gap: "var(--spacing-4)",
                       padding: "var(--spacing-8)",
                       borderRight: "1px solid var(--b-border-subtle)",
                     }}
                   >
+                    <h3
+                      style={{
+                        margin: 0,
+                        fontFamily: "var(--b-font-sans)",
+                        fontSize: "var(--b-t-heading-6)",
+                        fontWeight: 500,
+                        lineHeight: 1.15,
+                        letterSpacing: "-0.02em",
+                        color: "var(--b-text-primary)",
+                      }}
+                    >
+                      {tab.title}
+                    </h3>
                     <p
                       style={{
                         margin: 0,
