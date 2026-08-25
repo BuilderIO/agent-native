@@ -49,7 +49,6 @@ const LOGOS: Logo[] = [
         height={68}
         loading="lazy"
         decoding="async"
-        style={{ width: "auto", height: "auto" }}
       />
     ),
   },
@@ -210,11 +209,6 @@ const LOGOS: Logo[] = [
         height={67}
         loading="lazy"
         decoding="async"
-        style={{
-          width: "auto",
-          height: "auto",
-          aspectRatio: "55.467 / 66.856",
-        }}
       />
     ),
   },
@@ -756,7 +750,7 @@ const LOGOS: Logo[] = [
         height={124}
         loading="lazy"
         decoding="async"
-        style={{ width: "auto", height: "auto", objectFit: "contain" }}
+        style={{ objectFit: "contain" }}
       />
     ),
   },
@@ -834,11 +828,6 @@ const LOGOS: Logo[] = [
         height={31}
         loading="lazy"
         decoding="async"
-        style={{
-          width: "auto",
-          height: "auto",
-          aspectRatio: "66.054 / 30.507",
-        }}
       />
     ),
   },
