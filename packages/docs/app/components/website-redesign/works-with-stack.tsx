@@ -38,7 +38,7 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/2cfece5cf2f775fdee7ef93e0419bb61056ae43e?width=134"
         alt=""
-        style={{ width: "54%", height: "auto" }}
+        style={{ width: "auto", height: "auto" }}
       />
     ),
   },
@@ -188,7 +188,11 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/d1884c5d20eec797ecc506e533839faeb689d5bd?width=111"
         alt=""
-        style={{ width: "45%", height: "auto", aspectRatio: "55.467 / 66.856" }}
+        style={{
+          width: "auto",
+          height: "auto",
+          aspectRatio: "55.467 / 66.856",
+        }}
       />
     ),
   },
@@ -710,7 +714,7 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/5c0a9ded77f7985b88e6ee2fcf7065dcd7a44d04?width=249"
         alt=""
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        style={{ width: "auto", height: "auto", objectFit: "contain" }}
       />
     ),
   },
@@ -780,7 +784,11 @@ const LOGOS: Logo[] = [
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/049051ae49d7f80faa5f1083887d07a174aa07fe?width=132"
         alt=""
-        style={{ width: "53%", height: "auto", aspectRatio: "66.054 / 30.507" }}
+        style={{
+          width: "auto",
+          height: "auto",
+          aspectRatio: "66.054 / 30.507",
+        }}
       />
     ),
   },
