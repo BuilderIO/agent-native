@@ -11,7 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, PhysicalSize } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LiveWaveform } from "../components/live-waveform";
@@ -35,6 +35,10 @@ import { loadStoredServerUrl } from "../lib/url";
 import { AskSteps } from "./ask-steps";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
+
+/** Longer than any reveal transition. Past this the browser is not advancing
+ *  the animation, so the reveal has to finish itself. */
+const TRANSITION_STALL_MS = 400;
 
 /** Matches `pill-ask-sheet-out` in styles.css. */
 const ASK_SHEET_EXIT_MS = 200;
@@ -229,10 +233,18 @@ export function MeetingPill() {
         }
       }),
     );
+    // Capture emits levels continuously once it attaches, including through
+    // silence — the first one means the engine is live.
+    trackListen(
+      listen("voice:audio-level", () => {
+        clearStartingRef.current();
+      }),
+    );
     trackListen(
       listen<{ paused: boolean; elapsedMs: number }>(
         "clips:recorder-state",
         (ev) => {
+          clearStartingRef.current();
           // Meeting capture has its own optimistic pause state. Ordinary clips
           // follow the recorder's authoritative broadcast so this reused pill
           // cannot drift or emit an inverted command.
@@ -437,10 +449,122 @@ export function MeetingPill() {
 
   // Stable callback for LiveTranscript to push locked-in lines up. Stable
   // identity matters — it's a dep of an effect inside LiveTranscript.
-  const handleTranscriptLines = useCallback((lines: TranscriptLine[]) => {
-    transcriptLinesRef.current = lines;
-    setHasTranscriptLines(lines.length > 0);
+  /**
+   * Leave the starting state on evidence, not only on being told.
+   *
+   * `clips:pill-context` with `starting: false` is the intended signal, but it
+   * is a single push event: one dropped emit and the pill claims it is still
+   * starting a session that is already recording. Audio arriving IS the
+   * session, so anything that could only happen after capture attached also
+   * clears it.
+   */
+  /** The capsule and the transport segment inside it, for measured growth. */
+  const capsuleRef = useRef<HTMLDivElement | null>(null);
+  const transportRef = useRef<HTMLDivElement | null>(null);
+  const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
+  const clearStartingRef = useRef<() => void>(() => {});
+
+  const clearStarting = useCallback(() => {
+    if (!ctxRef.current.starting) return;
+    ctxRef.current = { ...ctxRef.current, starting: false };
+    setCtx(ctxRef.current);
   }, []);
+
+  clearStartingRef.current = clearStarting;
+
+  /**
+   * Serialize window ops. Two resizes in flight read each other's stale
+   * geometry and the capsule ends up the wrong size — the same queue the
+   * recorder pill runs its segment growth through.
+   */
+  const queueWindowOp = (op: () => Promise<void>) => {
+    windowOpChainRef.current = windowOpChainRef.current
+      .then(op)
+      .catch((err) => {
+        console.warn("[clips-pill] window op failed", err);
+      });
+  };
+
+  /**
+   * Size the window around the capsule's own layout, keeping the top edge
+   * fixed so growth extends downward — away from the cursor that is sitting
+   * on the logo at the top.
+   */
+  const syncCapsuleWindow = useCallback((extraLogicalHeight: number) => {
+    const el = capsuleRef.current;
+    if (!el || pillDemoMode) return;
+    // offsetHeight is a layout metric, immune to a transition in flight; a
+    // rect read mid-animation locks the window to a half-open size.
+    const contentH = el.offsetHeight + extraLogicalHeight;
+    const contentW = el.offsetWidth;
+    queueWindowOp(async () => {
+      const win = getCurrentWindow();
+      const [size, scale] = await Promise.all([
+        win.outerSize(),
+        win.scaleFactor(),
+      ]);
+      const w = Math.ceil(contentW * scale);
+      const h = Math.ceil(contentH * scale);
+      if (size.width === w && size.height === h) return;
+      await win.setSize(new PhysicalSize(w, h));
+    });
+  }, []);
+
+  /**
+   * Grow the capsule to reveal pause and stop, then let the segment animate
+   * its own height open — window first so there is room to grow into, and on
+   * the way out the window shrinks only once the segment has closed.
+   */
+  useEffect(() => {
+    if (expanded || detached || ctx.mode !== "meeting" || finished) return;
+    const seg = transportRef.current;
+    if (!seg) return;
+    const target = hovered ? seg.scrollHeight : 0;
+    if (hovered) seg.dataset.open = "true";
+    else delete seg.dataset.open;
+    seg.style.transition = "";
+    seg.style.height = `${target}px`;
+    seg.style.opacity = hovered ? "1" : "0";
+    if (hovered) syncCapsuleWindow(target);
+
+    // This window is never the key window, and the browser can stop advancing
+    // animations in one — the transition then never progresses and the capsule
+    // stays stuck at the size it started from. Wait for the real transition,
+    // and if it never arrives, drop it and snap to the end. The recorder
+    // pill's segment growth is force-snapped the same way.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      if (!hovered) syncCapsuleWindow(0);
+    };
+    const forceSnap = () => {
+      if (settled) return;
+      seg.style.transition = "none";
+      seg.style.height = `${target}px`;
+      seg.style.opacity = hovered ? "1" : "0";
+      // Read back so the snapped value is committed before the transition
+      // is restored, or the restore just re-animates from the old value.
+      void seg.offsetHeight;
+      seg.style.transition = "";
+      settle();
+    };
+    seg.addEventListener("transitionend", settle, { once: true });
+    const stalled = setTimeout(forceSnap, TRANSITION_STALL_MS);
+    return () => {
+      seg.removeEventListener("transitionend", settle);
+      clearTimeout(stalled);
+    };
+  }, [hovered, expanded, detached, ctx.mode, finished, syncCapsuleWindow]);
+
+  const handleTranscriptLines = useCallback(
+    (lines: TranscriptLine[]) => {
+      transcriptLinesRef.current = lines;
+      setHasTranscriptLines(lines.length > 0);
+      if (lines.length) clearStarting();
+    },
+    [clearStarting],
+  );
 
   const handleCopyTranscript = async () => {
     const lines = transcriptLinesRef.current;
@@ -723,22 +847,6 @@ export function MeetingPill() {
     }, ASK_SHEET_EXIT_MS);
   };
 
-  // The collapsed capsule reveals its transport on hover, which needs more
-  // window than the capsule occupies at rest. Rust owns the frame, so the
-  // reveal is a resize, not a CSS-only affordance — an oversized transparent
-  // window would eat clicks and would light up hover from way off the pill.
-  useEffect(() => {
-    if (pillDemoMode || expanded || detached) return;
-    invoke("recording_pill_hover_reveal", { revealed: hovered }).catch(
-      () => {},
-    );
-    return () => {
-      invoke("recording_pill_hover_reveal", { revealed: false }).catch(
-        () => {},
-      );
-    };
-  }, [hovered, expanded, detached]);
-
   // A split that leaves the transcript room on a tall window can starve it on a
   // short one, so the ratio is re-clamped against the panel's real height
   // whenever that height changes.
@@ -864,7 +972,10 @@ export function MeetingPill() {
       }
     >
       <div
-        ref={pillInnerRef}
+        ref={(node) => {
+          pillInnerRef.current = node;
+          capsuleRef.current = node;
+        }}
         className={`pill-inner${expanded ? "" : " pill-inner-compact"}${
           hovered ? " pill-hovered" : ""
         }`}
@@ -899,7 +1010,7 @@ export function MeetingPill() {
               />
             )}
           </div>
-          <div className="pill-controls">
+          <div className="pill-controls" ref={transportRef}>
             {ctx.starting ? (
               <span className="pill-timer pill-timer-starting">
                 <Spinner className="size-3" />

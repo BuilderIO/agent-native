@@ -4747,49 +4747,101 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 12px;
 }
 
-/* At rest the collapsed capsule is just logo + waveform. Hover reveals its
-   transport so a session can be paused or ended without expanding first —
-   `display` rather than opacity, because a hidden row still occupying layout
-   would push the capsule past the window Rust sized to it. */
+/* The collapsed capsule grows along its long axis to reveal its transport,
+   the same way the recorder pill grows to reveal its extras: the segment
+   animates its own measured size while the window is resized around it. The
+   height here is set in px by the overlay after measuring — `auto` cannot be
+   animated, and a guessed constant drifts from the real control stack. */
+/* Height and opacity are set inline by the overlay, not by a hover rule: this
+   window is never the key window, and the browser can stop advancing its
+   animations — so anything whose END state depends on a transition running is
+   invisible exactly when it matters. The transition is the polish; the inline
+   values are the truth. */
 .pill-vertical .pill-controls {
-  display: none;
-}
-
-.pill-inner-compact:hover .pill-vertical .pill-controls,
-.pill-inner-compact.pill-hovered .pill-vertical .pill-controls {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  animation: pill-transport-in 180ms var(--ease-out-strong) both;
+  height: 0;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    height 220ms var(--ease-drawer),
+    opacity 160ms var(--ease-out-strong);
 }
 
-/* 38px of capsule has no room for a clock as well. */
-.pill-vertical .pill-timer {
+.pill-vertical .pill-controls[data-open="true"] {
+  pointer-events: auto;
+}
+
+/* The buttons settle in a beat after the capsule starts opening, so the growth
+   reads as the capsule making room rather than a jump cut. Transform only —
+   a stalled transition leaves them 4px off instead of invisible. */
+.pill-vertical .pill-controls > * {
+  transform: translateY(-4px);
+  transition: transform 200ms var(--ease-out-strong);
+  transition-delay: 60ms;
+}
+
+.pill-vertical .pill-controls[data-open="true"] > * {
+  transform: translateY(0);
+}
+
+/* The note-taker shows no elapsed time anywhere, and 38px of capsule has room
+   for the two transport controls and nothing besides. */
+.pill-vertical .pill-timer,
+.pill-vertical .pill-expand-btn,
+.pill-vertical .pill-copy-btn {
   display: none;
 }
 
+/* Bare glyphs, matching the recorder pill: a red square for stop and a ghost
+   pause, with no filled circle behind either. The base styles here are the
+   compact pill's filled buttons, which is the wrong language for a capsule
+   this small — two solid discs stacked read as a traffic light. */
 .pill-vertical .pill-pause-btn,
 .pill-vertical .pill-stop-btn {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
   margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
 }
 
-@keyframes pill-transport-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn:hover {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: #ffffff;
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-stop-btn,
+.pill-inner-compact
+  .pill-header.pill-vertical
+  .pill-stop-btn:hover:not(:disabled) {
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-vertical .pill-controls {
+  gap: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pill-inner-compact:hover .pill-vertical .pill-controls,
-  .pill-inner-compact.pill-hovered .pill-vertical .pill-controls {
-    animation-duration: 1ms;
+  .pill-vertical .pill-controls,
+  .pill-vertical .pill-controls > * {
+    transition-duration: 1ms;
+    transition-delay: 0ms;
   }
 }
 

@@ -63,9 +63,6 @@ static PILL_EXPANDED: AtomicBool = AtomicBool::new(false);
 /// hover styling itself. Gates the single polling task.
 static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 
-/// Whether the collapsed capsule is currently showing its transport controls.
-static PILL_HOVER_REVEALED: AtomicBool = AtomicBool::new(false);
-
 /// Collapsed dimensions (logical px). The collapsed pill is a vertical capsule
 /// — clips logo on top, waveform below — so it is taller than it is wide. The
 /// expanded form stretches horizontally to fit the live-transcript area.
@@ -78,11 +75,6 @@ const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
 /// hover is polled against, so slack here makes the pill light up while the
 /// cursor is still nowhere near it.
 const PILL_H_LOGICAL: u32 = 60;
-/// The collapsed capsule with its transport revealed on hover. Padding the
-/// capsule to this height permanently would be a transparent window frame that
-/// eats clicks — and hover is polled against the frame — so the window grows
-/// only while the cursor is actually on it.
-const PILL_H_HOVER_LOGICAL: u32 = 112;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. 42 = the old 24px window
 /// margin + the removed 18px shadow gutter, so the default capsule keeps the
@@ -322,8 +314,6 @@ fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
             PILL_W_EXPANDED_LOGICAL
         };
         (w, PILL_H_EXPANDED_LOGICAL)
-    } else if PILL_HOVER_REVEALED.load(Ordering::Relaxed) {
-        (PILL_W_LOGICAL, PILL_H_HOVER_LOGICAL)
     } else {
         (PILL_W_LOGICAL, PILL_H_LOGICAL)
     };
@@ -435,33 +425,6 @@ fn anchored_rect(
         None => default_bottom_center(app, w, h),
     };
     (w, h, x, y)
-}
-
-/// Grow or shrink the collapsed capsule so its transport controls have room.
-///
-/// Anchored from the window's current rect rather than the saved default: the
-/// cursor is sitting on this window while it resizes, and moving the anchor
-/// under the pointer would bounce hover on and off.
-#[tauri::command]
-pub async fn recording_pill_hover_reveal(app: AppHandle, revealed: bool) -> Result<(), String> {
-    if PILL_EXPANDED.load(Ordering::Relaxed) || PILL_DETACHED.load(Ordering::Relaxed) {
-        return Ok(());
-    }
-    if PILL_HOVER_REVEALED.swap(revealed, Ordering::SeqCst) == revealed {
-        return Ok(());
-    }
-    let Some(win) = app.get_webview_window(PILL_LABEL) else {
-        return Ok(());
-    };
-    let previous = win
-        .outer_position()
-        .ok()
-        .zip(win.outer_size().ok())
-        .map(|(p, s)| (p.x, p.y, s.width, s.height));
-    let (w, h, x, y) = anchored_rect(&app, false, previous);
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
-    let _ = win.set_position(PhysicalPosition::new(x, y));
-    Ok(())
 }
 
 #[tauri::command]

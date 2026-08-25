@@ -216,7 +216,6 @@ pub fn run() {
             rewind_capture_suspension::rewind_capture_suspension_acquire,
             rewind_capture_suspension::rewind_capture_suspension_release,
             // recording indicator pill
-            recording_indicator::recording_pill_hover_reveal,
             recording_indicator::recording_pill_prewarm,
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
