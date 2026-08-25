@@ -1,4 +1,15 @@
-import { IconArrowUpRight } from "@tabler/icons-react";
+import {
+  IconArrowUpRight,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 
 import { GridInner, PageSection } from "./page-grid";
@@ -122,12 +133,64 @@ const APPS: ShowcaseApp[] = [
   },
 ];
 
-// Rendered twice back-to-back so the track can loop seamlessly: animating
-// exactly -50% of the track's total width always lands on an identical
-// second copy of the first card, regardless of how wide any card is.
-const LOOPED_APPS = [...APPS, ...APPS];
+// Matches the site header's icon-button treatment (40x40, secondary border,
+// secondary hover) so the carousel controls read as part of the same system.
+function CarouselIconButton({
+  children,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+      style={{
+        width: 40,
+        height: 40,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderRadius: "var(--b-radius)",
+        background: "transparent",
+        color: "var(--b-text-primary)",
+        cursor: "pointer",
+        outline: "none",
+        transition: "background 0.15s, border-color 0.15s",
+      }}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function TemplateShowcase() {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [canScrollPrev, setCanScrollPrev] = useState(false);
+  const [canScrollNext, setCanScrollNext] = useState(true);
+
+  function updateScrollState() {
+    const el = viewportRef.current;
+    if (!el) return;
+    setCanScrollPrev(el.scrollLeft > 4);
+    setCanScrollNext(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }
+
+  useEffect(() => {
+    updateScrollState();
+  }, []);
+
+  function scrollByPage(direction: 1 | -1) {
+    const el = viewportRef.current;
+    if (!el) return;
+    el.scrollBy({
+      left: direction * el.clientWidth * 0.9,
+      behavior: "smooth",
+    });
+  }
+
   return (
     <PageSection>
       <GridInner
@@ -167,17 +230,39 @@ export function TemplateShowcase() {
         </p>
       </GridInner>
 
+      <GridInner
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: "var(--spacing-2)",
+          padding: "0 var(--spacing-8) var(--spacing-4)",
+        }}
+      >
+        <CarouselIconButton
+          aria-label="Scroll apps left"
+          onClick={() => scrollByPage(-1)}
+          disabled={!canScrollPrev}
+        >
+          <IconChevronLeft size={18} stroke={1.5} />
+        </CarouselIconButton>
+        <CarouselIconButton
+          aria-label="Scroll apps right"
+          onClick={() => scrollByPage(1)}
+          disabled={!canScrollNext}
+        >
+          <IconChevronRight size={18} stroke={1.5} />
+        </CarouselIconButton>
+      </GridInner>
+
       <GridInner>
-        <div className="app-carousel-viewport">
+        <div
+          ref={viewportRef}
+          className="app-carousel-viewport"
+          onScroll={updateScrollState}
+        >
           <div className="app-carousel-track">
-            {LOOPED_APPS.map((app, index) => (
-              <Link
-                key={`${app.slug}-${index}`}
-                to={app.href}
-                className="app-carousel-card"
-                aria-hidden={index >= APPS.length || undefined}
-                tabIndex={index >= APPS.length ? -1 : undefined}
-              >
+            {APPS.map((app) => (
+              <Link key={app.slug} to={app.href} className="app-carousel-card">
                 <div className="app-carousel-card-image">
                   <img
                     src={app.image}

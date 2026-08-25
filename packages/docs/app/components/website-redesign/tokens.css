@@ -269,9 +269,18 @@
 }
 
 .builder-brand-tokens .app-carousel-viewport {
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   border: 1px solid var(--b-border-default);
   padding: var(--spacing-6) 0;
+}
+
+.builder-brand-tokens .app-carousel-viewport::-webkit-scrollbar {
+  display: none;
 }
 
 .builder-brand-tokens .app-carousel-track {
@@ -279,11 +288,6 @@
   width: max-content;
   gap: var(--spacing-6);
   padding: 0 var(--spacing-6);
-  animation: app-carousel-scroll 60s linear infinite;
-}
-
-.builder-brand-tokens .app-carousel-viewport:hover .app-carousel-track {
-  animation-play-state: paused;
 }
 
 .builder-brand-tokens .app-carousel-card {
@@ -292,6 +296,7 @@
   gap: var(--spacing-4);
   width: 320px;
   flex-shrink: 0;
+  scroll-snap-align: start;
   border: 1px solid var(--b-border-subtle);
   border-radius: var(--b-radius);
   overflow: hidden;
@@ -334,21 +339,6 @@
   background: var(--b-text-primary);
   border-color: var(--b-text-primary);
   color: var(--b-bg-page);
-}
-
-@keyframes app-carousel-scroll {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .builder-brand-tokens .app-carousel-track {
-    animation: none;
-  }
 }
 
 .builder-brand-tokens .works-with-stack-arrow-tile {
