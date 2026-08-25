@@ -200,7 +200,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="hidden items-center gap-3 lg:flex">
+          <div className="hidden items-stretch gap-3 lg:flex">
             <GithubStarsButton starCount={starCount} />
             <LanguagePicker />
             <ThemeIconButton />
