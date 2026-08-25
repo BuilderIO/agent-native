@@ -314,7 +314,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 320 / 250;
   overflow: hidden;
   background: var(--b-bg-page);
 }
