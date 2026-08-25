@@ -12,7 +12,7 @@
  *   pnpm action get-recording-insights --recordingId=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { count, eq } from "drizzle-orm";
 import { z } from "zod";

@@ -3,6 +3,12 @@ import type {
   FindTimeParticipant,
   FindTimeSlot,
 } from "../../shared/api.js";
+import {
+  addDaysToDateKey,
+  dateKeyInTimezone,
+  dateTimeInTimezoneToIso,
+  isCalendarTimezone,
+} from "../../shared/timezone.js";
 
 export interface AvailabilitySchedule {
   timezone: string;
@@ -37,108 +43,24 @@ const DEFAULT_SCHEDULE: AvailabilitySchedule["schedule"] = {
   sunday: [],
 };
 
+/**
+ * These live in shared/timezone.ts so the grid, the actions, and this module
+ * cannot drift on DST edges. Kept under their original names because callers
+ * across the template import them from here.
+ */
 export function normalizeTimezone(timezone?: string): string {
-  if (!timezone) return "UTC";
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
-    return timezone;
-  } catch {
-    return "UTC";
-  }
+  return isCalendarTimezone(timezone) ? timezone : "UTC";
 }
 
-function datePartsInTimezone(date: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(date);
-  const get = (type: string) =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-  return {
-    year: get("year"),
-    month: get("month"),
-    day: get("day"),
-    hour: get("hour"),
-    minute: get("minute"),
-    second: get("second"),
-  };
-}
-
-export function dateOnlyInTimezone(date: Date, timezone: string): string {
-  const parts = datePartsInTimezone(date, timezone);
-  return [
-    String(parts.year).padStart(4, "0"),
-    String(parts.month).padStart(2, "0"),
-    String(parts.day).padStart(2, "0"),
-  ].join("-");
-}
-
-export function addDaysToDateOnly(dateOnly: string, days: number): string {
-  const [year, month, day] = dateOnly.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return [
-    String(date.getUTCFullYear()).padStart(4, "0"),
-    String(date.getUTCMonth() + 1).padStart(2, "0"),
-    String(date.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function offsetMsForTimezone(date: Date, timezone: string): number {
-  const parts = datePartsInTimezone(date, timezone);
-  const asUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-  return asUtc - date.getTime();
-}
+export const dateOnlyInTimezone = dateKeyInTimezone;
+export const addDaysToDateOnly = addDaysToDateKey;
 
 export function zonedDateTimeToUtcIso(
   dateOnly: string,
   time: string,
   timezone: string,
 ): string {
-  const [year, month, day] = dateOnly.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const offsets = new Set<number>();
-  for (let hours = -36; hours <= 36; hours += 6) {
-    offsets.add(
-      offsetMsForTimezone(
-        new Date(wallClockUtc + hours * 60 * 60 * 1000),
-        timezone,
-      ),
-    );
-  }
-
-  const candidates = [...offsets]
-    .map((offset) => new Date(wallClockUtc - offset))
-    .map((candidate) => ({
-      candidate,
-      localWallClock:
-        candidate.getTime() + offsetMsForTimezone(candidate, timezone),
-    }))
-    .sort((a, b) => {
-      const aDelta = a.localWallClock - wallClockUtc;
-      const bDelta = b.localWallClock - wallClockUtc;
-      if (aDelta === 0 && bDelta === 0) {
-        return a.candidate.getTime() - b.candidate.getTime();
-      }
-      if (aDelta >= 0 && bDelta < 0) return -1;
-      if (aDelta < 0 && bDelta >= 0) return 1;
-      return Math.abs(aDelta) - Math.abs(bDelta);
-    });
-
-  return candidates[0].candidate.toISOString();
+  return dateTimeInTimezoneToIso(dateOnly, time, timezone);
 }
 
 function normalizeDateBound(value: string, timezone: string): string {

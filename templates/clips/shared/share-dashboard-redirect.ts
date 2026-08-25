@@ -4,7 +4,7 @@ import {
 } from "./share-attribution.js";
 
 /** Query params worth carrying from /share/:id over to /r/:id. */
-const FORWARDED_PARAMS = ["t", "panel"] as const;
+const FORWARDED_PARAMS = ["t", "at", "panel"] as const;
 
 export interface DashboardRedirectInput {
   recordingId: string | null | undefined;

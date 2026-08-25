@@ -16,7 +16,7 @@
  * selectable layers.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";

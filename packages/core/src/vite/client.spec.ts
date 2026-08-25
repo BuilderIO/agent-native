@@ -445,16 +445,16 @@ describe("dev server mounted path helpers", () => {
     await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
 
     expect(next).not.toHaveBeenCalled();
-    expect(server.pluginContainer.load).toHaveBeenCalledWith(
+    expect(server.transformRequest).toHaveBeenCalledWith(
       "\0virtual:react-router/browser-manifest",
     );
-    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(server.pluginContainer.load).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith(
       "content-type",
       "text/javascript",
     );
     expect(res.end).toHaveBeenCalledWith(
-      'window.__loaded = "\\u0000virtual:react-router/browser-manifest";',
+      'export const url = "\\u0000virtual:react-router/browser-manifest";',
     );
   });
 

@@ -123,6 +123,51 @@ async function shareDocumentWithOwner(documentId: string, id: string) {
   });
 }
 
+async function addProperty(args: {
+  id: string;
+  databaseId: string;
+  name: string;
+  type: string;
+  position: number;
+  optionsJson?: string;
+}) {
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      id: args.id,
+      ownerEmail: OWNER,
+      databaseId: args.databaseId,
+      name: args.name,
+      type: args.type,
+      visibility: "always_show",
+      optionsJson: args.optionsJson ?? "{}",
+      position: args.position,
+      createdAt: now,
+      updatedAt: now,
+    });
+}
+
+async function setPropertyValue(args: {
+  id: string;
+  documentId: string;
+  propertyId: string;
+  value: unknown;
+}) {
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.documentPropertyValues)
+    .values({
+      id: args.id,
+      ownerEmail: OWNER,
+      documentId: args.documentId,
+      propertyId: args.propertyId,
+      valueJson: JSON.stringify(args.value),
+      createdAt: now,
+      updatedAt: now,
+    });
+}
+
 describe("export-document database collections", () => {
   it.each(["table", "list"] as const)(
     "exports immediate authorized members from a %s view in membership order for every format",
@@ -191,17 +236,25 @@ describe("export-document database collections", () => {
         position: 0,
       });
 
-      const [markdown, html, pdf] = await runWithRequestContext(
+      const [markdown, html, pdf, csv] = await runWithRequestContext(
         { userEmail: OWNER },
         () =>
-          Promise.all(
-            (["markdown", "html", "pdf"] as const).map((format) =>
+          Promise.all([
+            ...(["markdown", "html", "pdf"] as const).map((format) =>
               exportDocumentAction.run({
                 id: databaseDocumentId,
                 format,
               }),
             ),
-          ),
+            exportDocumentAction.run({
+              id: databaseDocumentId,
+              format: "csv",
+              collection: {
+                scope: { kind: "all_members" },
+                propertyIds: [],
+              },
+            }),
+          ]),
       );
 
       expect(markdown.content).toBe(
@@ -221,6 +274,32 @@ describe("export-document database collections", () => {
           result.content.indexOf("<h2>FAQ</h2>"),
         );
       }
+      expect(csv.content).toBe(
+        "Title\r\nAnnouncement\r\nFAQ\r\nShared record\r\n",
+      );
+
+      const currentViewCsv = await runWithRequestContext(
+        { userEmail: OWNER },
+        () =>
+          exportDocumentAction.run({
+            id: databaseDocumentId,
+            format: "csv",
+            collection: {
+              scope: {
+                kind: "current_view",
+                viewId: "primary",
+                query: {
+                  search: "FAQ",
+                  filters: [],
+                  sorts: [],
+                  filterMode: "and",
+                },
+              },
+              propertyIds: [],
+            },
+          }),
+      );
+      expect(currentViewCsv.content).toBe("Title\r\nFAQ\r\n");
     },
   );
 
@@ -328,6 +407,73 @@ describe("export-document database collections", () => {
     expect(result.content).toBe(
       "# Unavailable Database\n\n## Unavailable Page\n",
     );
+  });
+
+  it("exports selected scalar CSV columns without waiting for unselected Blocks", async () => {
+    const databaseId = "csv-scalar-database";
+    const databaseDocumentId = "csv-scalar-database-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "CSV Scalars",
+    });
+    await createDocument({ id: "csv-scalar-row", title: "=formula" });
+    await addDatabaseItem({
+      id: "csv-scalar-item",
+      databaseId,
+      documentId: "csv-scalar-row",
+      position: 0,
+      bodyHydrationStatus: "pending",
+    });
+    await addProperty({
+      id: "csv-status",
+      databaseId,
+      name: "Status",
+      type: "status",
+      position: 0,
+      optionsJson: JSON.stringify({
+        options: [{ id: "ready", name: "Ready" }],
+      }),
+    });
+    await addProperty({
+      id: "csv-blocks",
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      position: 1,
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+    });
+    await setPropertyValue({
+      id: "csv-status-value",
+      documentId: "csv-scalar-row",
+      propertyId: "csv-status",
+      value: "ready",
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "csv",
+        collection: {
+          scope: { kind: "all_members" },
+          propertyIds: ["csv-status"],
+        },
+      }),
+    );
+
+    expect(result.content).toBe("Title,Status\r\n'=formula,Ready\r\n");
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: { kind: "all_members" },
+            propertyIds: ["csv-blocks"],
+          },
+        }),
+      ),
+    ).rejects.toThrow('Database item "csv-scalar-row" is not ready for export');
   });
 
   it("keeps ordinary page exports unchanged", async () => {

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";

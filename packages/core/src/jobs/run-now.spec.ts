@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const canUpdateAutomationResourceMock = vi.hoisted(() => vi.fn());
+const canQueueAutomationRunNowMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const startAutomationRunMock = vi.hoisted(() => vi.fn());
 const listUnclaimedAutomationRunsMock = vi.hoisted(() => vi.fn());
 const fireInternalDispatchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../automations/service.js", () => ({
-  canUpdateAutomationResource: canUpdateAutomationResourceMock,
+  canQueueAutomationRunNow: canQueueAutomationRunNowMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -52,7 +52,7 @@ const organizationRun = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  canUpdateAutomationResourceMock.mockResolvedValue(true);
+  canQueueAutomationRunNowMock.mockResolvedValue(true);
   listUnclaimedAutomationRunsMock.mockResolvedValue([]);
   startAutomationRunMock.mockResolvedValue("history-1");
   fireInternalDispatchMock.mockResolvedValue(undefined);
@@ -163,5 +163,15 @@ describe("queueAutomationRunNow", () => {
       }),
     ).rejects.toThrow("Specify either an automation name or a path, not both.");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the caller cannot queue the run", async () => {
+    canQueueAutomationRunNowMock.mockResolvedValue(false);
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+
+    await expect(
+      queueAutomationRunNow({ ...organizationRun, name: "digest" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
   });
 });

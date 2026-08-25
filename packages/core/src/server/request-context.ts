@@ -167,6 +167,12 @@ export interface RequestContext {
    * async user-create hook. Analytics-only; never used for authorization.
    */
   signupAttribution?: SignupAttributionContext;
+  /**
+   * Which flow is creating a user row on this request. Set by callers that
+   * provision an identity rather than acquire a new person, so the signup
+   * event they trigger says so instead of impersonating a browser signup.
+   */
+  signupOrigin?: import("./attribution.js").SignupOrigin;
   /** Canonical client surface for analytics attribution. */
   clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
   /**

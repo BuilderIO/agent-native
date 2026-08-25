@@ -16,7 +16,7 @@
  * The legacy `update-form --fields <json>` path remains available for agents
  * and bulk imports that want to replace the whole fields array at once.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";

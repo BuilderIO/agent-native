@@ -10,7 +10,7 @@
  *    apply-visual-edit.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,

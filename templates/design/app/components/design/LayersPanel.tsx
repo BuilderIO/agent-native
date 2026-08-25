@@ -38,6 +38,7 @@ import {
   type RefObject,
 } from "react";
 
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -54,6 +55,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 export type LayersPanelNodeType =
@@ -1691,6 +1693,9 @@ const LayerRow = memo(function LayerRow({
   onFlipVertical,
 }: LayerRowProps) {
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const { node, depth, hasChildren, canAcceptChildren } = row;
   const isComponentLayer = layerNodeIsComponent(node);
   const selectable = node.selectable !== false;
@@ -2351,7 +2356,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconCopy className="size-3.5 text-muted-foreground" />
               {labels.copy}
-              <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("$mod+c")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
           {onPasteToReplace ? (
@@ -2362,7 +2367,7 @@ const LayerRow = memo(function LayerRow({
               <IconClipboard className="size-3.5 text-muted-foreground" />
               {labels.pasteToReplace}
               <ContextMenuShortcut>
-                {"⇧⌘R" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+r")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2381,7 +2386,7 @@ const LayerRow = memo(function LayerRow({
               >
                 <IconStackFront className="size-3.5 text-muted-foreground" />
                 {labels.bringToFront}
-                <ContextMenuShortcut>]</ContextMenuShortcut>
+                <ContextMenuShortcut>{shortcut("]")}</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuItem
                 className="gap-2 text-[12px]"
@@ -2391,7 +2396,7 @@ const LayerRow = memo(function LayerRow({
               >
                 <IconStackBack className="size-3.5 text-muted-foreground" />
                 {labels.sendToBack}
-                <ContextMenuShortcut>[</ContextMenuShortcut>
+                <ContextMenuShortcut>{shortcut("[")}</ContextMenuShortcut>
               </ContextMenuItem>
             </>
           ) : null}
@@ -2411,7 +2416,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconLayersUnion className="size-3.5 text-muted-foreground" />
               {labels.group}
-              <ContextMenuShortcut>⌘G</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("$mod+g")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
           {onFrameSelection ? (
@@ -2422,7 +2427,7 @@ const LayerRow = memo(function LayerRow({
               <IconFrame className="size-3.5 text-muted-foreground" />
               {labels.frameSelection}
               <ContextMenuShortcut>
-                {"⌥⌘G" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+alt+g")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2436,7 +2441,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconPencil className="size-3.5 text-muted-foreground" />
               {labels.rename}
-              <ContextMenuShortcut>⌘R</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("$mod+r")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
 
@@ -2452,7 +2457,7 @@ const LayerRow = memo(function LayerRow({
               <IconLayersSubtract className="size-3.5 text-muted-foreground" />
               {labels.ungroup}
               <ContextMenuShortcut>
-                {"⇧⌘G" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+g")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2476,7 +2481,7 @@ const LayerRow = memo(function LayerRow({
               )}
               {node.hidden ? labels.show : labels.hide}
               <ContextMenuShortcut>
-                {"⇧⌘H" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+h")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2492,7 +2497,7 @@ const LayerRow = memo(function LayerRow({
               )}
               {node.locked ? labels.unlock : labels.lock}
               <ContextMenuShortcut>
-                {"⇧⌘L" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+l")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2508,7 +2513,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconFlipHorizontal className="size-3.5 text-muted-foreground" />
               {labels.flipHorizontal}
-              <ContextMenuShortcut>⇧H</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("shift+h")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
           {onFlipVertical ? (
@@ -2518,7 +2523,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconFlipVertical className="size-3.5 text-muted-foreground" />
               {labels.flipVertical}
-              <ContextMenuShortcut>⇧V</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("shift+v")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
         </ContextMenuContent>

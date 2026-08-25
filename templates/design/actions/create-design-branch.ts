@@ -22,7 +22,7 @@
  * migration is preview-only until the user approves cutover.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,

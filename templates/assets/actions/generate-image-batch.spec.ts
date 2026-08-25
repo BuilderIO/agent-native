@@ -10,6 +10,10 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
 }));
 
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (entry: unknown) => entry,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
 }));

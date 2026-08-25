@@ -33,6 +33,7 @@ import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
 
 import { signA2AToken } from "../a2a/client.js";
+import { getAppConfig } from "../app-config/index.js";
 import { getOrgDomain } from "../org/context.js";
 import {
   getSession,
@@ -147,8 +148,20 @@ function joinAppPath(basePath: string, path: string): string {
   return `${basePath}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/**
+ * Which app this deployment is, for naming its MCP server.
+ *
+ * The hostname is the LAST resort, not the first: every beta deployment is
+ * `beta.<app>.agent-native.com`, so the leading label is `beta` for all of
+ * them and every beta app advertised itself as `agent-native-beta`. A client
+ * keys its config by that name, so connecting a second beta app overwrote the
+ * first. Declared identity comes first now, and `app.slug` covers every
+ * first-party template with no configuration at all.
+ */
 function appLabel(origin: string, options: McpConnectRouteOptions): string {
-  if (options.appId) return options.appId;
+  const app = getAppConfig().app;
+  const declared = options.appId ?? app.id ?? app.template ?? app.slug;
+  if (declared) return declared;
   try {
     const h = new URL(origin).hostname;
     return h.split(".")[0] || h;

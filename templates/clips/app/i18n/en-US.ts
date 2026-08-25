@@ -144,6 +144,7 @@ const messages = {
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
     backToLibrary: "Back to library",
+    sharedWithYou: "Shared with you",
     storageStillDisconnected: "Storage still isn't connected",
     finishBuilderOrS3:
       "Finish the Builder.io popup or configure S3-compatible storage, then try again.",
@@ -515,6 +516,7 @@ const messages = {
     height: "Height",
     autoplay: "Autoplay",
     startAt: "Start at (seconds)",
+    startAtTimestamp: "Start at {{time}}",
     embedCode: "Embed code",
   },
   shareUi: {

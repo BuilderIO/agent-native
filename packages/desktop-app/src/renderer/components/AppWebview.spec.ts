@@ -1221,6 +1221,52 @@ describe("Returning to an already loaded app tab", () => {
     ).toBe(true);
   });
 
+  it("re-gates a loaded tab whose session ended while it was hidden", () => {
+    // Sign-out reloads hidden webviews too, so the preserved page is already
+    // showing the signed-out screen. Preserving it here is what flashed that
+    // page with no gate over it.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "sign-in-required",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "failed",
+      }),
+    ).toBe(true);
+  });
+
+  it("still preserves a loaded tab when workspace SSO is simply off", () => {
+    // "idle" is SSO disabled, not a sign-out. Re-gating here would put every
+    // tab switch back behind the loading screen for anyone not using SSO.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "idle",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: "signed-in",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+        rememberedStatus: null,
+      }),
+    ).toBe(false);
+  });
+
   it("leaves a preserved page unblocked for loading", () => {
     // The reactivation path must not reintroduce the deferral that keeps the
     // webview on about:blank.
@@ -1232,5 +1278,98 @@ describe("Returning to an already loaded app tab", () => {
         status: "signed-in",
       }),
     ).toBe(false);
+  });
+});
+
+describe("Recovering from a slow app load", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    Object.defineProperty(HTMLElement.prototype, "executeJavaScript", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    act(() => root.unmount());
+    container.remove();
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    invalidateRememberedDesktopIdentityStatus();
+  });
+
+  it("clears the load-timeout error when the app finally arrives", async () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+
+    // The origin is slow: nothing failed, the client just stopped waiting.
+    act(() => {
+      vi.advanceTimersByTime(20_000);
+    });
+    expect(container.textContent).toContain("Mail isn't loading");
+    expect((webview!.parentElement as HTMLElement).style.display).toBe("none");
+
+    // The same navigation completes afterwards. A timeout is not a failure, so
+    // the real page must replace the error screen instead of staying hidden
+    // behind it until the user hits Retry.
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("Mail isn't loading");
+    expect((webview!.parentElement as HTMLElement).style.display).toBe("flex");
   });
 });

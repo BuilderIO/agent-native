@@ -9,6 +9,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   claimStartupDatabaseTelemetry,
   createDatabaseRequestTelemetry,
@@ -18,7 +19,6 @@ import {
 import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import { track } from "../tracking/index.js";
-import { getAppName } from "./app-name.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
@@ -239,8 +239,8 @@ function emitTelemetry(
     const db = getDatabaseRuntimeFingerprint();
     track(TELEMETRY_EVENT_NAME, {
       source: "server",
-      app: getAppName(),
-      template: envValue("AGENT_NATIVE_TEMPLATE") ?? getAppName(),
+      app: getAppConfig().app.name,
+      template: envValue("AGENT_NATIVE_TEMPLATE") ?? getAppConfig().app.name,
       organization: organizationForHost(host),
       method: getMethod(event),
       path: normalizeHttpTelemetryPath(pathname),
@@ -422,7 +422,7 @@ function logSlowRequest(
   console.log(
     JSON.stringify({
       event: SLOW_REQUEST_LOG_EVENT,
-      app: getAppName(),
+      app: getAppConfig().app.name,
       method: getMethod(event),
       path: normalizeHttpTelemetryPath(pathname),
       status: responseStatusCode(event, response),

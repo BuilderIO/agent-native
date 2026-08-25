@@ -46,6 +46,7 @@ describe("loadDesktopWorkspaceApps", () => {
               name: "Alpha",
               description: "Workspace tool",
               path: "/alpha",
+              workspaceSso: true,
               status: "ready",
             },
             { id: "pending", path: "/pending", status: "pending" },
@@ -77,6 +78,42 @@ describe("loadDesktopWorkspaceApps", () => {
     expect(fetch.mock.calls[1]?.[0]).toContain(
       "includeAgentCards=false&audience=all",
     );
+  });
+
+  it("preserves the server's workspace SSO eligibility per app", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ [WORKSPACE_APP_LIST_FLAG_KEY]: true }))
+      .mockResolvedValueOnce(
+        response({
+          apps: [
+            {
+              id: "registered",
+              name: "Registered",
+              path: "/registered",
+              workspaceSso: true,
+              status: "ready",
+            },
+            {
+              id: "unregistered",
+              name: "Unregistered",
+              path: "/unregistered",
+              workspaceSso: false,
+              status: "ready",
+            },
+          ],
+        }),
+      );
+
+    const result = await loadDesktopWorkspaceApps({
+      identitySession: sessionFor(fetch),
+      dispatchOrigin: "https://dispatch.example.com",
+    });
+
+    expect(result.apps).toEqual([
+      expect.objectContaining({ id: "registered", workspaceSso: true }),
+      expect.objectContaining({ id: "unregistered", workspaceSso: false }),
+    ]);
   });
 
   it("passes the authenticated session cookies to the rollout and inventory requests", async () => {

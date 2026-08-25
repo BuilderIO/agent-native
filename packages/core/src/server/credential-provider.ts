@@ -1693,6 +1693,99 @@ export async function resolveSecret(key: string): Promise<string | null> {
 }
 
 /**
+ * Resolve two related secrets from one scope/source. A complete lower-
+ * precedence pair wins over mixing a partial override with another source.
+ */
+export async function resolveSecretPair(
+  keys: readonly [string, string],
+): Promise<[string, string] | null> {
+  const [firstKey, secondKey] = keys;
+  const readPair = async (
+    scope: "user" | "org" | "workspace",
+    scopeId: string,
+  ): Promise<[string, string] | null> => {
+    const { readAppSecrets } = await import("../secrets/storage.js");
+    const secrets = await readAppSecrets({ keys, scope, scopeId });
+    const first = secrets.get(firstKey)?.value;
+    const second = secrets.get(secondKey)?.value;
+    return first && second ? [first, second] : null;
+  };
+  const readEnvironmentPair = (): [string, string] | null => {
+    if (
+      !canUseDeployCredentialFallbackForRequest(firstKey) ||
+      !canUseDeployCredentialFallbackForRequest(secondKey)
+    ) {
+      return null;
+    }
+    const first = process.env[firstKey];
+    const second = process.env[secondKey];
+    return first && second ? [first, second] : null;
+  };
+
+  const email = getRequestUserEmail();
+  if (!email) return readEnvironmentPair();
+
+  let lookupFailed = false;
+  let cause: unknown;
+  try {
+    let pair = await readPair("user", email);
+    if (pair) return pair;
+
+    let orgId: string | null | undefined = getRequestOrgId();
+    if (!orgId) {
+      const resolved = await resolveOrgIdForRequestEmail(email);
+      cause = resolved.cause;
+      lookupFailed = cause !== undefined;
+      orgId = resolved.orgId;
+    }
+
+    if (lookupFailed) {
+      const environmentPair = readEnvironmentPair();
+      if (environmentPair) return environmentPair;
+      assertCredentialStoreReadable({ lookupFailed, cause });
+      return null;
+    }
+
+    if (orgId) {
+      pair = await readPair("org", orgId);
+      if (pair) return pair;
+      pair = await readPair("workspace", orgId);
+      if (pair) return pair;
+    }
+
+    pair = await readPair("workspace", `solo:${email}`);
+    if (pair) return pair;
+
+    const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
+    if (vaultOrgId && vaultOrgId !== orgId) {
+      const access = await Promise.all(
+        keys.map((key) => canReadDesignatedVaultFallback(vaultOrgId, key)),
+      );
+      const unavailable = access.find(
+        (result) => result.status === "unavailable",
+      );
+      if (unavailable?.status === "unavailable") {
+        lookupFailed = true;
+        cause = unavailable.cause;
+      } else if (access.every((result) => result.status === "allowed")) {
+        pair = await readPair("org", vaultOrgId);
+        if (pair) return pair;
+        pair = await readPair("workspace", vaultOrgId);
+        if (pair) return pair;
+      }
+    }
+  } catch (error) {
+    lookupFailed = true;
+    cause = error;
+  }
+
+  const environmentPair = readEnvironmentPair();
+  if (environmentPair) return environmentPair;
+  assertCredentialStoreReadable({ lookupFailed, cause });
+  return null;
+}
+
+/**
  * `resolveSecret` without the throw: reports whether the miss is definitive
  * (`lookupFailed: false` — no such row anywhere the caller can reach) or just
  * unknown (`lookupFailed: true` — the store or the org membership behind it

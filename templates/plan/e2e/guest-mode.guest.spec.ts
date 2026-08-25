@@ -101,9 +101,10 @@ test.describe("guest mode + claim", () => {
     await page.waitForLoadState("domcontentloaded");
 
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /^sign in$/i }).first(),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^plan$/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^sign in$/i })).toHaveCount(
+      0,
+    );
 
     // Create must NOT be offered as a real create to a guest.
     await expect(
@@ -129,25 +130,76 @@ test.describe("guest mode + claim", () => {
     await expect(page.getByText(/no cli yet/i)).toHaveCount(0);
   });
 
-  test("guest clicking the header sign-in action is sent to sign-in", async ({
-    page,
-  }) => {
+  test("logged-out plans page omits the app header", async ({ page }) => {
     await clearAuth(page);
     await page.goto("/plans");
     await page.waitForLoadState("domcontentloaded");
 
-    const signInButton = page.getByRole("button", { name: /^sign in$/i });
-    await expect(signInButton).toBeVisible({ timeout: 15_000 });
-    await signInButton.click();
+    await expect(page.locator("header")).toHaveCount(0);
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible();
+  });
 
-    // Must land on the framework sign-in surface.
-    await page.waitForURL(/\/sign-in\?c=/i, { timeout: 15_000 });
-    expect(page.url()).toMatch(/sign-in/i);
-    expect(new URL(page.url()).searchParams.get("c")).toBeTruthy();
-    // The sign-in page offers account creation (the only way to author plans).
-    await expect(page.getByText(/create account/i).first()).toBeVisible({
-      timeout: 15_000,
+  test("logged-out mobile plans keeps navigation available", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clearAuth(page);
+    await page.goto("/plans");
+
+    await page.getByRole("button", { name: /open navigation/i }).click();
+    await page.getByRole("link", { name: /^ask$/i }).click();
+    await expect(page).toHaveURL(/\/chat\/?$/);
+  });
+
+  test("logged-out chat route loads directly", async ({ page }) => {
+    await clearAuth(page);
+    const response = await page.goto("/chat");
+
+    expect(response?.ok(), `guest /chat response ${response?.status()}`).toBe(
+      true,
+    );
+    await expect(page).toHaveURL(/\/chat\/?$/);
+    await expect(
+      page.getByRole("heading", { name: /ask plan/i }),
+    ).toBeVisible();
+  });
+
+  test("trailing-slash public routes keep their shells", async ({ page }) => {
+    await clearAuth(page);
+
+    await page.goto("/chat/");
+    await expect(
+      page.getByRole("heading", { name: /ask plan/i }),
+    ).toBeVisible();
+
+    await page.evaluate(() => {
+      sessionStorage.setItem(
+        "agent-native.plans.chat-home-handoff",
+        String(Date.now()),
+      );
+      (
+        window as typeof window & { handoffTransitions?: number }
+      ).handoffTransitions = 0;
+      window.addEventListener("agentNative.chatViewTransitionPrepare", () => {
+        window.handoffTransitions = (window.handoffTransitions ?? 0) + 1;
+      });
     });
+    await page
+      .getByRole("link", { name: /^plan$/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/plans\/?$/);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as typeof window & { handoffTransitions?: number })
+            .handoffTransitions,
+      ),
+    ).toBe(1);
+
+    await page.goto("/plans/");
+    await expect(page.locator("header")).toHaveCount(0);
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible();
   });
 
   test("anonymous create-visual-plan is rejected with a clean message (no plan minted)", async ({
@@ -310,9 +362,6 @@ test.describe("guest mode + claim", () => {
       timeout: 15_000,
     });
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /^sign in$/i }).first(),
-    ).toBeVisible();
 
     // Register + login same-origin (verification-free path the framework uses
     // for programmatic auth), exactly as global-setup does. This is the moment a

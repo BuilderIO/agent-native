@@ -21,6 +21,7 @@ import { triageConfig } from "../db/schema.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
 import {
   DEFAULT_FACTORY_ID,
+  assignCreatedByIfMissing,
   factoryAutomationJobPath,
   factoryConfigRowId,
   patchAutomationResource,
@@ -541,7 +542,7 @@ export async function ensureFactoryAutomations(
       repaired = setFrontmatterField(repaired, "appId", "factory");
       repaired = setFrontmatterField(repaired, "orgId", orgId);
       repaired = setFrontmatterField(repaired, "factoryId", factoryId);
-      repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
+      repaired = assignCreatedByIfMissing(repaired, ownerEmail);
       repaired = setFrontmatterField(repaired, "runAs", "creator");
       if (!frontmatterField(repaired, "model")) {
         repaired = setFrontmatterField(repaired, "model", seed.model);

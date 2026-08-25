@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 
 import type { ContentDatabaseBlocksReadResult } from "../shared/database-block-actions.js";

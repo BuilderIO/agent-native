@@ -144,6 +144,7 @@ const messages = {
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
     backToLibrary: "라이브러리로 돌아가기",
+    sharedWithYou: "나에게 공유됨",
     storageStillDisconnected: "저장소가 아직 연결되지 않았습니다.",
     finishBuilderOrS3:
       "Builder.io 팝업을 완료하거나 S3 스토리지를 구성한 후 다시 시도하세요.",
@@ -518,6 +519,7 @@ const messages = {
     height: "키",
     autoplay: "자동재생",
     startAt: "(초)에 시작",
+    startAtTimestamp: "{{time}}부터 시작",
     embedCode: "임베드 코드",
     sharePlainTitle: "{{title}} 공유",
   },
