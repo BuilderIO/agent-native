@@ -293,7 +293,7 @@ const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
 
 export function WorksWithStack() {
   return (
-    <PageSection>
+    <PageSection gridLines="middle">
       <GridInner
         style={{
           display: "flex",
