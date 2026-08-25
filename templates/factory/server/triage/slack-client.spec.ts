@@ -122,6 +122,21 @@ describe("createSlackReader", () => {
     expect(mockedGetChannelHistory).not.toHaveBeenCalled();
   });
 
+  it("accepts the Slack bot username without the hyphen Slack drops", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-agent-native",
+      userName: "agentnative",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await expect(
+      reader.getChannelHistory("primary", "C123"),
+    ).resolves.toBeDefined();
+    expect(mockedGetChannelHistory).toHaveBeenCalled();
+  });
+
   it("exposes bounded thread reads and the two typed write methods", async () => {
     const reader = createSlackReader({ ownerEmail: "owner@example.com" });
 

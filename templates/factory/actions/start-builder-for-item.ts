@@ -28,7 +28,10 @@ import {
   serializeTriageMetadata,
 } from "../server/triage/metadata.js";
 import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
-import { createSlackReader } from "../server/triage/slack-client.js";
+import {
+  createSlackReader,
+  isAgentNativeSlackUserName,
+} from "../server/triage/slack-client.js";
 
 /** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
 const REPLY_INSTRUCTION =
@@ -603,7 +606,8 @@ export default defineAction({
           const hasAgentNativeDisposition = feedbackThread.messages.some(
             (message) =>
               (message.user === agentNative.userId ||
-                message.username?.trim().toLowerCase() === "agent-native") &&
+                (message.username != null &&
+                  isAgentNativeSlackUserName(message.username))) &&
               /^(Fixed|In progress|Clarification needed):/i.test(
                 message.text.trim(),
               ),
