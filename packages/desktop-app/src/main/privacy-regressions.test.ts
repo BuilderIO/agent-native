@@ -161,9 +161,10 @@ describe("desktop passive-access regressions", () => {
     expect(connectFlow).toContain("hasMissingCredentialSignal(");
     expect(connectFlow).toContain("await host.retryRun({");
     expect(connectFlow).toContain("selectRun(retryResult.run.id)");
-    expect(agent).toContain(
-      "const hasCredentialGap = providerBlocked && hasCredentialHistory",
-    );
+    expect(agent).toContain("shouldShowCodeAgentCredentialCallout({");
+    expect(agent).toContain("providerBlocked,");
+    expect(agent).toContain("hasCredentialHistory,");
+    expect(agent).toContain("phase: run.phase,");
     expect(agent).toContain("hideCredentialMessages={hasCredentialHistory}");
   });
 
@@ -202,7 +203,7 @@ describe("desktop passive-access regressions", () => {
     const providerCheck = between(
       main,
       "function ensureCodeAgentLlmProvider()",
-      "function getLocalCodexCliStatus()",
+      "const CLI_PROBE_TIMEOUT_MS",
     );
 
     expect(providerCheck).toContain(

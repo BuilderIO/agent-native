@@ -2840,6 +2840,7 @@ ${signInJourneyInlineScript()}
       }
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
+      __anStopOAuthPopupWatch();
       __anGoogleSignInInFlight = false;
       __anMagicLinkInFlight = false;
       if (__anIsBuilderPreview()) {
@@ -3110,6 +3111,7 @@ ${identitySsoScript}
       return __anIsAgentNativeDesktop() ? 'redirect' : 'popup';
     }
     var __anOAuthPollTimer = null;
+    var __anOAuthPopupWatchTimer = null;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
     var __anMagicLinkInFlight = false;
@@ -3168,8 +3170,35 @@ ${identitySsoScript}
         __anOAuthPollTimer = null;
       }
     }
+    function __anStopOAuthPopupWatch() {
+      if (__anOAuthPopupWatchTimer) {
+        clearInterval(__anOAuthPopupWatchTimer);
+        __anOAuthPopupWatchTimer = null;
+      }
+    }
+    function __anWatchOAuthPopupClose(popup) {
+      __anStopOAuthPopupWatch();
+      __anOAuthPopupWatchTimer = setInterval(function() {
+        if (!__anGoogleSignInInFlight) {
+          __anStopOAuthPopupWatch();
+          return;
+        }
+        var closed = false;
+        try {
+          closed = popup.closed === true;
+        } catch(e) {
+          __anStopOAuthPopupWatch();
+          __anRecoverGoogleSignInAfterReturn();
+          return;
+        }
+        if (!closed) return;
+        __anStopOAuthPopupWatch();
+        __anRecoverGoogleSignInAfterReturn();
+      }, 500);
+    }
     function __anShowAuthExchangeError(err, btn, message, kind) {
       __anStopOAuthExchangePolling();
+      __anStopOAuthPopupWatch();
       err.textContent = message;
       err.classList.add('show', 'error');
       btn.disabled = false;
@@ -3327,6 +3356,7 @@ ${identitySsoScript}
           return;
         }
         try { popup.opener = null; } catch(e) {}
+        __anWatchOAuthPopupClose(popup);
       } catch(e) {
         __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect', 'Could not open Google popup.');
         return;

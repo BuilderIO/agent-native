@@ -137,6 +137,11 @@ const colors: string[] = [];
 
 const appColors = ["blue", "green", "cyan", "magenta", "white"];
 
+// Keep cold-start SSR imports from racing one another. Nitro's Vite worker
+// reports a transient 503 while its entry is still being compiled; starting
+// every template at once turns that expected warm-up into a visible app error.
+const STAGGER_DELAY_S = 0.25;
+
 requestedApps.forEach((appName, i) => {
   const port = PORT_MAP[appName];
   if (!port) {
@@ -150,8 +155,10 @@ requestedApps.forEach((appName, i) => {
   // both the frontend and all /api/* routes on the one port.
   // PORT pins the dev server port (Nitro's vite plugin reads process.env.PORT
   // first when resolving the dev server port).
+  const delay = i * STAGGER_DELAY_S;
+  const prefix = delay > 0 ? `sleep ${delay} && ` : "";
   commands.push(
-    `APP_NAME=${appName} PORT=${port} pnpm --dir templates/${appName} exec vite`,
+    `${prefix}APP_NAME=${appName} PORT=${port} pnpm --dir templates/${appName} exec vite`,
   );
   colors.push(appColors[i % appColors.length]);
 });

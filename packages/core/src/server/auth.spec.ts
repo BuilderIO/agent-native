@@ -5909,6 +5909,10 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
       );
+      expect(html).toContain("function __anWatchOAuthPopupClose(popup)");
+      expect(html).toContain("closed = popup.closed === true");
+      expect(html).toContain("__anWatchOAuthPopupClose(popup);");
+      expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
       const recoverStart = html.indexOf(
         "function __anRecoverGoogleSignInAfterReturn()",
       );

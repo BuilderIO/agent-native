@@ -2869,7 +2869,10 @@ type NitroModuleGraph = {
   idToModuleMap: Map<string, NitroModuleNode>;
 };
 
-const NITRO_STARTUP_SETTLE_MS = 1_000;
+// Nitro's worker can expose a transformed module graph before its entry
+// module has finished importing. Keep the recovery page up for the same
+// cold-start window instead of letting the first poll render a 500 error.
+const NITRO_STARTUP_SETTLE_MS = 3_000;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
 const NITRO_STARTUP_RETRY_DELAY_MS = 1_000;
 const NITRO_STARTUP_RETRY_MAX_DELAY_MS = 3_000;
