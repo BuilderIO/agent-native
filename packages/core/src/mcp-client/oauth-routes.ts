@@ -16,7 +16,10 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
-import { resolveSecretPair } from "../server/credential-provider.js";
+import {
+  CredentialStoreUnavailableError,
+  resolveSecretPair,
+} from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   getAppBasePath,
@@ -291,13 +294,34 @@ async function handleMcpOAuthStart(
     };
     setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
     return redirectWithStagedCookies(event, started.authorizationUrl.href);
-  } catch {
-    setResponseStatus(event, 400);
+  } catch (error) {
+    const failure = resolveMcpOAuthStartError(error);
+    setResponseStatus(event, failure.status);
+    return failure.body;
+  }
+}
+
+export function resolveMcpOAuthStartError(error: unknown): {
+  status: 400 | 503;
+  body: { error: string; errorCode?: string; retryable?: boolean };
+} {
+  if (error instanceof CredentialStoreUnavailableError) {
     return {
-      error:
-        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+      status: 503,
+      body: {
+        error: error.message,
+        errorCode: error.errorCode,
+        retryable: error.retryable,
+      },
     };
   }
+  return {
+    status: 400,
+    body: {
+      error:
+        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+    },
+  };
 }
 
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {

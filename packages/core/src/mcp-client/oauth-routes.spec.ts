@@ -2,16 +2,26 @@ import { mockEvent, type H3Event } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
 const resolveSecretPairMock = vi.hoisted(() => vi.fn());
+const CredentialStoreUnavailableErrorMock = vi.hoisted(
+  () =>
+    class CredentialStoreUnavailableErrorMock extends Error {
+      readonly errorCode = "credential_store_unavailable";
+      readonly retryable = true;
+    },
+);
 
 vi.mock("../server/credential-provider.js", () => ({
+  CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
   resolveSecretPair: resolveSecretPairMock,
 }));
 
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   clearMcpOAuthFlowCookies,
   isValidMcpOAuthFlow,
   readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
+  resolveMcpOAuthStartError,
   resolveMcpOAuthScope,
   resolveManagedMcpOAuthClient,
   setMcpOAuthFlowCookie,
@@ -293,6 +303,33 @@ describe("managed MCP OAuth clients", () => {
       resolveManagedMcpOAuthClient(new URL("https://mcp.example.com")),
     ).resolves.toBeUndefined();
     expect(resolveSecretPairMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("MCP OAuth start failures", () => {
+  it("preserves credential-store outages as retryable service errors", () => {
+    const result = resolveMcpOAuthStartError(
+      new CredentialStoreUnavailableError("database timeout"),
+    );
+
+    expect(result).toEqual({
+      status: 503,
+      body: {
+        error: "database timeout",
+        errorCode: "credential_store_unavailable",
+        retryable: true,
+      },
+    });
+  });
+
+  it("keeps remote OAuth failures as client errors", () => {
+    expect(resolveMcpOAuthStartError(new Error("discovery failed"))).toEqual({
+      status: 400,
+      body: {
+        error:
+          "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+      },
+    });
   });
 });
 
