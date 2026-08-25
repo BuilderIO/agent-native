@@ -16,6 +16,11 @@ explains them, but never hides a topology change in prose. Until an execution
 binding is explicitly added, the blueprint must not be described as the runtime
 router.
 
+Runtime work — settings, inbox, rules, automations, and activity — is scoped by
+`factoryId`. Reusable agents stay workspace-wide; graph nodes may reference any
+workspace agent as blueprint only. Pass `factoryId` on triage, config, automation,
+and audit actions for the factory the user is viewing.
+
 ## Workflow
 
 1. Read `view-screen` to identify the selected Factory, tab, node, or edge.

@@ -92,12 +92,22 @@ export interface RemoteConnectorSettings {
   enabled: boolean;
 }
 
+export type DesktopEnvironmentLanePreference = "auto" | "production" | "beta";
+
+export function isDesktopEnvironmentLanePreference(
+  value: unknown,
+): value is DesktopEnvironmentLanePreference {
+  return value === "auto" || value === "production" || value === "beta";
+}
+
 export interface DesktopAppPreferences {
   appsRoot: string;
   managedAppIds: string[];
   appOrder: string[];
   appModeDefaultsVersion?: number;
   desktopSsoEnabled: boolean;
+  /** Which hosted environment app webviews load. "auto" follows the signed-in email. */
+  desktopEnvironmentLane: DesktopEnvironmentLanePreference;
 }
 
 interface ShortcutStore {
@@ -493,6 +503,7 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
     managedAppIds: [],
     appOrder: [],
     desktopSsoEnabled: true,
+    desktopEnvironmentLane: "auto",
   };
   try {
     const raw = JSON.parse(
@@ -520,6 +531,11 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
         typeof raw.desktopSsoEnabled === "boolean"
           ? raw.desktopSsoEnabled
           : defaults.desktopSsoEnabled,
+      desktopEnvironmentLane: isDesktopEnvironmentLanePreference(
+        raw.desktopEnvironmentLane,
+      )
+        ? raw.desktopEnvironmentLane
+        : defaults.desktopEnvironmentLane,
       ...(typeof raw.appModeDefaultsVersion === "number"
         ? { appModeDefaultsVersion: raw.appModeDefaultsVersion }
         : {}),
@@ -546,6 +562,11 @@ export function saveDesktopAppPreferences(
       typeof settings.desktopSsoEnabled === "boolean"
         ? settings.desktopSsoEnabled
         : current.desktopSsoEnabled,
+    desktopEnvironmentLane: isDesktopEnvironmentLanePreference(
+      settings.desktopEnvironmentLane,
+    )
+      ? settings.desktopEnvironmentLane
+      : current.desktopEnvironmentLane,
     ...(settings.appModeDefaultsVersion !== undefined
       ? { appModeDefaultsVersion: settings.appModeDefaultsVersion }
       : current.appModeDefaultsVersion !== undefined

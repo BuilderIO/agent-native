@@ -20,11 +20,13 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  AGENT_NATIVE_EMBED_MESSAGE_TYPES,
-  createAgentNativeEmbedEnvelope,
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
-} from "@agent-native/core/embedding";
+} from "@agent-native/core/embedding/bridge";
+import {
+  AGENT_NATIVE_EMBED_MESSAGE_TYPES,
+  createAgentNativeEmbedEnvelope,
+} from "@agent-native/core/embedding/protocol";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,

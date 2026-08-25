@@ -22,6 +22,7 @@ import {
   emitChatFirstSessionWatch,
   getChatFirstSurfaceTabsStore,
   orderChatFirstAppIds,
+  preloadAgentChatSurface,
   readChatFirstAppLayout,
   resolveChatFirstAppTarget,
   resolveChatFirstBrowserTarget,
@@ -58,7 +59,14 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { cn } from "@agent-native/toolkit";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Select,
@@ -81,6 +89,7 @@ import {
   IconGripVertical,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconMessageCircle,
   IconPlus,
   IconPin,
   IconSearch,
@@ -95,6 +104,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactElement,
 } from "react";
 
 import type {
@@ -120,6 +130,7 @@ import AppWebview, {
   isDesktopIdentityGateUnauthenticated,
   resolveAppWebviewUrl,
   type AppWebviewAuthState,
+  type AppWebviewHandle,
 } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
@@ -149,6 +160,21 @@ import {
 import { UpdateIndicator } from "./UpdateIndicator.js";
 import UpdatePrompt from "./UpdatePrompt.js";
 
+function DesktopRailTooltip({
+  children,
+  label,
+}: {
+  children: ReactElement;
+  label: string;
+}) {
+  return (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
   import.meta.url,
@@ -156,6 +182,8 @@ const agentNativeIconUrl = new URL(
 const codeAgentsQueryClient = createAgentNativeQueryClient();
 const CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY =
   "agent-native:desktop-chat-first-rail-collapsed";
+const DESKTOP_FEEDBACK_FORM_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 const MULTI_FRONTIER_PROVIDERS: readonly MultiFrontierProviderId[] = [
   "codex",
   "claude",
@@ -314,6 +342,10 @@ export function isNativeDesktopIntegrationsPath(path?: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function shouldUseDesktopAppChatShell(path?: string): boolean {
+  return !isNativeDesktopIntegrationsPath(path);
 }
 
 export function shouldShowNativeDesktopIntegrations(input: {
@@ -669,6 +701,9 @@ export default function CodeAgentsHub({
   onChatFirstAppSelectionChange,
 }: CodeAgentsHubProps) {
   const theme = useRendererTheme();
+  useEffect(() => {
+    void preloadAgentChatSurface();
+  }, []);
   const terminalPreferences = useDesktopTerminalPreferences();
   const emitChatFirstOpenAppStable = useCallback(
     (detail: ChatFirstOpenAppDetail) => emitChatFirstOpenApp(detail),
@@ -698,6 +733,7 @@ export default function CodeAgentsHub({
   const [webContentsIdByTab, setWebContentsIdByTab] = useState<
     Record<string, number>
   >({});
+  const appWebviewRefs = useRef<Record<string, AppWebviewHandle | null>>({});
   const [nativeOAuthActiveByTab, setNativeOAuthActiveByTab] = useState<
     Record<string, boolean>
   >({});
@@ -836,6 +872,9 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
+  const chatFirstAppChatEnabled =
+    chatFirstAppSelected &&
+    shouldUseDesktopAppChatShell(activeChatFirstSurfaceTab?.path);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
@@ -1140,6 +1179,20 @@ export default function CodeAgentsHub({
       ),
     [openChatFirstApp, terminalPreferences.enabled],
   );
+  const reloadChatFirstApp = useCallback(
+    (app: ChatFirstAppItem) => {
+      let reloaded = false;
+      for (const tab of chatFirstSurfaceTabs.tabs) {
+        if (tab.kind !== "app" || tab.appId !== app.id) continue;
+        const webview = appWebviewRefs.current[tab.id];
+        if (!webview) continue;
+        webview.reload();
+        reloaded = true;
+      }
+      if (!reloaded) openChatFirstAppFromRail(app);
+    },
+    [chatFirstSurfaceTabs.tabs, openChatFirstAppFromRail],
+  );
   const openChatFirstAppFromGrid = useCallback(
     (app: AppConfig) =>
       openChatFirstApp(
@@ -1258,6 +1311,7 @@ export default function CodeAgentsHub({
             setChatFirstAppLayout(layout);
           }}
           onRemoveApp={onChatFirstAppRemove}
+          onReloadApp={reloadChatFirstApp}
           onOpenAllApps={openChatFirstAllApps}
           onOpenApp={openChatFirstAppFromRail}
           renderIcon={renderChatFirstAppIcon}
@@ -1276,6 +1330,7 @@ export default function CodeAgentsHub({
     onCreateApp,
     openChatFirstAllApps,
     openChatFirstAppFromRail,
+    reloadChatFirstApp,
     renderChatFirstAppIcon,
   ]);
 
@@ -2217,7 +2272,7 @@ export default function CodeAgentsHub({
         }
         return api.submitRemoteWaitlist(request);
       },
-      async listModels() {
+      async listModels(options?: { refresh?: boolean }) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.listModels) {
           return {
@@ -2226,7 +2281,7 @@ export default function CodeAgentsHub({
             error: "Desktop bridge is not available.",
           };
         }
-        return api.listModels() as Promise<CodeAgentModelListResult>;
+        return api.listModels(options) as Promise<CodeAgentModelListResult>;
       },
       async getHostMetadata() {
         const api = window.electronAPI?.codeAgents;
@@ -2649,6 +2704,8 @@ export default function CodeAgentsHub({
                 desktopIdentityStatus={desktopIdentityStatus}
                 appAuthState={appAuthState}
                 isActive={isTabActive}
+                chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
+                toggleScopeId={tab.id}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div
@@ -2667,9 +2724,15 @@ export default function CodeAgentsHub({
                     aria-hidden={!showNativeIntegrationsGuest}
                   >
                     <AppWebview
+                      ref={(webview) => {
+                        if (webview) appWebviewRefs.current[tab.id] = webview;
+                        else delete appWebviewRefs.current[tab.id];
+                      }}
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      surfaceHidden={!showNativeIntegrationsGuest}
+                      refreshKey={refreshKey}
                       theme={theme}
                       urlPath={tab.path}
                       urlParams={
@@ -2885,56 +2948,102 @@ export default function CodeAgentsHub({
             />
           }
           railFooterSlot={
-            <>
-              <UpdatePrompt />
-              <UpdateIndicator />
-              <div className="desktop-chat-first-rail-footer-actions">
-                {onOpenSettings ? (
-                  <button
-                    type="button"
-                    className="code-agents-nav-link desktop-chat-first-rail-settings"
-                    onClick={() => onOpenSettings()}
-                    aria-label="Settings"
-                    title="Settings"
-                  >
-                    <IconSettings
-                      size={15}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                    <span>Settings</span>
-                  </button>
+            <TooltipProvider delayDuration={0}>
+              <>
+                {chatFirstAppChatEnabled ? (
+                  <DesktopRailTooltip label="Toggle chat sidebar">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-chat"
+                      data-chat-first-rail-chat
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:toggle", {
+                            detail: {
+                              scopeId: activeChatFirstSurfaceTab?.id,
+                            },
+                          }),
+                        )
+                      }
+                      aria-label="Toggle chat sidebar"
+                      title="Toggle chat sidebar"
+                    >
+                      <IconMessageCircle
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Chat</span>
+                    </button>
+                  </DesktopRailTooltip>
                 ) : null}
-                <button
-                  type="button"
-                  className="code-agents-nav-link desktop-chat-first-rail-collapse"
-                  data-chat-first-rail-collapse
-                  onClick={() =>
-                    setChatFirstRailCollapsed((collapsed) => !collapsed)
-                  }
-                  aria-label={
-                    chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
-                  }
-                  title={
-                    chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
-                  }
-                >
-                  {chatFirstRailCollapsed ? (
-                    <IconLayoutSidebarLeftExpand
-                      size={15}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <IconLayoutSidebarLeftCollapse
-                      size={15}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                  )}
-                </button>
-              </div>
-            </>
+                <UpdatePrompt />
+                <UpdateIndicator />
+                {onOpenSettings ? (
+                  <DesktopRailTooltip label="Settings">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-settings"
+                      onClick={() => onOpenSettings()}
+                      aria-label="Settings"
+                      title="Settings"
+                    >
+                      <IconSettings
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Settings</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
+                <div className="desktop-chat-first-rail-footer-actions">
+                  <FeedbackButton
+                    url={DESKTOP_FEEDBACK_FORM_URL}
+                    variant={chatFirstRailCollapsed ? "icon" : "sidebar"}
+                    side="right"
+                    className={cn(
+                      "code-agents-nav-link desktop-chat-first-rail-feedback",
+                      chatFirstRailCollapsed ? "h-8 w-8" : "min-w-0",
+                    )}
+                  />
+                  <DesktopRailTooltip
+                    label={
+                      chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-collapse"
+                      data-chat-first-rail-collapse
+                      onClick={() =>
+                        setChatFirstRailCollapsed((collapsed) => !collapsed)
+                      }
+                      aria-label={
+                        chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                      }
+                      title={
+                        chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                      }
+                    >
+                      {chatFirstRailCollapsed ? (
+                        <IconLayoutSidebarLeftExpand
+                          size={15}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <IconLayoutSidebarLeftCollapse
+                          size={15}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </button>
+                  </DesktopRailTooltip>
+                </div>
+              </>
+            </TooltipProvider>
           }
           newSessionExtension={multiFrontierExtension}
           openDetailRequest={multiFrontierOpenDetailRequest}
@@ -2946,7 +3055,9 @@ export default function CodeAgentsHub({
                 isActive={isActive}
                 theme={theme}
                 urlParams={urlParams}
-                refreshKey={appRefreshKey}
+                // Shell key folded in: a lane change remounts every hosted
+                // surface, not just the ones with their own refresh reason.
+                refreshKey={appRefreshKey + refreshKey}
               />
             </div>
           )}

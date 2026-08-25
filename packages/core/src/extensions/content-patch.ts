@@ -137,10 +137,22 @@ async function applyExtensionContentUpdateUnchecked(
 
 export async function formatExtensionHtml(content: string): Promise<string> {
   try {
-    const prettier = await import("prettier");
-    const formatted = await prettier.format(content, {
+    // prettier's main entry `import()`s all 13 parser plugins, so a bundler
+    // inlines ~3.5MB of flow/typescript/yaml/markdown parsers just to format
+    // HTML. Load the standalone core plus only the plugins the HTML printer
+    // reaches, which still formats embedded <style> (postcss) and <script>
+    // (babel + estree).
+    const [{ format }, ...plugins] = await Promise.all([
+      import("prettier/standalone"),
+      import("prettier/plugins/html"),
+      import("prettier/plugins/postcss"),
+      import("prettier/plugins/babel"),
+      import("prettier/plugins/estree"),
+    ]);
+    const formatted = await format(content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
+      plugins,
     });
     return typeof formatted === "string" ? formatted : content;
   } catch (err: any) {

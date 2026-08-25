@@ -1,6 +1,7 @@
 import {
   AgentChatMemoryRouter as MemoryRouter,
   AgentSidebar,
+  preloadAgentChatSurface,
 } from "@agent-native/core/client/agent-chat";
 import { DESKTOP_LOCAL_CODE_CHANGE_EVENT } from "@agent-native/core/client/chat";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
@@ -80,6 +81,8 @@ export interface DesktopAppChatShellProps {
   desktopIdentityStatus?: DesktopIdentityStatus | "checking";
   appAuthState?: AppWebviewAuthState;
   isActive?: boolean;
+  chatEnabled?: boolean;
+  toggleScopeId?: string;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
@@ -115,12 +118,19 @@ export function shouldAnimateDesktopAppChatSidebar(input: {
 export function shouldShowDesktopAppChatSidebar(input: {
   apiUrl?: string | null;
   appAuthState?: AppWebviewAuthState;
+  chatEnabled?: boolean;
   desktopIdentityUnauthenticated?: boolean;
   desktopIdentityStatus?: DesktopIdentityStatus | "checking";
 }): boolean {
-  if (!input.apiUrl || input.appAuthState !== "authenticated") return false;
+  if (
+    input.chatEnabled === false ||
+    !input.apiUrl ||
+    input.appAuthState === "unauthenticated"
+  ) {
+    return false;
+  }
   if (input.desktopIdentityUnauthenticated) return false;
-  return !["checking", "signing-in", "sign-in-required", "failed"].includes(
+  return !["sign-in-required", "failed"].includes(
     input.desktopIdentityStatus ?? "idle",
   );
 }
@@ -140,6 +150,8 @@ export default function DesktopAppChatShell({
   desktopIdentityStatus,
   appAuthState,
   isActive = true,
+  chatEnabled = true,
+  toggleScopeId,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
   const shellRootRef = useRef<HTMLDivElement>(null);
@@ -291,7 +303,6 @@ export default function DesktopAppChatShell({
     let cancelled = false;
     setApiUrl(null);
     setDesktopChatRelayBase(appId, null);
-    setDesktopChatRelayActive(appId, false);
 
     const getApiUrl = window.electronAPI?.desktopChat?.getApiUrl;
     if (!getApiUrl) return () => undefined;
@@ -300,29 +311,30 @@ export default function DesktopAppChatShell({
       .then((nextApiUrl) => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, nextApiUrl);
-        setDesktopChatRelayActive(appId, isActive);
         setApiUrl(nextApiUrl);
       })
       .catch(() => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, null);
-        setDesktopChatRelayActive(appId, false);
         setApiUrl(null);
       });
 
     return () => {
       cancelled = true;
       setDesktopChatRelayBase(appId, null);
-      setDesktopChatRelayActive(appId, false);
     };
-  }, [appId, appAuthState, desktopIdentityStatus]);
+  }, [appId]);
 
   useEffect(() => {
-    setDesktopChatRelayActive(appId, isActive);
+    void preloadAgentChatSurface();
+  }, []);
+
+  useEffect(() => {
+    setDesktopChatRelayActive(appId, isActive && Boolean(apiUrl));
     return () => {
       setDesktopChatRelayActive(appId, false);
     };
-  }, [appId, isActive]);
+  }, [apiUrl, appId, isActive]);
 
   const startLocalCodeChange = useCallback(
     async (prompt: string) => {
@@ -498,6 +510,7 @@ export default function DesktopAppChatShell({
   const showChatSidebar = shouldShowDesktopAppChatSidebar({
     apiUrl,
     appAuthState,
+    chatEnabled,
     desktopIdentityUnauthenticated,
     desktopIdentityStatus,
   });
@@ -523,6 +536,7 @@ export default function DesktopAppChatShell({
                 label: appName,
                 contextKey: `desktop-app:${appId}`,
               }}
+              toggleScopeId={toggleScopeId}
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
               agentChatSurface="desktop"
@@ -532,6 +546,7 @@ export default function DesktopAppChatShell({
                 void window.electronAPI?.codeAgents?.connectBuilderProvider?.();
               }}
               showTabBar
+              restoreActiveThread={false}
               suppressInlineOpenApp
               dynamicSuggestions={false}
               suggestions={[]}

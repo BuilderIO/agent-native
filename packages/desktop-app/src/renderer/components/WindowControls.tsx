@@ -3,6 +3,9 @@ export default function WindowControls({
 }: {
   className?: string;
 }) {
+  const windowModeLabel =
+    window.electronAPI?.platform === "darwin" ? "Full screen" : "Maximize";
+
   return (
     <div className={className}>
       <button
@@ -20,8 +23,8 @@ export default function WindowControls({
       <button
         className="win-btn win-btn--maximize"
         tabIndex={-1}
-        onClick={() => window.electronAPI?.windowControls.maximize()}
-        title="Maximize"
+        onClick={() => window.electronAPI?.windowControls.toggleWindowMode()}
+        title={windowModeLabel}
       />
     </div>
   );
@@ -59,9 +62,9 @@ export function CollapsedMacWindowControls({
       <button
         type="button"
         className="win-btn win-btn--maximize"
-        onClick={() => window.electronAPI?.windowControls.maximize()}
-        aria-label="Zoom window"
-        title="Zoom"
+        onClick={() => window.electronAPI?.windowControls.toggleWindowMode()}
+        aria-label="Toggle full screen"
+        title="Full screen"
       />
     </div>
   );

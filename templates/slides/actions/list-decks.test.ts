@@ -5,6 +5,8 @@ const deckRows = [
     id: "deck_123",
     title: "Roadmap",
     data: JSON.stringify({ slides: [{ id: "slide-1" }] }),
+    previewSlide: JSON.stringify({ id: "slide-1" }),
+    aspectRatio: "4:3",
     visibility: "private",
     designSystemId: null,
     ownerEmail: "Alice@Example.com",
@@ -32,6 +34,7 @@ vi.mock("../server/db/index.js", () => ({
       createdAt: "created_at_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      data: "data_col",
     },
     deckShares: {},
   },
@@ -39,6 +42,10 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => requestUserEmail,
+}));
+
+vi.mock("@agent-native/core/db", () => ({
+  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -120,6 +127,33 @@ describe("list-decks", () => {
     });
     expect(result.decks[0]).not.toHaveProperty("ownerEmail");
     expect(result.count).toBe(1);
+  });
+
+  it("can include only the first slide as a light-mode preview", async () => {
+    const result = await action.run({
+      light: "true",
+      includePreview: "true",
+    });
+
+    expect(selectFn).toHaveBeenCalledWith({
+      id: "id_col",
+      title: "title_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+      ownerEmail: "owner_email_col",
+      previewSlide: expect.objectContaining({
+        strings: expect.arrayContaining(["json_extract("]),
+      }),
+      aspectRatio: expect.objectContaining({
+        strings: expect.arrayContaining(["json_extract("]),
+      }),
+    });
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      previewSlide: { id: "slide-1" },
+      aspectRatio: "4:3",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slides");
   });
 
   it("can limit results to decks created by the current user", async () => {

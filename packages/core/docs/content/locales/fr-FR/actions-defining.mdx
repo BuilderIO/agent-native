@@ -116,6 +116,21 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
             "Passez à false pour la masquer de toute liste d’outils de l’agent. Voir Accès et autorisation.",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "agentTool",
+          description:
+            "Hérite d’`agentTool`. Mettez false pour la masquer aux agents externes via MCP et A2A, ou true pour déclarer son appartenance au catalogue trié. Voir Accès et autorisation.",
+        },
+        {
+          name: "deferLoading",
+          type: "boolean",
+          optional: true,
+          description:
+            "Mettez false pour garder l’action dans la première liste d’outils de l’agent, true pour la charger à la demande via tool-search. Voir « Gardez la surface d’actions petite » ci-dessous.",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -261,6 +276,7 @@ Chaque action visible par l’agent prend une place dans la liste d’outils du 
 - Préférez **une seule action `update` de style CRUD** qui prend un patch de champs optionnels, plutôt que de nombreuses actions par champ comme `update-name`, `update-order`, et `update-color`. L’appelant n’envoie que les champs qui ont changé.
 - Avant d’ajouter une nouvelle action de lecture pour chaque requête ou filtre, envisagez d’abord une option plus générale : le [trio d’API fournisseur](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs`, et `provider-api-request`) pour les données fournisseur, ou l’outil dev `db-query` pour les données d’application.
 - Marquez les actions réservées à l’UI ou programmatiques [`agentTool: false`](/docs/actions-access-control#agent-tool). Elles restent appelables depuis le frontend ou via HTTP, sans prendre de place dans la liste d’outils du modèle.
+- Marquez `deferLoading: false` la poignée d’actions que l’agent sollicite en permanence. Ce sont ces schémas qui sont envoyés à la première requête du modèle ; tout le reste se charge à la demande via `tool-search` quand l’agent en a besoin. Dès qu’une action s’exclut ainsi, toutes les actions non marquées sont différées : marquez donc tout l’ensemble de départ d’un coup plutôt qu’une action à la fois. Il s’agit du coût du premier tour, pas d’un contrôle d’accès : une action différée est appelable dès que `tool-search` la renvoie. C’est la forme par action du tableau `initialToolNames` du plugin, et une application peut utiliser l’une ou l’autre.
 - Supprimez ou masquez les actions que l’UI n’utilise plus, plutôt que de les laisser exposées au modèle.
 
 Le dépôt inclut un utilitaire consultatif, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Il scanne le dossier `actions/` d’un template et signale les actions que l’UI n’utilise peut-être plus, ainsi que des groupes d’actions par champ qui pourraient être combinées en une seule. Il sort toujours avec le code 0 et ne fait jamais échouer la CI, et ses heuristiques sont prudentes, donc traitez sa sortie comme une suggestion, pas comme une erreur.

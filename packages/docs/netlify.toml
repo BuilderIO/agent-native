@@ -1,6 +1,7 @@
 [build]
 command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
+edge_functions = "packages/docs/netlify/edge-functions"
 
 # React Router prerendered pages bypass the framework SSR handler because
 # Netlify serves them from its static backing store. The shared Core Netlify
@@ -105,3 +106,10 @@ VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 # The docs app owns the framework schema at release time, so production
 # request functions do not spend their cold-start budget on migration probes.
 AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
+# Most docs URLs are prerendered and never touch a function, which is exactly
+# why this site had no keep-warm — and why the paths that DO render (unknown
+# URLs, markdown twins, .data) hit a stone-cold container every time. Measured
+# on www.agent-native.com: ~3.3s for the health endpoint even back-to-back,
+# against ~0.2s on templates that keep a container warm.
+AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
+AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"

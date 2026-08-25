@@ -1,393 +1,79 @@
 ---
 title: "什麼是 Agent-Native？"
-description: "為什麼大多數 AI 應用感覺只做了一半，什麼才是真正的 agent-native 應用，以及這對你日常使用體驗的實際影響。"
+description: "Agent-Native 是什麼、它的共用 action 架構如何運作，以及何時應以這種方式建置應用程式。"
 ---
 
 # 什麼是 Agent-Native？
 
-Agent-native 是一種軟體建構方式，其中 AI agent 與圍繞它的產品介面是**平等的夥伴**。常見的路徑從聊天開始，加入具型別的 action，將結構化結果渲染在畫面中，並圍繞同一份 SQL 狀態發展成持久的應用頁面。重要的是：agent 與使用者共享相同的 action、資料庫和狀態。
+Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置同時服務人們與 AI 代理的應用程式。您只要將應用程式功能定義一次，作為 [actions](/docs/actions-overview)——React UI 從程式碼呼叫的具型別函式，代理則將它們當作工具使用。
 
-如果你只能從這頁記住一件事，請記住這個：現今大多數 AI 應用都少走了一步就停下來了，而這個缺口是目前這個領域最大的錯誤。
+## 為什麼要以這種方式建置應用程式
 
-## 使用者的實際體驗 {#what-it-looks-like}
+大多數應用程式都是圍繞人員透過 UI 工作而設計。加入代理引入另一種使用產品的方式。要讓兩者作為同一個產品運作，必須滿足三件事：
 
-想像一個背景工作程式、收件匣、行事曆、表單建立工具或分析儀表板。通常第一個畫面是聊天：你說明你要什麼，agent 引導設定、顯示表格或圖表，並開啟正確的應用視圖。有時聊天停靠在完整應用的右側。有時因為工作流程是排程任務、佇列、腳本或外部 agent 整合，尚未有自訂畫面。在這些不同形態中，你可以：
+- **代理需要存取產品。** 如果它取得的是較小、獨立的一組工具，仍會受到限制。隨著應用程式改變，您也會維護兩套逐漸分歧的實作。
+- **人們仍需要應用程式 UI。** 聊天很適合委派工作，但不一定適合瀏覽資訊、比較選項、審查變更或與團隊分享結果。
+- **工作需要能在兩者之間移動。** 人員應能檢查或變更代理的工作，代理也應能從那裡繼續，而不用重新開始。
 
-- **直接從真實操作開始。** 一個持久的 action 可以從 CLI、HTTP、MCP、A2A、app-agent 迴圈執行，之後也能加入 UI。
-- **在有 UI 時點擊任何你平常會點的東西。** 所有按鈕、清單、儀表板、鍵盤快速鍵——它們全都呼叫與 agent 相同的操作。
-- **或者直接開口說。** 在 agent 中輸入「回覆 Sara 的信，告訴她我三點前會到」。它會開啟正確的對話串、草擬回覆，並讓你審核——就和你自己手動操作完全一樣。
-- **看見它看見的。** 開啟一封郵件，agent 就知道是哪封。選取一張圖表，agent 就知道是哪張。反白一段文字後按 Cmd+I，agent 就只針對那一段執行動作。
-- **觀察它工作。** 當 agent 進行操作時——開啟視圖、編輯草稿、執行報告——UI 會即時更新。你可以隨時暫停、重新引導，或用滑鼠接手。
-- **像對待隊友一樣引導它。** 給予回饋、排入下一個任務、編輯它的指示，並審核它昨天做了什麼。
+Agent-Native 架構圍繞這些需求建置。人們可以直接透過 UI 工作，或將成果委派給代理，接著在兩者之間移動而不會失去進度。
 
-這就是 agent-native 所設計的體驗。現在來談談為什麼大多數產品達不到這個境界。
-
-## 為什麼大多數「AI 應用」都差臨門一腳（階梯原則） {#the-ladder}
-
-大多數團隊都會經歷一段進程，就像爬梯子一樣，而大多數人都早了一級就停下來。
-
-### 第一級 — 單一 LLM 呼叫（反模式） {#rung-one}
-
-一個文字框送出 prompt，AI 回傳字串，你顯示它。也許還有個載入轉圈。使用者無法糾偏，AI 無法採取行動，也無法查看發生了什麼或為什麼這樣。
-
-這到處都是：「AI 功能」基本上就是一顆「摘要」按鈕硬接在 SaaS 產品上。在 demo 時看起來很厲害，但現實一複雜就立刻崩潰。那不是產品；那是玩具。
-
-### 第二級 — 帶工具的聊天 {#rung-two}
-
-現在 AI 可以*做事*了。它有工具——「草擬郵件」、「搜尋聯絡人」、「執行查詢」——以及一個在你面前運作的聊天介面，邊執行邊顯示工具呼叫與結果。這是 Claude、ChatGPT 和 Cursor 底層的樣子。
-
-這是真正的進步。但就其本身而言，它仍然只是一個聊天視窗。沒有完整的 UI、沒有儀表板、沒有清單、沒有表單、沒有鍵盤快速鍵、沒有團隊協作。如果 AI 搞混了，你只能重新輸入，而不是直接點擊正確的按鈕。非開發人員很難在這種格式下完成真正的工作。
-
-### 第三級 — agent 與 UI 作為平等夥伴 {#rung-three}
-
-這就是 agent-native。你在 agent 周圍加入一個真實、功能完整的應用——而且關鍵在於，agent 能執行的每個 action 在 UI 中也有對應的按鈕，使用者點擊的每個按鈕都執行和 agent 相同的邏輯。一份實作，兩種入口。
-
-達到第三級時，三件事會改變：
-
-- **你不再是在聊天機器人上加按鈕，而是在應用程式中加入了 agent。** 這讓雙方都成為更高品質的產品。
-- **Agent 擁有真實的上下文。** 它看得見你正在看什麼、選取了什麼、剛做了什麼。它寫入 UI 讀取的同一個資料庫，所以它的工作會立即呈現。
-- **外部 agent 也能使用它。** 其他 agent-native 應用可以透過 [A2A 協議](/docs/a2a-protocol) 呼叫此應用的 action。Claude Code、Codex、ChatGPT 自訂 MCP 應用、Cursor 及其他 MCP 宿主可以將其作為 [MCP 伺服器](/docs/mcp-protocol) 驅動。一個應用，多個入口點。
-
-這就是第三級。這就是 agent-native。
-
-<Diagram id="doc-block-19ku4da" title="階梯原則" summary={"大多數團隊止步於第一或第二級。Agent-native 是第三級——一個真實應用加上一個真實 agent，共享同一個 action 介面。"}>
-
-```html
-<div class="diagram-ladder">
-  <div class="diagram-card rung rung-3">
-    <span class="diagram-pill accent">第三級 · agent-native</span
-    ><strong>Agent 與 UI 作為平等夥伴</strong
-    ><small class="diagram-muted"
-      >單一 action 介面。每個 agent 工具也是一個按鈕；每個按鈕執行和 agent
-      相同的邏輯。</small
-    >
-  </div>
-  <div class="diagram-card rung rung-2">
-    <span class="diagram-pill">第二級</span><strong>帶工具的聊天</strong
-    ><small class="diagram-muted"
-      >Agent
-      可以採取行動——但它仍然只是一個聊天視窗。沒有儀表板、清單或快速鍵。</small
-    >
-  </div>
-  <div class="diagram-card rung rung-1">
-    <span class="diagram-pill warn">第一級</span><strong>單一 LLM 呼叫</strong
-    ><small class="diagram-muted"
-      >輸入 prompt，輸出字串。在 demo 時很厲害；現實一複雜就立刻崩潰。</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-ladder {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.diagram-ladder .rung {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-}
-.diagram-ladder .rung-2 {
-  margin-inline-end: 48px;
-}
-.diagram-ladder .rung-1 {
-  margin-inline-end: 96px;
-}
-```
-
-</Diagram>
-
-請參閱[核心概念 — 協議](/docs/key-concepts#protocols)，了解這一切如何掛在同一個 action 定義上。
-
-## 為什麼每個 agent 都需要 UI {#why-every-agent-needs-a-ui}
-
-即使 agent 承擔了所有繁重工作，人類仍然需要：
-
-- **看見它在做什麼** — 進度、中間輸出、它觸碰了什麼
-- **引導它** — 給予回饋、中斷、排入下一個任務
-- **管理它** — 編輯它的指示、技能、記憶、排程任務、已連接帳戶
-- **檢查它的工作** — 審核草稿、審計歷史紀錄、回滾錯誤
-- **分享它的輸出** — 儀表板、報告、表單、傳給隊友的連結
-
-最低限度，「agent 的 UI」是一個可觀測性與管理儀表板。最高限度，它是一個將 agent 嵌入為副駕駛的完整 SaaS 應用。兩端都算是 agent-native，而且介面可以從一端成長到另一端，無需重寫。
-
-你不必預先選擇所有介面。Agent 可以從豐富聊天開始，渲染原生內嵌 UI，存在於完整應用內，或從自動化和外部 agent 通道圍繞同一個 action 介面執行——請參閱 [Agent 介面](/docs/agent-surfaces) 了解具體形態和 API。
-
-## 為什麼每個應用都能從 agent 中受益 {#why-every-app-benefits-from-an-agent}
-
-反過來說同樣重要。現有的 SaaS 產品一再碰壁：80% 你需要的功能運作良好，而 20% 你就是無法改變。加入聊天側邊欄很少能解決問題——聊天通常根本*無法*實際執行 UI 能做的事。
-
-Agent-native 翻轉了這一點。因為應用中的每個 action 都只定義一次，並同時作為按鈕和 agent 工具公開，agent 能做一切按鈕能做的事——甚至更多——而不需要維護一個獨立的「AI 世界」。自然語言成為與點擊並列的一等輸入方式。
-
-這個論點不是「agent 取代 UI」，而是「**agent 應該存在於應用程式內部，頂層有 UI，作為平等夥伴**」。即使是以自動化為主的應用，仍然需要某種介面讓人類監督、設定和引導它——通常是聊天、任務歷史或一個小型狀態頁面。請參閱 [Agent 介面 — 自動化優先應用](/docs/agent-surfaces#headless)。
-
-## Agent 與 UI 對等性 {#agent-ui-parity}
-
-這是核心原則。
-
-- **從 UI** — 點擊按鈕、填寫表單、導航視圖。UI 寫入資料庫；agent 看見結果。
-- **從 agent** — 自然語言、透過 A2A 的其他 agent、Slack、Telegram。Agent 寫入資料庫；UI 自動更新。
-
-一個好的心智模型是共享狀態機。使用者介面和 agent
-介面都提交具型別的 action；這些 action 的行為類似帶有
-schema 和權限邊界的 reducer 事件：驗證輸入、授權執行者、套用狀態更新，然後廣播/渲染結果。UI 主要是該結果狀態的投影。Agent 不是從 DOM 猜測或直接修改私有元件狀態；它透過與 UI 相同的具型別 action 層互動。
-
-<Diagram id="doc-block-1n18itc" title="共享狀態機" summary={"使用者和 agent 都提交具型別的 action。Action 驗證、授權、套用 SQL 支援的狀態更新，然後廣播/渲染新狀態。"}>
-
-```html
-<div class="diagram-machine">
-  <div class="diagram-card surface user" data-rough>
-    <span class="diagram-pill">使用者介面</span>
-    <div class="diagram-node diagram-accent">
-      開啟設計分頁<br /><small class="diagram-muted">navigate.panel</small>
-    </div>
-    <div class="diagram-node">
-      新增文字區塊<br /><small class="diagram-muted">plan.addBlock</small>
-    </div>
-    <div class="diagram-node">
-      移除摘要<br /><small class="diagram-muted">plan.removeBlock</small>
-    </div>
-  </div>
-  <div class="core">
-    <div class="lane-row">
-      <span class="diagram-pill">意圖 -&gt; action</span
-      ><span class="diagram-pill">action &lt;- 意圖</span>
-    </div>
-    <div class="diagram-panel action" data-rough>
-      <span class="diagram-pill accent">具型別 action</span
-      ><strong>navigate</strong
-      ><small class="diagram-muted"
-        >執行者：使用者或 agent &middot; 輸入：panel = Design</small
-      >
-      <div class="steps">
-        <span class="diagram-pill">驗證</span
-        ><span class="diagram-pill">授權</span
-        ><span class="diagram-pill">套用更新</span>
-      </div>
-    </div>
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
-    <div class="diagram-panel state" data-rough>
-      <span class="diagram-pill ok">共享狀態</span
-      ><strong>SQL + 應用狀態</strong
-      ><code>{ panel: "Design", lastActor: "user" }</code
-      ><small class="diagram-muted">透過即時同步廣播</small>
-    </div>
-    <div class="lane-row bottom">
-      <span class="diagram-pill ok">狀態 -&gt; UI</span
-      ><span class="diagram-pill ok">上下文 -&gt; agent</span>
-    </div>
-  </div>
-  <div class="diagram-card surface agent" data-rough>
-    <span class="diagram-pill">Agent 介面</span>
-    <div class="diagram-node">
-      新增圖表區塊<br /><small class="diagram-muted">plan.addBlock</small>
-    </div>
-    <div class="diagram-node">
-      移除過時區塊<br /><small class="diagram-muted">plan.removeBlock</small>
-    </div>
-    <div class="diagram-node diagram-accent">
-      聚焦審核視圖<br /><small class="diagram-muted">navigate.review</small>
-    </div>
-  </div>
-</div>
-```
-
-```css
-.diagram-machine {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.45fr) minmax(
-      150px,
-      1fr
-    );
-  gap: 12px;
-  align-items: stretch;
-}
-.diagram-machine .surface {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-}
-.diagram-machine .surface .diagram-pill {
-  align-self: flex-start;
-}
-.diagram-machine .diagram-node {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-}
-.diagram-machine .core {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  min-width: 0;
-}
-.diagram-machine .lane-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.diagram-machine .lane-row.bottom {
-  justify-content: center;
-}
-.diagram-machine .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-  text-align: center;
-}
-.diagram-machine .diagram-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 14px;
-}
-.diagram-machine .steps {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-machine code {
-  align-self: flex-start;
-  max-width: 100%;
-  white-space: normal;
-}
-@media (max-width: 760px) {
-  .diagram-machine {
-    grid-template-columns: 1fr;
-  }
-  .diagram-machine .lane-row {
-    justify-content: flex-start;
-  }
-  .diagram-machine .lane-row.bottom {
-    justify-content: flex-start;
-  }
-}
-```
-
-</Diagram>
-
-當 agent 建立草稿郵件時，它會出現在 UI 中。當你點擊「傳送」時，agent 知道它已被傳送。沒有獨立的「agent 世界」和「UI 世界」——這是一個系統。請參閱[核心概念](/docs/key-concepts)了解實現這一切的架構。
-
-## 通常只有專業工具才有的客製化能力 {#workspace-customization}
-
-像 Claude Code 這樣的工具之所以感覺如此強大，不是因為模型——而是因為**客製化層**：每個專案的指示、技能、記憶、子 agent、已連接服務。你可以根據你的程式碼庫、你的偏好、你的團隊來塑造 agent。
-
-Agent-native 讓每個使用者都能擁有同樣的客製化層——無需離開應用。每個應用都附帶個人化的 **agent resources**，你（或你的任何團隊成員）可以用來：
-
-- 編輯所有人的 agent 都會讀取的全團隊規則
-- 讓 agent 在你糾正它時自動記住偏好
-- 將可重用的操作指南寫成 `/slash` 指令
-- 保留用於特定任務的自訂子 agent（以 `@mentions` 呼叫）
-- 排程以 cron 執行的任務（例如「每週一早上，摘要上週」）
-- 透過每位使用者的 MCP 伺服器連接外部服務（Gmail、Stripe、Slack、內部 API）
-
-關鍵在於：這一切都儲存在資料庫中，而不是檔案系統。不需要啟動開發環境，也不需要每位使用者一個容器。每個使用者都能免費獲得完整的 agent resources——個人記憶、個人連接、個人技能——因為這些都只是資料表中的幾行資料。這就是讓 Claude-Code 等級的靈活性在真實多租戶 SaaS 產品中可行的原因。
-
-請參閱 [Agent Resources](/docs/agent-resources) 了解完整概念。
-
-## 它有什麼不同 {#what-makes-it-different}
-
-| 方法                              | 描述                                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **傳統應用加上 AI 外掛**          | AI 只是事後補想到的。僅限於自動完成、摘要，或一個實際上在應用中什麼都做不了的聊天側邊欄。         |
-| **純聊天 / agent 介面**           | 強大但難以使用。沒有儀表板、沒有工作流程、沒有持久性。非開發人員無法有效使用它們。                |
-| **Claude Code / Codex 用於 SaaS** | 對開發人員在自己機器上很好用。無法轉換為多租戶 SaaS——每位使用者一個開發機器上的程式碼庫無法擴展。 |
-| **Agent-native 應用**             | Agent 是一等公民。它共享相同的資料庫、相同的狀態，並且能做 UI 能做的一切——反之亦然。              |
-
-## 全團隊開發 {#whole-team-development}
-
-Agent-native 不只是為開發人員設計的。嵌入式 agent 讓整個團隊有共同的方式操作應用，而原始碼變更仍然是應用正常開發工作流程的一部分，並且可以委派給被明確授予工作區和寫入工具的框架：
-
-- **設計師**直接透過 agent 更新應用資料和工作流程
-- **產品經理**設定工作流程並為開發團隊描述變更
-- **QA**測試應用並透過 agent 回報問題
-- **團隊中的任何人**都可以透過自然語言貢獻
-
-願景：更少的交接，一個人做一個小團隊的工作。
-
-## 從模板開始並客製化 {#fork-and-customize}
-
-Agent-native 應用遵循「從可運作的應用開始」模型。你從一個**模板**開始——行事曆、內容、簡報、分析、郵件、剪輯、設計、表單、調度——然後將它變成你的。每一個都是完整可運作的 SaaS 產品，而不是空白框架：
-
-1. 在 [agent-native.com/templates](/templates) 選擇一個模板
-2. 許多官方範本都提供託管應用（例如 mail.agent-native.com）
-3. 當你想客製化時，從模板建立你自己的應用——「連接我們的 Stripe 帳戶」、「新增一個同期群組圖表」
-4. 在你自己的儲存庫和開發工作流程中客製化原始碼
-5. 將你的應用部署到你自己的網域——或繼續使用 agent-native.com
-
-因為這是*你的*應用，而不是共享基礎設施，你擁有它的原始碼，可以在不改變共享框架的情況下演進它。嵌入式 agent 預設透過其 action 和資料介面操作已部署的應用，並且可以在其框架被明確啟用程式碼時修改原始碼。請參閱[模板](/docs/cloneable-saas)了解完整故事。
-
-還沒準備好從完整模板開始？你也可以透過在你已使用的程式碼 agent 中新增**技能**來嘗試 agent-native——使用 `npx @agent-native/core@latest skills add visual-plan` 安裝 Plans 技能。請參閱[技能指南](/docs/skills-guide#app-backed-skills)。
-
-## 可組合的 agent {#composable-agents}
-
-Agent-native 應用可以互相溝通。在郵件應用內部，你可以 tag 分析 agent 來查詢資料，並將結果包含在草稿郵件中。Agent 發現哪些其他 agent 可用，在彼此之間交接工作，並在你已在使用的 UI 中呈現結果。
-
-這背後由 [A2A](/docs/a2a-protocol) 和 [MCP](/docs/mcp-protocol) 驅動——相同的定義，多個介面——但作為使用者，你只需要知道「我可以向我的任何應用求助，做它們任何一個能做的事。」
-
-## 這在程式碼中是什麼樣子？ {#what-does-it-look-like-in-code}
-
-如果你正在建構或擴充 agent-native 應用，這是核心模式：應用中的每個操作都是一個 **action**——定義一次，同時供 agent 和 UI 使用。
-
-<AnnotatedCode
-  id="doc-block-n4jy5o"
-  title="一個 action，定義一次"
-  filename="actions/reply-to-email.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "7",
-      label: "工具介面",
-      note: "The `description` is what the agent reads to decide when to call this as a tool.",
-    },
-    {
-      lines: "8",
-      label: "具型別合約",
-      note: "One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A.",
-    },
-    {
-      lines: "9-12",
-      label: "單一實作",
-      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this. `getDb()` and `schema` come from your app's `server/db/index.ts` — see [Database](/docs/server-database).",
-    },
-  ]}
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="比較人員直接使用應用程式，以及透過同一應用程式中的 AI 代理工作。"
+  align="full"
+  caption="觀看四分鐘的 Agent-Native 架構介紹。"
 />
 
-```tsx
-// 在任何 React 元件中——相同的 action，從按鈕呼叫
-const { mutate } = useActionMutation("reply-to-email");
+## Agent-Native 如何運作
 
-<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
-  Send Reply
-</Button>;
+Agent-Native 應用程式提供人員與代理兩種方式來使用同一個產品：
+
+- **UI** 為人員提供熟悉的瀏覽、編輯、審查及分享工作方式。
+- **代理** 處理人員委派給它的工作。
+
+三個共用基礎使這成為可能：
+
+- **共用操作。** 人員透過 UI 觸發它們，代理則直接呼叫它們。Agent-Native 將每個操作只定義一次，作為一個 [action](/docs/actions-overview)。
+- **[共用資料](/docs/server-database)** 保存應用程式需要保留的工作與資訊。依應用程式而定，可能是客戶紀錄、專案計畫、對話或報告。UI 與代理都讀取及更新這些共用資料。
+- **[共用應用程式狀態](/docs/context-awareness)** 描述目前正在發生的事情，例如目前頁面、選取紀錄或作用中視圖。框架將相關狀態作為上下文提供給代理，讓它知道人員正在處理什麼。
+
+```mermaid
+graph TD
+  UI[UI] --> App[一個應用程式]
+  Agent[代理] --> App
+  App --- Operations[共用操作]
+  App --- Data[共用資料]
+  App --- State[共用應用程式狀態]
 ```
 
-```tsx
-// 以及掛載在應用任何位置的 agent 面板
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-<AgentSidebar />;
-```
+代理不會透過點擊 UI 來操作。它會呼叫與 UI 相同的 actions，使用相同的驗證、權限及實作。
 
-一個 action，多個介面：agent 將它作為工具呼叫，UI 將它作為型別安全的 mutation 呼叫，[原生聊天](/docs/native-chat-ui)可以渲染明確的 widget 結果，外部 agent 透過 [A2A](/docs/a2a-protocol) 呼叫它，MCP 宿主透過應用的 [MCP 伺服器](/docs/mcp-protocol)呼叫它，框架可選擇性地處理 MCP Apps UI 資源和標準遠端 MCP OAuth。請參閱 [Actions](/docs/actions-overview) 了解完整參考。
+例如，人員可以透過 UI 指派支援單，也可以要求代理完成。兩條路徑都會執行相同 action 並更新同一張支援單。人員可在 UI 中檢查或變更結果，然後讓代理從那裡繼續。
 
-## 接下來做什麼 {#whats-next}
+## 何時應使用 Agent-Native？
 
-- [**入門指南**](/docs/getting-started) — 從聊天開始，加入一個 action，渲染原生結果，並成長為一個頁面
-- [**Agent 介面**](/docs/agent-surfaces) — 選擇聊天、原生內嵌 UI、完整應用頁面、嵌入式 sidecar、自動化或外部 agent 存取
-- [**核心概念**](/docs/key-concepts) — 架構：SQL、action、輪詢同步、上下文感知、可移植性
-- [**模板**](/docs/cloneable-saas) — 你擁有的完整產品模板
-- [**Agent Resources**](/docs/agent-resources) — 每位使用者的客製化層（技能、記憶、指示、MCP），由 SQL 支援而非檔案
-- [**Dispatch**](/docs/dispatch) — 工作區控制平面：密鑰保險庫、Slack/電子郵件收件匣、跨應用委派
-- [**Extensions**](/docs/extensions) — agent 無需程式碼變更即可即時建立的沙盒化迷你應用
-- [**Drop-in Agent**](/docs/drop-in-agent) — 在任何 React 應用中掛載 `<AgentPanel>`
-- [**FAQ**](/docs/faq) — 關於費用、託管、模型和模板的快速解答
+當下列情況成立時，Agent-Native 是合適選擇：
+
+- 代理應在應用程式中完成真正的工作，而不只是回答問題。
+- 人們需要 UI 來檢查、編輯、核准或分享工作。
+- 工作應在 UI 與代理之間移動，而不會失去進度或上下文。
+
+若您只需要一個生成的回答，直接呼叫模型即可。若工作流程遵循固定、可預測的順序，普通應用程式邏輯或自動化會更簡單。當 UI 與代理都需要在同一項工作中持續扮演角色時，請使用 Agent-Native。
+
+## 下一步
+
+<Cards>
+
+### [開始使用](/docs/getting-started)
+
+建立應用程式，並從代理與 UI 呼叫相同的 action。
+
+### [核心概念](/docs/key-concepts)
+
+了解 actions、SQL 資料、應用程式上下文、存取權及即時同步如何配合運作。
+
+### [Agent 介面](/docs/agent-surfaces)
+
+了解相同模型如何支援由 UI、聊天、自動化或另一個代理主導的應用程式。
+
+</Cards>

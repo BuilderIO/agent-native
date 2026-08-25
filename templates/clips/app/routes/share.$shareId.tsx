@@ -85,6 +85,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
@@ -386,6 +387,8 @@ export default function ShareRoute() {
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const startAt = searchParams.get("at");
+  const startMs = useMemo(() => parseTimeParam(startAt), [startAt]);
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
@@ -443,16 +446,26 @@ export default function ShareRoute() {
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
-  const [password, setPassword] = useState<string | null>(() => {
-    if (typeof window === "undefined" || !shareId) return null;
+  // Reading sessionStorage in the initializer makes the first client render
+  // disagree with the server's, which has no storage and always renders the
+  // locked state. React answers a mismatch by throwing away the hydrated tree
+  // and re-rendering from scratch, so a returning viewer watches a blank share
+  // page while everything refetches. Start where the server started and adopt
+  // the stored password after mount.
+  const [password, setPassword] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shareId) return;
     try {
-      return sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
-    } catch {
-      return null;
-    }
-  });
+      const stored = sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
+      if (stored) setPassword(stored);
+      // Unreadable storage and no stored password are the same state to this
+      // screen: both leave `password` null, which renders the password prompt.
+      // coercion-ok: the fallback is visible to the viewer, not swallowed.
+    } catch {}
+  }, [shareId]);
   const [pwError, setPwError] = useState<string | null>(null);
-  const [currentMs, setCurrentMs] = useState(0);
+  const [currentMs, setCurrentMs] = useState(startMs);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
   const [commentDraft, setCommentDraft] = useState("");
@@ -504,9 +517,9 @@ export default function ShareRoute() {
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
     if (typeof window === "undefined") return path;
-    const query = buildShareContinuationQuery(attribution);
+    const query = buildShareContinuationQuery(attribution, startAt);
     return query ? `${path}?${query}` : path;
-  }, [attribution, recordingId]);
+  }, [attribution, recordingId, startAt]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
 
   const submitAccessRequest = useCallback(
@@ -642,6 +655,7 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const playbackMs = resolveStartMs(currentMs, recording?.durationMs);
   const verificationPending = recording?.verificationPending === true;
   const comments = dataQ.data?.data?.comments ?? [];
   const reactions = dataQ.data?.data?.reactions ?? [];
@@ -1158,6 +1172,7 @@ export default function ShareRoute() {
             {session ? null : (
               <SignedOutShareActions
                 recordingId={recording.id}
+                startAt={startAt}
                 onCtaClick={fireShareCtaClick}
               />
             )}
@@ -1171,6 +1186,7 @@ export default function ShareRoute() {
                 thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
+                currentMs={playbackMs}
                 hasPassword={Boolean(recording.hasPassword)}
                 viewerReshareOnly={viewerReshareOnly}
               >
@@ -1238,6 +1254,7 @@ export default function ShareRoute() {
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
+              startMs={resolveStartMs(startMs, recording.durationMs)}
               persistPlaybackPosition={Boolean(session)}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
@@ -1275,7 +1292,7 @@ export default function ShareRoute() {
                         liveCt >= 0 &&
                         liveCt < 1e7
                           ? Math.floor(liveCt * 1000)
-                          : currentMs;
+                          : playbackMs;
                       setCommentAtMs(liveMs);
                       setCommentOpen(true);
                     }
@@ -1301,7 +1318,7 @@ export default function ShareRoute() {
                         liveCt >= 0 &&
                         liveCt < 1e7
                           ? Math.floor(liveCt * 1000)
-                          : currentMs;
+                          : playbackMs;
                       return fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
@@ -1379,7 +1396,7 @@ export default function ShareRoute() {
                         return;
                       }
                       const liveMs =
-                        playerRef.current?.getCurrentOriginalMs() ?? currentMs;
+                        playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
                       setCommentAtMs(liveMs);
                       setCommentOpen(true);
                     }}
@@ -1396,7 +1413,7 @@ export default function ShareRoute() {
                       }
                       tracking.reportReaction(emoji);
                       const liveMs =
-                        playerRef.current?.getCurrentOriginalMs() ?? currentMs;
+                        playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
                       return fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
@@ -1507,7 +1524,7 @@ export default function ShareRoute() {
               segments={transcriptSegments}
               fullText={transcriptFullText}
               durationMs={recording.durationMs}
-              currentMs={currentMs}
+              currentMs={playbackMs}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               status={transcriptStatus}
               failureReason={transcriptFailureReason}
@@ -1521,7 +1538,7 @@ export default function ShareRoute() {
             <CommentsPanel
               recordingId={recording.id}
               comments={comments}
-              currentMs={currentMs}
+              currentMs={playbackMs}
               currentUserEmail={session?.email}
               enableComments={recording.enableComments}
               canComment={viewerCanComment}

@@ -1206,6 +1206,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "clsx" },
     { specifier: "cmdk" },
     { specifier: "date-fns" },
+    { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
     { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
@@ -1968,10 +1969,19 @@ function frameworkDevDynamicForwarder(): Plugin {
               ? `text/html,${accept}`
               : "text/html";
           }
-          // Embed-start uses document/iframe to select its transplant response.
-          // Only supply the classifier hint when the browser did not provide a
-          // destination; never overwrite the request's original intent.
-          if (req.headers["sec-fetch-dest"] === undefined) {
+          // Embed-start uses document/iframe to select its transplant response,
+          // and Nitro's own dev classifier already treats document/iframe/frame
+          // as non-asset, so those (and an already-"empty" value) pass through
+          // untouched. Everything else — undefined, or a real browser's
+          // destination for a fetch this route never anticipated, like
+          // "speculationrules" for the native Speculation-Rules auto-fetch —
+          // gets normalized to "empty" so Nitro's classifier falls back to its
+          // extension check instead of treating the request as a static asset.
+          const fetchDest = req.headers["sec-fetch-dest"];
+          if (
+            fetchDest === undefined ||
+            !/^(document|iframe|frame|empty)$/.test(String(fetchDest))
+          ) {
             req.headers["sec-fetch-dest"] = "empty";
           }
         }
@@ -2221,13 +2231,17 @@ async function loadMountedEmbedRuntimeModule(
   runtimeUrl: string,
 ): Promise<string | null> {
   const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
+
+  // transform import to encode virtual modules in vite as these imports don't work in the browser
+  const result = await server.transformRequest(virtualId ?? runtimeUrl);
+  if (typeof result?.code === "string") return result.code;
+
   if (virtualId) {
     const loaded = await server.pluginContainer?.load?.(virtualId);
     if (typeof loaded === "string") return loaded;
     if (loaded && typeof loaded.code === "string") return loaded.code;
   }
-  const result = await server.transformRequest(runtimeUrl);
-  return result?.code ?? null;
+  return null;
 }
 
 function serveMountedEmbedRuntimeModule(
@@ -2536,6 +2550,19 @@ function rolldownInputFix(): Plugin {
  * The template lists the packages in its `defineConfig({ ssrStubs })` call —
  * the framework never hardcodes package names.
  */
+/**
+ * Optional peers reached only through a `React.lazy` boundary whose module body
+ * guards on `typeof window === "undefined"`. The server can never import them,
+ * so their SSR chunk is pure unpack weight in every app that ships a terminal
+ * surface. Defaulted here rather than repeated in sixteen vite configs, where
+ * it would drift.
+ */
+const ALWAYS_SSR_STUBBED = [
+  "@xterm/xterm",
+  "@xterm/addon-fit",
+  "@xterm/addon-web-links",
+];
+
 function ssrStubPlugin(packages: string[]): Plugin | null {
   if (!packages.length) return null;
   const stubbed = new Set(packages);
@@ -3445,7 +3472,7 @@ function createAgentNativePlugins(
     // don't bloat the edge worker. Opt-in per template — the framework
     // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
     // the server, so we can't blanket-stub it here).
-    ssrStubPlugin(options.ssrStubs ?? []),
+    ssrStubPlugin([...ALWAYS_SSR_STUBBED, ...(options.ssrStubs ?? [])]),
     ...userPlugins,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
@@ -3673,6 +3700,15 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
+  // Vite 8 defines `rollupOptions` on `build`/`optimizeDeps` as a getter alias
+  // of `rolldownOptions`. Spreading the section copies the alias as a plain own
+  // property, so returning our own `rolldownOptions` alongside it makes the two
+  // diverge and Vite warns that this plugin set both — then ignores the
+  // `rollupOptions` half regardless. Drop the alias from what we spread back.
+  const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
+    userConfig.build ?? {};
+  const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
+    userConfig.optimizeDeps ?? {};
 
   return {
     logLevel:
@@ -3788,7 +3824,7 @@ function createAgentNativeConfig(
       },
     },
     build: {
-      ...(userConfig.build ?? {}),
+      ...userBuild,
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       // Vite 8 defaults CSS minification to Lightning CSS, which collapses a
       // `backdrop-filter` + `-webkit-backdrop-filter` pair down to only the
@@ -3875,7 +3911,7 @@ function createAgentNativeConfig(
           ],
         },
     optimizeDeps: {
-      ...(userConfig.optimizeDeps ?? {}),
+      ...userOptimizeDeps,
       include: [
         ...getDefaultOptimizeDeps(cwd),
         ...(hasDep("@agent-native/pinpoint", cwd)

@@ -3,7 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import { triageConfig, triageItems } from "../server/db/schema.js";
+import { triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryItemFilter,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -14,10 +20,13 @@ import { createSlackReader } from "../server/triage/slack-client.js";
 export default defineAction({
   description:
     "Read the bounded full Slack thread for one Factory feedback item. Use this before deciding whether a report is a clear bug; unreadable or truncated context is not a green light.",
-  schema: z.object({ itemId: z.string().min(1) }),
+  schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
+    itemId: z.string().min(1),
+  }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ itemId }, context) => {
+  run: async ({ factoryId, itemId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -25,7 +34,12 @@ export default defineAction({
       await getDb()
         .select()
         .from(triageItems)
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        )
         .limit(1)
     )[0];
     if (!item) throw new Error("Factory item not found.");
@@ -33,13 +47,7 @@ export default defineAction({
       throw new Error("Factory item is not a readable Slack feedback item.");
     }
 
-    const config = (
-      await getDb()
-        .select({ slackWorkspace: triageConfig.slackWorkspace })
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0];
+    const config = await readTriageConfigRow(getDb(), orgId, factoryId);
     const workspace =
       config?.slackWorkspace === "secondary" ? "secondary" : "primary";
     const slack = createSlackReader({ ownerEmail: userEmail, orgId });
@@ -64,8 +72,11 @@ export default defineAction({
           threadTs: item.threadTs,
           coverage: hasMore ? "partial" : "complete",
           messageCount: messages.length,
+          itemTitle: item.title,
+          itemSummary: item.summary,
         },
       },
+      factoryId,
     );
 
     return {

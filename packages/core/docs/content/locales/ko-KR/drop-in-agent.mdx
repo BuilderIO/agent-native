@@ -178,7 +178,7 @@ export default function AgentRoute() {
 
 ## 프로그래밍 메시지: `sendToAgentChat()` {#send}
 
-인라인 `llm()` 호출을 실행하는 대신 에이전트에 직접 작업을 전달하는 버튼 - [ladder](/docs/what-is-agent-native#the-ladder)의 안티 패턴:
+인라인 `llm()` 호출로 별도의 AI 경로를 만드는 대신 에이전트에 작업을 전달하는 버튼입니다. 이 차이가 중요한 이유는 [왜 이 방식으로 앱을 만들까요](/docs/what-is-agent-native#why-build-apps-this-way)를 참조하세요.
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ CRUD, 검증, provider 읽기, 영속화와 같은 결정적인 로컬 작업에
 
 ## UI: `useActionMutation()`의 형식 안전 actions {#use-action-mutation}
 
-UI가 에이전트 도구가 실행하는 것과 동일한 작업을 실행해야 하는 경우([ladder](/docs/what-is-agent-native#rung-three)의 3번 단계) `useActionMutation`를 사용하세요.
+UI가 에이전트 도구와 같은 작업을 실행해야 하는 경우 [`useActionMutation`](/docs/client-data#use-action-mutation)을 사용하세요.
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -283,7 +283,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation`과 `sendToAgentChat`.** 사용자가 결정적인 버튼("Send reply")을 클릭했을 때는 `useActionMutation`으로 작업을 직접 실행하세요. 작업에 에이전트의 추론, 도구 또는 여러 단계의 계획이 필요하면 `sendToAgentChat`에 맡기세요. UI에서 인라인 `llm()`을 호출하지 마세요. 공유 에이전트 루프 대신 별도의 AI 경로가 만들어집니다.
 
 </Callout>
 

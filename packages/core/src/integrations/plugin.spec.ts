@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
@@ -361,6 +362,8 @@ describe("integrations plugin routes", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    delete process.env.AGENT_NATIVE_INTEGRATION_PLATFORMS;
+    resetAppConfigForTests();
     process.env.NODE_ENV = originalNodeEnv;
     if (originalNetlify === undefined) {
       delete process.env.NETLIFY;
@@ -445,6 +448,28 @@ describe("integrations plugin routes", () => {
           "https://app.test/docs/_agent-native/integrations/fake/webhook",
       }),
     ]);
+  });
+
+  it("does not mount Slack-named routes when the allow-list drops slack", async () => {
+    process.env.AGENT_NATIVE_INTEGRATION_PLATFORMS = "fake";
+    resetAppConfigForTests();
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    // No Slack handler is registered, so both paths fall past the named
+    // routes to the catch-all, which resolves an adapter and finds none.
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/slack/oauth/callback"),
+    ).resolves.toMatchObject({
+      status: 404,
+      body: { error: "Unknown platform: slack" },
+    });
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/slack/manifest"),
+    ).resolves.toMatchObject({
+      status: 404,
+      body: { error: "Unknown platform: slack" },
+    });
   });
 
   it("serves a deployment-qualified Slack Agent View manifest", async () => {

@@ -269,8 +269,16 @@ export function createObservabilityHandler() {
           threadId,
           userId: owner,
           feedbackType,
-          value: isThumb ? feedbackType : value,
-          submissionId: id,
+          value,
+          // One PostHog response per rated message, not per row: a thumbs-down
+          // and the free text it opens are two answers to the same survey, and
+          // a fresh id per row would file them as two unrelated responses.
+          // Falls back to the row id when there is no message to key on, which
+          // groups nothing — the honest outcome when nothing can be grouped.
+          submissionId:
+            runId && typeof body.messageSeq === "number"
+              ? `${runId}:${body.messageSeq}`
+              : id,
           model,
           browserSessionId: getRequestContext()?.browserSessionId,
         });

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   insert: vi.fn(),
   writeAppState: vi.fn(),
+  finalizeEndedMeetingsForRecording: vi.fn(),
 }));
 
 const mockDb = {
@@ -56,6 +57,11 @@ vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
 
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: vi.fn(() => "owner@example.com"),
+}));
+
+vi.mock("./lib/finalize-ended-meetings.js", () => ({
+  finalizeEndedMeetingsForRecording: (...args: unknown[]) =>
+    mocks.finalizeEndedMeetingsForRecording(...args),
 }));
 
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";

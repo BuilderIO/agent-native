@@ -6,6 +6,11 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageDecisions, triageFeedback } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryDecisionFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -18,27 +23,32 @@ export default defineAction({
     "Record human feedback on a Factory shadow decision. Feedback is append-only and changes no provider or executor state.",
   schema: z.object({
     decisionId: z.string().min(1),
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     verdict: verdictSchema,
     note: z.string().trim().max(2_000).optional(),
   }),
   http: { method: "POST" },
-  run: async ({ decisionId, verdict, note }, context) => {
+  run: async ({ decisionId, factoryId, verdict, note }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const decision = (
       await getDb()
-        .select({ id: triageDecisions.id })
+        .select({
+          id: triageDecisions.id,
+          factoryId: triageDecisions.factoryId,
+        })
         .from(triageDecisions)
         .where(
           and(
             eq(triageDecisions.id, decisionId),
-            eq(triageDecisions.orgId, orgId),
+            orgFactoryDecisionFilter(orgId, factoryId),
           ),
         )
         .limit(1)
     )[0];
     if (!decision) throw new Error("Triage decision not found");
+    const resolvedFactoryId = decision.factoryId ?? factoryId;
 
     const createdAt = new Date().toISOString();
     const id = randomUUID();
@@ -52,6 +62,7 @@ export default defineAction({
         createdAt,
         ownerEmail: userEmail,
         orgId,
+        factoryId: resolvedFactoryId,
       });
     return { ok: true, id };
   },

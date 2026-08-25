@@ -1,15 +1,15 @@
 ---
 title: "मुख्य अवधारणाएं"
-description: "agent-native ऐप्स तीन लेयर्स में कैसे काम करते हैं: Core framework, वैकल्पिक Toolkit बिल्डिंग ब्लॉक्स, और वैकल्पिक Templates, साथ ही shared actions, SQL database, app-agent लूप, और portability नियम।"
+description: "Agent-Native ऐप्स तीन लेयर्स में कैसे काम करते हैं: Core framework, वैकल्पिक Toolkit बिल्डिंग ब्लॉक्स, और वैकल्पिक Templates, साथ ही shared actions, SQL database, app-agent लूप, और portability नियम।"
 ---
 
 # मुख्य अवधारणाएं
 
-अंदर से agent-native ऐप्स कैसे काम करते हैं: सिद्धांत और architecture। यह page वह contract है: वे तय नियम जिन्हें एक ऐप को agent-native गिने जाने के लिए follow करना होता है। इस तरह बनाने के vision और तर्क के लिए देखें [Agent-Native क्या है?](/docs/what-is-agent-native)।
+अंदर से Agent-Native ऐप्स कैसे काम करते हैं: सिद्धांत और architecture। यह page वह contract है: वे तय नियम जिन्हें एक ऐप को Agent-Native गिने जाने के लिए follow करना होता है। इस तरह बनाने के vision और तर्क के लिए देखें [Agent-Native क्या है?](/docs/what-is-agent-native)।
 
 ## तीन लेयर्स {#three-layers}
 
-Agent Native तीन लेयर्स वाला एक framework है:
+Agent-Native तीन लेयर्स वाला एक framework है:
 
 | लेयर                                     | यह क्या है                                                                                                                                                                                                                       |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -21,7 +21,7 @@ Core नींव है। Toolkit और Templates वैकल्पिक �
 
 ## आर्किटेक्चर {#the-architecture}
 
-Runtime पर, हर agent-native ऐप तीन चीज़ें हैं जो साथ मिलकर काम करती हैं:
+Runtime पर, हर Agent-Native ऐप तीन चीज़ें हैं जो साथ मिलकर काम करती हैं:
 
 - **Agent:** स्वायत्त AI। यह data पढ़ता है, data लिखता है, actions चलाता है, और जो भी tools configured हैं उनका उपयोग करता है। जब इसके frame को जान-बूझकर workspace access और write tooling दी जाती है, तो यह ऐप के अपने source को भी modify कर सकता है। Skills और instructions के साथ customizable।
 - **Application:** agent के इर्द-गिर्द product surface। यह chat के रूप में शुरू हो सकता है, native inline results जोड़ सकता है, एक छोटे control plane में बढ़ सकता है, या dashboards, flows, और visualizations वाला एक full React UI बन सकता है।
@@ -95,7 +95,7 @@ Runtime पर, हर agent-native ऐप तीन चीज़ें है�
 
 ## Agent बिल्डिंग ब्लॉक्स {#agent-building-blocks}
 
-हर agent-native ऐप में समान agent बिल्डिंग ब्लॉक्स होते हैं, चाहे product surface chat-first हो, automation-first हो, या एक full UI हो। हर एक अपनी खुद की file में रहता है:
+हर Agent-Native ऐप में समान agent बिल्डिंग ब्लॉक्स होते हैं, चाहे product surface chat-first हो, automation-first हो, या एक full UI हो। हर एक अपनी खुद की file में रहता है:
 
 <FileTree
   id="doc-block-1ae57y4"
@@ -136,7 +136,7 @@ Skills और actions साथ मिलकर काम करते हैं
 
 ## चार-क्षेत्र चेकलिस्ट {#four-area-checklist}
 
-हर user-facing feature को सभी applicable areas update करने चाहिए। किसी applicable area को skip करना agent-native contract को तोड़ता है; किसी ऐसे automation पर screen थोपना जिसे किसी human को browse करने की ज़रूरत ही नहीं, वह भी एक smell है।
+हर user-facing feature को सभी applicable areas update करने चाहिए। किसी applicable area को skip करना Agent-Native contract को तोड़ता है; किसी ऐसे automation पर screen थोपना जिसे किसी human को browse करने की ज़रूरत ही नहीं, वह भी एक smell है।
 
 - **1. UI:** वह page, component, या dialog जिसके साथ user interact करता है।
 - **2. Action:** उसी operation के लिए `actions/` में agent-callable action।
@@ -145,13 +145,13 @@ Skills और actions साथ मिलकर काम करते हैं
 
 केवल UI वाला feature agent के लिए invisible होता है। केवल actions वाला full UI feature user के लिए invisible होता है। बिना app-state वाला feature मतलब agent को यह नहीं पता कि user क्या कर रहा है। एक automation-first operation जायज़ तौर पर action + instructions से शुरू हो सकता है और बाद में chat, UI, या app-state जोड़ सकता है जब humans को उसे browse, approve, configure, या share करने की ज़रूरत हो।
 
-## Agent Native में क्या शामिल है {#what-you-get-for-free}
+## Agent-Native में क्या शामिल है {#what-you-get-for-free}
 
 Framework अपनाना मुख्यतः इसलिए valuable है क्योंकि आपको जो चीज़ें बनानी बंद हो जाती हैं। जैसे ही आपका ऐप ऊपर दिए पांच नियमों को follow करता है, आपको ये मिल जाता है:
 
 | Feature                           | आपको क्या मिलता है                                                                                                                                                                                                                                                                                                                                                                                |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| एक action = हर surface            | `defineAction()` से define की गई हर action एक साथ एक agent tool, एक typesafe frontend hook (`useActionQuery` / `useActionMutation`), एक framework-owned HTTP transport, एक CLI command, external clients के लिए एक MCP tool, और अन्य agent-native ऐप्स के लिए एक A2A tool होती है। वैकल्पिक `link` और `mcpApp` metadata बिना किसी दूसरे implementation के deep links और MCP Apps UI जोड़ देता है। |
+| एक action = हर surface            | `defineAction()` से define की गई हर action एक साथ एक agent tool, एक typesafe frontend hook (`useActionQuery` / `useActionMutation`), एक framework-owned HTTP transport, एक CLI command, external clients के लिए एक MCP tool, और अन्य Agent-Native ऐप्स के लिए एक A2A tool होती है। वैकल्पिक `link` और `mcpApp` metadata बिना किसी दूसरे implementation के deep links और MCP Apps UI जोड़ देता है। |
 | प्रति user पूर्ण agent resources  | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, और connected MCP servers। सब कुछ SQL-backed है, किसी dev-box की ज़रूरत नहीं। देखें [Agent Resources](/docs/agent-resources)।                                                                                                                                                          |
 | Drop-in React components          | `<AgentPanel />` और `<AgentSidebar />` आपके ऐप में कहीं भी chat + resources render करते हैं। देखें [Drop-in Agent](/docs/drop-in-agent)।                                                                                                                                                                                                                                                          |
 | BYO agent chat runtimes           | वही chat UI OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, या आपके अपने normalized HTTP stream के ऊपर बैठ सकता है। देखें [मूल चैट UI](/docs/native-chat-ui#byo-agent-runtimes)।                                                                                                                                                                                         |
@@ -427,7 +427,7 @@ Diagram उसी sequence को end to end trace करता है:
 
 एक _frame_ वह environment है जो आपके ऐप के साथ agent को host करता है। Locally यह embedded panel है; cloud में यह Builder.io का managed surface है। देखें [Frames](/docs/frames)।
 
-agent-native ऐप्स में एक embedded agent panel शामिल होता है जो app UI के साथ-साथ AI agent उपलब्ध कराता है। यही वह चीज़ है जो architecture को काम करने योग्य बनाती है: agent को एक computer चाहिए (database, browser, code execution), और ऐप को AI काम के लिए agent चाहिए।
+Agent-Native ऐप्स में एक embedded agent panel शामिल होता है जो app UI के साथ-साथ AI agent उपलब्ध कराता है। यही वह चीज़ है जो architecture को काम करने योग्य बनाती है: agent को एक computer चाहिए (database, browser, code execution), और ऐप को AI काम के लिए agent चाहिए।
 
 - **Embedded Agent Panel:** हर ऐप में built-in Chat और वैकल्पिक CLI terminal। Claude Code, Codex, Gemini, OpenCode, और Builder.io को support करता है। Locally चलता है, free और open source।
 - **Cloud:** real-time collaboration, visual editing, roles, और permissions के साथ किसी भी cloud पर deploy करें। Teams के लिए सबसे बेहतर।

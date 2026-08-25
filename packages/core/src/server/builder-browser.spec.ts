@@ -37,6 +37,7 @@ vi.mock("./credential-provider.js", async (importOriginal) => {
 import {
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
+  buildBuilderAgentUserPrompt,
   BUILDER_AGENT_NATIVE_APP_PARAM,
   BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
   BUILDER_AGENT_NATIVE_FLOW_PARAM,
@@ -62,6 +63,7 @@ import {
   isBuilderBranchingEnabled,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
+  normalizeBuilderAgentContext,
   resolveBuilderCallbackReturnUrl,
   resolveBuilderConnectCallbackUrl,
   resolveBuilderPreviewRelayParentOrigin,
@@ -1032,6 +1034,49 @@ describe("Builder callback CSRF state", () => {
       const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(body.userEmail).toBe("brent@builder.io");
       expect(body.userId).toBeUndefined();
+    });
+
+    it("includes staged chat context in Builder's userPrompt", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            branchName: "qa-branch",
+            projectId: "project-123",
+            url: "https://builder.io/app/projects/project-123/branch/qa-branch",
+            status: "processing",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await runBuilderAgent({
+        prompt: "Add an organization filter",
+        context:
+          "## Dashboard: Customer Credit Usage Review\nDashboard id: dash-123",
+        projectId: "project-123",
+        userEmail: "brent@builder.io",
+      });
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.userMessage).toEqual({
+        userPrompt:
+          "Add an organization filter\n\n<context>\n## Dashboard: Customer Credit Usage Review\nDashboard id: dash-123\n</context>",
+      });
+      expect(body.context).toBeUndefined();
+    });
+
+    it("rejects malformed or oversized staged context", () => {
+      expect(() => normalizeBuilderAgentContext(42)).toThrow(
+        "context must be a string",
+      );
+      expect(() =>
+        buildBuilderAgentUserPrompt("Update the dashboard", "x".repeat(32_001)),
+      ).toThrow("context must be 32000 characters or fewer");
     });
 
     it("bounds a stalled agent run instead of leaving the MCP request hanging", async () => {

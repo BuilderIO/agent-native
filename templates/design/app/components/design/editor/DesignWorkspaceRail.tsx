@@ -39,14 +39,14 @@ export function DesignWorkspaceRail({
   onMotionToggle,
   onPanelChange,
 }: {
-  activePanel: DesignLeftPanel;
+  activePanel: DesignLeftPanel | null;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
   hiddenPanels?: ReadonlySet<DesignLeftPanel>;
   motionOpen?: boolean;
   motionDisabled?: boolean;
   projectMenu: ReactNode;
   onMotionToggle?: () => void;
-  onPanelChange: (panel: DesignLeftPanel) => void;
+  onPanelChange: (panel: DesignLeftPanel | null) => void;
 }) {
   const t = useT();
   const items: Array<{
@@ -137,7 +137,7 @@ export function DesignWorkspaceRail({
                         event.preventDefault();
                         return;
                       }
-                      onPanelChange(item.panel);
+                      onPanelChange(active ? null : item.panel);
                     }}
                     onPointerEnter={() => {
                       if (item.panel === "code") preloadCodeWorkbench();
@@ -175,7 +175,7 @@ export function DesignWorkspaceRail({
           );
         })}
       </div>
-      {onMotionToggle ? (
+      {onMotionToggle && SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
         <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
           <Tooltip>
             <TooltipTrigger asChild>

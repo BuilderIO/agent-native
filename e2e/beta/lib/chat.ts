@@ -53,17 +53,24 @@ export function lunaSelection(): ModelSelection {
 export async function seedModelSelection(
   context: BrowserContext,
   selection: ModelSelection = lunaSelection(),
+  namespaces: readonly string[] = [],
 ): Promise<void> {
+  const keys = [
+    MODEL_SELECTION_STORAGE_KEY,
+    ...namespaces.map(
+      (namespace) => `${MODEL_SELECTION_STORAGE_KEY}:${namespace}`,
+    ),
+  ];
   await context.addInitScript(
-    ([key, value]) => {
+    ([storageKeys, value]) => {
       // A context that cannot reach localStorage cannot carry the seed. That
       // is not swallowed: the turn then posts a different model (or none), and
       // `assertOnlyLuna` fails the run naming exactly that.
       try {
-        window.localStorage.setItem(key, value);
+        for (const key of storageKeys) window.localStorage.setItem(key, value);
       } catch {} // coercion-ok: a dropped seed is surfaced by assertOnlyLuna
     },
-    [MODEL_SELECTION_STORAGE_KEY, JSON.stringify(selection)] as const,
+    [keys, JSON.stringify(selection)] as const,
   );
 }
 

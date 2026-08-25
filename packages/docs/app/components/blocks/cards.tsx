@@ -1,6 +1,7 @@
 import { defineBlock } from "@agent-native/core/blocks";
 import type { BlockReadProps } from "@agent-native/core/blocks";
 import {
+  IconCalendar,
   IconComponents,
   IconNetwork,
   IconPlug,
@@ -23,6 +24,7 @@ const CARD_ICON: Record<string, TablerIcon> = {
   plug: IconPlug,
   network: IconNetwork,
   terminal: IconTerminal2,
+  calendar: IconCalendar,
 };
 
 export function CardsBlock({ data, ctx }: BlockReadProps<CardsData>) {

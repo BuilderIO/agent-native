@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -23,6 +24,15 @@ describe("native dependency preflight", () => {
   it("loads better-sqlite3 from the current Node runtime", () => {
     expect(checkNativeDependencies().status).toBe("healthy");
     expect(assertNativeDependencies().status).toBe("healthy");
+  });
+
+  it("finds the core binding when preflight starts at the workspace root", () => {
+    const workspaceRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../..",
+    );
+
+    expect(checkNativeDependencies(workspaceRoot).status).toBe("healthy");
   });
 
   it("records the build ABI and rejects a different runtime ABI", () => {

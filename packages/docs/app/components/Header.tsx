@@ -183,9 +183,9 @@ export default function Header() {
   return (
     <>
       <header
-        className={`fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-transparent backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
+        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
-        <nav className="mx-auto flex h-16 w-full max-w-[1200px] items-center gap-3 sm:gap-5">
+        <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <Link
@@ -198,7 +198,7 @@ export default function Header() {
                 <img
                   src="/agent-native-icon-light.svg"
                   alt=""
-                  className="block h-7 w-7 min-[380px]:hidden dark:hidden"
+                  className="block h-6 w-6 min-[380px]:hidden dark:hidden"
                   aria-hidden="true"
                   loading="lazy"
                   decoding="async"
@@ -206,7 +206,7 @@ export default function Header() {
                 <img
                   src="/agent-native-icon-dark.svg"
                   alt=""
-                  className="hidden h-7 w-7 dark:block min-[380px]:dark:hidden"
+                  className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
                   aria-hidden="true"
                   loading="lazy"
                   decoding="async"
@@ -373,6 +373,7 @@ export default function Header() {
                 placeholder={t("header.searchPlaceholder")}
               />
               <DocsLanguagePicker />
+              <ThemeToggle />
             </div>
             <NavLink
               data-an-prefetch="viewport"

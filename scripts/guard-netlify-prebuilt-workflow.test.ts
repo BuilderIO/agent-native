@@ -29,6 +29,15 @@ const workflows = () => ({
   promote: readWorkflow(".github/workflows/promote-netlify-deploy.yml"),
 });
 
+const manageJob = (workflows().manage.jobs as Record<string, Workflow>).manage;
+const manageScript = String(
+  (
+    (manageJob.steps as Array<Workflow>).find(
+      (step) => typeof (step.with as Workflow | undefined)?.script === "string",
+    )?.with as Workflow
+  ).script,
+);
+
 const reusableSource = readFileSync(
   ".github/workflows/deploy-netlify-prebuilt.yml",
   "utf8",
@@ -38,6 +47,110 @@ const nodeHeredocs = [
 ].map((match) => match[1]);
 
 describe("production Netlify site concurrency guard", () => {
+  it("supports previous, N-back, and exact Netlify deploy rollbacks", () => {
+    const helperStart = manageScript.indexOf("function publishedAtTimestamp");
+    const helperEnd = manageScript.indexOf(
+      "async function rollback",
+      helperStart,
+    );
+    assert(helperStart >= 0 && helperEnd > helperStart);
+    const {
+      isRestorableProductionDeploy,
+      parseRollbackTarget,
+      selectRollbackDeploy,
+    } = new Function(
+      `${manageScript.slice(helperStart, helperEnd)}; return { isRestorableProductionDeploy, parseRollbackTarget, selectRollbackDeploy };`,
+    )() as {
+      isRestorableProductionDeploy: (deploy: Workflow) => boolean;
+      parseRollbackTarget: (
+        depth: string,
+        deployId: string,
+      ) => { depth: number | null; deployId: string | null };
+      selectRollbackDeploy: (
+        deploys: Array<Workflow>,
+        currentId: string,
+        currentPublishedAt: number,
+        depth: number,
+      ) => Workflow | null;
+    };
+
+    assert.deepEqual(parseRollbackTarget("1", ""), {
+      depth: 1,
+      deployId: null,
+    });
+    assert.deepEqual(parseRollbackTarget("3", ""), {
+      depth: 3,
+      deployId: null,
+    });
+    assert.deepEqual(parseRollbackTarget("1", "52465f435803544542000001"), {
+      depth: null,
+      deployId: "52465f435803544542000001",
+    });
+    assert.throws(() => parseRollbackTarget("0", ""), /positive safe integer/);
+    assert.throws(
+      () => parseRollbackTarget("1", "not-a-deploy"),
+      /Netlify deploy ID/,
+    );
+
+    assert.equal(
+      isRestorableProductionDeploy({ context: "production", state: "old" }),
+      true,
+    );
+    assert.equal(
+      isRestorableProductionDeploy({ context: "production", state: "ready" }),
+      true,
+    );
+    assert.equal(
+      isRestorableProductionDeploy({ context: "production", state: "error" }),
+      false,
+    );
+
+    const deploys = [
+      {
+        id: "current",
+        context: "production",
+        state: "ready",
+        published_at: "2026-08-23T03:00:00Z",
+      },
+      {
+        id: "previous",
+        context: "production",
+        state: "old",
+        published_at: "2026-08-23T02:00:00Z",
+      },
+      {
+        id: "two-back",
+        context: "production",
+        state: "ready",
+        published_at: "2026-08-23T01:00:00Z",
+      },
+      {
+        id: "preview",
+        context: "deploy-preview",
+        state: "ready",
+        published_at: "2026-08-23T00:00:00Z",
+      },
+    ];
+    assert.equal(
+      selectRollbackDeploy(
+        deploys,
+        "current",
+        Date.parse("2026-08-23T03:00:00Z"),
+        1,
+      )?.id,
+      "previous",
+    );
+    assert.equal(
+      selectRollbackDeploy(
+        deploys,
+        "current",
+        Date.parse("2026-08-23T03:00:00Z"),
+        2,
+      )?.id,
+      "two-back",
+    );
+  });
+
   it("requires a distinct reusable child queue selected by the caller input", () => {
     assert.deepEqual(
       validateReusableWorkflowConcurrency(
@@ -133,7 +246,7 @@ describe("production Netlify site concurrency guard", () => {
       buildStart,
     );
     const build = workflow.slice(buildStart, buildEnd);
-    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\" \]\]/);
+    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\"/);
     assert.match(build, /agentNativePrebuiltBuild=true/);
     assert.match(build, /agentNativePrebuiltDatabaseUrl=/);
     assert.match(build, /agentNativePrebuiltAuthSecret=/);
@@ -141,6 +254,41 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(clipsNetlify, /agentNativePrebuiltAuthSecret/);
     assert.match(
       clipsNetlify,
+      /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+  });
+
+  it("runs Plan migrations after masked prebuilt assembly", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const planNetlify = readFileSync("templates/plan/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Plan release migrations",
+    );
+    const verifyStart = workflow.indexOf("name: Verify deploy directories");
+    const uploadStart = workflow.indexOf("name: Upload the prebuilt deploy");
+
+    assert.ok(buildStart >= 0);
+    assert.ok(migrationStart > buildStart && migrationStart < verifyStart);
+    assert.ok(uploadStart > migrationStart);
+    assert.match(
+      workflow,
+      /if: >-\s+inputs\.deploy && inputs\.deploy_mode == 'production'/,
+    );
+    assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/);
+    assert.match(workflow, /agentNativePrebuiltDatabaseUrl=/);
+    assert.match(
+      workflow,
+      /DATABASE_URL: \$\{\{ secrets\.PLAN_DATABASE_URL \}\}/,
+    );
+    assert.match(planNetlify, /agentNativePrebuiltDatabaseUrl/);
+    assert.match(
+      planNetlify,
       /agentNativePrebuiltBuild:-\}.*migrate:production/,
     );
   });

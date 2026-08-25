@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
+import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -25,6 +26,11 @@ registerEvent({
     threadId: z.string().nullable(),
     status: z.enum(["success", "error", "interrupted"]),
     error: z.string().nullable(),
+    errorCode: z.string().nullable(),
+    /** Wall-clock from `started_at` to now. Null when the row predates the
+     *  start timestamp being readable, so "not measured" stays distinct from
+     *  "took no time". */
+    durationMs: z.number().nullable(),
   }),
 });
 
@@ -54,6 +60,12 @@ export interface AutomationRun {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
+  /**
+   * Machine-readable failure code, so "how often are runs cut off?" is a
+   * GROUP BY instead of a LIKE over an English sentence. Null on success and
+   * on rows written before the column existed.
+   */
+  errorCode: string | null;
 }
 
 export interface StartAutomationRunInput {
@@ -71,19 +83,32 @@ export interface StartAutomationRunInput {
 
 const TABLE = "automation_runs";
 const MAX_ERROR_LENGTH = 500;
+const MAX_ERROR_CODE_LENGTH = 100;
 
 /**
- * Generous multiple of the runner's own 10 minute hard abort
- * (BACKGROUND_RUN_HARD_TIMEOUT_MS). Past this, no run is still alive.
+ * Past this, no run of this automation is still alive.
+ *
+ * DERIVED from the runner's own hard abort rather than pinned, because that
+ * abort became configurable: a fixed 15 minutes against a longer configured
+ * timeout would report a still-executing run as `interrupted` and expire its
+ * claim lease, redispatching it on top of itself. Half again the abort leaves
+ * room for wind-down and the terminal write without ever preceding them.
  */
-const RUN_LIVENESS_CEILING_MS = 15 * 60_000;
+function resolveRunLivenessCeilingMs(): number {
+  return Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
+}
 const INTERRUPTED_RUN_MESSAGE =
   "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
+/**
+ * Derived at read time alongside `INTERRUPTED_RUN_MESSAGE`: a process killed
+ * mid-run cannot write its own code any more than it can write its own message.
+ */
+const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
 
-// The background worker has a shorter hard timeout than this lease. A worker
-// that dies after claiming can therefore be redelivered without overlapping a
-// still-live execution under normal runtime limits.
-const CLAIM_LEASE_MS = RUN_LIVENESS_CEILING_MS;
+// The background worker's hard timeout is always shorter than this lease, by
+// construction above. A worker that dies after claiming can therefore be
+// redelivered without overlapping a still-live execution.
+const claimLeaseMs = () => resolveRunLivenessCeilingMs();
 
 /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
 const RUNS_RETAINED_PER_AUTOMATION = 50;
@@ -131,6 +156,11 @@ export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
     name: "automation-runs-app-id",
     sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS app_id TEXT`,
   },
+  {
+    version: 5,
+    name: "automation-runs-error-code",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
+  },
 ];
 
 export async function runAutomationRunMigrations(
@@ -162,6 +192,7 @@ export async function ensureTable(): Promise<void> {
           started_at ${intType()} NOT NULL,
           finished_at ${intType()},
           error TEXT,
+          error_code TEXT,
           claimed_at ${intType()},
           dispatch_pending ${intType()} NOT NULL DEFAULT 0
         )
@@ -180,6 +211,11 @@ export async function ensureTable(): Promise<void> {
           "dispatch_pending",
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS dispatch_pending ${intType()} NOT NULL DEFAULT 0`,
         );
+        await ensureColumnExists(
+          TABLE,
+          "error_code",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
+        );
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
       }
@@ -193,6 +229,7 @@ export async function ensureTable(): Promise<void> {
         ["claimed_at", `${intType()}`],
         ["dispatch_pending", `${intType()} NOT NULL DEFAULT 0`],
         ["app_id", "TEXT"],
+        ["error_code", "TEXT"],
       ] as const) {
         if (columns.has(name)) continue;
         try {
@@ -224,7 +261,7 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
   const stored = String(row.status) as AutomationRunStatus;
   const startedAt = Number(row.started_at);
   const status: AutomationRunStatus =
-    stored === "running" && now - startedAt > RUN_LIVENESS_CEILING_MS
+    stored === "running" && now - startedAt > resolveRunLivenessCeilingMs()
       ? "interrupted"
       : stored;
   return {
@@ -246,6 +283,12 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         : row.error == null
           ? null
           : String(row.error),
+    errorCode:
+      row.error_code == null && status === "interrupted"
+        ? INTERRUPTED_RUN_ERROR_CODE
+        : row.error_code == null
+          ? null
+          : String(row.error_code),
   };
 }
 
@@ -298,7 +341,7 @@ export async function claimAutomationRun(id: string): Promise<boolean> {
   const now = Date.now();
   const result = await getDbExec().execute({
     sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'`,
-    args: [now, id, now - CLAIM_LEASE_MS],
+    args: [now, id, now - claimLeaseMs()],
   });
   return Number(result.rowsAffected ?? 0) > 0;
 }
@@ -325,7 +368,7 @@ export async function listUnclaimedAutomationRuns(options?: {
             AND started_at <= ?
           ORDER BY started_at ASC LIMIT ${limit}`,
     args: [
-      Date.now() - CLAIM_LEASE_MS,
+      Date.now() - claimLeaseMs(),
       ...(appId ? [appId] : []),
       Date.now() - olderThanMs,
     ],
@@ -365,18 +408,28 @@ export async function finishAutomationRun(
   id: string,
   status: Exclude<AutomationRunStatus, "running">,
   error?: string,
+  errorCode?: string,
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
-    sql: `SELECT owner, automation, path, org_id, run_id, thread_id FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    sql: `SELECT owner, automation, path, org_id, run_id, thread_id, started_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
     args: [id],
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
+  const finishedAt = Date.now();
   await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ? WHERE id = ?`,
-    args: [status, Date.now(), error?.slice(0, MAX_ERROR_LENGTH) ?? null, id],
+    sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ?, error_code = ? WHERE id = ?`,
+    args: [
+      status,
+      finishedAt,
+      error?.slice(0, MAX_ERROR_LENGTH) ?? null,
+      errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+      id,
+    ],
   });
   if (!row) return;
+  const rawStartedAt = Number(row.started_at);
+  const startedAt = Number.isFinite(rawStartedAt) ? rawStartedAt : null;
   try {
     emitBusEvent(
       "automation.run.finished",
@@ -390,6 +443,9 @@ export async function finishAutomationRun(
         threadId: row.thread_id == null ? null : String(row.thread_id),
         status,
         error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
+        errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+        durationMs:
+          startedAt === null ? null : Math.max(0, finishedAt - startedAt),
       },
       { owner: String(row.owner) },
     );

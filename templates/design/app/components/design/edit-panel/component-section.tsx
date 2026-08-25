@@ -18,6 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +40,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 
 import {
   canRebuildAlpineDataLosslessly,
@@ -460,6 +462,9 @@ export function ComponentSection({
   sourceCapabilities?: string[];
 }) {
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const queryClient = useQueryClient();
   const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
   const detailsKey = ["action", "get-component-details", detailsParams];
@@ -1005,7 +1010,7 @@ export function ComponentSection({
               <TooltipContent>
                 {t("designEditor.componentInstances.detach")}
                 <span className="ms-1.5 text-muted-foreground/70">
-                  {"⌥⌘B" /* i18n-ignore keyboard shortcut */}
+                  {shortcut("$mod+alt+b")}
                 </span>
               </TooltipContent>
             </Tooltip>

@@ -1,6 +1,7 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { callAction } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
@@ -51,7 +52,6 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useGoogleAuthStatus,
-  useGoogleAuthUrl,
   useGoogleDesktopAuth,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
@@ -86,8 +86,6 @@ export default function Settings() {
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const disconnectZoom = useDisconnectZoom();
-  const [wantAuthUrl, setWantAuthUrl] = useState(false);
-  const authUrl = useGoogleAuthUrl(wantAuthUrl);
   const canOfferGoogleOAuthSetup = shouldOfferGoogleOAuthSetup();
 
   const [timezone, setTimezone] = useState("");
@@ -131,24 +129,19 @@ export default function Settings() {
       });
       return;
     }
-    setWantAuthUrl(true);
+    const returnPath = `${window.location.pathname}${window.location.search}`;
+    startWorkspaceProviderOAuth("google_calendar", {
+      appId: "calendar",
+      returnPath,
+      scope: "user",
+    });
   }
 
-  useEffect(() => {
-    if (!wantAuthUrl || !authUrl.data?.url) return;
-    setWantAuthUrl(false);
-    window.open(authUrl.data.url, "_blank");
-  }, [wantAuthUrl, authUrl.data]);
-
-  useEffect(() => {
-    if (authUrl.error) {
-      toast.error(authUrl.error.message);
-      setWantAuthUrl(false);
-    }
-  }, [authUrl.error]);
-
   async function handleDisconnect() {
-    const accounts = googleStatus.data?.accounts ?? [];
+    const accounts = (googleStatus.data?.accounts ?? []).filter(
+      (account) => !account.shared,
+    );
+    if (accounts.length === 0) return;
     try {
       for (const account of accounts) {
         await disconnectGoogle.mutateAsync(account.email);
@@ -278,71 +271,85 @@ export default function Settings() {
           </SettingsGroup>
 
           {/* Google Calendar Connection */}
-          <Card id="google-calendar" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.googleCalendar")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.googleDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {googleStatus.data?.connected ? (
-                    <>
-                      <IconCircleCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                      <div>
-                        <p className="text-sm font-medium">
-                          {t("common.connected")}
-                        </p>
-                        {googleStatus.data.accounts?.length > 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            {googleStatus.data.accounts
-                              .map((a) => a.email)
-                              .join(", ")}
+          {(googleStatus.isError ||
+            googleStatus.data?.connected ||
+            googleStatus.data?.configured === true ||
+            canOfferGoogleOAuthSetup) && (
+            <Card id="google-calendar" className="scroll-mt-16">
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  {t("settings.googleCalendar")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.googleDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {googleStatus.data?.connected ? (
+                      <>
+                        <IconCircleCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                        <div>
+                          <p className="text-sm font-medium">
+                            {t("common.connected")}
                           </p>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <IconCircleX className="h-5 w-5 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">
-                        {t("common.notConnected")}
-                      </p>
-                    </>
-                  )}
-                </div>
+                          {googleStatus.data.accounts?.length > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {googleStatus.data.accounts
+                                .map((a) => a.email)
+                                .join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <IconCircleX className="h-5 w-5 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">
+                          {t("common.notConnected")}
+                        </p>
+                      </>
+                    )}
+                  </div>
 
-                {googleStatus.data?.connected ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDisconnect}
-                    disabled={disconnectGoogle.isPending}
-                  >
-                    <IconUnlink className="me-1.5 h-3.5 w-3.5" />
-                    {t("common.disconnect")}
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={handleConnect}
-                    disabled={
-                      authUrl.isLoading ||
-                      authUrl.isFetching ||
-                      isGoogleDesktopAuthPending
-                    }
-                  >
-                    <IconExternalLink className="me-1.5 h-3.5 w-3.5" />
-                    {t("common.connect")}
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                  {googleStatus.isError ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void googleStatus.refetch()}
+                      disabled={googleStatus.isFetching}
+                    >
+                      {t("common.retry")}
+                    </Button>
+                  ) : googleStatus.data?.connected &&
+                    googleStatus.data.accounts.some(
+                      (account) => !account.shared,
+                    ) ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDisconnect}
+                      disabled={disconnectGoogle.isPending}
+                    >
+                      <IconUnlink className="me-1.5 h-3.5 w-3.5" />
+                      {t("common.disconnect")}
+                    </Button>
+                  ) : googleStatus.data?.configured === true ||
+                    canOfferGoogleOAuthSetup ? (
+                    <Button
+                      size="sm"
+                      onClick={handleConnect}
+                      disabled={isGoogleDesktopAuthPending}
+                    >
+                      <IconExternalLink className="me-1.5 h-3.5 w-3.5" />
+                      {t("common.connect")}
+                    </Button>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card id="zoom" className="scroll-mt-16">
             <CardHeader>

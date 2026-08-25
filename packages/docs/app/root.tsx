@@ -61,6 +61,20 @@ const JSON_LD = JSON.stringify({
       name: "Builder.io",
       url: "https://builder.io",
       sameAs: ["https://github.com/BuilderIO/agent-native"],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "support@builder.io",
+        url: "https://www.agent-native.com/contact",
+      },
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: "95 3rd Street, 2nd Floor",
+        addressLocality: "San Francisco",
+        addressRegion: "CA",
+        postalCode: "94103",
+        addressCountry: "US",
+      },
     },
     {
       "@type": "WebSite",
@@ -164,10 +178,9 @@ export const meta = () => [
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   return (
-    <div className="w-full min-w-0 overflow-x-hidden">
+    <div className="w-full min-w-0 overflow-x-clip">
       <ScrollManager />
       <Header />
-      <div aria-hidden="true" className="h-16" />
       {children}
       <Footer />
     </div>

@@ -66,8 +66,37 @@ export type RegisteredTransactionalEmail = TransactionalEmailDefinition & {
 };
 
 const registry = new Map<string, RegisteredTransactionalEmail>();
-/** Source definitions, so re-registering the same one is a no-op rather than a clash. */
-const sources = new Map<string, TransactionalEmailDefinition>();
+
+function resolveDefinition(
+  definition: TransactionalEmailDefinition,
+): RegisteredTransactionalEmail {
+  return {
+    ...definition,
+    app: definition.app ?? getAppSlug() ?? "unknown",
+  };
+}
+
+function assertCanRegister(
+  resolved: RegisteredTransactionalEmail,
+  existing: RegisteredTransactionalEmail | undefined,
+): void {
+  if (
+    existing &&
+    (existing.app !== resolved.app ||
+      existing.name !== resolved.name ||
+      existing.trigger !== resolved.trigger ||
+      existing.recipient !== resolved.recipient ||
+      existing.recipientLabel !== resolved.recipientLabel ||
+      existing.sender !== resolved.sender ||
+      existing.senderLabel !== resolved.senderLabel)
+  ) {
+    // Two emails sharing an id would silently merge their metrics and make the
+    // catalog claim one exists when the other actually sent.
+    throw new Error(
+      `Duplicate transactional email id "${resolved.id}". Ids must be unique across the app.`,
+    );
+  }
+}
 
 /**
  * Register a transactional email. Returns the definition so the call site can
@@ -76,21 +105,106 @@ const sources = new Map<string, TransactionalEmailDefinition>();
 export function defineTransactionalEmail(
   definition: TransactionalEmailDefinition,
 ): RegisteredTransactionalEmail {
-  const existing = sources.get(definition.id);
-  if (existing && existing !== definition) {
-    // Two emails sharing an id would silently merge their metrics and make the
-    // catalog claim one exists when the other actually sent.
+  const resolved = resolveDefinition(definition);
+  // HMR recreates preview functions, so stable catalog metadata is the collision boundary.
+  assertCanRegister(resolved, registry.get(resolved.id));
+  registry.set(definition.id, resolved);
+  return resolved;
+}
+
+function resolveDefinitions(
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  const resolved = definitions.map(resolveDefinition);
+  const seen = new Set<string>();
+
+  for (const definition of resolved) {
+    if (seen.has(definition.id)) {
+      throw new Error(
+        `Duplicate transactional email id "${definition.id}". Ids must be unique across the app.`,
+      );
+    }
+    seen.add(definition.id);
+  }
+
+  return resolved;
+}
+
+function validateDefinitions(
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  const resolved = resolveDefinitions(definitions);
+  for (const definition of resolved) {
+    assertCanRegister(definition, registry.get(definition.id));
+  }
+  return resolved;
+}
+
+function commitDefinitions(
+  definitions: readonly RegisteredTransactionalEmail[],
+): RegisteredTransactionalEmail[] {
+  for (const definition of definitions) {
+    registry.set(definition.id, definition);
+  }
+  return [...definitions];
+}
+
+/** Register a catalog as one atomic operation, allowing safe HMR refreshes. */
+export function defineTransactionalEmails(
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  return commitDefinitions(validateDefinitions(definitions));
+}
+
+/** Replace one app-owned catalog snapshot after validating the full replacement. */
+export function replaceTransactionalEmails(
+  ownerApp: string,
+  idPrefix: string,
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  const runtimeApp = getAppSlug();
+  if (!ownerApp || ownerApp.includes(".") || idPrefix !== `${ownerApp}.`) {
     throw new Error(
-      `Duplicate transactional email id "${definition.id}". Ids must be unique across the app.`,
+      "Transactional email replacement requires an owner app and its exact namespace prefix.",
     );
   }
-  const resolved: RegisteredTransactionalEmail = {
-    ...definition,
-    app: definition.app ?? getAppSlug() ?? "unknown",
-  };
-  registry.set(definition.id, resolved);
-  sources.set(definition.id, definition);
-  return resolved;
+
+  const resolved = resolveDefinitions(definitions);
+  if (
+    resolved.some(({ id, app }) => app !== ownerApp || !id.startsWith(idPrefix))
+  ) {
+    throw new Error(
+      `Transactional email replacement must contain only ${ownerApp} email definitions in the "${idPrefix}" scope.`,
+    );
+  }
+
+  for (const [id, existing] of registry) {
+    if (id.startsWith(idPrefix) && existing.app !== ownerApp) {
+      throw new Error(
+        `Transactional email replacement cannot modify "${id}" owned by "${existing.app}".`,
+      );
+    }
+  }
+
+  const hasExplicitOwner =
+    resolved.length > 0 && resolved.every(({ app }) => app === ownerApp);
+  if (
+    (runtimeApp && runtimeApp !== ownerApp) ||
+    (!runtimeApp && !hasExplicitOwner)
+  ) {
+    throw new Error(
+      "Transactional email replacement requires a recognized runtime owner or a non-empty snapshot with explicit owner metadata.",
+    );
+  }
+
+  const nextIds = new Set(resolved.map(({ id }) => id));
+  for (const id of registry.keys()) {
+    if (id.startsWith(idPrefix) && !nextIds.has(id)) {
+      registry.delete(id);
+    }
+  }
+
+  return commitDefinitions(resolved);
 }
 
 /** Every registered email, sorted by app then name. */
@@ -124,5 +238,4 @@ export function renderTransactionalEmailPreview(
 /** Test seam — drops all registrations. */
 export function resetTransactionalEmailRegistry(): void {
   registry.clear();
-  sources.clear();
 }

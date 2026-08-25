@@ -17,36 +17,8 @@ import {
   isDocsLocale,
   type DocsLocale,
 } from "./docs-locale";
+import { docSourceLoaders, localizedDocLoaders } from "./docs-source-loaders";
 import { slugifyHeading } from "./heading-slug";
-
-// Keep default docs route-lazy. Eagerly importing and parsing the whole corpus
-// makes every SSR cold start pay for documents unrelated to the requested page.
-// During the migration `.mdx` wins when both source files exist for a slug;
-// `.md` remains a fallback.
-const docSourceLoaders = {
-  ...import.meta.glob("../../../core/docs/content/*.md", {
-    query: "?raw",
-    import: "default",
-  }),
-  ...import.meta.glob("../../../core/docs/content/*.mdx", {
-    query: "?raw",
-    import: "default",
-  }),
-} as Record<string, () => Promise<string>>;
-
-// Optional locale-specific docs live under packages/core/docs/content/locales/.
-// Keep these lazy. Translated Markdown should load per locale + route, not all
-// at startup, so non-English docs do not bloat the initial docs bundle.
-const localizedDocLoaders = {
-  ...import.meta.glob("../../../core/docs/content/locales/*/*.md", {
-    query: "?raw",
-    import: "default",
-  }),
-  ...import.meta.glob("../../../core/docs/content/locales/*/*.mdx", {
-    query: "?raw",
-    import: "default",
-  }),
-} as Record<string, () => Promise<string>>;
 
 export interface DocEntry {
   slug: string;

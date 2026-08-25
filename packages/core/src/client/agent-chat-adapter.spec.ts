@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  MAX_FOLLOWED_BACKGROUND_RUNS,
+} from "../app-config/run-lifecycle-invariants.js";
+import {
   getActiveRun,
   getPendingTurn,
   clearActiveRun,
@@ -13,8 +17,6 @@ import {
   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
-  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
-  MAX_FOLLOWED_BACKGROUND_RUNS,
 } from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
@@ -8170,7 +8172,7 @@ describe("createAgentChatAdapter", () => {
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     } = await import("../agent/run-store.js");
     const { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } =
-      await import("../agent/run-manager.js");
+      await import("../app-config/run-lifecycle-invariants.js");
 
     const worstCaseFirstAttemptMs =
       UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
@@ -8229,12 +8231,19 @@ describe("createAgentChatAdapter", () => {
     // The client is a backstop for a silent server, not the primary limit:
     // it fires on a clock and cannot tell looping from working. Anything that
     // is NOT progressing is already caught by BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
-    // and the repeated-terminal-reason detector. Imports the REAL server
-    // constants so this breaks the moment either side drifts.
-    const { BACKGROUND_SOFT_TIMEOUT_CEILING_MS } =
-      await import("../agent/run-manager.js");
-    const { MAX_TURN_WALL_CLOCK_MS, MAX_BACKGROUND_RUN_CONTINUATIONS } =
-      await import("../agent/production-agent.js");
+    // and the repeated-terminal-reason detector.
+    //
+    // This pins the DEFAULTS. It is no longer the whole enforcement: the server
+    // bounds below are runtime-configurable, so a deployment can move them
+    // without touching a constant this test can see. The live check is
+    // `assertRunLifecycleInvariants`, which asserts the same three
+    // relationships against the RESOLVED configuration when it resolves. Keep
+    // both — this one fails fast on a bad default, that one on a bad deploy.
+    const {
+      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+      MAX_BACKGROUND_RUN_CONTINUATIONS,
+      MAX_TURN_WALL_CLOCK_MS,
+    } = await import("../app-config/run-lifecycle-invariants.js");
 
     // A single full-length chunk must fit inside the whole-turn client budget
     // with room for more than one of them; this is the exact inversion that

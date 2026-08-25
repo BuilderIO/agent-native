@@ -34,6 +34,10 @@ runs:
       run: pnpm typecheck:e2e
       shell: bash
 
+    - name: Test session bootstrap retry boundaries
+      run: pnpm exec tsx --test e2e/beta/lib/session.spec.ts
+      shell: bash
+
     - name: Install Playwright Chromium
       run: pnpm exec playwright install --only-shell chromium
       shell: bash

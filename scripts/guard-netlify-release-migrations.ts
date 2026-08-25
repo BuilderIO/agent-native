@@ -90,10 +90,14 @@ export function validateBetaPrebuiltReleaseEnvironment(
   file = BETA_PREBUILT_WORKFLOW,
 ): string[] {
   const betaStart = source.indexOf('if [[ "$TARGET" == "beta" ]]');
-  const betaEnd = source.indexOf(
-    'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
-    betaStart,
-  );
+  const betaEnd =
+    [
+      'if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
+      'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
+    ]
+      .map((marker) => source.indexOf(marker, betaStart))
+      .filter((index) => index > betaStart)
+      .sort((left, right) => left - right)[0] ?? -1;
   const betaBuild =
     betaStart >= 0 && betaEnd > betaStart
       ? source.slice(betaStart, betaEnd)

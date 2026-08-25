@@ -4,11 +4,16 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import {
-  triageConfig,
   triageDecisions,
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import {
+  DEFAULT_FACTORY_ID,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
+} from "../server/lib/factory-scope.js";
+import { readTriageConfigRow } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -188,6 +193,7 @@ export async function recordAutomaticBuilderDecision(input: {
   itemId: string;
   userEmail: string;
   orgId: string;
+  factoryId: string;
   outcome: "propose_fix" | "needs_manual";
   reason: string;
   guardResults: Array<{ code: string; passed: boolean; reason: string }>;
@@ -214,6 +220,7 @@ export async function recordAutomaticBuilderDecision(input: {
       createdAt: now,
       ownerEmail: input.userEmail,
       orgId: input.orgId,
+      factoryId: input.factoryId,
     })
     .onConflictDoUpdate({
       target: triageDecisions.id,
@@ -260,11 +267,6 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    await requireFactoryAutomation(
-      context,
-      { userEmail, orgId },
-      "builderDispatch",
-    );
     const db = getDb();
     const item = (
       await db
@@ -274,6 +276,13 @@ export default defineAction({
         .limit(1)
     )[0];
     if (!item) throw new Error("Factory item not found.");
+    const factoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "builderDispatch",
+      factoryId,
+    );
     const metadata = parseTriageMetadata(item.metadataJson);
     const relatedIds = [...new Set(relatedItemIds)].filter(
       (relatedId) => relatedId !== itemId,
@@ -285,7 +294,7 @@ export default defineAction({
             .from(triageItems)
             .where(
               and(
-                eq(triageItems.orgId, orgId),
+                orgFactoryItemFilter(orgId, factoryId),
                 inArray(triageItems.id, relatedIds),
               ),
             )
@@ -319,7 +328,7 @@ export default defineAction({
             .from(triageRuns)
             .where(
               and(
-                eq(triageRuns.orgId, orgId),
+                orgFactoryRunFilter(orgId, factoryId),
                 inArray(triageRuns.itemId, relatedIds),
               ),
             )
@@ -385,6 +394,7 @@ export default defineAction({
       itemId,
       userEmail,
       orgId,
+      factoryId,
       outcome: blocked ? "needs_manual" : "propose_fix",
       reason,
       guardResults,
@@ -395,6 +405,7 @@ export default defineAction({
       {
         action: "start-builder-for-item",
         kind: "decision",
+        factoryId,
         itemId,
         source: item.source,
         sourceUrl: item.sourceUrl,
@@ -483,6 +494,7 @@ export default defineAction({
         error: null,
         ownerEmail: item.ownerEmail,
         orgId,
+        factoryId: item.factoryId ?? DEFAULT_FACTORY_ID,
       });
     }
 
@@ -493,18 +505,11 @@ export default defineAction({
             "Slack feedback is missing its channel or thread identity.",
           );
         }
-        const config = (
-          await db
-            .select({
-              slackWorkspace: triageConfig.slackWorkspace,
-              builderSlackUserId: triageConfig.builderSlackUserId,
-            })
-            .from(triageConfig)
-            .where(
-              and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)),
-            )
-            .limit(1)
-        )[0];
+        const config = await readTriageConfigRow(
+          db,
+          orgId,
+          item.factoryId ?? DEFAULT_FACTORY_ID,
+        );
         const workspace =
           config?.slackWorkspace === "secondary" ? "secondary" : "primary";
         const builderSlackUserId = requireBuilderSlackUserId(
@@ -638,6 +643,7 @@ export default defineAction({
             itemId: related.id,
             userEmail,
             orgId,
+            factoryId: related.factoryId ?? factoryId,
             outcome: "propose_fix",
             reason: `Grouped with Factory item ${itemId}: ${reason}`,
             guardResults,
@@ -656,6 +662,7 @@ export default defineAction({
           {
             action: "start-builder-for-item",
             kind: "external_action",
+            factoryId,
             itemId,
             source: item.source,
             sourceUrl: item.sourceUrl,
@@ -663,6 +670,7 @@ export default defineAction({
             details: {
               provider: "bot-tag",
               runId,
+              factoryRunId: runId,
               relatedItemIds: relatedItems.map(({ id }) => id),
             },
           },
@@ -728,6 +736,7 @@ export default defineAction({
         {
           action: "start-builder-for-item",
           kind: "external_action",
+          factoryId,
           itemId,
           source: item.source,
           sourceUrl: item.sourceUrl,
@@ -735,6 +744,7 @@ export default defineAction({
           details: {
             provider: "builder-http",
             runId,
+            factoryRunId: runId,
             providerTaskId: result.providerTaskId ?? null,
           },
         },
@@ -757,6 +767,25 @@ export default defineAction({
           heartbeatAt: new Date().toISOString(),
         })
         .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "start-builder-for-item",
+          kind: "external_action",
+          factoryId,
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          status: "error",
+          summary: `Builder dispatch failed: ${message}`,
+          details: {
+            provider: isSlack ? "bot-tag" : "builder-http",
+            runId,
+            factoryRunId: runId,
+          },
+        },
+      );
       throw new Error(
         `Factory Builder dispatch failed after recording the run: ${message}`,
       );

@@ -4,6 +4,12 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems, triageDecisions } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryDecisionFilter,
+  orgFactoryItemFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -18,6 +24,7 @@ export default defineAction({
   description:
     "List the Factory observation queue. Results are scoped to the active workspace and include the latest shadow decision summary. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     status: triageItemStatusSchema.optional(),
     source: triageSourceSchema.optional(),
     needsReview: z.boolean().default(false),
@@ -25,7 +32,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ status, source, needsReview, limit }, context) => {
+  run: async ({ factoryId, status, source, needsReview, limit }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -41,7 +48,7 @@ export default defineAction({
       .from(triageItems)
       .where(
         and(
-          eq(triageItems.orgId, orgId),
+          orgFactoryItemFilter(orgId, factoryId),
           needsReview
             ? inArray(triageItems.status, reviewStatuses)
             : status
@@ -56,7 +63,7 @@ export default defineAction({
     const decisions = await db
       .select()
       .from(triageDecisions)
-      .where(eq(triageDecisions.orgId, orgId))
+      .where(orgFactoryDecisionFilter(orgId, factoryId))
       .orderBy(desc(triageDecisions.createdAt))
       .limit(500);
     const latestByItem = new Map<string, (typeof decisions)[number]>();
@@ -99,25 +106,29 @@ export default defineAction({
       };
     });
 
-    for (const item of listedItems) {
-      await recordFactoryAudit(
-        context,
-        { userEmail, orgId },
-        {
-          action: "list-triage-items",
-          kind: "read",
-          itemId: item.itemId,
-          source: item.source,
-          sourceUrl: item.sourceUrl,
-          summary: item.title,
-          details: {
-            status: item.status,
-            coverage: item.coverage,
-            decision: item.latestDecision?.outcome ?? null,
-          },
+    const purpose = needsReview ? "review_candidates" : "repeat_scan";
+    const noun = listedItems.length === 1 ? "item" : "items";
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "list-triage-items",
+        kind: "read",
+        source: source ?? listedItems[0]?.source ?? null,
+        summary: needsReview
+          ? `Loaded ${listedItems.length} review candidate${listedItems.length === 1 ? "" : "s"}.`
+          : `Loaded ${listedItems.length} recent ${source ?? "queue"} ${noun}.`,
+        details: {
+          purpose,
+          limit,
+          count: listedItems.length,
+          needsReview,
+          source: source ?? null,
+          itemIds: listedItems.map((item) => item.itemId),
         },
-      );
-    }
+      },
+      factoryId,
+    );
     return listedItems;
   },
 });

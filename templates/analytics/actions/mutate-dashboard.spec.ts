@@ -328,6 +328,23 @@ describe("mutate-dashboard", () => {
     expect(renderedRows(saved)).toEqual([["a", "b", "new"], ["c"]]);
   });
 
+  it("rejects an insert panel without a usable id at the action boundary", async () => {
+    await expect(
+      mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "insertPanel",
+            panel: { title: "Missing id" },
+          },
+        ],
+      }),
+    ).rejects.toThrow(/panel\.id must be a non-empty string/);
+
+    expect(mocks.getDashboard).not.toHaveBeenCalled();
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
   it("validates SQL-affecting mutations before saving", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",

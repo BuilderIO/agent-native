@@ -11,6 +11,7 @@ export default mergeConfig(
         "**/dist/**",
         "**/.output/**",
         "**/.{idea,git,cache,output,temp}/**",
+        "**/.react-router/**",
       ],
     },
   }),

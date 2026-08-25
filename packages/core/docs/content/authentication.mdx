@@ -210,6 +210,24 @@ verification and the signup verification email is not sent. It does not change
 magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+qa` address
 (`name+qa@example.com`) so they are easy to identify.
 
+## Email Verification Policy {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` is a local and QA convenience — a hosted
+deployment ignores it. To state the policy for any environment, production
+included, declare it in config:
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+The deployment alias is `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. A declared value
+outranks both `AUTH_SKIP_EMAIL_VERIFICATION` and the per-environment default.
+
+`false` accepts an unverified address as a login credential — anyone can claim
+any email — so use it only where signup is already restricted another way.
+`true` on a deployment with no email provider disables password signup instead,
+because the verification could never be delivered.
+
 ## Social Providers {#social-providers}
 
 Set environment variables to enable social login. Better Auth auto-detects them:
@@ -477,27 +495,28 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 
 ## Environment Variables {#environment-variables}
 
-| Variable                                | Purpose                                                                                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                    | Signing key for Better Auth (auto-generated if not set)                                                                                      |
-| `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` in QA/preview environments to let password-fallback signups proceed without verification; local dev/test skips by default         |
-| `AUTH_MAGIC_LINK`                       | Set to `0`, `false`, or `off` to force the email/password fallback even when outbound email is ready                                         |
-| `AUTH_DISABLED`                         | Set to `true` or `1` to skip login/signup; all requests run as one shared user (local dev/preview only — not for production with real users) |
-| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost auto-sign-in on a fresh dev database                                                                         |
-| `AUTH_MODE`                             | `local` resolves CLI/agent identity only (which dev user `pnpm action` runs as); never a browser login bypass                                |
-| `COOKIE_DOMAIN`                         | Opt into shared session cookies across same-database subdomains (see [Cookie Realms](#cookie-realms))                                        |
-| `AGENT_NATIVE_WORKSPACE`                | `1` runs in workspace mode — one shared session realm across workspace apps                                                                  |
-| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Set with `COOKIE_DOMAIN` to share one auth database across first-party subdomains                                                            |
-| `OAUTH_STATE_SECRET`                    | Dedicated HMAC key for OAuth state envelopes (see [Security — OAuth State Signing](/docs/security#oauth-state))                              |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | Preferred low-scope Google OAuth client ID for app login                                                                                     |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Preferred low-scope Google OAuth secret for app login                                                                                        |
-| `GOOGLE_CLIENT_ID`                      | Legacy Google login fallback, and provider OAuth client ID for Google API integrations                                                       |
-| `GOOGLE_CLIENT_SECRET`                  | Legacy Google login fallback, and provider OAuth secret for Google API integrations                                                          |
-| `GITHUB_CLIENT_ID`                      | Enable GitHub OAuth                                                                                                                          |
-| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth secret                                                                                                                          |
-| `ACCESS_TOKEN`                          | Static bearer fallback for MCP/connect clients; not browser auth                                                                             |
-| `ACCESS_TOKENS`                         | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                            |
-| `A2A_SECRET`                            | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                           |
+| Variable                                | Purpose                                                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BETTER_AUTH_SECRET`                    | Signing key for Better Auth (auto-generated if not set)                                                                                                |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` in QA/preview environments to let password-fallback signups proceed without verification; local dev/test skips by default                   |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Set to `0` or `1` to declare the password-signup verification policy for any environment, production included; outranks `AUTH_SKIP_EMAIL_VERIFICATION` |
+| `AUTH_MAGIC_LINK`                       | Set to `0`, `false`, or `off` to force the email/password fallback even when outbound email is ready                                                   |
+| `AUTH_DISABLED`                         | Set to `true` or `1` to skip login/signup; all requests run as one shared user (local dev/preview only — not for production with real users)           |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost auto-sign-in on a fresh dev database                                                                                   |
+| `AUTH_MODE`                             | `local` resolves CLI/agent identity only (which dev user `pnpm action` runs as); never a browser login bypass                                          |
+| `COOKIE_DOMAIN`                         | Opt into shared session cookies across same-database subdomains (see [Cookie Realms](#cookie-realms))                                                  |
+| `AGENT_NATIVE_WORKSPACE`                | `1` runs in workspace mode — one shared session realm across workspace apps                                                                            |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Set with `COOKIE_DOMAIN` to share one auth database across first-party subdomains                                                                      |
+| `OAUTH_STATE_SECRET`                    | Dedicated HMAC key for OAuth state envelopes (see [Security — OAuth State Signing](/docs/security#oauth-state))                                        |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | Preferred low-scope Google OAuth client ID for app login                                                                                               |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Preferred low-scope Google OAuth secret for app login                                                                                                  |
+| `GOOGLE_CLIENT_ID`                      | Legacy Google login fallback, and provider OAuth client ID for Google API integrations                                                                 |
+| `GOOGLE_CLIENT_SECRET`                  | Legacy Google login fallback, and provider OAuth secret for Google API integrations                                                                    |
+| `GITHUB_CLIENT_ID`                      | Enable GitHub OAuth                                                                                                                                    |
+| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth secret                                                                                                                                    |
+| `ACCESS_TOKEN`                          | Static bearer fallback for MCP/connect clients; not browser auth                                                                                       |
+| `ACCESS_TOKENS`                         | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                                      |
+| `A2A_SECRET`                            | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                                     |
 
 ## What's next
 

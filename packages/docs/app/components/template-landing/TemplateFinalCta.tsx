@@ -1,5 +1,10 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
+import {
+  TemplateLandingActions,
+  type TemplateLandingCtaTemplate,
+} from "./TemplateLandingActions";
+
 type TemplateFinalCtaProps = Omit<
   ComponentPropsWithoutRef<"section">,
   "title"
@@ -7,6 +12,7 @@ type TemplateFinalCtaProps = Omit<
   actions?: ReactNode;
   eyebrow?: ReactNode;
   headerAction?: ReactNode;
+  template?: TemplateLandingCtaTemplate;
   title?: ReactNode;
 };
 
@@ -16,6 +22,7 @@ export function TemplateFinalCta({
   className = "",
   eyebrow,
   headerAction,
+  template,
   title,
   ...props
 }: TemplateFinalCtaProps) {
@@ -44,9 +51,10 @@ export function TemplateFinalCta({
         </div>
       ) : null}
 
-      {actions ? (
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
-          {actions}
+      {actions || template ? (
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 sm:px-8 lg:gap-[120px]">
+          {actions ??
+            (template ? <TemplateLandingActions template={template} /> : null)}
         </div>
       ) : null}
     </section>

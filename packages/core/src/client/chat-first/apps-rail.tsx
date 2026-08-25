@@ -7,6 +7,7 @@ import {
   Skeleton,
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@agent-native/toolkit/ui";
 import {
@@ -15,6 +16,7 @@ import {
   IconChevronUp,
   IconPin,
   IconPlus,
+  IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -88,6 +90,70 @@ function ChatFirstRailAppIcon({
   );
 }
 
+function AppContextMenuContent({
+  app,
+  copy,
+  index,
+  onMove,
+  onReloadApp,
+  onRemoveApp,
+  onTogglePinned,
+  pinned,
+  total,
+}: {
+  app: ChatFirstAppItem;
+  copy: ChatFirstCopy;
+  index: number;
+  onMove: (id: string, direction: -1 | 1) => void;
+  onReloadApp?: (app: ChatFirstAppItem) => void;
+  onRemoveApp?: (app: ChatFirstAppItem) => void;
+  onTogglePinned: (id: string) => void;
+  pinned: boolean;
+  total: number;
+}) {
+  return (
+    <ContextMenuContent>
+      <ContextMenuItem onSelect={() => onTogglePinned(app.id)}>
+        <IconPin size={14} aria-hidden="true" />
+        {pinned ? copy("removePinned") : copy("pinTop")}
+      </ContextMenuItem>
+      {onReloadApp ? (
+        <ContextMenuItem onSelect={() => onReloadApp(app)}>
+          <IconRefresh size={14} aria-hidden="true" />
+          {copy("reloadApp")}
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={index === 0}
+        onSelect={() => onMove(app.id, -1)}
+      >
+        <IconChevronUp size={14} aria-hidden="true" />
+        {copy("moveUp")}
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={index === total - 1}
+        onSelect={() => onMove(app.id, 1)}
+      >
+        <IconChevronDown size={14} aria-hidden="true" />
+        {copy("moveDown")}
+      </ContextMenuItem>
+      {onRemoveApp ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={() => onRemoveApp(app)}
+            className="text-destructive focus:text-destructive"
+          >
+            <IconTrash size={14} aria-hidden="true" />
+            {copy("removeApp")}
+          </ContextMenuItem>
+        </>
+      ) : null}
+    </ContextMenuContent>
+  );
+}
+
 function AppRows({
   apps,
   defaultAppIds,
@@ -97,6 +163,7 @@ function AppRows({
   onDrop,
   onDragEnd,
   onOpenApp,
+  onReloadApp,
   onRemoveApp,
   onTogglePinned,
   onMove,
@@ -111,6 +178,7 @@ function AppRows({
   onDrop: (id: string) => void;
   onDragEnd: () => void;
   onOpenApp: (app: ChatFirstAppItem) => void;
+  onReloadApp?: (app: ChatFirstAppItem) => void;
   onRemoveApp?: (app: ChatFirstAppItem) => void;
   onTogglePinned: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
@@ -146,7 +214,7 @@ function AppRows({
                 className={cn(
                   "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-0 text-sm",
                   active
-                    ? "font-medium text-sidebar-foreground"
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
                 onDragStart={(event) => {
@@ -204,39 +272,17 @@ function AppRows({
                 </span>
               </li>
             </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem onSelect={() => onTogglePinned(app.id)}>
-                <IconPin size={14} aria-hidden="true" />
-                {pinned ? copy("removePinned") : copy("pinTop")}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                disabled={index === 0}
-                onSelect={() => onMove(app.id, -1)}
-              >
-                <IconChevronUp size={14} aria-hidden="true" />
-                {copy("moveUp")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                disabled={index === orderedApps.length - 1}
-                onSelect={() => onMove(app.id, 1)}
-              >
-                <IconChevronDown size={14} aria-hidden="true" />
-                {copy("moveDown")}
-              </ContextMenuItem>
-              {onRemoveApp ? (
-                <>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem
-                    onSelect={() => onRemoveApp(app)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <IconTrash size={14} aria-hidden="true" />
-                    {copy("removeApp")}
-                  </ContextMenuItem>
-                </>
-              ) : null}
-            </ContextMenuContent>
+            <AppContextMenuContent
+              app={app}
+              copy={copy}
+              index={index}
+              onMove={onMove}
+              onReloadApp={onReloadApp}
+              onRemoveApp={onRemoveApp}
+              onTogglePinned={onTogglePinned}
+              pinned={pinned}
+              total={orderedApps.length}
+            />
           </ContextMenu>
         );
       })}
@@ -256,6 +302,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   onLayoutError,
   onRetry,
   onOpenApp,
+  onReloadApp,
   onRemoveApp,
   onOpenAllApps,
   onCreateApp,
@@ -366,58 +413,82 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
 
   if (collapsed) {
     return (
-      <section
-        data-chat-first-apps-rail
-        className="flex flex-col items-center gap-1 px-1.5 pt-2"
-        aria-label={copy("workspaceApps")}
-      >
-        {loading && apps.length === 0
-          ? [0, 1, 2].map((index) => (
-              <Skeleton key={index} className="size-9 rounded-md" />
-            ))
-          : visibleApps.map((app) => (
-              <button
-                key={app.id}
-                type="button"
-                data-chat-first-app
-                data-app-id={app.id}
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-md",
-                  activeAppId === app.id
-                    ? "text-sidebar-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                )}
-                onClick={() => onOpenApp(app)}
-                aria-label={copy("openApp", { name: app.name })}
-                title={app.name}
-              >
-                <ChatFirstRailAppIcon
-                  app={app}
-                  activeAppId={activeAppId}
-                  renderIcon={renderIcon}
-                />
-              </button>
-            ))}
-        {onOpenAllApps ? (
-          <button
-            type="button"
-            data-chat-first-all-apps
-            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            onClick={onOpenAllApps}
-            aria-label={copy("allApps")}
-            title={copy("allApps")}
-          >
-            <IconApps size={16} aria-hidden="true" />
-          </button>
-        ) : null}
-        {error ? (
-          <span
-            className="size-1.5 rounded-full bg-destructive"
-            title={error}
-            aria-label={error}
-          />
-        ) : null}
-      </section>
+      <TooltipProvider>
+        <section
+          data-chat-first-apps-rail
+          className="flex flex-col items-center gap-1 px-1.5 pt-2"
+          aria-label={copy("workspaceApps")}
+        >
+          {loading && apps.length === 0
+            ? [0, 1, 2].map((index) => (
+                <Skeleton key={index} className="size-9 rounded-md" />
+              ))
+            : visibleApps.map((app) => (
+                <ContextMenu key={app.id}>
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <ContextMenuTrigger asChild>
+                        <button
+                          type="button"
+                          data-chat-first-app
+                          data-app-id={app.id}
+                          className={cn(
+                            "flex size-9 items-center justify-center rounded-md",
+                            activeAppId === app.id
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                          )}
+                          onClick={() => onOpenApp(app)}
+                          aria-label={copy("openApp", { name: app.name })}
+                        >
+                          <ChatFirstRailAppIcon
+                            app={app}
+                            activeAppId={activeAppId}
+                            renderIcon={renderIcon}
+                          />
+                        </button>
+                      </ContextMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{app.name}</TooltipContent>
+                  </Tooltip>
+                  <AppContextMenuContent
+                    app={app}
+                    copy={copy}
+                    index={orderedApps.indexOf(app)}
+                    onMove={moveApp}
+                    onReloadApp={onReloadApp}
+                    onRemoveApp={onRemoveApp}
+                    onTogglePinned={togglePinned}
+                    pinned={layout.pinnedIds.includes(app.id)}
+                    total={orderedApps.length}
+                  />
+                </ContextMenu>
+              ))}
+          {onOpenAllApps ? (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-chat-first-all-apps
+                  className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={onOpenAllApps}
+                  aria-label={copy("allApps")}
+                >
+                  <IconApps size={16} aria-hidden="true" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{copy("allApps")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+          {error ? (
+            <span
+              className="size-1.5 rounded-full bg-destructive"
+              title={error}
+              aria-label={error}
+            />
+          ) : null}
+        </section>
+      </TooltipProvider>
     );
   }
 
@@ -467,6 +538,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
           onDrop={reorderApps}
           onDragEnd={() => setDraggedAppId(null)}
           onOpenApp={onOpenApp}
+          onReloadApp={onReloadApp}
           onRemoveApp={onRemoveApp}
           onTogglePinned={togglePinned}
           onMove={moveApp}

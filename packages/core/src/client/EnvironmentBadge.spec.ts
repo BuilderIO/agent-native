@@ -39,6 +39,12 @@ describe("EnvironmentBadge", () => {
     expect(resolveEnvironmentChannel({}, "beta.plan.agent-native.com")).toBe(
       "beta",
     );
+    expect(
+      resolveEnvironmentChannel(
+        { deployment: { environment: "local" } },
+        "localhost",
+      ),
+    ).toBe("local");
   });
 
   it("preserves the path, query, and hash while switching hosts", () => {
@@ -50,8 +56,9 @@ describe("EnvironmentBadge", () => {
     ).toBe("https://plan.agent-native.com/projects/42?tab=activity#runs");
   });
 
-  it("adds a 24-hour opt-out when switching back to production", () => {
+  it("adds an 8-hour opt-out when switching back to production", () => {
     const now = 1_700_000_000_000;
+    expect(BETA_OPT_OUT_DURATION_MS).toBe(8 * 60 * 60 * 1000);
     expect(
       buildEnvironmentOptOutUrl(
         "https://beta.plan.agent-native.com/projects/42?tab=activity#runs",

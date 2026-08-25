@@ -17,6 +17,7 @@ const DEFAULT_COPY: Record<string, string> = {
   dismiss: "Dismiss",
   unpinApp: "Unpin this app",
   pinApp: "Pin this app",
+  reloadApp: "Reload app",
   removePinned: "Remove from pinned apps",
   pinTop: "Pin app to the top",
   moveUp: "Move up",
