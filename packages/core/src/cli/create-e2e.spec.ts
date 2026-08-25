@@ -500,17 +500,27 @@ describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
     );
   });
 
-  it("inits the scaffold's own repo even with an unrelated GIT_DIR inherited", async () => {
+  it("inits the scaffold's own repo despite inherited git repo context", async () => {
     const unrelated = path.join(tmpDir, "unrelated");
     fs.mkdirSync(unrelated, { recursive: true });
     git(unrelated, ["init"]);
     process.chdir(tmpDir);
 
-    process.env.GIT_DIR = path.join(unrelated, ".git");
+    // Every one of these pins git to someone else's repository context; if any
+    // leaks through, the init, the add or the commit lands in the wrong place.
+    const inherited: Record<string, string> = {
+      GIT_DIR: path.join(unrelated, ".git"),
+      GIT_INDEX_FILE: path.join(unrelated, ".git", "index"),
+      GIT_OBJECT_DIRECTORY: path.join(unrelated, ".git", "objects"),
+      GIT_COMMON_DIR: path.join(unrelated, ".git"),
+      GIT_QUARANTINE_PATH: path.join(unrelated, ".git", "quarantine"),
+      GIT_INTERNAL_SUPER_PREFIX: "nested/",
+    };
+    Object.assign(process.env, inherited);
     try {
       await createApp("env-override-app", { template: "headless" });
     } finally {
-      delete process.env.GIT_DIR;
+      for (const key of Object.keys(inherited)) delete process.env[key];
     }
 
     const scaffold = path.join(tmpDir, "env-override-app");
@@ -518,7 +528,7 @@ describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
     expect(git(scaffold, ["log", "-1", "--pretty=%s"])).toBe(
       "Initial commit from agent-native create",
     );
-    // The commit landed in the scaffold, not in whatever GIT_DIR pointed at.
+    // The commit landed in the scaffold, not in the inherited repository.
     expect(git(unrelated, ["rev-list", "--all", "--count"])).toBe("0");
   });
 

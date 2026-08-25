@@ -1098,27 +1098,45 @@ function tryGitInitUnlessRepo(dir: string): void {
 }
 
 /**
- * Env with git's repository-location overrides removed.
+ * Git's own `local_repo_env`: everything git clears from the environment when
+ * it runs a command against a different repository, plus the quarantine path
+ * `receive-pack` exports around hooks.
+ */
+const GIT_LOCAL_REPO_ENV = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_CONFIG",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_INTERNAL_SUPER_PREFIX",
+  "GIT_NAMESPACE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_QUARANTINE_PATH",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+];
+
+/**
+ * Env with any inherited repository context dropped.
  *
- * `GIT_DIR` and friends pin git to a repository chosen by whatever launched the
- * process — a hook, a `rebase --exec` — so inheriting them makes discovery
- * answer about that repository instead of the directory being scaffolded, and
- * makes an init write into it. The discovery controls stay: where the search
+ * Whatever launched the process — a hook, a `rebase --exec`, a `receive-pack`
+ * quarantine — may have pinned git to its own repository. Inheriting that makes
+ * discovery answer about that repository rather than the directory being
+ * scaffolded, and makes an init write into it. Picking the variables off one at
+ * a time invites the next gap, so mirror the list git clears for exactly this
+ * reason. The discovery controls are deliberately not in it: where the search
  * stops really is the caller's to configure.
  */
 function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
   const env = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_COMMON_DIR",
-    "GIT_NAMESPACE",
-  ]) {
-    delete env[key];
-  }
+  for (const key of GIT_LOCAL_REPO_ENV) delete env[key];
   return env;
 }
 
