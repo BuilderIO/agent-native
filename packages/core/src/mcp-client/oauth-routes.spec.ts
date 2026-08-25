@@ -284,6 +284,7 @@ describe("managed MCP OAuth clients", () => {
       "https://calendarmcp.googleapis.com",
       "https://chatmcp.googleapis.com",
       "https://people.googleapis.com",
+      "https://workspacemcp.googleapis.com",
     ]) {
       await expect(
         resolveManagedMcpOAuthClient(new URL(`${origin}/mcp/v1`)),
