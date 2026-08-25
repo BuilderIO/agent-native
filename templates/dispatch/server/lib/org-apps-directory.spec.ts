@@ -1,9 +1,10 @@
 import { signA2AToken } from "@agent-native/core/a2a";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
   ORG_APPS_PATH,
   buildOrgAppsResponse,
+  createOrgDirectorySuccessCache,
   decodeJwtUnverified,
   extractBearerToken,
   toA2aUrl,
@@ -274,5 +275,68 @@ describe("buildOrgAppsResponse", () => {
       expect(a.a2aUrl.endsWith("/_agent-native/a2a")).toBe(true);
       expect(/^https?:\/\//.test(a.url)).toBe(true);
     }
+  });
+});
+
+describe("createOrgDirectorySuccessCache", () => {
+  it("coalesces concurrent same-tenant refreshes and isolates cache keys", async () => {
+    let resolveLoad!: (value: string[]) => void;
+    const load = vi.fn(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    const cache = createOrgDirectorySuccessCache<string[]>();
+
+    const first = cache.get("org-a|include-self", load);
+    const second = cache.get("org-a|include-self", load);
+    expect(load).toHaveBeenCalledTimes(1);
+    resolveLoad(["analytics", "dispatch"]);
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      ["analytics", "dispatch"],
+      ["analytics", "dispatch"],
+    ]);
+
+    await cache.get("org-b|include-self", async () => ["mail"]);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches complete success only until expiry", async () => {
+    let now = 1_000;
+    const cache = createOrgDirectorySuccessCache<string[]>({
+      ttlMs: 60,
+      now: () => now,
+    });
+    const load = vi
+      .fn<() => Promise<string[]>>()
+      .mockResolvedValueOnce(["content"])
+      .mockResolvedValueOnce(["design"]);
+
+    await expect(cache.get("org-a", load)).resolves.toEqual(["content"]);
+    now += 59;
+    await expect(cache.get("org-a", load)).resolves.toEqual(["content"]);
+    now += 2;
+    await expect(cache.get("org-a", load)).resolves.toEqual(["design"]);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache failures or resurrect an expired value", async () => {
+    let now = 1_000;
+    const cache = createOrgDirectorySuccessCache<string[]>({
+      ttlMs: 60,
+      now: () => now,
+    });
+    await cache.get("org-a", async () => ["withdrawn-app"]);
+    now += 61;
+
+    await expect(
+      cache.get("org-a", async () => {
+        throw new Error("directory unavailable");
+      }),
+    ).rejects.toThrow("directory unavailable");
+    await expect(
+      cache.get("org-a", async () => ["current-app"]),
+    ).resolves.toEqual(["current-app"]);
   });
 });

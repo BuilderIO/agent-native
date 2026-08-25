@@ -52,19 +52,28 @@ import {
   resolveOrgByDomain,
 } from "@agent-native/core/org";
 import { getH3App, runWithRequestContext } from "@agent-native/core/server";
-import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
 import { defineEventHandler, getMethod, getRequestHeader } from "h3";
 import type { H3Event } from "h3";
 
 import {
   ORG_APPS_PATH,
   buildOrgAppsResponse,
+  createOrgDirectorySuccessCache,
   extractBearerToken,
   verifyA2ABearerToken,
   type DiscoveredAppLike,
 } from "../lib/org-apps-directory.js";
 
 const SELF_APP_ID = "dispatch";
+const directoryCache = createOrgDirectorySuccessCache<DiscoveredAppLike[]>();
+
+class DirectoryDiscoveryUnavailable extends Error {
+  constructor(readonly reason: "remote-manifests" | "workspace-metadata") {
+    super("Organization app directory discovery is unavailable.");
+    this.name = "DirectoryDiscoveryUnavailable";
+  }
+}
 
 function jsonResponse(
   body: unknown,
@@ -77,7 +86,7 @@ function jsonResponse(
   });
 }
 
-const orgAppsHandler = defineEventHandler(
+export const orgAppsHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
     if (method !== "GET" && method !== "HEAD") {
@@ -140,27 +149,56 @@ const orgAppsHandler = defineEventHandler(
     // Scope discovery to the verified caller's org/user so org-tracked
     // custom/remote agents resolve correctly (discoverAgents reads request
     // context). No DB writes; this is strictly read-only.
-    const apps: DiscoveredAppLike[] = await runWithRequestContext(
-      { userEmail: verified.email, orgId: localOrg.orgId },
-      async () => {
-        const includeDirectoryApp =
-          getRequestHeader(event, "x-agent-native-include-directory-app") ===
-          "1";
-        const discovered = await discoverAgents(
-          includeDirectoryApp ? undefined : SELF_APP_ID,
-          {
-            preferLocalUrls:
-              process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1",
+    const includeDirectoryApp =
+      getRequestHeader(event, "x-agent-native-include-directory-app") === "1";
+    const preferLocalUrls =
+      process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1";
+    const cacheKey = [
+      localOrg.orgId,
+      includeDirectoryApp ? "include-self" : "exclude-self",
+      preferLocalUrls ? "local" : "hosted",
+    ].join("|");
+    let apps: DiscoveredAppLike[];
+    try {
+      apps = await directoryCache.get(cacheKey, async () =>
+        runWithRequestContext(
+          { userEmail: verified.email, orgId: localOrg.orgId },
+          async () => {
+            const startedAt = Date.now();
+            const discovered = await discoverOrgDirectoryAgents(
+              includeDirectoryApp ? undefined : SELF_APP_ID,
+              { preferLocalUrls },
+            );
+            const durationMs = Date.now() - startedAt;
+            if (discovered.status === "unavailable") {
+              console.error("[org-apps-directory] discovery unavailable", {
+                stage: discovered.reason,
+                durationMs,
+              });
+              throw new DirectoryDiscoveryUnavailable(discovered.reason);
+            }
+            console.info("[org-apps-directory] discovery complete", {
+              durationMs,
+              appCount: discovered.agents.length,
+            });
+            return discovered.agents.map((agent) => ({
+              id: agent.id,
+              name: agent.name,
+              description: agent.description,
+              url: agent.url,
+            }));
           },
-        );
-        return discovered.map((a) => ({
-          id: a.id,
-          name: a.name,
-          description: a.description,
-          url: a.url,
-        }));
-      },
-    );
+        ),
+      );
+    } catch (error) {
+      const reason =
+        error instanceof DirectoryDiscoveryUnavailable
+          ? error.reason
+          : "unexpected";
+      return jsonResponse({ error: "directory_unavailable", reason }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
 
     let orgLabel = verified.orgDomain;
     try {
@@ -174,10 +212,7 @@ const orgAppsHandler = defineEventHandler(
     const body = buildOrgAppsResponse({
       org: orgLabel,
       apps,
-      selfId:
-        getRequestHeader(event, "x-agent-native-include-directory-app") === "1"
-          ? undefined
-          : SELF_APP_ID,
+      selfId: includeDirectoryApp ? undefined : SELF_APP_ID,
     });
 
     // Short, cacheable, read-only. Private (per-org) so shared caches must
@@ -187,6 +222,10 @@ const orgAppsHandler = defineEventHandler(
     });
   },
 );
+
+export function _resetOrgAppsDirectoryCache(): void {
+  directoryCache.clear();
+}
 
 /**
  * Dispatch org-app-directory plugin. The primary Dispatch auth plugin owns

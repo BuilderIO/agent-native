@@ -22,6 +22,13 @@ export interface DiscoveredAgent {
   color: string;
 }
 
+export type OrgDirectoryDiscoveryResult =
+  | { status: "available"; agents: DiscoveredAgent[] }
+  | {
+      status: "unavailable";
+      reason: "remote-manifests" | "workspace-metadata";
+    };
+
 export interface WorkspaceAppMetadataOverride {
   name?: string;
   description?: string;
@@ -177,13 +184,20 @@ export function parseWorkspaceAppMetadataSettings(
 }
 
 export async function readWorkspaceAppMetadataSettings(): Promise<WorkspaceAppMetadataSettings> {
+  return readWorkspaceAppMetadataSettingsInternal(false);
+}
+
+async function readWorkspaceAppMetadataSettingsInternal(
+  strict: boolean,
+): Promise<WorkspaceAppMetadataSettings> {
   const key = workspaceAppMetadataSettingsKey();
   if (!key) return { apps: {} };
 
   try {
     const { getSetting } = await import("../settings/index.js");
     return parseWorkspaceAppMetadataSettings(await getSetting(key));
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return { apps: {} };
   }
 }
@@ -418,6 +432,137 @@ export async function discoverAgents(
   }
 
   return Array.from(agentsById.values());
+}
+
+/**
+ * Complete-or-fail discovery for the authenticated organization directory.
+ * Generic agent discovery intentionally remains best-effort; this sibling
+ * avoids its N+1 manifest reads and never reports a failed authoritative
+ * layer as a successful partial directory.
+ */
+export async function discoverOrgDirectoryAgents(
+  selfAppId?: string,
+  options?: { preferLocalUrls?: boolean },
+): Promise<OrgDirectoryDiscoveryResult> {
+  const agentsById = new Map<string, DiscoveredAgent>();
+  for (const agent of getBuiltinAgents(selfAppId, options)) {
+    agentsById.set(agent.id, agent);
+  }
+
+  const [remoteResources, workspaceAgents] = await Promise.all([
+    readDirectorySource("remote-manifests", readStrictRemoteAgentResources),
+    readDirectorySource("workspace-metadata", () =>
+      discoverWorkspaceAgents(selfAppId, options, true),
+    ),
+  ]);
+  if (remoteResources.status === "unavailable") {
+    return remoteResources;
+  }
+  if (workspaceAgents.status === "unavailable") {
+    return workspaceAgents;
+  }
+  await overlayRemoteAgentResources(
+    agentsById,
+    remoteResources.value,
+    selfAppId,
+    options,
+  );
+  for (const agent of workspaceAgents.value) agentsById.set(agent.id, agent);
+  return { status: "available", agents: Array.from(agentsById.values()) };
+}
+
+async function readDirectorySource<T>(
+  reason: "remote-manifests" | "workspace-metadata",
+  read: () => Promise<T>,
+): Promise<
+  | { status: "available"; value: T }
+  | { status: "unavailable"; reason: typeof reason }
+> {
+  try {
+    return { status: "available", value: await read() };
+  } catch {
+    return { status: "unavailable", reason };
+  }
+}
+
+async function readStrictRemoteAgentResources(): Promise<
+  Array<{ id: string; path: string; owner: string; content: string }>
+> {
+  const {
+    resourceListContentByOwnersAndPrefixes,
+    SHARED_OWNER,
+    sharedResourceOwner,
+  } = await import("../resources/store.js");
+  const { REMOTE_AGENT_RESOURCE_PREFIXES } =
+    await import("../resources/metadata.js");
+  const activeOwner = sharedResourceOwner(getRequestOrgId());
+  const owners = [...new Set([SHARED_OWNER, activeOwner])];
+  const prefixes = [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse();
+  const ownerRank = new Map(owners.map((owner, index) => [owner, index]));
+  const prefixRank = (pathValue: string) =>
+    prefixes.findIndex((prefix) => pathValue.startsWith(prefix));
+  const resources = await resourceListContentByOwnersAndPrefixes(
+    owners,
+    prefixes,
+  );
+  resources.sort((a, b) => {
+    const ownerDelta =
+      (ownerRank.get(a.owner) ?? -1) - (ownerRank.get(b.owner) ?? -1);
+    if (ownerDelta !== 0) return ownerDelta;
+    const prefixDelta = prefixRank(a.path) - prefixRank(b.path);
+    if (prefixDelta !== 0) return prefixDelta;
+    return a.path.localeCompare(b.path);
+  });
+  return resources;
+}
+
+async function overlayRemoteAgentResources(
+  agentsById: Map<string, DiscoveredAgent>,
+  resources: Array<{ id: string; path: string; content: string }>,
+  selfAppId?: string,
+  options?: { preferLocalUrls?: boolean },
+): Promise<void> {
+  const { parseRemoteAgentManifest } = await import("../resources/metadata.js");
+  for (const resource of resources) {
+    if (!resource.path.endsWith(".json")) continue;
+    const manifest = parseRemoteAgentManifest(resource.content, resource.path);
+    if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
+      continue;
+    const manifestId = normalizeAgentId(manifest.id);
+    let url = manifest.url;
+    const builtin = agentsById.get(manifestId);
+    if (isHostedRuntime() && isLoopbackUrl(url)) {
+      if (builtin?.url) url = builtin.url;
+      else continue;
+    }
+    if (
+      options?.preferLocalUrls &&
+      builtin &&
+      BUILTIN_AGENTS.some((candidate) => candidate.id === manifestId)
+    ) {
+      url = builtin.url;
+    }
+    const isLegacyAssetsManifest =
+      manifest.id.trim().toLowerCase() !== manifestId;
+    if (isLegacyAssetsManifest && builtin?.url) {
+      try {
+        if (new URL(url).hostname === "images.agent-native.com") {
+          url = builtin.url;
+        }
+      } catch {
+        url = builtin.url;
+      }
+    }
+    agentsById.set(manifestId, {
+      id: manifestId,
+      name:
+        isLegacyAssetsManifest && builtin?.name ? builtin.name : manifest.name,
+      description: manifest.description || "",
+      url,
+      // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.
+      color: manifest.color || builtin?.color || "#6B7280",
+    });
+  }
 }
 
 /**
@@ -699,11 +844,13 @@ function workspaceAppUrl(
 async function discoverWorkspaceAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
+  strictMetadata = false,
 ): Promise<DiscoveredAgent[]> {
   const workspaceApps = loadWorkspaceAppsManifest();
   if (!workspaceApps) return [];
 
-  const metadataSettings = await readWorkspaceAppMetadataSettings();
+  const metadataSettings =
+    await readWorkspaceAppMetadataSettingsInternal(strictMetadata);
 
   const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
 

@@ -276,6 +276,50 @@ export interface DiscoveredAppLike {
   url: string;
 }
 
+export interface OrgDirectorySuccessCache<T> {
+  get(key: string, load: () => Promise<T>): Promise<T>;
+  clear(): void;
+}
+
+/**
+ * Tenant-keyed success cache with single-flight refreshes. Rejections are
+ * never cached and an expired value is never served after a failed refresh.
+ */
+export function createOrgDirectorySuccessCache<T>(input?: {
+  ttlMs?: number;
+  now?: () => number;
+}): OrgDirectorySuccessCache<T> {
+  const ttlMs = input?.ttlMs ?? 60_000;
+  const now = input?.now ?? Date.now;
+  const values = new Map<string, { value: T; expiresAt: number }>();
+  const inFlight = new Map<string, Promise<T>>();
+
+  return {
+    async get(key, load) {
+      const cached = values.get(key);
+      if (cached && cached.expiresAt > now()) return cached.value;
+      values.delete(key);
+
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+      const refresh = load()
+        .then((value) => {
+          values.set(key, { value, expiresAt: now() + ttlMs });
+          return value;
+        })
+        .finally(() => {
+          inFlight.delete(key);
+        });
+      inFlight.set(key, refresh);
+      return refresh;
+    },
+    clear() {
+      values.clear();
+      inFlight.clear();
+    },
+  };
+}
+
 /**
  * Shape the discovered-agent list into the directory response. The input is
  * Dispatch's EXISTING connected-apps registry — `discoverAgents()`

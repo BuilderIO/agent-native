@@ -4,6 +4,7 @@ import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
+  discoverOrgDirectoryAgents,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
   normalizeAgentId,
@@ -14,6 +15,7 @@ import { runWithRequestContext } from "./request-context.js";
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn());
 const resourceGetMock = vi.hoisted(() => vi.fn());
+const resourceListContentByOwnersAndPrefixesMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
 const DISCOVERY_ENV_KEYS = [
   "NODE_ENV",
@@ -41,6 +43,8 @@ let previousEnv: Record<
 
 vi.mock("../resources/store.js", () => ({
   resourceGet: resourceGetMock,
+  resourceListContentByOwnersAndPrefixes:
+    resourceListContentByOwnersAndPrefixesMock,
   resourceList: resourceListMock,
   resourceListAccessible: resourceListAccessibleMock,
   SHARED_OWNER: "__shared__",
@@ -59,6 +63,7 @@ describe("agent discovery", () => {
     resourceListMock.mockResolvedValue([]);
     resourceListAccessibleMock.mockResolvedValue([]);
     resourceGetMock.mockResolvedValue(null);
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([]);
     getSettingMock.mockResolvedValue(null);
     previousEnv = Object.fromEntries(
       DISCOVERY_ENV_KEYS.map((key) => [key, process.env[key]]),
@@ -717,6 +722,148 @@ describe("agent discovery", () => {
     expect(agents.find((agent) => agent.id === "briefs")).toMatchObject({
       description: "Seeded briefs description",
     });
+  });
+
+  it("builds a complete strict directory with one manifest-store read", async () => {
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue(
+      Array.from({ length: 25 }, (_, index) => ({
+        id: `resource-${index}`,
+        owner: "__shared__",
+        path: `remote-agents/custom-${index}.json`,
+        content: JSON.stringify({
+          id: `custom-${index}`,
+          name: `Custom ${index}`,
+          url: `https://custom-${index}.example.test`,
+        }),
+      })),
+    );
+
+    const result = await discoverOrgDirectoryAgents("dispatch");
+
+    expect(result.status).toBe("available");
+    if (result.status === "available") {
+      expect(result.agents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "custom-0" }),
+          expect.objectContaining({ id: "custom-24" }),
+        ]),
+      );
+    }
+    expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledTimes(1);
+    expect(resourceGetMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves shared, organization, and workspace precedence in strict discovery", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "same-agent",
+          name: "Workspace Agent",
+          path: "/same-agent",
+        },
+      ],
+    });
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+      {
+        id: "org-current",
+        owner: "__organization__:org-123",
+        path: "remote-agents/same-agent.json",
+        content: JSON.stringify({
+          id: "same-agent",
+          name: "Organization Agent",
+          url: "https://organization.example.test",
+        }),
+      },
+      {
+        id: "shared-legacy",
+        owner: "__shared__",
+        path: "agents/same-agent.json",
+        content: JSON.stringify({
+          id: "same-agent",
+          name: "Shared Agent",
+          url: "https://shared.example.test",
+        }),
+      },
+    ]);
+
+    const result = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverOrgDirectoryAgents("dispatch"),
+    );
+
+    expect(result).toMatchObject({
+      status: "available",
+      agents: expect.arrayContaining([
+        expect.objectContaining({
+          id: "same-agent",
+          name: "Workspace Agent",
+          url: "https://workspace.example.test/same-agent",
+        }),
+      ]),
+    });
+  });
+
+  it("reports strict manifest failure while legacy discovery stays best-effort", async () => {
+    resourceListContentByOwnersAndPrefixesMock.mockRejectedValue(
+      new Error("database unavailable"),
+    );
+
+    await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
+      status: "unavailable",
+      reason: "remote-manifests",
+    });
+    await expect(discoverAgents("dispatch")).resolves.toEqual(
+      getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("reports strict workspace metadata failure instead of returning a partial directory", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+    getSettingMock.mockRejectedValue(new Error("settings unavailable"));
+
+    await runWithRequestContext({ orgId: "org-123" }, async () => {
+      await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
+        status: "unavailable",
+        reason: "workspace-metadata",
+      });
+      await expect(discoverAgents("dispatch")).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "briefs" })]),
+      );
+    });
+  });
+
+  it("starts remote manifests and workspace metadata concurrently", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+    let resolveRemote!: (value: never[]) => void;
+    let resolveMetadata!: (value: null) => void;
+    resourceListContentByOwnersAndPrefixesMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRemote = resolve;
+      }),
+    );
+    getSettingMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMetadata = resolve;
+      }),
+    );
+
+    const pending = runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverOrgDirectoryAgents("dispatch"),
+    );
+    await vi.waitFor(() => {
+      expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledOnce();
+      expect(getSettingMock).toHaveBeenCalledOnce();
+    });
+    resolveRemote([]);
+    resolveMetadata(null);
+
+    await expect(pending).resolves.toMatchObject({ status: "available" });
   });
 });
 
