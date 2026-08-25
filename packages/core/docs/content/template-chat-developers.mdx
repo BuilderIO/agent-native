@@ -1,19 +1,81 @@
 ---
-title: "Chat — runtime and admin surfaces"
-description: "The core SQL tables, auth setup, and the Database/Observability/Extensions admin pages that ship by default with the Chat template."
+title: "Chat: Developer Guide"
+description: "Quick start, the action inventory, core tables, auth, and the Database/Observability/Extensions admin pages that ship by default with the Chat template."
 ---
 
-# Chat — runtime and admin surfaces
+# Developer Guide
 
-This page is for developers who need to know what runs under the hood in [Chat](/docs/template-chat): the tables every template shares, how auth is configured, and the admin pages — Database, Observability, and Extensions — that ship in every Chat app whether or not you ever open them.
+This page is for developers running or extending the Chat template: the
+quick start, every built-in action, the core tables it runs on, how auth is
+configured, and the admin pages — Database, Observability, and Extensions —
+that ship by default whether or not you ever open them. See
+[Chat](/docs/template-chat) for what the app does.
 
-## Core SQL tables and live sync {#tables}
+## Quick start {#quick-start}
 
-Chat adds no domain tables of its own (see [What's not in it](/docs/template-chat#not-in-it)). It runs entirely on the framework's core tables: chat threads and messages, `application_state`, `settings`, sessions, resources, and run history.
+This walks through running Chat from nothing installed to a live
+conversation with the agent. The commands are identical whether you're in
+Terminal on macOS or PowerShell/Command Prompt on Windows, they're plain
+Node.js tooling.
+
+<Steps>
+
+### Create the app
+
+```bash
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+pnpm install
+```
+
+This needs [Node.js](https://nodejs.org) 22 or later and
+[pnpm](https://pnpm.io) installed first. See [Getting
+started](/docs/getting-started) if you haven't installed either yet.
+
+### Start the dev server
+
+```bash
+pnpm dev
+```
+
+The app opens at `http://localhost:8080`. If it doesn't open automatically,
+visit that URL in your browser.
+
+### Sign in and connect an LLM
+
+On the Welcome screen, select **Continue as local dev** — no email or
+password needed for local development. Then connect an LLM: select
+**Connect Builder.io** for free credits, or **Custom keys** to add an
+Anthropic/OpenAI key or a local Ollama model. Chat ships with no domain data
+to seed, so once an LLM is connected there's nothing else to set up before
+you can start chatting.
+
+</Steps>
+
+## Action inventory {#actions}
+
+Every operation is a TypeScript file in `actions/`, auto-mounted at
+`POST /_agent-native/actions/:name`.
+
+| Action        | What it does                                                            |
+| ------------- | ----------------------------------------------------------------------- |
+| `hello`       | Example action; returns a greeting. Replace it or add actions beside it |
+| `view-screen` | Standard context action; reads the current view back for the agent      |
+| `navigate`    | Standard navigation action; moves the UI to a route                     |
+
+`server/plugins/agent-chat.ts` is where the chat runtime itself is
+configured: it registers every action in `actions/` as a callable tool
+(`loadActionsFromStaticRegistry`), resolves the current org for scoping
+(`resolveOrgId`), sets the system prompt, and declares which tools the model
+sees on the very first turn (`initialToolNames`) — see [Your First Feature in
+Chat](/docs/template-chat-first-edits#first-edits) for what that last part
+means when you add a new action.
+
+## Core tables and live sync {#tables}
+
+Chat adds no domain tables of its own (see [What ships](/docs/template-chat#what-ships)). It runs entirely on the framework's core tables: chat threads and messages, `application_state`, `settings`, sessions, resources, and run history.
 
 `useDbSync()` is already wired into the app shell: when the agent (or anyone else) writes to SQL, the client receives the change over SSE, or the 2-second polling fallback, and invalidates the matching React Query caches — no manual refresh, no websocket you have to manage yourself. See [`useDbSync`](/docs/client-data#usedbsync) for the full hook API.
-
-`server/plugins/agent-chat.ts` is where the chat runtime itself is configured: it registers every action in `actions/` as a callable tool (`loadActionsFromStaticRegistry`), resolves the current org for scoping (`resolveOrgId`), sets the system prompt, and declares which tools the model sees on the very first turn (`initialToolNames`) — see [Your first feature in Chat](/docs/template-chat-first-edits#first-edits) for what that last part means when you add a new action.
 
 ## Auth {#auth}
 
@@ -78,11 +140,36 @@ Three routes are mounted whether or not your app ever links to them:
 
 **Extensions** are sandboxed Alpine.js mini-apps your users can ask the agent to build inside the running app — a custom widget or checklist, no deploy required. Chat mounts the routes that view and run them (`/extensions/:id`) by default, even before you or your users create one; `/extensions` itself just redirects into the Extensions tab of Settings rather than showing its own list. See [Extensions](/docs/extensions) for what they can and cannot do.
 
+## Customizing it {#customizing}
+
+Every part of the app is editable source. Start here:
+
+- `actions/` — add a new file with `defineAction` to expose new capability
+  to both the agent and the frontend.
+- `app/routes/` — the UI. The app uses file-system routing (`flatRoutes()`
+  in `app/routes.ts`), so adding a route file is enough to mount it.
+- `server/db/schema.ts` — add your own tables with Drizzle once you outgrow
+  the core tables above. Keep the code dialect-agnostic so the app runs on
+  SQLite, Postgres, Turso, D1, and Neon.
+- `AGENTS.md` — agent instructions. Update this when you teach the agent new
+  capabilities or conventions.
+- `.agents/skills/` — detailed patterns the agent follows.
+
+If you add a feature, remember to update all four areas: UI, action, skill
+or AGENTS.md entry, and any application state the agent needs to see. That
+is what keeps the agent and the UI in parity.
+
 ## What's next
 
-- [**Chat Template**](/docs/template-chat) — what ships by default and when to pick it
-- [**Your first feature in Chat**](/docs/template-chat-first-edits) — the starter chat route, annotated, plus a full feature walkthrough
-- [**Database**](/docs/server-database) — connecting a real database and the portable-SQL model
-- [**Agent Observability**](/docs/observability) — what the dashboard tracks and how
+- [**Chat**](/docs/template-chat) — what ships by default and when to pick it
+- [**Your First Feature in Chat**](/docs/template-chat-first-edits) — the
+  starter chat route, annotated, plus a full feature walkthrough
+- [**Actions**](/docs/actions-overview) — the action system this template is
+  built on
+- [**Database**](/docs/server-database) — connecting a real database and the
+  portable-SQL model
+- [**Agent Observability**](/docs/observability) — what the dashboard tracks
+  and how
 - [**Extensions**](/docs/extensions) — building mini-apps inside a template
-- [**Authentication**](/docs/authentication) — sessions, organizations, and protected routes
+- [**Authentication**](/docs/authentication) — sessions, organizations, and
+  protected routes
