@@ -110,6 +110,7 @@ describe("delete-factory", () => {
       ok: true,
       factoryId: "support-triage",
       name: "Support triage",
+      verified: true,
     });
     expect(removeFactoryAutomationResourcesMock).toHaveBeenCalledWith(
       "org-1",
@@ -245,5 +246,45 @@ describe("delete-factory", () => {
         enabledNames: new Set(["factory-slack-feedback"]),
       },
     );
+  });
+
+  it("returns an unverified success when post-commit confirmation cannot be read", async () => {
+    const tx = {
+      delete: vi.fn((table: unknown) => {
+        if (table === factoryDefinitions) {
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn().mockResolvedValue([{ id: "support-triage" }]),
+            })),
+          };
+        }
+        return { where: vi.fn().mockResolvedValue(undefined) };
+      }),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(
+        async (callback: (transaction: typeof tx) => Promise<void>) =>
+          callback(tx),
+      ),
+    });
+    readFactoryDefinitionMock.mockReset();
+    readFactoryDefinitionMock
+      .mockResolvedValueOnce({ id: "support-triage", name: "Support triage" })
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    const { default: action } = await import("./delete-factory.js");
+
+    await expect(
+      action.run(
+        { factoryId: "support-triage", confirmName: "Support triage" },
+        { userEmail: "member@example.com", orgId: "org-1" },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      factoryId: "support-triage",
+      name: "Support triage",
+      verified: false,
+      verificationError: "database unavailable",
+    });
+    expect(ensureFactoryAutomationsMock).not.toHaveBeenCalled();
   });
 });

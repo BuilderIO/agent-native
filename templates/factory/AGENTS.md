@@ -63,7 +63,7 @@ decisions, feedback, agent runs, and provider audit records.
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
 | `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |
-| `list-factories` / `get-factory-graph` / `delete-factory` | Inspect Factory definitions, versions, and metrics, or permanently delete a user-created Factory after exact-name confirmation. |
+| `list-factories` / `get-factory-graph` / `delete-factory` | Inspect Factory definitions, versions, and metrics, or permanently delete a user-created Factory after exact-name confirmation. A committed delete whose follow-up read cannot confirm the row is gone returns `verified:false`, not a failed deletion. |
 | `create-factory` | Create a factory from `/new-factory` with optional sources. |
 | `save-factory-graph` | Create/version a graph with inspected `expectedGraphVersion`; never starts provider work. |
 | graph history actions | Factory graph version history. |
