@@ -5229,7 +5229,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .pill-inner:not(.pill-inner-compact) .pill-header {
   gap: 6px;
-  padding: 4px 8px 0 14px;
+  padding: 0 8px 0 14px;
 }
 
 .pill-inner:not(.pill-inner-compact) .pill-media {
@@ -5241,6 +5241,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-title {
+  /* Same box height as the control buttons beside it: centring two boxes of
+     equal height puts their ink on one line whatever the font metrics do. */
+  line-height: 30px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

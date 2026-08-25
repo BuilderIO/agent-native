@@ -610,6 +610,36 @@ export function MeetingPill() {
     syncCapsuleWindow,
   ]);
 
+  // Dev-only alignment probe. Chrome and WKWebView resolve system-font metrics
+  // differently, so header alignment measured in the browser preview does not
+  // prove anything about the shipped webview — this prints the real numbers
+  // into the dev log. Remove once the header is confirmed.
+  useEffect(() => {
+    if (!import.meta.env.DEV || !expanded || pillDemoMode) return;
+    const timer = setTimeout(() => {
+      const title = document.querySelector(".pill-title");
+      const controls = document.querySelector(".pill-controls");
+      if (!title || !controls) return;
+      const marker = document.createElement("span");
+      marker.style.cssText = "display:inline-block;width:0;height:0;";
+      title.appendChild(marker);
+      const baseline = marker.getBoundingClientRect().top;
+      title.removeChild(marker);
+      const fontSize = parseFloat(window.getComputedStyle(title).fontSize);
+      const capCentre = baseline - (fontSize * 0.72) / 2;
+      const inks = Array.from(controls.querySelectorAll("button")).map(
+        (btn) => {
+          const rect = btn.getBoundingClientRect();
+          return `${btn.getAttribute("aria-label")}=${((rect.top + rect.bottom) / 2).toFixed(2)}`;
+        },
+      );
+      console.warn(
+        `[clips-pill] header alignment capCentre=${capCentre.toFixed(2)} ${inks.join(" ")}`,
+      );
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [expanded]);
+
   const handleTranscriptLines = useCallback(
     (lines: TranscriptLine[]) => {
       transcriptLinesRef.current = lines;
