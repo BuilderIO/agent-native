@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
   createApp,
@@ -14,6 +14,7 @@ import {
   _communityTemplateTrustMessage,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _findEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
   _parseCommunityTemplateSelection,
@@ -1205,5 +1206,85 @@ describe("community workspace template sources", () => {
         sourceIdentity: { appName: "mail", appTitle: "Mail" },
       }),
     ).toThrow("imports its source shared package");
+  });
+});
+
+describe("findEnclosingRepo", () => {
+  function makeTree(): { root: string; nested: string } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "enclosing-repo-"));
+    const nested = path.join(root, "a", "b", "c");
+    fs.mkdirSync(nested, { recursive: true });
+    return { root, nested };
+  }
+
+  it("finds a repo above the target", () => {
+    const { root, nested } = makeTree();
+    fs.mkdirSync(path.join(root, ".git"));
+
+    expect(_findEnclosingRepo(nested)).toBe(root);
+  });
+
+  it("finds the target itself when it is the repo", () => {
+    const { nested } = makeTree();
+    fs.mkdirSync(path.join(nested, ".git"));
+
+    expect(_findEnclosingRepo(nested)).toBe(nested);
+  });
+
+  it("returns undefined when nothing above the target is a repo", () => {
+    const { nested } = makeTree();
+
+    expect(_findEnclosingRepo(nested)).toBeUndefined();
+  });
+
+  it("stops at a filesystem boundary, as git does", () => {
+    const { root, nested } = makeTree();
+    fs.mkdirSync(path.join(root, ".git"));
+    const boundary = path.join(root, "a");
+
+    const realStat = fs.statSync;
+    const spy = vi.spyOn(fs, "statSync").mockImplementation(((
+      target: any,
+      options?: any,
+    ) => {
+      const stats = realStat(target, options);
+      // Everything at or below the boundary sits on its own device.
+      const inWorkspace = String(target).startsWith(boundary);
+      return Object.assign(Object.create(Object.getPrototypeOf(stats)), stats, {
+        dev: inWorkspace ? 42 : 7,
+      });
+    }) as any);
+
+    try {
+      expect(_findEnclosingRepo(nested)).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("crosses the boundary when GIT_DISCOVERY_ACROSS_FILESYSTEM is set", () => {
+    const { root, nested } = makeTree();
+    fs.mkdirSync(path.join(root, ".git"));
+    const boundary = path.join(root, "a");
+
+    const realStat = fs.statSync;
+    const spy = vi.spyOn(fs, "statSync").mockImplementation(((
+      target: any,
+      options?: any,
+    ) => {
+      const stats = realStat(target, options);
+      const inWorkspace = String(target).startsWith(boundary);
+      return Object.assign(Object.create(Object.getPrototypeOf(stats)), stats, {
+        dev: inWorkspace ? 42 : 7,
+      });
+    }) as any);
+
+    process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM = "1";
+    try {
+      expect(_findEnclosingRepo(nested)).toBe(root);
+    } finally {
+      delete process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM;
+      spy.mockRestore();
+    }
   });
 });

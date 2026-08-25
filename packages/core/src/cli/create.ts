@@ -1097,21 +1097,42 @@ function tryGitInitUnlessRepo(dir: string): void {
   tryGitInit(dir);
 }
 
+/** Mirrors git's `git_env_bool`: unset, empty, and the off words are false. */
+function gitEnvBool(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return !["", "0", "false", "no", "off"].includes(value.trim().toLowerCase());
+}
+
 /**
- * Nearest ancestor of `dir` (inclusive) holding a `.git` entry.
+ * Nearest ancestor of `dir` (inclusive) holding a `.git` entry, following the
+ * discovery rules git itself uses.
  *
  * Checking only `dir` leaves `create <name>` run from inside a checkout with a
  * repo nested in another one. Copying such a scaffold into its parent — the
  * `cp -a scaffold/. .` that finishing a generated workspace usually ends with —
  * drags `.git/HEAD` along and silently moves the parent onto the scaffold's
  * branch, taking the working tree with it.
+ *
+ * The walk stops at a filesystem boundary because git's does. Climbing past one
+ * would claim a bind-mounted or otherwise separate workspace belongs to a repo
+ * git would never associate it with, leaving that scaffold with no repository
+ * of its own.
  */
 function findEnclosingRepo(dir: string): string | undefined {
+  const crossesFilesystems = gitEnvBool(
+    process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM,
+  );
   let current = path.resolve(dir);
+  let device = fs.statSync(current).dev;
   for (;;) {
     if (fs.existsSync(path.join(current, ".git"))) return current;
     const parent = path.dirname(current);
     if (parent === current) return undefined;
+    if (!crossesFilesystems) {
+      const parentDevice = fs.statSync(parent).dev;
+      if (parentDevice !== device) return undefined;
+      device = parentDevice;
+    }
     current = parent;
   }
 }
@@ -2225,6 +2246,7 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
+  findEnclosingRepo as _findEnclosingRepo,
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
