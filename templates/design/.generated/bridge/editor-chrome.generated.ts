@@ -6410,6 +6410,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var parent = cursor.parentElement;
         if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+          if (cursor === el.parentElement) return null;
           return {
             anchor: cursor,
             placement: "inside",
@@ -7987,7 +7988,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           originalPosition: m.style.position,
           originalLeft: m.style.left,
           originalTop: m.style.top,
-          originalOpacity: m.style.opacity,
           originLeft: 0,
           originTop: 0
         };
@@ -8000,11 +8000,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var gestureState = memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
       var originLeft = gestureState.originLeft;
       var originTop = gestureState.originTop;
-      function setMembersOpacity(value) {
-        memberStates.forEach(function(state) {
-          state.el.style.opacity = value === null ? state.originalOpacity : value;
-        });
-      }
       var startX = e.clientX;
       var startY = e.clientY;
       var dragEl = gestureEl;
@@ -8136,7 +8131,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
-          setMembersOpacity(null);
         } else {
           currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
@@ -8151,10 +8145,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
-            setMembersOpacity("0.4");
           } else {
             hideInsertionGuide();
-            setMembersOpacity(null);
           }
         }
         var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
@@ -8184,7 +8176,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           state.el.style.position = state.originalPosition;
           state.el.style.left = state.originalLeft;
           state.el.style.top = state.originalTop;
-          state.el.style.opacity = state.originalOpacity;
         });
         selectedEl = originalSelectedEl;
         positionOverlay(selectionOverlay, selectedEl);
@@ -8282,7 +8273,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (duplicatedForDrag) {
           postVisualDuplicateChange(originalSelectedEl, dragEl);
         } else if (currentAutoLayoutTarget) {
-          setMembersOpacity(null);
           if (isGroupDrag) {
             applyGroupStructureDrop(
               groupEls,
@@ -8315,7 +8305,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           }
         } else {
-          setMembersOpacity(null);
           dndLog("commit:free-absolute", { count: memberStates.length });
           memberStates.forEach(function(state) {
             var styles = {

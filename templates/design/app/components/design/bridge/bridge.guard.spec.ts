@@ -8052,6 +8052,144 @@ it(
   },
 );
 
+const FRAME_DRAG_MARKUP = `<!doctype html>
+<html>
+  <head><style>html, body { margin: 0; width: 100%; height: 100%; background: white; }</style></head>
+  <body>
+    <div id="frame" data-an-primitive="frame" data-agent-native-node-id="frame" style="position:absolute;left:100px;top:100px;width:400px;height:400px;background:#f5f5f5">
+      <div id="child" data-agent-native-node-id="child" style="position:absolute;left:40px;top:40px;width:120px;height:60px;background:#6366f1;color:white">Child</div>
+      <div id="sibling" data-agent-native-node-id="sibling" style="position:absolute;left:40px;top:220px;width:120px;height:60px;background:#10b981;color:white">Sib</div>
+    </div>
+    <div id="other" data-an-primitive="frame" data-agent-native-node-id="other" style="position:absolute;left:560px;top:100px;width:300px;height:400px;background:#e5e7eb"></div>
+  </body>
+</html>`;
+
+it(
+  "editor chrome bridge drags a framed element without restyling it: no fade, no drop-target highlight, and no z-order change inside its own frame",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 950, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(FRAME_DRAG_MARKUP);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(200, 170);
+      await page.waitForTimeout(60);
+      await page.mouse.move(200, 170);
+      await page.mouse.down();
+      await page.mouse.move(210, 180, { steps: 3 });
+      await page.mouse.move(280, 190, { steps: 8 });
+      await page.waitForTimeout(80);
+
+      const mid = await page.evaluate(() => {
+        const child = document.getElementById("child")!;
+        const guide = document.querySelector(
+          '[data-agent-native-edit-overlay="insertion-guide"]',
+        ) as HTMLElement;
+        return {
+          left: child.style.left,
+          inlineOpacity: child.style.opacity,
+          computedOpacity: getComputedStyle(child).opacity,
+          guideDisplay: guide.style.display,
+        };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      const after = await page.evaluate(() => {
+        const child = document.getElementById("child")!;
+        return {
+          left: child.style.left,
+          inlineOpacity: child.style.opacity,
+          parentId: child.parentElement?.id,
+          order: Array.from(document.getElementById("frame")!.children).map(
+            (el) => el.id,
+          ),
+        };
+      });
+
+      // The gesture has to have actually moved the element, or every
+      // "unchanged" assertion below passes for free.
+      expect(mid.left).not.toBe("40px");
+      expect(after.left).not.toBe("40px");
+      expect(mid.inlineOpacity).toBe("");
+      expect(mid.computedOpacity).toBe("1");
+      expect(mid.guideDisplay).toBe("none");
+      expect(after.inlineOpacity).toBe("");
+      expect(after.parentId).toBe("frame");
+      expect(after.order).toEqual(["child", "sibling"]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge keeps the dragged element at full opacity while it hovers a different frame as a drop target",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 950, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(FRAME_DRAG_MARKUP);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(200, 170);
+      await page.waitForTimeout(60);
+      await page.mouse.move(200, 170);
+      await page.mouse.down();
+      await page.mouse.move(210, 180, { steps: 3 });
+      await page.mouse.move(700, 300, { steps: 10 });
+      await page.waitForTimeout(80);
+
+      const mid = await page.evaluate(() => {
+        const child = document.getElementById("child")!;
+        const guide = document.querySelector(
+          '[data-agent-native-edit-overlay="insertion-guide"]',
+        ) as HTMLElement;
+        return {
+          inlineOpacity: child.style.opacity,
+          computedOpacity: getComputedStyle(child).opacity,
+          guideDisplay: guide.style.display,
+        };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(120);
+
+      const after = await page.evaluate(() => {
+        const child = document.getElementById("child")!;
+        return {
+          inlineOpacity: child.style.opacity,
+          parentId: child.parentElement?.id,
+        };
+      });
+
+      // Proves the drop target was live: the highlight is the affordance that
+      // replaces the fade, and the element really did reparent.
+      expect(mid.guideDisplay).toBe("block");
+      expect(after.parentId).toBe("other");
+      expect(mid.inlineOpacity).toBe("");
+      expect(mid.computedOpacity).toBe("1");
+      expect(after.inlineOpacity).toBe("");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── hit-test bridge — pendingNodeId minting (cross-screen/canvas anchor) ───
 //
 // Companion to the editor-chrome bridge's B5-5 fix above, for the SEPARATE
