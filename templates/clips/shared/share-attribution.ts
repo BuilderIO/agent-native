@@ -52,15 +52,17 @@ export type ShareAttribution = {
 };
 
 /**
- * Keep only non-sensitive attribution state when a share page redirects to
- * sign-in. Passwords and capability tokens must never enter auth URLs.
+ * Keep only non-sensitive attribution and playback state when a share page
+ * redirects to sign-in. Passwords and capability tokens must never enter auth URLs.
  */
 export function buildShareContinuationQuery(
   attribution: ShareAttribution,
+  startAt?: string | null,
 ): string {
   const params = new URLSearchParams();
   if (attribution.ref) params.set(REF_PARAM, attribution.ref);
   if (attribution.via) params.set(VIA_PARAM, attribution.via);
+  if (startAt) params.set("at", startAt);
   return params.toString();
 }
 

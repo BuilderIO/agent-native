@@ -1206,6 +1206,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "clsx" },
     { specifier: "cmdk" },
     { specifier: "date-fns" },
+    { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
     { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
@@ -2230,13 +2231,17 @@ async function loadMountedEmbedRuntimeModule(
   runtimeUrl: string,
 ): Promise<string | null> {
   const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
+
+  // transform import to encode virtual modules in vite as these imports don't work in the browser
+  const result = await server.transformRequest(virtualId ?? runtimeUrl);
+  if (typeof result?.code === "string") return result.code;
+
   if (virtualId) {
     const loaded = await server.pluginContainer?.load?.(virtualId);
     if (typeof loaded === "string") return loaded;
     if (loaded && typeof loaded.code === "string") return loaded.code;
   }
-  const result = await server.transformRequest(runtimeUrl);
-  return result?.code ?? null;
+  return null;
 }
 
 function serveMountedEmbedRuntimeModule(
@@ -3695,6 +3700,15 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
+  // Vite 8 defines `rollupOptions` on `build`/`optimizeDeps` as a getter alias
+  // of `rolldownOptions`. Spreading the section copies the alias as a plain own
+  // property, so returning our own `rolldownOptions` alongside it makes the two
+  // diverge and Vite warns that this plugin set both — then ignores the
+  // `rollupOptions` half regardless. Drop the alias from what we spread back.
+  const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
+    userConfig.build ?? {};
+  const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
+    userConfig.optimizeDeps ?? {};
 
   return {
     logLevel:
@@ -3810,7 +3824,7 @@ function createAgentNativeConfig(
       },
     },
     build: {
-      ...(userConfig.build ?? {}),
+      ...userBuild,
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       // Vite 8 defaults CSS minification to Lightning CSS, which collapses a
       // `backdrop-filter` + `-webkit-backdrop-filter` pair down to only the
@@ -3897,7 +3911,7 @@ function createAgentNativeConfig(
           ],
         },
     optimizeDeps: {
-      ...(userConfig.optimizeDeps ?? {}),
+      ...userOptimizeDeps,
       include: [
         ...getDefaultOptimizeDeps(cwd),
         ...(hasDep("@agent-native/pinpoint", cwd)

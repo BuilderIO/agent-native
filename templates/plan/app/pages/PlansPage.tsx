@@ -7448,7 +7448,7 @@ function LoggedOutEmptyPlan() {
   }, []);
 
   return (
-    <div className="flex min-h-full items-center justify-center overflow-auto p-4 sm:p-8">
+    <div className="flex min-h-full -translate-y-[10vh] items-center justify-center overflow-auto p-4 sm:p-8">
       <div className="flex w-full max-w-4xl flex-col items-center gap-3 py-8 text-center">
         <h2 className="text-2xl font-semibold tracking-tight">
           {t("plansPage.loggedOut.title")}

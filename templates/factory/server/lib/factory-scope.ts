@@ -352,6 +352,14 @@ export function resolveAutomationDisplayName(
   return readAutomationDisplayName(content) ?? automationName;
 }
 
+export function assignCreatedByIfMissing(
+  content: string,
+  createdBy: string,
+): string {
+  if (readFrontmatterField(content, "createdBy")) return content;
+  return setAutomationFrontmatterField(content, "createdBy", createdBy);
+}
+
 export function setAutomationFrontmatterField(
   content: string,
   key: string,

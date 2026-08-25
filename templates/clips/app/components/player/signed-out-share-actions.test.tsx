@@ -55,6 +55,22 @@ describe("SignedOutShareActions", () => {
     expect(container.textContent).toContain("sharePage.tryClips");
   });
 
+  it("preserves only the timestamp in the sign-in return path", () => {
+    expect(buildShareSignInHref("clip/1", "90")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90",
+    );
+
+    act(() => {
+      root.render(
+        <SignedOutShareActions recordingId="clip/1" startAt="1:30" />,
+      );
+    });
+
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D1%253A30",
+    );
+  });
+
   it("tracks both signed-out header destinations", () => {
     const onCtaClick = vi.fn();
 

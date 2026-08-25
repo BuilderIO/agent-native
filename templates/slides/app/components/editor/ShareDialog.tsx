@@ -7,6 +7,7 @@ import {
   cloneElement,
   isValidElement,
   useCallback,
+  useEffect,
   useState,
   type MouseEvent,
   type ReactElement,
@@ -22,7 +23,10 @@ import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 interface ShareDialogProps {
   deck: Deck;
   /** Trigger element rendered as the dialog anchor (usually the Share button). */
-  children: ReactNode;
+  children?: ReactNode;
+  /** Controlled opening for menu items that must wait for their parent to close. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function getShareUrls(deckId: string) {
@@ -40,7 +44,12 @@ function getShareUrls(deckId: string) {
   };
 }
 
-export default function ShareDialog({ deck, children }: ShareDialogProps) {
+export default function ShareDialog({
+  deck,
+  children,
+  open: requestedOpen,
+  onOpenChange,
+}: ShareDialogProps) {
   const t = useT();
   const { isLocal } = useDbStatus();
   const [open, setOpen] = useState(false);
@@ -49,6 +58,14 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
     token: string;
   } | null>(null);
   const [creatingLink, setCreatingLink] = useState(false);
+
+  const setDialogOpen = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange],
+  );
 
   const shareUrls = getShareUrls(deck.id);
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
@@ -61,11 +78,11 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
 
   const openShareDialog = useCallback(async () => {
     if (isLocal) {
-      setOpen(true);
+      setDialogOpen(true);
       return;
     }
     if (shareToken) {
-      setOpen(true);
+      setDialogOpen(true);
       return;
     }
     if (creatingLink) return;
@@ -97,29 +114,40 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
         throw new Error(t("share.createFailed"));
       }
       setShareLink({ deckId: deck.id, token: payload.shareToken });
-      setOpen(true);
+      setDialogOpen(true);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("share.createFailed"),
       );
+      if (requestedOpen !== undefined) setDialogOpen(false);
     } finally {
       setCreatingLink(false);
     }
-  }, [creatingLink, deck, isLocal, shareToken, t]);
+  }, [creatingLink, deck, isLocal, setDialogOpen, shareToken, t]);
 
-  const trigger = isValidElement(children)
-    ? (() => {
-        const triggerElement = children as ReactElement<{
-          onClick?: (event: MouseEvent) => void;
-        }>;
-        return cloneElement(triggerElement, {
-          onClick: (event) => {
-            triggerElement.props.onClick?.(event);
-            if (!event.defaultPrevented) void openShareDialog();
-          },
-        });
-      })()
-    : children;
+  useEffect(() => {
+    if (requestedOpen === undefined) return;
+    if (!requestedOpen) {
+      setOpen(false);
+      return;
+    }
+    if (!open) void openShareDialog();
+  }, [open, openShareDialog, requestedOpen]);
+
+  const trigger =
+    children && isValidElement(children)
+      ? (() => {
+          const triggerElement = children as ReactElement<{
+            onClick?: (event: MouseEvent) => void;
+          }>;
+          return cloneElement(triggerElement, {
+            onClick: (event) => {
+              triggerElement.props.onClick?.(event);
+              if (!event.defaultPrevented) void openShareDialog();
+            },
+          });
+        })()
+      : children;
 
   return (
     <>
@@ -128,12 +156,12 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
         <CloudUpgrade
           title={t("share.title")}
           description={t("share.cloudUpgradeDescription")}
-          onClose={() => setOpen(false)}
+          onClose={() => setDialogOpen(false)}
         />
       ) : null}
       <CoreShareDialog
         open={open && !isLocal}
-        onClose={() => setOpen(false)}
+        onClose={() => setDialogOpen(false)}
         resourceType="deck"
         resourceId={deck.id}
         resourceTitle={deck.title}

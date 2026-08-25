@@ -495,6 +495,7 @@ const messages = {
     height: "高度",
     autoplay: "自动播放",
     startAt: "开始时间（秒）",
+    startAtTimestamp: "从 {{time}} 开始",
     embedCode: "嵌入代码",
     sharePlainTitle: "分享 {{title}}",
   },

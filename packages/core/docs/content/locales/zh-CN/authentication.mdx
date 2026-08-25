@@ -167,6 +167,22 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 或预览环境，并使用 `+qa` 地址命名测试帐户
 (`name+qa@example.com`)，因此很容易识别。
 
+## 电子邮件验证策略 {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` 只是本地和 QA 的便利设置，托管部署会忽略它。要为
+任何环境（包括生产环境）声明该策略，请在配置中声明：
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+部署别名为 `AUTH_REQUIRE_EMAIL_VERIFICATION=0`。声明的值优先于
+`AUTH_SKIP_EMAIL_VERIFICATION` 和各环境的默认值。
+
+`false` 会将未经验证的地址作为登录凭据接受——任何人都可以声称拥有任何电子邮件
+地址——因此仅在注册已通过其他方式受限时使用。在没有电子邮件提供商的部署上设置
+`true` 则会禁用密码注册，因为验证邮件永远无法送达。
+
 ## 社交提供商 {#social-providers}
 
 设置环境变量以启用社交登录。 Better Auth 自动检测它们：
@@ -439,6 +455,7 @@ const state = encodeOAuthState({
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `BETTER_AUTH_SECRET`                    | 更好的身份验证签名密钥（如果未设置，则自动生成）                                                             |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | 在 QA/预览环境中设置为 `1`，让电子邮件/密码注册无需验证即可继续进行；默认情况下跳过本地开发/测试             |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | 设置为 `0` 或 `1` 可为任何环境（包括生产环境）声明密码注册的验证策略；优先于 `AUTH_SKIP_EMAIL_VERIFICATION`  |
 | `AUTH_DISABLED`                         | 设置为`true`或`1`跳过登录/注册；所有请求都作为一个共享用户运行（仅限本地开发/预览 - 不适用于真实用户的生产） |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 设置为 `1` 以在新的开发数据库上禁用本地主机自动登录                                                          |
 | `AUTH_MODE`                             | `local` 仅解析 CLI/代理身份（开发用户 `pnpm action` 作为其运行）；绝不绕过浏览器登录                         |

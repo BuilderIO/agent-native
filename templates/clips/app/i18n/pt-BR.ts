@@ -527,6 +527,7 @@ const messages = {
     height: "Altura",
     autoplay: "Reprodução automática",
     startAt: "Começar em (segundos)",
+    startAtTimestamp: "Começar em {{time}}",
     embedCode: "Código de incorporação",
     sharePlainTitle: "Compartilhar {{title}}",
   },

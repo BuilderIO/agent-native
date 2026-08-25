@@ -37,6 +37,10 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
 import { waitForAcceptedRecordingAfterFinalizeError } from "./finalize-recovery";
 import {
+  MediaPermissionRequiredError,
+  requireMediaPermission,
+} from "./media-permission";
+import {
   createNativeTranscriptionCapture,
   type NativeTranscriptionCapture,
 } from "./native-transcription";
@@ -1123,12 +1127,24 @@ async function acquire(message: AcquireMessage): Promise<{
     audio: message.audioDeviceId,
   });
 
+  // Chrome cannot prompt for camera/mic in this headless document, so an
+  // ungranted device rejects as a dismissal. requireMediaPermission types that
+  // apart from a real cancellation; the worker sends the user to the permission
+  // page instead of surfacing Chrome's "Permission dismissed" as a dead end.
+  const acquireMicStream = async (): Promise<MediaStream> => {
+    const audioLabel = await lookupAudioDeviceLabel(devices.audio);
+    return requireMediaPermission("microphone", () =>
+      getMicStream(devices.audio, audioLabel),
+    );
+  };
+
   try {
     if (message.mode === "camera") {
-      cameraStream = await getCameraStream(devices.video);
+      cameraStream = await requireMediaPermission("camera", () =>
+        getCameraStream(devices.video),
+      );
       if (message.includeMicrophone) {
-        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
-        micStream = await getMicStream(devices.audio, audioLabel);
+        micStream = await acquireMicStream();
       }
     } else {
       // Native "Choose what to share" picker. This is the screenshot Steve showed.
@@ -1136,8 +1152,7 @@ async function acquire(message: AcquireMessage): Promise<{
         displayConstraints(message.surface, message.includeMicrophone),
       );
       if (message.includeMicrophone) {
-        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
-        micStream = await getMicStream(devices.audio, audioLabel);
+        micStream = await acquireMicStream();
       }
       // The screen+camera face comes from the on-page bubble (captured in the
       // display pixels), NOT composited here: canvas/requestAnimationFrame does
@@ -1876,11 +1891,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
   }
 
-  void task.then(sendResponse).catch((err) =>
-    sendResponse({
-      ok: false,
-      error: err instanceof Error ? err.message : "Recording failed.",
-    }),
-  );
+  void task.then(sendResponse).catch((err) => sendResponse(errorResponse(err)));
   return true;
 });
+
+// Errors cross the message boundary as plain data, so a missing grant has to
+// carry its code with it — the worker cannot recover from a bare message.
+export function errorResponse(error: unknown): {
+  ok: false;
+  error: string;
+  errorCode?: string;
+  errorDevice?: string;
+} {
+  if (error instanceof MediaPermissionRequiredError) {
+    return {
+      ok: false,
+      error: error.message,
+      errorCode: error.code,
+      errorDevice: error.device,
+    };
+  }
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : "Recording failed.",
+  };
+}

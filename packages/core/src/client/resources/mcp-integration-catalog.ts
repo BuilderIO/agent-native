@@ -361,7 +361,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "atlassian",
-    name: "Atlassian",
+    name: "Jira",
     provider: "atlassian",
     description: "Read and write Jira issues and Confluence content.",
     descriptionKey: "mcpIntegrations.catalog.atlassian.description",

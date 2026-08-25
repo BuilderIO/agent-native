@@ -136,6 +136,12 @@ export default function ObservabilityPage() {
 
 分數解釋：0-20 = 健康，20-40 = 摩擦，40-60 = 不滿意，60+ = 中斷的訓練。
 
+### PostHog 中的意見回饋 {#posthog-feedback}
+
+按讚/倒讚、分類與自由文字都會送出 `$ai_feedback`。但 PostHog LLM 分析的意見回饋檢視讀取的是 `survey sent` 事件，因此請將 `POSTHOG_AI_FEEDBACK_SURVEY_ID` 設為 PostHog 從追蹤的 **Feedback** 分頁建立的問卷。這一個 id 就是全部設定；未設定時不會送出任何問卷事件。
+
+按讚/倒讚以 PostHog 的選項序號回答問卷的第一個問題（`1` 為讚，`2` 為倒讚），倒讚之後的自由文字則回答追問，因此文字絕不會落在評分的位置。兩者對同一則被評分的訊息使用同一個提交 id，PostHog 便是據此把它們合併為一則回應；在追問送達之前，倒讚會維持標記為未完成。
+
 ## 自動評估 {#evals}
 
 每次代理執行後都會執行五個確定性記分器：

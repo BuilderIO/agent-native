@@ -5,6 +5,8 @@ import {
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_MIGRATIONS,
   AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+  AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL,
   AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
@@ -71,5 +73,22 @@ describe("agent tool approval migrations", () => {
       postgres: expect.stringContaining(`);\n${AGENT_TOOL_APPROVAL_INDEX_SQL}`),
       sqlite: expect.stringContaining(`);\n${AGENT_TOOL_APPROVAL_INDEX_SQL}`),
     });
+    expect(AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres).toContain(
+      "agent_tool_approval_policies",
+    );
+    expect(AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.sqlite).toContain(
+      "enabled INTEGER NOT NULL",
+    );
+    expect(AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL).toContain(
+      "idx_agent_tool_approval_policies_scope",
+    );
+    expect(AGENT_TOOL_APPROVAL_MIGRATIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          version: 4,
+          name: "agent-tool-approval-policies-table-and-index",
+        }),
+      ]),
+    );
   });
 });

@@ -445,16 +445,16 @@ describe("dev server mounted path helpers", () => {
     await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
 
     expect(next).not.toHaveBeenCalled();
-    expect(server.pluginContainer.load).toHaveBeenCalledWith(
+    expect(server.transformRequest).toHaveBeenCalledWith(
       "\0virtual:react-router/browser-manifest",
     );
-    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(server.pluginContainer.load).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith(
       "content-type",
       "text/javascript",
     );
     expect(res.end).toHaveBeenCalledWith(
-      'window.__loaded = "\\u0000virtual:react-router/browser-manifest";',
+      'export const url = "\\u0000virtual:react-router/browser-manifest";',
     );
   });
 
@@ -1664,6 +1664,38 @@ describe("agentNative Vite plugin preset", () => {
       dir: "/deps",
       sourcemap: false,
     });
+  });
+
+  it("does not re-emit Vite's deprecated rollupOptions alias", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    // Vite 8 hands plugins a config where `rollupOptions` is a getter alias of
+    // `rolldownOptions`. Spreading it back out alongside our own
+    // `rolldownOptions` makes Vite warn that this plugin set both.
+    const aliasSection = (rolldownOptions: unknown) => {
+      const section: any = { rolldownOptions };
+      Object.defineProperty(section, "rollupOptions", {
+        get: () => section.rolldownOptions,
+        enumerable: true,
+        configurable: true,
+      });
+      return section;
+    };
+
+    const config = (await configPlugin.config(
+      {
+        build: aliasSection({}),
+        optimizeDeps: aliasSection({ plugins: [{ name: "app-dep-plugin" }] }),
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    expect(Object.hasOwn(config.optimizeDeps, "rollupOptions")).toBe(false);
+    expect(Object.hasOwn(config.build, "rollupOptions")).toBe(false);
+    expect(
+      config.optimizeDeps.rolldownOptions.plugins.map((p: any) => p.name),
+    ).toEqual(["app-dep-plugin", "agent-native:no-dep-prebundle-sourcemaps"]);
   });
 
   it("restores dep prebundle sourcemaps when AGENT_NATIVE_DEP_SOURCEMAPS=1", async () => {

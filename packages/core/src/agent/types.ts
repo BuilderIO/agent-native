@@ -320,6 +320,16 @@ export type AgentChatEvent =
        */
       type: "model_stream";
       status: "start" | "end";
+      /** Why the model stopped, on the closing event: `end_turn`, `tool_use`,
+       *  `max_tokens`, `stop_sequence`, `error`. Absent when the stream was cut
+       *  before the engine reported one — a truncated call and a call that
+       *  ended cleanly must stay distinguishable. */
+      reason?:
+        | "end_turn"
+        | "tool_use"
+        | "max_tokens"
+        | "stop_sequence"
+        | "error";
     }
   | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {

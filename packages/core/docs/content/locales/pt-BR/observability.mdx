@@ -138,6 +138,12 @@ A estrutura calcula um Índice de Frustração (0-100) a partir de sinais de con
 
 Interpretação da pontuação: 0-20 = saudável, 20-40 = atrito, 40-60 = insatisfeito, 60+ = sessão interrompida.
 
+### Feedback no PostHog {#posthog-feedback}
+
+Polegares, categorias e texto livre emitem todos `$ai_feedback`. Já a visão de feedback do LLM analytics do PostHog lê um evento `survey sent`, então defina `POSTHOG_AI_FEEDBACK_SURVEY_ID` como a pesquisa que o PostHog cria pela aba **Feedback** de um rastreamento. Esse único id é toda a configuração; sem ele nenhum evento de pesquisa é enviado.
+
+Um voto de polegar responde à primeira pergunta da pesquisa com o índice de escolha do PostHog (`1` para cima, `2` para baixo), e o texto livre após um polegar para baixo responde à pergunta de acompanhamento — assim o texto nunca cai onde vai a avaliação. Ambos levam um mesmo id de envio por mensagem avaliada, e é assim que o PostHog os une em uma única resposta; um polegar para baixo permanece marcado como incompleto até chegar o acompanhamento.
+
 ## Avaliações automatizadas {#evals}
 
 Cinco marcadores determinísticos executados após cada execução do agente:

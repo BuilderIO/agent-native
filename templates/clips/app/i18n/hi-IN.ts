@@ -513,6 +513,7 @@ const messages = {
     height: "ऊंचाई",
     autoplay: "स्वत: प्ले",
     startAt: "प्रारंभ करें (सेकंड)",
+    startAtTimestamp: "{{time}} पर शुरू करें",
     embedCode: "एम्बेड कोड",
     sharePlainTitle: "{{title}} साझा करें",
   },

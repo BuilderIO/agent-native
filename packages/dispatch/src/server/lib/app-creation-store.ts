@@ -475,6 +475,16 @@ function workspaceAppUrl(appPath: string): string | null {
   }
 }
 
+function isLocalWorkspaceGateway(url: URL): boolean {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1"
+  );
+}
+
 function workspaceAppLink(
   appPath: string,
   explicitUrl?: unknown,
@@ -1530,19 +1540,35 @@ async function readWorkspaceAppsFromGateway(): Promise<
   };
 
   try {
-    const localResponse = await fetch(gatewayUrl(WORKSPACE_APPS_GATEWAY_PATH), {
-      headers,
-      signal: controller.signal,
-    });
-    if (localResponse.ok) {
-      return parseWorkspaceAppsManifest(
-        // coercion-ok: malformed gateway JSON is an unavailable registry and
-        // must fall through to the local manifest sources.
-        await localResponse.json().catch(() => null),
+    if (isLocalWorkspaceGateway(baseUrl)) {
+      const localResponse = await fetch(
+        gatewayUrl(WORKSPACE_APPS_GATEWAY_PATH),
+        {
+          headers,
+          signal: controller.signal,
+        },
       );
+      if (localResponse.ok) {
+        return parseWorkspaceAppsManifest(
+          // coercion-ok: malformed gateway JSON is an unavailable registry and
+          // must fall through to the local manifest sources.
+          await localResponse.json().catch(() => null),
+        );
+      }
     }
 
-    if (!authHeaders.Authorization) return null;
+    const requestOrigin = requestContext?.requestOrigin;
+    const isSameOriginGateway = requestOrigin
+      ? (() => {
+          try {
+            return new URL(requestOrigin).origin === baseUrl.origin;
+          } catch {
+            // coercion-ok: an invalid request origin cannot prove a self-fetch.
+            return false;
+          }
+        })()
+      : false;
+    if (isSameOriginGateway || !authHeaders.Authorization) return null;
     const actionUrl = gatewayUrl(WORKSPACE_APPS_ACTION_PATH);
     actionUrl.searchParams.set("includeAgentCards", "false");
     actionUrl.searchParams.set("audience", "all");

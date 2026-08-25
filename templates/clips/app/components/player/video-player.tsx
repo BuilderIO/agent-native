@@ -1629,6 +1629,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const fullscreenMenuContainer = isFullscreen ? containerRef.current : null;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
+    const controlsVisible =
+      showControls || !isPlaying || isPlayPending || isBuffering;
     // Mobile Safari may defer loadeddata/canplay until playback starts. Keep
     // the paused state actionable even when those readiness events have not
     // fired yet; once the user asks to play, the pending/buffering states give
@@ -2067,7 +2069,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <div
             className={cn(
               "absolute inset-x-0 bottom-0 z-20 transition-opacity duration-200",
-              showControls ? "opacity-100" : "opacity-0 pointer-events-none",
+              controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none",
             )}
           >
             <PlayerControls

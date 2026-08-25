@@ -98,6 +98,16 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain('t("shareDialog.copyEmailPreview")');
   });
 
+  it("offers a visible timestamped public share link control", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain('url.searchParams.set("at",');
+    expect(shareDialogSource).toContain('t("shareDialog.startAtTimestamp"');
+    expect(shareDialogSource).not.toContain(
+      'typeof currentMs === "number" ? (',
+    );
+  });
+
   it("offers commenter as a distinct recording role", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
     const shareUiSource = readSource("../sharing/share-ui.tsx");

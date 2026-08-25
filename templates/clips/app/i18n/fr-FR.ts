@@ -530,6 +530,7 @@ const messages = {
     height: "Hauteur",
     autoplay: "Lecture automatique",
     startAt: "Commencer à (secondes)",
+    startAtTimestamp: "Commencer à {{time}}",
     embedCode: "Code d’intégration",
     sharePlainTitle: "Partager {{title}}",
   },

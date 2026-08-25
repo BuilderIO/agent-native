@@ -49,6 +49,7 @@ import React, {
 
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { ThinkingDisplay } from "../shared/thinking-display.js";
 import {
   clearPendingTurnIfMatches,
   clearActiveRunIfMatches,
@@ -211,6 +212,8 @@ import {
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
+import { ThinkingDisplayProvider } from "./thinking-display.js";
+import { callAction } from "./use-action.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
   appendChatThreadScopeParams,
@@ -2110,15 +2113,25 @@ export interface AssistantChatProps {
   externalStreaming?: boolean;
   /**
    * Optional host hooks for the inline `needsApproval` affordance beyond the
-   * built-in Approve. Additive: omit entirely to keep today's default
-   * behavior (Deny is local-only, no "Always allow" button). Code sessions
-   * pass these through to the same `host.controlRun` commands their
-   * standalone approval banner already uses (see CodeAgentsApp).
+   * built-in Approve and action-type policy. Code sessions pass their
+   * exact-command callback through for the standalone banner, but suppress the
+   * shared action-type menu (see CodeAgentsApp).
    */
   approvalActions?: {
     onDeny?: (approvalKey: string) => void;
-    onAlwaysAllow?: (approvalKey: string) => void;
+    onAlwaysAllow?: (
+      approvalKey: string,
+      toolName: string,
+    ) => void | Promise<void>;
+    alwaysAllowScope?: "action" | "exact-command";
   };
+  /**
+   * Pin how much model reasoning this chat shows: "expanded" opens the live
+   * cell, "collapsed" keeps it one click away, "hidden" renders none. Omit to
+   * let the reader's own preference apply, which is what surfaces the in-chat
+   * control — a pinned mode hides it rather than leaving a dead menu item.
+   */
+  thinkingDisplay?: ThinkingDisplay;
 }
 
 export function shouldShowAssistantChatModelSelector(
@@ -2536,7 +2549,7 @@ const AssistantChatInner = forwardRef<
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
-  const composerDraftScope = threadId || tabId;
+  const composerDraftScope = tabId || threadId;
   const initialComposerText = useMemo(
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
@@ -5831,38 +5844,57 @@ const AssistantChatInner = forwardRef<
   // tool call, re-issue the turn carrying the call's approval key so the server
   // gate lets that specific call run. Reuses the same append path as recovery /
   // queued messages (no hand-written fetch).
+  const approveToolCall = useCallback(
+    (approvalKey: string) => {
+      void addToQueue(
+        "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "queued",
+        undefined,
+        false,
+        false,
+        false,
+        true, // hideUserMessage: this is a protocol continuation, not a new prompt
+        undefined,
+        [approvalKey],
+      );
+    },
+    [addToQueue],
+  );
+  const alwaysAllowToolCall = useCallback(
+    (approvalKey: string, toolName: string) => {
+      if (approvalActions?.onAlwaysAllow) {
+        return approvalActions.onAlwaysAllow(approvalKey, toolName);
+      }
+      return callAction("set-tool-approval-policy", {
+        toolName,
+        enabled: true,
+      }).then(() => approveToolCall(approvalKey));
+    },
+    [approvalActions, approveToolCall],
+  );
+  const showActionTypeApprovalPolicy =
+    approvalActions?.alwaysAllowScope !== "exact-command";
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
       getApprovalResolution,
       onApprovalResolved: recordApprovalResolution,
-      onApprove: (approvalKey: string) => {
-        void addToQueue(
-          "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          "queued",
-          undefined,
-          false,
-          false,
-          false,
-          true, // hideUserMessage: this is a protocol continuation, not a new prompt
-          undefined,
-          [approvalKey],
-        );
-      },
-      ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
-      ...(approvalActions?.onAlwaysAllow
-        ? { onAlwaysAllow: approvalActions.onAlwaysAllow }
+      onApprove: approveToolCall,
+      ...(showActionTypeApprovalPolicy
+        ? { onAlwaysAllow: alwaysAllowToolCall }
         : {}),
+      ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
     }),
     [
-      addToQueue,
-      execMode,
-      getApprovalResolution,
+      alwaysAllowToolCall,
       approvalActions,
+      approveToolCall,
+      getApprovalResolution,
       recordApprovalResolution,
+      showActionTypeApprovalPolicy,
     ],
   );
 
@@ -6670,26 +6702,28 @@ export const AssistantChat = forwardRef<
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <TooltipProvider delayDuration={200}>
-        <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
-          <AssistantUiStaleIndexErrorBoundary
-            resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
-            componentName="AssistantChat"
-          >
-            <AssistantChatInner
-              ref={ref}
-              {...props}
-              browserTabId={browserTabId}
-              contextScope={contextScope}
-              contextNamespace={contextNamespace}
-              isActiveComposer={isActiveComposer}
-              apiUrl={apiUrl}
-              tabId={tabId}
-              threadId={threadId}
-            />
-          </AssistantUiStaleIndexErrorBoundary>
-        </ThreadPrimitive.Root>
-      </TooltipProvider>
+      <ThinkingDisplayProvider value={props.thinkingDisplay}>
+        <TooltipProvider delayDuration={200}>
+          <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
+            <AssistantUiStaleIndexErrorBoundary
+              resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
+              componentName="AssistantChat"
+            >
+              <AssistantChatInner
+                ref={ref}
+                {...props}
+                browserTabId={browserTabId}
+                contextScope={contextScope}
+                contextNamespace={contextNamespace}
+                isActiveComposer={isActiveComposer}
+                apiUrl={apiUrl}
+                tabId={tabId}
+                threadId={threadId}
+              />
+            </AssistantUiStaleIndexErrorBoundary>
+          </ThreadPrimitive.Root>
+        </TooltipProvider>
+      </ThinkingDisplayProvider>
     </AssistantRuntimeProvider>
   );
 });
