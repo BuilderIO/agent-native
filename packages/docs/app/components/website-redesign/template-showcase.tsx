@@ -206,8 +206,12 @@ export function TemplateShowcase() {
                     >
                       {tab.body}
                     </p>
-                    <Button variant="secondary-icon" tabIndex={-1}>
-                      Explore {tab.label}
+                    <Button
+                      variant="secondary-icon"
+                      tabIndex={-1}
+                      aria-label={`Explore ${tab.label}`}
+                    >
+                      {null}
                     </Button>
                   </Link>
                   <div
