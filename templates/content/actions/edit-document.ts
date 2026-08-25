@@ -17,7 +17,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { normalizeMarkdownPipeTable } from "../shared/markdown-import.js";
+import {
+  normalizeImportedMarkdownStructures,
+  normalizeMarkdownPipeTable,
+} from "../shared/markdown-import.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -151,10 +154,8 @@ export default defineAction({
         );
       }
       if (!args.find) throw new Error("--find is required with --transform");
-      const matches = countOverlappingOccurrences(
-        existing.content ?? "",
-        args.find,
-      );
+      const existingContent = existing.content ?? "";
+      const matches = countOverlappingOccurrences(existingContent, args.find);
       if (matches === 0) {
         return verifyUnchangedTransformResult({
           status: "no-match" as const,
@@ -181,7 +182,40 @@ export default defineAction({
           results: [`UNSUPPORTED: ${normalized.reason}`],
         });
       }
-      edits = [{ find: args.find, replace: normalized.content }];
+      const withoutCrLf = existingContent.split("\r\n").join("");
+      const hasMixedLineEndings =
+        existingContent.includes("\r\n") && withoutCrLf.includes("\n");
+      if (hasMixedLineEndings) {
+        return verifyUnchangedTransformResult({
+          status: "unsupported" as const,
+          reason: "mixed-line-endings",
+          applied: 0,
+          total: 1,
+          results: ["UNSUPPORTED: mixed-line-endings"],
+        });
+      }
+      const lineEnding = existingContent.includes("\r\n") ? "\r\n" : "\n";
+      const replacement = normalized.content.split("\n").join(lineEnding);
+      const matchIndex = existingContent.indexOf(args.find);
+      const expectedContent =
+        existingContent.slice(0, matchIndex) +
+        replacement +
+        existingContent.slice(matchIndex + args.find.length);
+      const normalizedDocument =
+        normalizeImportedMarkdownStructures(existingContent);
+      if (
+        normalizedDocument.normalizedPipeTables !== 1 ||
+        normalizedDocument.content !== expectedContent
+      ) {
+        return verifyUnchangedTransformResult({
+          status: "unsupported" as const,
+          reason: "unsafe-document-context",
+          applied: 0,
+          total: 1,
+          results: ["UNSUPPORTED: unsafe-document-context"],
+        });
+      }
+      edits = [{ find: args.find, replace: replacement }];
       transformResult = {
         status: "repaired",
         columnCount: normalized.columnCount,

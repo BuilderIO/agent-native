@@ -108,6 +108,17 @@ describe("Markdown import normalization", () => {
     });
   });
 
+  it("does not lift a blockquote table into the document root", () => {
+    const markdown = ["> | A | B |", "> | --- | --- |", "> | 1 | 2 |"].join(
+      "\n",
+    );
+
+    expect(normalizeImportedMarkdownStructures(markdown)).toEqual({
+      content: markdown,
+      normalizedPipeTables: 0,
+    });
+  });
+
   it("preserves CRLF source byte-for-byte when no table is normalized", () => {
     const markdown = "Before\r\n\r\n```mermaid\r\nflowchart LR\r\n```\r\n";
 

@@ -189,6 +189,10 @@ export function normalizeImportedMarkdownStructures(
       output.push(line);
       continue;
     }
+    if (line.trimStart().startsWith(">")) {
+      output.push(line);
+      continue;
+    }
 
     const header = splitPipeRow(line);
     const delimiter = splitPipeRow(lines[index + 1] ?? "");

@@ -249,6 +249,80 @@ describe("import-content-source descriptions", () => {
       verified: true,
       persistedContentUnchanged: true,
     });
+
+    const fenced = ["```md", table, "```"].join("\n");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: fenced, updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    const fencedResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: documentId,
+        find: table,
+        transform: "normalize-pipe-table",
+        reuseLabels: [],
+      }),
+    );
+    expect(fencedResult).toMatchObject({
+      status: "unsupported",
+      reason: "unsafe-document-context",
+      applied: 0,
+      verified: true,
+      persistedContentUnchanged: true,
+    });
+
+    const partialTable = ["| A | B |", "| --- | --- |"].join("\n");
+    const largerTable = [partialTable, "| 1 | 2 |"].join("\n");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: largerTable, updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    const partialResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        editDocumentAction.run({
+          id: documentId,
+          find: partialTable,
+          transform: "normalize-pipe-table",
+          reuseLabels: [],
+        }),
+    );
+    expect(partialResult).toMatchObject({
+      status: "unsupported",
+      reason: "unsafe-document-context",
+      applied: 0,
+      verified: true,
+      persistedContentUnchanged: true,
+    });
+
+    const crlfTable = table.split("\n").join("\r\n");
+    const crlfDocument = [
+      "Before sentinel.",
+      crlfTable,
+      "After sentinel.",
+    ].join("\r\n\r\n");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: crlfDocument, updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    const crlfResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: documentId,
+        find: crlfTable,
+        transform: "normalize-pipe-table",
+        reuseLabels: [],
+      }),
+    );
+    expect(crlfResult).toMatchObject({
+      status: "repaired",
+      applied: 1,
+      verified: true,
+    });
+    const [afterCrLfRepair] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(afterCrLfRepair.content).not.toMatch(/(?<!\r)\n/);
   });
 
   it("requires editor access before importing into an organization space", async () => {
