@@ -666,19 +666,6 @@ export function MeetingPill() {
           `${(capCentre - band).toFixed(2)}px`,
         );
       }
-      if (import.meta.env.DEV) {
-        const bars = Array.from(
-          header.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
-        );
-        const band = bars.length
-          ? (Math.min(...bars.map((x) => x.getBoundingClientRect().top)) +
-              Math.max(...bars.map((x) => x.getBoundingClientRect().bottom))) /
-            2
-          : null;
-        console.warn(
-          `[clips-pill] header ink capCentre=${capCentre.toFixed(2)} controls=${((rect.top + rect.bottom) / 2).toFixed(2)} meterBand=${band === null ? "none" : band.toFixed(2)} shift=${shift.toFixed(2)}`,
-        );
-      }
     };
     // After layout, and again on the next frame so a late font swap lands.
     align();
@@ -689,43 +676,6 @@ export function MeetingPill() {
       clearTimeout(timer);
     };
   }, [expanded, ctx.title, ctx.starting, finished]);
-
-  // Dev-only: the capsule's glyphs have no text to align to, so this reports
-  // their horizontal ink centres from the shipped webview. Chrome measures
-  // them dead-centre; this says whether the app's engine agrees.
-  useEffect(() => {
-    if (!import.meta.env.DEV || expanded || pillDemoMode) return;
-    const timer = setTimeout(() => {
-      const capsule = pillInnerRef.current;
-      const seg = transportRef.current;
-      if (!capsule || !seg) return;
-      const centre =
-        (capsule.getBoundingClientRect().left +
-          capsule.getBoundingClientRect().right) /
-        2;
-      const offsetOf = (el: Element | null) => {
-        if (!el) return "n/a";
-        const rect = el.getBoundingClientRect();
-        if (!rect.width) return "hidden";
-        return ((rect.left + rect.right) / 2 - centre).toFixed(2);
-      };
-      const bars = Array.from(
-        capsule.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
-      );
-      const barInk = bars.length
-        ? (
-            (Math.min(...bars.map((x) => x.getBoundingClientRect().left)) +
-              Math.max(...bars.map((x) => x.getBoundingClientRect().right))) /
-              2 -
-            centre
-          ).toFixed(2)
-        : "none";
-      console.warn(
-        `[clips-pill] capsule ink logo=${offsetOf(capsule.querySelector(".pill-logo"))} meterBox=${offsetOf(capsule.querySelector(".pill-wave-meter"))} meterBars=${barInk} pause=${offsetOf(seg.querySelector(".pill-pause-btn"))} stop=${offsetOf(seg.querySelector(".pill-stop-square"))}`,
-      );
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [expanded, hovered]);
 
   const handleTranscriptLines = useCallback(
     (lines: TranscriptLine[]) => {
