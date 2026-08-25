@@ -181,6 +181,18 @@ function matchesCreateEnvelope(
   );
 }
 
+function parseToolResultJson(result: string | undefined): unknown {
+  if (!result) return undefined;
+  try {
+    return JSON.parse(result);
+  } catch {
+    // coercion-ok: an unparseable tool result fails the same "did not supply
+    // the expected target/contract" scorer checks below as a missing one —
+    // both are non-passing evidence, not a distinction the eval needs to make.
+    return undefined;
+  }
+}
+
 function expectedPropertyValuesScorer(
   expected: Record<string, unknown>,
   expectedTypes: Record<string, string> | undefined,
@@ -245,6 +257,60 @@ function expectedPropertyValuesScorer(
         invalid.push(
           "discovery did not resolve the requested title to the exact create target",
         );
+      }
+      if (
+        !listCall?.completed ||
+        listCall.isError ||
+        !inspectCall?.completed ||
+        inspectCall.isError
+      ) {
+        invalid.push("database discovery calls did not complete successfully");
+      }
+      if (expectedEnvelope) {
+        const listResult = parseToolResultJson(listCall?.result) as
+          | { databases?: Array<Record<string, unknown>> }
+          | undefined;
+        const discoveredDatabase = listResult?.databases?.find(
+          (database) =>
+            database.databaseId === expectedEnvelope.target.databaseId,
+        );
+        const discoveredDocumentId =
+          discoveredDatabase?.documentId ??
+          discoveredDatabase?.databaseDocumentId;
+        if (
+          !discoveredDatabase ||
+          discoveredDocumentId !== expectedEnvelope.target.databaseDocumentId ||
+          discoveredDatabase.spaceId !== expectedEnvelope.target.spaceId
+        ) {
+          invalid.push(
+            "list-content-databases result did not supply the expected create target",
+          );
+        }
+        const inspectResult = parseToolResultJson(inspectCall?.result) as
+          | {
+              mutationContract?: {
+                target?: Record<string, unknown>;
+                schemaRevision?: string;
+                expectedSchemaRevision?: string;
+              };
+            }
+          | undefined;
+        const contractTarget = inspectResult?.mutationContract?.target;
+        const contractSchemaRevision =
+          inspectResult?.mutationContract?.schemaRevision ??
+          inspectResult?.mutationContract?.expectedSchemaRevision;
+        if (
+          !contractTarget ||
+          contractTarget.spaceId !== expectedEnvelope.target.spaceId ||
+          contractTarget.databaseId !== expectedEnvelope.target.databaseId ||
+          contractTarget.databaseDocumentId !==
+            expectedEnvelope.target.databaseDocumentId ||
+          contractSchemaRevision !== expectedEnvelope.expectedSchemaRevision
+        ) {
+          invalid.push(
+            "get-content-database result did not supply the expected mutation contract",
+          );
+        }
       }
       for (const [propertyId, expectedType] of Object.entries(
         expectedTypes ?? {},
