@@ -281,6 +281,7 @@ const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
         alt=""
         width={entry.srcWidth}
         height={entry.srcHeight}
+        crossOrigin="anonymous"
         loading="lazy"
         decoding="async"
         className={entry.fill ? "logo-tile-img-fill" : undefined}
