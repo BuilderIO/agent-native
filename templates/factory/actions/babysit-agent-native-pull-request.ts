@@ -8,6 +8,7 @@ import { triageItems } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import {
   factoryIdSchema,
+  factoryStillPresent,
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
@@ -78,16 +79,25 @@ async function updateBabysitMetadata(
       .limit(1)
   )[0];
   if (!item) throw new Error("Factory item disappeared during PR babysitting.");
-  await requireExistingFactory(db, orgId, item.factoryId ?? DEFAULT_FACTORY_ID);
+  const factoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
   const metadata = parseTriageMetadata(item.metadataJson);
   Object.assign(metadata, patch);
-  await db
-    .update(triageItems)
-    .set({
-      metadataJson: serializeTriageMetadata(metadata),
-      updatedAt: new Date().toISOString(),
-    })
-    .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(triageItems)
+      .set({
+        metadataJson: serializeTriageMetadata(metadata),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(triageItems.id, itemId),
+          eq(triageItems.orgId, orgId),
+          factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+        ),
+      );
+    await requireExistingFactory(tx as unknown as typeof db, orgId, factoryId);
+  });
 }
 
 export default defineAction({

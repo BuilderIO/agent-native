@@ -81,15 +81,15 @@ describe("delete-factory", () => {
   it("lets an organization member remove all Factory-owned data and automations", async () => {
     const deletedTables: unknown[] = [];
     const tx = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([{ name: "Support triage" }]),
-          })),
-        })),
-      })),
       delete: vi.fn((table: unknown) => {
         deletedTables.push(table);
+        if (table === factoryDefinitions) {
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn().mockResolvedValue([{ id: "support-triage" }]),
+            })),
+          };
+        }
         return { where: vi.fn().mockResolvedValue(undefined) };
       }),
     };
@@ -193,6 +193,50 @@ describe("delete-factory", () => {
       ),
     ).rejects.toThrow("scheduler unavailable");
     expect(transaction).not.toHaveBeenCalled();
+    expect(ensureFactoryAutomationsMock).toHaveBeenCalledWith(
+      "member@example.com",
+      "org-1",
+      "support-triage",
+      {
+        enabledNames: new Set(["factory-slack-feedback"]),
+      },
+    );
+  });
+
+  it("rejects deletion when the confirmed name no longer matches the row", async () => {
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([{ name: "Renamed factory" }]),
+          })),
+        })),
+      })),
+      delete: vi.fn((table: unknown) => {
+        if (table === factoryDefinitions) {
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn().mockResolvedValue([]),
+            })),
+          };
+        }
+        return { where: vi.fn().mockResolvedValue(undefined) };
+      }),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(
+        async (callback: (transaction: typeof tx) => Promise<void>) =>
+          callback(tx),
+      ),
+    });
+    const { default: action } = await import("./delete-factory.js");
+
+    await expect(
+      action.run(
+        { factoryId: "support-triage", confirmName: "Support triage" },
+        { userEmail: "member@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("changed before deletion");
     expect(ensureFactoryAutomationsMock).toHaveBeenCalledWith(
       "member@example.com",
       "org-1",

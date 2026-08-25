@@ -77,11 +77,6 @@ export default defineAction({
     let pullRequestCount = 0;
 
     await db.transaction(async (tx) => {
-      await requireExistingFactory(
-        tx as unknown as ReturnType<typeof getDb>,
-        orgId,
-        factoryId,
-      );
       for (const issue of issues) {
         const id = itemDedupeKey(
           {
@@ -245,6 +240,11 @@ export default defineAction({
           });
         pullRequestCount += 1;
       }
+      await requireExistingFactory(
+        tx as unknown as ReturnType<typeof getDb>,
+        orgId,
+        factoryId,
+      );
     });
 
     if (issues.length === 0 && pullRequests.length === 0) {

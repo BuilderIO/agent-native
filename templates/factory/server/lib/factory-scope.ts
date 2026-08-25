@@ -1,4 +1,4 @@
-import { and, eq, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, eq, exists, type AnyColumn, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import type { getDb } from "../db/index.js";
@@ -134,11 +134,33 @@ export function triageConfigUpdateRowId(
 
 type Db = ReturnType<typeof getDb>;
 
+export function factoryStillPresent(
+  db: Db,
+  orgId: string,
+  factoryId: string,
+): SQL | undefined {
+  if (factoryId === DEFAULT_FACTORY_ID) return undefined;
+  return exists(
+    db
+      .select({ id: factoryDefinitions.id })
+      .from(factoryDefinitions)
+      .where(
+        and(
+          eq(factoryDefinitions.id, factoryId),
+          eq(factoryDefinitions.orgId, orgId),
+        ),
+      ),
+  );
+}
+
 export async function requireExistingFactory(
   db: Db,
   orgId: string,
   factoryId: string,
 ): Promise<void> {
+  // product-feedback is virtual until first save and cannot be deleted, so a
+  // missing definition row is not a deletion fence.
+  if (factoryId === DEFAULT_FACTORY_ID) return;
   const row = (
     await db
       .select({ id: factoryDefinitions.id })

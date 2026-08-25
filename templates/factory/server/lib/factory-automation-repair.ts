@@ -1,5 +1,8 @@
 import { getDb } from "../db/index.js";
-import { readFactoryDefinition } from "../factory-graph/store.js";
+import {
+  DEFAULT_FACTORY_ID,
+  readFactoryDefinition,
+} from "../factory-graph/store.js";
 import {
   ensureFactoryAutomations,
   syncFactoryAutomationEnabledStates,
@@ -12,7 +15,8 @@ export async function repairFactoryAutomationsFromConfig(
   orgId: string,
   factoryId: string,
 ): Promise<void> {
-  if (!(await readFactoryDefinition(orgId, factoryId))) return;
+  const factory = await readFactoryDefinition(orgId, factoryId);
+  if (!factory && factoryId !== DEFAULT_FACTORY_ID) return;
   const config = await readTriageConfigRow(getDb(), orgId, factoryId);
   if (!config) return;
   const enabledNames = resolveEnabledAutomationsFromSavedConfig({

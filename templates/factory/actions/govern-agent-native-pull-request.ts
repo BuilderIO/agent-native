@@ -344,29 +344,35 @@ export default defineAction({
         itemId,
         snapshot.headSha,
       );
-      await requireExistingFactory(getDb(), orgId, factoryId);
-      await getDb()
-        .insert(triageDecisions)
-        .values({
-          id: decisionId,
-          itemId,
-          ruleId: null,
-          mode: "automation",
-          outcome: governance.autoMerge
-            ? "auto_merge"
-            : governance.autoApprove
-              ? "auto_approve"
-              : "needs_manual",
-          reason: `${reason} ${governance.reason}`.trim(),
-          guardResultsJson: JSON.stringify(governance.guardResults),
-          model: "factory-pr-governance",
-          promptVersion: 1,
-          createdAt: new Date().toISOString(),
-          ownerEmail: userEmail,
+      await getDb().transaction(async (tx) => {
+        await tx
+          .insert(triageDecisions)
+          .values({
+            id: decisionId,
+            itemId,
+            ruleId: null,
+            mode: "automation",
+            outcome: governance.autoMerge
+              ? "auto_merge"
+              : governance.autoApprove
+                ? "auto_approve"
+                : "needs_manual",
+            reason: `${reason} ${governance.reason}`.trim(),
+            guardResultsJson: JSON.stringify(governance.guardResults),
+            model: "factory-pr-governance",
+            promptVersion: 1,
+            createdAt: new Date().toISOString(),
+            ownerEmail: userEmail,
+            orgId,
+            factoryId,
+          })
+          .onConflictDoNothing();
+        await requireExistingFactory(
+          tx as unknown as ReturnType<typeof getDb>,
           orgId,
           factoryId,
-        })
-        .onConflictDoNothing();
+        );
+      });
     }
 
     if (!governance.autoApprove) {

@@ -7,6 +7,7 @@ import { triageConfig, triageItems } from "../server/db/schema.js";
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   factoryIdSchema,
+  factoryStillPresent,
   readTriageConfigRow,
   requireExistingFactory,
   triageConfigUpdateRowId,
@@ -85,11 +86,6 @@ export default defineAction({
     const configRowId = triageConfigUpdateRowId(config, orgId, factoryId);
 
     await db.transaction(async (tx) => {
-      await requireExistingFactory(
-        tx as unknown as ReturnType<typeof getDb>,
-        orgId,
-        factoryId,
-      );
       for (const issue of observedIssues) {
         const id = itemDedupeKey(
           { source: "sentry", externalId: issue.id },
@@ -183,8 +179,21 @@ export default defineAction({
           updatedAt: now,
         })
         .where(
-          and(eq(triageConfig.id, configRowId), eq(triageConfig.orgId, orgId)),
+          and(
+            eq(triageConfig.id, configRowId),
+            eq(triageConfig.orgId, orgId),
+            factoryStillPresent(
+              tx as unknown as ReturnType<typeof getDb>,
+              orgId,
+              factoryId,
+            ),
+          ),
         );
+      await requireExistingFactory(
+        tx as unknown as ReturnType<typeof getDb>,
+        orgId,
+        factoryId,
+      );
     });
 
     if (observedIssues.length === 0) {

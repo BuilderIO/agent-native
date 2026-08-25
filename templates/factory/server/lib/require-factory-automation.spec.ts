@@ -132,4 +132,39 @@ describe("requireFactoryAutomation", () => {
       ),
     ).rejects.toThrow("Factory not found.");
   });
+
+  it("accepts the virtual default Factory when no definition row exists", async () => {
+    getDbMock.mockReturnValue(factoryLookupDb(false));
+    listAutomationDefinitionsMock.mockResolvedValue([
+      {
+        name: "factory-slack-feedback",
+        resource: {
+          id: "resource-default",
+          path: "jobs/factory-slack-feedback.md",
+          content: "---\ndomain: factory\n---\n",
+        },
+        meta: {
+          domain: "factory",
+          orgId: "org-1",
+          runAs: "creator",
+          createdBy: teammateEmail,
+        },
+      },
+    ]);
+
+    await expect(
+      requireFactoryAutomation(
+        {
+          caller: "automation",
+          automation: {
+            triggerId: "resource-default",
+            triggerName: "factory-slack-feedback",
+          },
+        },
+        { userEmail: teammateEmail, orgId: "org-1" },
+        "sourcePolling",
+        "product-feedback",
+      ),
+    ).resolves.toBeUndefined();
+  });
 });

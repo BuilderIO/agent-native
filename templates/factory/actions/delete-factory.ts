@@ -73,33 +73,35 @@ export default defineAction({
       // either step fails so a partial cleanup cannot disable a surviving Factory.
       await removeFactoryAutomationResources(orgId, factoryId);
       await db.transaction(async (tx) => {
-        const current = (
-          await tx
-            .select({ name: factoryDefinitions.name })
-            .from(factoryDefinitions)
-            .where(
-              and(
-                eq(factoryDefinitions.id, factoryId),
-                eq(factoryDefinitions.orgId, orgId),
-              ),
-            )
-            .limit(1)
-        )[0];
-        if (!current) return;
-        if (current.name !== confirmName) {
-          throw new Error(
-            "Factory changed before deletion. Confirm its current name and try again.",
-          );
-        }
-
-        await tx
+        const deleted = await tx
           .delete(factoryDefinitions)
           .where(
             and(
               eq(factoryDefinitions.id, factoryId),
               eq(factoryDefinitions.orgId, orgId),
+              eq(factoryDefinitions.name, confirmName),
             ),
-          );
+          )
+          .returning({ id: factoryDefinitions.id });
+        if (deleted.length === 0) {
+          const existing = (
+            await tx
+              .select({ name: factoryDefinitions.name })
+              .from(factoryDefinitions)
+              .where(
+                and(
+                  eq(factoryDefinitions.id, factoryId),
+                  eq(factoryDefinitions.orgId, orgId),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (existing) {
+            throw new Error(
+              "Factory changed before deletion. Confirm its current name and try again.",
+            );
+          }
+        }
 
         const scopedTables = [
           factoryComments,
