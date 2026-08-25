@@ -3191,12 +3191,15 @@ ${identitySsoScript}
       }
     }
     function __anStopNativeOAuthAbandonment() {
+      __anCancelNativeOAuthAbandonment();
+      __anNativeOAuthFlowId = null;
+      __anNativeOAuthRequestPending = false;
+    }
+    function __anCancelNativeOAuthAbandonment() {
       if (__anNativeOAuthAbandonGraceTimer) {
         clearTimeout(__anNativeOAuthAbandonGraceTimer);
         __anNativeOAuthAbandonGraceTimer = null;
       }
-      __anNativeOAuthFlowId = null;
-      __anNativeOAuthRequestPending = false;
     }
     function __anBeginNativeOAuth(flowId) {
       __anStopNativeOAuthAbandonment();
@@ -3212,6 +3215,10 @@ ${identitySsoScript}
     }
     function __anFinalizeNativeOAuthAbandonment(flowId) {
       if (!__anIsCurrentNativeOAuth(flowId) || !__anOAuthPollTimer) return;
+      if (document.visibilityState === 'hidden') {
+        __anCancelNativeOAuthAbandonment();
+        return;
+      }
       __anStopNativeOAuthAbandonment();
       if (__anInvalidateGoogleSignInFlow(flowId)) {
         __anStopOAuthExchangePolling();
@@ -3351,8 +3358,15 @@ ${identitySsoScript}
       window.addEventListener('focus', function() {
         __anRecoverGoogleSignInAfterReturn();
       });
+      window.addEventListener('blur', function() {
+        __anCancelNativeOAuthAbandonment();
+      });
       document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible') __anRecoverGoogleSignInAfterReturn();
+        if (document.visibilityState === 'visible') {
+          __anRecoverGoogleSignInAfterReturn();
+        } else {
+          __anCancelNativeOAuthAbandonment();
+        }
       });
     }
     function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage) {

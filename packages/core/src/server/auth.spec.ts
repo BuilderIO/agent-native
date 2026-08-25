@@ -5920,6 +5920,7 @@ describe("server/auth", () => {
       expect(html).toContain("var __anNativeOAuthRequestPending = false;");
       expect(html).toContain("var __anNativeOAuthAbandonGraceMs = 5000;");
       expect(html).toContain("function __anBeginNativeOAuth(flowId)");
+      expect(html).toContain("function __anCancelNativeOAuthAbandonment()");
       expect(html).toContain(
         "function __anScheduleNativeOAuthAbandonment(flowId)",
       );
@@ -5948,6 +5949,12 @@ describe("server/auth", () => {
       expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
       expect(html).toContain(
         "window.addEventListener('focus', function() {\n        __anRecoverGoogleSignInAfterReturn();\n      });",
+      );
+      expect(html).toContain(
+        "window.addEventListener('blur', function() {\n        __anCancelNativeOAuthAbandonment();\n      });",
+      );
+      expect(html).toContain(
+        "if (document.visibilityState === 'visible') {\n          __anRecoverGoogleSignInAfterReturn();\n        } else {\n          __anCancelNativeOAuthAbandonment();\n        }",
       );
       const recoverStart = html.indexOf(
         "function __anRecoverGoogleSignInAfterReturn(flowId)",
