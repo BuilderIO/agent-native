@@ -1,5 +1,6 @@
 import { useLoaderData } from "react-router";
 
+import { BottomCta } from "../components/website-redesign/bottom-cta";
 import { BuiltInFeatures } from "../components/website-redesign/built-in-features";
 import { FeaturesActions } from "../components/website-redesign/features-actions";
 import { Hero } from "../components/website-redesign/hero";
@@ -47,6 +48,7 @@ export default function WebsiteRedesignHomepage() {
       <FeaturesActions />
       <BuiltInFeatures />
       <WorksWithStack />
+      <BottomCta />
     </div>
   );
 }
