@@ -369,6 +369,8 @@ useDbSync({ queryClient });
 
 Rufen Sie dies einmal auf, nahe der Wurzel der App. Dadurch abonniert die gesamte App Änderungsereignisse, sodass jede Komponente, die `useActionQuery` oder ein quellversioniertes `useQuery` verwendet, automatisch neu abruft, wenn sich die gelesenen Daten ändern.
 
+SSE deckt den häufigsten Fall ab statt WebSockets, weil es Schreibvorgängen im selben Prozess einen unmittelbaren Weg zum Browser über einfaches HTTP verschafft, während der Versionszähler-Poll als Fallback erhalten bleibt, der in jeder Deployment-Umgebung funktioniert – einschließlich serverlos und Edge, wo dauerhafte Sockets möglicherweise nicht verfügbar sind.
+
 Der Ablauf ist:
 
 1. Der Agent führt eine Aktion aus, die in die Datenbank schreibt

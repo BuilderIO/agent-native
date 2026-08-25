@@ -96,7 +96,6 @@ describe("DocsSidebar", () => {
       "getting-started",
       "what-is-agent-native",
       "key-concepts",
-      "faq",
     ]);
     expect(deployment?.items.map((item) => item.id)).toEqual([
       "deployment",

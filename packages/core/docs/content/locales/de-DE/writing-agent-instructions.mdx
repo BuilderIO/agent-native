@@ -102,6 +102,14 @@ und dieselben actions.
 
 Behalten Sie eine Datei mit kanonischen Anweisungen: `AGENTS.md`. Wenn ein Client `CLAUDE.md` erwartet, erstellen Sie einen symbolischen Link zu `AGENTS.md` und nicht eine zweite Kopie. Zwei handverwaltete Dateien geraten ins Wanken und der Agent erhält widersprüchliche Regeln. Eine Quelle der Wahrheit, verlinkt, wo nötig.
 
+`AGENTS.md` ist der universelle Standard, auf dem das Framework aufbaut, sodass jedes KI-Coding-Tool, das Projektanweisungen liest, sofort funktioniert:
+
+- **Claude Code**: liest `CLAUDE.md` (von der CLI-Einrichtung als Symlink zu `AGENTS.md` angelegt)
+- **Cursor**: liest `AGENTS.md` direkt oder, falls vorhanden, `.cursorrules` (Cursors veralteter Speicherort)
+- **Windsurf**: liest `AGENTS.md` direkt oder, falls vorhanden, `.windsurfrules` (Windsurfs veralteter Speicherort)
+- **Codex, Gemini und andere**: arbeiten über das eingebettete Agent-Panel
+- **Builder.io**: cloudgehosteter Agent mit visuellem Bearbeiten und Zusammenarbeit
+
 ## SKILL.md frontmatter muss sagen, was AND wann {#skill-frontmatter}
 
 `description` ist das Einzige, was der Agent sieht, wenn er entscheidet, ob er einen Skill lesen möchte. Es muss zwei Fragen beantworten: Was deckt die Fertigkeit ab und wann soll sie ausgelöst werden? Eine Beschreibung, die nur das Thema beschreibt, wird nicht ausgelöst.
