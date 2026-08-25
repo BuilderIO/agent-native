@@ -231,6 +231,15 @@
   grid-template-columns: 1fr 2fr;
 }
 
+.builder-brand-tokens .template-showcase-cell {
+  background: transparent;
+  transition: background-color 0.15s;
+}
+
+.builder-brand-tokens .template-showcase-cell:hover {
+  background: var(--b-bg-raised);
+}
+
 @media (max-width: 768px) {
   .builder-brand-tokens {
     --spacing-4: 12px;

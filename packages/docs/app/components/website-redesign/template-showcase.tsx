@@ -1,5 +1,4 @@
 import {
-  IconArrowUpRight,
   IconPalette,
   IconPresentation,
   IconScissors,
@@ -8,6 +7,7 @@ import {
 import { useState, type ComponentType } from "react";
 import { Link } from "react-router";
 
+import { Button } from "./ds/button";
 import { TabItem } from "./ds/tab-item";
 import { GridInner, PageSection } from "./page-grid";
 
@@ -167,16 +167,19 @@ export function TemplateShowcase() {
                     pointerEvents: isActive ? "auto" : "none",
                   }}
                 >
-                  <div
+                  <Link
+                    to={tab.href}
+                    className="template-showcase-cell"
                     style={{
                       display: "flex",
                       flexDirection: "column",
-                      alignItems: "center",
+                      alignItems: "flex-start",
                       justifyContent: "center",
-                      textAlign: "center",
+                      textAlign: "left",
                       gap: "var(--spacing-4)",
                       padding: "var(--spacing-8)",
                       borderRight: "1px solid var(--b-border-subtle)",
+                      textDecoration: "none",
                     }}
                   >
                     <h3
@@ -203,36 +206,31 @@ export function TemplateShowcase() {
                     >
                       {tab.body}
                     </p>
-                    <Link
-                      to={tab.href}
-                      className="hover:text-[var(--b-text-primary)]"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        fontFamily: "var(--b-font-sans)",
-                        fontSize: "var(--b-t-paragraph-2)",
-                        fontWeight: 500,
-                        color: "var(--b-text-primary)",
-                        textDecoration: "none",
-                      }}
-                    >
+                    <Button variant="secondary-icon" tabIndex={-1}>
                       Explore {tab.label}
-                      <IconArrowUpRight size={16} />
-                    </Link>
-                  </div>
-                  <img
-                    src={tab.image}
-                    alt={`${tab.label} app screenshot`}
-                    crossOrigin="anonymous"
+                    </Button>
+                  </Link>
+                  <div
                     style={{
-                      width: "100%",
-                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       aspectRatio: "16 / 10",
-                      objectFit: "cover",
-                      display: "block",
+                      overflow: "hidden",
                     }}
-                  />
+                  >
+                    <img
+                      src={tab.image}
+                      alt={`${tab.label} app screenshot`}
+                      crossOrigin="anonymous"
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                        objectFit: "contain",
+                        display: "block",
+                      }}
+                    />
+                  </div>
                 </div>
               );
             })}
