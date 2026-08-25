@@ -8004,79 +8004,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
-  // Figma-parity "drop into a frame" conversion: when a plain rect/div drop
-  // target isn't already auto-layout, dropping a child into it turns it into
-  // one. Direction/gap are inferred from the container's existing children
-  // (same spread-axis heuristic as inferAutoLayoutFromChildren in
-  // DesignEditor.tsx: whichever axis the children's bounding boxes spread
-  // further along wins) when it already has other children; an empty
-  // container defaults to flex-direction:column, matching the product
-  // decision for a fresh single-child drop with no layout signal yet.
-  function inferAutoLayoutConversionForContainer(
+  // A frame with any content of its own has a layout that adopting auto
+  // layout would reflow, so only an empty one converts on drop. A member
+  // already parented here is reordering, not arriving.
+  function isEmptyDropContainer(
     container: Element,
-    excludeEls: Element[],
-  ): { direction: "row" | "column"; gap: number } {
-    var siblings = draggableElementChildren(container).filter(function (child) {
-      return excludeEls.indexOf(child) === -1;
-    });
-    if (siblings.length === 0) {
-      return { direction: "column", gap: 10 };
+    dragged: Element[],
+  ): boolean {
+    for (var i = 0; i < dragged.length; i += 1) {
+      if (dragged[i] && dragged[i].parentElement === container) return false;
     }
-    var rects = siblings.map(function (child) {
-      return child.getBoundingClientRect();
-    });
-    var minX = Math.min.apply(
-      null,
-      rects.map(function (r) {
-        return r.left;
-      }),
-    );
-    var maxX = Math.max.apply(
-      null,
-      rects.map(function (r) {
-        return r.left + r.width;
-      }),
-    );
-    var minY = Math.min.apply(
-      null,
-      rects.map(function (r) {
-        return r.top;
-      }),
-    );
-    var maxY = Math.max.apply(
-      null,
-      rects.map(function (r) {
-        return r.top + r.height;
-      }),
-    );
-    var direction: "row" | "column" =
-      maxX - minX >= maxY - minY ? "row" : "column";
-    if (rects.length < 2) {
-      return { direction: direction, gap: 10 };
+    var nodes = container.childNodes;
+    for (var j = 0; j < nodes.length; j += 1) {
+      var node = nodes[j];
+      if (node.nodeType === 3) {
+        if ((node.textContent || "").trim()) return false;
+        continue;
+      }
+      if (node.nodeType !== 1) continue;
+      if (isOverlayElement(node as Element)) continue;
+      return false;
     }
-    var sorted = rects.slice().sort(function (a, b) {
-      return direction === "row" ? a.left - b.left : a.top - b.top;
-    });
-    var gaps: number[] = [];
-    for (var i = 1; i < sorted.length; i += 1) {
-      var prev = sorted[i - 1];
-      var current = sorted[i];
-      var gapValue =
-        direction === "row"
-          ? current.left - (prev.left + prev.width)
-          : current.top - (prev.top + prev.height);
-      if (isFinite(gapValue) && gapValue > 0) gaps.push(gapValue);
-    }
-    if (gaps.length === 0) {
-      return { direction: direction, gap: 10 };
-    }
-    gaps.sort(function (a, b) {
-      return a - b;
-    });
-    var mid = Math.floor(gaps.length / 2);
-    var median =
-      gaps.length % 2 === 0 ? (gaps[mid - 1] + gaps[mid]) / 2 : gaps[mid];
-    return { direction: direction, gap: Math.round(median) };
+    return true;
   }
 
   // Applies the flex conversion to `container` and posts it to the host as a
@@ -8087,22 +8036,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // visual-structure-change post so the host's synchronous same-tick content
   // refs (see DesignEditor.tsx's getFreshActiveContent) compose the two
   // edits in order: container becomes flex, then the child moves into it.
-  // `excludeEls`: the dragged element(s) — every member of a group drag —
-  // so the direction/gap inference only looks at the container's existing
-  // children, never the incoming ones.
-  function applyAutoLayoutConversionForDrop(
-    container: Element,
-    excludeEls: Element[],
-  ): void {
-    var inferred = inferAutoLayoutConversionForContainer(container, excludeEls);
+  function applyAutoLayoutConversionForDrop(container: Element): void {
     var el = container as HTMLElement;
     el.style.display = "flex";
-    el.style.flexDirection = inferred.direction;
-    el.style.gap = inferred.gap + "px";
+    el.style.flexDirection = "column";
+    el.style.gap = "10px";
     var styles = {
       display: "flex",
-      "flex-direction": inferred.direction,
-      gap: inferred.gap + "px",
+      "flex-direction": "column",
+      gap: "10px",
     };
     (window.parent as Window).postMessage(
       {
@@ -8766,16 +8708,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Flow child (a real flow-reorder gesture) dropped into a plain container:
-    // convert it to auto layout before the structural move. This is the flow
-    // path only; the absolute/free drag keeps shapes free (no conversion).
+    // Flow child (a real flow-reorder gesture) dropped into an empty plain
+    // container: convert it to auto layout before the structural move. This is
+    // the flow path only; the absolute/free drag keeps shapes free.
     if (
       target &&
       target.dropMode === "flow-insert" &&
       container &&
       container !== document.body &&
       isContainerDropTarget(container) &&
-      !isAutoLayoutElement(container)
+      !isAutoLayoutElement(container) &&
+      isEmptyDropContainer(container, dragged)
     ) {
       target.needsAutoLayoutConversion = true;
       target.conversionTarget = container;
@@ -11271,10 +11214,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           currentTarget.needsAutoLayoutConversion &&
           currentTarget.conversionTarget
         ) {
-          applyAutoLayoutConversionForDrop(
-            currentTarget.conversionTarget,
-            groupEls,
-          );
+          applyAutoLayoutConversionForDrop(currentTarget.conversionTarget);
         }
         prepareFlowMembersForAbsoluteDrop(
           groupEls,
