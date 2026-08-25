@@ -5,7 +5,7 @@ name: 🚀 Release everything
 # *.agent-native.com site from that exact post-release commit.
 on:
   schedule:
-    - cron: "0 12 * * 1-4"
+    - cron: "17 12 * * 1-4"
       timezone: "America/Los_Angeles"
   workflow_dispatch:
     inputs:
