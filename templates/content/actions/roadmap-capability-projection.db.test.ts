@@ -143,6 +143,7 @@ describe("private roadmap capability projection", () => {
           databaseId,
           name,
           type,
+          naturalKey: name === "Capability ID",
         }),
       );
       const property = configured.properties.find(
@@ -158,28 +159,45 @@ describe("private roadmap capability projection", () => {
 
     const firstReceipts = new Map<
       string,
-      { itemId: string; documentId: string }
+      { itemId: string; documentId: string; rowRevision: string }
     >();
+    const discovered = await asUser(OWNER, () =>
+      getDatabase.run({ databaseId, limit: 1, offset: 0 }),
+    );
+    if (!("database" in discovered) || !discovered.mutationContract)
+      throw new Error("Projection database has no mutation contract.");
+    const mutationEnvelope = {
+      target: {
+        spaceId: discovered.mutationContract.target.spaceId,
+        databaseId: discovered.mutationContract.target.databaseId,
+        databaseDocumentId:
+          discovered.mutationContract.target.databaseDocumentId,
+      },
+      expectedSchemaRevision: discovered.mutationContract.schemaRevision,
+    };
+    const propertyValuesFor = (capability: Capability) => ({
+      [keyPropertyId]: capability.id,
+      [propertyIds.get("State")!]: capability.state,
+      [propertyIds.get("Publicness")!]: capability.publicness,
+      [propertyIds.get("User promise")!]: capability.userPromise,
+      [propertyIds.get("Source revision")!]: SOURCE_REVISION,
+    });
     for (const capability of capabilities) {
       const receipt = await asUser(OWNER, () =>
         upsert.run({
-          databaseId,
-          keyPropertyId,
+          ...mutationEnvelope,
+          idempotencyKey: `roadmap-projection-${capability.id}`,
           keyValue: capability.id,
+          expectedRowRevision: null,
           title: capability.name,
-          body: capability.body,
-          propertyValues: {
-            [propertyIds.get("State")!]: capability.state,
-            [propertyIds.get("Publicness")!]: capability.publicness,
-            [propertyIds.get("User promise")!]: capability.userPromise,
-            [propertyIds.get("Source revision")!]: SOURCE_REVISION,
-          },
+          propertyValues: propertyValuesFor(capability),
         }),
       );
-      expect(receipt.status).toBe("created");
+      expect(receipt.receipt.outcome).toBe("created");
       firstReceipts.set(capability.id, {
-        itemId: receipt.itemId,
-        documentId: receipt.documentId,
+        itemId: receipt.receipt.row.itemId,
+        documentId: receipt.receipt.row.documentId,
+        rowRevision: receipt.receipt.row.rowRevision,
       });
     }
 
@@ -191,55 +209,53 @@ describe("private roadmap capability projection", () => {
       throw new Error("Changed Capability is missing its first receipt.");
     const changedReceipt = await asUser(OWNER, () =>
       upsert.run({
-        databaseId,
-        keyPropertyId,
+        ...mutationEnvelope,
+        idempotencyKey: "roadmap-projection-change",
         keyValue: changedCapability.id,
+        expectedRowRevision: changedIdentity.rowRevision,
         title: `${changedCapability.name} — changed`,
       }),
     );
-    expect(changedReceipt).toMatchObject({
-      status: "updated",
-      ...changedIdentity,
+    expect(changedReceipt.receipt).toMatchObject({
+      outcome: "updated",
+      row: {
+        itemId: changedIdentity.itemId,
+        documentId: changedIdentity.documentId,
+      },
     });
     const restoredReceipt = await asUser(OWNER, () =>
       upsert.run({
-        databaseId,
-        keyPropertyId,
+        ...mutationEnvelope,
+        idempotencyKey: "roadmap-projection-restore",
         keyValue: changedCapability.id,
+        expectedRowRevision: changedReceipt.receipt.row.rowRevision,
         title: changedCapability.name,
-        body: changedCapability.body,
-        propertyValues: {
-          [propertyIds.get("State")!]: changedCapability.state,
-          [propertyIds.get("Publicness")!]: changedCapability.publicness,
-          [propertyIds.get("User promise")!]: changedCapability.userPromise,
-          [propertyIds.get("Source revision")!]: SOURCE_REVISION,
-        },
+        propertyValues: propertyValuesFor(changedCapability),
       }),
     );
-    expect(restoredReceipt).toMatchObject({
-      status: "updated",
-      ...changedIdentity,
+    expect(restoredReceipt.receipt).toMatchObject({
+      outcome: "updated",
+      row: {
+        itemId: changedIdentity.itemId,
+        documentId: changedIdentity.documentId,
+      },
     });
 
     for (const capability of capabilities) {
       const receipt = await asUser(OWNER, () =>
         upsert.run({
-          databaseId,
-          keyPropertyId,
+          ...mutationEnvelope,
+          idempotencyKey: `roadmap-projection-${capability.id}`,
           keyValue: capability.id,
+          expectedRowRevision: null,
           title: capability.name,
-          body: capability.body,
-          propertyValues: {
-            [propertyIds.get("State")!]: capability.state,
-            [propertyIds.get("Publicness")!]: capability.publicness,
-            [propertyIds.get("User promise")!]: capability.userPromise,
-            [propertyIds.get("Source revision")!]: SOURCE_REVISION,
-          },
+          propertyValues: propertyValuesFor(capability),
         }),
       );
-      expect(receipt).toMatchObject({
-        status: "unchanged",
-        ...firstReceipts.get(capability.id),
+      expect(receipt.receipt).toMatchObject({
+        outcome: "created",
+        idempotency: { result: "replayed" },
+        row: firstReceipts.get(capability.id),
       });
     }
 
@@ -282,7 +298,14 @@ describe("private roadmap capability projection", () => {
     expect(readbackIds).toEqual(
       new Set(capabilities.map((capability) => capability.id)),
     );
-    expect(readbackIdentity).toEqual(firstReceipts);
+    expect(readbackIdentity).toEqual(
+      new Map(
+        [...firstReceipts].map(([key, { itemId, documentId }]) => [
+          key,
+          { itemId, documentId },
+        ]),
+      ),
+    );
 
     const uniqueRoot = await asUser(OWNER, () =>
       searchDocuments.run({

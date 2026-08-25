@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
   resourceGetByPath,

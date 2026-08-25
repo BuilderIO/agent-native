@@ -28,6 +28,8 @@ export {
 } from "./agent/index.js";
 export {
   defineAction,
+  fail,
+  type FailOptions,
   ActionContractError,
   isActionContractError,
   type ActionContractErrorOptions,
@@ -424,7 +426,6 @@ export {
   isValidPath,
   isValidProjectPath,
   ensureDir,
-  fail,
 } from "./scripts/index.js";
 
 // Secrets registry — import from "@agent-native/core/secrets" when possible

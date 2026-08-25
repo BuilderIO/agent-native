@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 

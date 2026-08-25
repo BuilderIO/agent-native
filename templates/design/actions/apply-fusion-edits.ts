@@ -9,7 +9,7 @@
  * failure — so `list-fusion-edits` reflects the outcome without another call.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { sendFusionBranchMessage } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";

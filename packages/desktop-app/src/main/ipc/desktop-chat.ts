@@ -33,6 +33,8 @@ const RESTRICTED_REQUEST_HEADERS = new Set([
   "content-length",
   "cookie2",
 ]);
+const RELAY_FAILURE_MESSAGE =
+  "Desktop app chat relay failed. Update or restart the desktop app, then try again.";
 
 interface RelayState {
   port: number;
@@ -282,7 +284,7 @@ async function proxyRequest(
       response.destroy(error);
       return;
     }
-    sendError(request, response, 502, "Desktop app chat relay failed");
+    sendError(request, response, 502, RELAY_FAILURE_MESSAGE);
   });
 }
 
@@ -307,7 +309,7 @@ function ensureRelay(): Promise<RelayState> {
       relayPath.targetPath += parsed.search;
       void proxyRequest(request, response, relayPath).catch((error) => {
         console.warn("[desktop-chat] relay request failed:", error);
-        sendError(request, response, 502, "Desktop app chat relay failed");
+        sendError(request, response, 502, RELAY_FAILURE_MESSAGE);
       });
     });
 

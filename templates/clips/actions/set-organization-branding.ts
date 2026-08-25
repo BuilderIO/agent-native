@@ -7,7 +7,7 @@
  *   pnpm action set-organization-branding --brandColor="#18181B" --brandLogoUrl=/api/media/abc.png
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { organizations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";

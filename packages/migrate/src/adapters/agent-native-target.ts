@@ -248,7 +248,7 @@ export default defineConfig({
 }
 
 function viewScreenAction(): string {
-  return `import { defineAction } from "@agent-native/core";
+  return `import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -265,7 +265,7 @@ export default defineAction({
 }
 
 function navigateAction(): string {
-  return `import { defineAction } from "@agent-native/core";
+  return `import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 

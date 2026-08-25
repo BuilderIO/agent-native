@@ -24,7 +24,7 @@
  * See DESIGN-STUDIO-PLAN.md §6.1 (jump-to-source) and §7 (action surface).
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
