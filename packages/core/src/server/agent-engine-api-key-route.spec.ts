@@ -33,7 +33,7 @@ import {
 } from "./agent-engine-api-key-route.js";
 
 describe("agent engine api-key route helpers", () => {
-  it("validates OpenRouter keys against the models endpoint", async () => {
+  it("validates OpenRouter keys against the authenticated key endpoint", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response(null, { status: 200 }));
@@ -43,7 +43,7 @@ describe("agent engine api-key route helpers", () => {
       validateAgentEngineProviderKey("OPENROUTER_API_KEY", "sk-or-example"),
     ).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://openrouter.ai/api/v1/models",
+      "https://openrouter.ai/api/v1/key",
       expect.objectContaining({
         headers: { Authorization: "Bearer sk-or-example" },
         signal: expect.any(AbortSignal),

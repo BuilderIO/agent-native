@@ -31,7 +31,7 @@ const BASE_URL_KEYS = new Set([
 ]);
 const OPENAI_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openai") ?? "";
 const OPENROUTER_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openrouter") ?? "";
-const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_KEY_DETAILS_URL = "https://openrouter.ai/api/v1/key";
 
 type AgentEngineApiKeyScope = "user" | "org";
 
@@ -47,7 +47,7 @@ export async function validateAgentEngineProviderKey(
   if (key !== OPENROUTER_PROVIDER_KEY) return { ok: true };
 
   try {
-    const response = await fetch(OPENROUTER_MODELS_URL, {
+    const response = await fetch(OPENROUTER_KEY_DETAILS_URL, {
       headers: { Authorization: `Bearer ${value}` },
       signal: AbortSignal.timeout(8_000),
     });
