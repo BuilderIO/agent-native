@@ -123,7 +123,6 @@ export function BuiltInFeatures() {
                           style={{
                             width: "100%",
                             aspectRatio: "104 / 75",
-                            borderRadius: "var(--b-radius)",
                             objectFit: "cover",
                             display: "block",
                           }}
