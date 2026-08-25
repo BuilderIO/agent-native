@@ -56,6 +56,7 @@ export function FeaturesActions() {
             display: "block",
             width: "100%",
             height: "auto",
+            borderLeft: "1px solid var(--b-border-subtle)",
           }}
         />
       </GridInner>
