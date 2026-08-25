@@ -9,14 +9,14 @@ import {
 export const GRID_MAX_WIDTH = 1200;
 export const GRID_COLUMNS = 3;
 
-// Fractional positions of all 4 vertical lines: left edge, 1/3, 2/3, right edge
-const LINE_POSITIONS = [0, 1 / 3, 2 / 3, 1] as const;
-
-interface GridLinesProps {
-  positions?: readonly number[];
-}
-
-function GridLines({ positions = LINE_POSITIONS }: GridLinesProps) {
+// Real border-left/border-right on real boxes, not absolutely-positioned 1px
+// background divs — sibling elements elsewhere (e.g. the logos grid) draw
+// their own edges with `border`, and two independently-computed 1px
+// background lines don't reliably land on the same device pixel as a real
+// border does, which showed up as a doubled/fuzzed line at shared edges.
+// Using `border` here too means both are resolved through the same rounding
+// path, so they align.
+function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
   return (
     <div
       aria-hidden="true"
@@ -28,23 +28,28 @@ function GridLines({ positions = LINE_POSITIONS }: GridLinesProps) {
         transform: "translateX(-50%)",
         width: "100%",
         maxWidth: GRID_MAX_WIDTH,
+        boxSizing: "border-box",
+        borderLeft: "1px solid var(--b-border-subtle)",
+        borderRight: "1px solid var(--b-border-subtle)",
         pointerEvents: "none",
         zIndex: 0,
       }}
     >
-      {positions.map((pos) => (
+      {gridLines === "all" && (
         <div
-          key={pos}
           style={{
             position: "absolute",
             top: 0,
             bottom: 0,
-            left: `${pos * 100}%`,
-            width: 1,
-            background: "var(--b-border-subtle)",
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: `${(1 / 3) * 100}%`,
+            boxSizing: "border-box",
+            borderLeft: "1px solid var(--b-border-subtle)",
+            borderRight: "1px solid var(--b-border-subtle)",
           }}
         />
-      ))}
+      )}
     </div>
   );
 }
@@ -81,11 +86,7 @@ export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
         }}
         {...rest}
       >
-        {showGrid && (
-          <GridLines
-            positions={gridLines === "edges" ? [0, 1] : LINE_POSITIONS}
-          />
-        )}
+        {showGrid && <GridLines gridLines={gridLines} />}
         {children}
       </Tag>
     );
