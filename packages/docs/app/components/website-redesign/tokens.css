@@ -214,8 +214,8 @@
 .builder-brand-tokens .logos-grid {
   display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
-  border-top: 1px solid var(--b-border-default);
-  border-bottom: 1px solid var(--b-border-default);
+  border-top: 1px solid var(--b-border-subtle);
+  border-bottom: 1px solid var(--b-border-subtle);
   border-left: 1px solid var(--b-border-subtle);
   border-right: 1px solid var(--b-border-subtle);
 }

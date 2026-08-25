@@ -108,14 +108,14 @@ export function BuiltInFeatures() {
       <GridInner>
         <div
           style={{
-            border: "1px solid var(--b-border-default)",
+            border: "1px solid var(--b-border-subtle)",
             borderTop: "none",
           }}
         >
           {PILLAR_ROWS.map((row, rowIndex) => (
             <div
               key={row.map((pillar) => pillar.title).join("-")}
-              style={{ borderTop: "1px solid var(--b-border-default)" }}
+              style={{ borderTop: "1px solid var(--b-border-subtle)" }}
             >
               <div className="pillars-grid" style={{ display: "grid" }}>
                 {row.map((pillar) => (
