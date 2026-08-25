@@ -5455,12 +5455,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: default;
 }
 
-.pill-ask-chip-field {
-  margin-right: 2px;
-  border: none;
-  background: hsl(var(--ui-popover));
-}
-
 .pill-ask-thread-caret {
   display: inline-block;
   width: 7px;
@@ -5519,8 +5513,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-inner:not(.pill-inner-compact) .pill-ask-send {
+  /* Concentric with the capsule field: 34px/2 outer radius minus the 4px
+     inset = 13px inner radius, i.e. an exact 26px circle. */
   height: 26px;
   width: 26px;
+  border-radius: 999px;
   background: hsl(var(--ui-primary));
   color: hsl(var(--ui-primary-foreground));
   transition:

@@ -220,6 +220,7 @@ pub fn run() {
             recording_indicator::recording_pill_expand,
             recording_indicator::recording_pill_hide,
             recording_indicator::recording_pill_save_position,
+            recording_indicator::recording_pill_save_expanded_size,
             recording_indicator::recording_pill_set_detached,
             // notifications
             notifications::take_pending_meeting_notification,

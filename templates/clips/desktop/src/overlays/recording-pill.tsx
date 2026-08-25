@@ -226,6 +226,24 @@ export function MeetingPill() {
     // Signal that all listeners are registered. app.tsx listens for this and
     // re-emits the pill context and transcript preload for a fresh window.
     emit("clips:pill-ready", {}).catch(() => {});
+    // Recovery: the context event is push-only, so a pill window that mounts
+    // after it fired (webview reload, popover restart) would strand in clip
+    // mode with no ask bar. Rust owns the active meeting id — ask it.
+    invoke<string | null>("get_active_meeting_id")
+      .then((meetingId) => {
+        if (!meetingId || stopped) return;
+        if (
+          ctxRef.current.mode === "meeting" &&
+          ctxRef.current.meetingId === meetingId
+        ) {
+          return;
+        }
+        const next: PillContext = { meetingId, mode: "meeting", title: null };
+        ctxRef.current = next;
+        setCtx(next);
+        activeMeetingIdRef.current = meetingId;
+      })
+      .catch(() => {});
     if (pillDemoMode) {
       ctxRef.current = {
         mode: "meeting",
@@ -516,6 +534,32 @@ export function MeetingPill() {
       closeAskSheet();
     }
   };
+
+  // Persist the user's expanded-panel size while they drag the native edge
+  // grips (the window is resizable only while expanded).
+  useEffect(() => {
+    if (pillDemoMode || !expanded) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let unlisten: (() => void) | null = null;
+    void getCurrentWindow()
+      .onResized(({ payload }) => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          void invoke("recording_pill_save_expanded_size", {
+            w: payload.width,
+            h: payload.height,
+          }).catch(() => {});
+        }, 500);
+      })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten?.();
+    };
+  }, [expanded]);
 
   // Escape closes the ask sheet before anything else.
   useEffect(() => {
@@ -823,17 +867,6 @@ export function MeetingPill() {
                   aria-label="Ask anything about this meeting"
                   disabled={!ctx.meetingId}
                 />
-                {!ask.trim() ? (
-                  <button
-                    type="button"
-                    data-no-drag
-                    className="pill-ask-chip pill-ask-chip-field"
-                    onClick={() => submitAsk("What did I miss?")}
-                    disabled={!ctx.meetingId}
-                  >
-                    What did I miss?
-                  </button>
-                ) : null}
                 <button
                   type="submit"
                   data-no-drag
