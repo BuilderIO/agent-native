@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "child_process";
+import { execFile, execFileSync, spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -1097,44 +1097,25 @@ function tryGitInitUnlessRepo(dir: string): void {
   tryGitInit(dir);
 }
 
-/** Mirrors git's `git_env_bool`: unset, empty, and the off words are false. */
-function gitEnvBool(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  return !["", "0", "false", "no", "off"].includes(value.trim().toLowerCase());
-}
-
 /**
- * Nearest ancestor of `dir` (inclusive) holding a `.git` entry, following the
- * discovery rules git itself uses.
+ * Root of the repository containing `dir`, as git itself resolves it.
  *
- * Checking only `dir` leaves `create <name>` run from inside a checkout with a
- * repo nested in another one. Copying such a scaffold into its parent — the
- * `cp -a scaffold/. .` that finishing a generated workspace usually ends with —
- * drags `.git/HEAD` along and silently moves the parent onto the scaffold's
- * branch, taking the working tree with it.
- *
- * The walk stops at a filesystem boundary because git's does. Climbing past one
- * would claim a bind-mounted or otherwise separate workspace belongs to a repo
- * git would never associate it with, leaving that scaffold with no repository
- * of its own.
+ * Matching a `.git` entry by hand looks equivalent and is not: discovery also
+ * turns on symlinked paths, filesystem boundaries, `GIT_CEILING_DIRECTORIES`
+ * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`, and getting any of them wrong in the
+ * over-eager direction silently leaves a scaffold with no repository at all.
+ * Running git is free here because the only alternative to finding a repo is
+ * shelling out to `git init` anyway.
  */
 function findEnclosingRepo(dir: string): string | undefined {
-  const crossesFilesystems = gitEnvBool(
-    process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM,
-  );
-  let current = path.resolve(dir);
-  let device = fs.statSync(current).dev;
-  for (;;) {
-    if (fs.existsSync(path.join(current, ".git"))) return current;
-    const parent = path.dirname(current);
-    if (parent === current) return undefined;
-    if (!crossesFilesystems) {
-      const parentDevice = fs.statSync(parent).dev;
-      if (parentDevice !== device) return undefined;
-      device = parentDevice;
-    }
-    current = parent;
-  }
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: dir,
+    encoding: "utf8",
+  });
+  // A non-zero exit is git answering "no work tree here". A spawn error means
+  // git is unusable, and an init attempt has nothing to add in that case.
+  if (result.error || result.status !== 0) return undefined;
+  return result.stdout.trim() || undefined;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
