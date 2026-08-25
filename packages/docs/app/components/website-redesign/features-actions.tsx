@@ -37,8 +37,8 @@ export function FeaturesActions() {
         >
           Actions are the building blocks of an Agent Native app.
           <br />
-          Define functionality once, then use it from your UI, agent chat, HTTP API, MCP, A2A, or
-          CLI.
+          Define functionality once, then use it from your UI, agent chat, HTTP
+          API, MCP, A2A, or CLI.
         </p>
       </GridInner>
 
@@ -52,6 +52,8 @@ export function FeaturesActions() {
           src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d0b04173f204f85a4f586b833478900"
           alt="One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI"
           crossOrigin="anonymous"
+          loading="lazy"
+          decoding="async"
           style={{
             display: "block",
             width: "100%",

@@ -253,6 +253,8 @@ export function TemplateShowcase() {
                       src={tab.image}
                       alt={`${tab.label} app screenshot`}
                       crossOrigin="anonymous"
+                      loading="lazy"
+                      decoding="async"
                       style={{
                         maxWidth: "100%",
                         maxHeight: "100%",

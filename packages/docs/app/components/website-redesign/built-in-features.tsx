@@ -133,6 +133,8 @@ export function BuiltInFeatures() {
                           src={pillar.image}
                           alt=""
                           crossOrigin="anonymous"
+                          loading="lazy"
+                          decoding="async"
                           style={{
                             width: "100%",
                             aspectRatio: "104 / 75",
