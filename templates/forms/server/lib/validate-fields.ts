@@ -62,6 +62,28 @@ export function normalizeFieldIds(fields: unknown): unknown {
   });
 }
 
+/**
+ * Keeps granular edits compatible with fields written before the current
+ * schema. The UI already renders unknown types as text and treats a missing
+ * required flag as false, so patch reads must make the same repair before the
+ * strict persistence check runs.
+ */
+export function normalizePersistedFields(fields: unknown): unknown {
+  if (!Array.isArray(fields)) return fields;
+  return fields.map((field) => {
+    if (field == null || typeof field !== "object" || Array.isArray(field)) {
+      return field;
+    }
+    const f = field as Record<string, unknown>;
+    return {
+      ...f,
+      type:
+        typeof f.type === "string" && FIELD_TYPES.has(f.type) ? f.type : "text",
+      required: f.required === undefined ? false : f.required,
+    };
+  });
+}
+
 export function assertValidFields(fields: unknown): void {
   if (!Array.isArray(fields)) {
     throw new Error("fields must be an array");

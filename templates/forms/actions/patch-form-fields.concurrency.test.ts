@@ -148,4 +148,25 @@ describe("patch-form-fields concurrent writes", () => {
     expect(resultA.fields).toHaveLength(2);
     expect(resultB.fields).toHaveLength(2);
   });
+
+  it("repairs legacy fields before applying a granular edit", async () => {
+    store.set("form-legacy", {
+      id: "form-legacy",
+      status: "draft",
+      fields: JSON.stringify([
+        { id: "legacy-a", type: "dropdown", label: "A" },
+        { id: "legacy-b", type: "text", label: "B" },
+      ]),
+    });
+
+    const result = await patchFormFields.run({
+      id: "form-legacy",
+      ops: [{ op: "reorder", ids: ["legacy-b", "legacy-a"] }],
+    });
+
+    expect(result.fields).toEqual([
+      { id: "legacy-b", type: "text", label: "B", required: false },
+      { id: "legacy-a", type: "text", label: "A", required: false },
+    ]);
+  });
 });

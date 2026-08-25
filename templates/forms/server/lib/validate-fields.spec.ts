@@ -4,6 +4,7 @@ import {
   assertValidFields,
   FIELD_ID_PATTERN,
   normalizeFieldIds,
+  normalizePersistedFields,
 } from "./validate-fields.js";
 
 describe("normalizeFieldIds", () => {
@@ -68,5 +69,30 @@ describe("normalizeFieldIds", () => {
     expect(() =>
       assertValidFields([{ id: "name", type: "text", label: "Name" }]),
     ).toThrow("field #1 required must be a boolean");
+  });
+});
+
+describe("normalizePersistedFields", () => {
+  it("keeps legacy granular edits compatible with the current field contract", () => {
+    const fields = normalizePersistedFields([
+      { id: "legacy", type: "dropdown", label: "Legacy" },
+      { id: "known", type: "text", label: "Known" },
+    ]) as Array<Record<string, unknown>>;
+
+    expect(fields).toEqual([
+      {
+        id: "legacy",
+        type: "text",
+        label: "Legacy",
+        required: false,
+      },
+      {
+        id: "known",
+        type: "text",
+        label: "Known",
+        required: false,
+      },
+    ]);
+    expect(() => assertValidFields(fields)).not.toThrow();
   });
 });
