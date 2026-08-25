@@ -1,13 +1,22 @@
-import { IconArrowUpRight } from "@tabler/icons-react";
-import { useState } from "react";
+import {
+  IconArrowUpRight,
+  IconPalette,
+  IconPresentation,
+  IconScissors,
+  type IconProps,
+} from "@tabler/icons-react";
+import { useState, type ComponentType } from "react";
 import { Link } from "react-router";
 
 import { TabItem } from "./ds/tab-item";
 import { GridInner, PageSection } from "./page-grid";
 
+type TablerIcon = ComponentType<IconProps>;
+
 interface ShowcaseTab {
   id: string;
   label: string;
+  icon: TablerIcon;
   body: string;
   image: string;
   href: string;
@@ -17,6 +26,7 @@ const TABS: ShowcaseTab[] = [
   {
     id: "clips",
     label: "Clips",
+    icon: IconScissors,
     body: "Give users a familiar clip editor, and let the agent transcribe, trim, and caption footage automatically.",
     image:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fab7beeb1f62548fab6e2a710d880a20c?format=webp&width=800",
@@ -25,6 +35,7 @@ const TABS: ShowcaseTab[] = [
   {
     id: "slides",
     label: "Slides",
+    icon: IconPresentation,
     body: "Build decks together — the agent drafts slides, tightens copy, and keeps every version in sync.",
     image:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b196d8d24c44914a021d1577f10879b",
@@ -33,6 +44,7 @@ const TABS: ShowcaseTab[] = [
   {
     id: "design",
     label: "Design",
+    icon: IconPalette,
     body: "Sketch flows and mini apps on a shared canvas the agent can generate, edit, and ship alongside you.",
     image:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F75026532fe204acbab72d41dbeb34305?format=webp&width=800&height=1200",
@@ -94,19 +106,33 @@ export function TemplateShowcase() {
           <div
             role="tablist"
             style={{
-              display: "flex",
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
               borderBottom: "1px solid var(--b-border-default)",
             }}
           >
-            {TABS.map((tab) => (
-              <TabItem
-                key={tab.id}
-                active={tab.id === activeId}
-                onClick={() => setActiveId(tab.id)}
-              >
-                {tab.label}
-              </TabItem>
-            ))}
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <TabItem
+                  key={tab.id}
+                  active={tab.id === activeId}
+                  onClick={() => setActiveId(tab.id)}
+                >
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    <Icon size={16} stroke={1.75} />
+                    {tab.label}
+                  </span>
+                </TabItem>
+              );
+            })}
           </div>
 
           <div style={{ display: "grid", overflow: "hidden" }}>
