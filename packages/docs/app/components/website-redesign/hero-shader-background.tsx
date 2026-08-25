@@ -179,7 +179,12 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec3 baseCol = uColor * mix(0.342857, 1.0, uDark);
   vec3 col = baseCol * m;
 
-  col *= 1. - dot(uv, uv);
+  // Clamped instead of the original raw "1. - dot(uv, uv)": this hero
+  // canvas is much wider than tall, so uv.x reaches well past +/-1 near the
+  // left/right edges, making the raw vignette go negative there and flip
+  // the color's sign instead of fading it out. Clamping keeps it fading to
+  // 0 (pure bg) instead of clipping to black.
+  col *= clamp(1. - dot(uv, uv), 0., 1.);
 
   float tt = min(iTime, 5.0);
   col *= S(0., 20., tt);
