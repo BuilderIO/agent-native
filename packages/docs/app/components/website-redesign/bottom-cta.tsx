@@ -28,6 +28,7 @@ export function BottomCta() {
           <h2
             style={{
               margin: 0,
+              maxWidth: 300,
               textAlign: "center",
               fontFamily: "var(--b-font-sans)",
               fontSize: "var(--b-t-heading-1)",
@@ -49,8 +50,8 @@ export function BottomCta() {
               color: "var(--b-text-secondary)",
             }}
           >
-            Create one application for users and AI agents. Bring your own
-            LLM and deploy anywhere.
+            Create one application for users and AI agents. Bring your own LLM
+            and deploy anywhere.
           </p>
         </div>
 
