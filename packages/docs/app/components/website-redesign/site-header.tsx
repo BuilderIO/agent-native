@@ -9,9 +9,9 @@ import {
 import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
 
-import DocsLanguagePicker from "../DocsLanguagePicker";
 import { useDocsTheme } from "../ThemeToggle";
 import { Button } from "./ds/button";
+import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
 
@@ -188,7 +188,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
         <div className="flex items-center gap-3">
           <div className="hidden items-center gap-3 lg:flex">
             <GithubStarsButton starCount={starCount} />
-            <DocsLanguagePicker />
+            <LanguagePicker />
             <ThemeIconButton />
             <AskAiIconButton />
           </div>
@@ -246,7 +246,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             }}
           >
             <GithubStarsButton starCount={starCount} />
-            <DocsLanguagePicker />
+            <LanguagePicker />
             <ThemeIconButton />
             <AskAiIconButton />
           </div>
