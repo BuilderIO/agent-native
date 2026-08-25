@@ -1,9 +1,4 @@
-import {
-  IconBrandGithub,
-  IconBrandLinkedin,
-  IconBrandX,
-  IconBrandYoutube,
-} from "@tabler/icons-react";
+import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -21,27 +16,26 @@ interface FooterColumn {
   links: FooterLink[];
 }
 
+// Only links with a real, confirmed destination belong here. Delete a link
+// rather than guessing at a route/handle that doesn't exist yet — add it back
+// once the real page or account exists (see #website-redesign Slack thread).
 const COLUMNS: FooterColumn[] = [
   {
     title: "Framework",
     links: [
       { label: "Docs", href: "/docs" },
-      { label: "Getting Started", href: "/docs" },
       { label: "Actions", href: "/docs/actions" },
-      { label: "Examples", href: "/docs/examples" },
     ],
   },
   {
     title: "Ecosystem",
     links: [
       { label: "Apps", href: "/apps" },
-      { label: "Integrations", href: "/docs/integrations" },
       {
         label: "GitHub",
         href: "https://github.com/BuilderIO/agent-native",
         external: true,
       },
-      { label: "Changelog", href: "/docs/changelog" },
     ],
   },
   {
@@ -52,18 +46,13 @@ const COLUMNS: FooterColumn[] = [
         href: "https://discord.gg/qm82StQ2NC",
         external: true,
       },
-      { label: "X", href: "https://x.com/agentnativehq", external: true },
-      { label: "Blog", href: "/blog" },
-      { label: "Contributing", href: "/docs/contributing" },
     ],
   },
   {
     title: "Legal",
     links: [
-      { label: "Security", href: "/about" },
       { label: "Privacy Policy", href: "/privacy" },
       { label: "SaaS Terms", href: "/terms" },
-      { label: "Trust Center", href: "/about" },
     ],
   },
 ];
@@ -74,24 +63,14 @@ const SOCIAL_LINKS: Array<{
   icon: ReactNode;
 }> = [
   {
-    label: "YouTube",
-    href: "https://www.youtube.com/@agentnative",
-    icon: <IconBrandYoutube size={20} stroke={1.5} />,
+    label: "Discord",
+    href: "https://discord.gg/qm82StQ2NC",
+    icon: <IconBrandDiscord size={20} stroke={1.5} />,
   },
   {
     label: "GitHub",
     href: "https://github.com/BuilderIO/agent-native",
     icon: <IconBrandGithub size={20} stroke={1.5} />,
-  },
-  {
-    label: "X",
-    href: "https://x.com/agentnativehq",
-    icon: <IconBrandX size={20} stroke={1.5} />,
-  },
-  {
-    label: "LinkedIn",
-    href: "https://www.linkedin.com/company/agent-native",
-    icon: <IconBrandLinkedin size={20} stroke={1.5} />,
   },
 ];
 
