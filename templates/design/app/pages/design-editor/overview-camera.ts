@@ -2,7 +2,6 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import {
   CANVAS_FIT_PADDING_PX,
   DEFAULT_CANVAS_MAX_ZOOM,
-  DEFAULT_CANVAS_MIN_FIT_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
   getCameraForBounds,
   getFrameGroupBounds,
@@ -172,7 +171,7 @@ export function computeFitCameraForFrames(
   if (!bounds) return null;
   return getCameraForBounds(bounds, viewport, {
     paddingScreenPx: options?.paddingScreenPx ?? CANVAS_FIT_PADDING_PX,
-    minZoom: DEFAULT_CANVAS_MIN_FIT_ZOOM,
+    minZoom: DEFAULT_CANVAS_MIN_ZOOM,
     maxZoom: DEFAULT_CANVAS_MAX_ZOOM,
     fallbackZoom: 100,
   });

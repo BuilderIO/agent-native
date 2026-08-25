@@ -17,8 +17,10 @@ export const zoomBridgeScript: string = `"use strict";
             deltaY: e.deltaY,
             clientX: e.clientX,
             clientY: e.clientY,
-            // The parent classifies wheel vs trackpad pinch from these; dropping
-            // them puts every pinch on the discrete-notch curve.
+            // The parent classifies and scales from these three. Dropping the
+            // modifiers puts every pinch on the notch curve; dropping the mode
+            // makes a Firefox line tick read as 3px of travel.
+            deltaMode: e.deltaMode,
             ctrlKey: !!e.ctrlKey,
             metaKey: !!e.metaKey
           },

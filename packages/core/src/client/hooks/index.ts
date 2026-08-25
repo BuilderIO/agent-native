@@ -60,6 +60,7 @@ export {
 export { usePinchZoom, type UsePinchZoomOptions } from "../use-pinch-zoom.js";
 export {
   isPinchZoomDelta,
+  normalizeWheelDeltaPx,
   resolveZoomGestureDevice,
   MAX_PINCH_DELTA_PX,
   ZOOM_GESTURE_IDLE_RESET_MS,

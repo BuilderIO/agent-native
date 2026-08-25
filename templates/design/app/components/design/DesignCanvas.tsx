@@ -7,6 +7,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { type ReviewThread } from "@agent-native/core/client/review";
 import {
   clampZoomFactor,
+  normalizeWheelDeltaPx,
   resolveZoomGestureDevice,
   zoomFactorForWheelDelta,
   type ZoomGestureDevice,
@@ -3185,9 +3186,11 @@ export function DesignCanvas({
         // A synthetic WheelEvent cannot reliably reach usePinchZoom's listener,
         // so this path computes the factor itself — from the same module, never
         // re-derived by hand, or the two curves drift apart again.
+        const forwardedMode = Number(e.data.deltaMode);
+        const deltaMode = Number.isFinite(forwardedMode) ? forwardedMode : 0;
         pinchZoomDeviceRef.current = resolveZoomGestureDevice({
           deltaY: rawDeltaY,
-          deltaMode: 0,
+          deltaMode,
           ctrlKey: Boolean(e.data.ctrlKey),
           metaKey: Boolean(e.data.metaKey),
           atMs: performance.now(),
@@ -3195,7 +3198,10 @@ export function DesignCanvas({
         });
         const currentZoom = zoomRef.current;
         const factor = clampZoomFactor(
-          zoomFactorForWheelDelta(rawDeltaY, pinchZoomDeviceRef.current.pinch),
+          zoomFactorForWheelDelta(
+            normalizeWheelDeltaPx(rawDeltaY, deltaMode),
+            pinchZoomDeviceRef.current.pinch,
+          ),
         );
         const nextZoom = Math.max(
           DEFAULT_CANVAS_MIN_ZOOM,

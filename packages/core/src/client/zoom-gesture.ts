@@ -72,6 +72,27 @@ export const PINCH_ZOOM_SENSITIVITY = 0.0075;
 /** Ceiling on a single frame's zoom change, in either direction. */
 export const MAX_ZOOM_FACTOR_PER_FRAME = 1.6;
 
+/** Pixels one `DOM_DELTA_LINE` step stands for. */
+export const WHEEL_LINE_HEIGHT_PX = 16;
+/** Pixels one `DOM_DELTA_PAGE` step stands for. */
+export const WHEEL_PAGE_HEIGHT_PX = 800;
+
+/**
+ * Convert a delta to pixels. The curves below are calibrated in pixels, so a
+ * Firefox line-mode tick of 3 is a full notch, not 3px of travel. Classify
+ * with the RAW delta and its real mode — normalising first would push a line
+ * tick into the pinch band.
+ */
+export function normalizeWheelDeltaPx(
+  delta: number,
+  deltaMode: number,
+): number {
+  if (!Number.isFinite(delta)) return 0;
+  if (deltaMode === 1) return delta * WHEEL_LINE_HEIGHT_PX;
+  if (deltaMode === 2) return delta * WHEEL_PAGE_HEIGHT_PX;
+  return delta;
+}
+
 /** Unclamped zoom multiplier for a wheel/pinch delta. Negative delta (scroll
  *  up / pinch open) zooms in, matching the browser's wheel convention. */
 export function zoomFactorForWheelDelta(

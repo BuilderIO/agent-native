@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import {
   clampZoomFactor,
+  normalizeWheelDeltaPx,
   resolveZoomGestureDevice,
   zoomFactorForWheelDelta,
   type ZoomGestureDevice,
@@ -125,7 +126,10 @@ export function usePinchZoom({
       // each computing off the last-committed React state.
       const currentZoom = pendingZoom ?? zoomRef.current;
       const factor = clampZoomFactor(
-        zoomFactorForWheelDelta(e.deltaY, gestureDevice.pinch),
+        zoomFactorForWheelDelta(
+          normalizeWheelDeltaPx(e.deltaY, e.deltaMode),
+          gestureDevice.pinch,
+        ),
       );
       const nextZoom = clamp(currentZoom * factor);
 

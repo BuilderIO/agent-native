@@ -6,7 +6,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   CANVAS_FIT_PADDING_PX,
   DEFAULT_CANVAS_MAX_ZOOM,
-  DEFAULT_CANVAS_MIN_FIT_ZOOM,
+  DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
   canvasToScreenPoint,
@@ -180,7 +180,7 @@ const EMPTY_SCREEN_IDS: readonly string[] = [];
 // redeclared locally and drifting from the shared constant.
 const MIN_ZOOM = DEFAULT_CANVAS_MIN_ZOOM;
 const MAX_ZOOM = DEFAULT_CANVAS_MAX_ZOOM;
-const MIN_FIT_ZOOM = DEFAULT_CANVAS_MIN_FIT_ZOOM;
+const AUTOFIT_MIN_ZOOM = DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM;
 // Must match embedded-wheel.bridge.ts's payload bound, or every fast swipe
 // arriving over a screen loses its tail to the tighter of the two clamps.
 const MAX_WHEEL_PAN_DELTA = 240;
@@ -386,6 +386,7 @@ import { vectorEditCanvasToLocalPoint } from "./multi-screen/vector-edit-geometr
 import {
   accumulateZoomFactor,
   clampZoomFactor,
+  normalizeWheelDeltaPx,
   resolveExternalZoomAnchor,
   resolveZoomGestureDevice,
   type ZoomGestureDevice,
@@ -1667,7 +1668,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const boundsTop = bounds?.top ?? 0;
     // Leave a Figma-like board gutter beside the last frame for quick drops/draws,
     // and fit tall single frames so lower canvas interactions remain reachable.
-    const minFitScale = MIN_FIT_ZOOM / 100;
+    const minFitScale = AUTOFIT_MIN_ZOOM / 100;
     const widthFitScale =
       renderedScreens.length > 1 && totalWidth > 0
         ? Math.max(minFitScale, (rect.width - 180) / totalWidth)
@@ -7079,7 +7080,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           // inside the padded world. Include that shared origin so fitting a
           // small drawn/preset frame actually centers its painted card.
           canvasPadding: SURFACE_PADDING,
-          minZoom: MIN_FIT_ZOOM,
+          minZoom: MIN_ZOOM,
           maxZoom: MAX_ZOOM,
           fallbackZoom: zoomRef.current,
         },
@@ -11612,10 +11613,9 @@ function getWheelDeltaFromValues(
   deltaY: number,
   deltaMode: number,
 ) {
-  const multiplier = deltaMode === 1 ? 16 : deltaMode === 2 ? 800 : 1;
   return {
-    x: deltaX * multiplier,
-    y: deltaY * multiplier,
+    x: normalizeWheelDeltaPx(deltaX, deltaMode),
+    y: normalizeWheelDeltaPx(deltaY, deltaMode),
   };
 }
 

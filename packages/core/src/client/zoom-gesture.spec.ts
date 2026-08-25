@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clampZoomFactor,
   isPinchZoomDelta,
+  normalizeWheelDeltaPx,
   resolveZoomGestureDevice,
+  WHEEL_LINE_HEIGHT_PX,
   ZOOM_GESTURE_IDLE_RESET_MS,
+  ZOOM_STEP_PER_NOTCH,
+  zoomFactorForWheelDelta,
 } from "./zoom-gesture.js";
 
 describe("isPinchZoomDelta", () => {
@@ -148,5 +153,47 @@ describe("resolveZoomGestureDevice", () => {
       previous: null,
     });
     expect(Number.isFinite(device.lastEventAtMs)).toBe(true);
+  });
+});
+
+describe("normalizeWheelDeltaPx", () => {
+  it("leaves a pixel-mode delta alone", () => {
+    expect(normalizeWheelDeltaPx(-100, 0)).toBe(-100);
+  });
+
+  it("scales a line-mode tick to a notch-sized travel", () => {
+    // Firefox reports a wheel notch as deltaY 3 in line mode. Feeding that raw
+    // into a pixel-calibrated curve moves zoom by 1.1^0.03 — visibly nothing.
+    const px = normalizeWheelDeltaPx(-3, 1);
+    expect(px).toBe(-3 * WHEEL_LINE_HEIGHT_PX);
+    const factor = clampZoomFactor(zoomFactorForWheelDelta(px, false));
+    expect(factor).toBeCloseTo(Math.pow(ZOOM_STEP_PER_NOTCH, 48 / 100), 6);
+    // The raw delta would have moved zoom by well under a percent.
+    expect(clampZoomFactor(zoomFactorForWheelDelta(-3, false))).toBeLessThan(
+      1.01,
+    );
+  });
+
+  it("scales a page-mode tick", () => {
+    expect(normalizeWheelDeltaPx(-1, 2)).toBe(-800);
+  });
+
+  it("returns zero for a non-finite delta rather than NaN", () => {
+    expect(normalizeWheelDeltaPx(Number.NaN, 0)).toBe(0);
+  });
+
+  it("classifies from the raw delta, never the normalized one", () => {
+    // A line tick normalizes to 16px, which sits inside the pinch band —
+    // classifying after normalizing would put a mouse wheel on the pinch curve.
+    const device = resolveZoomGestureDevice({
+      deltaY: -1,
+      deltaMode: 1,
+      ctrlKey: true,
+      metaKey: false,
+      atMs: 0,
+      previous: null,
+    });
+    expect(device.pinch).toBe(false);
+    expect(isPinchZoomDelta(normalizeWheelDeltaPx(-1, 1))).toBe(true);
   });
 });

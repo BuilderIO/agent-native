@@ -12,6 +12,7 @@ export {
   MAX_PINCH_DELTA_PX,
   MAX_ZOOM_FACTOR_PER_FRAME,
   MOUSE_WHEEL_NOTCH_PX,
+  normalizeWheelDeltaPx,
   PINCH_ZOOM_SENSITIVITY,
   resolveZoomGestureDevice,
   ZOOM_GESTURE_IDLE_RESET_MS,

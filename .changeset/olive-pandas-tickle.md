@@ -18,3 +18,9 @@ classification and curves (`resolveZoomGestureDevice`, `zoomFactorForWheelDelta`
 `preventDefault` on wheel and touch-pinch is now guarded by `event.cancelable`,
 which stops the browser Intervention warning Chrome logs per event during a
 fling.
+
+Line- and page-mode wheel deltas are converted to pixels before the curve is
+applied. The curve is calibrated in pixels, so a Firefox line-mode notch
+(`deltaY: 3`) was being read as three pixels of travel and moved zoom by well
+under a percent. Classification still reads the raw delta and its real mode —
+normalising first would push a line tick into the trackpad band.
