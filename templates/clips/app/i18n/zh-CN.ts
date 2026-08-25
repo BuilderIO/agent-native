@@ -140,6 +140,7 @@ const messages = {
     recordingNotFound: "找不到录制",
     noAccess: "您可能无权访问此剪辑。",
     backToLibrary: "返回资料库",
+    sharedWithYou: "与你共享",
     storageStillDisconnected: "存储仍未连接",
     finishBuilderOrS3: "完成 Builder.io 弹出窗口或配置 S3 存储，然后重试。",
     loomImportResumed: "Loom 导入已恢复",
