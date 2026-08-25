@@ -470,8 +470,7 @@ const messages = {
     copyAgentPrompt: "複製 Agent 提示",
     agentPrompt:
       "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",
-    agentTokenDescription:
-      "這個臨時 Agent URL 可讓 Agent 讀取剪輯，而不必將其設為公開。它會在兩小時後過期。",
+    agentTokenDescription: "供 Agent 使用的臨時唯讀連結。2 小時後過期。",
     agentLinkUnavailable: "無法建立 Agent 連結。",
     retryAgentLink: "重試",
     gifPreview: "GIF 預覽",
@@ -497,12 +496,14 @@ const messages = {
     startAt: "開始時間（秒）",
     startAtTimestamp: "從 {{time}} 開始",
     embedCode: "嵌入程式碼",
+    copyEmbedCode: "複製嵌入程式碼",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
   },
   shareUi: {
     owner: "擁有者： {{email}}",
     copy: "複製",
+    copied: "已複製",
     copyLink: "複製連結",
     addPeopleByEmail: "透過電子郵件新增人員",
     invite: "邀請",

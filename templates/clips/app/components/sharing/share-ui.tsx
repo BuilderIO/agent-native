@@ -6,6 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
+  IconCheck,
   IconChevronDown,
   IconLink,
   IconLock,
@@ -106,9 +107,21 @@ const NESTED_LAYER_SELECTOR = [
   "[data-sonner-toaster]",
 ].join(",");
 
-function isNestedLayerTarget(target: EventTarget | null): boolean {
+const OPEN_NESTED_LAYER_SELECTOR = [
+  "[data-radix-menu-content][data-state='open']",
+  "[role='listbox'][data-state='open']",
+].join(",");
+
+function isNestedLayerInteraction(target: EventTarget | null): boolean {
+  if (target instanceof Element && target.closest(NESTED_LAYER_SELECTOR)) {
+    return true;
+  }
+  // Radix blocks body pointer events while a select/menu is open, so a click
+  // meant to close it resolves to the document rather than the element under
+  // the cursor. That interaction belongs to the nested layer, not the popover.
   return (
-    target instanceof Element && target.closest(NESTED_LAYER_SELECTOR) !== null
+    typeof document !== "undefined" &&
+    document.querySelector(OPEN_NESTED_LAYER_SELECTOR) !== null
   );
 }
 
@@ -125,12 +138,12 @@ export function nestedLayerDismissGuards(): {
 } {
   return {
     onPointerDownOutside: (event) => {
-      if (isNestedLayerTarget(event.detail.originalEvent.target)) {
+      if (isNestedLayerInteraction(event.detail.originalEvent.target)) {
         event.preventDefault();
       }
     },
     onFocusOutside: (event) => {
-      if (isNestedLayerTarget(event.detail.originalEvent.target)) {
+      if (isNestedLayerInteraction(event.detail.originalEvent.target)) {
         event.preventDefault();
       }
     },
@@ -249,10 +262,23 @@ export function CopyButton({
       variant={variant}
       disabled={disabled || !value}
       onClick={() => void handleClick()}
-      className={cn("gap-2", className)}
+      className={cn("relative", className)}
     >
-      <IconLink size={16} aria-hidden />
-      {copied ? (copiedLabel ?? t("recordRoute.linkCopied")) : children}
+      {/* The idle label always occupies the button so the confirmation state
+          doesn't resize it; the confirmation is centered on top. */}
+      <span
+        className={cn("flex items-center gap-2", copied && "invisible")}
+        aria-hidden={copied}
+      >
+        <IconLink size={16} aria-hidden />
+        {children}
+      </span>
+      {copied ? (
+        <span className="absolute inset-0 flex items-center justify-center gap-2">
+          <IconCheck size={16} aria-hidden className="text-success" />
+          {copiedLabel ?? t("shareUi.copied")}
+        </span>
+      ) : null}
     </Button>
   );
 }
@@ -268,7 +294,9 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
     return (
       <span
         aria-hidden
-        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+        // Muted reads darker than the surface in light mode, background does
+        // the same in dark mode, so the chip stays subtly recessed in both.
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground dark:bg-background"
       >
         <IconUsersGroup size={14} strokeWidth={1.75} />
       </span>
@@ -278,7 +306,7 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
   return (
     <UserAvatar ref={avatarRef} className="h-7 w-7 shrink-0">
       {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
-      <UserAvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground">
+      <UserAvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground dark:bg-background">
         {(label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()}
       </UserAvatarFallback>
     </UserAvatar>
@@ -321,13 +349,11 @@ export function AccessAccordionRow({
   );
 
   // With nothing to reveal, stay a static row rather than offer a chevron and
-  // hover affordance that expand into an empty panel. The spacer keeps the
-  // trailing text aligned with rows that do have a chevron.
+  // hover affordance that expand into an empty panel.
   if (!children) {
     return (
       <div className="flex w-full items-center gap-3 px-1 py-1.5">
         {summary}
-        <span aria-hidden className="h-4 w-4 shrink-0" />
       </div>
     );
   }
@@ -339,13 +365,17 @@ export function AccessAccordionRow({
         className="flex w-full cursor-pointer items-center gap-3 rounded-md px-1 py-1.5 text-start transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
       >
         {summary}
-        <IconChevronDown
-          aria-hidden
-          className={cn(
-            "h-4 w-4 shrink-0 opacity-50 transition-transform",
-            open && "rotate-180",
-          )}
-        />
+        {/* Sized like the row-level remove button so both trailing icons
+            share the same optical center. */}
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+          <IconChevronDown
+            aria-hidden
+            className={cn(
+              "h-4 w-4 opacity-50 transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </span>
       </CollapsibleTrigger>
       <CollapsibleContent className="clips-collapsible-content">
         <div className="pt-1">{children}</div>
@@ -395,7 +425,9 @@ export function GeneralAccessSelect({
           shared trigger applies line-clamp to every direct span child. */}
       <SelectTrigger
         aria-label={t("shareUi.selectAccess")}
-        className="h-auto w-full cursor-pointer justify-start gap-3 rounded-md border-0 bg-transparent px-1 py-1.5 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start"
+        // The caret's trailing margin lines it up with the accordion row's
+        // caret, which sits inside a 28px box.
+        className="h-auto w-full cursor-pointer justify-start gap-3 rounded-md border-0 bg-transparent px-1 py-1.5 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start [&>svg:last-child]:me-1.5"
       >
         <meta.Icon
           aria-hidden
@@ -680,7 +712,7 @@ export function PeopleAccessSettingsBody({
       {shares.map((s) => (
         <li
           key={`${s.principalType}:${s.principalId}`}
-          className="flex items-center gap-2 px-1 py-1.5 text-sm"
+          className="flex items-center gap-3 px-1 py-1.5 text-sm"
         >
           <Avatar label={s.principalId} org={s.principalType === "org"} />
           <span className="min-w-0 flex-1 truncate">{s.principalId}</span>
@@ -689,7 +721,7 @@ export function PeopleAccessSettingsBody({
               value={s.role}
               onValueChange={(v) => handleRoleChange(s, v as Role)}
             >
-              <SelectTrigger className="h-8 w-auto shrink-0 border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none focus:ring-0">
+              <SelectTrigger className="h-8 w-auto shrink-0 gap-1 border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none focus:ring-0">
                 <SelectValue>{getRoleLabel(s.role)}</SelectValue>
               </SelectTrigger>
               <SelectContent align="end">
@@ -712,7 +744,7 @@ export function PeopleAccessSettingsBody({
               size="icon"
               aria-label={t("shareUi.remove")}
               onClick={() => handleRemove(s)}
-              className="h-7 w-7 shrink-0"
+              className="h-7 w-7 shrink-0 text-muted-foreground"
             >
               <IconTrash size={14} />
             </Button>

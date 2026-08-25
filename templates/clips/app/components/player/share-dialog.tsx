@@ -559,7 +559,7 @@ function LinkTab({
 
       {canViewShares ? (
         visibility ? (
-          <div className="space-y-2">
+          <div className="space-y-2 pt-2">
             <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
             <div className="flex flex-col gap-1">
               <PeopleAccessSection
@@ -621,7 +621,11 @@ function LinkTab({
         {moreMenuItems.length > 0 ? (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" className="ms-auto gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                className="ms-auto gap-3 px-3"
+              >
                 {t("shareDialog.more")}
                 <IconChevronDown className="h-4 w-4 opacity-50" />
               </Button>
@@ -830,6 +834,9 @@ function ClipsEmbedConfigurator({
           value={code}
           className="w-full h-20 px-3 py-2 text-xs font-mono rounded-md border border-input bg-background resize-none"
         />
+        <CopyButton value={code} className="mt-2">
+          {t("shareDialog.copyEmbedCode")}
+        </CopyButton>
       </div>
     </div>
   );

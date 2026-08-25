@@ -492,7 +492,7 @@ const messages = {
     agentPrompt:
       "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
     agentTokenDescription:
-      "This temporary agent URL lets agents read the clip without making it public. It expires after two hours.",
+      "Temporary read-only link for agents. Expires in 2 hours.",
     agentLinkUnavailable: "Couldn't create the agent link.",
     retryAgentLink: "Retry",
     gifPreview: "GIF preview",
@@ -518,11 +518,13 @@ const messages = {
     startAt: "Start at (seconds)",
     startAtTimestamp: "Start at {{time}}",
     embedCode: "Embed code",
+    copyEmbedCode: "Copy embed code",
     more: "More",
   },
   shareUi: {
     owner: "Owner: {{email}}",
     copy: "Copy",
+    copied: "Copied",
     copyLink: "Copy Link",
     addPeopleByEmail: "Add people by email",
     invite: "Invite",

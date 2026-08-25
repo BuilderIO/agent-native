@@ -495,7 +495,7 @@ const messages = {
     agentPrompt:
       "이 Clips 에이전트 컨텍스트 URL을 가져오세요: {{agentContextUrl}}. 말한 내용의 맥락은 transcript.segments를 사용하고, 화면을 보기 위해 recommendedFrames 또는 프레임 API URL을 가져오며, browserDiagnostics가 있으면 수정된 콘솔 로그와 fetch/XHR 요청 메타데이터를 확인하세요.",
     agentTokenDescription:
-      "이 임시 에이전트 URL을 사용하면 클립을 공개하지 않고도 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
+      "에이전트용 임시 읽기 전용 링크입니다. 2시간 후 만료됩니다.",
     agentLinkUnavailable: "에이전트 링크를 만들 수 없습니다.",
     retryAgentLink: "다시 시도",
     gifPreview: "GIF 미리보기",
@@ -521,12 +521,14 @@ const messages = {
     startAt: "(초)에 시작",
     startAtTimestamp: "{{time}}부터 시작",
     embedCode: "임베드 코드",
+    copyEmbedCode: "임베드 코드 복사",
     more: "더 보기",
     sharePlainTitle: "{{title}} 공유",
   },
   shareUi: {
     owner: "소유자: {{email}}",
     copy: "복사",
+    copied: "복사됨",
     copyLink: "링크 복사",
     addPeopleByEmail: "이메일로 사람 추가",
     invite: "초대",

@@ -512,7 +512,7 @@ const messages = {
     agentPrompt:
       "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
     agentTokenDescription:
-      "Diese temporare Agent-URL lasst Agenten den Clip lesen, ohne ihn offentlich zu machen. Sie lauft nach zwei Stunden ab.",
+      "Temporärer Nur-Lese-Link für Agenten. Läuft in 2 Stunden ab.",
     agentLinkUnavailable: "Agent-Link konnte nicht erstellt werden.",
     retryAgentLink: "Erneut versuchen",
     gifPreview: "GIF-Vorschau",
@@ -538,12 +538,14 @@ const messages = {
     startAt: "Beginnen bei (Sekunden)",
     startAtTimestamp: "Bei {{time}} starten",
     embedCode: "Einbettungscode",
+    copyEmbedCode: "Einbettungscode kopieren",
     more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
     copy: "Kopie",
+    copied: "Kopiert",
     copyLink: "Link kopieren",
     addPeopleByEmail: "Personen per E-Mail hinzufügen",
     invite: "Einladen",
