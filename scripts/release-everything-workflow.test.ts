@@ -24,7 +24,7 @@ describe("release everything workflow", () => {
   it("runs a DST-aware Monday-Thursday noon Pacific patch release", () => {
     assert.equal(workflow.name, "🚀 Release everything");
     assert.deepEqual(schedules, [
-      { cron: "17 12 * * 1-4", timezone: "America/Los_Angeles" },
+      { cron: "0 12 * * 1-4", timezone: "America/Los_Angeles" },
     ]);
     assert.match(
       String((job.env as Workflow).RELEASE_TYPE),
