@@ -83,6 +83,18 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+/**
+ * True when a ranged request came back as a whole-file `200` for a nonzero
+ * start, meaning the origin ignored `Range`. A `200` to a request starting at
+ * byte 0 is just the whole asset, which lines up fine.
+ */
+export function rangeWasIgnored(
+  status: number,
+  requestedStart: number,
+): boolean {
+  return status === 200 && requestedStart > 0;
+}
+
 export class MseVideoLoader {
   readonly objectUrl: string;
 
@@ -111,6 +123,13 @@ export class MseVideoLoader {
   private anchors: ByteTimeMap | null = null;
   /** Seek target waiting to be resolved by the pump, in seconds. */
   private pendingSeek: number | null = null;
+  /**
+   * Bumped on every `seeking` event, including one whose target is already
+   * buffered. A resolve in flight for an older target must not be allowed to
+   * finish and repoint the download cursor: the playhead has moved on, so the
+   * cursor would end up filling a region the playhead never reaches.
+   */
+  private seekGeneration = 0;
   /** Target of the realigns counted by `realignAttempts`. */
   private realignTarget: number | null = null;
   private realignAttempts = 0;
@@ -285,7 +304,16 @@ export class MseVideoLoader {
   private onSeeking = (): void => {
     if (this.destroyed || !this.initAppended) return;
     const target = this.video.currentTime;
-    if (this.isBuffered(target)) return; // already have this position
+    // Invalidate first, and for every seek: a target that is already buffered
+    // needs no resolve of its own, but it still has to cancel one in flight.
+    this.seekGeneration++;
+    if (this.isBuffered(target)) {
+      this.pendingSeek = null;
+      // Let the pump re-check whether its download cursor still feeds this
+      // playhead; the buffered range it landed in may not be the one growing.
+      this.schedulePump();
+      return;
+    }
 
     // Abort any in-flight sequential fetch so we can jump.
     this.currentFetch?.abort();
@@ -360,10 +388,10 @@ export class MseVideoLoader {
           break;
         }
 
-        // We are appending media the playhead can never reach. Downloading
-        // further forward only widens the gap, so realign to the playhead
-        // instead of quietly streaming to EOF behind a spinner.
-        if (this.appendedPastPlayhead()) {
+        // We are filling media the playhead cannot reach. Downloading further
+        // only widens the gap, so realign to the playhead instead of quietly
+        // streaming to EOF behind a spinner.
+        if (this.downloadIsDisjoint()) {
           if (this.requestRealign(this.video.currentTime)) continue;
           break;
         }
@@ -508,6 +536,7 @@ export class MseVideoLoader {
    * Returns false when the pump should stop (destroyed, or reported fatal).
    */
   private async seekToTime(target: number): Promise<boolean> {
+    const generation = this.seekGeneration;
     let resolution;
     try {
       resolution = await resolveSeekFragment({
@@ -518,7 +547,10 @@ export class MseVideoLoader {
         acceptUndershootSeconds: SEEK_ACCEPT_UNDERSHOOT_SECONDS,
         estimate: () => this.estimateByteOffset(target),
         probe: (startByte) => this.probeFragmentAt(startByte),
-        superseded: () => this.destroyed || this.pendingSeek !== null,
+        superseded: () =>
+          this.destroyed ||
+          this.pendingSeek !== null ||
+          this.seekGeneration !== generation,
       });
     } catch (err) {
       if (isAbortError(err)) return !this.destroyed; // superseded by a new seek
@@ -526,7 +558,11 @@ export class MseVideoLoader {
     }
     if (this.destroyed) return false;
     // A newer seek arrived; the pump loop picks it up on the next iteration.
-    if (resolution.superseded) return true;
+    // Checked again here because the resolve may have completed in the same
+    // tick the new seek arrived — appending now would aim the download cursor
+    // at a target the viewer has already left.
+    if (resolution.superseded || this.seekGeneration !== generation)
+      return true;
 
     const chosen = resolution.chosen;
     if (!chosen) {
@@ -562,14 +598,34 @@ export class MseVideoLoader {
   }
 
   /**
-   * True when the last fragment we appended starts after the playhead and the
-   * playhead itself is unbuffered — the state where downloading further ahead
-   * can only widen the gap the element is stuck behind.
+   * True when the download cursor is filling media the playhead cannot reach:
+   * either the playhead has nothing buffered at all, or it sits in a range that
+   * we are not extending, so that range will run out with nothing behind it.
+   *
+   * Checking only "playhead unbuffered" is not enough. After a seek back into
+   * an already-buffered stretch, the playhead is buffered while the cursor is
+   * still filling somewhere else entirely — playback then runs to the end of
+   * its own range and stops, which looks exactly like the stall this loader
+   * exists to prevent.
    */
-  private appendedPastPlayhead(): boolean {
+  private downloadIsDisjoint(): boolean {
     if (this.lastAppendSec === null) return false;
     const t = this.video.currentTime;
-    return this.lastAppendSec > t + 0.25 && !this.isBuffered(t);
+    const end = this.bufferedEndAt(t);
+    if (end === null) return true; // nothing buffered at the playhead
+    return this.lastAppendSec > end + 1;
+  }
+
+  /** End of the buffered range containing `time`, or null when unbuffered. */
+  private bufferedEndAt(time: number): number | null {
+    const buffered = this.sourceBuffer?.buffered;
+    if (!buffered) return null;
+    for (let i = 0; i < buffered.length; i++) {
+      if (time >= buffered.start(i) - 0.25 && time <= buffered.end(i)) {
+        return buffered.end(i);
+      }
+    }
+    return null;
   }
 
   /**
@@ -746,6 +802,15 @@ export class MseVideoLoader {
     if (!res.ok) {
       throw new Error(`Range request failed: ${res.status}`);
     }
+    if (rangeWasIgnored(res.status, start)) {
+      // A 200 to a ranged request is the whole file, so its bytes start at 0 —
+      // not at `start`. Reading it as though they lined up files every anchor
+      // and the resume offset under the wrong byte position, poisoning later
+      // seeks. An origin that ignores Range also defeats the point of this
+      // loader (each 2MB window would pull the entire asset), so hand back to
+      // the native pipeline instead of trying to compensate.
+      throw new Error("Origin ignored the Range header; cannot stream windows");
+    }
     // If the backing file shrank mid-response (ERR_CONTENT_LENGTH_MISMATCH),
     // arrayBuffer() throws here, which also routes through fail() -> onFatal.
     const buffer = await res.arrayBuffer();
@@ -761,8 +826,8 @@ export class MseVideoLoader {
     }
 
     const requested = end - start + 1;
-    // A 200 (server ignored Range) or a short 206 both mean this response ran to
-    // the end of the asset.
+    // A 200 (only reachable from a start of 0, per the guard above, so it is
+    // the whole asset) or a short 206 both mean this response ran to the end.
     const eof =
       res.status === 200 ||
       bytes.byteLength < requested ||
