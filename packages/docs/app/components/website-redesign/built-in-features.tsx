@@ -11,18 +11,24 @@ const PILLAR_ROWS: Pillar[][] = [
   [
     {
       title: "React UI",
-      description: "Give users familiar screens for browsing, editing, and reviewing work.",
-      image: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F30ea21dfcd2445678458fb256063a794",
+      description:
+        "Give users familiar screens for browsing, editing, and reviewing work.",
+      image:
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F30ea21dfcd2445678458fb256063a794",
     },
     {
       title: "Embedded agent chat",
-      description: "Let users delegate work, ask questions, and review results without leaving the app.",
-      image: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F08e92cf529774b4e9f46f3ce41ed3509",
+      description:
+        "Let users delegate work, ask questions, and review results without leaving the app.",
+      image:
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F08e92cf529774b4e9f46f3ce41ed3509",
     },
     {
       title: "Shared application state",
-      description: "The agent knows what users are viewing, selecting, and editing.",
-      image: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fae66a78a3f6b42ae91b70007d2737d59",
+      description:
+        "The agent knows what users are viewing, selecting, and editing.",
+      image:
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fae66a78a3f6b42ae91b70007d2737d59",
     },
   ],
   [
@@ -36,21 +42,25 @@ const PILLAR_ROWS: Pillar[][] = [
     },
     {
       title: "Automations",
-      description: "Run agent work automatically on schedules or application events.",
+      description:
+        "Run agent work automatically on schedules or application events.",
     },
   ],
   [
     {
       title: "Agent teams",
-      description: "Delegate work to specialist agents within the app or across apps.",
+      description:
+        "Delegate work to specialist agents within the app or across apps.",
     },
     {
       title: "Authentication and organizations",
-      description: "Sign-in, user accounts, and organization membership are built in.",
+      description:
+        "Sign-in, user accounts, and organization membership are built in.",
     },
     {
       title: "Sharing and permissions",
-      description: "Control who can view, comment, edit, or manage every resource.",
+      description:
+        "Control who can view, comment, edit, or manage every resource.",
     },
   ],
 ];
@@ -90,29 +100,32 @@ export function BuiltInFeatures() {
             color: "var(--b-text-secondary)",
           }}
         >
-          Everything users and AI agents need to work together, already wired into one
-          application.
+          Everything users and AI agents need to work together, already wired
+          into one application.
         </p>
       </GridInner>
 
       <GridInner>
-        <div style={{ border: "1px solid var(--b-border-default)", borderTop: "none" }}>
+        <div
+          style={{
+            border: "1px solid var(--b-border-default)",
+            borderTop: "none",
+          }}
+        >
           {PILLAR_ROWS.map((row, rowIndex) => (
             <div
               key={row.map((pillar) => pillar.title).join("-")}
               style={{ borderTop: "1px solid var(--b-border-default)" }}
             >
-              <div
-                className="pillars-grid"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                }}
-              >
+              <div className="pillars-grid" style={{ display: "grid" }}>
                 {row.map((pillar) => (
                   <div
                     key={pillar.title}
-                    style={{ display: "flex", flexDirection: "column", background: "var(--b-bg-page)" }}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      background: "var(--b-bg-page)",
+                    }}
                   >
                     {rowIndex === 0 &&
                       (pillar.image ? (
