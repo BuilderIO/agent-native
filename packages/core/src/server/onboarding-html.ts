@@ -3118,6 +3118,7 @@ ${identitySsoScript}
     var __anOAuthPopupCloseGraceMs = 5000;
     var __anNativeOAuthFlowId = null;
     var __anNativeOAuthRequestPending = false;
+    var __anNativeOAuthReturnObserved = false;
     var __anNativeOAuthAbandonGraceTimer = null;
     var __anNativeOAuthAbandonGraceMs = 5000;
     var __anOAuthPollCount = 0;
@@ -3200,11 +3201,13 @@ ${identitySsoScript}
         clearTimeout(__anNativeOAuthAbandonGraceTimer);
         __anNativeOAuthAbandonGraceTimer = null;
       }
+      __anNativeOAuthReturnObserved = false;
     }
     function __anBeginNativeOAuth(flowId) {
       __anStopNativeOAuthAbandonment();
       __anNativeOAuthFlowId = flowId;
       __anNativeOAuthRequestPending = true;
+      __anNativeOAuthReturnObserved = false;
     }
     function __anMarkNativeOAuthPolling(flowId) {
       if (__anNativeOAuthFlowId !== flowId) return;
@@ -3231,6 +3234,7 @@ ${identitySsoScript}
       if (
         !__anIsCurrentNativeOAuth(flowId) ||
         __anNativeOAuthRequestPending ||
+        !__anNativeOAuthReturnObserved ||
         !__anOAuthPollTimer ||
         __anNativeOAuthAbandonGraceTimer
       ) return;
@@ -3331,6 +3335,7 @@ ${identitySsoScript}
       // Re-enable it so they can retry. Wait briefly first so a genuinely
       // in-flight exchange can still finish and navigate without a flicker.
       if (!flowId && __anNativeOAuthFlowId) {
+        __anNativeOAuthReturnObserved = true;
         __anScheduleNativeOAuthAbandonment(__anNativeOAuthFlowId);
         return;
       }
@@ -3520,6 +3525,7 @@ ${identitySsoScript}
         __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
         __anOpenOAuthUrl(url);
         __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
+        __anScheduleNativeOAuthAbandonment(flowId);
       }).catch(function(e) {
         if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
         __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));

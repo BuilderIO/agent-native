@@ -5918,6 +5918,7 @@ describe("server/auth", () => {
       expect(html).toContain("var __anOAuthPopupCloseGraceMs = 5000;");
       expect(html).toContain("var __anNativeOAuthFlowId = null;");
       expect(html).toContain("var __anNativeOAuthRequestPending = false;");
+      expect(html).toContain("var __anNativeOAuthReturnObserved = false;");
       expect(html).toContain("var __anNativeOAuthAbandonGraceMs = 5000;");
       expect(html).toContain("function __anBeginNativeOAuth(flowId)");
       expect(html).toContain("function __anCancelNativeOAuthAbandonment()");
@@ -5927,8 +5928,12 @@ describe("server/auth", () => {
       expect(html).toContain("__anFinalizeNativeOAuthAbandonment(flowId);");
       expect(html).toContain("__anNativeOAuthRequestPending = true;");
       expect(html).toContain("__anNativeOAuthRequestPending = false;");
+      expect(html).toContain("__anNativeOAuthReturnObserved = true;");
       expect(html).toContain("__anBeginNativeOAuth(flowId);");
       expect(html).toContain("__anMarkNativeOAuthPolling(flowId);");
+      expect(html).toContain(
+        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);\n        __anScheduleNativeOAuthAbandonment(flowId);",
+      );
       expect(html).toContain(
         "if (__anOAuthPollTimer) {\n        __anOAuthPopupCloseGraceTimer = setTimeout(function()",
       );
