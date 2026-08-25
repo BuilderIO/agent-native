@@ -4747,10 +4747,50 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 12px;
 }
 
-/* Controls (timer / pause / stop / chevron) live in the expanded view — the
-   collapsed capsule is just logo + waveform and expands on click. */
+/* At rest the collapsed capsule is just logo + waveform. Hover reveals its
+   transport so a session can be paused or ended without expanding first —
+   `display` rather than opacity, because a hidden row still occupying layout
+   would push the capsule past the window Rust sized to it. */
 .pill-vertical .pill-controls {
   display: none;
+}
+
+.pill-inner-compact:hover .pill-vertical .pill-controls,
+.pill-inner-compact.pill-hovered .pill-vertical .pill-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: pill-transport-in 180ms var(--ease-out-strong) both;
+}
+
+/* 38px of capsule has no room for a clock as well. */
+.pill-vertical .pill-timer {
+  display: none;
+}
+
+.pill-vertical .pill-pause-btn,
+.pill-vertical .pill-stop-btn {
+  width: 26px;
+  height: 26px;
+  margin: 0;
+}
+
+@keyframes pill-transport-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-inner-compact:hover .pill-vertical .pill-controls,
+  .pill-inner-compact.pill-hovered .pill-vertical .pill-controls {
+    animation-duration: 1ms;
+  }
 }
 
 .pill-vertical .pill-wave-meter {

@@ -723,6 +723,22 @@ export function MeetingPill() {
     }, ASK_SHEET_EXIT_MS);
   };
 
+  // The collapsed capsule reveals its transport on hover, which needs more
+  // window than the capsule occupies at rest. Rust owns the frame, so the
+  // reveal is a resize, not a CSS-only affordance — an oversized transparent
+  // window would eat clicks and would light up hover from way off the pill.
+  useEffect(() => {
+    if (pillDemoMode || expanded || detached) return;
+    invoke("recording_pill_hover_reveal", { revealed: hovered }).catch(
+      () => {},
+    );
+    return () => {
+      invoke("recording_pill_hover_reveal", { revealed: false }).catch(
+        () => {},
+      );
+    };
+  }, [hovered, expanded, detached]);
+
   // A split that leaves the transcript room on a tall window can starve it on a
   // short one, so the ratio is re-clamped against the panel's real height
   // whenever that height changes.
@@ -896,7 +912,7 @@ export function MeetingPill() {
                 {mm}:{ss}
               </span>
             )}
-            {expanded && !finished ? (
+            {!finished ? (
               <button
                 type="button"
                 onClick={onPauseClick}
@@ -912,7 +928,7 @@ export function MeetingPill() {
                 )}
               </button>
             ) : null}
-            {!finished && !(expanded && !detached && ctx.mode === "meeting") ? (
+            {!finished ? (
               <button
                 type="button"
                 onClick={onStopClick}
@@ -1089,28 +1105,6 @@ export function MeetingPill() {
           ) : null}
           {ctx.mode === "meeting" ? (
             <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
-              {!finished ? (
-                <Button
-                  type="button"
-                  onClick={onStopClick}
-                  disabled={stopping}
-                  data-no-drag
-                  variant="secondary"
-                  // `border-0`: this app opts out of Tailwind preflight (see
-                  // tailwind.css), so a shadcn variant with no border utility
-                  // inherits the UA's 2px button border.
-                  className="h-[34px] shrink-0 gap-[7px] rounded-full border-0 px-[13px] text-[13px] font-semibold"
-                  aria-label={stopping ? "Stopping" : stopLabel}
-                  title={stopping ? "Stopping..." : stopLabel}
-                >
-                  {stopping ? (
-                    <Spinner className="size-[13px]" />
-                  ) : (
-                    <span aria-hidden className="pill-stop-inline-square" />
-                  )}
-                  Stop
-                </Button>
-              ) : null}
               <div className="pill-ask-field" data-no-drag>
                 <input
                   data-no-drag
