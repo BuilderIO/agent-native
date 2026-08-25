@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.174.1
+
+### Patch Changes
+
+- 5e57bc6: fix fresh chats to use a configured provider instead of an unavailable deployment default
+- 7d90274: Preserve shared OAuth flow cookies across redirects.
+- 7d5cce0: Use the configured Google OAuth client for official Google Workspace MCP servers.
+- a63c4b3: Support Google Workspace MCP OAuth clients that use Google's fixed OAuth endpoints instead of MCP discovery.
+- Release all public npm packages with a patch version bump.
+- a026821: keep provider-auth recovery visible while an agent run is still active
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.12
+  - @agent-native/toolkit@0.16.15
+
 ## 0.174.0
 
 ### Minor Changes
