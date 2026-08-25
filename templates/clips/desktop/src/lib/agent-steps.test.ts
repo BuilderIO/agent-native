@@ -52,7 +52,7 @@ describe("applyFrame", () => {
       {
         key: "id:t1",
         label: "Searching past meetings",
-        kind: "read",
+        kind: "search",
         status: "done",
         detail: "2 results",
       },
@@ -167,7 +167,9 @@ describe("kindForTool", () => {
     // Claiming the agent changed something it only looked at is the worse
     // error, so an unrecognized tool is a read.
     expect(kindForTool("get-meeting")).toBe("read");
-    expect(kindForTool("search-meetings")).toBe("read");
+    // A magnifier chip over the word "Reading" is the mismatch that reads as
+    // a bug, so searching is its own bucket.
+    expect(kindForTool("search-meetings")).toBe("search");
     expect(kindForTool("something-new")).toBe("read");
     expect(kindForTool("create-meeting")).toBe("write");
     expect(kindForTool("send-email")).toBe("write");

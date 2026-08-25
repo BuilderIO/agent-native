@@ -13,6 +13,7 @@ import {
   IconBrain,
   IconChevronDown,
   IconChevronUp,
+  IconFileText,
   IconHourglass,
   IconPencil,
   IconPlug,
@@ -24,7 +25,8 @@ import type { AgentStep, AgentStepKind } from "../lib/agent-steps";
 
 const KIND_ICON: Record<AgentStepKind, typeof IconBrain> = {
   think: IconBrain,
-  read: IconSearch,
+  read: IconFileText,
+  search: IconSearch,
   write: IconPencil,
   call: IconPlug,
   wait: IconHourglass,
@@ -33,8 +35,9 @@ const KIND_ICON: Record<AgentStepKind, typeof IconBrain> = {
 /** What to call the bucket, in flight and once it is over. */
 const KIND_LABEL: Record<AgentStepKind, { running: string; done: string }> = {
   think: { running: "Thinking", done: "Thought" },
-  read: { running: "Looking", done: "Looked" },
-  write: { running: "Working", done: "Done" },
+  read: { running: "Reading", done: "Read" },
+  search: { running: "Searching", done: "Searched" },
+  write: { running: "Saving", done: "Saved" },
   call: { running: "Calling", done: "Called" },
   wait: { running: "Waiting", done: "Waited" },
 };
@@ -47,13 +50,18 @@ export function AskSteps({
   streaming?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const count = steps?.length ?? 0;
 
   // Keep the newest chip in view as the strip grows past the pill's width.
+  // The left edge only fades once something is actually hidden behind it —
+  // fading the first chip of three that all fit reads as a dimmed step.
   useEffect(() => {
     const strip = stripRef.current;
-    if (strip) strip.scrollLeft = strip.scrollWidth;
+    if (!strip) return;
+    strip.scrollLeft = strip.scrollWidth;
+    setScrolled(strip.scrollLeft > 2);
   }, [count]);
 
   if (!steps?.length) return null;
@@ -61,16 +69,26 @@ export function AskSteps({
   const activeIndex = lastRunningIndex(steps);
   const active = steps[activeIndex] ?? steps[steps.length - 1];
   const failed = steps.some((s) => s.status === "error");
+  // Past tense is a claim that the work is over. Between two tools the agent is
+  // writing the reply, which is neither the last step continuing nor the run
+  // being done — saying "Searched" there is what read as a glitch.
   const label = failed
     ? "Hit an error"
-    : streaming || active.status === "running"
+    : active.status === "running" || active.status === "blocked"
       ? KIND_LABEL[active.kind].running
-      : KIND_LABEL[active.kind].done;
+      : streaming
+        ? "Answering"
+        : KIND_LABEL[active.kind].done;
 
   return (
     <div className="pill-ask-work">
       <div className="pill-ask-work-head">
-        <div className="pill-ask-chips" ref={stripRef}>
+        <div
+          className="pill-ask-chips"
+          ref={stripRef}
+          data-scrolled={scrolled ? "true" : undefined}
+          onScroll={(e) => setScrolled(e.currentTarget.scrollLeft > 2)}
+        >
           {steps.map((step, i) => (
             <span
               key={step.key}

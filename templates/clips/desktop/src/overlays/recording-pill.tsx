@@ -437,7 +437,7 @@ export function MeetingPill() {
       steps.push({
         key: "demo-search",
         label: "Searching past meetings",
-        kind: "read",
+        kind: "search",
         status: progress >= 14 ? "done" : "running",
         detail: progress >= 14 ? "3 results" : undefined,
       });

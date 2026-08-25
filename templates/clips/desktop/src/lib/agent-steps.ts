@@ -39,7 +39,13 @@ export type AgentStepStatus = "running" | "done" | "error" | "blocked";
  * short sequence of shapes — read, think, write — instead of a paragraph of
  * tool names nobody scans.
  */
-export type AgentStepKind = "think" | "read" | "write" | "call" | "wait";
+export type AgentStepKind =
+  | "think"
+  | "read"
+  | "search"
+  | "write"
+  | "call"
+  | "wait";
 
 /** One row in the sheet's step list. */
 export interface AgentStep {
@@ -159,6 +165,9 @@ export function kindForTool(tool: string): AgentStepKind {
     return "call";
   }
   if (WRITE_PREFIXES.some((prefix) => tool.startsWith(prefix))) return "write";
+  // Searching and reading are the same to the code and different to the
+  // reader: a magnifier over "Reading" is the mismatch that reads as a bug.
+  if (tool.startsWith("search-") || tool.startsWith("find-")) return "search";
   return "read";
 }
 

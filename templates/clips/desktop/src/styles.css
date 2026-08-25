@@ -5401,15 +5401,17 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: 11px;
   overflow-y: auto;
-  padding: 4px 14px 8px;
+  padding: 6px 16px 12px;
 }
 
 .pill-ask-msg-user {
   align-self: flex-end;
-  max-width: 85%;
-  padding: 6px 12px;
+  max-width: 88%;
+  /* A full-radius capsule curves in on every line but the middle, so the
+     horizontal padding has to clear the corner, not just the glyph. */
+  padding: 9px 17px;
   border-radius: 999px;
   background: hsl(var(--ui-primary));
   color: hsl(var(--ui-primary-foreground));
@@ -5431,7 +5433,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
   gap: 6px;
   overflow-x: auto;
-  padding: 4px 14px 10px;
+  scrollbar-width: none;
+  padding: 4px 16px 10px;
+  mask-image: linear-gradient(
+    to right,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 calc(100% - 22px),
+    transparent 100%
+  );
+}
+
+.pill-ask-suggestions::-webkit-scrollbar {
+  display: none;
 }
 
 .pill-ask-chip {
@@ -5462,7 +5475,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-ask-work-head {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   min-width: 0;
 }
 
@@ -5471,20 +5484,19 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-ask-chips {
   display: flex;
   align-items: center;
-  gap: 3px;
   flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 1px 0;
+  padding: 2px 3px;
+}
+
+.pill-ask-chips[data-scrolled="true"] {
   mask-image: linear-gradient(
     to right,
     transparent 0,
     /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
-    #000 10px,
-    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
-    #000 calc(100% - 10px),
-    transparent 100%
+    #000 14px
   );
 }
 
@@ -5492,29 +5504,43 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: none;
 }
 
+/* Overlapped like a stack of avatars rather than spaced out as a row: the
+   ring in the surface color is what cuts each chip out of the one behind it,
+   so the trail reads as one object with a head instead of N buttons. */
 .pill-ask-chip-icon {
+  position: relative;
   display: grid;
   place-items: center;
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 21px;
+  height: 21px;
+  margin-right: -5px;
   border: 1px solid hsl(var(--ui-border));
   border-radius: 50%;
+  box-shadow: 0 0 0 2px hsl(var(--ui-popover));
   color: hsl(var(--ui-muted-foreground));
-  background: hsl(var(--ui-background));
-  opacity: 0.55;
+  background: hsl(var(--ui-popover));
+  opacity: 0.5;
   transition:
     opacity 160ms cubic-bezier(0.3, 0, 0, 1),
+    transform 160ms cubic-bezier(0.3, 0, 0, 1),
     border-color 160ms cubic-bezier(0.3, 0, 0, 1);
 }
 
+.pill-ask-chip-icon:last-child {
+  margin-right: 0;
+}
+
 .pill-ask-chip-icon[data-active="true"] {
+  z-index: 2;
+  transform: scale(1.1);
   opacity: 1;
   color: hsl(var(--ui-foreground));
-  border-color: hsl(var(--ui-foreground) / 0.35);
+  border-color: hsl(var(--ui-foreground) / 0.4);
 }
 
 .pill-ask-chip-icon[data-status="error"] {
+  z-index: 1;
   opacity: 1;
   color: hsl(var(--ui-destructive));
   border-color: hsl(var(--ui-destructive) / 0.4);
