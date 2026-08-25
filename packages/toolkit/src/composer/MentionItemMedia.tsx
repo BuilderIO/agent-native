@@ -1,5 +1,6 @@
 import {
   IconCheckbox,
+  IconClipboardList,
   IconFile,
   IconFileText,
   IconFolder,
@@ -10,6 +11,7 @@ import {
   IconUser,
 } from "@tabler/icons-react";
 
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItemMedia as MentionItemMediaValue } from "./types.js";
 
 const iconProps = { size: 14, className: "shrink-0 text-muted-foreground" };
@@ -18,13 +20,18 @@ export interface MentionItemMediaProps {
   icon?: string;
   media?: MentionItemMediaValue | null;
   size?: "sm" | "md";
-  fallbackIcon?: "file" | "stack";
+  fallbackIcon?: "clipboard" | "file" | "stack";
 }
 
 function LegacyMentionIcon({
   icon,
   fallbackIcon = "file",
 }: Pick<MentionItemMediaProps, "icon" | "fallbackIcon">) {
+  if (!icon && fallbackIcon === "clipboard") {
+    return (
+      <IconClipboardList className="size-3 shrink-0 text-muted-foreground" />
+    );
+  }
   switch (icon) {
     case "folder":
       return <IconFolder {...iconProps} />;
@@ -57,47 +64,54 @@ export function MentionItemMedia({
   size = "md",
   fallbackIcon = "file",
 }: MentionItemMediaProps) {
+  const { resolvePath = (path) => path } = useComposerRuntimeAdapters();
   if (media?.type === "none") return null;
-  if (media?.type === "text" && media.text.trim()) {
+  const backgroundColor =
+    typeof media?.backgroundColor === "string"
+      ? media.backgroundColor
+      : undefined;
+  const text =
+    media?.type === "text" && typeof media.text === "string"
+      ? media.text.trim()
+      : "";
+  if (text) {
     return (
       <span
         aria-hidden="true"
         className={`inline-grid shrink-0 place-items-center overflow-hidden rounded-full ${
           size === "sm" ? "size-4" : "size-5"
         }`}
-        style={
-          media.backgroundColor
-            ? { backgroundColor: media.backgroundColor }
-            : undefined
-        }
+        style={backgroundColor ? { backgroundColor } : undefined}
       >
         <span
           className={`inline-grid place-items-center whitespace-nowrap leading-none ${
             size === "sm" ? "size-2 text-[8px]" : "size-3 text-[9px]"
           }`}
         >
-          {media.text}
+          {text}
         </span>
       </span>
     );
   }
-  if (media?.type === "image" && media.src.trim()) {
-    const coversFrame = media.fit === "cover";
+  const src =
+    media?.type === "image" && typeof media.src === "string"
+      ? media.src.trim()
+      : "";
+  if (src) {
+    const coversFrame = media?.type === "image" && media.fit === "cover";
+    const resolvedSrc =
+      src.startsWith("/") && !src.startsWith("//") ? resolvePath(src) : src;
     return (
       <span
         aria-hidden="true"
         className={`inline-grid shrink-0 place-items-center overflow-hidden rounded-full ${
           size === "sm" ? "size-4" : "size-5"
         }`}
-        style={
-          media.backgroundColor
-            ? { backgroundColor: media.backgroundColor }
-            : undefined
-        }
+        style={backgroundColor ? { backgroundColor } : undefined}
       >
         <img
           alt=""
-          src={media.src}
+          src={resolvedSrc}
           decoding="async"
           loading="lazy"
           referrerPolicy="no-referrer"

@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { MentionItemMedia } from "./MentionItemMedia.js";
+import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
+import type { MentionItemMedia as MentionItemMediaValue } from "./types.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -84,5 +86,65 @@ describe("MentionItemMedia", () => {
     expect(image?.className).toContain("size-3");
     expect(image?.className).toContain("object-contain");
     expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("resolves root-relative images against the app mount", () => {
+    act(() =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{ resolvePath: (path) => `/assets${path}` }}
+        >
+          <MentionItemMedia media={{ type: "image", src: "/agent.png" }} />
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      "/assets/agent.png",
+    );
+  });
+
+  it("leaves absolute image URLs unchanged", () => {
+    act(() =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{ resolvePath: (path) => `/assets${path}` }}
+        >
+          <MentionItemMedia
+            media={{ type: "image", src: "https://example.com/agent.png" }}
+          />
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      "https://example.com/agent.png",
+    );
+  });
+
+  it.each([{ type: "text" }, { type: "image", src: null }])(
+    "falls back safely for malformed media",
+    (media) => {
+      act(() =>
+        root.render(
+          <MentionItemMedia
+            icon="agent"
+            media={media as unknown as MentionItemMediaValue}
+          />,
+        ),
+      );
+
+      expect(container.querySelector("svg")).not.toBeNull();
+    },
+  );
+
+  it("preserves the compact clipboard fallback for slot references", () => {
+    act(() =>
+      root.render(<MentionItemMedia size="sm" fallbackIcon="clipboard" />),
+    );
+
+    expect(container.querySelector("svg")?.getAttribute("class")).toContain(
+      "size-3",
+    );
   });
 });

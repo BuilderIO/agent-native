@@ -44,6 +44,7 @@ import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
 import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
+import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import {
   isClaudeCodeAgentId,
@@ -3695,7 +3696,11 @@ export function TiptapComposer({
               key={ref.slotKey}
               className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground shadow-sm"
             >
-              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <MentionItemMedia
+                media={ref.media}
+                size="sm"
+                fallbackIcon="clipboard"
+              />
               {ref.slotLabel && (
                 <span className="shrink-0 text-muted-foreground">
                   {ref.slotLabel}
