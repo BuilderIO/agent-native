@@ -1,4 +1,5 @@
 import { useState } from "react";
+
 import SharedCodeBlock from "../../CodeBlock";
 import { TabItem } from "./tab-item";
 
@@ -14,7 +15,11 @@ interface CodeBlockProps {
   tabs?: CodeBlockTab[];
 }
 
-export function CodeBlock({ code, language = "typescript", tabs }: CodeBlockProps) {
+export function CodeBlock({
+  code,
+  language = "typescript",
+  tabs,
+}: CodeBlockProps) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (tabs && tabs.length > 0) {
@@ -28,9 +33,19 @@ export function CodeBlock({ code, language = "typescript", tabs }: CodeBlockProp
           background: "var(--b-bg-raised)",
         }}
       >
-        <div role="tablist" style={{ display: "flex", borderBottom: "1px solid var(--b-border-default)" }}>
+        <div
+          role="tablist"
+          style={{
+            display: "flex",
+            borderBottom: "1px solid var(--b-border-default)",
+          }}
+        >
           {tabs.map((tab, i) => (
-            <TabItem key={tab.label} active={i === activeTab} onClick={() => setActiveTab(i)}>
+            <TabItem
+              key={tab.label}
+              active={i === activeTab}
+              onClick={() => setActiveTab(i)}
+            >
               {tab.label}
             </TabItem>
           ))}

@@ -3,7 +3,10 @@ interface ImgPlaceholderProps {
   label?: string;
 }
 
-export function ImgPlaceholder({ aspectRatio = "16 / 10", label = "Image" }: ImgPlaceholderProps) {
+export function ImgPlaceholder({
+  aspectRatio = "16 / 10",
+  label = "Image",
+}: ImgPlaceholderProps) {
   return (
     <div
       style={{

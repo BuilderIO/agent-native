@@ -1,4 +1,10 @@
-import { forwardRef, type CSSProperties, type ElementType, type HTMLAttributes, type ReactNode } from "react";
+import {
+  forwardRef,
+  type CSSProperties,
+  type ElementType,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 
 export const GRID_MAX_WIDTH = 1200;
 export const GRID_COLUMNS = 3;
@@ -51,27 +57,40 @@ interface PageSectionProps extends HTMLAttributes<HTMLElement> {
   style?: CSSProperties;
 }
 
-export const PageSection = forwardRef<HTMLElement, PageSectionProps>(function PageSection(
-  { as: Tag = "section", showGrid = true, gridLines = "all", children, style, ...rest },
-  ref,
-) {
-  return (
-    <Tag
-      ref={ref}
-      style={{
-        position: "relative",
-        width: "100%",
-        overflow: "hidden",
-        isolation: "isolate",
-        ...style,
-      }}
-      {...rest}
-    >
-      {showGrid && <GridLines positions={gridLines === "edges" ? [0, 1] : LINE_POSITIONS} />}
-      {children}
-    </Tag>
-  );
-});
+export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
+  function PageSection(
+    {
+      as: Tag = "section",
+      showGrid = true,
+      gridLines = "all",
+      children,
+      style,
+      ...rest
+    },
+    ref,
+  ) {
+    return (
+      <Tag
+        ref={ref}
+        style={{
+          position: "relative",
+          width: "100%",
+          overflow: "hidden",
+          isolation: "isolate",
+          ...style,
+        }}
+        {...rest}
+      >
+        {showGrid && (
+          <GridLines
+            positions={gridLines === "edges" ? [0, 1] : LINE_POSITIONS}
+          />
+        )}
+        {children}
+      </Tag>
+    );
+  },
+);
 
 interface GridInnerProps extends HTMLAttributes<HTMLElement> {
   as?: ElementType;
@@ -79,7 +98,12 @@ interface GridInnerProps extends HTMLAttributes<HTMLElement> {
   style?: CSSProperties;
 }
 
-export function GridInner({ children, style, as: Tag = "div", ...rest }: GridInnerProps) {
+export function GridInner({
+  children,
+  style,
+  as: Tag = "div",
+  ...rest
+}: GridInnerProps) {
   return (
     <Tag
       style={{
@@ -106,7 +130,11 @@ interface GridColsProps extends HTMLAttributes<HTMLDivElement> {
 export function GridCols({ children, style, ...rest }: GridColsProps) {
   return (
     <div
-      style={{ display: "grid", gridTemplateColumns: `repeat(${GRID_COLUMNS}, 1fr)`, ...style }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${GRID_COLUMNS}, 1fr)`,
+        ...style,
+      }}
       {...rest}
     >
       {children}

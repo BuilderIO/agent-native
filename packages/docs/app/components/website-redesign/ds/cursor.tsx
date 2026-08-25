@@ -3,7 +3,10 @@ interface CursorProps {
   color?: string;
 }
 
-export function Cursor({ label = "Guest", color = "var(--c-blue-400)" }: CursorProps) {
+export function Cursor({
+  label = "Guest",
+  color = "var(--c-blue-400)",
+}: CursorProps) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

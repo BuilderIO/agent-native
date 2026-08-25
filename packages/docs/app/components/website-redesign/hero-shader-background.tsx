@@ -417,7 +417,9 @@ export function HeroShaderBackground({
     // shader's backdrop identical to the page behind it in both themes
     // instead of hardcoding pure black/white.
     function readBgColor(): [number, number, number] {
-      const raw = getComputedStyle(container).getPropertyValue("--b-bg-page").trim();
+      const raw = getComputedStyle(container)
+        .getPropertyValue("--b-bg-page")
+        .trim();
       return hexToRgb01(raw || "#0a0a0a");
     }
 

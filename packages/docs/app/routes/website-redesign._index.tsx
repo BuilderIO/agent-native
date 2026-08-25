@@ -1,8 +1,6 @@
 import { IconBolt } from "@tabler/icons-react";
 import { useState } from "react";
 
-import tokensCss from "../components/website-redesign/tokens.css?url";
-import { GridCols, GridInner, PageSection } from "../components/website-redesign/page-grid";
 import { Button } from "../components/website-redesign/ds/button";
 import { Category } from "../components/website-redesign/ds/category";
 import { Checkbox } from "../components/website-redesign/ds/checkbox";
@@ -23,6 +21,13 @@ import { Select } from "../components/website-redesign/ds/select";
 import { TabItem } from "../components/website-redesign/ds/tab-item";
 import { Toggle } from "../components/website-redesign/ds/toggle";
 import { Tooltip } from "../components/website-redesign/ds/tooltip";
+import {
+  GridCols,
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
+
+import tokensCss from "../components/website-redesign/tokens.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: tokensCss }];
 
@@ -155,15 +160,20 @@ export default function WebsiteRedesignHomepage() {
               lineHeight: 1.4,
             }}
           >
-            A hidden, SEO-excluded route for building new marketing pages against the
-            Builder design system, scoped to this page tree only.
+            A hidden, SEO-excluded route for building new marketing pages
+            against the Builder design system, scoped to this page tree only.
           </p>
         </GridInner>
       </PageSection>
 
       {/* Color tokens */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10)",
+          }}
+        >
           <SectionHeader eyebrow="Tokens" heading="Color primitives" />
           <div
             style={{
@@ -215,7 +225,8 @@ export default function WebsiteRedesignHomepage() {
                       height: 48,
                       borderRadius: "var(--b-radius)",
                       border: "1px solid var(--b-border-default)",
-                      background: kind === "text" ? "var(--b-bg-raised)" : `var(${name})`,
+                      background:
+                        kind === "text" ? "var(--b-bg-raised)" : `var(${name})`,
                       color: kind === "text" ? `var(${name})` : undefined,
                       display: "flex",
                       alignItems: "center",
@@ -245,9 +256,21 @@ export default function WebsiteRedesignHomepage() {
 
       {/* Typography */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10)",
+          }}
+        >
           <SectionHeader eyebrow="Tokens" heading="Typography scale" />
-          <div style={{ marginTop: "var(--spacing-8)", display: "flex", flexDirection: "column", gap: "var(--spacing-4)" }}>
+          <div
+            style={{
+              marginTop: "var(--spacing-8)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--spacing-4)",
+            }}
+          >
             {TYPE_SCALE.map(([name, label]) => (
               <div
                 key={name}
@@ -270,7 +293,13 @@ export default function WebsiteRedesignHomepage() {
                 >
                   {name}
                 </span>
-                <span style={{ fontFamily: "var(--b-font-sans)", fontSize: `var(${name})`, color: "var(--b-text-primary)" }}>
+                <span
+                  style={{
+                    fontFamily: "var(--b-font-sans)",
+                    fontSize: `var(${name})`,
+                    color: "var(--b-text-primary)",
+                  }}
+                >
                   {label}
                 </span>
               </div>
@@ -281,11 +310,30 @@ export default function WebsiteRedesignHomepage() {
 
       {/* Spacing */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10)",
+          }}
+        >
           <SectionHeader eyebrow="Tokens" heading="Spacing scale" />
-          <div style={{ marginTop: "var(--spacing-8)", display: "flex", flexDirection: "column", gap: "var(--spacing-2)" }}>
+          <div
+            style={{
+              marginTop: "var(--spacing-8)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--spacing-2)",
+            }}
+          >
             {SPACING_SCALE.map((name) => (
-              <div key={name} style={{ display: "flex", alignItems: "center", gap: "var(--spacing-4)" }}>
+              <div
+                key={name}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--spacing-4)",
+                }}
+              >
                 <span
                   style={{
                     width: 120,
@@ -297,7 +345,14 @@ export default function WebsiteRedesignHomepage() {
                 >
                   {name}
                 </span>
-                <span style={{ height: 12, width: `var(${name})`, background: "var(--b-action-primary-bg)", borderRadius: "var(--b-radius-sm)" }} />
+                <span
+                  style={{
+                    height: 12,
+                    width: `var(${name})`,
+                    background: "var(--b-action-primary-bg)",
+                    borderRadius: "var(--b-radius-sm)",
+                  }}
+                />
               </div>
             ))}
           </div>
@@ -306,10 +361,25 @@ export default function WebsiteRedesignHomepage() {
 
       {/* Gradient */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10)",
+          }}
+        >
           <SectionHeader eyebrow="Tokens" heading="Gradient" />
-          <div style={{ marginTop: "var(--spacing-6)", display: "flex", flexDirection: "column", gap: "var(--spacing-4)" }}>
-            <div className="blue-gradient" style={{ height: 64, borderRadius: "var(--b-radius)" }} />
+          <div
+            style={{
+              marginTop: "var(--spacing-6)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--spacing-4)",
+            }}
+          >
+            <div
+              className="blue-gradient"
+              style={{ height: 64, borderRadius: "var(--b-radius)" }}
+            />
             <p
               className="blue-gradient-text"
               style={{
@@ -327,9 +397,21 @@ export default function WebsiteRedesignHomepage() {
 
       {/* Buttons */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10)",
+          }}
+        >
           <SectionHeader eyebrow="Components" heading="Buttons" />
-          <div style={{ marginTop: "var(--spacing-6)", display: "flex", flexWrap: "wrap", gap: "var(--spacing-4)" }}>
+          <div
+            style={{
+              marginTop: "var(--spacing-6)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--spacing-4)",
+            }}
+          >
             <Button variant="cta">Get started</Button>
             <Button variant="primary">Primary</Button>
             <Button variant="primary-alt">Primary alt</Button>
@@ -342,10 +424,23 @@ export default function WebsiteRedesignHomepage() {
 
       {/* Form atoms */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10)",
+          }}
+        >
           <SectionHeader eyebrow="Components" heading="Form atoms" />
-          <GridCols style={{ marginTop: "var(--spacing-6)", gap: "var(--spacing-6)" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-4)" }}>
+          <GridCols
+            style={{ marginTop: "var(--spacing-6)", gap: "var(--spacing-6)" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--spacing-4)",
+              }}
+            >
               <Input placeholder="Type here..." />
               <FormSelect
                 label="Plan"
@@ -358,18 +453,58 @@ export default function WebsiteRedesignHomepage() {
                 ]}
               />
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-3)" }}>
-              <Checkbox label="Enable feature" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-              <Radio label="Option A" checked={radioValue === "a"} onChange={() => setRadioValue("a")} />
-              <Radio label="Option B" checked={radioValue === "b"} onChange={() => setRadioValue("b")} />
-              <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
-                <Toggle checked={toggled} onChange={setToggled} label="Toggle example" />
-                <span style={{ fontFamily: "var(--b-font-sans)", fontSize: "var(--b-t-paragraph-2)", color: "var(--b-text-secondary)" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--spacing-3)",
+              }}
+            >
+              <Checkbox
+                label="Enable feature"
+                checked={checked}
+                onChange={(e) => setChecked(e.target.checked)}
+              />
+              <Radio
+                label="Option A"
+                checked={radioValue === "a"}
+                onChange={() => setRadioValue("a")}
+              />
+              <Radio
+                label="Option B"
+                checked={radioValue === "b"}
+                onChange={() => setRadioValue("b")}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--spacing-2)",
+                }}
+              >
+                <Toggle
+                  checked={toggled}
+                  onChange={setToggled}
+                  label="Toggle example"
+                />
+                <span
+                  style={{
+                    fontFamily: "var(--b-font-sans)",
+                    fontSize: "var(--b-t-paragraph-2)",
+                    color: "var(--b-text-secondary)",
+                  }}
+                >
                   Toggle
                 </span>
               </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-3)" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--spacing-3)",
+              }}
+            >
               <Select
                 value={selectValue}
                 onChange={setSelectValue}
@@ -386,11 +521,26 @@ export default function WebsiteRedesignHomepage() {
 
       {/* Tabs + CodeBlock */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10)",
+          }}
+        >
           <SectionHeader eyebrow="Components" heading="Tabs + code block" />
-          <div style={{ marginTop: "var(--spacing-6)", display: "flex", gap: "var(--spacing-2)" }}>
+          <div
+            style={{
+              marginTop: "var(--spacing-6)",
+              display: "flex",
+              gap: "var(--spacing-2)",
+            }}
+          >
             {SNIPPET_TABS.map((tab, i) => (
-              <TabItem key={tab.label} active={i === activeTab} onClick={() => setActiveTab(i)}>
+              <TabItem
+                key={tab.label}
+                active={i === activeTab}
+                onClick={() => setActiveTab(i)}
+              >
                 {tab.label}
               </TabItem>
             ))}
@@ -403,9 +553,22 @@ export default function WebsiteRedesignHomepage() {
 
       {/* Misc atoms */}
       <PageSection>
-        <GridInner style={{ ...borderTopStyle(), padding: "var(--spacing-16) var(--spacing-10) var(--spacing-30)" }}>
+        <GridInner
+          style={{
+            ...borderTopStyle(),
+            padding: "var(--spacing-16) var(--spacing-10) var(--spacing-30)",
+          }}
+        >
           <SectionHeader eyebrow="Components" heading="Misc atoms" />
-          <div style={{ marginTop: "var(--spacing-6)", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--spacing-6)" }}>
+          <div
+            style={{
+              marginTop: "var(--spacing-6)",
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: "var(--spacing-6)",
+            }}
+          >
             <Tooltip content="Helpful hint">
               <Button variant="secondary">Hover me</Button>
             </Tooltip>
@@ -418,7 +581,14 @@ export default function WebsiteRedesignHomepage() {
             <Cursor label="Guest" />
             <ColumnDivider />
           </div>
-          <div style={{ marginTop: "var(--spacing-8)", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "var(--spacing-4)" }}>
+          <div
+            style={{
+              marginTop: "var(--spacing-8)",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: "var(--spacing-4)",
+            }}
+          >
             <FeatureCard
               icon={
                 <IconBox>

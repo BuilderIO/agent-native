@@ -1,4 +1,5 @@
 import { useId } from "react";
+
 import { Select } from "./select";
 
 interface FormSelectProps<T extends string> {
@@ -8,10 +9,22 @@ interface FormSelectProps<T extends string> {
   onChange: (value: T) => void;
 }
 
-export function FormSelect<T extends string>({ label, options, value, onChange }: FormSelectProps<T>) {
+export function FormSelect<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: FormSelectProps<T>) {
   const id = useId();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-2)" }} id={id}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--spacing-2)",
+      }}
+      id={id}
+    >
       <label
         style={{
           fontFamily: "var(--b-font-mono)",

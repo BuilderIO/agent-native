@@ -1,4 +1,5 @@
 import type { ElementType, ReactNode } from "react";
+
 import { Eyebrow } from "./eyebrow";
 
 interface SectionHeaderProps {
@@ -9,7 +10,13 @@ interface SectionHeaderProps {
   align?: "left" | "center";
 }
 
-export function SectionHeader({ eyebrow, heading, subheading, as: Tag = "h2", align = "left" }: SectionHeaderProps) {
+export function SectionHeader({
+  eyebrow,
+  heading,
+  subheading,
+  as: Tag = "h2",
+  align = "left",
+}: SectionHeaderProps) {
   return (
     <div
       style={{

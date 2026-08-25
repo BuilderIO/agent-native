@@ -38,9 +38,12 @@ export function Toggle({ checked, onChange, label }: ToggleProps) {
           width: 16,
           height: 16,
           borderRadius: "var(--b-radius-full)",
-          background: checked ? "var(--b-action-primary-text)" : "var(--b-text-secondary)",
+          background: checked
+            ? "var(--b-action-primary-text)"
+            : "var(--b-text-secondary)",
           display: "block",
-          transition: "transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s",
+          transition:
+            "transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s",
         }}
       />
     </button>

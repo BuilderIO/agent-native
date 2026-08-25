@@ -13,7 +13,12 @@ interface SelectProps<T extends string> {
   placeholder?: string;
 }
 
-export function Select<T extends string>({ options, value, onChange, placeholder }: SelectProps<T>) {
+export function Select<T extends string>({
+  options,
+  value,
+  onChange,
+  placeholder,
+}: SelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -23,7 +28,10 @@ export function Select<T extends string>({ options, value, onChange, placeholder
   const listboxId = useId();
 
   const visibleOptions = options;
-  const selected = useMemo(() => options.find((o) => o.value === value), [options, value]);
+  const selected = useMemo(
+    () => options.find((o) => o.value === value),
+    [options, value],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -154,7 +162,9 @@ export function Select<T extends string>({ options, value, onChange, placeholder
                 triggerRef.current?.focus();
               }}
               className={`transition-[background,color] duration-100 hover:bg-white/8 ${
-                i === focusedIndex ? "bg-[var(--b-bg-raised)]" : "bg-transparent"
+                i === focusedIndex
+                  ? "bg-[var(--b-bg-raised)]"
+                  : "bg-transparent"
               }`}
               style={{
                 padding: "8px 10px",
