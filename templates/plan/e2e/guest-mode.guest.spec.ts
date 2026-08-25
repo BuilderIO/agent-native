@@ -139,6 +139,19 @@ test.describe("guest mode + claim", () => {
     await expect(page.getByText("Start with /visual-plan")).toBeVisible();
   });
 
+  test("logged-out chat route loads directly", async ({ page }) => {
+    await clearAuth(page);
+    const response = await page.goto("/chat");
+
+    expect(response?.ok(), `guest /chat response ${response?.status()}`).toBe(
+      true,
+    );
+    await expect(page).toHaveURL(/\/chat\/?$/);
+    await expect(
+      page.getByRole("heading", { name: /ask plan/i }),
+    ).toBeVisible();
+  });
+
   test("anonymous create-visual-plan is rejected with a clean message (no plan minted)", async ({
     page,
   }) => {
