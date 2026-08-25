@@ -147,6 +147,8 @@ function closesFence(
 
 function containsUnsupportedBlockSyntax(markdown: string): boolean {
   let activeFence: { marker: "`" | "~"; length: number } | null = null;
+  let braceDepth = 0;
+  let htmlComment = false;
   return markdown.split(/\r?\n/).some((line) => {
     const marker = fenceMarker(line);
     if (activeFence) {
@@ -158,13 +160,43 @@ function containsUnsupportedBlockSyntax(markdown: string): boolean {
       return false;
     }
     const value = line.trimStart();
-    return (
+    if (
       /^(?:import|export)\s/.test(value) ||
-      /(^|[^\\])[{}]/.test(line) ||
-      line.includes("<!--") ||
       /<\/?[A-Za-z][\w.-]*(?:\s|\/?>)/.test(line)
-    );
+    ) {
+      return true;
+    }
+    const commentStart = line.indexOf("<!--");
+    if (commentStart !== -1) htmlComment = true;
+    if (htmlComment && line.indexOf("-->", Math.max(commentStart, 0)) !== -1) {
+      htmlComment = false;
+    }
+    for (let index = 0; index < line.length; index++) {
+      if (isEscaped(line, index)) continue;
+      if (line[index] === "{") braceDepth++;
+      if (line[index] === "}") braceDepth = Math.max(0, braceDepth - 1);
+    }
+    return htmlComment || braceDepth > 0;
   });
+}
+
+function isMarkdownBlockStarter(line: string): boolean {
+  const value = line.trimStart();
+  return (
+    /^(?:#{1,6}(?:\s|$)|>|(?:[-+*]|\d+[.)])\s)/.test(value) ||
+    /^(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(value) ||
+    fenceMarker(line) !== null
+  );
+}
+
+function isNestedTableCandidate(lines: string[], index: number): boolean {
+  if (/^>/.test(lines[index].trimStart())) return true;
+  if (!/^ {1,3}\S/.test(lines[index])) return false;
+  for (let cursor = index - 1; cursor >= 0 && lines[cursor].trim(); cursor--) {
+    if (/^ {0,3}(?:[-+*]|\d+[.)])\s/.test(lines[cursor])) return true;
+    if (!/^\s/.test(lines[cursor])) break;
+  }
+  return false;
 }
 
 export function canNormalizeMarkdownPipeTableRegion(
@@ -196,7 +228,13 @@ export function canNormalizeMarkdownPipeTableRegion(
   if (activeFence) return false;
 
   const regionLines = markdown.slice(start, end).split(/\r?\n/);
-  if (regionLines.some((line) => /^(?: {1,}|\t|>)/.test(line))) return false;
+  if (regionLines.some((line) => /^(?: {4,}|\t|>)/.test(line))) return false;
+  const precedingLines = markdown
+    .slice(0, start)
+    .replace(/\r?\n$/, "")
+    .split(/\r?\n/);
+  const precedingLine = precedingLines[precedingLines.length - 1];
+  if (precedingLine?.trim() && splitPipeRow(precedingLine)) return false;
   const followingLine = markdown
     .slice(end)
     .replace(/^\r?\n/, "")
@@ -217,26 +255,41 @@ export function normalizeImportedMarkdownStructures(
   const lines = markdown.split(/\r?\n/);
   const output: string[] = [];
   let normalizedPipeTables = 0;
+  let normalizedTildeFences = false;
   let activeFence: { marker: "`" | "~"; length: number } | null = null;
+  const canonicalFenceLength = Math.max(
+    3,
+    ...Array.from(markdown.matchAll(/`+/g), (match) => match[0].length + 1),
+  );
 
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     const marker = fenceMarker(line);
     if (activeFence) {
-      output.push(line);
-      if (closesFence(line, activeFence)) activeFence = null;
+      const isCloser = closesFence(line, activeFence);
+      output.push(
+        isCloser && activeFence.marker === "~"
+          ? "`".repeat(canonicalFenceLength)
+          : line,
+      );
+      if (isCloser) activeFence = null;
       continue;
     }
     if (marker) {
       activeFence = marker;
-      output.push(line);
+      if (marker.marker === "~") normalizedTildeFences = true;
+      output.push(
+        marker.marker === "~"
+          ? `${"`".repeat(canonicalFenceLength)}${line.slice(marker.length)}`
+          : line,
+      );
       continue;
     }
     if (/^(?: {4}|\t)/.test(line)) {
       output.push(line);
       continue;
     }
-    if (/^(?: {1,3}\S|>)/.test(line)) {
+    if (isNestedTableCandidate(lines, index)) {
       output.push(line);
       continue;
     }
@@ -252,7 +305,11 @@ export function normalizeImportedMarkdownStructures(
     let cursor = index + 2;
     let malformedCandidate = false;
     while (cursor < lines.length && lines[cursor].trim()) {
-      if (/^(?: {1,3}\S|>)/.test(lines[cursor])) break;
+      if (
+        isNestedTableCandidate(lines, cursor) ||
+        isMarkdownBlockStarter(lines[cursor])
+      )
+        break;
       const row = splitPipeRow(lines[cursor]);
       if (!row || row.length !== header.length) {
         malformedCandidate =
@@ -277,7 +334,7 @@ export function normalizeImportedMarkdownStructures(
     index += tableLines.length - 1;
   }
 
-  if (normalizedPipeTables === 0) {
+  if (normalizedPipeTables === 0 && !normalizedTildeFences) {
     return { content: markdown, normalizedPipeTables };
   }
   return { content: output.join(lineEnding), normalizedPipeTables };

@@ -323,6 +323,29 @@ describe("import-content-source descriptions", () => {
       persistedContentUnchanged: true,
     });
 
+    const leadingRow = ["| Earlier | Row |", table].join("\n");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: leadingRow, updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    const trailingRegionResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        editDocumentAction.run({
+          id: documentId,
+          find: table,
+          transform: "normalize-pipe-table",
+          reuseLabels: [],
+        }),
+    );
+    expect(trailingRegionResult).toMatchObject({
+      status: "unsupported",
+      reason: "unsafe-document-context",
+      applied: 0,
+      verified: true,
+      persistedContentUnchanged: true,
+    });
+
     const crlfTable = table.split("\n").join("\r\n");
     const crlfDocument = [
       "Before sentinel.",

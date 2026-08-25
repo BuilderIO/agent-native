@@ -147,6 +147,51 @@ describe("Markdown import normalization", () => {
     expect(result.content).not.toContain("<td>> follow-up</td>");
   });
 
+  it("stops a table before a following Markdown heading", () => {
+    const markdown = [
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+      "## Next | section",
+    ].join("\n");
+    const result = normalizeImportedMarkdownStructures(markdown);
+
+    expect(result.normalizedPipeTables).toBe(1);
+    expect(result.content).toContain("## Next | section");
+    expect(result.content).not.toContain("<td>## Next</td>");
+  });
+
+  it("normalizes a root table indented by up to three spaces", () => {
+    const markdown = ["   | A | B |", "   | --- | --- |", "   | 1 | 2 |"].join(
+      "\n",
+    );
+
+    expect(normalizeImportedMarkdownStructures(markdown)).toMatchObject({
+      normalizedPipeTables: 1,
+    });
+  });
+
+  it("keeps ordinary balanced Markdown braces while normalizing a table", () => {
+    const markdown = ["Before {name}.", "", "| A | B |", "| --- | --- |"].join(
+      "\n",
+    );
+
+    expect(normalizeImportedMarkdownStructures(markdown)).toMatchObject({
+      normalizedPipeTables: 1,
+    });
+  });
+
+  it("canonicalizes a tilde-fenced Mermaid block without changing its source", () => {
+    const markdown = ["~~~mermaid", "flowchart LR", "  A --> B", "~~~"].join(
+      "\n",
+    );
+    const result = normalizeImportedMarkdownStructures(markdown);
+
+    expect(result.content).toBe(
+      ["```mermaid", "flowchart LR", "  A --> B", "```"].join("\n"),
+    );
+  });
+
   it("ignores unsupported syntax inside fences when normalizing another table", () => {
     const markdown = [
       "```ts",
