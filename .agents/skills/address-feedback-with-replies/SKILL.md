@@ -4,8 +4,8 @@ description: >-
   Complete the Slack feedback cycle: read every thread and linked evidence,
   fix verified repo-owned issues, and reply in-thread with honest status,
   clarification questions, and release follow-up. Use when the user asks to
-  address feedback and respond in the requested voice through the @agent-native
-  Slack bot.
+  address feedback and respond in the requested voice through the invoking
+  user's connected Slack identity.
 scope: dev
 metadata:
   internal: true
@@ -24,13 +24,14 @@ status.
 Every actionable Slack parent that receives `👀` is in scope for the reply
 ledger. The reaction is only the first external action - it never counts as a
 reply, ownership marker, or completion. Before finishing, re-read every
-eye-marked parent and confirm that the `@agent-native` bot posted **Fixed**,
-**In progress**, or **Clarification needed** in that thread. **In progress** is
-valid only when the thread already contains a substantive ownership or
-active-fix signal from `@agent-native` or another participant; it is an open
-state, not a terminal resolution, and the next run must return to it for
-**Fixed** or **Clarification needed**. A generic bot forward, another person's
-reply, or the `👀` reaction alone does not satisfy the ledger.
+eye-marked parent and confirm that the invoking Slack identity posted
+**Fixed**, **In progress**, or **Clarification needed** in that thread.
+**In progress** is valid only when the thread already contains a substantive
+ownership or active-fix signal from the invoking identity, `@agent-native`, or
+another participant; it is an open state, not a terminal resolution, and the
+next run must return to it for **Fixed** or **Clarification needed**. A generic
+bot forward, another person's reply, or the `👀` reaction alone does not
+satisfy the ledger.
 
 ## Prerequisites
 
@@ -66,39 +67,30 @@ reply, or the `👀` reaction alone does not satisfy the ledger.
 - Re-read dirty files before changing them. Preserve the shared checkout and
   never move branches, reset, stash, or overwrite peer work.
 
-## Slack bot identity
+## Slack identity
 
-Every Slack API interaction in this workflow - channel history, reactions,
-thread replies and read-backs, permalinks, and Slack message/user/file
-metadata - must use the Slack Web API with the local, untracked `.env` value
-`SLACK_BOT_TOKEN`. That value must authenticate the `@agent-native` Slack bot.
-Do not use the connected Slack MCP user's OAuth identity, a Steve/ChatGPT
-identity, or a different bot token for any Slack operation in this workflow.
+Every Slack interaction in this workflow - channel history, reactions, thread
+replies and read-backs, permalinks, and Slack message/user/file metadata - uses
+the connected Slack identity of the user who invoked the workflow. Verify that
+identity before the first write and keep its stable `{ team_id, user_id }`
+tuple for all read-backs. Do not silently switch to a bot, another user's
+connector, or a different workspace. Do not load or use `SLACK_BOT_TOKEN`.
 
 Linked external artifacts are not Slack interactions. After extracting their
 reference from Slack, fetch them through the artifact's owning connector or
-public URL; never send the Slack bearer token to an external service.
+public URL.
 
-- Load the value from `.env` without printing it, then call Slack `auth.test`
-  before the first request. Require `ok: true`, `team_id`, `user_id`, and
-  `bot_id`; verify `users.info(user_id)` returns a bot user (`is_bot: true`)
-  whose canonical name or display name is `agent-native`. Keep the stable
-  identity tuple `{ team_id, user_id, bot_id }` for all read-back checks.
-- Use that same bearer token for channel history, thread replies, reactions,
-  and Slack metadata. Use Slack cursors until the requested history or thread
-  is complete. The authenticated `team_id` scopes the request; do not require
-  individual message objects to repeat it. A message read-back must match the
-  target channel, timestamp, and thread parent, compare `team` or `team_id`
-  when Slack returns either field, and match the `bot_id`; if Slack also
-  includes a `user` author, it must match `user_id`, but a missing `user` field
-  is valid for bot messages. A reaction read-back must target the same message
-  and include the same `user_id` in its users list.
-- After every reaction or reply, re-read through the same token and verify the
-  reaction or reply exists and matches that identity tuple.
-- If the token is absent, invalid, or resolves to any identity other than
-  `@agent-native`, do not fall back to a user connector for Slack reads or
-  writes. Record Slack as unavailable, preserve the exact gap, and continue
-  only with non-Slack evidence.
+- Read the current Slack profile and confirm its user ID and display name
+  match the invoking user. If identity or workspace verification fails, record
+  Slack as unavailable and do not write.
+- Use that same connected identity for channel history, thread replies,
+  reactions, and Slack metadata. Use cursors until the requested history or
+  thread is complete. A read-back must match the target channel, timestamp,
+  thread parent, workspace, and invoking `user_id` where Slack returns an
+  author. A reaction read-back must include the invoking user in the reaction's
+  user list.
+- After every reaction or reply, re-read through the same connected identity
+  and verify the reaction or reply exists before continuing.
 
 ## Decision Gate
 
@@ -148,14 +140,14 @@ handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
-the bot's terminal disposition for the current cursor, but the next
+the invoking identity's terminal disposition for the current cursor, but the next
 `review-latest-feedback` run must re-read every thread it previously asked in
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
 **In progress** is also an open state. It records that the thread already has
-real ownership or an active fix, so the bot must not ask the reporter to repeat
-the issue. Re-read it on the next run, verify the work, and replace the open
+real ownership or an active fix, so the invoking identity must not ask the
+reporter to repeat the issue. Re-read it on the next run, verify the work, and replace the open
 state with **Fixed** when complete or **Clarification needed** only if a
 specific reporter or product input is still missing.
 
@@ -251,15 +243,15 @@ non-repeating question only if one specific required detail still blocks it.
    contains a real ownership or active-fix signal - never as a label for an
    internal tooling gap alone. The run is incomplete while that parent has
    only `👀`.
-6. When the user explicitly asks to reply, call Slack Web API
-   `chat.postMessage` directly in each requested thread with `thread_ts` and
-   the same `SLACK_BOT_TOKEN`. Do not silently turn an authorized write into a
-   draft. Re-read each thread afterward to confirm the reply landed. Before
-   ending the run, mechanically audit the reply ledger: for every `👀` parent,
-   record the `@agent-native` reply timestamp and whether it is **Fixed**,
-   **In progress**, or **Clarification needed**. If any parent has only `👀`, a generic bot
-   forward, or another person's reply, keep working and post the missing reply
-   before finishing.
+6. When the user explicitly asks to reply, post directly in each requested
+   thread with `thread_ts` through the same connected Slack identity. Do not
+   silently turn an authorized write into a draft. Re-read each thread
+   afterward to confirm the reply landed. Before ending the run, mechanically
+   audit the reply ledger: for every `👀` parent, record the invoking user's
+   reply timestamp and whether it is **Fixed**, **In progress**, or
+   **Clarification needed**. If any parent has only `👀`, a generic bot forward,
+   or another person's reply, keep working and post the missing reply before
+   finishing.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
@@ -275,8 +267,8 @@ non-repeating question only if one specific required detail still blocks it.
 
 ## Slack reply voice
 
-Write in Steve's voice, but let `@agent-native` be the sender - do not switch
-to a user-authored Slack identity:
+Write in the invoking user's voice and send from that same connected Slack
+identity:
 
 - Use lowercase, short conversational paragraphs, and clear, conversational
   wording. Keep the tone casual and collaborative - warm without being corny,
@@ -332,7 +324,7 @@ to a user-authored Slack identity:
 - Before finishing the sweep, search every reply authored in that sweep for
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Check that skipped subjective/product/policy items still
-  have neither an eye reaction nor an agent-authored reply.
+  have neither an eye reaction nor a reply from the invoking identity.
 
 A useful reply shape is:
 

@@ -28,6 +28,11 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+const RESTRICTED_REQUEST_HEADERS = new Set([
+  ...HOP_BY_HOP_HEADERS,
+  "content-length",
+  "cookie2",
+]);
 
 interface RelayState {
   port: number;
@@ -128,6 +133,21 @@ function requestHeaderValue(
   return value;
 }
 
+export function shouldForwardRequestHeader(
+  name: string,
+  value: string | string[] | undefined,
+): boolean {
+  const normalizedName = name.toLowerCase();
+  return (
+    value !== undefined &&
+    !RESTRICTED_REQUEST_HEADERS.has(normalizedName) &&
+    normalizedName !== "host" &&
+    normalizedName !== "origin" &&
+    normalizedName !== "referer" &&
+    normalizedName !== "cookie"
+  );
+}
+
 function corsHeaders(request: IncomingMessage): Record<string, string> {
   const origin = requestHeaderValue(request.headers.origin) ?? "*";
   const requestedHeaders =
@@ -203,17 +223,15 @@ async function proxyRequest(
   upstream.setHeader("Referer", `${targetUrl.origin}/`);
   if (cookieHeader) upstream.setHeader("Cookie", cookieHeader);
 
+  if (
+    request.headers["content-length"] !== undefined ||
+    request.headers["transfer-encoding"] !== undefined
+  ) {
+    upstream.chunkedEncoding = true;
+  }
+
   for (const [name, value] of Object.entries(request.headers)) {
-    if (
-      HOP_BY_HOP_HEADERS.has(name) ||
-      name === "host" ||
-      name === "origin" ||
-      name === "referer" ||
-      name === "cookie" ||
-      value === undefined
-    ) {
-      continue;
-    }
+    if (!shouldForwardRequestHeader(name, value)) continue;
     const headerValue = requestHeaderValue(value);
     if (headerValue !== undefined) upstream.setHeader(name, headerValue);
   }
