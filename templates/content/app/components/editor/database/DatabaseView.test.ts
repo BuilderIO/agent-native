@@ -54,6 +54,8 @@ import {
   databaseNextBuilderHydrationSource,
   databasePreviewItem,
   databaseItemPagePath,
+  orderDatabasePropertiesForView,
+  reorderDatabaseViewProperty,
   databaseRecordBuilderContinuationAttempt,
   databaseSourceOperationIsPending,
   databaseSourceChangeSetsAreComplete,
@@ -1268,6 +1270,87 @@ const baseProperty = (
   },
   value: null,
   editable: true,
+});
+
+describe("database property column order", () => {
+  const view = {
+    id: "table",
+    name: "Table",
+    type: "table" as const,
+    sorts: [],
+    filters: [],
+    columnWidths: {},
+  };
+  const propertyIds = (properties: DocumentProperty[]) =>
+    properties.map((property) => property.definition.id);
+
+  it("moves a visible property before another while preserving hidden columns", () => {
+    const allProperties = [
+      baseProperty("alpha"),
+      baseProperty("hidden"),
+      baseProperty("bravo"),
+      baseProperty("charlie"),
+    ];
+    const visibleProperties = [
+      allProperties[0],
+      allProperties[2],
+      allProperties[3],
+    ];
+
+    const reordered = reorderDatabaseViewProperty(
+      view,
+      "charlie",
+      "alpha",
+      { allProperties, visibleProperties },
+      "before",
+    );
+
+    expect(reordered.propertyOrderIds).toEqual([
+      "charlie",
+      "alpha",
+      "hidden",
+      "bravo",
+    ]);
+    expect(
+      propertyIds(orderDatabasePropertiesForView(allProperties, reordered)),
+    ).toEqual(["charlie", "alpha", "hidden", "bravo"]);
+  });
+
+  it("keeps surviving explicit order and appends new properties", () => {
+    const properties = [
+      baseProperty("alpha"),
+      baseProperty("bravo"),
+      baseProperty("charlie"),
+      baseProperty("delta"),
+    ];
+
+    expect(
+      propertyIds(
+        orderDatabasePropertiesForView(properties, {
+          propertyOrderIds: ["deleted", "charlie", "alpha", "bravo"],
+        }),
+      ),
+    ).toEqual(["charlie", "alpha", "bravo", "delta"]);
+  });
+
+  it("does not reorder from or onto a hidden property", () => {
+    const allProperties = [
+      baseProperty("alpha"),
+      baseProperty("hidden"),
+      baseProperty("bravo"),
+    ];
+    const visibleProperties = [allProperties[0], allProperties[2]];
+
+    expect(
+      reorderDatabaseViewProperty(
+        view,
+        "hidden",
+        "alpha",
+        { allProperties, visibleProperties },
+        "before",
+      ),
+    ).toBe(view);
+  });
 });
 
 const builderRowItem = (id: string): ContentDatabaseItem => ({

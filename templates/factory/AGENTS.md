@@ -31,6 +31,9 @@ decisions, feedback, agent runs, and provider audit records.
 - Provider credentials belong to Dispatch/shared workspace integrations, never
   to a Factory or Factory graph. Agents use shared provider APIs and connected
   MCP tools through the workspace grant boundary.
+- Never put provider keys or account identifiers in `.env`, deployment env, or
+  Factory actions/bootstrap. Configure standard integrations and resolve them
+  from the multitenant org/workspace vault.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state
@@ -60,7 +63,7 @@ decisions, feedback, agent runs, and provider audit records.
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
 | `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |
-| `list-factories` / `get-factory-graph` | Inspect definitions, versions, and metrics. |
+| `list-factories` / `get-factory-graph` / `delete-factory` | Inspect Factory definitions, versions, and metrics, or permanently delete a user-created Factory after exact-name confirmation. A committed delete whose follow-up read cannot confirm the row is gone returns `verified:false`, not a failed deletion. |
 | `create-factory` | Create a factory from `/new-factory` with optional sources. |
 | `save-factory-graph` | Create/version a graph with inspected `expectedGraphVersion`; never starts provider work. |
 | graph history actions | Factory graph version history. |
@@ -73,9 +76,11 @@ decisions, feedback, agent runs, and provider audit records.
 
 Rules start in shadow mode; hard guards apply. Organization automations use
 stored prompts; external mutations require durable, idempotent runs and
-provider confirmation. Use the visual editor for graph changes and agent chat
-for proposals; persist complete graphs with `save-factory-graph`. Change rules
-through triage actions, never graph JSON.
+provider confirmation. Poll and Builder/PR dispatch run only as this factory's
+scheduled job, not chat and not a workspace-owner email match; teammates may
+edit and Run now Factory jobs. Use the visual editor for graph changes and
+agent chat for proposals; persist complete graphs with `save-factory-graph`.
+Change rules through triage actions, never graph JSON.
 
 ## Source Changes
 

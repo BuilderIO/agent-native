@@ -76,6 +76,8 @@ import {
   cloneServerBundleForFunction,
   copyDir,
   pruneSsrIslandFromRewritingClone,
+  readPackageManifest,
+  SERVERLESS_BROWSER_RUNTIME_PACKAGES,
 } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
@@ -2543,10 +2545,6 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
-const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
-  "@sparticuz/chromium",
-  "playwright-core",
-] as const;
 const SERVERLESS_BROWSER_RUNTIME_CONSUMER = "@agent-native/creative-context";
 const PACKAGE_DEPENDENCY_FIELDS = [
   "dependencies",
@@ -2599,6 +2597,29 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "fsevents",
   "node-pty",
   "playwright",
+  // Nitro traces these from officeparser's PDF-output branch, which nothing in
+  // this repo reaches — the creative-context browser path uses playwright-core,
+  // not puppeteer. `pdf` output from officeparser now fails loudly instead of
+  // launching a second, unused browser stack in every function.
+  "puppeteer",
+  "puppeteer-core",
+  "chromium-bidi",
+]);
+
+/**
+ * Declared dependencies of the browser tree that only the Bare runtime can
+ * load. tar-stream hard-depends on bare-fs and events-universal on bare-events,
+ * but on Node both exports maps resolve to the plain builtins instead, so these
+ * are never required — and most of their bytes are android/darwin/win32
+ * prebuilds a Linux function could not execute anyway.
+ */
+const BARE_RUNTIME_ONLY_PACKAGES = new Set([
+  "bare-events",
+  "bare-fs",
+  "bare-path",
+  "bare-stream",
+  "bare-url",
+  "teex",
 ]);
 type ServerlessFfmpegStaticArch = "arm64" | "x64";
 
@@ -2632,20 +2653,6 @@ function nodeModulesAncestors(startDir: string): string[] {
     current = parent;
   }
   return dirs;
-}
-
-function readPackageManifest(
-  packageDir: string,
-): Record<string, unknown> | null {
-  const packageJsonPath = path.join(packageDir, "package.json");
-  if (!fs.existsSync(packageJsonPath)) return null;
-  const manifest: unknown = JSON.parse(
-    fs.readFileSync(packageJsonPath, "utf8"),
-  );
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-    return null;
-  }
-  return manifest as Record<string, unknown>;
 }
 
 function manifestDeclaresDependency(
@@ -2764,6 +2771,12 @@ function copyRuntimePackageTree(
   for (const dependencyName of Object.keys(
     dependencies as Record<string, unknown>,
   )) {
+    // Declared by tar-stream and events-universal but unreachable on Node: both
+    // exports maps send Node to a plain fs/path implementation, and only the
+    // Bare runtime sets the condition that selects these. Skipped inside the
+    // loop, before resolution, so an unresolvable REAL dependency still fails
+    // loudly below.
+    if (BARE_RUNTIME_ONLY_PACKAGES.has(dependencyName)) continue;
     const dependencyDir = findInstalledPackageRoot(
       dependencyName,
       nodeModulesRoots,
@@ -2824,6 +2837,24 @@ export function copyInstalledBrowserRuntimePackages(
       serverDir,
       nodeModulesRoots,
       copiedPackages,
+    );
+  }
+
+  // playwright-core ships its own developer tooling: lib/vite is the trace
+  // viewer, HTML reporter, codegen recorder and CLI dashboard UI, and lib/tools
+  // plus bin/ and cli.js are the command line. A function reaches none of them —
+  // they are only entered from startTraceViewerServer, startDashboardServer and
+  // the recorder route — and every byte is paid once per emitted function.
+  // force:true because a fixture (or a future playwright-core) may not have them.
+  for (const dead of ["lib/vite", "lib/tools", "bin", "cli.js"]) {
+    fs.rmSync(
+      path.join(
+        serverDir,
+        "node_modules",
+        "playwright-core",
+        ...dead.split("/"),
+      ),
+      { recursive: true, force: true },
     );
   }
 
@@ -3898,6 +3929,12 @@ function hasBundledFfmpegStaticRuntime(functionDir: string): boolean {
   );
 }
 
+/**
+ * Whether this function embeds the browser binary itself, which earns the size
+ * budget's browser allowance. `chromium-min` fetches the pack at launch and
+ * ships no `bin/`, so a min-based function no longer claims the allowance — the
+ * budget tightens automatically once the binary stops being bundled.
+ */
 function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
   return fs.existsSync(
     path.join(
@@ -3909,6 +3946,95 @@ function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
       "chromium.br",
     ),
   );
+}
+
+/**
+ * Replace the bundled `better-sqlite3` with a throwing stub in serverless
+ * output.
+ *
+ * The package is 27MB — a 9.1MB `sqlite3.c`, its object files, and a static
+ * archive, none of which a function can use: every consumer is gated on a
+ * `file:` or schemeless `DATABASE_URL`, and a serverless container holding a
+ * file-backed SQLite database is already broken, since the filesystem is
+ * ephemeral and each container gets its own copy.
+ *
+ * It cannot simply be deleted. Drizzle's bundled `_libs/drizzle-orm+postgres`
+ * chunk imports it at module scope, so removing the package turns every cold
+ * start into `ERR_MODULE_NOT_FOUND` — which is how this was first written, and
+ * what the SSR cold-start smoke caught. The stub keeps the specifier
+ * resolvable and moves the failure to the only place it can be acted on: a
+ * deploy that actually tries to open a file-backed database, which now throws
+ * with the reason instead of quietly serving an empty one.
+ */
+export function stubLocalOnlySqliteDriverForServerless(
+  serverDir: string,
+): number {
+  const packageDir = path.join(serverDir, "node_modules", "better-sqlite3");
+  if (!fs.existsSync(packageDir)) return 0;
+
+  const manifestPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(
+      `[deploy] ${path.relative(serverDir, packageDir)} has no package.json; ` +
+        "refusing to stub a package tree this build does not understand.",
+    );
+  }
+  const version = (
+    JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { version?: string }
+  ).version;
+  if (!version) {
+    throw new Error(
+      `[deploy] ${path.relative(serverDir, manifestPath)} declares no version; ` +
+        "refusing to stub a package tree this build does not understand.",
+    );
+  }
+
+  const saved = getDirSize(packageDir);
+  fs.rmSync(packageDir, { recursive: true, force: true });
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        name: "better-sqlite3",
+        version,
+        main: "index.js",
+        // Read by the CLI's native-dependency preflight, which would otherwise
+        // probe the stub, see its deliberate throw, and try to rebuild it.
+        agentNativeServerlessStub: true,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // CommonJS, matching the real package: Drizzle default-imports it from ESM
+  // and relies on the interop default being the constructor.
+  fs.writeFileSync(
+    path.join(packageDir, "index.js"),
+    [
+      "// Replaced at build time by @agent-native/core: better-sqlite3 is a",
+      "// local-development driver and cannot back a serverless deployment,",
+      "// whose filesystem is ephemeral and per-container.",
+      "module.exports = class BetterSqlite3NotAvailableInServerless {",
+      "  constructor() {",
+      "    throw new Error(",
+      '      "better-sqlite3 is not available in a serverless deployment. " +',
+      '        "DATABASE_URL resolved to a file-backed SQLite database, whose " +',
+      '        "filesystem is ephemeral and not shared between containers. " +',
+      '        "Point DATABASE_URL at Postgres or libSQL/Turso."',
+      "    );",
+      "  }",
+      "};",
+      "",
+    ].join("\n"),
+  );
+
+  const freed = saved - getDirSize(packageDir);
+  console.log(
+    `[deploy] Stubbed better-sqlite3 in ${path.basename(serverDir)}: ` +
+      `${(freed / 1024 / 1024).toFixed(1)}MB of local-only SQLite driver removed.`,
+  );
+  return freed;
 }
 
 function netlifyFunctionSizeBudget(functionDir: string): number {
@@ -3923,6 +4049,38 @@ function netlifyFunctionSizeBudget(functionDir: string): number {
     NETLIFY_FUNCTION_SIZE_BUDGET_BYTES + allowance,
     NETLIFY_FUNCTION_HARD_LIMIT_BYTES,
   );
+}
+
+/**
+ * App-owned pruning of the emitted serverless functions, run before the
+ * framework measures them.
+ *
+ * An app can know things about its own payload the framework cannot — docs, for
+ * instance, emits a locale chunk per translated page and can tell which ones no
+ * prerendered route will ever import. That pruning used to be chained after
+ * `agent-native build` with `&&`, which put it after this file had already
+ * printed the size report and applied the budget: the numbers described a
+ * directory that no longer existed by the time the deploy uploaded it, 19MB
+ * high for docs. Running the app's script here instead is the only ordering in
+ * which the report is measuring what ships.
+ *
+ * A script that exists and fails aborts the build. Silently continuing would
+ * publish an unpruned payload while reporting the size the app expected.
+ */
+function runAppServerlessFunctionPruning(cwd: string): void {
+  const script = path.join(cwd, "scripts", "prune-serverless-functions.ts");
+  if (!fs.existsSync(script)) return;
+
+  console.log(
+    `[deploy] Running app serverless pruning: ${path.relative(cwd, script)}`,
+  );
+  // Resolve tsx's own entry rather than shelling out to `npx`: npm's Windows
+  // shim is `npx.cmd`, which execFileSync cannot resolve, and running the
+  // resolved script under the current interpreter avoids the question.
+  const tsxCli = createRequire(path.join(cwd, "package.json")).resolve(
+    "tsx/cli",
+  );
+  execFileSync(process.execPath, [tsxCli, script], { cwd, stdio: "inherit" });
 }
 
 function reportNetlifyFunctionSizes(
@@ -4535,6 +4693,30 @@ export function pruneServerlessFunctionDeadWeight(
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 
+  // Only the `types` export condition points at declaration files, and no
+  // runtime resolver honours it — nothing inside a deployed function ever
+  // type-checks. Scoped to node_modules on purpose: there are no .d.ts outside
+  // it today, and scoping keeps a future emitted asset out of range.
+  if (fs.existsSync(nodeModulesDir)) {
+    let removedDeclarations = 0;
+    for (const declaration of fs.globSync("**/*.d.ts", {
+      cwd: nodeModulesDir,
+    })) {
+      const declarationPath = path.join(nodeModulesDir, declaration);
+      try {
+        removedBytes += fs.statSync(declarationPath).size;
+        fs.rmSync(declarationPath);
+        removedDeclarations += 1;
+      } catch {
+        // coercion-ok: a file already gone contributes nothing, and its bytes
+        // were counted before the unlink, so the total stays honest.
+      }
+    }
+    if (removedDeclarations > 0) {
+      removedNames.push(`${removedDeclarations} .d.ts file(s)`);
+    }
+  }
+
   if (removedNames.length > 0) {
     console.log(
       `[deploy] Pruned ${removedNames.length} unrunnable path(s) (${(
@@ -5141,6 +5323,7 @@ export default bundle;
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    stubLocalOnlySqliteDriverForServerless(nitro.options.output.serverDir);
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
@@ -5190,6 +5373,7 @@ export default bundle;
     // directly from Netlify's static backing store. Keep that artifact on the
     // same public SWR policy as runtime SSR and .data responses.
     writeNetlifyStaticHeaders(path.join(cwd, "dist"));
+    runAppServerlessFunctionPruning(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }
 

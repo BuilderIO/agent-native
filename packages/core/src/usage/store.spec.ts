@@ -148,6 +148,54 @@ describe("calculateCost pricing tiers", () => {
     expect(write).toBe(37_500);
     expect(write).toBeGreaterThan(read);
   });
+
+  // `inputTokens` is the whole prompt and INCLUDES the cache counts, so the
+  // three are a partition. Charging the full total AND the cache counts on top
+  // billed every cached token twice — on a long cached conversation the cache
+  // is nearly the whole prompt, so the error was ~9x, not a rounding artifact.
+  it("prices each input token once when most of the prompt was cached", () => {
+    // A real turn: 42,438-token prompt, all but 3 tokens served from cache.
+    const cost = calculateCost(42_438, 285, "gpt-5.6-luna", 36_734, 5_701);
+
+    // luna, short context: $0.20 input / $0.02 cached / $0.25 cache write /
+    // $1.20 output per MTok, in this table's cents-per-MTok units.
+    const uncached = (3 / 1_000_000) * 20 * 100;
+    const output = (285 / 1_000_000) * 120 * 100;
+    const cacheRead = (36_734 / 1_000_000) * 2 * 100;
+    const cacheWrite = (5_701 / 1_000_000) * 25 * 100;
+    expect(cost).toBe(Math.round(uncached + output + cacheRead + cacheWrite));
+
+    // The shape of the old bug: the whole prompt charged at the full input
+    // rate, on top of the cache counts rather than net of them.
+    const doubleCounted =
+      (42_438 / 1_000_000) * 20 * 100 + output + cacheRead + cacheWrite;
+    expect(cost).toBeLessThan(doubleCounted);
+  });
+
+  // Cache writes cost MORE than uncached input, not less and not nothing —
+  // the one rate in OpenAI's table that is easy to assume away, and the one
+  // this table previously had at zero.
+  it("prices an OpenAI cache write above the full input rate", () => {
+    const write = calculateCost(1_000_000, 0, "gpt-5.6-luna", 0, 1_000_000);
+    const fresh = calculateCost(1_000_000, 0, "gpt-5.6-luna", 0, 0);
+    expect(write).toBe(2_500); // $0.25/MTok
+    expect(fresh).toBe(2_000); // $0.20/MTok
+    expect(write).toBeGreaterThan(fresh);
+  });
+
+  it("never credits the bill when cache counts exceed the prompt", () => {
+    // An engine still emitting the exclusive convention. Clamped, not negative
+    // — a wrong-signed charge is worse than a low one.
+    expect(
+      calculateCost(3, 0, "claude-sonnet-4-5", 36_734, 5_701),
+    ).toBeGreaterThan(0);
+  });
+
+  // A provider without prompt caching passes 0s and must still pay full rate
+  // on the whole prompt — the partition degrades to "all of it is uncached".
+  it("charges the full rate throughout when there is no caching", () => {
+    expect(calculateCost(1_000_000, 0, "claude-sonnet-4-5", 0, 0)).toBe(30_000);
+  });
 });
 
 describe("recordUsage", () => {

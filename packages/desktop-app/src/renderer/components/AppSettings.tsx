@@ -521,6 +521,8 @@ export default function AppSettings({
   const [identityStatus, setIdentityStatus] =
     useState<DesktopIdentityStatus>("idle");
   const [desktopSsoEnabled, setDesktopSsoEnabled] = useState(false);
+  const [environmentLane, setEnvironmentLane] =
+    useState<DesktopEnvironmentLaneState>();
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
@@ -591,16 +593,36 @@ export default function AppSettings({
     void identity.getSettings().then((settings) => {
       if (active) setDesktopSsoEnabled(settings.ssoEnabled);
     });
+    const loadEnvironmentLane = () => {
+      void identity.getEnvironmentLane?.().then((state) => {
+        if (active) setEnvironmentLane(state);
+      });
+    };
+    loadEnvironmentLane();
     void identity.getStatus().then((status) => {
       if (active) setIdentityStatus(status);
     });
     const unsubscribe = identity.onStatusChange((status) => {
-      if (active) setIdentityStatus(status);
+      if (!active) return;
+      setIdentityStatus(status);
+      // Eligibility comes from the verified email, so signing in while
+      // Settings is already open has to re-resolve it — otherwise the beta
+      // control stays hidden until Settings is reopened.
+      loadEnvironmentLane();
     });
     return () => {
       active = false;
       unsubscribe();
     };
+  }, []);
+
+  const handleEnvironmentLaneToggle = useCallback(async (beta: boolean) => {
+    const setLane = window.electronAPI?.identity?.setEnvironmentLane;
+    if (!setLane) return;
+    setEnvironmentLane(await setLane(beta ? "beta" : "production"));
+    // Every mounted webview is already pointed at the old origin, so the
+    // shell reloads rather than trying to move them in place.
+    window.location.reload();
   }, []);
 
   const handleDesktopSsoToggle = useCallback(async (enabled: boolean) => {
@@ -1491,6 +1513,21 @@ export default function AppSettings({
                           />
                         }
                       />
+                      {environmentLane?.eligible ? (
+                        <SettingsRow
+                          label="Load beta app builds"
+                          description="Point app tabs at beta.*.agent-native.com to try changes before they reach production."
+                          control={
+                            <Switch
+                              checked={environmentLane.lane === "beta"}
+                              onCheckedChange={(beta) =>
+                                void handleEnvironmentLaneToggle(beta)
+                              }
+                              aria-label="Load beta app builds"
+                            />
+                          }
+                        />
+                      ) : null}
                       {desktopSsoEnabled && identityStatus !== "idle" ? (
                         <SettingsRow
                           label="Agent Native workspace"
@@ -1608,11 +1645,12 @@ export function AddAppDialog({
   async function saveAppsRoot(nextRoot: string) {
     const trimmed = nextRoot.trim();
     if (!trimmed) return;
-    const settings =
-      await window.electronAPI?.appConfig?.updateCreationSettings({
-        appsRoot: trimmed,
-      });
-    if (settings?.appsRoot) setAppsRoot(settings.appsRoot);
+    const result = await window.electronAPI?.appConfig?.updateCreationSettings({
+      appsRoot: trimmed,
+    });
+    if (!result) return;
+    setAppsRoot(result.settings.appsRoot);
+    setBuildError(result.error ?? "");
   }
 
   async function chooseAppsRoot() {

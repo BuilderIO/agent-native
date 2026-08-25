@@ -1,14 +1,6 @@
 import { IconArrowLeft, IconMicrophone2 } from "@tabler/icons-react";
 
-export function MicOffConfirmation({
-  onBack,
-  onUnmute,
-  onContinue,
-}: {
-  onBack: () => void;
-  onUnmute: () => void;
-  onContinue: () => void;
-}) {
+export function MicOffConfirmation({ onBack }: { onBack: () => void }) {
   return (
     <section className="mic-off-confirmation" aria-labelledby="mic-off-title">
       <header className="mic-off-confirmation-header">
@@ -29,19 +21,10 @@ export function MicOffConfirmation({
         </div>
         <h2 id="mic-off-title">Your mic is muted</h2>
         <p>
-          To have sound in your video, you&apos;ll need to unmute your
-          microphone.
+          You can change your microphone setting and then come back to start
+          recording.
         </p>
       </div>
-
-      <footer className="mic-off-confirmation-actions">
-        <button type="button" className="secondary" onClick={onUnmute}>
-          Unmute
-        </button>
-        <button type="button" className="primary" onClick={onContinue}>
-          Continue
-        </button>
-      </footer>
     </section>
   );
 }

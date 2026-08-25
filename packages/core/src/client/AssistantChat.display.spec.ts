@@ -157,6 +157,7 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain(
       "writeAssistantChatComposerDraft(composerDraftScope, text)",
     );
+    expect(source).toContain("const composerDraftScope = tabId || threadId;");
     expect(source).toContain("initialTextKey={composerDraftScope}");
     expect(source).toContain("draftScope={composerDraftScope}");
   });
@@ -1508,6 +1509,9 @@ describe("missing agent engine setup", () => {
     expect(messageComponents).toContain("agent-selection-attached-pill");
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
+    expect(source).toContain("isProviderAuthenticationError(");
+    expect(source).toContain("showRunningInUI || !shouldShowRunError");
+    expect(source).toContain("onConnected={handleProviderSetupConnected}");
     expect(source).toMatch(
       /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
     );
@@ -1563,8 +1567,8 @@ describe("tool approval continuation", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
-    const start = source.indexOf("onApprove: (approvalKey: string) => {");
-    const end = source.indexOf("...(approvalActions?.onDeny", start);
+    const start = source.indexOf("const approveToolCall = useCallback");
+    const end = source.indexOf("const approvalCtx = useMemo", start);
     const approvalSource = source.slice(start, end);
 
     expect(start).toBeGreaterThan(-1);

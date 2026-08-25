@@ -160,6 +160,18 @@ describe("Slides canvas interaction adapter", () => {
     ).toBe("move-object-body");
   });
 
+  it("keeps a direct text-leaf click in edit mode outside the move band", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: true,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: false,
+        targetIsEditableText: true,
+      }),
+    ).toBe("edit-text");
+  });
+
   it("uses the object under the pointer when no prior selection exists", () => {
     const image = document.createElement("img");
     const wrapper = document.createElement("div");
@@ -209,6 +221,18 @@ describe("Slides canvas interaction adapter", () => {
         targetIsEditableText: true,
       }),
     ).toBe("edit-text");
+  });
+
+  it("moves the selected object from whitespace over its selection perimeter", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: false,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: true,
+        targetIsEditableText: false,
+      }),
+    ).toBe("move-object-perimeter");
   });
 
   it("passes semantic commands through the supplied HTML persistence adapter", () => {

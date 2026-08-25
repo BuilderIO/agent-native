@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { deleteUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";

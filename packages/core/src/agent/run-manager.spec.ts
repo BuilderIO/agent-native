@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
 import {
@@ -61,7 +62,6 @@ vi.mock("./run-store.js", () => ({
           type: "error",
           error: detail || "The agent run failed.",
           ...(code && code !== "unknown" ? { errorCode: code } : {}),
-          recoverable: true,
         },
         shouldPersist: true,
       };
@@ -3606,7 +3606,6 @@ describe("run manager soft timeout", () => {
       expect.objectContaining({
         type: "error",
         error: "Connection error.",
-        recoverable: true,
       }),
     );
   });
@@ -3815,6 +3814,32 @@ describe("run manager soft timeout", () => {
       expect(softTimeoutMs).toBeLessThanOrEqual(HOSTED_SOFT_TIMEOUT_CEILING_MS);
       expect(noProgress).toBe(30_000);
       expect(toolCeiling).toBe(35_000);
+    });
+
+    // The same inversion, on the path that actually runs the one-shot
+    // automations: a background AUTOMATION's budget is its own hard abort minus
+    // headroom (10min - 20s), which is materially SMALLER than the background
+    // chat ceiling (13min). `runAgentLoop` used to re-derive the ceiling from
+    // the chat number and got 12m55s — above the 9m40s the run actually had —
+    // so every per-tool timeout on that path was dead code and the chunk
+    // boundary won instead. It now takes the caller's real budget.
+    it("keeps the tool ceiling inside a background AUTOMATION's own budget", () => {
+      // `agent.backgroundRunHardTimeoutMs` default (background-automation-runner.ts).
+      // Inlined rather than imported so this spec does not pull the jobs module.
+      const automationHardAbortMs = 10 * 60_000;
+      const automationBudgetMs =
+        automationHardAbortMs - BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS;
+
+      // The bug: derived from the chat ceiling, the tool ceiling outlives the
+      // budget it is supposed to sit inside.
+      expect(
+        resolveRunToolTimeoutCeilingMs(BACKGROUND_SOFT_TIMEOUT_CEILING_MS),
+      ).toBeGreaterThan(automationBudgetMs);
+
+      // The fix: derived from the caller's actual budget, it stays under it.
+      expect(resolveRunToolTimeoutCeilingMs(automationBudgetMs)).toBeLessThan(
+        automationBudgetMs,
+      );
     });
 
     it("clamps a background-sized foreground override down to the chunk budget", () => {
@@ -4295,6 +4320,38 @@ describe("run manager soft timeout", () => {
   // a user Stop still ends the turn, so both abort sources are exercised here
   // against the same runFn.
   describe("chunk-scoped checkpoints", () => {
+    it("bounds recoverable chunks with the cumulative soft-timeout timer", async () => {
+      let signalReason: unknown;
+      let boundaryReason: string | null = null;
+
+      const run = startRun(
+        "run-chunk-soft-timeout",
+        "thread-chunk-soft-timeout",
+        async (_send, signal, control) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                signalReason = signal.reason;
+                boundaryReason = control.chunkBoundaryReason();
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        },
+        undefined,
+        { softTimeoutMs: 100, recoverChunkBoundaries: true },
+      );
+
+      await vi.advanceTimersByTimeAsync(101);
+      await run.finalized;
+
+      expect(signalReason).toBe("run_timeout");
+      expect(boundaryReason).toBe("run_timeout");
+      expect(run.abort.signal.aborted).toBe(true);
+    });
+
     it("ends only the chunk on a no-progress boundary, leaving the turn alive", async () => {
       const chunkAborts: unknown[] = [];
       let turnAborted = false;

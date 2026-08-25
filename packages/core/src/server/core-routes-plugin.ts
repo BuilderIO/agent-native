@@ -122,7 +122,6 @@ import {
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
 import {
   BUILDER_CONNECT_PARAM,
@@ -165,6 +164,10 @@ import {
   type BuilderOAuthPendingFlow,
 } from "./builder-oauth.js";
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
+import {
+  resolveCoreRoutesMcpOptions,
+  type CoreRoutesMcpOptions,
+} from "./core-routes/mcp-connect-options.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -1352,20 +1355,24 @@ export interface CoreRoutesPluginOptions {
   /** Disable the /_agent-native/embed/start iframe session launcher. */
   disableEmbedRoute?: boolean;
   /**
-   * Disable the /mcp/connect routes (browser Connect page + CLI device-code
-   * flow that mints per-user, revocable MCP tokens) and the standard remote-MCP
-   * OAuth endpoints under /mcp/oauth. The legacy /_agent-native/mcp aliases
-   * are disabled at the same time.
-   * Enabled by default — the routes are session-gated where they approve user
-   * access; token endpoints are protected by single-use codes / refresh
-   * tokens.
+   * Everything about this app's MCP connect surface — whether the Connect page
+   * and OAuth endpoints are mounted, and the server id clients key it by.
+   * See `CoreRoutesMcpOptions`.
+   *
+   * Replaces the top-level `disableMcpConnect`, `mcpConnectServerName`,
+   * `mcpConnectAppId`, and `mcpConnectAppName`, which stay accepted for one
+   * minor. Setting both forms to disagreeing values throws at plugin init
+   * rather than silently picking one.
    */
+  mcp?: CoreRoutesMcpOptions;
+
+  /** @deprecated Use `mcp.connect: false`. */
   disableMcpConnect?: boolean;
-  /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
-  mcpConnectAppId?: string;
-  /** Explicit MCP server id for copyable config/device-flow grants. */
+  /** @deprecated Use `mcp.serverName`. */
   mcpConnectServerName?: string;
-  /** Human app name shown on the MCP connect page. */
+  /** @deprecated Set `app.id` in `defineAppConfig()`. */
+  mcpConnectAppId?: string;
+  /** @deprecated Set `app.name` in `defineAppConfig()`. */
   mcpConnectAppName?: string;
   /** Per-template override mapping deep-link params → client SPA path.
    *  See `createOpenRouteHandler`. */
@@ -1501,6 +1508,69 @@ export function ensureS3FileUploadProvider(): void {
     return;
   }
   registerFileUploadProvider(s3FileUploadProvider);
+}
+
+export interface OAuthCustodyBuilderKeyStatus {
+  privateKeyConfigured: boolean;
+  publicKeyConfigured: boolean;
+  orgName: string;
+  /**
+   * True when the key-pair lookup itself failed (credential store
+   * unreadable, org lookup error, a thrown import) rather than confirming
+   * no keys exist. privateKeyConfigured/publicKeyConfigured stay `false` in
+   * both cases — this is the only signal that tells "never configured"
+   * apart from "couldn't check right now", so a transient store blip can't
+   * read downstream as "the user never connected Builder keys".
+   */
+  keyLookupFailed: boolean;
+}
+
+/**
+ * Resolves the classic Builder key-pair status for a request that already
+ * has Builder MCP OAuth custody (the connection-status handler's `configured`
+ * is already `true` by the time this runs — OAuth alone proves the chat
+ * gateway). Exported so the connection-status route's OAuth-custody branch is
+ * unit-testable without standing up the full plugin.
+ */
+export async function resolveOAuthCustodyBuilderKeyStatus(
+  dependencies: {
+    resolveCredentialsDetailed: () => Promise<{
+      privateKey: string | null;
+      publicKey: string | null;
+      orgName: string | null;
+      lookupFailed: boolean;
+    }>;
+  } = {
+    resolveCredentialsDetailed: async () => {
+      const { resolveBuilderCredentialsDetailed } =
+        await import("./credential-provider.js");
+      return resolveBuilderCredentialsDetailed();
+    },
+  },
+): Promise<OAuthCustodyBuilderKeyStatus> {
+  try {
+    const creds = await dependencies.resolveCredentialsDetailed();
+    return {
+      privateKeyConfigured: !!creds.privateKey,
+      publicKeyConfigured: !!creds.publicKey,
+      orgName:
+        typeof creds.orgName === "string" && creds.orgName
+          ? creds.orgName
+          : "Builder OAuth",
+      keyLookupFailed: creds.lookupFailed,
+    };
+  } catch {
+    // OAuth already proves the chat gateway, so a thrown key-pair lookup
+    // here must not abort the response — but it is unreadable, not
+    // confirmed-absent, so keyLookupFailed has to say so (see the field doc
+    // above) instead of silently landing on the same `false`s as a real miss.
+    return {
+      privateKeyConfigured: false,
+      publicKeyConfigured: false,
+      orgName: "Builder OAuth",
+      keyLookupFailed: true,
+    };
+  }
 }
 
 export function createCoreRoutesPlugin(
@@ -1754,7 +1824,12 @@ export function createCoreRoutesPlugin(
 
       for (const provider of [
         "figma",
+        "gmail",
+        "google_calendar",
+        "google_docs",
         "google_drive",
+        "google_sheets",
+        "google_slides",
         "github",
         "hubspot",
         "salesforce",
@@ -2296,29 +2371,15 @@ export function createCoreRoutesPlugin(
                 }
               }
               if (oauthAccess) {
-                let privateKeyConfigured = false;
-                let publicKeyConfigured = false;
-                let orgName = "Builder OAuth";
-                try {
-                  const { resolveBuilderCredentials } =
-                    await import("./credential-provider.js");
-                  const creds = await resolveBuilderCredentials();
-                  privateKeyConfigured = !!creds.privateKey;
-                  publicKeyConfigured = !!creds.publicKey;
-                  if (typeof creds.orgName === "string" && creds.orgName) {
-                    orgName = creds.orgName;
-                  }
-                } catch {
-                  // coercion-ok: OAuth already proves the chat gateway; missing
-                  // key flags only hide code-change send until secrets are readable.
-                }
+                const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
                 return withConnectToken({
                   ...requestStatus,
                   configured: true,
                   credentialSource: "user" as const,
-                  privateKeyConfigured,
-                  publicKeyConfigured,
-                  orgName,
+                  privateKeyConfigured: keyStatus.privateKeyConfigured,
+                  publicKeyConfigured: keyStatus.publicKeyConfigured,
+                  keyLookupFailed: keyStatus.keyLookupFailed,
+                  orgName: keyStatus.orgName,
                   spaces: [],
                 });
               }
@@ -4196,7 +4257,8 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      if (!options.disableMcpConnect) {
+      const mcpConnect = resolveCoreRoutesMcpOptions(options);
+      if (mcpConnect.connect) {
         getH3App(nitroApp).use(
           "/.well-known/oauth-protected-resource",
           defineEventHandler((event: H3Event) =>
@@ -4221,8 +4283,8 @@ export function createCoreRoutesPlugin(
             defineEventHandler(async (event: H3Event) => {
               const subpath = event.url?.pathname || "";
               return handleMcpOAuth(event, subpath, {
-                appId: options.mcpConnectAppId,
-                appName: options.mcpConnectAppName ?? getAppName(),
+                appId: mcpConnect.appId,
+                appName: mcpConnect.appName,
               });
             }),
           );
@@ -4238,9 +4300,9 @@ export function createCoreRoutesPlugin(
         // The auth guard bypasses ONLY the page + device/start + device/poll
         // (see createAuthGuardFn in auth.ts).
         const mcpConnectOpts = {
-          appId: options.mcpConnectAppId,
-          appName: options.mcpConnectAppName ?? getAppName(),
-          serverName: options.mcpConnectServerName,
+          appId: mcpConnect.appId,
+          appName: mcpConnect.appName,
+          serverName: mcpConnect.serverName,
         };
         for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
           getH3App(nitroApp).use(

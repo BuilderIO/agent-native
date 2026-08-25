@@ -1,0 +1,77 @@
+---
+title: "Calendrier dans un espace de travail multi-apps"
+description: "Comment Calendrier se connecte à Dispatch et à d'autres applications, les véritables événements sur lesquels d'autres applications peuvent automatiser, et la délégation en langage naturel à travers un espace de travail multi-apps."
+---
+
+# Calendrier dans un espace de travail multi-apps
+
+Calendrier est une application parmi d'autres dans un espace de travail
+[Dispatch](/docs/template-dispatch). Cette page couvre ce que cela signifie concrètement en
+pratique : comment la connexion fonctionne, et des moyens concrets par lesquels d'autres
+applications peuvent agir sur votre calendrier ou réagir à ce qui s'y passe. Consultez
+[Calendrier](/docs/template-calendar) pour la vue d'ensemble.
+
+## Comment Calendrier se connecte à Dispatch
+
+Le fait que ce soit automatique dépend de la façon dont Calendrier et Dispatch ont été
+configurés ensemble, pas du fait que l'un ou l'autre soit hébergé ou exécuté localement.
+
+### Même espace de travail : automatique
+
+Si Calendrier et Dispatch ont été générés ou ajoutés ensemble dans un seul espace de
+travail Agent Native (via `create` ou `add-app`) et déployés comme une seule unité, ils
+partagent déjà un seul `.env`, un seul `A2A_SECRET`, et un seul registre d'espace de travail.
+La découverte et l'appel A2A authentifié fonctionnent tous les deux sans rien à
+configurer, que cet espace de travail s'exécute sur votre machine ou en production.
+C'est la configuration attendue pour un véritable produit multi-apps construit sur Calendrier.
+
+### Déploiements séparés : une étape manuelle
+
+Si Calendrier et Dispatch sont deux projets Agent Native créés indépendamment,
+ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux.
+Les connecter demande une étape manuelle de chaque côté : ajoutez une
+ressource `remote-agents/<id>.json` avec un secret partagé, depuis Paramètres →
+Agents connectés, l'onglet Connexions de la page Agent, ou Dispatch → Agents →
+Ajouter un agent externe. Consultez [Protocole A2A](/docs/a2a-protocol) pour le
+guide complet.
+
+Pour vérifier dans quelle situation vous êtes, demandez à l'agent de l'une des deux applications
+« quelles applications peux-tu voir ? » Si Calendrier est absent de la réponse de
+Dispatch, vous êtes dans le second cas.
+
+## Stratégies d'intégration
+
+**Automatiser à partir des événements de calendrier.** Créer un événement et créer une réservation
+déclenchent tous deux un véritable événement sur le bus d'événements partagé du framework
+(`calendar.event.created`, `calendar.booking.created`). L'[automatisation](/docs/automations) de
+toute application peut s'abonner à l'un ou l'autre, quelle que soit l'application qui le définit. Une
+réservation qui atterrit sur votre calendrier pourrait déclencher un brouillon d'e-mail de bienvenue
+dans Courrier, ou un ordre du jour de réunion dans Diapositives, construit avant que la réunion ait
+lieu. Calendrier ne propose pas nativement une de ces automatisations, mais l'événement est
+réel et prêt à être exploité dès que vous voulez en construire une.
+
+**Délégation en langage naturel via Dispatch.** Une application sœur n'a pas besoin d'une
+intégration spéciale pour travailler avec Calendrier. Elle peut transmettre à l'agent de Calendrier
+une demande en langage courant, comme « trouve 30 minutes avec Sam la semaine prochaine », de la
+même façon que vous le feriez dans le chat, et Calendrier y répond ou agit dessus directement. C'est
+le véritable mécanisme derrière quelque chose comme une demande de planification qui arrive
+dans Courrier ou Slack et qui se transforme en un événement réservé : Dispatch (ou l'application qui a
+reçu le message) délègue la demande à l'agent de Calendrier, et
+Calendrier la traite comme n'importe quelle autre invite.
+
+**Rester découplé.** Calendrier n'a jamais besoin de connaître les identifiants de Courrier ou de
+Slack, ni l'inverse, pour rien de tout cela. Le bus d'événements et les automatisations qui s'y
+abonnent se trouvent entre les applications, si bien que Calendrier n'a qu'à
+émettre un véritable événement ou répondre à une véritable demande. Il n'a pas besoin de savoir qui
+écoute, ni comment.
+
+## Et ensuite
+
+- [**Calendrier**](/docs/template-calendar) — la vue d'ensemble et les étapes de démarrage
+- [**Fonctionnalités**](/docs/template-calendar-features) — vues, disponibilité, recherche de créneaux et liens de réservation
+- [**Parler à l'agent**](/docs/template-calendar-agent) — les invites par tâche, l'état de l'application et les Extensions
+- [**Guide développeur**](/docs/template-calendar-developers) — démarrage rapide, actions, modèle de données et routes
+- [**Dispatch**](/docs/template-dispatch) — le plan de contrôle d'espace de travail sur lequel ces modèles s'exécutent
+- [**Automatisations**](/docs/automations) — déclarer une automatisation qui réagit à un événement de calendrier
+- [**Protocole A2A**](/docs/a2a-protocol) — comment les applications se découvrent, s'authentifient et s'appellent entre elles
+- [**Espace de travail multi-apps**](/docs/multi-app-workspace) — le modèle général de composition d'applications de première partie plutôt que de les imbriquer

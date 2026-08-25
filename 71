@@ -1,6 +1,0 @@
-[0817/094345.795061:FATAL:electron/shell/app/electron_main_delegate_mac.mm:65] Unable to find helper app
-[0817/094345.800778:FATAL:electron/shell/app/electron_main_delegate_mac.mm:65] Unable to find helper app
-[36044:0817/094345.802331:ERROR:content/browser/gpu/gpu_process_host.cc:996] GPU process exited unexpectedly: exit_code=5
-[36044:0817/094345.806224:ERROR:content/browser/network_service_instance_impl.cc:608] Network service crashed or was terminated, restarting service.
-[0817/094345.846308:FATAL:electron/shell/app/electron_main_delegate_mac.mm:65] Unable to find helper app
-[0817/094345.846443:FATAL:electron/shell/app/electron_main_delegate_mac.mm:65] Unable to find helper app

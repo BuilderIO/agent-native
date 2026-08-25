@@ -83,6 +83,7 @@ export {
 } from "../../code-agents/transcript-normalizer.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
 export {
+  chatModelSelectionStorageKey,
   useChatModels,
   type UseChatModelsResult,
   type EngineModelGroup,
@@ -358,3 +359,17 @@ export {
   type ChatFirstSurfaceTabsState,
   type ChatFirstSurfaceTabsStore,
 } from "../chat-first.js";
+export {
+  ThinkingDisplayProvider,
+  getBrowserThinkingDisplay,
+  setBrowserThinkingDisplay,
+  subscribeToBrowserThinkingDisplay,
+  useThinkingDisplay,
+  useThinkingDisplayControl,
+} from "../thinking-display.js";
+export {
+  DEFAULT_THINKING_DISPLAY,
+  THINKING_DISPLAY_MODES,
+  isThinkingDisplay,
+  type ThinkingDisplay,
+} from "../../shared/thinking-display.js";

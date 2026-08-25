@@ -50,14 +50,78 @@ function ContactPanel({
       emails.find((e) => e.id === emailId || (e.threadId || e.id) === emailId),
     [emails, emailId],
   );
-  // Always use inbox emails for "recent from contact" — shares React Query cache,
-  // no extra fetch. The `emails` prop may be a different view (sent, starred, etc.)
-  const { data: inboxEmails = [] } = useEmails("inbox");
-
   const displayEmail = contactEmail || email?.from.email;
   const displayName = contactEmail
     ? contactEmail
     : email?.from.name || email?.from.email;
+  const normalizedDisplayEmail = displayEmail?.trim().toLowerCase() ?? "";
+  // Use all mail so contact activity survives sent/archive/inbox navigation.
+  // Search at the provider boundary so the contact panel does not page through
+  // the entire mailbox. The bounded follow-up fetches cover sparse histories.
+  const {
+    data: allEmails = [],
+    isError: allEmailsError,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useEmails("all", normalizedDisplayEmail || undefined, undefined, {
+    enabled: Boolean(normalizedDisplayEmail),
+  });
+  const contactPageFetchesRef = useRef(0);
+  const contactGenerationRef = useRef(0);
+
+  useEffect(() => {
+    contactPageFetchesRef.current = 0;
+    contactGenerationRef.current += 1;
+  }, [normalizedDisplayEmail]);
+
+  const recentFromContact = displayEmail
+    ? allEmails
+        .filter((e) => {
+          if (e.id === emailId) return false;
+          const participants = [
+            e.from,
+            ...e.to,
+            ...(e.cc ?? []),
+            ...(e.bcc ?? []),
+          ];
+          return participants.some(
+            (participant) =>
+              participant.email.trim().toLowerCase() === normalizedDisplayEmail,
+          );
+        })
+        .slice(0, 4)
+        .map((e) => ({ id: e.id, subject: e.subject }))
+    : [];
+
+  useEffect(() => {
+    const maxContactPages = 4;
+    if (
+      !normalizedDisplayEmail ||
+      recentFromContact.length >= 4 ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      isFetchNextPageError ||
+      contactPageFetchesRef.current >= maxContactPages
+    ) {
+      return;
+    }
+    const contactGeneration = contactGenerationRef.current;
+    contactPageFetchesRef.current += 1;
+    void fetchNextPage().catch(() => {
+      if (contactGenerationRef.current === contactGeneration) {
+        contactPageFetchesRef.current = maxContactPages;
+      }
+    });
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+    normalizedDisplayEmail,
+    recentFromContact.length,
+  ]);
 
   if (!displayEmail) {
     return (
@@ -69,16 +133,12 @@ function ContactPanel({
     );
   }
 
-  const recentFromContact = inboxEmails
-    .filter((e) => e.from.email === displayEmail && e.id !== emailId)
-    .slice(0, 4)
-    .map((e) => ({ id: e.id, subject: e.subject }));
-
   return (
     <IntegrationsSidebar
       email={displayEmail}
       displayName={displayName || displayEmail}
       recentEmails={recentFromContact}
+      recentEmailsError={allEmailsError}
       threadId={email?.threadId}
       focusedEmailId={email?.id ?? emailId}
     />

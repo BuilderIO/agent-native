@@ -240,10 +240,11 @@ export function resolveRunNoProgressTimeoutMs(params: {
  * Every pair listed here suspends the no-progress backstop for as long as it is
  * open, so each one MUST be bounded by a watchdog of its own — tool calls by
  * the per-tool timeout, cross-app calls by the A2A poll timeout, the model
- * stream by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`, which the agent loop races
- * against every wait for the next engine frame. A pair added here without such
- * a bound turns the backstop off for the rest of the run, which is strictly
- * worse than the stall it was meant to catch.
+ * stream by the engine's own first-event abort plus the chunk budget (the 90s
+ * in-loop watchdog that used to sit here is gone — see
+ * run-lifecycle-invariants.ts). A pair added here without SOME bound turns the
+ * backstop off for the rest of the run, which is strictly worse than the stall
+ * it was meant to catch.
  *
  * Note what that leaves: the model-stream bound covers waiting for the engine,
  * not a hang while the loop processes a frame it already has. Nothing here
@@ -1013,6 +1014,9 @@ export function startRun(
     ? new AbortController()
     : null;
   let chunkBoundaryReason: string | null = null;
+  let chunkSoftTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let armChunkSoftTimeout: () => void = () => {};
+  let recoverableRunDeadlineAt: number | null = null;
   let recoveredChunkBoundaries = 0;
   /** A boundary that has been reached but not yet proven recovered. */
   let pendingBoundary: {
@@ -1062,7 +1066,9 @@ export function startRun(
       if (abort.signal.aborted || !chunkAbort) return abort.signal;
       settleBoundary(true);
       chunkBoundaryReason = null;
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       chunkAbort = new AbortController();
+      armChunkSoftTimeout();
       // The boundary is behind us; the silence clock restarts with the chunk,
       // or the backstop fires again on the elapsed time of the chunk it just
       // ended and every recovery round dies instantly.
@@ -1504,8 +1510,13 @@ export function startRun(
     diagnostic: { silentForMs?: number; lastEventType?: string } = {},
   ) => {
     if (run.status !== "running" || abort.signal.aborted) return;
-    if (chunkAbort) {
-      if (chunkAbort.signal.aborted) return;
+    const activeChunkAbort = chunkAbort;
+    const canRecoverChunk =
+      activeChunkAbort !== null &&
+      (recoverableRunDeadlineAt === null ||
+        Date.now() < recoverableRunDeadlineAt);
+    if (canRecoverChunk) {
+      if (activeChunkAbort.signal.aborted) return;
       recoveredChunkBoundaries += 1;
       console.warn(
         `[run-manager] chunk boundary (${reason}) — recovering in-invocation`,
@@ -1520,9 +1531,10 @@ export function startRun(
       // direction that hides the failure.
       pendingBoundary = { reason, diagnostic, index: recoveredChunkBoundaries };
       chunkBoundaryReason = reason;
-      chunkAbort.abort(reason);
+      activeChunkAbort.abort(reason);
       return;
     }
+    if (chunkAbort) chunkBoundaryReason = reason;
     // Mirror the soft-timeout semantics exactly: the chunk completes (not
     // aborts) at an auto_continue boundary, so the continuation machinery —
     // server-chained for background workers, client-driven for foreground —
@@ -1713,12 +1725,10 @@ export function startRun(
     overrideMs: options?.noProgressTimeoutMs,
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
-  // Not armed for a runFn that recovers boundaries in this invocation. That
-  // runFn already races the SAME wall with its own per-round timer, budgeted
-  // against cumulative elapsed time — so this timer fires at the moment the
-  // wrapper has nothing left to continue with, producing a boundary that is
-  // recoverable in name only and burning the tail of the budget on nothing.
-  // One wall, one clock; the caller's hard abort still backstops it.
+  // A recoverable run uses the cumulative timer below instead of this one-shot
+  // timer. Each successor chunk gets only the remaining invocation budget, so
+  // recovery cannot extend the hosted wall. The caller's hard abort still
+  // backstops both timer paths.
   const softTimeoutTimer =
     softTimeoutMs > 0 && !recoverChunkBoundaries
       ? setTimeout(() => {
@@ -1727,6 +1737,26 @@ export function startRun(
           });
         }, softTimeoutMs)
       : null;
+  if (recoverChunkBoundaries && softTimeoutMs > 0) {
+    const runDeadlineAt = Date.now() + softTimeoutMs;
+    recoverableRunDeadlineAt = runDeadlineAt;
+    armChunkSoftTimeout = () => {
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
+      if (abort.signal.aborted || run.status !== "running") return;
+      chunkSoftTimeoutTimer = setTimeout(
+        () => {
+          chunkSoftTimeoutTimer = null;
+          reachRunBoundary("run_timeout", {
+            lastEventType: run.events.at(-1)?.event.type,
+          });
+        },
+        Math.max(0, runDeadlineAt - Date.now()),
+      );
+    };
+    // Boundary recovery disables the ordinary one-shot timer, so arm the
+    // cumulative invocation deadline on the initial chunk and each successor.
+    armChunkSoftTimeout();
+  }
   let pendingTerminalEvent: RunEvent | null = null;
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
@@ -2116,6 +2146,7 @@ export function startRun(
       // 4. Stop the heartbeat — all liveness writes are done.
       clearInterval(heartbeatTimer);
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       if (progressWriteTimer) clearTimeout(progressWriteTimer);
       progressWriteTimer = null;
       progressWritePending = false;

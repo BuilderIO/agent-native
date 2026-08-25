@@ -8,6 +8,7 @@ import {
   IconCopy,
   IconPencil,
   IconPlus,
+  IconShare2,
   IconStar,
   IconStarFilled,
 } from "@tabler/icons-react";
@@ -24,6 +25,7 @@ import {
 import type { Deck } from "@/context/DeckContext";
 import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 
+import ShareDialog from "../editor/ShareDialog";
 import SlideRenderer from "./SlideRenderer";
 
 interface DeckCardProps {
@@ -48,16 +50,18 @@ export default function DeckCard({
   onSetWorkspaceDefault,
 }: DeckCardProps) {
   const t = useT();
-  const firstSlide = deck.slides?.[0];
+  const firstSlide = deck.previewSlide ?? deck.slides?.[0];
   const previewFrameStyle = getDeckListingPreviewFrameStyle(deck.aspectRatio);
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
   const [contextOpen, setContextOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
   const pendingDeleteRef = useRef(false);
   const pendingWorkspaceDefaultRef = useRef(false);
+  const pendingShareRef = useRef(false);
 
   useEffect(() => {
     if (isRenaming) {
@@ -206,6 +210,11 @@ export default function DeckCard({
                 pendingWorkspaceDefaultRef.current = false;
                 onSetWorkspaceDefault?.(deck.id, !isWorkspaceDefault);
               }
+              if (pendingShareRef.current) {
+                e.preventDefault();
+                pendingShareRef.current = false;
+                setTimeout(() => setShareOpen(true), 0);
+              }
               if (pendingDeleteRef.current) {
                 e.preventDefault();
                 pendingDeleteRef.current = false;
@@ -225,6 +234,16 @@ export default function DeckCard({
             <DropdownMenuItem onSelect={() => onDuplicate(deck.id)}>
               <IconCopy className="w-3.5 h-3.5 me-2" />
               Duplicate
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                pendingShareRef.current = true;
+                setMenuOpen(false);
+              }}
+            >
+              <IconShare2 className="w-3.5 h-3.5 me-2" />
+              {t("share.title")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(event) => {
@@ -279,6 +298,7 @@ export default function DeckCard({
         }}
         canManage={deck.createdByMe}
       />
+      <ShareDialog deck={deck} open={shareOpen} onOpenChange={setShareOpen} />
     </div>
   );
 }

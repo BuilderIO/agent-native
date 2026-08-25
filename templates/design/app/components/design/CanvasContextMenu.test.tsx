@@ -47,7 +47,7 @@ vi.mock("@/components/ui/context-menu", () => {
   };
 });
 
-import { CanvasContextMenu } from "./CanvasContextMenu";
+import { CanvasContextMenu, dispatchContextMenuAt } from "./CanvasContextMenu";
 
 async function renderContextMenu(
   props: Omit<React.ComponentProps<typeof CanvasContextMenu>, "children">,
@@ -75,6 +75,20 @@ async function renderContextMenu(
     },
   };
 }
+
+describe("CanvasContextMenu imperative placement", () => {
+  it("dispatches the pointer location through the Radix trigger", () => {
+    const target = document.createElement("div");
+    const onContextMenu = vi.fn();
+    target.addEventListener("contextmenu", onContextMenu);
+
+    dispatchContextMenuAt(target, { clientX: 40, clientY: 580 });
+
+    expect(onContextMenu).toHaveBeenCalledWith(
+      expect.objectContaining({ clientX: 40, clientY: 580 }),
+    );
+  });
+});
 
 describe("CanvasContextMenu Copy as PNG", () => {
   it("routes the existing item to the dedicated PNG callback", async () => {
@@ -361,6 +375,25 @@ describe("CanvasContextMenu instance cluster (Go to main / Swap / Detach)", () =
 
     const detachButton = view.findButton("Detach instance");
     expect(detachButton?.disabled).toBe(true);
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu shortcut hints", () => {
+  it("spells shortcut hints in the viewer's own modifier words", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      onBringToFront: vi.fn(),
+      onSendToBack: vi.fn(),
+      onGroup: vi.fn(),
+    });
+
+    // happy-dom reports a non-Apple platform, which is exactly the case the
+    // hardcoded ⌘/⇧ glyphs used to get wrong.
+    expect(view.findButton("Group selection")?.textContent).toContain("Ctrl+G");
+    expect(view.container.textContent).not.toContain("⌘");
+    expect(view.container.textContent).not.toContain("⇧");
+
     await view.cleanup();
   });
 });

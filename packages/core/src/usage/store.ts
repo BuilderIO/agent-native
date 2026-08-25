@@ -98,21 +98,33 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
   // ── OpenAI / Codex ──────────────────────────────────────────────────────────
-  // Published rates as of 2026-07; OpenAI bills cached input at a discount
-  // and has no separate cache-write token charge, so cacheWrite is 0. Sol and
-  // Terra have higher large-context rates after 272K tokens; this table tracks
-  // the standard rate because usage rows do not preserve request context size.
+  // Short-context rates from OpenAI's published table (read 2026-08-25):
+  // https://developers.openai.com/api/docs/pricing#text-tokens
+  //
+  //            input   cached   cache write   output    (USD per MTok)
+  //   sol      $4.00   $0.40    $5.00         $20.00
+  //   terra    $2.00   $0.20    $2.50         $12.00
+  //   luna     $0.20   $0.02    $0.25         $1.20
+  //
+  // All three also have a long-context tier at roughly 2x these rates. This
+  // table tracks short context because a usage row does not preserve the
+  // request's context size, so the tier cannot be recovered at pricing time.
+  //
+  // Cache WRITES are billed, and above the full input rate. The previous
+  // version of this block set cacheWrite to 0 on the belief that OpenAI does
+  // not charge for them, and carried input/output rates matching neither
+  // column of the table above.
   {
     match: /gpt-5[.-]6-sol/i,
-    pricing: { input: 500, output: 3000, cacheRead: 50, cacheWrite: 0 },
+    pricing: { input: 400, output: 2000, cacheRead: 40, cacheWrite: 500 },
   },
   {
     match: /gpt-5[.-]6-terra/i,
-    pricing: { input: 250, output: 1500, cacheRead: 25, cacheWrite: 0 },
+    pricing: { input: 200, output: 1200, cacheRead: 20, cacheWrite: 250 },
   },
   {
     match: /gpt-5[.-]6-luna/i,
-    pricing: { input: 100, output: 600, cacheRead: 10, cacheWrite: 0 },
+    pricing: { input: 20, output: 120, cacheRead: 2, cacheWrite: 25 },
   },
   {
     match: /gpt-5/i,
@@ -289,6 +301,20 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
         );
+        // `owner_email` is written as the caller supplied it, so the metrics
+        // queries scope with `LOWER(owner_email) IN (…)`. A plain btree cannot
+        // serve a function-wrapped predicate: without this expression index the
+        // usage panel scans the whole table, which is the highest-row-count one
+        // in the system (a row per LLM call, every app and org).
+        // NOT built CONCURRENTLY. This runs at release over the pooled Neon
+        // endpoint, and a transaction-pooled connection cannot carry
+        // `CREATE INDEX CONCURRENTLY` to completion — it returns without
+        // creating the index, which then fails the verifying probe and blocks
+        // the whole release. The SHARE lock is the cost of a build that lands.
+        await ensureIndexExists(
+          "idx_token_usage_lower_owner_created",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
+        );
         return;
       }
 
@@ -310,11 +336,18 @@ export async function ensureUsageTable(): Promise<void> {
       // the `Date.now()` written per run by recordUsage() overflows int4. Widen
       // it in place (no-op once done / on fresh BIGINT databases).
       await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
-        );
-      } catch {}
+      for (const ddl of [
+        `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
+      ]) {
+        try {
+          await client.execute(ddl);
+        } catch {
+          // coercion-ok: index already exists, or this dialect rejected the
+          // duplicate. Local-dev SQLite only — the hosted path creates these
+          // through the Postgres branch above, which probes before creating.
+        }
+      }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -326,8 +359,20 @@ export async function ensureUsageTable(): Promise<void> {
 
 /**
  * Calculate cost in centicents (1/100th of a cent).
- * Accepts cache tokens so callers that use prompt caching are priced
- * correctly. Non-cache-aware callers can pass 0 for the cache fields.
+ *
+ * `inputTokens` is the WHOLE prompt and INCLUDES the two cache counts — the
+ * convention every engine emits, documented on the `usage` event in
+ * `agent/engine/types.ts`. So the three are a PARTITION and each token is
+ * priced exactly once: what was not cached at the full rate, what was read
+ * from cache at the cache-read rate, what was written at the cache-write rate.
+ *
+ * Charging `inputTokens` at the full rate and then adding the cache counts on
+ * top billed every cached token twice. On a long cached conversation that is
+ * not a rounding error — the cache is most of the prompt, so a turn whose real
+ * cost was $0.0054 was reported as $0.0478.
+ *
+ * Non-cache-aware callers pass 0 for the cache fields and get the full rate on
+ * everything, which is correct for a provider with no prompt caching.
  */
 export function calculateCost(
   inputTokens: number,
@@ -337,8 +382,15 @@ export function calculateCost(
   cacheWriteTokens = 0,
 ): number {
   const p = pricingFor(model);
+  // An engine that still emits the exclusive convention would drive this
+  // negative and credit the bill. Clamping keeps the partition non-negative;
+  // the fix for a caller that trips it is that engine, not a wider clamp here.
+  const uncachedInputTokens = Math.max(
+    0,
+    inputTokens - cacheReadTokens - cacheWriteTokens,
+  );
   const rawCenticents =
-    (inputTokens / 1_000_000) * p.input * 100 +
+    (uncachedInputTokens / 1_000_000) * p.input * 100 +
     (outputTokens / 1_000_000) * p.output * 100 +
     (cacheReadTokens / 1_000_000) * p.cacheRead * 100 +
     (cacheWriteTokens / 1_000_000) * p.cacheWrite * 100;

@@ -7,7 +7,7 @@
  * generation flow. Hidden from the agent — deck creation for the model goes
  * through `create-deck`.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,

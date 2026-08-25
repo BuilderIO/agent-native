@@ -36,6 +36,8 @@ vi.mock("../resources/store.js", () => ({
 
 import {
   automationMatchesEventOwner,
+  canQueueAutomationRunNow,
+  canUpdateAutomationResource,
   defineAutomation,
   deleteAutomation,
   listAutomationDefinitions,
@@ -82,6 +84,20 @@ deliveryDestination: "channel-1"
 ---
 
 Send the notification.`;
+
+const factoryAutomation = `---
+schedule: "*/5 * * * *"
+enabled: true
+triggerType: schedule
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+appId: factory
+domain: factory
+runAs: creator
+---
+
+Observe Slack.`;
 
 describe("automation domain service", () => {
   beforeEach(() => {
@@ -218,6 +234,37 @@ describe("automation domain service", () => {
       "organization",
     );
     expect(memberItems[0]?.canUpdate).toBe(false);
+  });
+
+  it("lets a Factory org member queue Run now without canUpdate", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const factoryResource = resource(factoryAutomation);
+
+    expect(
+      await canUpdateAutomationResource(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        factoryResource,
+      ),
+    ).toBe(false);
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        factoryResource,
+        "organization",
+      ),
+    ).toBe(true);
+  });
+
+  it("still refuses a Mail org member who is not the creator or admin", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
+        resource(eventAutomation),
+        "organization",
+      ),
+    ).toBe(false);
   });
 
   it("lets an org admin update or delete without retargeting the creator", async () => {

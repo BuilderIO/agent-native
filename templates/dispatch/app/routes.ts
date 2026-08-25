@@ -15,4 +15,6 @@ import { flatRoutes } from "@react-router/fs-routes";
  * route here via `app/routes/<name>.tsx`, then register the tab in
  * `app/dispatch-extensions.tsx`.
  */
-export default flatRoutes() satisfies RouteConfig;
+export default flatRoutes({
+  ignoredRouteFiles: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"],
+}) satisfies RouteConfig;

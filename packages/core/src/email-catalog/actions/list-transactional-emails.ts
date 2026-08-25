@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getAppSlug } from "../../server/app-name.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { getRequestOrgId } from "../../server/request-context.js";
 import { authorizeTransactionalEmailRead } from "../authorize.js";
 import { getEmailSendStats } from "../log.js";
@@ -27,7 +27,7 @@ export default defineAction({
   run: async ({ windowDays }) => {
     registerCoreSystemEmails();
     const since = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-    const app = getAppSlug() ?? "unknown";
+    const app = getAppConfig().app.slug ?? "unknown";
     const orgId = getRequestOrgId();
     const definitions = listTransactionalEmails();
 

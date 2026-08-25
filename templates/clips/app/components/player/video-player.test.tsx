@@ -127,6 +127,17 @@ describe("VideoPlayer playback", () => {
     return video;
   }
 
+  function getPlayerControls(): HTMLDivElement {
+    const scrubber = container.querySelector<HTMLElement>(
+      "[data-player-scrubber]",
+    );
+    const controls = scrubber?.parentElement?.parentElement;
+    if (!(controls instanceof HTMLDivElement)) {
+      throw new Error("player controls did not render");
+    }
+    return controls;
+  }
+
   it("toggles play/pause on the real video element when the surface is clicked", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
@@ -172,6 +183,16 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps paused progress visible and interactive after the idle timeout", () => {
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
   });
 
   it("keeps owner playback on the same-origin media request path", () => {
@@ -438,6 +459,14 @@ describe("VideoPlayer playback", () => {
     expect(playSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Buffering");
     expect(container.textContent).not.toContain("Starting playback");
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
   });
 
   it.each(["AbortError", "NotAllowedError"])(

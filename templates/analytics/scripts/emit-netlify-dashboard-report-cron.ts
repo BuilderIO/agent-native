@@ -5,7 +5,29 @@ import { existsSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { cloneServerBundleForFunction } from "@agent-native/core/deploy/function-bundle";
+import {
+  cloneServerBundleForFunction,
+  pruneBrowserRuntimeFromNonAgentClone,
+  pruneSsrIslandFromRewritingClone,
+} from "@agent-native/core/deploy/function-bundle";
+
+/**
+ * Each sweep worker is a full clone of the server bundle, but its entry rewrites
+ * the pathname to one scheduled route. It can reach neither the SSR pages nor an
+ * agent turn, yet it shipped both the page island and the 79MB browser runtime —
+ * six times over, and Netlify zips every function separately.
+ */
+function writeWorkerEntry(dest: string, name: string, source: string): void {
+  writeFileSync(path.join(dest, `${name}.mjs`), source);
+  const freed =
+    pruneSsrIslandFromRewritingClone(dest, source) +
+    pruneBrowserRuntimeFromNonAgentClone(dest, source);
+  if (freed > 0) {
+    console.log(
+      `[deploy] Pruned ${(freed / 1024 / 1024).toFixed(1)}MB of unreachable modules from ${name}.`,
+    );
+  }
+}
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FUNCTIONS_DIR = path.join(ROOT, ".netlify", "functions-internal");
@@ -164,7 +186,7 @@ export const config = {
 };
 `;
 
-  writeFileSync(path.join(dest, `${WORKER_NAME}.mjs`), source);
+  writeWorkerEntry(dest, WORKER_NAME, source);
 }
 
 function emitAlertScheduledTrigger(token: string) {
@@ -282,7 +304,7 @@ export const config = {
 };
 `;
 
-  writeFileSync(path.join(dest, `${ALERT_WORKER_NAME}.mjs`), source);
+  writeWorkerEntry(dest, ALERT_WORKER_NAME, source);
 }
 
 function emitUptimeScheduledTrigger(token: string) {
@@ -400,7 +422,7 @@ export const config = {
 };
 `;
 
-  writeFileSync(path.join(dest, `${UPTIME_WORKER_NAME}.mjs`), source);
+  writeWorkerEntry(dest, UPTIME_WORKER_NAME, source);
 }
 
 function emitRollupScheduledTrigger(token: string) {
@@ -500,7 +522,7 @@ export const config = {
 };
 `;
 
-  writeFileSync(path.join(dest, `${ROLLUP_WORKER_NAME}.mjs`), source);
+  writeWorkerEntry(dest, ROLLUP_WORKER_NAME, source);
 }
 
 function emitBigQueryScheduledTrigger(token: string) {
@@ -600,7 +622,7 @@ export const config = {
 };
 `;
 
-  writeFileSync(path.join(dest, `${BIGQUERY_WORKER_NAME}.mjs`), source);
+  writeWorkerEntry(dest, BIGQUERY_WORKER_NAME, source);
 }
 
 function emitRetentionScheduledTrigger(token: string) {
@@ -702,7 +724,7 @@ export const config = {
 };
 `;
 
-  writeFileSync(path.join(dest, `${RETENTION_WORKER_NAME}.mjs`), source);
+  writeWorkerEntry(dest, RETENTION_WORKER_NAME, source);
 }
 
 function isDirectRun(): boolean {

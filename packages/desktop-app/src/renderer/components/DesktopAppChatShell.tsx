@@ -82,6 +82,7 @@ export interface DesktopAppChatShellProps {
   appAuthState?: AppWebviewAuthState;
   isActive?: boolean;
   chatEnabled?: boolean;
+  toggleScopeId?: string;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
@@ -150,6 +151,7 @@ export default function DesktopAppChatShell({
   appAuthState,
   isActive = true,
   chatEnabled = true,
+  toggleScopeId,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
   const shellRootRef = useRef<HTMLDivElement>(null);
@@ -301,7 +303,6 @@ export default function DesktopAppChatShell({
     let cancelled = false;
     setApiUrl(null);
     setDesktopChatRelayBase(appId, null);
-    setDesktopChatRelayActive(appId, false);
 
     const getApiUrl = window.electronAPI?.desktopChat?.getApiUrl;
     if (!getApiUrl) return () => undefined;
@@ -310,33 +311,30 @@ export default function DesktopAppChatShell({
       .then((nextApiUrl) => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, nextApiUrl);
-        setDesktopChatRelayActive(appId, isActive);
         setApiUrl(nextApiUrl);
       })
       .catch(() => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, null);
-        setDesktopChatRelayActive(appId, false);
         setApiUrl(null);
       });
 
     return () => {
       cancelled = true;
       setDesktopChatRelayBase(appId, null);
-      setDesktopChatRelayActive(appId, false);
     };
-  }, [appId, isActive]);
+  }, [appId]);
 
   useEffect(() => {
     void preloadAgentChatSurface();
   }, []);
 
   useEffect(() => {
-    setDesktopChatRelayActive(appId, isActive);
+    setDesktopChatRelayActive(appId, isActive && Boolean(apiUrl));
     return () => {
       setDesktopChatRelayActive(appId, false);
     };
-  }, [appId, isActive]);
+  }, [apiUrl, appId, isActive]);
 
   const startLocalCodeChange = useCallback(
     async (prompt: string) => {
@@ -538,6 +536,7 @@ export default function DesktopAppChatShell({
                 label: appName,
                 contextKey: `desktop-app:${appId}`,
               }}
+              toggleScopeId={toggleScopeId}
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
               agentChatSurface="desktop"

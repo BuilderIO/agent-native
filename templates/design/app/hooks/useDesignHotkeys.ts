@@ -207,6 +207,12 @@ export interface UseDesignHotkeysProps {
   onAddAutoLayout?: DesignHotkeyHandler;
   /** Figma's Shift+\ "Minimize UI" shortcut, applied here to the full Design
    *  chrome (left rail, right panel, and bottom toolbar). */
+  /**
+   * Whether Design can act on its own chords at all. False on a read-only or
+   * signed-out prototype, where consuming Cmd+Z/Cmd+D/Cmd+G would cost the
+   * viewer their browser defaults in exchange for nothing.
+   */
+  canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
@@ -401,6 +407,18 @@ export function handleDesignHotkey(
     return true;
   };
 
+  /** Consume a Design-bound chord even with no handler attached: "bound but
+   *  inapplicable" must not reach the browser (Cmd+U opens View Source).
+   *  Clipboard chords stay on `run` — they need the native copy/cut/paste
+   *  event — and a canvas the user cannot edit claims nothing, because there
+   *  is no Design action to trade the browser default for. */
+  const claim = (handler: DesignHotkeyHandler | undefined) => {
+    if (!handler && props.canClaimBoundChords === false) return false;
+    prevent();
+    handler?.(details);
+    return true;
+  };
+
   const runTool = (
     tool: DesignHotkeyTool,
     handler: DesignHotkeyHandler | undefined,
@@ -510,16 +528,16 @@ export function handleDesignHotkey(
   // deletion has been ruled out. Shift+Cmd+G (below, in the Cmd+G family) is
   // a second, equally-supported binding for the same onUngroup handler.
   if (primary && !event.altKey && !event.shiftKey && key === "Backspace") {
-    return run(props.onUngroup);
+    return claim(props.onUngroup);
   }
 
   if (primary && key === "z") {
     return (
       runSharedCanvasCommand() ||
-      (event.shiftKey ? run(props.onRedo) : run(props.onUndo))
+      (event.shiftKey ? claim(props.onRedo) : claim(props.onUndo))
     );
   }
-  if (primary && key === "y") return run(props.onRedo);
+  if (primary && key === "y") return claim(props.onRedo);
   // Figma Find uses the operating system's primary modifier, rather than
   // treating literal Control and Command as interchangeable on macOS. Keep
   // Ctrl+F available for platform/browser behavior on Apple devices while
@@ -530,6 +548,8 @@ export function handleDesignHotkey(
     !event.shiftKey &&
     key === "f"
   ) {
+    // `run`, not `claim`: Find is withheld during initial generation, and
+    // browser Find is better than nothing while Design cannot offer its own.
     return run(props.onFind);
   }
   if (primary && !event.altKey && !event.shiftKey && key === "a") {
@@ -538,14 +558,14 @@ export function handleDesignHotkey(
   // Figma's Cmd+Shift+X — toggle strikethrough. Must be checked before plain
   // Cmd+X (cut) below, since that check doesn't itself gate on shiftKey.
   if (primary && event.shiftKey && key === "x") {
-    return run(props.onToggleStrikethrough);
+    return claim(props.onToggleStrikethrough);
   }
   if (primary && key === "x" && !hasDocumentTextSelection()) {
     return runSharedCanvasCommand() || run(props.onCut);
   }
   // Figma's Cmd+U — toggle underline. No existing binding claims plain "u".
   if (primary && !event.altKey && !event.shiftKey && key === "u") {
-    return run(props.onToggleUnderline);
+    return claim(props.onToggleUnderline);
   }
 
   // Current Figma: Ctrl+Alt+H / Ctrl+Alt+V — distribute evenly. These use
@@ -587,20 +607,22 @@ export function handleDesignHotkey(
     return runSharedCanvasCommand() || run(props.onPaste);
   }
   if (primary && key === "d") {
-    return runSharedCanvasCommand() || run(props.onDuplicate);
+    return runSharedCanvasCommand() || claim(props.onDuplicate);
   }
   // Keep Shift+Cmd+R available for Figma's "Paste to replace" command. Bare
   // Cmd/Ctrl+R stays native so browser refresh keeps its expected meaning.
+  // Deliberately `run`, not `claim`: with no handler the design is read-only,
+  // and Design has nothing to offer in exchange for a hard reload.
   if (primary && event.shiftKey && key === "r") {
     return run(props.onPasteToReplace);
   }
   // Cmd+Shift+H/L (hide/lock the current selection) must take precedence over
   // the unmodified/shift-only h/l transform and alignment families.
   if (primary && event.shiftKey && key === "h") {
-    return run(props.onToggleHidden);
+    return claim(props.onToggleHidden);
   }
   if (primary && event.shiftKey && key === "l") {
-    return run(props.onToggleLocked);
+    return claim(props.onToggleLocked);
   }
   if (primary && key === "g") {
     // Figma: ⌥⌘G is "Frame selection". Current Figma's primary ungroup chord
@@ -609,14 +631,14 @@ export function handleDesignHotkey(
     // item performs the identical action (handleUngroupSelection) — leaving
     // this chord dead while the menu item works is a regression users hit,
     // not an intentional gap. Support both bindings for ungroup.
-    if (event.altKey) return run(props.onFrameSelection);
-    if (event.shiftKey) return run(props.onUngroup);
-    return run(props.onGroup);
+    if (event.altKey) return claim(props.onFrameSelection);
+    if (event.shiftKey) return claim(props.onUngroup);
+    return claim(props.onGroup);
   }
 
-  if (primary && (key === "=" || key === "+")) return run(props.onZoomIn);
-  if (primary && key === "-") return run(props.onZoomOut);
-  if (primary && key === "0") return run(props.onZoomReset);
+  if (primary && (key === "=" || key === "+")) return claim(props.onZoomIn);
+  if (primary && key === "-") return claim(props.onZoomOut);
+  if (primary && key === "0") return claim(props.onZoomReset);
 
   // Figma: plain +/= and - (no modifiers) also zoom in/out.
   if (!primary && !event.altKey && !event.shiftKey) {
@@ -639,12 +661,12 @@ export function handleDesignHotkey(
 
   // H2: Cmd+Alt+K — create component from the current selection.
   if (primary && event.altKey && key === "k") {
-    return run(props.onCreateComponent);
+    return claim(props.onCreateComponent);
   }
 
   // Figma's Cmd+Alt+B — Detach instance.
   if (primary && event.altKey && key === "b") {
-    return run(props.onDetachInstance);
+    return claim(props.onDetachInstance);
   }
 
   const digit = digitFromEvent(event);

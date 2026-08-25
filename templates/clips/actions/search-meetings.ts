@@ -11,7 +11,7 @@
  * caller cannot already open.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -38,6 +38,7 @@ const MEETING_COLUMNS = {
   source: schema.meetings.source,
   platform: schema.meetings.platform,
   trashedAt: schema.meetings.trashedAt,
+  ownerEmail: schema.meetings.ownerEmail,
 } as const;
 
 type MeetingRow = Pick<

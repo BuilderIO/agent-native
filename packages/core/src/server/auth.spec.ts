@@ -140,6 +140,91 @@ describe("server/auth", () => {
     }, 15_000);
   });
 
+  describe("auth.requireEmailVerification", () => {
+    afterEach(async () => {
+      const { resetAppConfigForTests } = await import("../app-config/index.js");
+      resetAppConfigForTests();
+    });
+
+    it("turns verification off in hosted production when declared false", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "0");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("also lifts the hosted no-email signup lock, since it is the same decision", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "0");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("outranks AUTH_SKIP_EMAIL_VERIFICATION in local development", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "1");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: true,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("refuses signup when it requires a verification no provider can deliver", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "1");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: true,
+      });
+    }, 15_000);
+
+    it("is settable from defineAppConfig, which beats the env alias", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "1");
+      const { defineAppConfig } = await import("../app-config/index.js");
+      defineAppConfig({ auth: { requireEmailVerification: false } });
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("leaves the derived policy alone when it is unset", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: true,
+        disableSignUp: false,
+      });
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: true,
+      });
+    }, 15_000);
+  });
+
   describe("resolveAuthLoginMode", () => {
     it("defaults to magic link only when email is ready", async () => {
       const { resolveAuthLoginMode } =
@@ -5748,8 +5833,10 @@ describe("server/auth", () => {
         'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
       );
       expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
-      expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
-      expect(html).toContain("__anStartNativeDesktopOAuth(ret, btn, err)");
+      expect(html).toContain("__anStartPopupOAuth(ret, btn, err, flowId)");
+      expect(html).toContain(
+        "__anStartNativeDesktopOAuth(ret, btn, err, flowId)",
+      );
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
@@ -5824,8 +5911,58 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
       );
+      expect(html).toContain(
+        "function __anWatchOAuthPopupClose(popup, flowId)",
+      );
+      expect(html).toContain("function __anHandleOAuthPopupClosed(flowId)");
+      expect(html).toContain("var __anOAuthPopupCloseGraceMs = 5000;");
+      expect(html).toContain("var __anNativeOAuthFlowId = null;");
+      expect(html).toContain("var __anNativeOAuthRequestPending = false;");
+      expect(html).toContain("var __anNativeOAuthReturnObserved = false;");
+      expect(html).toContain("var __anNativeOAuthAbandonGraceMs = 5000;");
+      expect(html).toContain("function __anBeginNativeOAuth(flowId)");
+      expect(html).toContain("function __anCancelNativeOAuthAbandonment()");
+      expect(html).toContain(
+        "function __anScheduleNativeOAuthAbandonment(flowId)",
+      );
+      expect(html).toContain("__anFinalizeNativeOAuthAbandonment(flowId);");
+      expect(html).toContain("__anNativeOAuthRequestPending = true;");
+      expect(html).toContain("__anNativeOAuthRequestPending = false;");
+      expect(html).toContain("__anNativeOAuthReturnObserved = true;");
+      expect(html).toContain("__anBeginNativeOAuth(flowId);");
+      expect(html).toContain("__anMarkNativeOAuthPolling(flowId);");
+      expect(html).toContain(
+        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);\n        __anScheduleNativeOAuthAbandonment(flowId);",
+      );
+      expect(html).toContain(
+        "if (__anOAuthPollTimer) {\n        __anOAuthPopupCloseGraceTimer = setTimeout(function()",
+      );
+      expect(html).toContain(
+        "__anFinalizeOAuthPopupClose(flowId);\n        }, __anOAuthPopupCloseGraceMs);",
+      );
+      expect(html).toContain("__anHandleOAuthPopupClosed(flowId);");
+      expect(html).toContain("closed = popup.closed === true");
+      expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
+      expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");
+      expect(html).toContain(
+        "if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;",
+      );
+      expect(html).toContain("__anStopOAuthExchangePolling();");
+      expect(html).toContain(
+        "if (!__anIsCurrentGoogleSignInFlow(flowId)) return;",
+      );
+      expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
+      expect(html).toContain(
+        "window.addEventListener('focus', function() {\n        __anRecoverGoogleSignInAfterReturn();\n      });",
+      );
+      expect(html).toContain(
+        "window.addEventListener('blur', function() {\n        __anCancelNativeOAuthAbandonment();\n      });",
+      );
+      expect(html).toContain(
+        "if (document.visibilityState === 'visible') {\n          __anRecoverGoogleSignInAfterReturn();\n        } else {\n          __anCancelNativeOAuthAbandonment();\n        }",
+      );
       const recoverStart = html.indexOf(
-        "function __anRecoverGoogleSignInAfterReturn()",
+        "function __anRecoverGoogleSignInAfterReturn(flowId)",
       );
       const recoverEnd = html.indexOf(
         "function __anBindGoogleRecover()",
@@ -6200,6 +6337,7 @@ describe("server/auth", () => {
       expect(hasBetterAuthUserEmail).toHaveBeenCalledWith("user@gmail.com");
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
+        origin: "google_oauth",
         authUserId: "google-user-1",
         email: "user@gmail.com",
         name: "Google User",
@@ -6266,6 +6404,7 @@ describe("server/auth", () => {
 
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
+        origin: "google_oauth",
         authUserId: "google-user-1",
         email: "user@gmail.com",
         name: "Google User",

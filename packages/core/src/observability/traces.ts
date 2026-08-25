@@ -11,12 +11,13 @@ import {
   boundAiContent,
   emitAiSpanEvent,
   emitAiTraceEvent,
+  resolveAiError,
   toAiErrorDetail,
+  toPostHogMessages,
 } from "./posthog-ai.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
-import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -37,6 +38,42 @@ function llmProviderFromEngine(
 
 function costUsdFromCenticents(value: number): number {
   return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
+}
+
+interface TimeInterval {
+  start: number;
+  end: number;
+}
+
+/**
+ * Wall-clock time covered by these intervals, counting overlap once.
+ *
+ * Tools run concurrently, so summing durations reports more elapsed time than
+ * actually passed — enough to drive a derived remainder to zero on a parallel
+ * fan-out.
+ */
+function coveredDurationMs(intervals: TimeInterval[]): number {
+  if (intervals.length === 0) return 0;
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  let covered = 0;
+  let { start: openStart, end: openEnd } = sorted[0];
+  for (const { start, end } of sorted.slice(1)) {
+    if (start > openEnd) {
+      covered += openEnd - openStart;
+      openStart = start;
+      openEnd = end;
+    } else if (end > openEnd) {
+      openEnd = end;
+    }
+  }
+  return covered + (openEnd - openStart);
+}
+
+function spanIntervals(spans: TraceSpan[]): TimeInterval[] {
+  return spans.map((s) => ({
+    start: s.createdAt,
+    end: s.createdAt + Math.max(0, s.durationMs),
+  }));
 }
 
 /**
@@ -141,6 +178,27 @@ function emitLlmGenerationTrackingEvent(args: {
    *  them and is equally unmeasurable when they were never reported. */
   costCentsX100: number | undefined;
   durationMs: number;
+  /**
+   * Wall-clock ms spent in the model. This is what `$ai_latency` reports, and
+   * it is deliberately NOT `durationMs`.
+   *
+   * PostHog sums `$ai_latency` across a trace's direct children, and every
+   * tool call is emitted as one of those children. Reporting the full run
+   * duration here counted tool time twice and made the trace waterfall wider
+   * than the run it describes.
+   */
+  llmDurationMs: number;
+  /** False when `llmDurationMs` was derived by subtracting tool time from the
+   *  run because the engine never bracketed its model calls. Emitted so a
+   *  latency built on that estimate can be told apart from a measured one. */
+  llmDurationMeasured: boolean;
+  /** LLM round-trips in the run. Feeds `$ai_request_count`, which PostHog
+   *  multiplies by per-request pricing — a hardcoded 1 undercharged every
+   *  multi-step run on a request-priced model. */
+  llmCallCount: number;
+  /** Why the model stopped generating. PostHog's `$ai_stop_reason`; a
+   *  `max_tokens` here is a truncated answer, which no other field reports. */
+  stopReason?: string;
   /** Elapsed ms from run start to the first non-heartbeat engine event.
    *  Undefined when no such event ever arrived (the run never produced a
    *  token before being aborted) — never coerced to 0. */
@@ -173,7 +231,6 @@ function emitLlmGenerationTrackingEvent(args: {
    */
   aiInput?: unknown;
   aiOutputChoices?: unknown;
-  aiTools?: unknown;
   aiInputTruncated?: boolean;
   aiOutputTruncated?: boolean;
   browserSessionId?: string;
@@ -215,6 +272,7 @@ function emitLlmGenerationTrackingEvent(args: {
     cost_cents_x100: args.costCentsX100,
     cost_usd: costUsd,
     duration_ms: args.durationMs,
+    stop_reason: args.stopReason,
     time_to_first_token_ms: args.firstTokenMs,
     status: args.status,
     tool_calls: args.toolCalls,
@@ -248,26 +306,39 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_provider: provider,
     $ai_input_tokens: args.inputTokens,
     $ai_output_tokens: args.outputTokens,
-    $ai_latency: Math.round((args.durationMs / 1000) * 1000) / 1000,
+    $ai_latency: Math.round(args.llmDurationMs) / 1000,
     $ai_is_error: args.status === "error",
-    $ai_error:
-      args.status === "error"
-        ? toAiErrorDetail(error, {
-            state: args.terminalOutcome?.state,
-            code: terminalCode,
-            retryable: terminalRetryable,
-          })
-        : undefined,
+    $ai_error: resolveAiError(
+      args.status === "error",
+      toAiErrorDetail(error, {
+        state: args.terminalOutcome?.state,
+        code: terminalCode,
+        retryable: terminalRetryable,
+      }),
+    ),
+    // A generation fails only as the model layer, so the default kind says so;
+    // a classified terminal code names it more precisely.
+    $ai_error_type:
+      args.status === "error" ? (terminalCode ?? "llm_error") : undefined,
+    // Every engine here streams (`messages.stream`, `streamText`, gateway SSE),
+    // which is also what makes `$ai_time_to_first_token` meaningful.
+    $ai_stream: true,
     $ai_cache_read_input_tokens: args.cacheReadTokens,
     $ai_cache_creation_input_tokens: args.cacheWriteTokens,
-    $ai_request_count: 1,
+    $ai_request_count: args.llmCallCount,
+    $ai_stop_reason: args.stopReason,
     $ai_total_cost_usd: costUsd,
     $ai_input: args.aiInput,
     $ai_output_choices: args.aiOutputChoices,
-    $ai_tools: args.aiTools,
-    $ai_input_truncated: args.aiInputTruncated || undefined,
-    $ai_output_truncated: args.aiOutputTruncated || undefined,
-    $ai_time_to_first_token: args.firstTokenMs,
+    input_truncated: args.aiInputTruncated || undefined,
+    output_truncated: args.aiOutputTruncated || undefined,
+    latency_source: args.llmDurationMeasured ? "measured" : "derived",
+    // Seconds, per PostHog's schema — `time_to_first_token_ms` above is the
+    // millisecond field this framework's own dashboards read.
+    $ai_time_to_first_token:
+      args.firstTokenMs === undefined
+        ? undefined
+        : Math.round(args.firstTokenMs) / 1000,
     $session_id: args.browserSessionId,
   };
   if (args.experimentAssignments?.length) {
@@ -293,6 +364,7 @@ function emitLlmGenerationTrackingEvent(args: {
       .then(({ track }) => {
         track("$ai_generation", properties, {
           userId: args.userId ?? undefined,
+          occurredAt: args.createdAt,
         });
       })
       .catch(() => {});
@@ -302,43 +374,60 @@ function emitLlmGenerationTrackingEvent(args: {
 }
 
 /**
- * Build the PostHog content fields for a run's `$ai_generation`.
+ * Build the PostHog content fields for one `$ai_generation`.
  *
- * This is one generation per run carrying the run's whole message list, not one
- * per model round-trip: the engine layer reports aggregate usage only
- * (`onUsage`) and exposes no per-step hook. Consequence to know when reading a
- * trace — per-round-trip latency and intermediate assistant turns are not
- * visible; a multi-step run collapses into a single generation node.
+ * One generation per model round-trip: `messages` is what that call was sent,
+ * `assistantText` what it answered, and `toolSpans` the tools it then asked
+ * for. An engine that never brackets its calls with `model_stream` has no
+ * round-trips to split on and falls back to a single generation covering the
+ * whole run — an aggregate, and reported as one.
  *
  * `$ai_output_choices` is emitted whenever tool calls happened even with
  * `capturePrompts` off, because PostHog derives `$ai_tools_called` /
  * `$ai_tool_call_count` from tool-call blocks inside it and nothing else. The
  * assistant's text content stays gated; only the structural call list ships.
+ *
+ * The app's tool DEFINITIONS are not sent at all. They are the same catalogue
+ * on every call — tens of kilobytes of descriptions — and a call is already
+ * identified by its name in `tool_calls` and by its own span.
  */
+
 function buildGenerationContent(args: {
   config: ObservabilityConfig;
   messages: unknown;
-  tools: unknown;
   assistantText: string;
   toolSpans: TraceSpan[];
+  /** Tool span id → the id the MODEL used for that call. See below. */
+  toolCallIds: Map<string, string>;
 }): {
   aiInput?: unknown;
   aiOutputChoices?: unknown;
-  aiTools?: unknown;
   aiInputTruncated?: boolean;
   aiOutputTruncated?: boolean;
 } {
   const { config } = args;
 
+  // `$ai_input` is the conversation, not the system prompt. PostHog accepts a
+  // `system` role, but the prompt is app configuration rather than content and
+  // is near-identical on every run — shipping it would repeat kilobytes on each
+  // generation for no analytical gain.
+  //
+  // Normalized before bounding: the byte ceiling rescues the last `user`
+  // message, and in engine shape every tool result is one.
   const input = config.capturePrompts
-    ? boundAiContent(redactSensitiveFields(args.messages))
+    ? boundAiContent(toPostHogMessages(redactSensitiveFields(args.messages)))
     : undefined;
 
   const toolCalls = args.toolSpans
     .slice(0, MAX_TRACKED_GENERATION_TOOL_CALLS)
     .map((span) => ({
       type: "function" as const,
-      id: span.id,
+      // The id the MODEL issued, which is what the matching `tool` message in
+      // `$ai_input` carries as `tool_call_id`. Our span id is a different
+      // namespace: emitting it here left PostHog with a call and a result that
+      // never paired, so every tool call rendered with no output. The span id
+      // remains the fallback for engines that report no call id.
+      id: args.toolCallIds.get(span.id) ?? span.id,
       function: {
         name: span.name,
         // Already redacted at span construction, and only present when
@@ -362,30 +451,9 @@ function buildGenerationContent(args: {
       ])
     : undefined;
 
-  const toolList = Array.isArray(args.tools)
-    ? args.tools
-        .filter(
-          (tool): tool is { name: string; description?: string } =>
-            !!tool && typeof (tool as { name?: unknown }).name === "string",
-        )
-        .map((tool) => ({
-          type: "function" as const,
-          function: {
-            name: tool.name,
-            ...(typeof tool.description === "string"
-              ? { description: tool.description }
-              : {}),
-          },
-        }))
-    : [];
-
   return {
     aiInput: input?.value,
     aiOutputChoices: output?.value,
-    // Tool definitions are app configuration rather than user content, so they
-    // are not gated — without them a trace shows calls to tools nobody can
-    // identify. Schemas are excluded to keep the event small.
-    aiTools: toolList.length ? toolList : undefined,
     aiInputTruncated: input?.truncated,
     aiOutputTruncated: output?.truncated,
   };
@@ -428,19 +496,13 @@ function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
-  let stored: Partial<ObservabilityConfig> | null = null;
-  try {
-    const { getSetting } = await import("../settings/store.js");
-    stored = (await getSetting(
-      "observability-config",
-    )) as Partial<ObservabilityConfig> | null;
-  } catch {}
+  const { getAppConfig } = await import("../app-config/store.js");
+  const config = getAppConfig().observability;
   const { resolveInferredSentimentConfig } = await import("./sentiment.js");
-  return {
-    ...DEFAULT_OBSERVABILITY_CONFIG,
-    ...(stored ?? {}),
-    ...resolveInferredSentimentConfig(stored),
-  };
+  // Sentiment keeps its own resolver as the top layer: it derives a default
+  // from whether this is a first-party hosted deployment, which no declared
+  // default can express.
+  return { ...config, ...resolveInferredSentimentConfig(config) };
 }
 
 export async function instrumentAgentLoop(opts: {
@@ -596,6 +658,50 @@ export async function instrumentAgentLoop(opts: {
   let toolCallCount = 0;
   let successfulTools = 0;
   let failedTools = 0;
+  /** Tools that reported a failure of their own, excluding the ones the run's
+   *  death interrupted — those are a consequence of the failure, never
+   *  evidence of what caused it. */
+  let reportedToolFailures = 0;
+
+  // One `model_stream` start/end bracket is emitted per LLM round-trip, and it
+  // closes before any tool of that turn is started — so these intervals ARE the
+  // model's wall clock, not an estimate of it. Recording them is what lets each
+  // generation report a measured `$ai_latency` instead of backing tool time out
+  // of the run duration, and what makes a round-trip the unit PostHog draws:
+  // one `$ai_generation` per model call, with that call's tools underneath it.
+  // Engines that never bracket their calls record none, and the run falls back
+  // to a single aggregate generation.
+  const modelRoundTrips: Array<{
+    spanId: string;
+    start: number;
+    end: number;
+    usage?: AgentLoopUsage;
+    /** Why the model stopped: `end_turn`, `tool_use`, `max_tokens`, … Absent
+     *  when the stream was cut before the engine reported one. */
+    stopReason?: string;
+    /** Messages as they stood when this call was made. Only when
+     *  `capturePrompts` is on; the array is copied because the loop appends to
+     *  it in place as the run continues. */
+    input?: unknown[];
+    assistantText: string[];
+  }> = [];
+  /** The call currently streaming, or the last one that streamed — text and
+   *  usage arriving between calls belong to the call that just finished. */
+  const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
+  const modelStreamIntervals: TimeInterval[] = [];
+  let modelStreamOpenedAt: number | null = null;
+  /** Tool span id → the round-trip that requested it. */
+  const toolSpanRoundTrip = new Map<string, number>();
+  /** Tool invocation counter → the same, for the generation's `tools` list. */
+  const toolCounterRoundTrip = new Map<number, number>();
+  /** Tool span id → how it failed. A class, not the tool's output, so it
+   *  travels even when `captureToolResults` withholds the message. */
+  const toolSpanErrorClass = new Map<string, string>();
+  /** Tool span id → the id the MODEL gave that call. The two namespaces are
+   *  separate, and only the model's appears in the transcript — so it is the
+   *  one that pairs a `tool_calls` entry with its `tool` message. Empty for
+   *  legacy emitters that send no call id. */
+  const toolSpanCallId = new Map<string, string>();
 
   // Track in-flight OTel tool spans so they're all ended even if the loop
   // throws before a matching `tool_done` arrives.
@@ -647,6 +753,7 @@ export async function instrumentAgentLoop(opts: {
       ) {
         assistantTextParts.push(event.text);
         assistantTextLength += event.text.length;
+        currentRoundTrip()?.assistantText.push(event.text);
       }
       // Some guardrails intentionally stop the loop by emitting a terminal
       // event and returning usage instead of throwing. Preserve that terminal
@@ -677,9 +784,57 @@ export async function instrumentAgentLoop(opts: {
         runStatus = "error";
         errorMessage = "Missing API key";
       }
+      if (event.type === "model_stream") {
+        // The emitter brackets these itself, so a repeated start or an
+        // unmatched end is a no-op here rather than a fabricated interval.
+        if (event.status === "start") {
+          if (modelStreamOpenedAt === null) {
+            modelStreamOpenedAt = Date.now();
+            modelRoundTrips.push({
+              spanId: spanId(),
+              start: modelStreamOpenedAt,
+              end: modelStreamOpenedAt,
+              // Copied: the loop appends this call's answer and its tool
+              // results to the same array as the run continues, so a reference
+              // held here would report the whole transcript as this call's
+              // prompt.
+              //
+              // This is the loop's message list, which is not byte-for-byte
+              // what the engine received: Context X-Ray, observational memory
+              // and overflow trimming build a separate `contextMessages` for
+              // the provider. Reporting a prompt the model never saw is a
+              // known gap, and closing it needs the loop to hand its
+              // per-call request to instrumentation.
+              ...(config.capturePrompts
+                ? { input: [...loopOpts.messages] }
+                : {}),
+              assistantText: [],
+            });
+          }
+        } else if (modelStreamOpenedAt !== null) {
+          const end = Date.now();
+          modelStreamIntervals.push({ start: modelStreamOpenedAt, end });
+          const trip = currentRoundTrip();
+          if (trip) {
+            trip.end = end;
+            if (event.reason) trip.stopReason = event.reason;
+          }
+          modelStreamOpenedAt = null;
+        }
+      }
+
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
+        // Recorded here, not at `tool_done`: a tool the run's death interrupts
+        // never reaches that path, and would then hang under the trace root
+        // instead of the call that asked for it. The model_stream bracket
+        // closes before the turn's tools start, so the last round-trip is the
+        // requesting call.
+        if (modelRoundTrips.length > 0) {
+          toolSpanRoundTrip.set(sid, modelRoundTrips.length - 1);
+          toolCounterRoundTrip.set(counter, modelRoundTrips.length - 1);
+        }
         // Start the OTel tool span synchronously-ish: kick off the async
         // resolution and stash the span once it lands. Tool spans are short
         // and the api tracer is synchronous in practice, but we tolerate the
@@ -767,8 +922,10 @@ export async function instrumentAgentLoop(opts: {
             : typeof event.result === "string" &&
               (event.result.startsWith("Error") ||
                 event.result.startsWith("Error running "));
-        if (isError) failedTools++;
-        else successfulTools++;
+        if (isError) {
+          failedTools++;
+          reportedToolFailures++;
+        } else successfulTools++;
 
         if (
           counter !== undefined &&
@@ -809,8 +966,43 @@ export async function instrumentAgentLoop(opts: {
           pending.endResult = otelEndResult;
         }
 
+        const spanMetadataFields: Record<string, unknown> = {};
+        if (config.captureToolArgs && pending) {
+          // Strip Authorization/api-key/token-shaped values before persisting
+          // (M14 in the MCP/A2A audit). Tool-runtime execution still sees the
+          // unredacted input — only the long-lived span row is sanitized.
+          spanMetadataFields.input = redactSensitiveFields(pending.input);
+        }
+        // A failed tool's content reaches the span through `errorMessage`; a
+        // successful one had nowhere to go, so every healthy tool span shipped
+        // an input and no output — indistinguishable from a tool that returned
+        // nothing. Same redaction and truncation as the error path.
+        if (
+          !isError &&
+          config.captureToolResults &&
+          typeof event.result === "string"
+        ) {
+          spanMetadataFields.output = truncateToolErrorMessage(
+            redactToolErrorMessage(event.result),
+          );
+        }
+        const spanMetadata = Object.keys(spanMetadataFields).length
+          ? spanMetadataFields
+          : null;
+
+        const toolSpanId = pending?.spanId ?? spanId();
+        const modelCallId = pending?.callId ?? event.id;
+        if (modelCallId) toolSpanCallId.set(toolSpanId, modelCallId);
+        // The model_stream bracket closes before the turn's tools start, so the
+        // last recorded round-trip is the call that requested this one.
+        if (isError) {
+          toolSpanErrorClass.set(
+            toolSpanId,
+            explicitError ? "tool_error" : "legacy_inferred_error",
+          );
+        }
         const span: TraceSpan = {
-          id: pending?.spanId ?? spanId(),
+          id: toolSpanId,
           runId,
           threadId,
           userId,
@@ -825,20 +1017,11 @@ export async function instrumentAgentLoop(opts: {
           durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
           errorMessage: isError ? event.result : null,
-          metadata:
-            config.captureToolArgs && pending
-              ? // Strip Authorization/api-key/token-shaped values before
-                // persisting (M14 in the MCP/A2A audit). Tool-runtime
-                // execution still sees the unredacted input — only the
-                // long-lived span row is sanitized.
-                {
-                  input: redactSensitiveFields(pending.input) as Record<
-                    string,
-                    string
-                  >,
-                }
-              : null,
-          createdAt: Date.now(),
+          metadata: spanMetadata,
+          // The span's start, not its completion: `durationMs` is measured from
+          // here, so stamping the end instead places the tool after the run
+          // ended in any timeline that plots start + duration.
+          createdAt: pending?.startMs ?? finishedAt,
         };
         spans.push(span);
       }
@@ -847,12 +1030,30 @@ export async function instrumentAgentLoop(opts: {
     loopOpts.send(event);
   };
 
+  // The loop appends to this array in place — its own assistant turns, tool
+  // results, internal continuation prompts. Read after the run it is the final
+  // transcript, not the request, so the model's reply showed up inside
+  // `$ai_input` as well as `$ai_output_choices`. Snapshot the array before the
+  // loop can grow it. The message objects stay shared on purpose: the last user
+  // message is enriched in place (screen context, @-mention responses), and the
+  // enriched text is what the model actually received.
+  const requestMessages = Array.isArray(loopOpts.messages)
+    ? [...loopOpts.messages]
+    : loopOpts.messages;
+
   try {
     usage = await runAgentLoop({
       ...loopOpts,
       runId,
       send: instrumentedSend,
       onOutcome: instrumentedOutcome,
+      // Fires once per model round-trip with THAT call's tokens, not the
+      // running total — which is what lets each generation report its own.
+      onUsage: (callUsage: AgentLoopUsage) => {
+        const trip = currentRoundTrip();
+        if (trip) trip.usage = callUsage;
+        loopOpts.onUsage?.(callUsage);
+      },
     });
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
@@ -879,6 +1080,23 @@ export async function instrumentAgentLoop(opts: {
       const runEnd = Date.now();
       const totalDurationMs = runEnd - runStart;
 
+      // The loop threw or was killed mid-stream, so no `end` ever arrived. The
+      // model was still running when the run stopped, so the interval closes at
+      // the run's end rather than being dropped.
+      const failedInsideModelCall = modelStreamOpenedAt !== null;
+      if (modelStreamOpenedAt !== null) {
+        modelStreamIntervals.push({ start: modelStreamOpenedAt, end: runEnd });
+        const trip = currentRoundTrip();
+        if (trip) trip.end = runEnd;
+        modelStreamOpenedAt = null;
+      }
+      // Undefined means the engine never bracketed its model calls, NOT that
+      // the model took no time — the two must stay distinguishable, because
+      // only the first may fall back to backing tool time out of the run.
+      const measuredModelDurationMs = modelStreamIntervals.length
+        ? coveredDurationMs(modelStreamIntervals)
+        : undefined;
+
       if (pendingTools.size > 0) {
         if (runStatus === "success") {
           runStatus = "error";
@@ -888,6 +1106,7 @@ export async function instrumentAgentLoop(opts: {
           toolCallCount += 1;
           failedTools += 1;
           const interruptedMessage = "Tool call interrupted before completion";
+          toolSpanErrorClass.set(pending.spanId, "interrupted");
           if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
             generationToolCalls.set(counter, {
               name: pending.toolName,
@@ -930,7 +1149,7 @@ export async function instrumentAgentLoop(opts: {
             status: "error",
             errorMessage: interruptedMessage,
             metadata: null,
-            createdAt: runEnd,
+            createdAt: pending.startMs,
           });
         }
         pendingTools.clear();
@@ -939,8 +1158,19 @@ export async function instrumentAgentLoop(opts: {
       }
 
       let costCentsX100 = 0;
+      // Held for the per-generation costs below, which price each round-trip
+      // from its own tokens rather than splitting the run total.
+      let calculateCost:
+        | ((
+            inputTokens: number,
+            outputTokens: number,
+            model: string,
+            cacheReadTokens?: number,
+            cacheWriteTokens?: number,
+          ) => number)
+        | undefined;
       try {
-        const { calculateCost } = await import("../usage/store.js");
+        ({ calculateCost } = await import("../usage/store.js"));
         if (usage) {
           costCentsX100 = calculateCost(
             usage.inputTokens,
@@ -970,6 +1200,34 @@ export async function instrumentAgentLoop(opts: {
             }
           : undefined);
 
+      const collectedToolSpans = spans.filter(
+        (s) => s.spanType === "tool_call",
+      );
+      // Resolved before the generation event, not just before the span events:
+      // the generation's latency is the run minus the tool time PostHog will
+      // actually see, so it has to be computed against the same set. Tools
+      // dropped by `captureLlmSpans` or the per-run cap have no sibling span to
+      // hold their time, and subtracting them would lose it from the trace.
+      const emittedToolSpans = (
+        config.captureLlmSpans ? collectedToolSpans : []
+      ).slice(0, MAX_AI_SPANS_PER_RUN);
+      const droppedToolSpans =
+        (config.captureLlmSpans ? collectedToolSpans.length : 0) -
+        emittedToolSpans.length;
+
+      // Elapsed to the run's first engine event. Belongs to the run, and is
+      // reported on its first generation as PostHog's per-call field.
+      const runFirstTokenMs =
+        usage?.firstEngineEventAtMs !== undefined
+          ? Math.max(0, usage.firstEngineEventAtMs - runStart)
+          : undefined;
+
+      const modelCallFailed =
+        failedInsideModelCall ||
+        (modelRoundTrips.length === 0 &&
+          cutOffReason === null &&
+          reportedToolFailures === 0);
+
       let llmCallCount = 0;
       if (usage || runStatus === "error") {
         llmCallCount =
@@ -977,7 +1235,7 @@ export async function instrumentAgentLoop(opts: {
           // Compatibility for custom loop implementations that predate the
           // attempt counter: a measured run still counts as one call.
           1;
-        const generationUsage = usage ?? {
+        const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
           cacheReadTokens: 0,
@@ -986,84 +1244,205 @@ export async function instrumentAgentLoop(opts: {
         };
         // The engine never reported a `usage` event for this run (killed for
         // silence before any provider response, or the loop threw before
-        // returning). `generationUsage`'s token fields are placeholder zeros in
-        // that case, not measured values — the tracking event below must omit
-        // them rather than report a fabricated 0.
+        // returning). `runUsage`'s token fields are placeholder zeros in that
+        // case, not measured values — the tracking events below must omit them
+        // rather than report a fabricated 0.
         const usageReported = usage?.usageReported === true;
-        const firstTokenMs =
-          usage?.firstEngineEventAtMs !== undefined
-            ? Math.max(0, usage.firstEngineEventAtMs - runStart)
+        const engineName =
+          typeof loopOpts.engine?.name === "string"
+            ? loopOpts.engine.name
             : undefined;
-        const llmSpanId = spanId();
-        const generationContent = buildGenerationContent({
-          config,
-          messages: loopOpts.messages,
-          tools: loopOpts.tools,
-          assistantText: assistantTextParts.join(""),
-          toolSpans: spans.filter((s) => s.spanType === "tool_call"),
-        });
-        const llmSpan: TraceSpan = {
-          id: llmSpanId,
-          runId,
-          threadId,
-          userId,
-          parentSpanId,
-          spanType: "llm_call",
-          name: generationUsage.model,
-          inputTokens: generationUsage.inputTokens,
-          outputTokens: generationUsage.outputTokens,
-          cacheReadTokens: generationUsage.cacheReadTokens,
-          cacheWriteTokens: generationUsage.cacheWriteTokens,
-          costCentsX100,
-          durationMs: totalDurationMs,
-          status: runStatus,
-          errorMessage,
-          metadata: null,
-          createdAt: runStart,
-        };
-        spans.push(llmSpan);
-        emitLlmGenerationTrackingEvent({
-          runId,
-          threadId,
-          userId,
-          parentSpanId,
-          llmSpanId,
-          engineName:
-            typeof loopOpts.engine?.name === "string"
-              ? loopOpts.engine.name
+        // Measured model time when the engine bracketed its round-trips.
+        //
+        // The fallback backs tool time out of the run instead, which is an
+        // estimate and behaves like one: it has to net out overlapping tools,
+        // skip tools PostHog will not receive, and clamp at zero. Engines that
+        // report `model_stream` need none of that, so `latency_source` records
+        // which of the two a given `$ai_latency` came from.
+        const derivedLlmDurationMs =
+          measuredModelDurationMs ??
+          Math.max(
+            0,
+            totalDurationMs -
+              coveredDurationMs(spanIntervals(emittedToolSpans)),
+          );
+
+        // One generation per model round-trip, so a trace reads as the run
+        // actually happened: call, its tools, next call. An engine that never
+        // brackets its calls records no round-trips and falls back to a single
+        // generation covering the run — an aggregate, and visibly one.
+        const generations =
+          modelRoundTrips.length > 0
+            ? modelRoundTrips.map((trip, index) => ({
+                spanId: trip.spanId,
+                model: trip.usage?.model ?? runUsage.model,
+                createdAt: trip.start,
+                latencyMs: Math.max(0, trip.end - trip.start),
+                callUsage: trip.usage,
+                stopReason: trip.stopReason,
+                // The engine reported this call's usage as the call happened,
+                // so its presence IS the report — the loop's aggregate return
+                // value never arrives when a later call throws, and gating on
+                // it dropped the tokens of every call that had succeeded.
+                tokensKnown: trip.usage !== undefined,
+                input: trip.input,
+                assistantText: trip.assistantText.join(""),
+                toolSpans: collectedToolSpans.filter(
+                  (span) => toolSpanRoundTrip.get(span.id) === index,
+                ),
+                toolDetails: [...generationToolCalls.entries()]
+                  .filter(
+                    ([counter]) => toolCounterRoundTrip.get(counter) === index,
+                  )
+                  .sort(([a], [b]) => a - b)
+                  .map(([, detail]) => detail),
+                isFirst: index === 0,
+                // Only the last call can carry the run's failure: an earlier
+                // one that had failed would have ended the run there.
+                isLast: index === modelRoundTrips.length - 1,
+              }))
+            : [
+                {
+                  spanId: spanId(),
+                  model: runUsage.model,
+                  createdAt: runStart,
+                  latencyMs: derivedLlmDurationMs,
+                  callUsage: usage,
+                  stopReason: undefined as string | undefined,
+                  tokensKnown: usageReported,
+                  input: requestMessages,
+                  assistantText: assistantTextParts.join(""),
+                  toolSpans: collectedToolSpans,
+                  toolDetails: [...generationToolCalls.entries()]
+                    .sort(([a], [b]) => a - b)
+                    .map(([, detail]) => detail),
+                  isFirst: true,
+                  isLast: true,
+                },
+              ];
+
+        for (const generation of generations) {
+          const callUsage = generation.callUsage;
+          let callCostCentsX100: number | undefined;
+          if (calculateCost && callUsage && generation.tokensKnown) {
+            try {
+              callCostCentsX100 = calculateCost(
+                callUsage.inputTokens,
+                callUsage.outputTokens,
+                callUsage.model,
+                callUsage.cacheReadTokens,
+                callUsage.cacheWriteTokens,
+              );
+              // Cost estimation is enrichment: a pricing-table miss leaves the
+              // generation without a cost rather than failing the trace.
+            } catch {} // coercion-ok: see above
+          }
+          // `$ai_is_error` on a generation means the MODEL call failed —
+          // a provider error, a dropped stream, an SDK throw. A tool that
+          // aborted the run, a step budget or a cut-off is the trace's failure
+          // (and the tool span's), and painting the last generation red hides
+          // which layer actually broke.
+          //
+          // Two ways to know it was the model: the run died with this call's
+          // stream still open, or the engine never bracketed its calls at all
+          // and nothing else can account for the failure — no run boundary, no
+          // failed tool.
+          const generationStatus =
+            // The engine reported this call itself as failed. Its bracket
+            // closes on the way out, so waiting for an open stream at
+            // finalization would report a provider error as a healthy call —
+            // and a later retry would leave the failed attempt green.
+            generation.stopReason === "error" ||
+            (generation.isLast && runStatus === "error" && modelCallFailed)
+              ? "error"
+              : "success";
+          const generationError =
+            generationStatus === "error" ? errorMessage : null;
+          const generationContent = buildGenerationContent({
+            config,
+            messages: generation.input,
+            assistantText: generation.assistantText,
+            toolSpans: generation.toolSpans,
+            toolCallIds: toolSpanCallId,
+          });
+
+          spans.push({
+            id: generation.spanId,
+            runId,
+            threadId,
+            userId,
+            parentSpanId,
+            spanType: "llm_call",
+            name: generation.model,
+            inputTokens: callUsage?.inputTokens ?? 0,
+            outputTokens: callUsage?.outputTokens ?? 0,
+            cacheReadTokens: callUsage?.cacheReadTokens ?? 0,
+            cacheWriteTokens: callUsage?.cacheWriteTokens ?? 0,
+            costCentsX100: callCostCentsX100 ?? 0,
+            durationMs: generation.latencyMs,
+            status: generationStatus,
+            errorMessage: generationError,
+            metadata: null,
+            createdAt: generation.createdAt,
+          });
+
+          emitLlmGenerationTrackingEvent({
+            runId,
+            threadId,
+            userId,
+            parentSpanId,
+            llmSpanId: generation.spanId,
+            engineName,
+            model: generation.model,
+            inputTokens: generation.tokensKnown
+              ? callUsage?.inputTokens
               : undefined,
-          model: generationUsage.model,
-          inputTokens: usageReported ? generationUsage.inputTokens : undefined,
-          outputTokens: usageReported
-            ? generationUsage.outputTokens
-            : undefined,
-          cacheReadTokens: usageReported
-            ? generationUsage.cacheReadTokens
-            : undefined,
-          cacheWriteTokens: usageReported
-            ? generationUsage.cacheWriteTokens
-            : undefined,
-          costCentsX100: usageReported ? costCentsX100 : undefined,
-          durationMs: totalDurationMs,
-          firstTokenMs,
-          status: runStatus,
-          errorMessage,
-          toolCalls: toolCallCount,
-          successfulTools,
-          failedTools,
-          tools: [...generationToolCalls.entries()]
-            .sort(([a], [b]) => a - b)
-            .map(([, detail]) => detail),
-          toolsTruncated:
-            toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
-          terminalOutcome: effectiveTerminalOutcome,
-          delegation: opts.delegation,
-          createdAt: runStart,
-          experimentAssignments: opts.experimentAssignments,
-          modelSelectionSource: opts.modelSelectionSource,
-          browserSessionId,
-          ...generationContent,
-        });
+            outputTokens: generation.tokensKnown
+              ? callUsage?.outputTokens
+              : undefined,
+            cacheReadTokens: generation.tokensKnown
+              ? callUsage?.cacheReadTokens
+              : undefined,
+            cacheWriteTokens: generation.tokensKnown
+              ? callUsage?.cacheWriteTokens
+              : undefined,
+            costCentsX100: callCostCentsX100,
+            durationMs: generation.latencyMs,
+            llmDurationMs: generation.latencyMs,
+            llmDurationMeasured: measuredModelDurationMs !== undefined,
+            stopReason: generation.stopReason,
+            // One request per generation now. `$ai_request_count` is what
+            // PostHog multiplies by per-request pricing, so it counts this
+            // call, not the run.
+            llmCallCount: modelRoundTrips.length > 0 ? 1 : llmCallCount,
+            firstTokenMs: generation.isFirst ? runFirstTokenMs : undefined,
+            status: generationStatus,
+            errorMessage: generationError,
+            toolCalls: generation.toolSpans.length,
+            successfulTools: generation.toolSpans.filter(
+              (span) => span.status === "success",
+            ).length,
+            failedTools: generation.toolSpans.filter(
+              (span) => span.status === "error",
+            ).length,
+            tools: generation.toolDetails,
+            toolsTruncated:
+              toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
+            // Only the layer that failed carries the run's terminal outcome;
+            // on a healthy call `terminal_state: failed` reads as this call
+            // having failed.
+            terminalOutcome:
+              generationStatus === "error"
+                ? effectiveTerminalOutcome
+                : undefined,
+            delegation: opts.delegation,
+            createdAt: generation.createdAt,
+            experimentAssignments: opts.experimentAssignments,
+            modelSelectionSource: opts.modelSelectionSource,
+            browserSessionId,
+            ...generationContent,
+          });
+        }
       }
 
       const parentSpan: TraceSpan = {
@@ -1114,12 +1493,6 @@ export async function instrumentAgentLoop(opts: {
           usage?.model ?? loopOpts.model,
         );
 
-        const toolSpans = config.captureLlmSpans
-          ? spans.filter((s) => s.spanType === "tool_call")
-          : [];
-        const emittedToolSpans = toolSpans.slice(0, MAX_AI_SPANS_PER_RUN);
-        const droppedToolSpans = toolSpans.length - emittedToolSpans.length;
-
         emitAiTraceEvent({
           runId,
           threadId,
@@ -1127,9 +1500,20 @@ export async function instrumentAgentLoop(opts: {
           spanName,
           model: usage?.model ?? loopOpts.model,
           provider,
-          latencySeconds: Math.round(totalDurationMs) / 1000,
+          durationMs: totalDurationMs,
           isError: runStatus === "error",
           error: aiError,
+          // What ended the run: our own budget or timeout (`run_timeout`,
+          // `no_progress`), a terminal outcome code, or a failure with neither.
+          errorType:
+            runStatus === "error"
+              ? (cutOffReason ??
+                (effectiveTerminalOutcome?.state === "failed" ||
+                effectiveTerminalOutcome?.state === "input_required"
+                  ? effectiveTerminalOutcome.code
+                  : undefined) ??
+                effectiveTerminalOutcome?.state)
+              : undefined,
           inputTokens: usage?.usageReported ? usage.inputTokens : undefined,
           outputTokens: usage?.usageReported ? usage.outputTokens : undefined,
           costUsd: usage?.usageReported
@@ -1142,6 +1526,16 @@ export async function instrumentAgentLoop(opts: {
             source: "agent_observability",
             run_id: runId,
             thread_id: threadId,
+            // Run totals. Each generation counts only the call it describes, so
+            // without these the run-level numbers would have to be summed back
+            // out of the children.
+            llm_calls: llmCallCount || undefined,
+            tool_calls: toolCallCount,
+            successful_tools: successfulTools,
+            failed_tools: failedTools,
+            time_to_first_token_ms: runFirstTokenMs,
+            latency_source:
+              measuredModelDurationMs !== undefined ? "measured" : "derived",
             ...aiTraceMetadataProperties(runMetadata),
             // Present for planned boundaries too, which are not errors: the ratio
             // of run_timeout to no_progress is the signal, and it is unreadable
@@ -1150,8 +1544,8 @@ export async function instrumentAgentLoop(opts: {
             // A truncated run must not read as a complete one.
             ...(droppedToolSpans > 0
               ? {
-                  $ai_spans_dropped: droppedToolSpans,
-                  $ai_spans_emitted: emittedToolSpans.length,
+                  spans_dropped: droppedToolSpans,
+                  spans_emitted: emittedToolSpans.length,
                 }
               : {}),
           },
@@ -1173,24 +1567,55 @@ export async function instrumentAgentLoop(opts: {
                   redactToolErrorMessage(span.errorMessage),
                 )
               : undefined;
+          // "Withheld" and "never reported" are different failures to debug,
+          // and a span that says only `$ai_is_error` tells the reader neither.
+          const toolErrorDetail =
+            span.status !== "error"
+              ? undefined
+              : toolErrorMessage
+                ? toAiErrorDetail(toolErrorMessage)
+                : span.errorMessage
+                  ? {
+                      message:
+                        "error text withheld: captureToolResults is off for this app",
+                    }
+                  : undefined;
+          // The same distinction on the output side, which had no marker at
+          // all: a span with no `$ai_output_state` reads in PostHog as a tool
+          // that returned nothing, and that is what "the tool output is
+          // missing" looks like to a reader who has not seen this config. The
+          // tool DID answer — this app does not export what it said.
+          const toolOutputState = config.captureToolResults
+            ? (toolErrorMessage ??
+              (span.metadata as { output?: unknown } | null)?.output)
+            : "[tool result withheld: captureToolResults is off for this app]";
 
+          const requestingGeneration = toolSpanRoundTrip.get(span.id);
           emitAiSpanEvent({
             runId,
             threadId,
             userId,
             spanId: span.id,
+            // Under the generation that asked for it, so PostHog draws the run
+            // as call → tools → call. Falls back to the trace root when the
+            // engine never bracketed its model calls and there is no
+            // generation to hang the tool under.
+            parentId:
+              requestingGeneration !== undefined
+                ? modelRoundTrips[requestingGeneration]?.spanId
+                : undefined,
             spanName: span.name,
             latencySeconds: Math.round(span.durationMs) / 1000,
             isError: span.status === "error",
-            error: toolErrorMessage
-              ? toAiErrorDetail(toolErrorMessage)
-              : undefined,
+            error: toolErrorDetail,
+            errorType: toolSpanErrorClass.get(span.id),
             createdAt: span.createdAt,
             browserSessionId,
-            // `metadata.input` is already redacted and only present when
-            // `captureToolArgs` is on; absent stays absent.
+            // `metadata.input` / `metadata.output` are already redacted and
+            // only present when `captureToolArgs` / `captureToolResults` are
+            // on; absent stays absent.
             inputState: (span.metadata as { input?: unknown } | null)?.input,
-            outputState: toolErrorMessage,
+            outputState: toolOutputState,
             extraProperties: {
               ...trackingIdentityProperties(),
               source: "agent_observability",

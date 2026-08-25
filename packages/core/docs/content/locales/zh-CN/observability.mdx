@@ -136,6 +136,12 @@ export default function ObservabilityPage() {
 
 分数解释：0-20 = 健康，20-40 = 摩擦，40-60 = 不满意，60+ = 中断的训练。
 
+### PostHog 中的反馈 {#posthog-feedback}
+
+点赞/点踩、分类和自由文本都会发送 `$ai_feedback`。而 PostHog LLM 分析的反馈视图读取的是 `survey sent` 事件，因此请把 `POSTHOG_AI_FEEDBACK_SURVEY_ID` 设为 PostHog 从追踪的 **Feedback** 标签页创建的调查。这一个 id 就是全部配置；未设置时不会发送任何调查事件。
+
+点赞/点踩以 PostHog 的选项序号回答调查的第一个问题（`1` 为赞，`2` 为踩），点踩之后的自由文本则回答追问，因此文本绝不会落在评分的位置。两者对同一条被评价的消息使用同一个提交 id，PostHog 正是据此把它们合并为一条回答；在追问到达之前，点踩会一直标记为未完成。
+
 ## 自动评估 {#evals}
 
 每次代理运行后都会运行五个确定性记分器：
@@ -153,11 +159,14 @@ export default function ObservabilityPage() {
 通过设置 `evalSampleRate` 启用基于采样 LLM 的评估：
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -249,17 +258,21 @@ PUT /_agent-native/observability/experiments/:id
 
 ## 配置 {#config}
 
-所有设置都存储在 `observability-config` 密钥中：
+通过 `defineAppConfig()` 在服务器插件中设置。每个字段还有一个部署环境变量别名——请参阅声明式配置参考。
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -294,26 +307,13 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 ## 导出到外部平台 {#export}
 
-将跟踪发送到 Langfuse、Datadog、Grafana 或任何 OTel 兼容后端：
+通过在您自己的应用中注册 OpenTelemetry 提供程序，将跟踪发送到 Langfuse、Datadog、Grafana 或任何 OTel 兼容后端——请参阅下面的 [OpenTelemetry 范围](#otel)。
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-该框架发出与 OpenTelemetry GenAI 规范兼容的 `gen_ai.*` 语义约定范围。
+核心有意不提供任何导出器，也不保存导出端点或令牌，因此后端凭据存在于您的提供程序接线（以及保险库）中，而绝不在框架配置中。
 
 ## OpenTelemetry 跨度 {#otel}
 
-与上面的 `exporters` 配置（将内部跟踪发送到 OTLP 端点）不同，代理循环还可以为每次运行、模型调用和工具调用发出**实时 OpenTelemetry 范围**，因此已经运行 OTel 收集器的主机可以看到代理活动以及其分布式跟踪的其余部分。
+代理循环为每次运行、模型调用和工具调用发出**实时 OpenTelemetry 范围**，因此已经运行 OTel 收集器的主机可以看到代理活动以及其分布式跟踪的其余部分。
 
 该层是**可选且默认情况下无操作**：
 

@@ -1363,11 +1363,13 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         return Ok(());
     }
     if let Some(w) = app.get_webview_window("popover") {
-        let max_logical_height = w
+        let monitor = w
             .current_monitor()
             .ok()
             .flatten()
-            .or_else(|| w.primary_monitor().ok().flatten())
+            .or_else(|| w.primary_monitor().ok().flatten());
+        let max_logical_height = monitor
+            .as_ref()
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
                 // The window IS the visible panel (native shadow, no apron),
@@ -1375,14 +1377,39 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
                 ((monitor.size().height as f64) / scale - 24.0).clamp(260.0, 820.0)
             })
             .unwrap_or(820.0);
+        // Same idea as height: a monitor narrower than the requested width
+        // (e.g. settings' 720) must not let the window grow past the screen
+        // edge, since `position_popover`'s x-clamp can only slide a
+        // too-wide window, not shrink it back onto the display.
+        let max_logical_width = monitor
+            .map(|monitor| {
+                let scale = monitor.scale_factor().max(1.0);
+                ((monitor.size().width as f64) / scale - 16.0).clamp(320.0, 960.0)
+            })
+            .unwrap_or(960.0);
         let clamped = height.clamp(200.0, max_logical_height);
-        let width = width.unwrap_or(320.0).clamp(320.0, 960.0);
+        let width = width
+            .unwrap_or(320.0)
+            .clamp(320.0, max_logical_width.max(320.0));
+        // The window IS the panel now — elevation is the native NSWindow
+        // shadow on exact bounds, so there is no apron to add here.
+        let (window_width, window_height) = (width, clamped);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
             width, clamped,
         )));
         // Re-anchor to the tray icon so the window doesn't drift below the
-        // bottom of the monitor after a growth.
-        position_popover(&app, &w);
+        // bottom of the monitor after a growth. Pass the size we just asked
+        // for rather than letting `position_popover` re-read `outer_size()`:
+        // macOS doesn't always commit `set_size()` synchronously, so a
+        // stale (pre-resize) read here would center/clamp against the old,
+        // narrower width and let the window balloon past the screen edge
+        // once the real resize lands a moment later.
+        let target_scale = w.scale_factor().unwrap_or(1.0).max(1.0);
+        let target_physical = PhysicalSize::new(
+            (window_width * target_scale).round() as u32,
+            (window_height * target_scale).round() as u32,
+        );
+        position_popover_with_size(&app, &w, target_physical);
     }
     Ok(())
 }
@@ -2759,13 +2786,25 @@ pub fn toggle_popover(app: &AppHandle) {
 }
 
 pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
+    let win_size = window.outer_size().unwrap_or(PhysicalSize::new(360, 440));
+    position_popover_with_size(app, window, win_size);
+}
+
+/// Same as `position_popover`, but takes the window's size explicitly instead
+/// of querying `window.outer_size()`. Callers that just called `set_size()`
+/// must pass the size they requested — see the comment at that call site in
+/// `resize_popover` for why re-querying there is unsafe.
+pub fn position_popover_with_size(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    win_size: PhysicalSize<u32>,
+) {
     // If we have a recent tray icon rect, anchor the popover's top edge just
     // below the icon and center it horizontally on the icon — same feel as
     // Loom / Raycast / 1Password.
     let anchor = app.state::<TrayAnchor>();
     let tray_rect = anchor.0.lock().ok().and_then(|g| *g);
 
-    let win_size: PhysicalSize<u32> = window.outer_size().unwrap_or(PhysicalSize::new(360, 440));
     // IMPORTANT: `current_monitor()` returns None when the window is offscreen
     // (we park it at 99999,99999 on boot to hide the initial flash). Fall back
     // to the primary monitor so we can still position correctly on first show.

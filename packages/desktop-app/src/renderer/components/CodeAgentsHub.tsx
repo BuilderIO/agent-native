@@ -89,9 +89,11 @@ import {
   IconGripVertical,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconMessageCircle,
   IconPlus,
   IconPin,
   IconSearch,
+  IconSettings,
   IconWorld,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -128,6 +130,7 @@ import AppWebview, {
   isDesktopIdentityGateUnauthenticated,
   resolveAppWebviewUrl,
   type AppWebviewAuthState,
+  type AppWebviewHandle,
 } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
@@ -730,6 +733,7 @@ export default function CodeAgentsHub({
   const [webContentsIdByTab, setWebContentsIdByTab] = useState<
     Record<string, number>
   >({});
+  const appWebviewRefs = useRef<Record<string, AppWebviewHandle | null>>({});
   const [nativeOAuthActiveByTab, setNativeOAuthActiveByTab] = useState<
     Record<string, boolean>
   >({});
@@ -868,6 +872,9 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
+  const chatFirstAppChatEnabled =
+    chatFirstAppSelected &&
+    shouldUseDesktopAppChatShell(activeChatFirstSurfaceTab?.path);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
@@ -1172,6 +1179,20 @@ export default function CodeAgentsHub({
       ),
     [openChatFirstApp, terminalPreferences.enabled],
   );
+  const reloadChatFirstApp = useCallback(
+    (app: ChatFirstAppItem) => {
+      let reloaded = false;
+      for (const tab of chatFirstSurfaceTabs.tabs) {
+        if (tab.kind !== "app" || tab.appId !== app.id) continue;
+        const webview = appWebviewRefs.current[tab.id];
+        if (!webview) continue;
+        webview.reload();
+        reloaded = true;
+      }
+      if (!reloaded) openChatFirstAppFromRail(app);
+    },
+    [chatFirstSurfaceTabs.tabs, openChatFirstAppFromRail],
+  );
   const openChatFirstAppFromGrid = useCallback(
     (app: AppConfig) =>
       openChatFirstApp(
@@ -1290,6 +1311,7 @@ export default function CodeAgentsHub({
             setChatFirstAppLayout(layout);
           }}
           onRemoveApp={onChatFirstAppRemove}
+          onReloadApp={reloadChatFirstApp}
           onOpenAllApps={openChatFirstAllApps}
           onOpenApp={openChatFirstAppFromRail}
           renderIcon={renderChatFirstAppIcon}
@@ -1308,6 +1330,7 @@ export default function CodeAgentsHub({
     onCreateApp,
     openChatFirstAllApps,
     openChatFirstAppFromRail,
+    reloadChatFirstApp,
     renderChatFirstAppIcon,
   ]);
 
@@ -2249,7 +2272,7 @@ export default function CodeAgentsHub({
         }
         return api.submitRemoteWaitlist(request);
       },
-      async listModels() {
+      async listModels(options?: { refresh?: boolean }) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.listModels) {
           return {
@@ -2258,7 +2281,7 @@ export default function CodeAgentsHub({
             error: "Desktop bridge is not available.",
           };
         }
-        return api.listModels() as Promise<CodeAgentModelListResult>;
+        return api.listModels(options) as Promise<CodeAgentModelListResult>;
       },
       async getHostMetadata() {
         const api = window.electronAPI?.codeAgents;
@@ -2682,6 +2705,7 @@ export default function CodeAgentsHub({
                 appAuthState={appAuthState}
                 isActive={isTabActive}
                 chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
+                toggleScopeId={tab.id}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div
@@ -2700,9 +2724,15 @@ export default function CodeAgentsHub({
                     aria-hidden={!showNativeIntegrationsGuest}
                   >
                     <AppWebview
+                      ref={(webview) => {
+                        if (webview) appWebviewRefs.current[tab.id] = webview;
+                        else delete appWebviewRefs.current[tab.id];
+                      }}
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      surfaceHidden={!showNativeIntegrationsGuest}
+                      refreshKey={refreshKey}
                       theme={theme}
                       urlPath={tab.path}
                       urlParams={
@@ -2920,8 +2950,53 @@ export default function CodeAgentsHub({
           railFooterSlot={
             <TooltipProvider delayDuration={0}>
               <>
+                {chatFirstAppChatEnabled ? (
+                  <DesktopRailTooltip label="Toggle chat sidebar">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-chat"
+                      data-chat-first-rail-chat
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:toggle", {
+                            detail: {
+                              scopeId: activeChatFirstSurfaceTab?.id,
+                            },
+                          }),
+                        )
+                      }
+                      aria-label="Toggle chat sidebar"
+                      title="Toggle chat sidebar"
+                    >
+                      <IconMessageCircle
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Chat</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
                 <UpdatePrompt />
                 <UpdateIndicator />
+                {onOpenSettings ? (
+                  <DesktopRailTooltip label="Settings">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-settings"
+                      onClick={() => onOpenSettings()}
+                      aria-label="Settings"
+                      title="Settings"
+                    >
+                      <IconSettings
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Settings</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
                 <div className="desktop-chat-first-rail-footer-actions">
                   <FeedbackButton
                     url={DESKTOP_FEEDBACK_FORM_URL}
@@ -2980,7 +3055,9 @@ export default function CodeAgentsHub({
                 isActive={isActive}
                 theme={theme}
                 urlParams={urlParams}
-                refreshKey={appRefreshKey}
+                // Shell key folded in: a lane change remounts every hosted
+                // surface, not just the ones with their own refresh reason.
+                refreshKey={appRefreshKey + refreshKey}
               />
             </div>
           )}

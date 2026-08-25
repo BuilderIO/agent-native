@@ -55,16 +55,6 @@ const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
  */
 const DEFAULT_ACTION_TIMEOUT_MS = 60_000;
 
-function isAuthFailure(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "status" in error &&
-    ((error as { status?: unknown }).status === 401 ||
-      (error as { status?: unknown }).status === 403)
-  );
-}
-
 function isActionTimeout(error: unknown): boolean {
   return (
     !!error &&
@@ -73,12 +63,22 @@ function isActionTimeout(error: unknown): boolean {
   );
 }
 
-function isActionMethodMismatch(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    (error as { code?: unknown }).code === "action_method_mismatch"
-  );
+/**
+ * Statuses a second identical request can plausibly resolve: a rate limit that
+ * expires, and the gateway/infrastructure 5xx a healthy origin recovers from.
+ *
+ * 500 is deliberately absent. It is what an action's own unhandled throw
+ * becomes, so it is deterministic about THIS request — and it is the one
+ * status the route reports to error tracking, which made each retry cost a
+ * duplicate report as well as a duplicate execution.
+ */
+function isRetryableActionStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+function actionErrorStatus(error: unknown): number | undefined {
+  const status = (error as { status?: unknown } | undefined)?.status;
+  return typeof status === "number" ? status : undefined;
 }
 
 /** @internal exported for tests */
@@ -86,12 +86,9 @@ export function defaultActionQueryRetry(
   failureCount: number,
   error: unknown,
 ): boolean {
-  if (isAuthFailure(error)) return false;
   // A timeout already made the user wait the full timeout window once;
   // silently retrying would multiply that wait. Surface it instead.
   if (isActionTimeout(error)) return false;
-  // Wrong verb is deterministic — retrying sends the same wrong verb again.
-  if (isActionMethodMismatch(error)) return false;
   if (isBrowserResourceExhaustion(error)) return false;
   // Network-level failures never carry an HTTP `status` (actionFetch only
   // sets it after a response arrives). Chrome reports connection-pool
@@ -99,7 +96,19 @@ export function defaultActionQueryRetry(
   // fetch", indistinguishable from a transient blip — allow one retry, not
   // three, so an exhausted tab cannot sustain its own fetch storm.
   if (isNetworkLevelFailure(error)) return failureCount < 1;
-  return failureCount < 3;
+
+  const status = actionErrorStatus(error);
+  // No response arrived and the error is not one actionFetch shapes (React
+  // Query internals, a wrapping queryFn, a test double). Unreadable, not
+  // known-deterministic — keep the transient budget rather than swallowing a
+  // real blip.
+  if (status === undefined) return failureCount < 3;
+
+  // Retry by exception, not by exclusion. The previous deny-list retried every
+  // status nobody had thought to add to it: an action refusing with 400/404/
+  // 409 cost four executions, and a 500 cost four error-tracking reports, for
+  // one deterministic answer.
+  return isRetryableActionStatus(status) && failureCount < 3;
 }
 
 /** @internal alias kept for existing specs. */
@@ -136,6 +145,31 @@ function isNetworkLevelFailure(error: unknown): boolean {
  */
 export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.min(500 * 2 ** failureCount, 2_000);
+}
+
+/**
+ * The message an action wrote for whoever called it, or `undefined` when the
+ * failure produced none (a network drop, an HTML error page from a proxy, a
+ * bare status line).
+ *
+ * `error.message` keeps the `Action <name> failed:` framing, which helps in a
+ * console and reads wrong in a toast. Use this in UI, with your own copy as
+ * the fallback:
+ *
+ * ```ts
+ * const { mutate } = useActionMutation("update-brand-kit", {
+ *   onError: (error) =>
+ *     toast.error(actionErrorMessage(error) ?? t("brandKits.updateFailed")),
+ * });
+ * ```
+ *
+ * Actions raise these through `fail()`. A bare `throw` never reaches the
+ * browser as text, so it returns `undefined` here on purpose.
+ */
+export function actionErrorMessage(error: unknown): string | undefined {
+  const value = (error as { actionMessage?: unknown } | undefined)
+    ?.actionMessage;
+  return typeof value === "string" ? value : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,8 +491,17 @@ async function performActionFetch<T>(
   }
 
   if (!res.ok) {
+    // Text the action itself wrote for the caller, as opposed to transport
+    // noise. Only a JSON `error`/`message` qualifies: an HTML error page or a
+    // bare status line is not something a UI should ever put in a toast.
+    const authored =
+      typeof data?.error === "string" && data.error
+        ? data.error
+        : typeof data?.message === "string" && data.message
+          ? data.message
+          : undefined;
     const message =
-      (data && (data.error || data.message)) ||
+      authored ||
       // Truncate non-JSON bodies so we don't dump entire HTML pages into the
       // console, but still give the developer a hint as to what came back.
       (raw && raw.slice(0, 200)) ||
@@ -487,6 +530,20 @@ async function performActionFetch<T>(
 
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
+    // `message` keeps the "Action <name> failed:" framing, which belongs in a
+    // console but not in a toast. Carry the unframed text separately so a UI
+    // can render it without string-surgery on the prefix.
+    if (authored !== undefined) (error as any).actionMessage = authored;
+    if (typeof data?.errorCode === "string") {
+      (error as any).errorCode = data.errorCode;
+    }
+    if (
+      data?.details &&
+      typeof data.details === "object" &&
+      !Array.isArray(data.details)
+    ) {
+      (error as any).details = data.details;
+    }
     throw error;
   }
 

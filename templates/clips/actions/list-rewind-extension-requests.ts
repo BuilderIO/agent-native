@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { listAppState } from "@agent-native/core/application-state";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";

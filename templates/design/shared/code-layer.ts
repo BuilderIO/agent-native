@@ -3539,6 +3539,30 @@ function computeAbsoluteUnionBounds(
 }
 
 /**
+ * Origin-only variant: an auto-layout wrapper hugs its children, so it needs
+ * where the selection starts but not how big it is. Absolutely positioned text
+ * routinely has left/top and no width/height, and demanding all four sent it
+ * back to the parent's flow origin.
+ */
+function computeAbsoluteUnionOrigin(
+  elements: ParsedElement[],
+): { left: number; top: number } | null {
+  let minLeft = Infinity;
+  let minTop = Infinity;
+  for (const element of elements) {
+    const style = parseStyle(attributeValue(element, "style"));
+    if (style.position !== "absolute") return null;
+    const left = parsePixelLength(style.left);
+    const top = parsePixelLength(style.top);
+    if (left === null || top === null) return null;
+    minLeft = Math.min(minLeft, left);
+    minTop = Math.min(minTop, top);
+  }
+  if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) return null;
+  return { left: minLeft, top: minTop };
+}
+
+/**
  * GROUP: wrap targetted sibling elements (sharing a common parent) in a new
  * <div> wrapper. Targets must all share the same parent element.
  */
@@ -3613,9 +3637,7 @@ function applyWrapNodes(
   // Falls back to the previous flow/auto-layout wrapper when any child isn't
   // absolutely positioned (there is no meaningful bounding box to compute
   // without a layout pass).
-  const targetGeometry = !autoLayout
-    ? computeAbsoluteUnionBounds(targetElements)
-    : null;
+  const targetGeometry = computeAbsoluteUnionBounds(targetElements);
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
@@ -3646,8 +3668,17 @@ function applyWrapNodes(
     return frag;
   });
 
+  // An auto-layout wrapper takes the union's origin but no width/height, so
+  // it hugs its children the way Figma's does. Omitting the origin drops the
+  // wrapper at the parent's flow start and teleports the selection to 0,0.
+  const autoLayoutStyle = "display: flex; flex-direction: column; gap: 8px";
+  const autoLayoutOrigin = autoLayout
+    ? (targetGeometry ?? computeAbsoluteUnionOrigin(targetElements))
+    : null;
   const wrapperStyle = autoLayout
-    ? "display: flex; flex-direction: column; gap: 8px"
+    ? autoLayoutOrigin
+      ? `position: absolute; left: ${autoLayoutOrigin.left}px; top: ${autoLayoutOrigin.top}px; ${autoLayoutStyle}`
+      : autoLayoutStyle
     : targetGeometry
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
       : null;

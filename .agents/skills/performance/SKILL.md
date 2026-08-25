@@ -60,6 +60,40 @@ A list/index query should select only the columns the list actually renders.
   renders a heavy column (a thumbnail, an inline preview the UI shows), keep it —
   don't break behavior to chase a payload win.
 
+## 1b. Never put a heavy column in a `WHERE`
+
+Projecting a blob out of the `SELECT` is only half the job. A **predicate** on a
+large text/JSON column is worse, because Postgres must fetch and detoast that
+value for every row the scan touches — **before `LIMIT` applies**. The column
+does not even have to be selected.
+
+Measured in production on the agent chat sidebar list (~20 rows of title +
+timestamp), from one predicate on the message-history blob:
+
+| request | with the predicate | without |
+| --- | --- | --- |
+| `limit=20` | 2207ms | 222ms |
+| `limit=5` | 3166ms | 220ms |
+
+**`limit=5` costing more than `limit=20` is the fingerprint.** If asking for
+less data costs more, something in the `WHERE` is scanning what `LIMIT` cannot
+bound. Diagnose it from the browser console on the live page — fetch the
+endpoint with and without the suspect filter — rather than reading the plan.
+
+A marker you match with a hardcoded string belongs in its own indexed column:
+add it, backfill once in a migration, then filter on the column. **A legacy
+compensator on a read path is a backfill you have not done yet, and you pay for
+it on every request until you do.**
+
+Searching a blob against a user-supplied term is different and legitimate —
+full-text search over message history has no cheaper form. `guard:no-blob-column-predicate`
+draws exactly that line: it flags a hardcoded literal and ignores a bound
+parameter.
+
+Related: a `LOWER(col) = ?` access predicate cannot use a plain btree on `col`.
+Add the matching expression index — see `org/migrations.ts` for the pattern —
+or the list scans the whole shared table.
+
 ## 2. Index the hot paths
 
 Indexes are added through the **versioned migration array** in

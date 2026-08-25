@@ -1046,6 +1046,58 @@ describe("classifyCodeAgentCommandPermission", () => {
       kind: "approval-required",
     });
   });
+
+  // The shell strips quoting before the command word exists, so each of these
+  // runs exactly what the unquoted form runs. Matching the raw text alone let
+  // every one of them through as a plain `write`.
+  it.each([
+    ["git 'checkout' main", "forbidden"],
+    ['git "checkout" main', "forbidden"],
+    ["gi''t checkout main", "forbidden"],
+    ["git check\\out main", "forbidden"],
+    ['drizzle-kit "push"', "forbidden"],
+    ["rm -'r'f /data", "approval-required"],
+    ["su''do rm x", "approval-required"],
+    ["npm 'publish'", "approval-required"],
+  ] as const)("sees through shell quoting in %s", (command, kind) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({ kind });
+  });
+
+  // Each of these executes a forbidden operation whose tokens never appear in
+  // the source string, so "no rule matched" proves nothing about what will run.
+  it.each([
+    "$'\\x67it' checkout main",
+    "$(printf git) $(printf checkout) main",
+    "`printf git` checkout main",
+  ])("asks rather than guessing for %s", (command) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({
+      kind: "approval-required",
+    });
+  });
+
+  it("still blocks outright when the forbidden text is visible inside a substitution", () => {
+    expect(
+      classifyCodeAgentCommandPermission('echo "$(git checkout main)"'),
+    ).toMatchObject({ kind: "forbidden" });
+  });
+
+  // Single quotes make substitution literal, so nothing is hidden and the
+  // command is not escalated. (The read-only allowlist separately refuses any
+  // raw `$(`, which is why this lands on `write` rather than `read`.)
+  it("does not escalate substitution syntax that single quotes make literal", () => {
+    expect(classifyCodeAgentCommandPermission("rg '$(foo)' src")).toMatchObject(
+      { kind: "write" },
+    );
+  });
+
+  it("leaves ordinary quoted arguments classified as before", () => {
+    expect(
+      classifyCodeAgentCommandPermission('rg "some phrase" src'),
+    ).toMatchObject({ kind: "read" });
+    expect(
+      classifyCodeAgentCommandPermission("node -e 'console.log(1)'"),
+    ).toMatchObject({ kind: "write" });
+  });
 });
 
 describe("codeAgentMcpInvocationPolicy", () => {

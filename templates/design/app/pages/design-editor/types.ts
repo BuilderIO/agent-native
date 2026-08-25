@@ -36,9 +36,9 @@ export type DesignLeftPanel =
 /**
  * Keep the still-evolving Design editor side panels out of the default
  * surface until their Figma parity work is ready. Flip this switch to expose
- * Assets, Tools, Tokens, and Code together while iterating on them. The E2E
- * harness sets the Vite flag so those existing advanced-surface tests keep
- * exercising the gated panels.
+ * Assets, Tools, Tokens, Code, and Motion together while iterating on them.
+ * The E2E harness sets the Vite flag so those existing advanced-surface tests
+ * keep exercising the gated panels.
  */
 const designSecondaryLeftPanelsSetting =
   typeof import.meta !== "undefined"

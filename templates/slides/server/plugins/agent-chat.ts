@@ -100,14 +100,17 @@ When a Google Drive or Google Slides request needs authentication, tell the user
         search: async (query: string) => {
           const db = getDb();
           const access = accessFilter(decks, deckShares);
+          // Project only id/title — decks.data is the full deck JSON (every
+          // slide) and must not be pulled into this per-keystroke search.
+          const mentionColumns = { id: decks.id, title: decks.title };
           const rows = query
             ? await db
-                .select()
+                .select(mentionColumns)
                 .from(decks)
                 .where(and(access, like(decks.title, `%${query}%`)))
                 .limit(15)
             : await db
-                .select()
+                .select(mentionColumns)
                 .from(decks)
                 .where(access)
                 .orderBy(desc(decks.updatedAt))

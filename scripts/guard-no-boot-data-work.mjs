@@ -33,9 +33,18 @@
  *   - lazily, behind the first caller that actually needs the data, memoized.
  *
  * Scope: only lines ADDED on this branch (via scripts/lib/changed-lines.mjs),
- * under a template's, app's, or package's server directory. The existing
- * boot-time backlog is a separate, schedulable cleanup — this stops the habit
- * from growing, which is the only thing a guard can honestly do.
+ * under a template's, app's, or package's server directory, plus any Nitro
+ * plugin implementation anywhere in `packages/`, `templates/`, or `apps/`. The
+ * existing boot-time backlog is a separate, schedulable cleanup — this stops
+ * the habit from growing, which is the only thing a guard can honestly do.
+ *
+ * Known limitation, stated so nobody reads a pass as full coverage: this is a
+ * line-oriented heuristic bounded by `MAX_STARTUP_INDENT`, so boot work nested
+ * deeper stays invisible. `agent-chat-plugin.ts` builds its action registries
+ * inside an `initPromise` IIFE at indent 6+, and none of it is reachable here.
+ * Closing that needs real structural analysis, not a wider regex — widening
+ * the indent alone would flag request handlers in the same file and turn the
+ * pragma into noise.
  *
  * Opt-out, when the work genuinely must happen before serving and is bounded:
  *
@@ -63,6 +72,18 @@ const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-boot-data-work\b/;
 /** Server startup code. A route handler is per-request and not this guard's business. */
 const IN_SCOPE =
   /^(templates\/[^/]+\/server\/|packages\/[^/]+\/(?:src\/)?server\/|apps\/[^/]+\/server\/)/;
+/**
+ * Nitro plugin implementations that do NOT live under a `server/` directory.
+ *
+ * `IN_SCOPE` keys on directory, so it never even read `org/plugin.ts`,
+ * `agent/context-xray/plugin.ts`, `agent/observational-memory/plugin.ts`, or
+ * `terminal/terminal-plugin.ts` — the default plugins whose bootstrap runs
+ * sequentially on every cold start. The thin per-template wrapper under
+ * `server/plugins/` was in scope, but it only calls `createXPlugin({...})`;
+ * the awaits it stands for are all in these files.
+ */
+const PLUGIN_FILE =
+  /^(packages|templates|apps)\/.*(^|\/)[\w.-]*plugin\.[jt]sx?$/;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 
 /**
@@ -91,6 +112,11 @@ const DATA_WORK = new RegExp(
       // Schema/migration work. Bounded in principle, 5-8s in practice on a
       // large database — and paid on every cold start, forever.
       "\\w*[Mm]igrations?\\w*",
+      // `migrate(...)` is not matched by the pattern above — it has no
+      // "igration" substring — and that is exactly the name the default
+      // plugins call at bootstrap (`org/plugin.ts`, `context-xray/plugin.ts`,
+      // `observational-memory/plugin.ts`).
+      "\\w*[Mm]igrate\\w*",
       "ensureTable\\w*",
       "ensureColumn\\w*",
       "ensureAdditiveColumns",
@@ -137,7 +163,10 @@ function isStartupContext(line, file) {
   const indent = line.length - line.trimStart().length;
   if (indent > MAX_STARTUP_INDENT) return false;
   // Plugin files are startup by definition; elsewhere only module scope counts.
-  if (/\/server\/plugins\//.test(file)) return true;
+  // Match the implementations too, not just `server/plugins/` wrappers — a
+  // default plugin's `await migrate(...)` sits at indent 4 inside its exported
+  // plugin function, so requiring module scope hid every one of them.
+  if (/\/server\/plugins\//.test(file) || PLUGIN_FILE.test(file)) return true;
   return indent === 0;
 }
 
@@ -146,7 +175,8 @@ const added = requireAddedLines(REPO_ROOT, "guard-no-boot-data-work");
 const violations = [];
 for (const [absPath, lineNumbers] of added) {
   const rel = path.relative(REPO_ROOT, absPath);
-  if (!IN_SCOPE.test(rel) || SKIPPED.test(rel)) continue;
+  if (!(IN_SCOPE.test(rel) || PLUGIN_FILE.test(rel)) || SKIPPED.test(rel))
+    continue;
   if (!/\.(ts|tsx|mjs|js)$/.test(rel)) continue;
 
   let lines;

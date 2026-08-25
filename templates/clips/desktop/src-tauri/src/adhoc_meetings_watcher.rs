@@ -1,13 +1,10 @@
 //! Granola-style adhoc Zoom / Teams detection.
 //!
-//! Samples every known call app every few seconds and asks one question: is a
-//! call underway? A live audio input stream held by Zoom or Teams answers yes
-//! wherever their window sits, so the detection survives you joining and then
-//! working in another app — the common case that foreground dwell alone missed
-//! entirely. Foreground dwell remains the fallback for machines whose OS cannot
-//! report input state at all. On a yes, creates a meeting row via
-//! `create-meeting` and shows the same meeting-notification overlay used for
-//! calendar reminders — with `type: "adhoc"`.
+//! Polls the frontmost macOS app every few seconds. When Zoom or Teams stays
+//! frontmost for a short dwell window *and* that app is holding a live audio
+//! input, creates a meeting row via `create-meeting` and shows the same
+//! meeting-notification overlay used for calendar reminders — with
+//! `type: "adhoc"`.
 //!
 //! Reuses `MeetingsWatcherState` session (server URL + cookie + auth token)
 //! so the popover only needs to push credentials once.
@@ -20,34 +17,20 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config::{feature_config, MeetingTranscriptionMode};
 use crate::dlog;
-use crate::meetings_watcher::MeetingsWatcherState;
+use crate::meetings_watcher::{
+    find_matching_calendar_meeting, parse_meetings, MeetingItem, MeetingsWatcherState,
+    CALENDAR_MATCH_WINDOW_MINUTES,
+};
 
-/// How often to sample call state.
-const POLL_SECS: u64 = 4;
+/// How often to sample the frontmost app.
+const POLL_SECS: u64 = 2;
 
-/// A live input stream held this long is a call, wherever its window sits.
-const MIC_DWELL: Duration = Duration::from_secs(5);
+/// Require this many consecutive frontmost seconds before firing.
+const DWELL_SECS: u64 = 3;
 
-/// Foreground-only dwell, used when the OS cannot report input state.
-const FRONT_DWELL: Duration = Duration::from_secs(9);
-
-/// A call app that just came forward gets this long to open an input stream
-/// before a silent one counts as "not in a call". Joining muted, and the
-/// seconds between the window appearing and the stream starting, both live in
-/// here — at a 4-second sample rate, treating the first silent read as final is
-/// how a real call goes undetected.
-const JOIN_GRACE: Duration = Duration::from_secs(20);
-
-/// A live stream that blips out for less than this is still the same call.
-const MIC_DROP_GRACE: Duration = Duration::from_secs(8);
-
-/// No live stream for this long ends the call, which releases the per-call
-/// suppression so the next call gets its own prompt.
-const CALL_END: Duration = Duration::from_secs(30);
-
-/// Backstop for the fallback path, where there is no stream to signal the end
-/// of a call. Short enough that a back-to-back block of calls still prompts.
-const COOLDOWN_SECS: i64 = 8 * 60;
+/// After dismiss / fire, suppress re-prompts for this platform until the
+/// cooldown elapses (or the VC app leaves front — see tick logic).
+const COOLDOWN_SECS: i64 = 30 * 60;
 
 /// Soft guard: skip adhoc if a calendar reminder for the same platform fired
 /// this recently.
@@ -70,114 +53,11 @@ pub struct AdhocMeetingsWatcherState {
 struct AdhocMeetingsWatcherInner {
     /// platform -> unix-seconds when we last fired (or dismissed via cooldown).
     cooldown_until: HashMap<String, i64>,
-    /// platform -> what that platform has shown us so far.
-    evidence: HashMap<String, CallEvidence>,
-    /// Platforms already notified for the current call.
+    /// Current dwell: which platform is accumulating frontmost time.
+    dwell_platform: Option<String>,
+    dwell_since: Option<Instant>,
+    /// Platforms already notified for the current continuous foreground session.
     session_notified: HashMap<String, bool>,
-}
-
-/// Whether a call is underway on one platform.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CallState {
-    /// Confirmed: prompt for it.
-    Live,
-    /// Might still become a call — hold the accumulated evidence.
-    Pending,
-    /// No call, and no reason to keep waiting.
-    Idle,
-}
-
-/// What one platform has shown us across the current run of ticks.
-#[derive(Debug, Default, Clone, Copy)]
-struct CallEvidence {
-    /// When it became frontmost, in the current unbroken foreground run.
-    front_since: Option<Instant>,
-    /// When its live input stream first appeared in the current call.
-    mic_since: Option<Instant>,
-    /// The most recent tick that saw a live input stream.
-    mic_last_true: Option<Instant>,
-}
-
-impl CallEvidence {
-    fn observe(&mut self, now: Instant, mic: Option<bool>, frontmost: bool) {
-        if frontmost {
-            self.front_since.get_or_insert(now);
-        } else {
-            self.front_since = None;
-        }
-        if mic == Some(true) {
-            self.mic_last_true = Some(now);
-            self.mic_since.get_or_insert(now);
-        } else if self
-            .mic_lost_for(now)
-            .is_some_and(|lost| lost >= MIC_DROP_GRACE)
-        {
-            // Keep `mic_last_true`: it is what dates the end of the call.
-            self.mic_since = None;
-        }
-    }
-
-    fn mic_lost_for(&self, now: Instant) -> Option<Duration> {
-        self.mic_last_true
-            .map(|last| now.saturating_duration_since(last))
-    }
-
-    fn mic_live(&self, now: Instant, mic: Option<bool>) -> bool {
-        mic == Some(true)
-            || self
-                .mic_lost_for(now)
-                .is_some_and(|lost| lost < MIC_DROP_GRACE)
-    }
-
-    fn classify(&self, now: Instant, mic: Option<bool>, frontmost: bool) -> CallState {
-        if self.mic_live(now, mic) {
-            let since = self.mic_since.unwrap_or(now);
-            return if now.saturating_duration_since(since) >= MIC_DWELL {
-                CallState::Live
-            } else {
-                CallState::Pending
-            };
-        }
-        let Some(front_since) = self.front_since.filter(|_| frontmost) else {
-            return CallState::Idle;
-        };
-        let front_for = now.saturating_duration_since(front_since);
-        match mic {
-            // The OS declined to answer — `kAudioProcessPropertyIsRunningInput`
-            // is macOS 14+ — so foreground dwell is the only evidence there is.
-            // Requiring a stream here would leave older machines detecting
-            // nothing at all.
-            None => {
-                if front_for >= FRONT_DWELL {
-                    CallState::Live
-                } else {
-                    CallState::Pending
-                }
-            }
-            // A definite no. Wait out the join grace, then stop: past it, a
-            // silent Zoom window is Zoom parked open, which is the noise that
-            // got prompting muted in the first place.
-            _ => {
-                if front_for < JOIN_GRACE {
-                    CallState::Pending
-                } else {
-                    CallState::Idle
-                }
-            }
-        }
-    }
-
-    /// True once, when a live call has been gone long enough to count as over.
-    fn take_call_ended(&mut self, now: Instant) -> bool {
-        if self.mic_since.is_some() {
-            return false;
-        }
-        let ended = self.mic_lost_for(now).is_some_and(|lost| lost >= CALL_END);
-        if ended {
-            self.mic_last_true = None;
-        }
-        ended
-    }
 }
 
 impl AdhocMeetingsWatcherInner {
@@ -185,6 +65,8 @@ impl AdhocMeetingsWatcherInner {
         self.session_notified.insert(platform.to_string(), true);
         self.cooldown_until
             .insert(platform.to_string(), now_ts + COOLDOWN_SECS);
+        self.dwell_platform = None;
+        self.dwell_since = None;
     }
 
     fn is_suppressed(&self, platform: &str, now_ts: i64) -> bool {
@@ -194,12 +76,6 @@ impl AdhocMeetingsWatcherInner {
                 .get(platform)
                 .copied()
                 .unwrap_or(false)
-    }
-
-    /// The current call is over: prompt again for the next one.
-    fn end_call_session(&mut self, platform: &str) {
-        self.session_notified.remove(platform);
-        self.cooldown_until.remove(platform);
     }
 }
 
@@ -257,21 +133,10 @@ fn match_vc_bundle(bundle: &str) -> Option<(&'static str, &'static str)> {
         .map(|(_, platform, title)| (*platform, *title))
 }
 
-/// One entry per platform, with the title its notification should carry.
-fn platform_titles() -> Vec<(&'static str, &'static str)> {
-    let mut out: Vec<(&'static str, &'static str)> = Vec::new();
-    for (_, platform, title) in STRONG_VC_BUNDLES {
-        if !out.iter().any(|(known, _)| known == platform) {
-            out.push((*platform, *title));
-        }
-    }
-    out
-}
-
 /// Bundle ids belonging to one platform, lowercased for CoreAudio comparison.
 ///
-/// Scoped per platform rather than every call app: Teams sitting in a call must
-/// not vouch for a Zoom window that is merely open.
+/// Scoped to the frontmost platform rather than every call app: Teams sitting
+/// in a call must not vouch for a Zoom window that is merely open.
 fn bundles_for_platform(platform: &str) -> Vec<String> {
     STRONG_VC_BUNDLES
         .iter()
@@ -280,7 +145,17 @@ fn bundles_for_platform(platform: &str) -> Vec<String> {
         .collect()
 }
 
-/// What a confirmed detection is allowed to do under the current mode.
+/// Whether a live-input reading should veto a dwell-confirmed detection.
+///
+/// Only an explicit `Some(false)` blocks. `None` means the OS declined to
+/// answer — `kAudioProcessPropertyIsRunningInput` is macOS 14+ — and treating
+/// that as "no call" would leave every older machine detecting nothing at all,
+/// which is the failure mode this whole branch exists to undo.
+fn mic_vetoes_detection(mic_running: Option<bool>) -> bool {
+    mic_running == Some(false)
+}
+
+/// What a dwell-confirmed detection is allowed to do under the current mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AdhocNotificationPlan {
     /// Surface the meeting-notification overlay so the user can accept.
@@ -305,7 +180,7 @@ fn adhoc_notification_plan(config: &crate::config::FeatureConfig) -> AdhocNotifi
 async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), String> {
     let config = feature_config(app);
     if !config.meetings_enabled {
-        reset_evidence(app);
+        reset_dwell(app);
         return Ok(());
     }
 
@@ -327,71 +202,44 @@ async fn tick_macos(
     client: &reqwest::Client,
     config: &crate::config::FeatureConfig,
 ) -> Result<(), String> {
+    let front = crate::util::frontmost_bundle_id();
+    let matched = front.as_deref().and_then(match_vc_bundle);
+
+    let Some((platform, fallback_title)) = matched else {
+        // VC app left front — clear session dedupe so a later re-focus can
+        // fire again (cooldown still applies).
+        clear_session_if_left(app, None);
+        reset_dwell(app);
+        return Ok(());
+    };
+
+    clear_session_if_left(app, Some(platform));
+
     // Skip while already transcribing a meeting.
     if crate::util::is_meeting_active(app) {
-        reset_evidence(app);
+        reset_dwell(app);
         return Ok(());
     }
 
     if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
         && !config.show_meeting_widget_enabled
     {
-        reset_evidence(app);
+        reset_dwell(app);
         return Ok(());
     }
 
-    let front = crate::util::frontmost_bundle_id();
-    let front_platform = front.as_deref().and_then(match_vc_bundle).map(|(p, _)| p);
-    let now = Instant::now();
-    let now_ts = chrono::Utc::now().timestamp();
-
-    // Read every platform, not just the frontmost one. A call holds its input
-    // stream open while you take notes elsewhere, read Slack, or share a doc,
-    // so that stream is the evidence that survives leaving the meeting window.
-    let mut confirmed: Option<(&'static str, &'static str)> = None;
-    for (platform, title) in platform_titles() {
-        let mic = crate::call_activity::call_app_uses_microphone(&bundles_for_platform(platform));
-        let frontmost = front_platform == Some(platform);
-
-        let state = app
-            .try_state::<AdhocMeetingsWatcherState>()
-            .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
-        let mut g = state.inner.lock().map_err(|e| e.to_string())?;
-        g.cooldown_until.retain(|_, until| *until > now_ts);
-
-        let (call_state, call_ended, mic_live) = {
-            let evidence = g.evidence.entry(platform.to_string()).or_default();
-            evidence.observe(now, mic, frontmost);
-            (
-                evidence.classify(now, mic, frontmost),
-                evidence.take_call_ended(now),
-                evidence.mic_live(now, mic),
-            )
-        };
-
-        // A finished call releases both suppressions, so the next call in a
-        // back-to-back block gets its own prompt instead of inheriting one.
-        if call_ended {
-            g.end_call_session(platform);
-        }
-        // No stream and not even in the foreground: whatever we prompted for is
-        // over. This is also the only session-end signal on a machine that
-        // cannot report input state.
-        if !mic_live && !frontmost {
-            g.session_notified.remove(platform);
-        }
-
-        if confirmed.is_none()
-            && call_state == CallState::Live
-            && !g.is_suppressed(platform, now_ts)
-        {
-            confirmed = Some((platform, title));
-        }
-    }
-
-    let Some((platform, title)) = confirmed else {
+    // Frontmost dwell alone also matches Zoom parked on a second monitor or
+    // opened to check a schedule — the reason prompting was muted in the first
+    // place. A live input stream is what separates an app being open from a
+    // call being underway. `None` means the OS could not answer (the property
+    // is macOS 14+), so fall back to dwell-only rather than going silently
+    // dead on older systems.
+    let call_bundles = bundles_for_platform(platform);
+    let mic_running = crate::call_activity::call_app_uses_microphone(&call_bundles);
+    if mic_vetoes_detection(mic_running) {
+        reset_dwell(app);
         return Ok(());
-    };
+    }
 
     // Soft guard against double-prompting after a calendar reminder.
     if let Some(state) = app.try_state::<MeetingsWatcherState>() {
@@ -400,30 +248,63 @@ async fn tick_macos(
                 "[clips-tray] adhoc skip: recent calendar notify for {}",
                 platform
             );
+            reset_dwell(app);
             return Ok(());
         }
     }
 
-    {
+    let now_ts = chrono::Utc::now().timestamp();
+    let should_fire = {
         let state = app
             .try_state::<AdhocMeetingsWatcherState>()
             .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
         let mut g = state.inner.lock().map_err(|e| e.to_string())?;
-        g.refresh_suppression(platform, now_ts);
+
+        // Prune expired cooldowns.
+        g.cooldown_until.retain(|_, until| *until > now_ts);
+
+        if g.is_suppressed(platform, now_ts) {
+            return Ok(());
+        }
+
+        match (g.dwell_platform.as_deref(), g.dwell_since) {
+            (Some(p), Some(since)) if p == platform => {
+                if since.elapsed() >= Duration::from_secs(DWELL_SECS) {
+                    g.session_notified.insert(platform.to_string(), true);
+                    g.cooldown_until
+                        .insert(platform.to_string(), now_ts + COOLDOWN_SECS);
+                    g.dwell_platform = None;
+                    g.dwell_since = None;
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => {
+                g.dwell_platform = Some(platform.to_string());
+                g.dwell_since = Some(Instant::now());
+                false
+            }
+        }
+    };
+
+    if !should_fire {
+        return Ok(());
     }
 
     dlog!(
-        "[clips-tray] adhoc call confirmed for {} — creating meeting",
+        "[clips-tray] adhoc dwell met for {} — creating meeting",
         platform
     );
 
-    let meeting_id = match create_adhoc_meeting(app, client, platform).await {
-        Ok(id) => id,
+    let meeting = match create_adhoc_meeting(app, client, platform).await {
+        Ok(meeting) => meeting,
         Err(err) => {
-            // Allow retry on the next tick if create failed.
+            // Allow retry on next dwell if create failed.
             if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
                 if let Ok(mut g) = state.inner.lock() {
-                    g.end_call_session(platform);
+                    g.session_notified.remove(platform);
+                    g.cooldown_until.remove(platform);
                 }
             }
             return Err(err);
@@ -437,22 +318,34 @@ async fn tick_macos(
 
     if show_widget {
         let app_clone = app.clone();
-        let id_clone = meeting_id.clone();
-        let title_clone = title.to_string();
-        let platform_clone = platform.to_string();
-        let scheduled_start = chrono::Utc::now().to_rfc3339();
+        let id_clone = meeting.id.clone();
+        let title_clone = meeting
+            .title
+            .clone()
+            .unwrap_or_else(|| fallback_title.to_string());
+        let platform_clone = meeting
+            .platform
+            .clone()
+            .unwrap_or_else(|| platform.to_string());
+        let scheduled_start = meeting
+            .scheduled_start
+            .clone()
+            .or_else(|| Some(chrono::Utc::now().to_rfc3339()));
+        let scheduled_end = meeting.scheduled_end.clone();
+        let join_url = meeting.join_url.clone();
+        let source = meeting.source.clone().or_else(|| Some("adhoc".to_string()));
         tauri::async_runtime::spawn(async move {
             let _ = crate::notifications::notify_meeting_starting(
                 app_clone,
                 id_clone,
                 title_clone,
                 0,
-                None,
-                Some(scheduled_start),
-                None,
+                join_url,
+                scheduled_start,
+                scheduled_end,
                 Some(platform_clone),
                 Some(auto_start),
-                Some("adhoc".to_string()),
+                source,
             )
             .await;
         });
@@ -462,9 +355,10 @@ async fn tick_macos(
         let _ = app.emit(
             "meetings:start-transcription",
             serde_json::json!({
-                "meetingId": meeting_id,
-                "joinUrl": null,
+                "meetingId": meeting.id,
+                "joinUrl": meeting.join_url,
                 "reason": "adhoc-auto",
+                "scheduledStart": meeting.scheduled_start,
             }),
         );
     }
@@ -487,12 +381,6 @@ mod tests {
         }
     }
 
-    /// `Instant` has no constructor, and subtracting past boot panics, so age
-    /// every fixture from a single `now` and clamp.
-    fn ago(now: Instant, secs: u64) -> Instant {
-        now.checked_sub(Duration::from_secs(secs)).unwrap_or(now)
-    }
-
     #[test]
     fn platform_bundles_do_not_vouch_for_each_other() {
         let zoom = bundles_for_platform("zoom");
@@ -508,124 +396,13 @@ mod tests {
     }
 
     #[test]
-    fn every_platform_is_sampled_once() {
-        let platforms = platform_titles();
-        assert_eq!(platforms.len(), 2);
-        assert!(platforms.iter().any(|(p, _)| *p == "zoom"));
-        assert!(platforms.iter().any(|(p, _)| *p == "teams"));
-    }
-
-    #[test]
-    fn a_live_stream_confirms_a_call_from_the_background() {
-        // The whole point of the rewrite: join a call, switch to Slack, and the
-        // detection still lands. Foreground dwell alone missed this entirely.
-        let now = Instant::now();
-        let evidence = CallEvidence {
-            front_since: None,
-            mic_since: Some(ago(now, 6)),
-            mic_last_true: Some(now),
-        };
-        assert_eq!(
-            evidence.classify(now, Some(true), false),
-            CallState::Live,
-            "a backgrounded call app holding a live input stream is a call"
-        );
-    }
-
-    #[test]
-    fn a_live_stream_still_debounces() {
-        let now = Instant::now();
-        let evidence = CallEvidence {
-            front_since: None,
-            mic_since: Some(ago(now, 2)),
-            mic_last_true: Some(now),
-        };
-        assert_eq!(
-            evidence.classify(now, Some(true), false),
-            CallState::Pending
-        );
-    }
-
-    #[test]
-    fn a_stream_that_blips_out_does_not_restart_the_dwell() {
-        let now = Instant::now();
-        let mut evidence = CallEvidence::default();
-        evidence.observe(ago(now, 20), Some(true), false);
-        evidence.observe(ago(now, 4), Some(true), false);
-        evidence.observe(now, Some(false), false);
-        assert_eq!(
-            evidence.classify(now, Some(false), false),
-            CallState::Live,
-            "one silent read inside the drop grace is still the same call"
-        );
-    }
-
-    #[test]
-    fn a_freshly_opened_window_waits_out_the_join_grace() {
-        // Joining muted, and the seconds before Zoom opens its input, both read
-        // as Some(false). Treating the first one as final is a missed meeting.
-        let now = Instant::now();
-        let joining = CallEvidence {
-            front_since: Some(ago(now, 4)),
-            ..Default::default()
-        };
-        assert_eq!(joining.classify(now, Some(false), true), CallState::Pending);
-
-        let parked = CallEvidence {
-            front_since: Some(ago(now, 60)),
-            ..Default::default()
-        };
-        assert_eq!(
-            parked.classify(now, Some(false), true),
-            CallState::Idle,
-            "past the grace window a silent window is Zoom parked open"
-        );
-    }
-
-    #[test]
-    fn an_unreadable_input_state_falls_back_to_foreground_dwell() {
-        // `kAudioProcessPropertyIsRunningInput` is macOS 14+. Requiring a
-        // stream would leave every older machine detecting nothing at all.
-        let now = Instant::now();
-        let dwelled = CallEvidence {
-            front_since: Some(ago(now, 10)),
-            ..Default::default()
-        };
-        assert_eq!(dwelled.classify(now, None, true), CallState::Live);
-
-        let fresh = CallEvidence {
-            front_since: Some(ago(now, 3)),
-            ..Default::default()
-        };
-        assert_eq!(fresh.classify(now, None, true), CallState::Pending);
-
-        assert_eq!(dwelled.classify(now, None, false), CallState::Idle);
-    }
-
-    #[test]
-    fn a_finished_call_releases_the_suppression_for_the_next_one() {
-        let now = Instant::now();
-        let mut evidence = CallEvidence::default();
-        evidence.observe(ago(now, 90), Some(true), true);
-        evidence.observe(now, Some(false), true);
-
-        assert!(
-            evidence.take_call_ended(now),
-            "no stream for 30s ends the call even with the window still front"
-        );
-        assert!(
-            !evidence.take_call_ended(now),
-            "the end of a call fires once, not on every later tick"
-        );
-
-        let mut state = AdhocMeetingsWatcherInner::default();
-        state.refresh_suppression("zoom", 1_000);
-        assert!(state.is_suppressed("zoom", 1_001));
-        state.end_call_session("zoom");
-        assert!(
-            !state.is_suppressed("zoom", 1_001),
-            "back-to-back calls each get their own prompt"
-        );
+    fn an_unreadable_microphone_does_not_veto_detection() {
+        // Only a definite "not in a call" blocks. Collapsing None into false
+        // would make ad-hoc detection dead on macOS 13, where the CoreAudio
+        // property does not exist — the exact silent-death this branch undoes.
+        assert!(mic_vetoes_detection(Some(false)));
+        assert!(!mic_vetoes_detection(Some(true)));
+        assert!(!mic_vetoes_detection(None));
     }
 
     #[test]
@@ -657,19 +434,21 @@ mod tests {
     }
 
     #[test]
-    fn dismissal_suppresses_the_rest_of_the_call() {
+    fn dismissal_refreshes_the_existing_cooldown_and_clears_dwell() {
         let now_ts = 1_000;
-        let mut state = AdhocMeetingsWatcherInner::default();
+        let mut state = AdhocMeetingsWatcherInner {
+            dwell_platform: Some("zoom".to_string()),
+            dwell_since: Some(Instant::now()),
+            ..Default::default()
+        };
 
         state.refresh_suppression("zoom", now_ts);
+        state.session_notified.remove("zoom");
 
         assert!(state.is_suppressed("zoom", now_ts + COOLDOWN_SECS - 1));
-        assert!(
-            state.is_suppressed("zoom", now_ts + COOLDOWN_SECS),
-            "an expired cooldown must not re-prompt inside the same call"
-        );
-        state.session_notified.remove("zoom");
         assert!(!state.is_suppressed("zoom", now_ts + COOLDOWN_SECS));
+        assert_eq!(state.dwell_platform, None);
+        assert_eq!(state.dwell_since, None);
     }
 
     #[test]
@@ -684,10 +463,23 @@ mod tests {
     }
 }
 
-fn reset_evidence(app: &AppHandle) {
+fn reset_dwell(app: &AppHandle) {
     if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
         if let Ok(mut g) = state.inner.lock() {
-            g.evidence.clear();
+            g.dwell_platform = None;
+            g.dwell_since = None;
+        }
+    }
+}
+
+/// When the frontmost VC platform changes (or clears), drop session_notified
+/// for platforms that are no longer front. Keep `cooldown_until` so leaving
+/// and re-focusing Zoom within the cooldown does not spam another popup.
+fn clear_session_if_left(app: &AppHandle, current: Option<&str>) {
+    if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
+        if let Ok(mut g) = state.inner.lock() {
+            g.session_notified
+                .retain(|platform, _| current == Some(platform.as_str()));
         }
     }
 }
@@ -696,14 +488,36 @@ async fn create_adhoc_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
     platform: &str,
-) -> Result<String, String> {
+) -> Result<MeetingItem, String> {
     let session = app
         .try_state::<MeetingsWatcherState>()
         .map(|s| s.session_snapshot())
         .unwrap_or_default();
-    let Some(server_url) = session.server_url else {
+    let Some(server_url) = session.server_url.as_deref() else {
         return Err("no server_url for create-meeting".to_string());
     };
+
+    // The native watcher knows which conferencing app is active, but not the
+    // calendar event title. Resolve the nearest joinable event first so a
+    // calendar-backed meeting keeps its title, URL, and scheduled span. A
+    // disconnected calendar only loses that enrichment and still gets an
+    // adhoc meeting below.
+    match find_calendar_meeting(app, client, server_url, &session, platform).await {
+        Ok(Some(meeting)) => {
+            dlog!(
+                "[clips-tray] adhoc matched calendar meeting {} for {}",
+                meeting.id,
+                platform
+            );
+            return Ok(meeting);
+        }
+        Ok(None) => {}
+        Err(error) => dlog!(
+            "[clips-tray] adhoc calendar title lookup skipped for {}: {}",
+            platform,
+            error
+        ),
+    }
 
     let url = format!("{}/_agent-native/actions/create-meeting", server_url);
     let row_title = if platform == "zoom" {
@@ -711,11 +525,12 @@ async fn create_adhoc_meeting(
     } else {
         "Teams meeting"
     };
+    let scheduled_start = chrono::Utc::now().to_rfc3339();
     let body = serde_json::json!({
         "title": row_title,
         "platform": platform,
         "source": "adhoc",
-        "scheduledStart": chrono::Utc::now().to_rfc3339(),
+        "scheduledStart": scheduled_start,
     });
 
     let mut req = client
@@ -748,12 +563,67 @@ async fn create_adhoc_meeting(
         ));
     }
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    extract_meeting_id(&body).ok_or_else(|| {
+    let id = extract_meeting_id(&body).ok_or_else(|| {
         format!(
             "create-meeting response missing meeting id: {}",
             body.to_string().chars().take(200).collect::<String>()
         )
+    })?;
+    Ok(MeetingItem {
+        id,
+        title: Some(row_title.to_string()),
+        scheduled_start: Some(scheduled_start),
+        scheduled_end: None,
+        join_url: None,
+        platform: Some(platform.to_string()),
+        source: Some("adhoc".to_string()),
     })
+}
+
+async fn find_calendar_meeting(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    server_url: &str,
+    session: &crate::meetings_watcher::MeetingsSessionSnapshot,
+    platform: &str,
+) -> Result<Option<MeetingItem>, String> {
+    let url = format!("{server_url}/_agent-native/actions/list-meetings");
+    let upcoming_within_min = CALENDAR_MATCH_WINDOW_MINUTES.to_string();
+    let mut req = client.get(url).query(&[
+        ("view", "upcoming"),
+        ("limit", "20"),
+        ("upcomingWithinMin", upcoming_within_min.as_str()),
+        ("includeStartedWithinMin", "15"),
+        ("excludePersonalSoloEvents", "true"),
+        ("excludeDeclinedEvents", "true"),
+    ]);
+    req = req.header("X-Request-Source", "clips-desktop");
+    if let Some(cookie) = session.session_cookie.as_deref() {
+        req = req.header("Cookie", cookie);
+    }
+    if let Some(token) = session.auth_token.as_deref() {
+        req = req.bearer_auth(token);
+    }
+    let response = req
+        .send()
+        .await
+        .map_err(|error| format!("list-meetings fetch: {error}"))?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
+        return Err("list-meetings http 401".to_string());
+    }
+    if !response.status().is_success() {
+        return Err(format!("list-meetings http {}", response.status()));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("list-meetings response: {error}"))?;
+    Ok(find_matching_calendar_meeting(
+        &parse_meetings(&body),
+        platform,
+        chrono::Utc::now(),
+    ))
 }
 
 fn extract_meeting_id(body: &serde_json::Value) -> Option<String> {

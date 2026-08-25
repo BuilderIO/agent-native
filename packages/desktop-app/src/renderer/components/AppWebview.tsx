@@ -3,6 +3,11 @@ import {
   APP_CHAT_SIDEBAR_STATE_MESSAGE,
 } from "@agent-native/core/client/hooks";
 import {
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+  buildSurfaceVisibilityScript,
+} from "@agent-native/core/shared";
+import {
   DESKTOP_DEFAULT_APPS,
   getTemplate,
   type AppDefinition,
@@ -28,6 +33,10 @@ import {
   useImperativeHandle,
 } from "react";
 
+import {
+  withDesktopEnvironmentLane,
+  type DesktopEnvironmentLane,
+} from "../../../shared/environment-lane.js";
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
 import DesktopIdentityGate from "./DesktopIdentityGate.js";
@@ -44,9 +53,6 @@ export const APP_WEBVIEW_PREFERENCES =
 // minted against the configured production origin, so keep first-party
 // production webviews on that same origin unless a beta URL was explicitly
 // supplied. The query is consumed by the hosted app and removed from history.
-const DESKTOP_BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
-const DESKTOP_BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
-
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
   errorCode?: number;
@@ -332,6 +338,43 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
   );
 }
 
+/**
+ * Whether reactivating a tab must hide its guest page behind the identity
+ * loading gate again.
+ *
+ * Returning to an app used to re-gate unconditionally, so a page that was
+ * already loaded and verified vanished behind "Loading …" on every switch —
+ * the whole reason coming back to a tab read as a full reload. A page is only
+ * re-gated when there is nothing usable on screen to preserve.
+ */
+export function shouldClearDesktopIdentitySessionOnActivation(input: {
+  hasLoadedGuestPage: boolean;
+  sessionReady: boolean;
+  rememberedStatus?: DesktopIdentityStatus | null;
+}): boolean {
+  // A page loaded under a session the shell has since watched end is not
+  // "usable to preserve": sign-out reloads every app webview including the
+  // hidden ones, so preserving it reveals that app's own signed-out page with
+  // no gate over it until the status round trip lands.
+  if (isDesktopIdentitySignedOutStatus(input.rememberedStatus ?? null)) {
+    return true;
+  }
+  return !(input.hasLoadedGuestPage && input.sessionReady);
+}
+
+/**
+ * Whether a status the shell already observed means a loaded guest page can no
+ * longer be treated as signed in. Sign-out publishes "sign-in-required", so
+ * that and a hard "failed" are the only statuses that invalidate a loaded page.
+ * "idle" is excluded deliberately — that is workspace SSO switched off, where
+ * there is no session to gate and re-gating would stall every tab switch.
+ */
+export function isDesktopIdentitySignedOutStatus(
+  status: DesktopIdentityStatus | null,
+): boolean {
+  return status === "sign-in-required" || status === "failed";
+}
+
 const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 const DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS = 750;
 const DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS = 40;
@@ -369,6 +412,12 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /**
+   * Set when the host hides this guest while it is still the active tab, e.g.
+   * behind a full-surface overlay. An Electron guest never observes CSS
+   * hiding, so the host has to say so or the page keeps polling underneath.
+   */
+  surfaceHidden?: boolean;
   /** Resolved shell theme to apply inside the guest document. */
   theme: RendererTheme;
   /** Only same-origin app surfaces should inherit the shell theme. */
@@ -428,6 +477,21 @@ export interface AppWebviewHandle {
  * Dev mode: load the app's local dev URL directly. The Electron shell owns
  * chat now, so installed apps no longer need the local dev frame as a wrapper.
  */
+let rememberedEnvironmentLane: DesktopEnvironmentLane = "production";
+
+/**
+ * Cache the resolved lane at module scope, the same way the identity status is
+ * cached: `resolveAppWebviewUrl` is a pure helper called from several places
+ * that have no access to component state.
+ */
+export function rememberDesktopEnvironmentLane(
+  lane: DesktopEnvironmentLane,
+): boolean {
+  if (rememberedEnvironmentLane === lane) return false;
+  rememberedEnvironmentLane = lane;
+  return true;
+}
+
 export function resolveAppWebviewUrl(
   app: AppDefinition,
   appConfig?: AppConfig,
@@ -441,14 +505,19 @@ export function resolveAppWebviewUrl(
     return "about:blank";
   }
 
-  // Production mode (default): use the production URL
+  // Production mode (default): use the production URL, on the lane the shell
+  // resolved. Loading the lane directly is what keeps the hosted page from
+  // redirecting a Builder account to beta after its session resolves.
   if (appConfig?.url) {
-    return appConfig.url;
+    return withDesktopEnvironmentLane(appConfig.url, rememberedEnvironmentLane);
   }
 
   const template = getTemplate(app.id);
   if (template?.prodUrl) {
-    return template.prodUrl;
+    return withDesktopEnvironmentLane(
+      template.prodUrl,
+      rememberedEnvironmentLane,
+    );
   }
 
   // Keep incomplete custom entries on a stable blank document instead of
@@ -463,8 +532,16 @@ function isFirstPartyProductionOrigin(rawUrl: string): boolean {
     if (parsed.hostname.toLowerCase().startsWith("beta.")) return false;
     return DESKTOP_DEFAULT_APPS.some((candidate) => {
       try {
+        // Normalize to production explicitly. `resolveAppWebviewUrl` follows
+        // the active lane, so while the shell is on beta a real production
+        // URL would match nothing here and silently lose its opt-out.
         return (
-          new URL(resolveAppWebviewUrl(candidate)).origin === parsed.origin
+          new URL(
+            withDesktopEnvironmentLane(
+              resolveAppWebviewUrl(candidate),
+              "production",
+            ),
+          ).origin === parsed.origin
         );
       } catch {
         // coercion-ok: an invalid configured app URL is not a trusted first-party origin.
@@ -482,8 +559,8 @@ export function withDesktopEnvironmentOptOut(rawUrl: string): string {
   try {
     const target = new URL(rawUrl);
     target.searchParams.set(
-      DESKTOP_BETA_OPT_OUT_QUERY_PARAM,
-      String(Date.now() + DESKTOP_BETA_OPT_OUT_DURATION_MS),
+      BETA_OPT_OUT_QUERY_PARAM,
+      String(Date.now() + BETA_OPT_OUT_DURATION_MS),
     );
     return target.toString();
   } catch {
@@ -620,6 +697,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app,
       appConfig,
       isActive,
+      surfaceHidden = false,
       theme,
       syncTheme = true,
       sourceUrl,
@@ -700,6 +778,43 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       active: isActive,
       enabled: desktopIdentityEnabled,
     });
+    const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
+    const repairDesktopIdentitySession = useCallback(() => {
+      if (
+        !isActive ||
+        !desktopIdentityGateEligible ||
+        desktopIdentityEnabled !== true ||
+        desktopIdentityStatus !== "signed-in"
+      ) {
+        return Promise.resolve(false);
+      }
+      const existingRepair = desktopIdentityRepairRef.current;
+      if (existingRepair) return existingRepair;
+      const identity = window.electronAPI?.identity;
+      if (!identity) return Promise.resolve(false);
+      const repair = identity
+        .ensureAppSession(app.id)
+        .catch((error) => {
+          console.warn("[desktop-identity] app session repair failed", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+          return false;
+        })
+        .finally(() => {
+          if (desktopIdentityRepairRef.current === repair) {
+            desktopIdentityRepairRef.current = null;
+          }
+        });
+      desktopIdentityRepairRef.current = repair;
+      return repair;
+    }, [
+      app.id,
+      desktopIdentityEnabled,
+      desktopIdentityGateEligible,
+      desktopIdentityStatus,
+      isActive,
+    ]);
     const deferDesktopWebviewLoad = shouldDeferDesktopAppWebviewLoad({
       eligible: desktopIdentityGateEligible,
       enabled: desktopIdentityEnabled,
@@ -768,6 +883,21 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         buildGuestThemeScript(theme),
       );
     }, [app.placeholder, executeGuestScript, syncTheme, theme]);
+
+    // A <webview> guest never sees its own element hidden: display:none on the
+    // element or any ancestor leaves document.visibilityState "visible" and
+    // fires no visibilitychange. Without this the framework's polling and event
+    // stream keep running at foreground cadence in every backgrounded tab, and
+    // preloaded tabs would each hold one open forever.
+    const guestVisible = isActive && !surfaceHidden;
+    const applyGuestSurfaceVisibility = useCallback(() => {
+      const wv = webviewRef.current;
+      if (!wv || app.placeholder) return;
+      void executeGuestScript(
+        `guest-surface-visibility:${guestVisible ? "visible" : "hidden"}`,
+        buildSurfaceVisibilityScript(!guestVisible),
+      );
+    }, [app.placeholder, executeGuestScript, guestVisible]);
 
     const syncGuestAppChatSidebar = useCallback(
       (force = false) => {
@@ -849,9 +979,28 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         undefined,
         rememberedDesktopIdentityStatusAt,
       );
+      const preserveLoadedSession =
+        hasLoadedGuestPageRef.current &&
+        desktopIdentitySessionReadyRef.current &&
+        !isDesktopIdentitySignedOutStatus(rememberedDesktopIdentityStatus);
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
-      setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-      updateDesktopIdentitySessionReady(false);
+      setDesktopIdentityStatus(
+        rememberedSignedIn || preserveLoadedSession ? "signed-in" : "idle",
+      );
+      // Reactivating a tab whose guest page is already loaded and verified must
+      // not hide it behind the loading gate again — the recheck below is cheap
+      // and runs fine underneath a usable page. Clearing this on every
+      // activation is what made returning to a tab look like a full reload.
+      // Same rule applyStatus already uses when a child-session event repeats.
+      if (
+        shouldClearDesktopIdentitySessionOnActivation({
+          hasLoadedGuestPage: hasLoadedGuestPageRef.current,
+          sessionReady: desktopIdentitySessionReadyRef.current,
+          rememberedStatus: rememberedDesktopIdentityStatus,
+        })
+      ) {
+        updateDesktopIdentitySessionReady(false);
+      }
 
       const applyStatus = async (
         status: DesktopIdentityStatus,
@@ -882,7 +1031,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             synchronized = null;
           }
           if (!active || request !== statusRequest) return;
-          if (fromRememberedSession && synchronized !== true) {
+          if (
+            (preserveLoadedSession || fromRememberedSession) &&
+            synchronized !== true
+          ) {
             // A failed lazy sync can mean the broker is in the middle of
             // sign-out while its public status is still signed-in. Do not
             // keep reusing this renderer cache during that ceremony. Keep the
@@ -921,7 +1073,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           }
           setDesktopIdentityEnabled(true);
           const needsRemoteStatus =
-            nextStatus === undefined && !reuseRememberedSession;
+            nextStatus === undefined &&
+            !reuseRememberedSession &&
+            !preserveLoadedSession;
           if (needsRemoteStatus) {
             setDesktopIdentityStatus("checking");
             updateDesktopIdentitySessionReady(false);
@@ -934,6 +1088,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           // An older or unavailable preload must fail closed to the legacy
           // app-owned login surface rather than strand the WebView behind SSO.
           if (active && request === statusRequest) {
+            if (preserveLoadedSession) {
+              setDesktopIdentityEnabled(true);
+              setDesktopIdentityStatus("signed-in");
+              updateDesktopIdentitySessionReady(true);
+              return;
+            }
             if (
               shouldReuseRememberedDesktopIdentitySession(
                 rememberedDesktopIdentityStatus,
@@ -1176,7 +1336,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         onAuthStateChangeRef.current?.("unknown");
         void readAppWebviewAuthState(wv).then((state) => {
           if (disposed || sequence !== authProbeSequenceRef.current) return;
-          onAuthStateChangeRef.current?.(state);
+          const repair =
+            state === "unauthenticated"
+              ? repairDesktopIdentitySession()
+              : Promise.resolve(false);
+          void repair.then((repaired) => {
+            if (disposed || sequence !== authProbeSequenceRef.current) return;
+            onAuthStateChangeRef.current?.(repaired ? "authenticated" : state);
+          });
         });
       };
 
@@ -1197,6 +1364,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           if (!currentUrl || currentUrl === "about:blank") return;
         }
         applyGuestTheme();
+        applyGuestSurfaceVisibility();
         syncGuestAppChatSidebar(true);
         if (app.id === "content") {
           void executeGuestScript(
@@ -1221,6 +1389,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const onNavigation = () => {
         applyGuestTheme();
+        applyGuestSurfaceVisibility();
         syncGuestAppChatSidebar(true);
         emitCurrentTitleSoon();
         emitAuthState();
@@ -1293,7 +1462,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app.placeholder,
       isActive,
       applyGuestTheme,
+      applyGuestSurfaceVisibility,
       executeGuestScript,
+      repairDesktopIdentitySession,
       syncGuestAppChatSidebar,
       deferDesktopWebviewLoad,
     ]);
@@ -1301,6 +1472,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       applyGuestTheme();
     }, [applyGuestTheme]);
+
+    useEffect(() => {
+      applyGuestSurfaceVisibility();
+    }, [applyGuestSurfaceVisibility]);
 
     useEffect(() => {
       const handleChatState = (event: Event) => {
@@ -1348,7 +1523,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       }
       void readAppWebviewAuthState(wv).then((state) => {
         if (!active || sequence !== authProbeSequenceRef.current) return;
-        onAuthStateChangeRef.current?.(state);
+        const repair =
+          state === "unauthenticated"
+            ? repairDesktopIdentitySession()
+            : Promise.resolve(false);
+        void repair.then((repaired) => {
+          if (!active || sequence !== authProbeSequenceRef.current) return;
+          onAuthStateChangeRef.current?.(repaired ? "authenticated" : state);
+        });
       });
       return () => {
         active = false;
@@ -1358,6 +1540,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       desktopIdentitySessionReady,
       desktopIdentityStatus,
       isActive,
+      repairDesktopIdentitySession,
       url,
     ]);
 
@@ -1467,7 +1650,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const failT = setTimeout(
         () => {
           if (isLoading) {
-            loadFailureRef.current = true;
+            // Deliberately not `loadFailureRef`: Chromium never reported a
+            // failure here, we only stopped waiting. The navigation is still in
+            // flight, so a later dom-ready is the real app arriving rather than
+            // the error document that flag exists to suppress — latching it
+            // would strand the user on this screen with the app loaded and
+            // hidden behind it.
             authProbeSequenceRef.current += 1;
             setError(true);
             setIsLoading(false);

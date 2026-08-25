@@ -547,9 +547,24 @@ export function AgentProviderSetupForm({
           ) : null}
         </div>
         {error ? (
-          <p className="text-[11px] leading-relaxed text-destructive">
-            {error}
-          </p>
+          <div
+            role="alert"
+            aria-live="polite"
+            className="space-y-1 text-[11px] leading-relaxed text-destructive"
+          >
+            <p>{error}</p>
+            {active.docsUrl ? (
+              <a
+                href={active.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2"
+              >
+                {t("agentPanel.getApiKey", { defaultValue: "Get an API key" })}
+                <IconExternalLink size={11} />
+              </a>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </form>

@@ -876,6 +876,29 @@ h1 {
   font-size: 14px;
 }
 
+.capture-surface-control {
+  position: relative;
+}
+
+.capture-surface-control::after {
+  position: absolute;
+  top: 50%;
+  right: 28px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--fg-muted);
+  border-bottom: 2px solid var(--fg-muted);
+  content: "";
+  pointer-events: none;
+  transform: translateY(-65%) rotate(45deg);
+}
+
+.capture-surface-control select {
+  width: 100%;
+  padding-right: 38px;
+  appearance: none;
+}
+
 .form-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

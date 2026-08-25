@@ -354,6 +354,7 @@ export function MeetingNotification() {
       meetingId: data.meetingId,
       joinUrl: data.joinUrl,
       reason: "user",
+      scheduledStart: data.scheduledStart,
     }).catch((err) => {
       setPending(false);
       setError((err as Error)?.message ?? "Could not start notes.");

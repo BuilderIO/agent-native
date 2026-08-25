@@ -94,6 +94,7 @@ interface Meeting {
   userNotesMd?: string | null;
   source?: "calendar" | "adhoc" | "manual";
   participants?: AttendeeStackParticipant[];
+  ownerEmail?: string | null;
 }
 
 interface SearchMeetingResult extends Meeting {

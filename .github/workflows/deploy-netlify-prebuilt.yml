@@ -96,6 +96,8 @@ on:
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: true
+      PLAN_DATABASE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -245,16 +247,29 @@ jobs:
             export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
             export AGENT_NATIVE_HOSTED_HARNESS=true
           fi
-          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
-            # Netlify's local CLI receives masked site secrets. Clips only needs
-            # valid build-time shapes here; the uploaded Functions read the real
-            # site-scoped values at runtime.
+          if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
+            # Netlify's local CLI receives masked site secrets. These templates
+            # only need valid build-time shapes; uploaded Functions read the
+            # real site-scoped values at runtime.
             export agentNativePrebuiltBuild=true
-            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
+          if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+          fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+
+      - name: Run Plan release migrations
+        if: >-
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'plan'
+        env:
+          DATABASE_URL: ${{ secrets.PLAN_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?PLAN_DATABASE_URL secret is required for prebuilt Plan deployments}"
+          pnpm --filter plan migrate:production
 
       - name: Verify deploy directories
         env:
@@ -277,6 +292,23 @@ jobs:
         run: |
           set -euo pipefail
           GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
+
+      # Every byte here is unzipped on each cold start, and Netlify uploads each
+      # function separately. The existing 120MB ceiling never fired because it
+      # sat above the whole fleet; this measures growth from where each app
+      # actually is. An app with no recorded baseline is named, not passed.
+      - name: Check serverless function sizes against their baseline
+        env:
+          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          # source_template, not inputs.site: the input is a caller-facing alias
+          # (docs production dispatches "fw", the starter site dispatches
+          # "starter") and would miss the baseline recorded under the app's own
+          # name, taking the unmeasured branch on exactly the deploys that most
+          # need asserting.
+          SITE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
 
       - name: Pause automatic Netlify builds for production cutover
         id: pause

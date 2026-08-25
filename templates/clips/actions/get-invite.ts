@@ -7,7 +7,7 @@
  *   pnpm action get-invite --token=<token>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { organizations, orgInvitations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";
 import { z } from "zod";

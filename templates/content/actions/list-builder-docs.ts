@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { BUILDER_DOCS_MODELS } from "../shared/builder-mdx.js";

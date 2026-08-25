@@ -197,6 +197,7 @@ Each card is a `###` heading (optionally linked) followed by the description. Ca
 | `plug`       | integrations, connected tools           |
 | `network`    | cross-app or distributed communication  |
 | `terminal`   | CLI, scripts, terminal-driven workflows |
+| `calendar`   | scheduling, dates, time-based features  |
 
 The grid defaults to 3 columns. Set `columns` (1-4) on the opening tag to override it, e.g. `<Cards columns={2}>`. Below 640px the grid always collapses to a single column regardless of `columns`.
 
@@ -337,7 +338,25 @@ Define one action. The agent calls it as a tool, the UI calls it through a React
 </Comparison>
 ```
 
-Add more `###` sections to get 3 or 4 columns (max 4). The red/green label accent only applies to headings that exactly match `Before`, `Old`, `Without` (red) or `After`, `New`, `With` (green).
+Add more `###` sections to get 3 or 4 columns (max 4). The red/green label accent applies automatically to headings that exactly match `Before`, `Old`, `Without` (red) or `After`, `New`, `With` (green).
+
+For any other pairing, an explicit `:color:` prefix sets a column's accent directly, the same shortcode idiom `Cards` uses for `:icon:`:
+
+```mdx
+<Comparison>
+
+### :blue: You ask
+
+"Am I free Thursday afternoon?"
+
+### :green: What happens
+
+The agent answers in chat. Nothing on screen changes.
+
+</Comparison>
+```
+
+`color` accepts `blue`, `green`, `red`, or `yellow`, matching `Badge`'s color naming. Each routes through a real theme token (the site's brand blue, or the same semantic red/yellow/green used elsewhere) rather than a raw color, so it stays correct in both themes. An explicit `color` always wins over the Before/After heuristic.
 
 ---
 
