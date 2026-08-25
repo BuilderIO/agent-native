@@ -160,6 +160,18 @@ describe("Slides canvas interaction adapter", () => {
     ).toBe("move-object-body");
   });
 
+  it("keeps a direct text-leaf click in edit mode outside the move band", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: true,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: false,
+        targetIsEditableText: true,
+      }),
+    ).toBe("edit-text");
+  });
+
   it("uses the object under the pointer when no prior selection exists", () => {
     const image = document.createElement("img");
     const wrapper = document.createElement("div");

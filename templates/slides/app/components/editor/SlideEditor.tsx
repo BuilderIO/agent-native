@@ -4556,8 +4556,7 @@ export default function SlideEditor({
             e.clientY,
           ),
         targetIsEditableText: Boolean(
-          editableTextBlock &&
-          (isTextLeaf(editableTextBlock) || editableTextBlock !== target),
+          editableTextBlock && !isSlideCanvasShell(editableTextBlock),
         ),
       });
       if (
