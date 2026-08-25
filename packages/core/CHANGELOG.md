@@ -1,5 +1,41 @@
 # @agent-native/core
 
+## 0.173.0
+
+### Minor Changes
+
+- 460080b: Give chat readers control over how much model reasoning is shown, and make
+  reasoning collapsible everywhere it appears.
+
+  Reasoning inside the "Worked for…" summary used to render as flat prose with no
+  disclosure of its own, so opening that summary dumped the full chain of thought
+  between the tool calls with no way to fold it back. It now keeps its own
+  "Thought for Xs" row, collapsible exactly like the tool calls it sits between,
+  and renders its markdown instead of showing `**source characters**` — OpenAI
+  reasoning summaries arrive pre-formatted.
+
+  A new browser-local preference picks between three modes, reachable from the
+  chat panel's ⋮ menu:
+  - **Expanded** — the previous behaviour: the live cell opens itself.
+  - **Collapsed** — the new default. The label and its timing stay visible, the
+    text is one click away, and a live turn no longer pushes the answer out of
+    the viewport.
+  - **Hidden** — no reasoning cells at all.
+
+  Hosts can pin the mode with the `thinkingDisplay` prop on `AgentSidebar`,
+  `AgentPanel`, `AgentChatSurface`, and `AssistantChat`; when pinned, the in-chat
+  control is not offered rather than left as a dead menu item. The preference is
+  presentation only — it never changes what the engine requests or what is
+  persisted, so switching back reveals the same text on the same turns.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 460080b: Send `$ai_generation` and `$ai_span` to PostHog stamped at the moment the operation ended, which is the convention it reads them by: its timeline derives an operation's start as `timestamp - $ai_latency`, so stamping the start drew every bar one full latency too early — model calls overlapped each other by a growing margin, a call's tool spans appeared underneath the _next_ call, and a 35s run rendered as 31.2s. The shift is applied inside the PostHog provider, so the shared event keeps the operation's start for Mixpanel, Amplitude, webhooks, and Agent Native Analytics, which read the timestamp verbatim. Events with no `$ai_latency` — a trace, an exception — are unshifted.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.9
+  - @agent-native/toolkit@0.16.12
+
 ## 0.172.10
 
 ### Patch Changes
