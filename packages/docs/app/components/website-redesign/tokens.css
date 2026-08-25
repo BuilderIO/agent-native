@@ -153,6 +153,10 @@
   background: var(--b-gradient-blue);
 }
 
+.redesign-logo {
+  color: #fff;
+}
+
 .light .builder-brand-tokens {
   --c-neutral-800: #e0e0d7;
   --c-blue-300: #00677f;
@@ -192,6 +196,10 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.light .redesign-logo {
+  color: #000;
 }
 
 @media (max-width: 768px) {

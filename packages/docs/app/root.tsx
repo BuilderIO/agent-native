@@ -176,7 +176,27 @@ export const meta = () => [
   { property: "og:site_name", content: "Agent-Native" },
 ];
 
+// The hidden /website-redesign route tree renders its own self-contained
+// header (and, eventually, footer) against the `--b-*` token system — it must
+// not be stacked underneath the main docs site's Header/Footer.
+function isWebsiteRedesignPath(pathname: string): boolean {
+  return (
+    pathname === "/website-redesign" ||
+    pathname.startsWith("/website-redesign/")
+  );
+}
+
 function DocsChrome({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  if (isWebsiteRedesignPath(location.pathname)) {
+    return (
+      <div className="w-full min-w-0 overflow-x-clip">
+        <ScrollManager />
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="w-full min-w-0 overflow-x-clip">
       <ScrollManager />
