@@ -97,7 +97,7 @@ export function Select<T extends string>({ options, value, onChange, placeholder
           setOpen((o) => !o);
           setFocusedIndex(options.findIndex((o) => o.value === value));
         }}
-        className="transition-[border-color,background] duration-150 hover:bg-[var(--c-neutral-800)]"
+        className="bg-[var(--b-bg-raised)] transition-[border-color,background] duration-150 hover:bg-[var(--c-neutral-800)]"
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -107,7 +107,6 @@ export function Select<T extends string>({ options, value, onChange, placeholder
           fontFamily: "var(--b-font-sans)",
           fontSize: "var(--b-t-paragraph-2)",
           color: "var(--b-text-primary)",
-          background: "var(--b-bg-raised)",
           border: "1px solid var(--b-action-secondary-border)",
           borderRadius: "var(--b-radius)",
           padding: "8px 12px",
@@ -154,14 +153,15 @@ export function Select<T extends string>({ options, value, onChange, placeholder
                 setOpen(false);
                 triggerRef.current?.focus();
               }}
-              className="transition-[background,color] duration-100 hover:bg-white/8"
+              className={`transition-[background,color] duration-100 hover:bg-white/8 ${
+                i === focusedIndex ? "bg-[var(--b-bg-raised)]" : "bg-transparent"
+              }`}
               style={{
                 padding: "8px 10px",
                 borderRadius: "var(--b-radius-sm)",
                 fontFamily: "var(--b-font-sans)",
                 fontSize: "var(--b-t-paragraph-2)",
                 color: "var(--b-text-primary)",
-                background: i === focusedIndex ? "var(--b-bg-raised)" : "transparent",
                 cursor: "pointer",
               }}
             >

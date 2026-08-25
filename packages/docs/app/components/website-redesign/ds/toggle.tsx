@@ -13,9 +13,11 @@ export function Toggle({ checked, onChange, label }: ToggleProps) {
       aria-label={label}
       onClick={() => onChange(!checked)}
       className={
+        // background lives in the class (not inline style) so the real
+        // :hover pseudo-class can win over the base color.
         checked
-          ? "hover:bg-[var(--b-action-primary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
-          : "hover:bg-[var(--c-neutral-600)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+          ? "bg-[var(--b-action-primary-bg)] hover:bg-[var(--b-action-primary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+          : "bg-[var(--b-bg-prominent)] hover:bg-[var(--c-neutral-600)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
       }
       style={{
         width: 36,
@@ -26,7 +28,6 @@ export function Toggle({ checked, onChange, label }: ToggleProps) {
         display: "inline-flex",
         alignItems: "center",
         justifyContent: checked ? "flex-end" : "flex-start",
-        background: checked ? "var(--b-action-primary-bg)" : "var(--b-bg-prominent)",
         cursor: "pointer",
         transition: "background 0.2s",
         outline: "none",
