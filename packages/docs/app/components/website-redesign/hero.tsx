@@ -1,14 +1,24 @@
 import { Button } from "./ds/button";
 import { HeroShaderBackground } from "./hero-shader-background";
+import { useHeroShaderSettings } from "./hero-shader-settings";
+import { HeroShaderSettingsPanel } from "./hero-shader-settings-panel";
 import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
 
 export function Hero() {
+  const { settings, updateSetting, resetSettings } = useHeroShaderSettings();
+
   return (
     <PageSection>
-      <HeroShaderBackground />
-      {/* No borderTop here: the sticky SiteHeader already draws the border
-          directly above this section, so a second one would double the line. */}
+      <HeroShaderBackground {...settings} />
+      <HeroShaderSettingsPanel
+        settings={settings}
+        onChange={updateSetting}
+        onReset={resetSettings}
+      />
+      {/* No borderTop on the GridInner below: the sticky SiteHeader already
+          draws the border directly above this section, so a second one would
+          double the line. */}
       <GridInner
         style={{
           display: "flex",
