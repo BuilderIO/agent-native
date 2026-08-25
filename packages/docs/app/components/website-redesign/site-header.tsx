@@ -6,7 +6,12 @@ import {
   IconSun,
   IconX,
 } from "@tabler/icons-react";
-import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 
 import { useDocsTheme } from "../ThemeToggle";
@@ -32,6 +37,10 @@ const NAV_LINKS: Array<{
 ];
 
 const GITHUB_REPO_URL = "https://github.com/BuilderIO/agent-native";
+
+// Matches Tailwind's default `lg` breakpoint, which is what the mobile nav
+// toggle/panel switch on (`lg:hidden` / `lg:flex` above).
+const DESKTOP_NAV_QUERY = "(min-width: 1024px)";
 
 function formatStarCount(count: number): string {
   if (count < 1000) return String(count);
@@ -125,6 +134,16 @@ interface SiteHeaderProps {
 
 export function SiteHeader({ starCount }: SiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const query = window.matchMedia(DESKTOP_NAV_QUERY);
+    const handleChange = (e: MediaQueryListEvent) => {
+      if (e.matches) setMobileOpen(false);
+    };
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener("change", handleChange);
+  }, [mobileOpen]);
 
   return (
     <header
