@@ -1,41 +1,7 @@
-import {
-  IconFile,
-  IconFolder,
-  IconFileText,
-  IconCheckbox,
-  IconMail,
-  IconUser,
-  IconPresentation,
-  IconStack2,
-  IconMessageChatbot,
-} from "@tabler/icons-react";
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 
-const iconProps = { size: 14, className: "shrink-0 text-muted-foreground" };
-
-function MentionIcon({ icon }: { icon?: string }) {
-  switch (icon) {
-    case "folder":
-      return <IconFolder {...iconProps} />;
-    case "document":
-      return <IconFileText {...iconProps} />;
-    case "form":
-      return <IconCheckbox {...iconProps} />;
-    case "email":
-      return <IconMail {...iconProps} />;
-    case "user":
-      return <IconUser {...iconProps} />;
-    case "deck":
-      return <IconPresentation {...iconProps} />;
-    case "agent":
-      return <IconMessageChatbot {...iconProps} />;
-    case "file":
-      return <IconFile {...iconProps} />;
-    default:
-      return <IconStack2 {...iconProps} />;
-  }
-}
+import { MentionItemMedia } from "../MentionItemMedia.js";
 
 const MentionReferenceComponent = ({ node }: { node: any }) => {
   return (
@@ -44,7 +10,12 @@ const MentionReferenceComponent = ({ node }: { node: any }) => {
         className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-none"
         title={node.attrs.refPath || node.attrs.refId || node.attrs.label}
       >
-        <MentionIcon icon={node.attrs.icon} />
+        <MentionItemMedia
+          icon={node.attrs.icon}
+          media={node.attrs.media}
+          size="sm"
+          fallbackIcon="stack"
+        />
         <span className="truncate">{node.attrs.label}</span>
       </span>
     </NodeViewWrapper>
@@ -62,6 +33,7 @@ export const MentionReference = Node.create({
     return {
       label: { default: null },
       icon: { default: "file" },
+      media: { default: null },
       source: { default: "" },
       refType: { default: "file" },
       refId: { default: null },

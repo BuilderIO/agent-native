@@ -179,6 +179,7 @@ function composerReferenceFromMentionItem(
   return {
     label: item.label,
     icon: item.icon || "file",
+    media: item.media,
     source: item.source,
     refType: item.refType,
     refId: item.refId || null,
@@ -195,6 +196,7 @@ function mentionReferenceAttrs(ref: AgentComposerReference) {
   return {
     label: ref.label,
     icon: ref.icon || "file",
+    media: ref.media || null,
     source: ref.source,
     refType: ref.refType,
     refId: ref.refId || null,

@@ -1,13 +1,5 @@
 import {
-  IconFile,
-  IconFolder,
   IconStack2,
-  IconFileText,
-  IconCheckbox,
-  IconMail,
-  IconUser,
-  IconPresentation,
-  IconMessageChatbot,
   IconTrash,
   IconPlus,
   IconHelp,
@@ -31,6 +23,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip.js";
+import { MentionItemMedia } from "./MentionItemMedia.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItem, SkillResult, SlashCommand } from "./types.js";
 
@@ -58,29 +51,6 @@ interface MentionPopoverProps {
 }
 
 const iconProps = { size: 14, className: "shrink-0 text-muted-foreground" };
-
-function MentionItemIcon({ icon }: { icon?: string }) {
-  switch (icon) {
-    case "folder":
-      return <IconFolder {...iconProps} />;
-    case "document":
-      return <IconFileText {...iconProps} />;
-    case "form":
-      return <IconCheckbox {...iconProps} />;
-    case "email":
-      return <IconMail {...iconProps} />;
-    case "user":
-      return <IconUser {...iconProps} />;
-    case "deck":
-      return <IconPresentation {...iconProps} />;
-    case "agent":
-      return <IconMessageChatbot {...iconProps} />;
-    case "file":
-      return <IconFile {...iconProps} />;
-    default:
-      return <IconFile {...iconProps} />;
-  }
-}
 
 function CommandIcon({ icon }: { icon?: string }) {
   switch (icon) {
@@ -369,7 +339,10 @@ export const MentionPopover = forwardRef<
                             onMouseEnter={() => setSelectedIndex(idx)}
                             onClick={() => onSelectMention(item)}
                           >
-                            <MentionItemIcon icon={item.icon} />
+                            <MentionItemMedia
+                              icon={item.icon}
+                              media={item.media}
+                            />
                             <span className="truncate text-sm">
                               {item.label}
                             </span>
