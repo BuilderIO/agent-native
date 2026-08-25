@@ -29,6 +29,7 @@ const child = spawn(pnpm, ["--dir", `templates/${appName}`, "exec", "vite"], {
     APP_NAME: appName,
     PORT: String(port),
   },
+  shell: process.platform === "win32",
   stdio: "inherit",
 });
 

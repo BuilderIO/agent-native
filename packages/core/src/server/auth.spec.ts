@@ -5914,6 +5914,15 @@ describe("server/auth", () => {
       expect(html).toContain(
         "function __anWatchOAuthPopupClose(popup, flowId)",
       );
+      expect(html).toContain("function __anHandleOAuthPopupClosed(flowId)");
+      expect(html).toContain("var __anOAuthPopupCloseGraceMs = 5000;");
+      expect(html).toContain(
+        "if (__anOAuthPollTimer) {\n        __anOAuthPopupCloseGraceTimer = setTimeout(function()",
+      );
+      expect(html).toContain(
+        "__anFinalizeOAuthPopupClose(flowId);\n        }, __anOAuthPopupCloseGraceMs);",
+      );
+      expect(html).toContain("__anHandleOAuthPopupClosed(flowId);");
       expect(html).toContain("closed = popup.closed === true");
       expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
       expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");

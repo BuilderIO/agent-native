@@ -3113,6 +3113,8 @@ ${identitySsoScript}
     }
     var __anOAuthPollTimer = null;
     var __anOAuthPopupWatchTimer = null;
+    var __anOAuthPopupCloseGraceTimer = null;
+    var __anOAuthPopupCloseGraceMs = 5000;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
     var __anGoogleSignInFlowId = null;
@@ -3178,6 +3180,10 @@ ${identitySsoScript}
         clearInterval(__anOAuthPopupWatchTimer);
         __anOAuthPopupWatchTimer = null;
       }
+      if (__anOAuthPopupCloseGraceTimer) {
+        clearTimeout(__anOAuthPopupCloseGraceTimer);
+        __anOAuthPopupCloseGraceTimer = null;
+      }
     }
     function __anBeginGoogleSignInFlow(flowId) {
       __anGoogleSignInFlowId = flowId;
@@ -3205,6 +3211,26 @@ ${identitySsoScript}
       }
       return __anGoogleSignInInFlight && __anGoogleSignInFlowId === expectedFlowId;
     }
+    function __anFinalizeOAuthPopupClose(flowId) {
+      if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
+      __anOAuthPopupCloseGraceTimer = null;
+      if (__anInvalidateGoogleSignInFlow(flowId)) {
+        __anStopOAuthExchangePolling();
+        __anRecoverGoogleSignInAfterReturn(flowId);
+      }
+    }
+    function __anHandleOAuthPopupClosed(flowId) {
+      __anStopOAuthPopupWatch();
+      // The success callback closes its tab 250ms after staging the token, but
+      // the opener polls once per second. Let an active exchange win that race.
+      if (__anOAuthPollTimer) {
+        __anOAuthPopupCloseGraceTimer = setTimeout(function() {
+          __anFinalizeOAuthPopupClose(flowId);
+        }, __anOAuthPopupCloseGraceMs);
+        return;
+      }
+      __anFinalizeOAuthPopupClose(flowId);
+    }
     function __anWatchOAuthPopupClose(popup, flowId) {
       __anStopOAuthPopupWatch();
       __anOAuthPopupWatchTimer = setInterval(function() {
@@ -3216,19 +3242,11 @@ ${identitySsoScript}
         try {
           closed = popup.closed === true;
         } catch(e) {
-          __anStopOAuthPopupWatch();
-          if (__anInvalidateGoogleSignInFlow(flowId)) {
-            __anStopOAuthExchangePolling();
-            __anRecoverGoogleSignInAfterReturn(flowId);
-          }
+          __anHandleOAuthPopupClosed(flowId);
           return;
         }
         if (!closed) return;
-        __anStopOAuthPopupWatch();
-        if (__anInvalidateGoogleSignInFlow(flowId)) {
-          __anStopOAuthExchangePolling();
-          __anRecoverGoogleSignInAfterReturn(flowId);
-        }
+        __anHandleOAuthPopupClosed(flowId);
       }, 500);
     }
     function __anShowAuthExchangeError(err, btn, message, kind) {
