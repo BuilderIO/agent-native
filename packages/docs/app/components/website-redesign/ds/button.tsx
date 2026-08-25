@@ -1,7 +1,23 @@
-import { IconArrowUpRight, type Icon, type IconProps } from "@tabler/icons-react";
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ForwardRefExoticComponent, ReactNode, RefAttributes } from "react";
+import {
+  IconArrowUpRight,
+  type Icon,
+  type IconProps,
+} from "@tabler/icons-react";
+import type {
+  AnchorHTMLAttributes,
+  ButtonHTMLAttributes,
+  ForwardRefExoticComponent,
+  ReactNode,
+  RefAttributes,
+} from "react";
 
-export type ButtonVariant = "cta" | "primary" | "primary-alt" | "primary-icon" | "secondary" | "secondary-icon";
+export type ButtonVariant =
+  | "cta"
+  | "primary"
+  | "primary-alt"
+  | "primary-icon"
+  | "secondary"
+  | "secondary-icon";
 
 type TablerIcon = ForwardRefExoticComponent<IconProps & RefAttributes<Icon>>;
 
@@ -13,9 +29,13 @@ interface CommonProps {
 }
 
 type ButtonAsButton = CommonProps &
-  Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof CommonProps> & { href?: undefined };
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof CommonProps> & {
+    href?: undefined;
+  };
 type ButtonAsAnchor = CommonProps &
-  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof CommonProps> & { href: string };
+  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof CommonProps> & {
+    href: string;
+  };
 
 type ButtonProps = ButtonAsButton | ButtonAsAnchor;
 
@@ -62,6 +82,7 @@ function variantColor(variant: ButtonVariant) {
 function variantClasses(variant: ButtonVariant) {
   switch (variant) {
     case "cta":
+      return "bg-[var(--b-text-primary)] border-[var(--b-text-primary)] hover:bg-[var(--c-neutral-100)] hover:border-[var(--c-neutral-100)]";
     case "primary":
     case "primary-icon":
       return "bg-[var(--b-action-primary-bg)] border-[var(--b-action-primary-bg)] hover:bg-[var(--b-action-primary-hover)] hover:border-[var(--b-action-primary-hover)] hover:shadow-[0_0_16px_var(--b-action-primary-effect)]";
@@ -76,10 +97,17 @@ function variantClasses(variant: ButtonVariant) {
 
 // Showcase-only: forceState="hover" must render the hover look regardless of
 // real mouse position, so this deliberately forces it back into inline style.
-function forcedHoverStyle(variant: ButtonVariant, forceState?: CommonProps["forceState"]) {
+function forcedHoverStyle(
+  variant: ButtonVariant,
+  forceState?: CommonProps["forceState"],
+) {
   if (forceState !== "hover") return {};
   switch (variant) {
     case "cta":
+      return {
+        background: "var(--c-neutral-100)",
+        borderColor: "var(--c-neutral-100)",
+      };
     case "primary":
     case "primary-icon":
       return {
@@ -95,11 +123,24 @@ function forcedHoverStyle(variant: ButtonVariant, forceState?: CommonProps["forc
   }
 }
 
-export function Button({ variant = "primary", icon, children, forceState, ...rest }: ButtonProps) {
+export function Button({
+  variant = "primary",
+  icon,
+  children,
+  forceState,
+  ...rest
+}: ButtonProps) {
   const showsIconByDefault = variant === "cta" || variant.endsWith("-icon");
-  const IconComponent = icon === null ? null : icon ?? (showsIconByDefault ? IconArrowUpRight : null);
+  const IconComponent =
+    icon === null
+      ? null
+      : (icon ?? (showsIconByDefault ? IconArrowUpRight : null));
 
-  const style = { ...baseStyle, color: variantColor(variant), ...forcedHoverStyle(variant, forceState) };
+  const style = {
+    ...baseStyle,
+    color: variantColor(variant),
+    ...forcedHoverStyle(variant, forceState),
+  };
 
   const content = (
     <>
@@ -127,7 +168,12 @@ export function Button({ variant = "primary", icon, children, forceState, ...res
 
   const buttonRest = rest as Omit<ButtonAsButton, keyof CommonProps>;
   return (
-    <button type="button" style={style} className={interactiveClass} {...buttonRest}>
+    <button
+      type="button"
+      style={style}
+      className={interactiveClass}
+      {...buttonRest}
+    >
       {content}
     </button>
   );

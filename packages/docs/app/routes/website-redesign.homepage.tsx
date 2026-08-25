@@ -1,5 +1,6 @@
 import { useLoaderData } from "react-router";
 
+import { Hero } from "../components/website-redesign/hero";
 import { SiteHeader } from "../components/website-redesign/site-header";
 
 import tokensCss from "../components/website-redesign/tokens.css?url";
@@ -39,6 +40,7 @@ export default function WebsiteRedesignHomepage() {
   return (
     <div className="builder-brand-tokens" style={{ minHeight: "100vh" }}>
       <SiteHeader starCount={starCount} />
+      <Hero />
     </div>
   );
 }
