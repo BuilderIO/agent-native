@@ -139,6 +139,18 @@ test.describe("guest mode + claim", () => {
     await expect(page.getByText("Start with /visual-plan")).toBeVisible();
   });
 
+  test("logged-out mobile plans keeps navigation available", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clearAuth(page);
+    await page.goto("/plans");
+
+    await page.getByRole("button", { name: /open navigation/i }).click();
+    await page.getByRole("link", { name: /^ask$/i }).click();
+    await expect(page).toHaveURL(/\/chat\/?$/);
+  });
+
   test("logged-out chat route loads directly", async ({ page }) => {
     await clearAuth(page);
     const response = await page.goto("/chat");

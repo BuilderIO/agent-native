@@ -173,7 +173,18 @@ export function Layout({ children }: LayoutProps) {
             </button>
           </div>
         )
-      ) : hideAppHeader ? null : (
+      ) : hideAppHeader ? (
+        <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label={t("sidebar.openNavigation")}
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+          >
+            <IconMenu2 className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
       <main className="agent-native-app-main flex-1 overflow-y-auto">
