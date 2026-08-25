@@ -8,7 +8,6 @@ import {
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
-  IconPlayerStopFilled,
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
