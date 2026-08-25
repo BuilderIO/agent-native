@@ -2,16 +2,24 @@
 //
 // Posts to the framework agent-chat surface (`POST /_agent-native/agent-chat`)
 // — the same lane the web chat uses — and hand-parses its SSE response instead
-// of importing the full assistant-ui adapter (bundle weight matters in
-// overlays). The protocol is simple enough to parse safely: each frame is
-// `data: {AgentChatEvent JSON}\n\n`, `: ping` comment lines are keepalives,
-// `text` events carry APPEND deltas, and `done` / `error` / `loop_limit` /
-// `auto_continue` / `missing_api_key` terminate the stream server-side.
+// of importing core's `sse-event-processor` (the desktop app carries no
+// `@agent-native/core` dependency, and that processor's durable-run and
+// stall-recovery machinery has no counterpart in an overlay). The protocol is
+// simple enough to parse safely: each frame is `data: {AgentChatEvent JSON}\n\n`,
+// `: ping` comment lines are keepalives, `text` events carry APPEND deltas, and
+// `done` / `error` / `loop_limit` / `auto_continue` / `missing_api_key`
+// terminate the stream server-side.
+//
+// Every frame the sheet can render is forwarded raw through `onFrame` — see
+// `agent-steps.ts`. Presentation decides what a frame looks like; this file
+// only decides what a frame IS.
 //
 // Auth rides on the window-wide fetch interceptor (installed in main.tsx),
 // which attaches the desktop bearer token and X-Request-Source marker to any
 // request targeting the stored server origin — the same pattern the popover's
 // `callClipsAction` relies on.
+
+import { parseAgentFrame, type AgentFrame } from "./agent-steps";
 
 /** One completed exchange, in the agent-chat request's `history` shape. */
 export interface AskTurn {
@@ -75,8 +83,8 @@ export async function streamMeetingAsk(opts: {
   onTextDelta: (delta: string) => void;
   /** Recent transcript lines injected inline so simple asks need no tool trip. */
   recentTranscript?: string;
-  /** Server-authored progress labels ("Reading the meeting…") as tools run. */
-  onActivity?: (label: string) => void;
+  /** Every renderable frame: tool calls, their results, progress, approvals. */
+  onFrame?: (frame: AgentFrame) => void;
   /** Replaces the scaffolded prompt entirely (chip generation). */
   promptOverride?: string;
 }): Promise<string> {
@@ -161,28 +169,28 @@ export async function streamMeetingAsk(opts: {
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6).trim();
           if (!raw) continue;
-          let ev: {
-            type?: string;
-            text?: string;
-            error?: string;
-            label?: string;
-          };
+          let parsed: unknown;
           try {
-            ev = JSON.parse(raw);
+            parsed = JSON.parse(raw);
           } catch {
             continue;
           }
-          if (ev.type === "activity" && ev.label) {
-            opts.onActivity?.(ev.label);
-          } else if (ev.type === "text" && ev.text) {
-            answer += ev.text;
-            opts.onTextDelta(ev.text);
-          } else if (ev.type === "error") {
+          const frame = parseAgentFrame(parsed);
+          if (!frame) continue;
+          if (frame.type === "text") {
+            answer += frame.text;
+            opts.onTextDelta(frame.text);
+          } else if (frame.type === "error") {
             throw new Error(
-              (ev.error || "The agent hit an error. Try again.").slice(0, 200),
+              (frame.error || "The agent hit an error. Try again.").slice(
+                0,
+                200,
+              ),
             );
-          } else if (ev.type === "missing_api_key") {
+          } else if (frame.type === "missing_api_key") {
             throw new Error("The agent has no model credentials configured.");
+          } else {
+            opts.onFrame?.(frame);
           }
           // `done`, `loop_limit`, and `auto_continue` all close the stream
           // server-side; whatever text streamed by then is the answer.

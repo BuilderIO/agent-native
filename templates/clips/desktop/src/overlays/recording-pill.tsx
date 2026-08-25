@@ -14,6 +14,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { applyFrame, settleSteps, type AgentStep } from "../lib/agent-steps";
 import {
   type AskTurn,
   buildMeetingAskPrompt,
@@ -23,6 +24,7 @@ import {
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
 import { loadStoredServerUrl } from "../lib/url";
+import { AskSteps } from "./ask-steps";
 import { LiveAudioBars } from "./live-audio-bars";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
@@ -76,7 +78,7 @@ export function MeetingPill() {
       role: "user" | "assistant";
       text: string;
       streaming?: boolean;
-      activity?: string;
+      steps?: AgentStep[];
     }>
   >([]);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
@@ -412,6 +414,27 @@ export function MeetingPill() {
     }
   };
 
+  /** Canned step rows so the demo harness shows the real streaming shape. */
+  const demoAskSteps = (progress: number, done: boolean): AgentStep[] => {
+    const steps: AgentStep[] = [
+      {
+        key: "demo-read",
+        label: "Reading this meeting",
+        status: progress >= 6 ? "done" : "running",
+        detail: progress >= 6 ? "1 result" : undefined,
+      },
+    ];
+    if (progress >= 6) {
+      steps.push({
+        key: "demo-search",
+        label: "Searching past meetings",
+        status: progress >= 14 ? "done" : "running",
+        detail: progress >= 14 ? "3 results" : undefined,
+      });
+    }
+    return done ? settleSteps(steps) : steps;
+  };
+
   const submitAsk = (question: string) => {
     const mid = activeMeetingIdRef.current;
     if (!question || !mid) return;
@@ -438,6 +461,7 @@ export function MeetingPill() {
             role: "assistant",
             text: words.slice(0, i).join(" "),
             streaming: !done,
+            steps: demoAskSteps(i, done),
           };
           return next;
         });
@@ -473,12 +497,16 @@ export function MeetingPill() {
       const scroller = askSheetScrollRef.current;
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
     };
-    const setActivity = (label: string | undefined) => {
+    // Tool calls, their outcomes, and progress labels land on the answer
+    // bubble as they stream, so the wait reads as work rather than a hang.
+    const updateSteps = (next: (steps: AgentStep[]) => AgentStep[]) => {
       if (controller.signal.aborted) return;
       setAskMessages((m) => {
         const last = m[m.length - 1];
-        if (!last || last.role !== "assistant" || !last.streaming) return m;
-        return [...m.slice(0, -1), { ...last, activity: label }];
+        if (!last || last.role !== "assistant") return m;
+        const steps = next(last.steps ?? []);
+        if (steps === last.steps) return m;
+        return [...m.slice(0, -1), { ...last, steps }];
       });
     };
     const title = ctxRef.current.title ?? null;
@@ -493,11 +521,8 @@ export function MeetingPill() {
           history: askHistoryRef.current,
           signal: controller.signal,
           recentTranscript,
-          onActivity: (label) => setActivity(label),
-          onTextDelta: (delta) => {
-            setActivity(undefined);
-            appendToAnswer(delta);
-          },
+          onFrame: (frame) => updateSteps((steps) => applyFrame(steps, frame)),
+          onTextDelta: appendToAnswer,
         });
         if (controller.signal.aborted) return;
         const exchange: AskTurn[] = [
@@ -518,7 +543,14 @@ export function MeetingPill() {
         setAskMessages((m) => {
           const last = m[m.length - 1];
           if (!last || last.role !== "assistant") return m;
-          return [...m.slice(0, -1), { ...last, streaming: false }];
+          return [
+            ...m.slice(0, -1),
+            {
+              ...last,
+              streaming: false,
+              steps: last.steps ? settleSteps(last.steps) : last.steps,
+            },
+          ];
         });
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -535,6 +567,7 @@ export function MeetingPill() {
               ...last,
               text: last.text ? `${last.text}\n${line}` : line,
               streaming: false,
+              steps: last.steps ? settleSteps(last.steps) : last.steps,
             },
           ];
         });
@@ -920,10 +953,8 @@ export function MeetingPill() {
                     </div>
                   ) : (
                     <div key={i} className="pill-ask-msg-assistant">
+                      <AskSteps steps={m.steps} streaming={m.streaming} />
                       {m.text}
-                      {m.streaming && m.activity ? (
-                        <span className="pill-ask-activity">{m.activity}</span>
-                      ) : null}
                       {m.streaming ? (
                         <span className="pill-ask-thread-caret" aria-hidden />
                       ) : null}

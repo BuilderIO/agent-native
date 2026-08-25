@@ -5455,23 +5455,85 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: default;
 }
 
-.pill-ask-activity {
-  display: block;
-  margin: 2px 0;
-  font-size: 12px;
-  font-style: italic;
-  color: hsl(var(--ui-muted-foreground));
-  animation: pill-ask-activity-pulse 1.6s ease-in-out infinite;
+.pill-ask-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
 }
 
-@keyframes pill-ask-activity-pulse {
+.pill-ask-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-ask-step[data-status="error"] {
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-ask-step[data-status="running"] {
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-ask-step svg {
+  flex: none;
+}
+
+.pill-ask-step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-ask-step-detail {
+  flex: none;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A running row needs a heartbeat that survives a frozen animation clock in a
+   non-key window: opacity animates, but the dot is visible at rest. */
+.pill-ask-step-dot {
+  width: 5px;
+  height: 5px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pill-ask-step-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pill-ask-step-pulse {
   50% {
-    opacity: 0.55;
+    opacity: 0.3;
   }
 }
 
+.pill-ask-steps-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin-bottom: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  line-height: 16px;
+  color: hsl(var(--ui-muted-foreground));
+  cursor: default;
+}
+
+.pill-ask-steps-summary:hover {
+  color: hsl(var(--ui-foreground));
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pill-ask-activity {
+  .pill-ask-step-dot {
     animation: none;
   }
 }
