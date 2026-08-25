@@ -321,7 +321,23 @@ if (!email) {
 }
 ```
 
-El navegador recibe `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` y `callAction()` lo exponen como un `Error` que lleva `status`, `errorCode` y `details`.
+El navegador recibe `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` y `callAction()` lo exponen como un `Error` que lleva `status`, `errorCode`, `details` y `actionMessage`.
+
+`error.message` conserva un prefijo `Action <name> failed:`, que encaja en una consola y se lee mal en un toast. `actionErrorMessage()` devuelve solo el texto que escribió la acción, o `undefined` si nadie redactó uno:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Un corte de red, una página de error HTML de un proxy y una simple línea de estado no redactan ningún mensaje. Por eso devuelven `undefined` en lugar de una cadena que una UI mostraría por error. Combínala siempre con tus propios textos.
 
 ### Qué produce cada lanzamiento {#failure-shapes}
 
@@ -342,7 +358,7 @@ El navegador recibe `{ error, errorCode, details }`. `useActionQuery()`, `useAct
 
 Así que el estado no es cosmético. Un rechazo enviado como `404` cuesta una ida y vuelta. El mismo rechazo enviado como `500`, o lanzado desnudo, cuesta cuatro idas y vueltas y cuatro informes de error duplicados.
 
-Quien llama desde el agente no ve nada de esto. El agente ejecuta `run()` en proceso, así que recibe el mensaje lanzado directamente sea cual sea su tipo, y sus propios cortacircuitos de errores repetidos limitan cuántas veces vuelve a intentarlo.
+Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proceso, así que recibe el mensaje directamente sea cual sea el tipo, como `Error running <action>: <message>`. Un `errorCode` distinto del valor por defecto `action_failed` se añade como `(errorCode: not_found)`, de modo que el modelo puede ramificar sin analizar la prosa. Los agentes externos por MCP reciben el mismo texto. Los secretos del mensaje se redactan antes, y los cortacircuitos de errores repetidos del agente limitan cuántas veces vuelve a intentarlo.
 
 ## Mantén pequeña la superficie de acciones {#small-surface}
 

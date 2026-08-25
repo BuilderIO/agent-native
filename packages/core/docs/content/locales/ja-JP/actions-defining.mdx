@@ -321,7 +321,23 @@ if (!email) {
 }
 ```
 
-ブラウザーは `{ error, errorCode, details }` を受け取ります。`useActionQuery()`、`useActionMutation()`、`callAction()` はいずれも `status`、`errorCode`、`details` を持つ `Error` として公開します。
+ブラウザーは `{ error, errorCode, details }` を受け取ります。`useActionQuery()`、`useActionMutation()`、`callAction()` はいずれも `status`、`errorCode`、`details`、`actionMessage` を持つ `Error` として公開します。
+
+`error.message` には `Action <name> failed:` という接頭辞が残ります。これはコンソール向けであり、トーストでは不自然に読めます。`actionErrorMessage()` はアクションが書いたテキストだけを返し、誰も書いていない場合は `undefined` を返します。
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+ネットワーク切断、プロキシーの HTML エラー ページ、素のステータス行はメッセージを書きません。そのため、UI が誤って表示してしまう文字列ではなく `undefined` を返します。必ず自前の文言と組み合わせてください。
 
 ### 各 throw が生成するもの {#failure-shapes}
 
@@ -342,7 +358,7 @@ if (!email) {
 
 つまりステータスは飾りではありません。`404` として送られた拒否は 1 往復で済みます。同じ拒否を `500` として送る、あるいは素で throw すると、4 往復と 4 件の重複エラー レポートを要します。
 
-エージェントからの呼び出しではこれらは一切見えません。エージェントは `run()` をプロセス内で実行するため、型に関わらず throw されたメッセージを直接受け取り、繰り返しエラーに対する独自のブレーカーが再試行の回数を制限します。
+エージェントからの呼び出しではステータスは見えません。エージェントは `run()` をプロセス内で実行するため、型に関わらずメッセージを直接、`Error running <action>: <message>` の形で受け取ります。既定値 `action_failed` 以外の `errorCode` は `(errorCode: not_found)` として付加されるので、モデルは文章を解析せずに分岐できます。MCP 経由の外部エージェントも同じテキストを受け取ります。メッセージ内のシークレットは事前に伏せられ、繰り返しエラーに対するエージェント独自のブレーカーが再試行の回数を制限します。
 
 ## アクション サーフェスを小さく保つ {#small-surface}
 

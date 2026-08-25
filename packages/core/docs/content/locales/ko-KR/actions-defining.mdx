@@ -321,7 +321,23 @@ if (!email) {
 }
 ```
 
-브라우저는 `{ error, errorCode, details }`를 받습니다. `useActionQuery()`, `useActionMutation()`, `callAction()` 모두 `status`, `errorCode`, `details`를 지닌 `Error`로 노출합니다.
+브라우저는 `{ error, errorCode, details }`를 받습니다. `useActionQuery()`, `useActionMutation()`, `callAction()` 모두 `status`, `errorCode`, `details`, `actionMessage`를 지닌 `Error`로 노출합니다.
+
+`error.message`에는 `Action <name> failed:` 접두사가 남습니다. 콘솔에는 어울리지만 토스트에서는 어색하게 읽힙니다. `actionErrorMessage()`는 action이 쓴 텍스트만 반환하고, 아무도 쓰지 않았으면 `undefined`를 반환합니다.
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+네트워크 끊김, 프록시의 HTML 오류 페이지, 맨 상태 줄은 메시지를 쓰지 않습니다. 그래서 UI가 실수로 보여줄 문자열 대신 `undefined`를 반환합니다. 항상 자체 문구와 함께 사용하세요.
 
 ### 각 throw가 만들어내는 것 {#failure-shapes}
 
@@ -342,7 +358,7 @@ if (!email) {
 
 그러니 상태는 장식이 아닙니다. `404`로 보낸 거부는 왕복 한 번이면 됩니다. 같은 거부를 `500`으로 보내거나 맨 throw로 던지면 왕복 네 번과 중복 오류 보고 네 건이 듭니다.
 
-에이전트 호출자는 이 중 아무것도 보지 않습니다. 에이전트는 `run()`을 프로세스 안에서 실행하므로 타입과 무관하게 던져진 메시지를 그대로 받고, 반복 오류에 대한 자체 차단기가 재시도 횟수를 제한합니다.
+에이전트 호출자는 상태를 보지 않습니다. 에이전트는 `run()`을 프로세스 안에서 실행하므로 타입과 무관하게 메시지를 `Error running <action>: <message>` 형태로 그대로 받습니다. 기본값 `action_failed`가 아닌 `errorCode`는 `(errorCode: not_found)`로 덧붙어, 모델이 문장을 파싱하지 않고 분기할 수 있습니다. MCP를 통한 외부 에이전트도 같은 텍스트를 받습니다. 메시지 속 비밀 값은 먼저 가려지고, 반복 오류에 대한 에이전트 자체 차단기가 재시도 횟수를 제한합니다.
 
 ## Action 표면을 작게 유지하기 {#small-surface}
 

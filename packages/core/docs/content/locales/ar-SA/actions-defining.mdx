@@ -319,7 +319,23 @@ if (!email) {
 }
 ```
 
-يستقبل المتصفح `{ error, errorCode, details }`. وتُظهرها `useActionQuery()` و`useActionMutation()` و`callAction()` جميعًا ككائن `Error` يحمل `status` و`errorCode` و`details`.
+يستقبل المتصفح `{ error, errorCode, details }`. وتُظهرها `useActionQuery()` و`useActionMutation()` و`callAction()` جميعًا ككائن `Error` يحمل `status` و`errorCode` و`details` و`actionMessage`.
+
+يحتفظ `error.message` بالبادئة `Action <name> failed:`، وهي بادئة تناسب سجل الطرفية وتبدو في غير موضعها داخل إشعار منبثق. تعيد `actionErrorMessage()` النص الذي كتبه الإجراء فقط، أو `undefined` إن لم يكتبه أحد:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+انقطاع الشبكة، وصفحة الخطأ بصيغة HTML من وسيط، وسطر الحالة المجرد لا يكتب أي منها رسالة. لذا تعيد `undefined` بدلًا من نص قد تعرضه الواجهة عن طريق الخطأ. اقرنها دائمًا بنصوصك أنت.
 
 ### ما ينتجه كل طرح {#failure-shapes}
 
@@ -340,7 +356,7 @@ if (!email) {
 
 لذا فالحالة ليست زينة. الرفض المُرسَل بوصفه `404` يكلّف رحلة ذهاب وإياب واحدة. والرفض نفسه مُرسَلًا بوصفه `500`، أو مطروحًا مجردًا، يكلّف أربع رحلات وأربعة تقارير أخطاء مكررة.
 
-لا يرى المستدعون من جهة الوكيل شيئًا من هذا. فالوكيل ينفّذ `run()` داخل العملية نفسها، ومن ثم يتلقى الرسالة المطروحة مباشرة أيًا كان نوعها، وقواطعه الخاصة بالأخطاء المتكررة هي ما يحدّ من عدد محاولاته.
+لا يرى المستدعون من جهة الوكيل رمز الحالة. فالوكيل ينفّذ `run()` داخل العملية نفسها، ومن ثم يتلقى الرسالة مباشرة أيًا كان نوعها، بالصيغة `Error running <action>: <message>`. ويُلحق أي `errorCode` غير القيمة الافتراضية `action_failed` بالصيغة `(errorCode: not_found)`، ليتفرّع النموذج بناءً عليه دون تحليل النص. ويحصل الوكلاء الخارجيون عبر MCP على النص نفسه. أما الأسرار الواردة في الرسالة فتُحجب أولًا، وقواطع الوكيل الخاصة بالأخطاء المتكررة هي ما يحدّ من عدد محاولاته.
 
 ## أبقِ سطح actions صغيرًا {#small-surface}
 

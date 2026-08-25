@@ -321,7 +321,23 @@ if (!email) {
 }
 ```
 
-Le navigateur reçoit `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` et `callAction()` l’exposent comme une `Error` portant `status`, `errorCode` et `details`.
+Le navigateur reçoit `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` et `callAction()` l’exposent comme une `Error` portant `status`, `errorCode`, `details` et `actionMessage`.
+
+`error.message` conserve un préfixe `Action <name> failed:`, qui a sa place dans une console et se lit mal dans un toast. `actionErrorMessage()` ne renvoie que le texte écrit par l’action, ou `undefined` si personne n’en a rédigé un :
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Une coupure réseau, une page d’erreur HTML d’un proxy et une simple ligne de statut ne rédigent aucun message. Elles renvoient donc `undefined` plutôt qu’une chaîne qu’une UI afficherait par erreur. Associez toujours cette fonction à vos propres textes.
 
 ### Ce que produit chaque levée {#failure-shapes}
 
@@ -342,7 +358,7 @@ Le navigateur reçoit `{ error, errorCode, details }`. `useActionQuery()`, `useA
 
 Le statut n’est donc pas cosmétique. Un refus envoyé en `404` coûte un aller-retour. Le même refus envoyé en `500`, ou levé nu, coûte quatre allers-retours et quatre rapports d’erreur en double.
 
-Les appelants agents ne voient rien de tout cela. L’agent exécute `run()` en processus, il reçoit donc le message levé directement quel que soit son type, et ses propres disjoncteurs d’erreurs répétées bornent le nombre de nouvelles tentatives.
+Les appelants agents ne voient pas le statut. L’agent exécute `run()` en processus, il reçoit donc le message directement quel que soit le type, sous la forme `Error running <action>: <message>`. Un `errorCode` autre que la valeur par défaut `action_failed` est ajouté sous la forme `(errorCode: not_found)`, ce qui permet au modèle de s’y appuyer sans analyser la prose. Les agents externes via MCP reçoivent le même texte. Les secrets présents dans le message sont d’abord expurgés, et les disjoncteurs d’erreurs répétées de l’agent bornent le nombre de nouvelles tentatives.
 
 ## Garder la surface d’actions restreinte {#small-surface}
 

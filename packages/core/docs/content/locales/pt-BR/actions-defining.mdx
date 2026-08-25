@@ -322,7 +322,23 @@ if (!email) {
 }
 ```
 
-O navegador recebe `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` e `callAction()` expõem isso como um `Error` carregando `status`, `errorCode` e `details`.
+O navegador recebe `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` e `callAction()` expõem isso como um `Error` carregando `status`, `errorCode`, `details` e `actionMessage`.
+
+`error.message` mantém um prefixo `Action <name> failed:`, que cabe em um console e soa errado em um toast. `actionErrorMessage()` devolve apenas o texto que a action escreveu, ou `undefined` quando ninguém redigiu um:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Uma queda de rede, uma página de erro HTML de um proxy e uma simples linha de status não redigem mensagem alguma. Por isso devolvem `undefined` em vez de uma string que a UI mostraria por engano. Combine sempre com o seu próprio texto.
 
 ### O que cada lançamento produz {#failure-shapes}
 
@@ -343,7 +359,7 @@ O navegador recebe `{ error, errorCode, details }`. `useActionQuery()`, `useActi
 
 Então o status não é cosmético. Uma recusa enviada como `404` custa uma ida e volta. A mesma recusa enviada como `500`, ou lançada pura, custa quatro idas e voltas e quatro relatórios de erro duplicados.
 
-Chamadores do agente não veem nada disso. O agente executa `run()` em processo, então recebe a mensagem lançada diretamente, seja qual for o tipo, e seus próprios disjuntores de erro repetido limitam quantas vezes ele tenta de novo.
+Chamadores do agente não veem o status. O agente executa `run()` em processo, então recebe a mensagem diretamente, seja qual for o tipo, como `Error running <action>: <message>`. Um `errorCode` diferente do padrão `action_failed` é anexado como `(errorCode: not_found)`, para o modelo poder ramificar sem analisar a prosa. Agentes externos por MCP recebem o mesmo texto. Segredos na mensagem são removidos antes, e os disjuntores de erro repetido do agente limitam quantas vezes ele tenta de novo.
 
 ## Mantenha a superfície de actions pequena {#small-surface}
 

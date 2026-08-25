@@ -147,6 +147,31 @@ export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.min(500 * 2 ** failureCount, 2_000);
 }
 
+/**
+ * The message an action wrote for whoever called it, or `undefined` when the
+ * failure produced none (a network drop, an HTML error page from a proxy, a
+ * bare status line).
+ *
+ * `error.message` keeps the `Action <name> failed:` framing, which helps in a
+ * console and reads wrong in a toast. Use this in UI, with your own copy as
+ * the fallback:
+ *
+ * ```ts
+ * const { mutate } = useActionMutation("update-brand-kit", {
+ *   onError: (error) =>
+ *     toast.error(actionErrorMessage(error) ?? t("brandKits.updateFailed")),
+ * });
+ * ```
+ *
+ * Actions raise these through `fail()`. A bare `throw` never reaches the
+ * browser as text, so it returns `undefined` here on purpose.
+ */
+export function actionErrorMessage(error: unknown): string | undefined {
+  const value = (error as { actionMessage?: unknown } | undefined)
+    ?.actionMessage;
+  return typeof value === "string" ? value : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Action type registry — augmented by generated code
 // ---------------------------------------------------------------------------
@@ -466,8 +491,17 @@ async function performActionFetch<T>(
   }
 
   if (!res.ok) {
+    // Text the action itself wrote for the caller, as opposed to transport
+    // noise. Only a JSON `error`/`message` qualifies: an HTML error page or a
+    // bare status line is not something a UI should ever put in a toast.
+    const authored =
+      typeof data?.error === "string" && data.error
+        ? data.error
+        : typeof data?.message === "string" && data.message
+          ? data.message
+          : undefined;
     const message =
-      (data && (data.error || data.message)) ||
+      authored ||
       // Truncate non-JSON bodies so we don't dump entire HTML pages into the
       // console, but still give the developer a hint as to what came back.
       (raw && raw.slice(0, 200)) ||
@@ -496,6 +530,10 @@ async function performActionFetch<T>(
 
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
+    // `message` keeps the "Action <name> failed:" framing, which belongs in a
+    // console but not in a toast. Carry the unframed text separately so a UI
+    // can render it without string-surgery on the prefix.
+    if (authored !== undefined) (error as any).actionMessage = authored;
     if (typeof data?.errorCode === "string") {
       (error as any).errorCode = data.errorCode;
     }

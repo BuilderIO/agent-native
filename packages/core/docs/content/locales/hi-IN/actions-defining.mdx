@@ -321,7 +321,23 @@ if (!email) {
 }
 ```
 
-ब्राउज़र को `{ error, errorCode, details }` मिलता है। `useActionQuery()`, `useActionMutation()` और `callAction()` सभी इसे `status`, `errorCode` और `details` लिए हुए एक `Error` के रूप में सामने लाते हैं।
+ब्राउज़र को `{ error, errorCode, details }` मिलता है। `useActionQuery()`, `useActionMutation()` और `callAction()` सभी इसे `status`, `errorCode`, `details` और `actionMessage` लिए हुए एक `Error` के रूप में सामने लाते हैं।
+
+`error.message` में `Action <name> failed:` prefix बना रहता है, जो console के लिए ठीक है पर toast में गलत पढ़ा जाता है। `actionErrorMessage()` सिर्फ़ वही text लौटाता है जो action ने लिखा, और अगर किसी ने नहीं लिखा तो `undefined`:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+नेटवर्क टूटना, proxy का HTML error page, और सिर्फ़ एक status line कोई message नहीं लिखते। इसलिए वे `undefined` लौटाते हैं, न कि ऐसी string जो UI गलती से दिखा दे। इसे हमेशा अपनी copy के साथ इस्तेमाल करें।
 
 ### हर throw क्या पैदा करता है {#failure-shapes}
 
@@ -342,7 +358,7 @@ if (!email) {
 
 तो status सजावट नहीं है। `404` के रूप में भेजा गया इनकार एक round trip लेता है। वही इनकार `500` के रूप में भेजा जाए, या सादा throw किया जाए, तो चार round trips और चार दोहरी error रिपोर्ट लगती हैं।
 
-एजेंट callers को इसमें से कुछ नहीं दिखता। एजेंट `run()` को in-process चलाता है, इसलिए type चाहे जो हो, उसे throw किया गया message सीधे मिलता है, और दोहराई गई errors के लिए उसके अपने breakers तय करते हैं कि वह कितनी बार दोबारा कोशिश करे।
+एजेंट callers को status नहीं दिखता। एजेंट `run()` को in-process चलाता है, इसलिए type चाहे जो हो, उसे message सीधे `Error running <action>: <message>` के रूप में मिलता है। डिफ़ॉल्ट `action_failed` के अलावा कोई `errorCode` हो तो वह `(errorCode: not_found)` के रूप में जोड़ दिया जाता है, ताकि model गद्य पढ़े बिना उस पर branch कर सके। MCP के ज़रिए बाहरी एजेंट भी यही text पाते हैं। message में मौजूद secrets पहले हटा दिए जाते हैं, और दोहराई गई errors के लिए एजेंट के अपने breakers तय करते हैं कि वह कितनी बार दोबारा कोशिश करे।
 
 ## Action सतह को छोटा रखें {#small-surface}
 

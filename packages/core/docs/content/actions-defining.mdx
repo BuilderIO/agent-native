@@ -321,7 +321,23 @@ if (!email) {
 }
 ```
 
-The browser receives `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()`, and `callAction()` all surface it as an `Error` carrying `status`, `errorCode`, and `details`.
+The browser receives `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()`, and `callAction()` all surface it as an `Error` carrying `status`, `errorCode`, `details`, and `actionMessage`.
+
+`error.message` keeps an `Action <name> failed:` prefix, which belongs in a console and reads wrong in a toast. `actionErrorMessage()` returns just the text the action wrote, or `undefined` when nothing authored one:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+A network drop, a proxy's HTML error page, and a bare status line author no message, so they return `undefined` rather than a string a UI would show by mistake. Always pair it with your own copy.
 
 ### What each throw produces {#failure-shapes}
 
@@ -342,7 +358,7 @@ The browser receives `{ error, errorCode, details }`. `useActionQuery()`, `useAc
 
 So the status is not cosmetic. A refusal sent as `404` costs one round trip. The same refusal sent as a `500`, or thrown bare, costs four round trips and four duplicate error reports.
 
-Agent callers never see any of this. The agent runs `run()` in process, so it receives the thrown message directly whatever its type, and its own repeated-error breakers bound how many times it tries again.
+Agent callers never see the status. The agent runs `run()` in process, so it receives the message directly whatever the type, as `Error running <action>: <message>`. An `errorCode` other than the default `action_failed` is appended as `(errorCode: not_found)` so the model can branch on it without parsing prose. External agents over MCP get the same text. Secrets in the message are redacted first, and the agent's own repeated-error breakers bound how many times it tries again.
 
 ## Keep the action surface small {#small-surface}
 

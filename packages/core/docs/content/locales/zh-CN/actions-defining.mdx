@@ -316,7 +316,23 @@ if (!email) {
 }
 ```
 
-浏览器收到 `{ error, errorCode, details }`。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 都会把它暴露为带有 `status`、`errorCode` 和 `details` 的 `Error`。
+浏览器收到 `{ error, errorCode, details }`。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 都会把它暴露为带有 `status`、`errorCode`、`details` 和 `actionMessage` 的 `Error`。
+
+`error.message` 会保留 `Action <name> failed:` 前缀，它适合出现在控制台，放进 toast 里则读起来别扭。`actionErrorMessage()` 只返回 action 写下的文本，若无人撰写则返回 `undefined`：
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+网络中断、代理返回的 HTML 错误页以及单纯的状态行都没有撰写消息，因此它们返回 `undefined`，而不是一段 UI 会误显示的字符串。请始终搭配你自己的文案使用。
 
 ### 每种抛出产生什么 {#failure-shapes}
 
@@ -337,7 +353,7 @@ if (!email) {
 
 所以状态码不是装饰。以 `404` 发出的拒绝只需一次往返。同样的拒绝若以 `500` 发出，或者裸抛，则要付出四次往返和四份重复的错误报告。
 
-代理调用方看不到这些。代理在进程内执行 `run()`，因此无论类型如何都直接收到抛出的消息，而它自己的重复错误熔断器会限制它重试的次数。
+代理调用方看不到状态码。代理在进程内执行 `run()`，因此无论类型如何都直接以 `Error running <action>: <message>` 的形式收到消息。非默认值 `action_failed` 的 `errorCode` 会以 `(errorCode: not_found)` 的形式附加，使模型无需解析文字即可据此分支。通过 MCP 接入的外部代理会收到同样的文本。消息中的密钥会先被脱敏，而代理自己的重复错误熔断器会限制它重试的次数。
 
 ## 让 action 界面保持精简 {#small-surface}
 

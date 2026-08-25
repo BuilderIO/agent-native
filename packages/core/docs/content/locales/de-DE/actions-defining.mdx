@@ -321,7 +321,23 @@ if (!email) {
 }
 ```
 
-Der Browser erhält `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` und `callAction()` reichen es als `Error` mit `status`, `errorCode` und `details` weiter.
+Der Browser erhält `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` und `callAction()` reichen es als `Error` mit `status`, `errorCode`, `details` und `actionMessage` weiter.
+
+`error.message` behält das Präfix `Action <name> failed:`, das in eine Konsole gehört und in einem Toast falsch klingt. `actionErrorMessage()` liefert nur den Text, den die Action geschrieben hat, oder `undefined`, wenn niemand einen verfasst hat:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Ein Netzwerkabbruch, eine HTML-Fehlerseite eines Proxys und eine bloße Statuszeile verfassen keine Nachricht. Sie liefern deshalb `undefined` statt eines Strings, den eine UI versehentlich anzeigen würde. Kombiniere die Funktion immer mit eigenen Texten.
 
 ### Was jeder Throw erzeugt {#failure-shapes}
 
@@ -342,7 +358,7 @@ Der Browser erhält `{ error, errorCode, details }`. `useActionQuery()`, `useAct
 
 Der Status ist also nicht kosmetisch. Eine als `404` gesendete Ablehnung kostet einen Roundtrip. Dieselbe Ablehnung als `500` gesendet oder blank geworfen kostet vier Roundtrips und vier doppelte Fehlerberichte.
 
-Agent-Aufrufer sehen davon nichts. Der Agent führt `run()` im Prozess aus, bekommt die geworfene Nachricht also direkt, unabhängig vom Typ, und seine eigenen Schutzschalter für wiederholte Fehler begrenzen, wie oft er es erneut versucht.
+Agent-Aufrufer sehen den Status nicht. Der Agent führt `run()` im Prozess aus, bekommt die Nachricht also direkt, unabhängig vom Typ, als `Error running <action>: <message>`. Ein `errorCode` abseits des Standards `action_failed` wird als `(errorCode: not_found)` angehängt, damit das Modell darauf verzweigen kann, ohne Prosa zu parsen. Externe Agenten über MCP bekommen denselben Text. Secrets in der Nachricht werden vorher entfernt, und die eigenen Schutzschalter des Agenten für wiederholte Fehler begrenzen die Zahl der Versuche.
 
 ## Die Action-Oberfläche klein halten {#small-surface}
 

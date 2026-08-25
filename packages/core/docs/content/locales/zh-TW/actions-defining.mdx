@@ -316,7 +316,23 @@ if (!email) {
 }
 ```
 
-瀏覽器會收到 `{ error, errorCode, details }`。`useActionQuery()`、`useActionMutation()` 與 `callAction()` 都會把它暴露成帶有 `status`、`errorCode` 與 `details` 的 `Error`。
+瀏覽器會收到 `{ error, errorCode, details }`。`useActionQuery()`、`useActionMutation()` 與 `callAction()` 都會把它暴露成帶有 `status`、`errorCode`、`details` 與 `actionMessage` 的 `Error`。
+
+`error.message` 會保留 `Action <name> failed:` 前綴，它適合出現在主控台，放進 toast 則讀起來彆扭。`actionErrorMessage()` 只回傳 action 寫下的文字，若無人撰寫則回傳 `undefined`：
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+網路中斷、代理伺服器回傳的 HTML 錯誤頁，以及單純的狀態行都沒有撰寫訊息，因此它們回傳 `undefined`，而不是一段 UI 會誤顯示的字串。請務必搭配你自己的文案使用。
 
 ### 每種拋出會產生什麼 {#failure-shapes}
 
@@ -337,7 +353,7 @@ if (!email) {
 
 所以狀態碼不是裝飾。以 `404` 送出的拒絕只需一次往返。同樣的拒絕若以 `500` 送出，或者裸拋，就要付出四次往返與四份重複的錯誤報告。
 
-代理呼叫方看不到這些。代理在行程內執行 `run()`，因此無論型別為何都直接收到拋出的訊息，而它自己的重複錯誤斷路器會限制它重試的次數。
+代理呼叫方看不到狀態碼。代理在行程內執行 `run()`，因此無論型別為何都直接以 `Error running <action>: <message>` 的形式收到訊息。非預設值 `action_failed` 的 `errorCode` 會以 `(errorCode: not_found)` 的形式附加，讓模型不必解析文字即可據此分支。透過 MCP 接入的外部代理會收到同樣的文字。訊息中的密鑰會先被遮蔽，而代理自己的重複錯誤斷路器會限制它重試的次數。
 
 ## 讓 action 介面保持精簡 {#small-surface}
 

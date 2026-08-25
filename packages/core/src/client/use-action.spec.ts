@@ -7,6 +7,7 @@ vi.mock("./analytics.js", () => analyticsMocks);
 
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  actionErrorMessage,
   callAction,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
@@ -651,6 +652,55 @@ describe("tryCallActionKeepalive", () => {
       completion: null,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("actionErrorMessage", () => {
+  it("returns the action's own text without the console framing", async () => {
+    vi.stubGlobal("fetch", async () =>
+      jsonResponse(
+        { error: "No such meeting", errorCode: "not_found" },
+        { status: 404 },
+      ),
+    );
+
+    const error: any = await callAction("get-meeting").catch((err) => err);
+
+    // The framing stays on `message` for the console.
+    expect(error.message).toBe("Action get-meeting failed: No such meeting");
+    // A toast wants only what the action wrote.
+    expect(actionErrorMessage(error)).toBe("No such meeting");
+    expect(error.errorCode).toBe("not_found");
+  });
+
+  it("returns undefined when nothing authored a message", async () => {
+    // An HTML error page from a proxy is transport noise, not copy a UI can
+    // show. Absent must stay distinguishable from "the action said this".
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response("<html><body>502 Bad Gateway</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+    );
+
+    const error: any = await callAction("get-meeting").catch((err) => err);
+
+    expect(actionErrorMessage(error)).toBeUndefined();
+    expect(error.status).toBe(502);
+  });
+
+  it("returns undefined for a network failure and for a non-error value", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const error = await callAction("get-meeting").catch((err) => err);
+
+    expect(actionErrorMessage(error)).toBeUndefined();
+    expect(actionErrorMessage(undefined)).toBeUndefined();
+    expect(actionErrorMessage("boom")).toBeUndefined();
   });
 });
 
