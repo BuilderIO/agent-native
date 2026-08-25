@@ -92,12 +92,11 @@ export function BuiltInFeatures() {
 
       <GridInner>
         <div style={{ border: "1px solid var(--b-border-default)", borderTop: "none" }}>
-          {PILLAR_ROWS.map((row) => (
+          {PILLAR_ROWS.map((row, rowIndex) => (
             <div
               key={row.map((pillar) => pillar.title).join("-")}
               style={{ borderTop: "1px solid var(--b-border-default)" }}
             >
-              <ImgPlaceholder aspectRatio="1248 / 406" label="" />
               <div
                 className="pillars-grid"
                 style={{
@@ -110,38 +109,42 @@ export function BuiltInFeatures() {
                 {row.map((pillar) => (
                   <div
                     key={pillar.title}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "var(--spacing-2)",
-                      padding: "var(--spacing-8)",
-                      background: "var(--b-bg-page)",
-                    }}
+                    style={{ display: "flex", flexDirection: "column", background: "var(--b-bg-page)" }}
                   >
-                    <h3
+                    {rowIndex === 0 && <ImgPlaceholder aspectRatio="416 / 406" label="" />}
+                    <div
                       style={{
-                        margin: 0,
-                        fontFamily: "var(--b-font-sans)",
-                        fontSize: "var(--b-t-heading-6)",
-                        fontWeight: 500,
-                        lineHeight: 1.15,
-                        letterSpacing: "-0.02em",
-                        color: "var(--b-text-primary)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "var(--spacing-2)",
+                        padding: "var(--spacing-8)",
                       }}
                     >
-                      {pillar.title}
-                    </h3>
-                    <p
-                      style={{
-                        margin: 0,
-                        fontFamily: "var(--b-font-sans)",
-                        fontSize: "var(--b-t-paragraph-2)",
-                        lineHeight: 1.4,
-                        color: "var(--b-text-secondary)",
-                      }}
-                    >
-                      {pillar.description}
-                    </p>
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontFamily: "var(--b-font-sans)",
+                          fontSize: "var(--b-t-heading-6)",
+                          fontWeight: 500,
+                          lineHeight: 1.15,
+                          letterSpacing: "-0.02em",
+                          color: "var(--b-text-primary)",
+                        }}
+                      >
+                        {pillar.title}
+                      </h3>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontFamily: "var(--b-font-sans)",
+                          fontSize: "var(--b-t-paragraph-2)",
+                          lineHeight: 1.4,
+                          color: "var(--b-text-secondary)",
+                        }}
+                      >
+                        {pillar.description}
+                      </p>
+                    </div>
                   </div>
                 ))}
               </div>
