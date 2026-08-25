@@ -13,7 +13,6 @@ use crate::state::{
     VoiceWakePopover,
 };
 
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 static OAUTH_WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
@@ -110,13 +109,17 @@ pub fn set_capture_included(window: &WebviewWindow) {
 }
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
-    let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
     let app_handle = app.handle().clone();
+    // The window is sized to the visible panel EXACTLY — elevation comes from
+    // the native NSWindow shadow (shadow(true) below), which macOS derives
+    // from the drawn rounded panel's alpha. A transparent CSS-shadow apron is
+    // never used here: its invisible margin eats clicks and reads as dead
+    // space around the UI.
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("Clips")
         .inner_size(
-            POPOVER_DEFAULT_WIDTH_LOGICAL + gutter,
-            POPOVER_DEFAULT_HEIGHT_LOGICAL + gutter,
+            POPOVER_DEFAULT_WIDTH_LOGICAL,
+            POPOVER_DEFAULT_HEIGHT_LOGICAL,
         )
         .position(2.0, 2.0)
         .resizable(false)
@@ -127,7 +130,7 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .skip_taskbar(true)
         .visible(false)
         .focused(true)
-        .shadow(false)
+        .shadow(true)
         .accept_first_mouse(true)
         // Tauri does not create a native child for window.open by default.
         // Create it here with the opener's webview configuration so Google

@@ -25,11 +25,10 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
-  /* Keep the side and bottom shadow clear of the transparent Tauri window.
-     The top is intentionally tighter: the popover should feel attached to
-     its menu-bar icon, where a clipped shadow is not visible anyway. */
-  --popover-shadow-gutter: 24px;
-  --popover-shadow-gutter-top: 6px;
+  /* Transparent apron reserved for CSS-painted shadows on the overlays that
+     still use them (bubble, countdown). The popover and other converted
+     windows are sized to their content exactly and use the native NSWindow
+     shadow instead. */
   --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
@@ -67,9 +66,9 @@
 }
 
 /* Tauri window is `transparent: true` + `decorations: false`, so the HTML
-   paints the visible shape. A padded transparent outer, with a rounded
-   inner panel that carries the actual background + shadow, gives us the
-   round-cornered chromeless popover. */
+   paints the visible shape. The popover window is sized to the rounded panel
+   exactly; macOS derives a native shadow from the panel's alpha, giving us
+   the round-cornered chromeless popover with no transparent apron. */
 html,
 body {
   margin: 0;
@@ -116,10 +115,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow: hidden;
 }
 
-body[data-clips-route="recording-pill"] #root {
-  padding: var(--overlay-shadow-gutter);
-}
-
 /* ------------------------------------------------------------------------- */
 /* App shell                                                                  */
 /* ------------------------------------------------------------------------- */
@@ -132,14 +127,12 @@ body[data-clips-route="recording-pill"] #root {
   gap: 14px;
   background: var(--bg);
   border: 1px solid var(--border);
+  /* The rounded corners shape the native NSWindow shadow — the window is
+     sized to this panel exactly, so a CSS box-shadow would just clip. */
   border-radius: 14px;
-  /* Subtle drop shadow so the popover visually detaches from the menu bar. */
-  box-shadow: var(--shadow-md);
   /* No fixed height — the Tauri window is resized to match the rendered
      content via resize_popover, so the shell just flows naturally. */
-  max-height: calc(
-    100vh - var(--popover-shadow-gutter) - var(--popover-shadow-gutter)
-  );
+  max-height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -4219,10 +4212,12 @@ body[data-clips-route="recording-pill"] #root {
 
 /* Wispr Flow-style dictation pill: small capsule anchored to the bottom
    of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust. */
+   bottom-center on the primary display by show_flow_bar in Rust, sized to
+   the content exactly — elevation is the native NSWindow shadow, so there
+   is no transparent shadow-gutter apron here. */
 .flow-bar-root {
   position: fixed;
-  inset: var(--overlay-shadow-gutter);
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4651,10 +4646,12 @@ body[data-clips-route="recording-pill"] #root {
 /* Overlay: recording pill                                                    */
 /* ------------------------------------------------------------------------- */
 
-/* Fills the window minus the shadow gutter `#root` already pads out. The
-   collapsed capsule centers here rather than hugging a corner: hover is polled
-   against the window frame, so slack between frame and capsule would light the
-   pill up while the cursor is nowhere near it. */
+/* Fills the window, which Rust sizes to the visible capsule exactly —
+   elevation is the native NSWindow shadow (see recording_indicator.rs), so
+   there is no transparent shadow-gutter apron here. The collapsed capsule
+   centers rather than hugging a corner: hover is polled against the window
+   frame, so slack between frame and capsule would light the pill up while
+   the cursor is nowhere near it. */
 .pill-outer {
   display: flex;
   height: 100%;

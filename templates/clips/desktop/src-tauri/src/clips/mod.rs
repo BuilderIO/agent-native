@@ -72,7 +72,6 @@ const OVERLAY_LABELS: &[&str] = &[
 /// launch — this matches Loom's out-of-the-box behavior.
 const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
@@ -120,11 +119,6 @@ fn overlay_scale_factor(app: &AppHandle) -> f64 {
 
 fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
     (OVERLAY_SHADOW_GUTTER_LOGICAL * overlay_scale_factor(app)).round() as u32
-}
-
-fn popover_window_size_logical(content_width: f64, content_height: f64) -> (f64, f64) {
-    let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
-    (content_width + gutter, content_height + gutter)
 }
 
 fn bubble_size_for_name(name: &str) -> u32 {
@@ -1376,18 +1370,15 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
             .or_else(|| w.primary_monitor().ok().flatten())
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().height as f64) / scale
-                    - 24.0
-                    - POPOVER_SHADOW_GUTTER_LOGICAL * 2.0)
-                    .clamp(260.0, 820.0)
+                // The window IS the visible panel (native shadow, no apron),
+                // so only the 24px menu-bar margin is reserved.
+                ((monitor.size().height as f64) / scale - 24.0).clamp(260.0, 820.0)
             })
             .unwrap_or(820.0);
         let clamped = height.clamp(200.0, max_logical_height);
         let width = width.unwrap_or(320.0).clamp(320.0, 960.0);
-        let (window_width, window_height) = popover_window_size_logical(width, clamped);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            window_width,
-            window_height,
+            width, clamped,
         )));
         // Re-anchor to the tray icon so the window doesn't drift below the
         // bottom of the monitor after a growth.
@@ -1712,14 +1703,17 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    // Wide + tall enough for a 5-line transcript preview above the pill.
-    let content_w: u32 = (640.0 * scale).round() as u32;
-    let content_h: u32 = (160.0 * scale).round() as u32;
-    let bottom_margin: i32 = (14.0 * scale).round() as i32;
-    let gutter = overlay_shadow_gutter_physical(&app);
-    let w: u32 = content_w + gutter * 2;
-    let h: u32 = content_h + gutter * 2;
-    let x: i32 = (mx + (mw as i32 - content_w as i32) / 2 - gutter as i32).max(mx);
+    // The window is sized to the content EXACTLY — wide + tall enough for a
+    // 5-line transcript preview above the pill. Elevation comes from the
+    // native NSWindow shadow (shadow(true) below), which macOS derives from
+    // the drawn pill/preview alpha. A transparent CSS-shadow apron is never
+    // used here: its invisible margin eats clicks.
+    let w: u32 = (640.0 * scale).round() as u32;
+    let h: u32 = (160.0 * scale).round() as u32;
+    // 32 = the old 14px visible margin + the removed 18px shadow gutter, so
+    // the visible pill keeps its exact on-screen position.
+    let bottom_margin: i32 = (32.0 * scale).round() as i32;
+    let x: i32 = (mx + (mw as i32 - w as i32) / 2).max(mx);
     let y: i32 = (my + mh as i32 - h as i32 - bottom_margin).max(my);
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
@@ -1742,7 +1736,11 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .shadow(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the pill and preview
+        // get correctly rounded OS shadows with the window sized to the
+        // content exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
         .visible(false)
         .focused(false)
         .build()
@@ -2718,11 +2716,10 @@ fn present_popover(app: &AppHandle, window: &WebviewWindow) {
     // recording or voice wake. The content's ResizeObserver will fine-tune the
     // height on the next render, but we need a sensible starting size so
     // `position_popover` can anchor correctly.
-    let (w, h) = popover_window_size_logical(
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
         POPOVER_DEFAULT_WIDTH_LOGICAL,
         POPOVER_DEFAULT_HEIGHT_LOGICAL,
-    );
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
+    )));
     position_popover(app, window);
     mark_popover_shown(app);
     present_interactive_window(window);
@@ -2812,9 +2809,9 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
 
         // Center the popover horizontally on the icon.
         let mut x = icon_x + icon_w / 2 - (win_size.width as i32) / 2;
-        // Drop the visible panel below the icon with a tiny gap. The native
-        // window itself starts a shadow-gutter earlier so the top shadow has
-        // real transparent pixels to paint into without moving the panel down.
+        // Drop the panel below the icon with a tiny gap. The window IS the
+        // visible panel — its elevation is the native NSWindow shadow, which
+        // paints outside the window bounds, so no shadow-gutter offset here.
         let gap = 6_i32;
         let mut y = icon_y + icon_h + gap;
 
@@ -2834,15 +2831,6 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
                     && icon_cy < mp.y + ms.height as i32
             })
         });
-        let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL
-            * tray_monitor
-                .as_ref()
-                .map(|m| m.scale_factor())
-                .unwrap_or_else(|| monitor.scale_factor())
-                .max(1.0))
-        .round() as i32;
-        y -= popover_gutter;
-
         let (clamp_pos, clamp_size) = tray_monitor
             .map(|m| (*m.position(), *m.size()))
             .unwrap_or((*mon_pos, *mon_size));
@@ -2874,13 +2862,12 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
     let scale = monitor.scale_factor();
     let margin_right = (12.0 * scale) as i32;
     let margin_top = (36.0 * scale) as i32;
-    let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL * scale.max(1.0)).round() as i32;
     let min_x = mon_pos.x + 8;
     let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
     let min_y = mon_pos.y + 8;
     let max_y = mon_pos.y + mon_size.height as i32 - win_size.height as i32 - 8;
     let x = (mon_pos.x + mon_size.width as i32 - win_size.width as i32 - margin_right)
         .clamp(min_x, max_x.max(min_x));
-    let y = (mon_pos.y + margin_top - popover_gutter).clamp(min_y, max_y.max(min_y));
+    let y = (mon_pos.y + margin_top).clamp(min_y, max_y.max(min_y));
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }

@@ -7992,7 +7992,7 @@ function Setup({
       /* A fixed height, not content-driven: the tray window resizes itself to
          match rendered content, so a taller tab would otherwise grow the window
          out from under the user. Tabs scroll inside this frame instead. */
-      className="flex h-[560px] max-h-[calc(100vh-48px)] w-full flex-col overflow-hidden rounded-[14px] bg-background text-foreground"
+      className="flex h-[560px] max-h-screen w-full flex-col overflow-hidden rounded-[14px] bg-background text-foreground"
     >
       <div className="grid min-h-0 flex-1 grid-cols-[176px_minmax(0,1fr)]">
         <nav
