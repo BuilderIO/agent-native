@@ -224,6 +224,20 @@
   justify-content: center;
   aspect-ratio: 1 / 1;
   overflow: hidden;
+  padding: var(--spacing-4);
+  box-sizing: border-box;
+}
+
+/* Each logo ships with its own intrinsic SVG/img dimensions, so without a
+   shared cap they render at wildly different visual sizes next to each
+   other. Scale every mark down to fit the same box while keeping its own
+   aspect ratio. */
+.builder-brand-tokens .logo-tile svg,
+.builder-brand-tokens .logo-tile img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .builder-brand-tokens .template-showcase-panel {
