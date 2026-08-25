@@ -323,6 +323,35 @@ describe("import-content-source descriptions", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     expect(afterCrLfRepair.content).not.toMatch(/(?<!\r)\n/);
+
+    const secondTable = [
+      "| Status | Owner |",
+      "| --- | --- |",
+      "| Ready | Editor |",
+    ].join("\n");
+    const twoTables = [table, secondTable].join("\n\n");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: twoTables, updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    const firstOfTwo = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: documentId,
+        find: table,
+        transform: "normalize-pipe-table",
+        reuseLabels: [],
+      }),
+    );
+    expect(firstOfTwo).toMatchObject({
+      status: "repaired",
+      applied: 1,
+      verified: true,
+    });
+    const [afterFirstOfTwo] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(afterFirstOfTwo.content).toContain(secondTable);
   });
 
   it("requires editor access before importing into an organization space", async () => {

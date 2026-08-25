@@ -146,7 +146,17 @@ function closesFence(
 }
 
 function containsUnsupportedBlockSyntax(markdown: string): boolean {
+  let activeFence: { marker: "`" | "~"; length: number } | null = null;
   return markdown.split(/\r?\n/).some((line) => {
+    const marker = fenceMarker(line);
+    if (activeFence) {
+      if (closesFence(line, activeFence)) activeFence = null;
+      return false;
+    }
+    if (marker) {
+      activeFence = marker;
+      return false;
+    }
     const value = line.trimStart();
     return (
       /^(?:import|export)\s/.test(value) ||
@@ -189,7 +199,7 @@ export function normalizeImportedMarkdownStructures(
       output.push(line);
       continue;
     }
-    if (line.trimStart().startsWith(">")) {
+    if (/^(?: {1,3}\S|>)/.test(line)) {
       output.push(line);
       continue;
     }
@@ -205,6 +215,7 @@ export function normalizeImportedMarkdownStructures(
     let cursor = index + 2;
     let malformedCandidate = false;
     while (cursor < lines.length && lines[cursor].trim()) {
+      if (/^(?: {1,3}\S|>)/.test(lines[cursor])) break;
       const row = splitPipeRow(lines[cursor]);
       if (!row || row.length !== header.length) {
         malformedCandidate =

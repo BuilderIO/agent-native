@@ -197,15 +197,31 @@ export default defineAction({
       const lineEnding = existingContent.includes("\r\n") ? "\r\n" : "\n";
       const replacement = normalized.content.split("\n").join(lineEnding);
       const matchIndex = existingContent.indexOf(args.find);
-      const expectedContent =
-        existingContent.slice(0, matchIndex) +
+      const blockSeparator = `${lineEnding}${lineEnding}`;
+      const precedingSeparator = existingContent.lastIndexOf(
+        blockSeparator,
+        matchIndex - 1,
+      );
+      const blockStart =
+        precedingSeparator === -1
+          ? 0
+          : precedingSeparator + blockSeparator.length;
+      const followingSeparator = existingContent.indexOf(
+        blockSeparator,
+        matchIndex + args.find.length,
+      );
+      const blockEnd =
+        followingSeparator === -1 ? existingContent.length : followingSeparator;
+      const block = existingContent.slice(blockStart, blockEnd);
+      const targetOffset = matchIndex - blockStart;
+      const expectedBlock =
+        block.slice(0, targetOffset) +
         replacement +
-        existingContent.slice(matchIndex + args.find.length);
-      const normalizedDocument =
-        normalizeImportedMarkdownStructures(existingContent);
+        block.slice(targetOffset + args.find.length);
+      const normalizedBlock = normalizeImportedMarkdownStructures(block);
       if (
-        normalizedDocument.normalizedPipeTables !== 1 ||
-        normalizedDocument.content !== expectedContent
+        normalizedBlock.normalizedPipeTables !== 1 ||
+        normalizedBlock.content !== expectedBlock
       ) {
         return verifyUnchangedTransformResult({
           status: "unsupported" as const,

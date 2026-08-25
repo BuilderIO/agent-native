@@ -119,6 +119,51 @@ describe("Markdown import normalization", () => {
     });
   });
 
+  it("does not lift a list-item table into the document root", () => {
+    const markdown = [
+      "- Item",
+      "  | A | B |",
+      "  | --- | --- |",
+      "  | 1 | 2 |",
+    ].join("\n");
+
+    expect(normalizeImportedMarkdownStructures(markdown)).toEqual({
+      content: markdown,
+      normalizedPipeTables: 0,
+    });
+  });
+
+  it("stops a table before a following blockquote row", () => {
+    const markdown = [
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+      "> follow-up | quote",
+    ].join("\n");
+    const result = normalizeImportedMarkdownStructures(markdown);
+
+    expect(result.normalizedPipeTables).toBe(1);
+    expect(result.content).toContain("> follow-up | quote");
+    expect(result.content).not.toContain("<td>> follow-up</td>");
+  });
+
+  it("ignores unsupported syntax inside fences when normalizing another table", () => {
+    const markdown = [
+      "```ts",
+      "export const example = <Widget />;",
+      "```",
+      "",
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+    ].join("\n");
+    const result = normalizeImportedMarkdownStructures(markdown);
+
+    expect(result.normalizedPipeTables).toBe(1);
+    expect(result.content).toContain("export const example = <Widget />;");
+    expect(result.content).toContain('<table header-row="true">');
+  });
+
   it("preserves CRLF source byte-for-byte when no table is normalized", () => {
     const markdown = "Before\r\n\r\n```mermaid\r\nflowchart LR\r\n```\r\n";
 
