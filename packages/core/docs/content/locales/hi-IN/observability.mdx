@@ -159,11 +159,14 @@ export default function ObservabilityPage() {
 `evalSampleRate` सेट करके नमूना LLM-आधारित मूल्यांकन सक्षम करें:
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -255,17 +258,19 @@ PUT /_agent-native/observability/experiments/:id
 
 ## कॉन्फ़िगरेशन {#config}
 
-सभी सेटिंग्स `observability-config` कुंजी में संग्रहीत हैं:
+`defineAppConfig()` के साथ एक सर्वर प्लगइन से सेट करें। प्रत्येक फ़ील्ड का एक परिनियोजन एनवायरनमेंट वेरिएबल उपनाम भी है — घोषित कॉन्फ़िगरेशन संदर्भ देखें।
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -300,26 +305,13 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 ## बाहरी प्लेटफ़ॉर्म पर निर्यात करें {#export}
 
-लैंगफ्यूज, डेटाडॉग, ग्राफाना, या किसी ओटेल-संगत बैकएंड पर निशान भेजें:
+अपने ऐप में एक OpenTelemetry प्रदाता पंजीकृत करके Langfuse, Datadog, Grafana, या किसी भी OTel-संगत बैकएंड पर ट्रेस भेजें — नीचे [ओपनटेलीमेट्री स्पैन](#otel) देखें।
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-फ्रेमवर्क ओपनटेलीमेट्री जेनएआई स्पेक के साथ संगत `gen_ai.*` सिमेंटिक कन्वेंशन स्पैन का उत्सर्जन करता है।
+कोर जानबूझकर कोई एक्सपोर्टर शामिल नहीं करता और न ही कोई एक्सपोर्ट एंडपॉइंट या टोकन रखता है, इसलिए बैकएंड क्रेडेंशियल आपके प्रदाता वायरिंग (और वॉल्ट) में रहता है, कभी भी फ़्रेमवर्क कॉन्फ़िगरेशन में नहीं।
 
 ## ओपनटेलीमेट्री स्पैन {#otel}
 
-उपरोक्त `exporters` कॉन्फ़िगरेशन से अलग (जो इन-हाउस ट्रेस को OTLP एंडपॉइंट पर भेजता है), एजेंट लूप प्रत्येक रन, मॉडल कॉल और टूल कॉल के लिए **लाइव ओपनटेलीमेट्री स्पैन** भी उत्सर्जित कर सकता है - इसलिए एक होस्ट जो पहले से ही एक ओटेल कलेक्टर चलाता है, उसके बाकी वितरित ट्रेस के साथ एजेंट गतिविधि देखता है।
+एजेंट लूप प्रत्येक रन, मॉडल कॉल और टूल कॉल के लिए **लाइव ओपनटेलीमेट्री स्पैन** उत्सर्जित करता है — इसलिए एक होस्ट जो पहले से ही एक ओटेल कलेक्टर चलाता है, उसके बाकी वितरित ट्रेस के साथ एजेंट गतिविधि देखता है।
 
 यह परत **वैकल्पिक है और डिफ़ॉल्ट रूप से नो-ऑप है**:
 

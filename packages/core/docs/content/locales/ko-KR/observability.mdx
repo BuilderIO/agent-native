@@ -159,11 +159,14 @@ export default function ObservabilityPage() {
 `evalSampleRate`를 설정하여 샘플링된 LLM 기반 평가를 활성화합니다.
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -255,17 +258,19 @@ PUT /_agent-native/observability/experiments/:id
 
 ## 구성 {#config}
 
-모든 설정은 `observability-config` 키에 저장됩니다:
+`defineAppConfig()`를 사용하여 서버 플러그인에서 설정합니다. 모든 필드에는 배포 환경 변수 별칭도 있습니다. 선언된 구성 참조를 참조하세요.
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -300,26 +305,13 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 ## 외부 플랫폼으로 내보내기 {#export}
 
-Langfuse, Datadog, Grafana 또는 모든 OTel 호환 백엔드로 추적을 보냅니다.
+자체 앱에 OpenTelemetry 공급자를 등록하여 Langfuse, Datadog, Grafana 또는 모든 OTel 호환 백엔드로 추적을 보냅니다. 아래 [OpenTelemetry 범위](#otel)를 참조하세요.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-프레임워크는 OpenTelemetry GenAI 사양과 호환되는 `gen_ai.*` 의미 체계 규칙 범위를 내보냅니다.
+코어는 의도적으로 내보내기 도구를 제공하지 않으며 내보내기 엔드포인트나 토큰도 보유하지 않습니다. 따라서 백엔드 자격 증명은 프레임워크 구성이 아니라 공급자 배선(및 볼트)에 있습니다.
 
 ## OpenTelemetry 범위 {#otel}
 
-위의 `exporters` 구성(OTLP 엔드포인트에 사내 추적을 제공)과 별도로 에이전트 루프는 모든 실행, 모델 호출 및 도구 호출에 대해 **실시간 OpenTelemetry 범위**를 내보낼 수도 있습니다. 따라서 이미 OTel 수집기를 실행하는 호스트는 나머지 분산 추적과 함께 에이전트 활동을 볼 수 있습니다.
+에이전트 루프는 모든 실행, 모델 호출 및 도구 호출에 대해 **실시간 OpenTelemetry 범위**를 내보냅니다. 따라서 이미 OTel 수집기를 실행하는 호스트는 나머지 분산 추적과 함께 에이전트 활동을 볼 수 있습니다.
 
 이 레이어는 **선택 사항이며 기본적으로 작동하지 않습니다**:
 

@@ -161,11 +161,14 @@ Cinq scoreurs déterministes s'exécutent après chaque exécution d'agent :
 Activez l'évaluation basée sur LLM échantillonnée en définissant `evalSampleRate` :
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -257,17 +260,19 @@ Utilisez les identifiants de modèle réels acceptés par votre moteur à la pla
 
 ## Configuration {#config}
 
-Tous les paramètres sont stockés dans la clé `observability-config` :
+Défini depuis un plugin serveur avec `defineAppConfig()`. Chaque champ possède également un alias de variable d'environnement de déploiement — voir la référence de configuration déclarée.
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -302,26 +307,13 @@ Tous les points de terminaison prennent en charge les paramètres de requête `?
 
 ## Exporter vers des plateformes externes {#export}
 
-Envoyer des traces à Langfuse, Datadog, Grafana ou tout autre backend compatible OTel :
+Envoyez les traces vers Langfuse, Datadog, Grafana ou tout backend compatible OTel en enregistrant un fournisseur OpenTelemetry dans votre propre application — voir [Spans OpenTelemetry](#otel) ci-dessous.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-Le framework émet des étendues de convention sémantique `gen_ai.*` compatibles avec la spécification OpenTelemetry GenAI.
+Le noyau ne fournit délibérément aucun exportateur et ne conserve ni point de terminaison d'export ni jeton : les identifiants du backend vivent donc dans votre câblage de fournisseur (et dans le coffre-fort), jamais dans la configuration du framework.
 
 ## Étendues OpenTelemetry {#otel}
 
-Séparée de la configuration `exporters` ci-dessus (qui envoie les traces internes à un point de terminaison OTLP), la boucle d'agent peut également émettre des **spans OpenTelemetry en direct** pour chaque exécution, appel de modèle et appel d'outil — de sorte qu'un hôte qui exécute déjà un collecteur OTel voit l'activité de l'agent aux côtés du reste de ses traces distribuées.
+La boucle d'agent émet des **spans OpenTelemetry en direct** pour chaque exécution, appel de modèle et appel d'outil — de sorte qu'un hôte qui exécute déjà un collecteur OTel voit l'activité de l'agent aux côtés du reste de ses traces distribuées.
 
 Cette couche est **facultative et non opérationnelle par défaut** :
 

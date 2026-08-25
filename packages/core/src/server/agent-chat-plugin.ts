@@ -2815,84 +2815,79 @@ export function createAgentChatPlugin(
         // queued-message save can clobber the assistant message we just
         // appended here, or vice versa.
         await withThreadDataLock(threadId, async () => {
-          try {
-            const thread = await getThread(threadId);
-            if (!thread) {
-              throw new Error(
-                `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
-              );
-            }
-            const assistantMsg = buildAssistantMessage(
-              run.events ?? [],
-              run.runId,
-              {
-                suppressInternalContinuation: true,
-                turnId:
-                  typeof run.turnId === "string" && run.turnId
-                    ? run.turnId
-                    : undefined,
-                runDurationMs:
-                  typeof run.startedAt === "number" &&
-                  Number.isFinite(run.startedAt)
-                    ? Math.max(0, Date.now() - run.startedAt)
-                    : undefined,
-              },
+          const thread = await getThread(threadId);
+          if (!thread) {
+            throw new Error(
+              `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
             );
-            if (!assistantMsg) {
-              // No content produced — just bump timestamp
-              await updateThreadData(
-                threadId,
-                thread.threadData,
-                thread.title,
-                thread.preview,
-                thread.messageCount,
-              );
-              return;
-            }
-
-            // Parse existing thread_data, append assistant message only if
-            // the frontend hasn't already saved it (avoids duplicates when
-            // the client is still connected during a normal flow).
-            let repo: any;
-            try {
-              repo = JSON.parse(thread.threadData || "{}");
-            } catch {
-              repo = {};
-            }
-            if (!Array.isArray(repo.messages)) repo.messages = [];
-
-            repo = foldAssistantTurn(repo, assistantMsg, {
-              runId: run.runId,
+          }
+          const assistantMsg = buildAssistantMessage(
+            run.events ?? [],
+            run.runId,
+            {
+              suppressInternalContinuation: true,
               turnId:
                 typeof run.turnId === "string" && run.turnId
                   ? run.turnId
                   : undefined,
-            });
-
-            // Store debug metadata so we can inspect what the LLM actually
-            // received (system prompt, model, engine) when diagnosing issues.
-            const runCtx = getRequestRunContext();
-            const debug = {
-              runId: run.runId,
-              systemPrompt: runCtx?.systemPrompt,
-              model: runCtx?.model ?? resolvedModel,
-              engine: runCtx?.engine?.name ?? "unknown",
-              timestamp: Date.now(),
-            };
-            repo = appendThreadDebugHistory(repo, debug);
-
-            const meta = extractThreadMeta(repo);
+              runDurationMs:
+                typeof run.startedAt === "number" &&
+                Number.isFinite(run.startedAt)
+                  ? Math.max(0, Date.now() - run.startedAt)
+                  : undefined,
+            },
+          );
+          if (!assistantMsg) {
+            // No content produced — just bump timestamp
             await updateThreadData(
               threadId,
-              JSON.stringify(repo),
-              meta.title || thread.title,
-              meta.preview || thread.preview,
-              repo.messages.length,
+              thread.threadData,
+              thread.title,
+              thread.preview,
+              thread.messageCount,
             );
-          } catch (err) {
-            // Run completion is only successful once thread_data is durable.
-            throw err;
+            return;
           }
+
+          // Parse existing thread_data, append assistant message only if
+          // the frontend hasn't already saved it (avoids duplicates when
+          // the client is still connected during a normal flow).
+          let repo: any;
+          try {
+            repo = JSON.parse(thread.threadData || "{}");
+          } catch {
+            repo = {};
+          }
+          if (!Array.isArray(repo.messages)) repo.messages = [];
+
+          repo = foldAssistantTurn(repo, assistantMsg, {
+            runId: run.runId,
+            turnId:
+              typeof run.turnId === "string" && run.turnId
+                ? run.turnId
+                : undefined,
+          });
+
+          // Store debug metadata so we can inspect what the LLM actually
+          // received (system prompt, model, engine) when diagnosing issues.
+          const runCtx = getRequestRunContext();
+          const debug = {
+            runId: run.runId,
+            systemPrompt: runCtx?.systemPrompt,
+            model: runCtx?.model ?? resolvedModel,
+            engine: runCtx?.engine?.name ?? "unknown",
+            timestamp: Date.now(),
+          };
+          repo = appendThreadDebugHistory(repo, debug);
+
+          const meta = extractThreadMeta(repo);
+          await updateThreadData(
+            threadId,
+            JSON.stringify(repo),
+            meta.title || thread.title,
+            meta.preview || thread.preview,
+            repo.messages.length,
+          );
         });
 
         // Keep SQL run completion gated only on durable thread data. Follow-up

@@ -25,18 +25,23 @@ Every `runAgentLoop()` call is automatically instrumented via `instrumentAgentLo
 - **llm_call** span — model name, token counts (input, output, cache read/write), cost
 - **tool_call** spans — one per action invocation, with duration and success/error
 
-Content (prompts, tool args, tool results) is **redacted by default**. Opt in via the `observability-config` settings key:
+Content (prompts, tool args, tool results) is **redacted by default**. Opt in through the declared `observability` config domain:
 
 ```ts
-await putSetting("observability-config", {
-  enabled: true,
-  capturePrompts: false,
-  captureToolArgs: true,    // capture action input args
-  captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries
-  evalSampleRate: 0.05,     // 5% of runs get LLM-as-judge eval
-  inferredSentimentEnabled: false,
-  inferredSentimentSampleRate: 0,
-  inferredSentimentModel: "gpt-5-6-luna",
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    capturePrompts: false,
+    captureToolArgs: true, // capture action input args
+    captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries
+    evalSampleRate: 0.05, // 5% of runs get LLM-as-judge eval
+    inferredSentimentEnabled: false,
+    inferredSentimentSampleRate: 0,
+    inferredSentimentModel: "gpt-5-6-luna",
+  },
 });
 ```
 
@@ -243,26 +248,13 @@ All tables are dialect-agnostic (SQLite + Postgres) and strictly additive.
 
 ## Export to External Platforms
 
-Configure OTLP export in the observability settings:
+Core emits `gen_ai.*` semantic convention spans and deliberately registers no OpenTelemetry provider or exporter itself (`observability/tracing.ts`). To reach Langfuse, Datadog, Grafana, New Relic, or any OTel-compatible backend, the app registers its own `TracerProvider`.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer ..." },
-    },
-  ],
-});
-```
-
-The framework emits `gen_ai.*` semantic convention spans compatible with Langfuse, Datadog, Grafana, New Relic, and any OTel-compatible backend.
+There is no framework config field for an export endpoint or token, and there should not be: the backend credential belongs in the vault and in the app's own provider wiring, not in a config object or a settings row.
 
 ## Live OpenTelemetry Spans (Optional)
 
-Separate from the `exporters` config above (which ships the in-house traces to an OTLP endpoint), the agent loop can also emit **live OpenTelemetry spans** for every run, model call, and tool call, so a host that already runs an OTel collector sees agent activity alongside its other distributed traces.
+The agent loop emits **live OpenTelemetry spans** for every run, model call, and tool call, so a host that already runs an OTel collector sees agent activity alongside its other distributed traces.
 
 This layer is optional and **no-op by default**:
 
