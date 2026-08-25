@@ -51,6 +51,7 @@ import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
+  isAgentChatDurableBackgroundEnabled,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
@@ -425,6 +426,21 @@ export { resolveRecurringJobsBuildMarker };
 export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+/**
+ * The model this mount runs with, when the caller does not pass one per request.
+ *
+ * The plugin option is the top layer because it is per-mount; `agent.model`
+ * (`AGENT_MODEL`) is the declared layer below it, so a deployment can pin a
+ * model without editing app source. Read through here rather than off
+ * `options` directly — every raw `options?.model` site is a place the declared
+ * field silently does nothing.
+ */
+export function resolveConfiguredAgentModel(
+  options?: Pick<AgentChatPluginOptions, "model">,
+): string | undefined {
+  return options?.model ?? getAppConfig().agent.model;
+}
 
 export function resolveInteractiveAgentRunOptions(
   options?: Pick<
@@ -1937,7 +1953,7 @@ export function createAgentChatPlugin(
           // below so it stays out of every identity/access path.
           const a2aCallerModelHint = correlation.callerModel;
           const model = resolveDelegatedRunModel(a2aEngine, {
-            explicitModel: options?.model,
+            explicitModel: resolveConfiguredAgentModel(options),
             storedModel: a2aStoredModel,
             callerModelHint: a2aCallerModelHint,
           });
@@ -1956,7 +1972,7 @@ export function createAgentChatPlugin(
               // "caller-hint" for a rejected hint would send the next person
               // debugging this in exactly the wrong direction.
               `modelSource=${
-                options?.model
+                resolveConfiguredAgentModel(options)
                   ? "configured"
                   : a2aStoredModel
                     ? "stored"
@@ -2233,8 +2249,9 @@ export function createAgentChatPlugin(
               // bare `runAgentLoop` — no resume at all on a delegated turn.
               useHostedDefault: true,
               backgroundFunction:
-                options?.durableBackgroundRuns === true &&
-                isInBackgroundFunctionRuntime(),
+                isAgentChatDurableBackgroundEnabled({
+                  appOptIn: options?.durableBackgroundRuns,
+                }) && isInBackgroundFunctionRuntime(),
             },
             {
               telemetry: {
@@ -2527,7 +2544,7 @@ export function createAgentChatPlugin(
               appId: options?.appId,
             });
             const mcpModelCandidate =
-              options?.model ??
+              resolveConfiguredAgentModel(options) ??
               (await getStoredModelForEngine(mcpEngine, {
                 appId: options?.appId,
               })) ??
@@ -2673,8 +2690,9 @@ export function createAgentChatPlugin(
                 // never configured `runSoftTimeoutMs` gets no resume at all.
                 useHostedDefault: true,
                 backgroundFunction:
-                  options?.durableBackgroundRuns === true &&
-                  isInBackgroundFunctionRuntime(),
+                  isAgentChatDurableBackgroundEnabled({
+                    appOptIn: options?.durableBackgroundRuns,
+                  }) && isInBackgroundFunctionRuntime(),
               },
               {
                 telemetry: {
@@ -3109,7 +3127,8 @@ export function createAgentChatPlugin(
         string,
         (event: import("../agent/types.js").AgentChatEvent) => void
       >();
-      const resolvedModel = options?.model ?? DEFAULT_ANTHROPIC_MODEL;
+      const resolvedModel =
+        resolveConfiguredAgentModel(options) ?? DEFAULT_ANTHROPIC_MODEL;
 
       // The action set a sub-agent inherits. Shared between the spawn-time team
       // tool and the `_process-run` processor route below so the durable run
@@ -3665,7 +3684,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runtimeContext,
           );
         },
-        model: options?.model,
+        model: resolveConfiguredAgentModel(options),
         appId: options?.appId,
         hostedHarnessConfig,
         apiKey: options?.apiKey,
@@ -3789,7 +3808,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     runtimeContextForEvent(event),
                 );
               },
-              model: options?.model,
+              model: resolveConfiguredAgentModel(options),
               appId: options?.appId,
               apiKey: options?.apiKey,
               ...resolveInteractiveAgentRunOptions(options),
@@ -4018,7 +4037,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runtimeContext,
             );
           },
-          model: options?.model,
+          model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
           apiKey: options?.apiKey,
           ...resolveInteractiveAgentRunOptions(options),
@@ -6635,7 +6654,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ...(job?.meta.mcpTools ?? []),
           ],
           apiKey: options?.apiKey,
-          model: options?.model,
+          model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
         };
         runNowSchedulerDeps = schedulerDeps;
@@ -7142,7 +7161,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...(automation?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
-            model: options?.model,
+            model: resolveConfiguredAgentModel(options),
             appId: options?.appId,
           });
           if (process.env.DEBUG)
