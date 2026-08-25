@@ -110,7 +110,10 @@ review-resolution gates.
 For a verified PR authored by Manu (`manucorporat`), auto-approve by default
 regardless of app scope, UX implications, refactors, failed or pending checks,
 or ordinary unresolved human or bot feedback. This exception does not waive the
-ultra-scary safety gate or the external-author prohibition.
+ultra-scary safety gate or the external-author prohibition. Changes to review or
+approval policy, agent safety instructions, membership verification, or
+CI/deployment security controls require independent review and are not eligible
+for this exception.
 
 For a verified PR authored by `kapunahelewong` or Wes (`bwreid`), auto-approve
 by default when the PR is docs-only. Docs-only means documentation content,
