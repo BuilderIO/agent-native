@@ -5280,7 +5280,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-inner:not(.pill-inner-compact) .lt-bubble {
-  max-width: 92%;
+  max-width: 100%;
   padding: 7px 11px;
   border-radius: 10px;
 }
