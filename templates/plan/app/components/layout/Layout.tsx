@@ -100,6 +100,7 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
     chatPath: "/chat",
+    isChatPath: (path) => (path.replace(/\/+$/, "") || "/") === "/chat",
     requireActiveHandoff: true,
   });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;

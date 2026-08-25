@@ -160,6 +160,31 @@ test.describe("guest mode + claim", () => {
       page.getByRole("heading", { name: /ask plan/i }),
     ).toBeVisible();
 
+    await page.evaluate(() => {
+      sessionStorage.setItem(
+        "agent-native.plans.chat-home-handoff",
+        String(Date.now()),
+      );
+      (
+        window as typeof window & { handoffTransitions?: number }
+      ).handoffTransitions = 0;
+      window.addEventListener("agentNative.chatViewTransitionPrepare", () => {
+        window.handoffTransitions = (window.handoffTransitions ?? 0) + 1;
+      });
+    });
+    await page
+      .getByRole("link", { name: /^plan$/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/plans\/?$/);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as typeof window & { handoffTransitions?: number })
+            .handoffTransitions,
+      ),
+    ).toBe(1);
+
     await page.goto("/plans/");
     await expect(page.locator("header")).toHaveCount(0);
     await expect(page.getByText("Start with /visual-plan")).toBeVisible();
