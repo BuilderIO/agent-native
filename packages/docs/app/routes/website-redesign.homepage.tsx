@@ -3,6 +3,7 @@ import { useLoaderData } from "react-router";
 import { BottomCta } from "../components/website-redesign/bottom-cta";
 import { BuiltInFeatures } from "../components/website-redesign/built-in-features";
 import { FeaturesActions } from "../components/website-redesign/features-actions";
+import { Footer } from "../components/website-redesign/footer";
 import { Hero } from "../components/website-redesign/hero";
 import { SiteHeader } from "../components/website-redesign/site-header";
 import { WorksWithStack } from "../components/website-redesign/works-with-stack";
@@ -49,6 +50,7 @@ export default function WebsiteRedesignHomepage() {
       <BuiltInFeatures />
       <WorksWithStack />
       <BottomCta />
+      <Footer />
     </div>
   );
 }

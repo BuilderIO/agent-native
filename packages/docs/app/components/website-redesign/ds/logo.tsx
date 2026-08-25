@@ -2,12 +2,18 @@
 // flipped to black in light mode via the `.light .redesign-logo` override in
 // tokens.css. The duplicated second path (drawn over the gradient-filled
 // first path) is preserved verbatim from the source export.
-export function Logo() {
+export function Logo({
+  width = 188,
+  height = 22,
+}: {
+  width?: number;
+  height?: number;
+}) {
   return (
     <svg
       className="redesign-logo"
-      width="188"
-      height="22"
+      width={width}
+      height={height}
       viewBox="0 0 188 22"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
