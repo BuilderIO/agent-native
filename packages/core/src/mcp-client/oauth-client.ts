@@ -386,7 +386,7 @@ function guardedOAuthFetch(): GuardedFetch {
         nextHeaders.delete("proxy-authorization");
         if (
           (response.status === 307 || response.status === 308) &&
-          currentInit.body != null
+          currentInit.body !== null
         ) {
           throw new Error(
             "MCP OAuth redirect cannot forward a request body across origins.",
