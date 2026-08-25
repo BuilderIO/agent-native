@@ -158,8 +158,8 @@ pub async fn recording_pill_save_expanded_size(
     let Some(path) = pill_expanded_size_path(&app) else {
         return Ok(());
     };
-    let body = serde_json::to_vec(&serde_json::json!({ "w": w, "h": h }))
-        .map_err(|e| e.to_string())?;
+    let body =
+        serde_json::to_vec(&serde_json::json!({ "w": w, "h": h })).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, &body).is_err() {
         return Ok(());

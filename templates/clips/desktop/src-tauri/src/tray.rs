@@ -34,8 +34,8 @@ fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
             (x0 + side - 1 - rx, y0 + side - 1 - rx),
         ];
         for (cx, cy) in corners {
-            let in_corner_box = (x < x0 + rx || x > x0 + side - 1 - rx)
-                && (y < y0 + rx || y > y0 + side - 1 - rx);
+            let in_corner_box =
+                (x < x0 + rx || x > x0 + side - 1 - rx) && (y < y0 + rx || y > y0 + side - 1 - rx);
             if in_corner_box {
                 let dx = (x - cx) as f32;
                 let dy = (y - cy) as f32;
@@ -61,14 +61,12 @@ fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
 /// Whether the status item is in recording mode (stop square + timer).
 /// Written ONLY by `tray_recording_status` — the pill is the single owner of
 /// this state — plus the window-destroyed backstop in lib.rs.
-static TRAY_RECORDING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static TRAY_RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Millis timestamp of the last recording-mode write. The pill refreshes the
 /// title every 500ms while live, so 2.5s of silence means the writer is gone
 /// and the dead-man loop below clears the status item — a stale menu-bar
 /// timer is structurally impossible, not just handled per code path.
-static TRAY_LAST_WRITE_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static TRAY_LAST_WRITE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -451,9 +449,9 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             if tray_recording_active()
-                && now_ms().saturating_sub(
-                    TRAY_LAST_WRITE_MS.load(std::sync::atomic::Ordering::SeqCst),
-                ) > 2_500
+                && now_ms()
+                    .saturating_sub(TRAY_LAST_WRITE_MS.load(std::sync::atomic::Ordering::SeqCst))
+                    > 2_500
             {
                 apply_tray_mode(&deadman_handle, false, None);
             }
