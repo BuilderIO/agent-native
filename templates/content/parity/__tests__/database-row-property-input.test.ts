@@ -5,7 +5,10 @@ import {
   databasePropertyEntriesSchema,
   normalizeDatabasePropertyInput,
 } from "../../actions/_database-property-input";
-import { databaseMutationPayloadDigest } from "../../actions/_database-row-mutation";
+import {
+  databaseMutationPayloadDigest,
+  legacyDatabaseMutationPayloadDigest,
+} from "../../actions/_database-row-mutation";
 import addDatabaseItem from "../../actions/add-database-item";
 import updateDatabaseItem from "../../actions/update-database-item";
 import upsertDatabaseItemByKey from "../../actions/upsert-database-item-by-key";
@@ -214,6 +217,34 @@ describe("database row property inputs", () => {
     expect(databaseMutationPayloadDigest("create", fromEntries)).toBe(
       databaseMutationPayloadDigest("create", fromRecord),
     );
+  });
+
+  it("retains the authority-bearing legacy digest for receipt replay", () => {
+    const input = canonicalizeDatabasePropertyInput({
+      idempotencyKey: "existing-receipt",
+      target: {
+        authorityScope: { kind: "personal", id: "owner@example.com" },
+        spaceId: "space-id",
+        databaseId: "database-id",
+        databaseDocumentId: "database-document-id",
+      },
+      propertyValues: { "status-id": "ready" },
+    });
+
+    expect(legacyDatabaseMutationPayloadDigest("create", input)).not.toBe(
+      databaseMutationPayloadDigest("create", input),
+    );
+    const withoutAuthoredAuthority = {
+      ...input,
+      target: { ...input.target, authorityScope: undefined },
+    };
+    expect(
+      legacyDatabaseMutationPayloadDigest(
+        "create",
+        withoutAuthoredAuthority,
+        input.target.authorityScope,
+      ),
+    ).toBe(legacyDatabaseMutationPayloadDigest("create", input));
   });
 
   it("includes __proto__ property values in the canonical digest", () => {

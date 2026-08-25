@@ -750,6 +750,29 @@ export function databaseMutationPayloadDigest(
   return digest({ operation, ...canonicalInput, target: stableTarget });
 }
 
+export function legacyDatabaseMutationPayloadDigest(
+  operation: DatabaseRowMutationOperation,
+  input:
+    | CreateDatabaseRowMutationInput
+    | UpdateDatabaseRowMutationInput
+    | UpsertDatabaseRowMutationInput,
+  authorityScope = input.target.authorityScope,
+) {
+  const { propertyTypeAssertions: _propertyTypeAssertions, ...legacyInput } =
+    input;
+  return digest({
+    operation,
+    ...legacyInput,
+    target: { ...legacyInput.target, authorityScope },
+  });
+}
+
+function authorityScopeForContext(context: MutationContext) {
+  return context.database.orgId
+    ? ({ kind: "organization", id: context.database.orgId } as const)
+    : ({ kind: "personal", id: context.database.ownerEmail } as const);
+}
+
 function assertPropertyTypeAssertions(
   context: MutationContext,
   assertions: Record<string, string> | undefined,
@@ -795,9 +818,7 @@ function resultForReceipt(
   },
 ): ContentDatabaseRowMutationResult {
   const target = {
-    authorityScope: context.database.orgId
-      ? ({ kind: "organization", id: context.database.orgId } as const)
-      : ({ kind: "personal", id: context.database.ownerEmail } as const),
+    authorityScope: authorityScopeForContext(context),
     spaceId: context.database.spaceId!,
     databaseId: context.database.id,
     databaseDocumentId: context.database.documentId,
@@ -844,7 +865,7 @@ function resultForReceipt(
 async function replayReceipt(
   context: MutationContext,
   idempotencyKey: string,
-  expectedPayloadDigest: string,
+  expectedPayloadDigests: readonly string[],
   db: Db = getDb(),
 ): Promise<ContentDatabaseRowMutationResult | null> {
   const [stored] = await db
@@ -863,7 +884,7 @@ async function replayReceipt(
       ),
     );
   if (!stored) return null;
-  if (stored.payloadDigest !== expectedPayloadDigest) {
+  if (!expectedPayloadDigests.includes(stored.payloadDigest)) {
     conflict(
       "IDEMPOTENCY_KEY_REUSED",
       "This idempotency key was already used for a different row mutation.",
@@ -1192,10 +1213,18 @@ export async function createDatabaseRow(
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
   const inputDigest = databaseMutationPayloadDigest("create", input);
+  const replayDigests = [
+    inputDigest,
+    legacyDatabaseMutationPayloadDigest(
+      "create",
+      input,
+      authorityScopeForContext(initial),
+    ),
+  ];
   const replay = await replayReceipt(
     initial,
     input.idempotencyKey,
-    inputDigest,
+    replayDigests,
   );
   if (replay) return replay;
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
@@ -1215,7 +1244,7 @@ export async function createDatabaseRow(
       const lockedReplay = await replayReceipt(
         locked,
         input.idempotencyKey,
-        inputDigest,
+        replayDigests,
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
@@ -1263,10 +1292,18 @@ export async function updateDatabaseRow(
   const initial = await loadContext(input.target, "editor");
   await assertAccess("document", input.documentId, "editor");
   const inputDigest = databaseMutationPayloadDigest("update", input);
+  const replayDigests = [
+    inputDigest,
+    legacyDatabaseMutationPayloadDigest(
+      "update",
+      input,
+      authorityScopeForContext(initial),
+    ),
+  ];
   const replay = await replayReceipt(
     initial,
     input.idempotencyKey,
-    inputDigest,
+    replayDigests,
   );
   if (replay) return replay;
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
@@ -1286,7 +1323,7 @@ export async function updateDatabaseRow(
       const lockedReplay = await replayReceipt(
         locked,
         input.idempotencyKey,
-        inputDigest,
+        replayDigests,
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
@@ -1364,10 +1401,18 @@ export async function upsertDatabaseRow(
     );
   }
   const inputDigest = databaseMutationPayloadDigest("upsert", input);
+  const replayDigests = [
+    inputDigest,
+    legacyDatabaseMutationPayloadDigest(
+      "upsert",
+      input,
+      authorityScopeForContext(initial),
+    ),
+  ];
   const replay = await replayReceipt(
     initial,
     input.idempotencyKey,
-    inputDigest,
+    replayDigests,
   );
   if (replay) return replay;
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
@@ -1427,7 +1472,7 @@ export async function upsertDatabaseRow(
       const lockedReplay = await replayReceipt(
         locked,
         input.idempotencyKey,
-        inputDigest,
+        replayDigests,
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;

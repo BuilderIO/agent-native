@@ -17,6 +17,8 @@ function successfulCreateCall(
       ...scenario.expectedCreateEnvelope,
       ...propertyInput,
     },
+    startedAtEventIndex: 4,
+    completedAtEventIndex: 5,
     completed: true,
     completedSideEffect: true,
     isError: false,
@@ -43,6 +45,8 @@ function successfulDiscoveryDetails(
     {
       name: "list-content-databases",
       input: { title: "PR #3314 feedback" },
+      startedAtEventIndex: 0,
+      completedAtEventIndex: 1,
       completed: true,
       isError: false,
       result: JSON.stringify({
@@ -54,10 +58,22 @@ function successfulDiscoveryDetails(
       input: {
         databaseId: scenario.expectedCreateEnvelope?.target.databaseId,
       },
+      startedAtEventIndex: 2,
+      completedAtEventIndex: 3,
       completed: true,
       isError: false,
       result: JSON.stringify({
-        mutationContract: scenario.expectedCreateEnvelope,
+        mutationContract: {
+          ...scenario.expectedCreateEnvelope,
+          properties: Object.entries(scenario.expectedPropertyTypes ?? {}).map(
+            ([id, type]) => ({
+              id,
+              type,
+              writable: true,
+              sourceManaged: false,
+            }),
+          ),
+        },
       }),
     },
   ];

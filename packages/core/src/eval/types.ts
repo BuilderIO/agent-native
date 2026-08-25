@@ -35,6 +35,8 @@ export interface AgentRunOutput {
   readonly toolCallDetails?: readonly {
     readonly name: string;
     readonly input: unknown;
+    readonly startedAtEventIndex?: number;
+    readonly completedAtEventIndex?: number;
     readonly completed?: boolean;
     readonly completedSideEffect?: boolean;
     readonly isError?: boolean;

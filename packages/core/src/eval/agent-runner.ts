@@ -124,6 +124,8 @@ export async function createAgentRunner(
       name: string;
       id?: string;
       input: unknown;
+      startedAtEventIndex: number;
+      completedAtEventIndex?: number;
       completed?: boolean;
       completedSideEffect?: boolean;
       isError?: boolean;
@@ -131,12 +133,14 @@ export async function createAgentRunner(
     }> = [];
     let ok = true;
     let error: string | undefined;
+    let eventIndex = 0;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const started = Date.now();
 
     const send = (event: AgentChatEvent): void => {
+      const currentEventIndex = eventIndex++;
       switch (event.type) {
         case "text":
           text += event.text;
@@ -147,6 +151,7 @@ export async function createAgentRunner(
             name: event.tool,
             id: event.id,
             input: event.input,
+            startedAtEventIndex: currentEventIndex,
           });
           break;
         case "tool_done": {
@@ -157,6 +162,7 @@ export async function createAgentRunner(
               );
           if (detail) {
             detail.completed = true;
+            detail.completedAtEventIndex = currentEventIndex;
             detail.completedSideEffect = event.completedSideEffect;
             detail.isError = event.isError === true;
             detail.result = event.result;

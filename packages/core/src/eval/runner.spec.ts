@@ -328,6 +328,8 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
       {
         name: "search",
         input: {},
+        startedAtEventIndex: 1,
+        completedAtEventIndex: 2,
         completed: true,
         completedSideEffect: true,
         isError: false,
@@ -336,6 +338,8 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
       {
         name: "update",
         input: {},
+        startedAtEventIndex: 3,
+        completedAtEventIndex: 4,
         completed: true,
         completedSideEffect: false,
         isError: false,

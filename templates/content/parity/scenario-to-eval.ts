@@ -245,6 +245,7 @@ function expectedPropertyValuesScorer(
       const inspectCall = (run.toolCallDetails ?? []).find(
         (call) => call.name === "get-content-database",
       );
+      const createCall = createCalls[0];
       const listInput = listCall?.input as Record<string, unknown> | undefined;
       const inspectInput = inspectCall?.input as
         | Record<string, unknown>
@@ -265,6 +266,18 @@ function expectedPropertyValuesScorer(
         inspectCall.isError
       ) {
         invalid.push("database discovery calls did not complete successfully");
+      }
+      if (
+        listCall?.completedAtEventIndex === undefined ||
+        inspectCall?.startedAtEventIndex === undefined ||
+        listCall.completedAtEventIndex >= inspectCall.startedAtEventIndex ||
+        inspectCall.completedAtEventIndex === undefined ||
+        createCall?.startedAtEventIndex === undefined ||
+        inspectCall.completedAtEventIndex >= createCall.startedAtEventIndex
+      ) {
+        invalid.push(
+          "database discovery results were not available before dependent calls started",
+        );
       }
       if (expectedEnvelope) {
         const listResult = parseToolResultJson(listCall?.result) as
@@ -292,6 +305,7 @@ function expectedPropertyValuesScorer(
                 target?: Record<string, unknown>;
                 schemaRevision?: string;
                 expectedSchemaRevision?: string;
+                properties?: Array<Record<string, unknown>>;
               };
             }
           | undefined;
@@ -310,6 +324,25 @@ function expectedPropertyValuesScorer(
           invalid.push(
             "get-content-database result did not supply the expected mutation contract",
           );
+        }
+        const discoveredProperties = new Map(
+          (inspectResult?.mutationContract?.properties ?? []).map(
+            (property) => [property.id, property],
+          ),
+        );
+        for (const [propertyId, expectedType] of Object.entries(
+          expectedTypes ?? {},
+        )) {
+          const property = discoveredProperties.get(propertyId);
+          if (
+            property?.type !== expectedType ||
+            property.writable !== true ||
+            property.sourceManaged === true
+          ) {
+            invalid.push(
+              `discovery did not supply writable property ${propertyId} with type ${expectedType}`,
+            );
+          }
         }
       }
       for (const [propertyId, expectedType] of Object.entries(
