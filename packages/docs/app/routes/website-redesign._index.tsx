@@ -128,7 +128,6 @@ export default function WebsiteRedesignHomepage() {
       <PageSection>
         <GridInner
           style={{
-            ...borderTopStyle(),
             padding: "var(--spacing-30) var(--spacing-10) var(--spacing-20)",
           }}
         >
