@@ -58,7 +58,13 @@ export const PageSection = forwardRef<HTMLElement, PageSectionProps>(function Pa
   return (
     <Tag
       ref={ref}
-      style={{ position: "relative", width: "100%", overflow: "hidden", ...style }}
+      style={{
+        position: "relative",
+        width: "100%",
+        overflow: "hidden",
+        isolation: "isolate",
+        ...style,
+      }}
       {...rest}
     >
       {showGrid && <GridLines positions={gridLines === "edges" ? [0, 1] : LINE_POSITIONS} />}
