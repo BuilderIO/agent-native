@@ -9,7 +9,9 @@ interface TabItemProps {
 
 function focusAdjacentTab(e: KeyboardEvent<HTMLButtonElement>, offset: number) {
   const tabItems = Array.from(
-    e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('button[data-tab-item="true"]') ?? [],
+    e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+      'button[data-tab-item="true"]',
+    ) ?? [],
   );
   const currentIndex = tabItems.indexOf(e.currentTarget);
   if (currentIndex === -1) return;
@@ -19,7 +21,12 @@ function focusAdjacentTab(e: KeyboardEvent<HTMLButtonElement>, offset: number) {
   nextTab?.click();
 }
 
-export function TabItem({ active, onClick, children, forceState }: TabItemProps) {
+export function TabItem({
+  active,
+  onClick,
+  children,
+  forceState,
+}: TabItemProps) {
   const isActive = forceState ? forceState === "active" : active;
   const isHovered = forceState === "hover";
 
@@ -57,10 +64,12 @@ export function TabItem({ active, onClick, children, forceState }: TabItemProps)
         fontSize: "var(--b-t-label-1)",
         fontWeight: 600,
         letterSpacing: "0.02em",
-        padding: "8px 14px",
+        padding: "14px 14px",
         border: "none",
         outline: "none",
-        boxShadow: isActive ? "inset 0 -2px 0 0 var(--b-action-tab-indicator)" : "none",
+        boxShadow: isActive
+          ? "inset 0 -2px 0 0 var(--b-action-tab-indicator)"
+          : "none",
         cursor: "pointer",
         transition: "background 0.15s, color 0.15s",
         // Showcase-only: forceState="hover" must render regardless of real
