@@ -81,6 +81,8 @@ The verified owner exceptions are:
 
  - Alice (`3mdistal`) - Content
  - Nick (`NKoech123`) - Slides
+ - Shomix (`shomix`) - Clips, only when the PR is specific to the Clips
+   app
  - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
    app
  - Sid (`sidmohanty11`) - Design
@@ -100,6 +102,13 @@ Treat a PR as Factory-specific only when the changed behavior is limited to
 Factory app paths and Factory-owned actions, instructions, locales, or tests.
 Shared framework changes that materially affect other apps, Slack ingestion,
 core runtime, or deployment remain on the standard gate.
+
+For a verified PR authored by Shomix (`shomix`) and limited to Clips app or
+template behavior, including supporting shared framework or Desktop plumbing
+required by that Clips feature, auto-approve by default. This includes that
+owner's UX changes, refactors, failed or pending checks, and ordinary unresolved
+human or bot feedback. The owner exception overrides the normal UX-owner,
+narrow-refactor, check, and review-resolution gates.
 
 For a verified PR authored by Sid, or by Enzo when the PR is Factory-specific,
 auto-approve by default, including that owner's UX changes, refactors, failed
@@ -160,7 +169,7 @@ loading states, accessibility behavior, and user-facing defaults.
 The current app-owner map is:
 
  - Alice (`3mdistal`) - Content
- - Milos - Clips
+ - Shomix (`shomix`) - Clips
  - Nick (`NKoech123`) - Slides
  - Nicholas - Analytics
  - Enzo (`enzoames`) - Factory
