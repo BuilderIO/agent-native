@@ -275,8 +275,6 @@
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  border: 1px solid var(--b-border-default);
-  padding: var(--spacing-6) 0;
 }
 
 .builder-brand-tokens .app-carousel-viewport::-webkit-scrollbar {
@@ -286,8 +284,8 @@
 .builder-brand-tokens .app-carousel-track {
   display: flex;
   width: max-content;
-  gap: var(--spacing-6);
-  padding: 0 var(--spacing-6);
+  border-top: 1px solid var(--b-border-subtle);
+  border-bottom: 1px solid var(--b-border-subtle);
 }
 
 .builder-brand-tokens .app-carousel-card {
@@ -297,12 +295,15 @@
   width: 320px;
   flex-shrink: 0;
   scroll-snap-align: start;
-  border: 1px solid var(--b-border-subtle);
-  border-radius: var(--b-radius);
+  border-left: 1px solid var(--b-border-subtle);
   overflow: hidden;
   text-decoration: none;
   background: var(--b-bg-page);
   transition: background-color 0.15s;
+}
+
+.builder-brand-tokens .app-carousel-card:last-child {
+  border-right: 1px solid var(--b-border-subtle);
 }
 
 .builder-brand-tokens .app-carousel-card:hover {
