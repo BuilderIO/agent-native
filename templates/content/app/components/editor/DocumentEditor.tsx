@@ -104,6 +104,7 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
+import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
 import {
   classifyLocalSourceRead,
   localSourceRevisionForQueuedEdit,
@@ -2011,6 +2012,9 @@ function DocumentEditorBody({
       registry={contentBlockRegistry}
       ctx={blockRenderContext}
     >
+      {isLinkedLocalSourceDocument ? (
+        <LinkedLocalDocumentAgentBridge document={document} />
+      ) : null}
       <div
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root

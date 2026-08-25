@@ -5,6 +5,7 @@ import {
   hasCollabState,
   searchAndReplace,
 } from "@agent-native/core/collab";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -17,11 +18,13 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
 interface TextEdit {
   find: string;
@@ -111,45 +114,26 @@ export default defineAction({
 
     // ─── Apply edits to the document markdown ───────────────────────────────
     //
-    // The agent edits the canonical `documents.content` (markdown is the source
-    // of truth). The change is delivered live to any open editor through the
-    // framework's normal change-sync: the action bump refetches `get-document`,
-    // and the editor reconciles the newer content into the live Y.Doc — parsing
-    // the markdown through the real editor pipeline so new block structure
-    // (lists, headings, tables) renders correctly and merges with any
-    // concurrent human edits via the Yjs CRDT. See the `real-time-collab` skill.
+    // Native documents edit canonical `documents.content`. A linked local file
+    // instead commits through its exact live source bridge before SQL mirrors
+    // the accepted bytes. The SQL change is delivered to open editors through
+    // normal change-sync and parsed through the real editor pipeline so new
+    // block structure renders correctly and merges through Yjs.
     //
     // (The old approach POSTed a Yjs search-replace to a localhost collab origin,
     // which silently no-oped on serverless — different process, no localhost —
     // and could only patch text inside existing nodes, never create structure.)
-    let content: string = existing.content ?? "";
-    const results: string[] = [];
-    let changeCount = 0;
-    const appliedEdits: TextEdit[] = [];
-
-    for (const edit of edits) {
-      const idx = content.indexOf(edit.find);
-      if (idx === -1) {
-        results.push(
-          `NOT FOUND: "${edit.find.slice(0, 60)}${edit.find.length > 60 ? "..." : ""}"`,
-        );
-        continue;
-      }
-      content =
-        content.slice(0, idx) +
-        edit.replace +
-        content.slice(idx + edit.find.length);
-      changeCount++;
-      appliedEdits.push(edit);
-      const action = edit.replace === "" ? "deleted" : "replaced";
-      results.push(
-        `${action}: "${edit.find.slice(0, 40)}${edit.find.length > 40 ? "..." : ""}"`,
-      );
-    }
+    const applied = applyDocumentTextEdits(existing.content ?? "", edits);
+    let { content } = applied;
+    const { results, appliedEdits, changeCount } = applied;
 
     if (changeCount === 0) {
       return { applied: 0, total: edits.length, results };
     }
+
+    let linkedLocalPersistence:
+      | { status: "persisted"; path: string; runtime: "browser" | "desktop" }
+      | undefined;
 
     const previousGeneration =
       args.contextModeOverride === "off"
@@ -237,39 +221,93 @@ export default defineAction({
       };
     }
 
+    const isLinkedLocalSource =
+      existing.sourceMode === "local-files" &&
+      existing.sourceKind !== "folder" &&
+      Boolean(existing.sourcePath);
+    if (isLinkedLocalSource) {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) {
+        return {
+          applied: 0,
+          total: edits.length,
+          results,
+          persistence: "unavailable",
+          error:
+            "No authenticated user is available for the local source write.",
+        };
+      }
+      const receipt = await editLinkedLocalDocumentThroughBrowser({
+        ownerEmail,
+        documentId: id,
+        expectedContent: existing.content ?? "",
+        edits,
+      });
+      if (receipt.status !== "persisted") {
+        return {
+          applied: 0,
+          total: edits.length,
+          results,
+          persistence: receipt.status,
+          error: receipt.error,
+        };
+      }
+      content = receipt.content;
+      linkedLocalPersistence = {
+        status: receipt.status,
+        path: receipt.path,
+        runtime: receipt.runtime,
+      };
+    }
+
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an
     // intentional external edit apart from a stale autosave echo.
     const db = getDb();
     const now = new Date().toISOString();
-    await db.transaction(async (tx: any) => {
-      const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
-      await tx
-        .update(schema.documents)
-        .set({ content, updatedAt: now })
-        .where(eq(schema.documents.id, id));
-      for (const field of primaryBlocksFields) {
-        await persistBlocksFieldIdentity({
-          db: tx as unknown as ReturnType<typeof getDb>,
-          ownerEmail: field.ownerEmail,
-          documentId: id,
-          propertyId: field.propertyId,
-          previousMarkdown: existing.content ?? "",
-          markdown: content,
-          now,
-        });
-      }
-      if (creativeContext) {
-        await recordGenerationCreativeContext(
-          {
-            appId: "content",
-            artifactType: "document",
-            artifactId: id,
-            ...creativeContext,
-          },
-          { db: tx },
-        );
-      }
-    });
+    try {
+      await db.transaction(async (tx: any) => {
+        const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
+        await tx
+          .update(schema.documents)
+          .set({ content, updatedAt: now })
+          .where(eq(schema.documents.id, id));
+        for (const field of primaryBlocksFields) {
+          await persistBlocksFieldIdentity({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            ownerEmail: field.ownerEmail,
+            documentId: id,
+            propertyId: field.propertyId,
+            previousMarkdown: existing.content ?? "",
+            markdown: content,
+            now,
+          });
+        }
+        if (creativeContext) {
+          await recordGenerationCreativeContext(
+            {
+              appId: "content",
+              artifactType: "document",
+              artifactId: id,
+              ...creativeContext,
+            },
+            { db: tx },
+          );
+        }
+      });
+    } catch (error) {
+      if (!linkedLocalPersistence) throw error;
+      return {
+        applied: changeCount,
+        total: edits.length,
+        results,
+        persistence: "source-persisted/history-pending",
+        path: linkedLocalPersistence.path,
+        error:
+          error instanceof Error
+            ? error.message
+            : "The local file changed, but Content history was not updated.",
+      };
+    }
 
     // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
     // binds the TipTap Y.XmlFragment("default"), so a live editing session is
@@ -311,6 +349,13 @@ export default defineAction({
       applied: changeCount,
       total: edits.length,
       results,
+      ...(linkedLocalPersistence
+        ? {
+            persistence: linkedLocalPersistence.status,
+            path: linkedLocalPersistence.path,
+            runtime: linkedLocalPersistence.runtime,
+          }
+        : {}),
       contentFidelity: inspectNfmFidelity(content),
       ...(creativeContext
         ? {
