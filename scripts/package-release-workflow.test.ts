@@ -46,14 +46,28 @@ describe("npm package release workflow", () => {
     assert.doesNotMatch(source, /AGENT_NATIVE_NPM_DIST_TAG: beta/);
   });
 
-  it("keeps stable changesets flowing on main pushes", () => {
+  it("keeps stable releases behind a manual dispatch or marked merge", () => {
     const release = jobs.release as Workflow;
     const condition = String(release.if);
     const notify = jobs["notify-downstream"] as Workflow;
 
-    assert.equal(condition, "${{ !inputs.redispatchDownstream }}");
+    assert.match(condition, /^!inputs\.redispatchDownstream\s*&&/);
+    assert.match(condition, /github\.event_name == 'workflow_dispatch'/);
+    assert.match(
+      condition,
+      /github\.event_name == 'push' && contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
+    assert.doesNotMatch(condition, /\$\{\{ !inputs\.redispatchDownstream \}\}/);
     assert.deepEqual(notify.needs, ["release"]);
-    assert.equal(String(notify.if), "always()");
+    assert.match(String(notify.if), /github\.event_name == 'workflow_dispatch'/);
+  });
+
+  it("uses calculated semver bases for nightly snapshots", () => {
+    const config = JSON.parse(
+      readFileSync(".changeset/config.json", "utf8"),
+    ) as { snapshot?: { useCalculatedVersion?: boolean } };
+
+    assert.equal(config.snapshot?.useCalculatedVersion, true);
   });
 
   it("keeps the release changeset package list aligned with the publisher", () => {
