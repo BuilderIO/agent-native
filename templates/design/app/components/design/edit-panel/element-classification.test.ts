@@ -13,11 +13,16 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import type { AutoLayoutSizingAxis } from "../inspector";
 import type { ElementInfo } from "../types";
 import {
+  availableSizingForElement,
   commitElementMinMax,
+  commitElementSizing,
   componentNameForElementInfo,
+  inferElementSizing,
   isContainerElement,
+  measuredElementSize,
   isTextElement,
 } from "./element-classification";
 
@@ -297,5 +302,171 @@ describe("commitElementMinMax — meta forwarding", () => {
     const onStyleChange = vi.fn();
     commitElementMinMax("horizontal", "max", null, onStyleChange);
     expect(onStyleChange).toHaveBeenCalledWith("maxWidth", "none", undefined);
+  });
+});
+
+// Clip B 16:39-16:46 (7xCLOlVaAj3n): the reviewer repeatedly sets "Hug
+// contents" on the `1W` button of a 1D/1W/1M/1Y segmented control and the
+// inspector keeps reading W 42px, X 754, Y 340, Grow 0 / Shrink 1 /
+// Basis auto across four sampled frames six seconds apart. `button` is in
+// neither the container nor the text tag set, so Hug was never in the
+// offered options at all.
+describe("availableSizingForElement — hug availability", () => {
+  const hugFor = (element: ElementInfo, axis: AutoLayoutSizingAxis) =>
+    availableSizingForElement(element)[axis]?.includes("hug") ?? false;
+
+  it("offers hug on a button that is a flex child", () => {
+    const element = makeElement({
+      tagName: "button",
+      isFlexChild: true,
+      parentDisplay: "flex",
+      computedStyles: { width: "42px", height: "29.5px" },
+      parentLayout: { flexDirection: "row" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it.each(["td", "th", "summary", "figcaption", "output"])(
+    "offers hug on <%s>, which is in neither tag set",
+    (tagName) => {
+      expect(hugFor(makeElement({ tagName }), "horizontal")).toBe(true);
+    },
+  );
+
+  it.each(["img", "input", "svg", "iframe", "select"])(
+    "withholds hug from the replaced leaf <%s>",
+    (tagName) => {
+      expect(hugFor(makeElement({ tagName }), "horizontal")).toBe(false);
+    },
+  );
+
+  it("withholds hug from a drawn shape, which has no content to measure", () => {
+    const element = makeElement({ tagName: "div", primitiveKind: "ellipse" });
+    expect(hugFor(element, "horizontal")).toBe(false);
+  });
+});
+
+describe("inferElementSizing — authored vs resolved size", () => {
+  it("reads hug from the authored width when computedStyles resolved it to px", () => {
+    // A bridge selection payload: getComputedStyle always resolves
+    // width:fit-content to a pixel value, so computedStyles alone can never
+    // report hug.
+    const element = makeElement({
+      computedStyles: { width: "68px" },
+      inlineStyles: { width: "fit-content" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("hug");
+  });
+
+  it("still reports fixed when the authored width is a pixel value", () => {
+    const element = makeElement({
+      computedStyles: { width: "42px" },
+      inlineStyles: { width: "42px" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+  });
+
+  it("does not call an unknown parent direction the cross axis", () => {
+    // Projection payloads omit parentLayout. Defaulting the direction to
+    // horizontal made every vertical axis look like the cross axis, so an
+    // align-self:stretch child read as "fill" on height.
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      computedStyles: { height: "120px", alignSelf: "stretch" },
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("fixed");
+  });
+});
+
+describe("commitElementSizing — hug must undo a previous fill", () => {
+  it("clears the cross-axis stretch a prior Fill wrote", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { flexDirection: "row" },
+      computedStyles: { height: "120px", alignSelf: "stretch" },
+    });
+    commitElementSizing(
+      element,
+      "vertical",
+      "hug",
+      onStyleChange,
+      onStylesChange,
+    );
+    const patch = onStylesChange.mock.calls[0]?.[0] as Record<string, string>;
+    expect(patch.height).toBe("fit-content");
+    expect(patch.alignSelf).toBe("auto");
+  });
+
+  it("uses justifySelf for a grid child's horizontal axis, both ways", () => {
+    const element = makeElement({
+      parentDisplay: "grid",
+      computedStyles: { width: "200px" },
+    });
+    const fill = vi.fn();
+    commitElementSizing(element, "horizontal", "fill", vi.fn(), fill);
+    expect(
+      (fill.mock.calls[0]?.[0] as Record<string, string>).justifySelf,
+    ).toBe("stretch");
+    const hug = vi.fn();
+    commitElementSizing(element, "horizontal", "hug", vi.fn(), hug);
+    expect((hug.mock.calls[0]?.[0] as Record<string, string>).justifySelf).toBe(
+      "auto",
+    );
+  });
+});
+
+// The W field showed "437 Hug" — the mode was right, the number was the
+// pre-commit boundingRect. Figma re-measures and shows the real width; without
+// a fresh measurement the only honest readout is none.
+describe("measuredElementSize", () => {
+  it("reports the resolved px when the payload has one", () => {
+    const element = makeElement({
+      computedStyles: { width: "202px" },
+      boundingRect: { x: 0, y: 0, width: 202, height: 20 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBe(202);
+  });
+
+  it("reports null for a keyword size instead of the stale rect", () => {
+    const element = makeElement({
+      computedStyles: { width: "fit-content" },
+      boundingRect: { x: 0, y: 0, width: 202, height: 20 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBeNull();
+  });
+
+  it.each(["auto", "max-content", "min-content"])(
+    "treats %s as unmeasurable",
+    (value) => {
+      expect(
+        measuredElementSize(
+          makeElement({
+            computedStyles: { height: value },
+            boundingRect: { x: 0, y: 0, width: 10, height: 44 },
+          }),
+          "vertical",
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("falls back to the rect when computed styles carry no size at all", () => {
+    const element = makeElement({
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 120, height: 40 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBe(120);
+  });
+
+  it("reports null when neither source has a usable number", () => {
+    const element = makeElement({
+      computedStyles: { width: "fit-content" },
+      boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBeNull();
   });
 });

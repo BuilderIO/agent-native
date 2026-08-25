@@ -207,6 +207,7 @@ import {
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
+import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import {
   mergeRotationValue,
@@ -268,6 +269,10 @@ import {
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  designPreviewWindows,
+  requestSelectionMeasurement,
+} from "@/components/design/multi-screen/measure-selection";
 import type {
   CanvasLayerMarqueeSelection,
   CanvasPrimitiveInsert,
@@ -9397,6 +9402,40 @@ function DesignEditor() {
   );
 
   // ── Style commit ───────────────────────────────────────────────────────────
+  // Hug/Fill resolve to a px width only inside the iframe, so the inspector
+  // has no current number until the bridge measures one. Reacting to the
+  // keyword rather than hooking each write path covers inspector commits,
+  // agent edits and undo alike.
+  const selectedKeywordSize =
+    selectedElement &&
+    sizeNeedsMeasurement(selectedElement.computedStyles) &&
+    selectedElement.selector
+      ? selectedElement.selector
+      : null;
+  useEffect(() => {
+    if (!selectedKeywordSize) return;
+    let cancelled = false;
+    void requestSelectionMeasurement({
+      targetWindows: designPreviewWindows(),
+      selector: selectedKeywordSize,
+    }).then((measured) => {
+      if (cancelled || !measured) return;
+      setSelectedElement((prev) =>
+        prev && prev.selector === selectedKeywordSize
+          ? {
+              ...prev,
+              boundingRect: measured.boundingRect,
+              computedStyles: measured.computedStyles,
+              inlineStyles: measured.inlineStyles,
+            }
+          : prev,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedKeywordSize]);
+
   const commitVisualStyles = useCallback(
     (
       selector: string,

@@ -295,6 +295,7 @@ import {
   captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
+  getCrossScreenGhostStyle,
   isCrossScreenDropAxis,
   isCrossScreenDropMode,
   isCrossScreenDropPlacement,
@@ -8849,16 +8850,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             // Board-origin drags use the real layer size/top-left so the
             // proxy stays above screen iframes; screen-origin drags keep the
             // older compact cursor ghost.
-            left:
-              pan.x +
-              (SURFACE_PADDING + crossScreenGhost.boardX) * scale -
-              (crossScreenGhost.width ? 0 : 8),
-            top:
-              pan.y +
-              (SURFACE_PADDING + crossScreenGhost.boardY) * scale -
-              (crossScreenGhost.height ? 0 : 8),
-            width: Math.max(1, (crossScreenGhost.width ?? 16) * scale),
-            height: Math.max(1, (crossScreenGhost.height ?? 16) * scale),
+            ...getCrossScreenGhostStyle({
+              ghost: crossScreenGhost,
+              pan,
+              scale,
+            }),
             opacity: crossScreenGhost.dimmed ? 0.4 : 1,
           }}
         />

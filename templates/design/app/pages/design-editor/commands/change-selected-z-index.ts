@@ -86,14 +86,16 @@ export function runChangeSelectedZIndex(
       10,
     );
     const base = Number.isFinite(current) ? current : 0;
+    // Back must go negative: a positioned element at `z-index: 0` still paints
+    // above its static in-flow siblings, so clamping at 0 sent it to the front.
     const next =
       mode === "front"
         ? 999
         : mode === "back"
-          ? 0
+          ? -1
           : mode === "forward"
             ? base + 1
-            : Math.max(0, base - 1);
+            : base - 1;
     commitVisualStyles(selector, {
       position:
         currentSelectedElement.computedStyles.position === "static"
@@ -103,9 +105,19 @@ export function runChangeSelectedZIndex(
     });
   };
 
+  // Reordering markup is a pure paint-order change only for an element that
+  // takes no space. An in-flow element moves on screen too — that is why a
+  // bare `Ctrl+[` displaced a rectangle 97px down the frame.
+  const position = (
+    currentSelectedElement.inlineStyles?.position ||
+    currentSelectedElement.computedStyles.position ||
+    ""
+  ).toLowerCase();
+  const outOfFlow = position === "absolute" || position === "fixed";
+
   const targetId =
     selectedLayerIdsState.length === 1 ? selectedLayerIdsState[0] : undefined;
-  if (!targetId || !activeFile) {
+  if (!targetId || !activeFile || !outOfFlow) {
     zIndexFallback();
     return;
   }

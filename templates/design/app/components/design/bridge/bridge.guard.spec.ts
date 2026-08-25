@@ -46,6 +46,8 @@ declare global {
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const designRoot = resolve(__dirname, "../../../..");
+import { AUTHORED_INLINE_STYLE_PROPERTIES } from "../edit-panel/interaction-state-helpers";
+
 const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
 
@@ -11027,3 +11029,146 @@ it(
     }
   },
 );
+
+// ── Free-form drop affordance is decided by layout, not by tag ─────────────
+//
+// Clip B 14:15 (7xCLOlVaAj3n): dragging into a group whose Flow was set to
+// "Normal flow" drew a full-width insertion line — "insert between these
+// two" — when the truthful affordance is "put it inside this". A wrapNodes
+// group wrapper carries no data-an-primitive and generated containers are
+// often <section>, so the old tag check excluded exactly the free-form cases
+// the box was built for.
+
+it(
+  "hit-test bridge treats an unmarked absolute group with children as a free-form container",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      // Byte-for-byte the wrapper shape applyWrapNodes emits for Cmd+G.
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="group" data-agent-native-node-id="group" data-agent-native-layer-name="Group 2" style="position:absolute;left:300px;top:180px;width:220px;height:160px">
+          <div data-agent-native-node-id="c1" style="position:absolute;left:0;top:0;width:40px;height:40px"></div>
+          <div data-agent-native-node-id="c2" style="position:absolute;left:0;top:80px;width:40px;height:40px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "group-container",
+                x: 460,
+                y: 260,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string; placement: string; dropMode: string };
+
+      expect(reply.anchorNodeId).toBe("group");
+      expect(reply.placement).toBe("inside");
+      expect(reply.dropMode).toBe("absolute-container");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge treats an unmarked absolute <section> with children as a free-form container",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <section id="sec" data-agent-native-node-id="sec" style="position:absolute;left:300px;top:180px;width:220px;height:160px">
+          <div data-agent-native-node-id="c1" style="position:absolute;left:0;top:0;width:40px;height:40px"></div>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "section-container",
+                x: 460,
+                y: 300,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string; placement: string; dropMode: string };
+
+      expect(reply.anchorNodeId).toBe("sec");
+      expect(reply.dropMode).toBe("absolute-container");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
+  const extract = (filename: string) => {
+    const source = readFileSync(join(bridgeDir, filename), "utf-8");
+    const start = source.indexOf(
+      "  function isAbsolutePrimitiveContainer(el: Element | null): boolean {",
+    );
+    expect(
+      start,
+      `${filename} defines isAbsolutePrimitiveContainer`,
+    ).toBeGreaterThan(-1);
+    const end = source.indexOf("\n  }\n", start);
+    return source.slice(start, end);
+  };
+
+  // The two bridges are separate injected IIFEs with no shared module, so the
+  // only thing keeping their drop-target answers from diverging is this pin.
+  expect(extract("hit-test.bridge.ts")).toBe(
+    extract("editor-chrome.bridge.ts"),
+  );
+});
+
+it("keeps the authored inline-style key list in sync with the bridge", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var INLINE_STYLE_PROPERTIES = [");
+  expect(start).toBeGreaterThan(-1);
+  const bridgeKeys = [
+    ...bridge
+      .slice(start, bridge.indexOf("];", start))
+      .matchAll(/"([a-zA-Z]+)"/g),
+  ].map((m) => m[1]);
+
+  // A commit patches ElementInfo.inlineStyles using the host-side copy of this
+  // list; a key the bridge reports but the host omits reads back stale.
+  expect([...AUTHORED_INLINE_STYLE_PROPERTIES]).toEqual(bridgeKeys);
+});
