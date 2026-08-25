@@ -29,9 +29,73 @@ import {
   createAgentEngineApiKeyHandler,
   normalizeAgentEngineApiKeyPayload,
   resolveAgentEngineApiKeyWriteTarget,
+  validateAgentEngineProviderKey,
 } from "./agent-engine-api-key-route.js";
 
 describe("agent engine api-key route helpers", () => {
+  it("validates OpenRouter keys against the models endpoint", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      validateAgentEngineProviderKey("OPENROUTER_API_KEY", "sk-or-example"),
+    ).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer sk-or-example" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("returns a replacement-key error when OpenRouter rejects a key", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 401 })),
+    );
+
+    await expect(
+      validateAgentEngineProviderKey("OPENROUTER_API_KEY", "sk-or-example"),
+    ).resolves.toEqual({
+      ok: false,
+      statusCode: 400,
+      error:
+        "OpenRouter rejected this API key. Get a new key from OpenRouter and try again.",
+    });
+  });
+
+  it("does not store a rejected OpenRouter key", async () => {
+    mockWriteAppSecret.mockClear();
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 403 })),
+    );
+
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openrouter",
+          apiKey: "sk-or-example",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      error:
+        "OpenRouter rejected this API key. Get a new key from OpenRouter and try again.",
+    });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
   it("rejects private provider endpoints at the server validation boundary", async () => {
     mockIsBlockedExtensionUrlWithDns.mockResolvedValueOnce(true);
 

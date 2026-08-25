@@ -30,12 +30,50 @@ const BASE_URL_KEYS = new Set([
   OLLAMA_BASE_URL_ENV_VAR,
 ]);
 const OPENAI_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openai") ?? "";
+const OPENROUTER_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openrouter") ?? "";
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 type AgentEngineApiKeyScope = "user" | "org";
 
 export interface AgentEngineApiKeyWriteTarget {
   scope: AgentEngineApiKeyScope;
   scopeId: string;
+}
+
+export async function validateAgentEngineProviderKey(
+  key: string,
+  value: string,
+): Promise<{ ok: true } | { ok: false; statusCode: number; error: string }> {
+  if (key !== OPENROUTER_PROVIDER_KEY) return { ok: true };
+
+  try {
+    const response = await fetch(OPENROUTER_MODELS_URL, {
+      headers: { Authorization: `Bearer ${value}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (response.ok) return { ok: true };
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error:
+          "OpenRouter rejected this API key. Get a new key from OpenRouter and try again.",
+      };
+    }
+    return {
+      ok: false,
+      statusCode: 502,
+      error:
+        "OpenRouter could not verify this API key right now. Try again in a moment.",
+    };
+  } catch {
+    return {
+      ok: false,
+      statusCode: 502,
+      error:
+        "Could not reach OpenRouter to verify this API key. Check your connection and try again.",
+    };
+  }
 }
 
 export function normalizeAgentEngineApiKeyPayload(body: unknown):
@@ -222,6 +260,14 @@ export function createAgentEngineApiKeyHandler() {
     }
 
     if (payload.value) {
+      const keyValidation = await validateAgentEngineProviderKey(
+        payload.key,
+        payload.value,
+      );
+      if (!keyValidation.ok) {
+        setResponseStatus(event, keyValidation.statusCode);
+        return { error: keyValidation.error };
+      }
       await writeAppSecret({
         key: payload.key,
         value: payload.value,

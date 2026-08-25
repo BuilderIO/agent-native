@@ -68,6 +68,26 @@ function dispatchConfiguredChanged(): void {
   }
 }
 
+async function readProviderSettingsError(
+  response: Response,
+): Promise<string | undefined> {
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const body = JSON.parse(trimmed) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) {
+      return body.error.trim();
+    }
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    // Plain-text relay errors are the useful fallback for desktop requests.
+  }
+
+  return trimmed.startsWith("<") ? undefined : trimmed.slice(0, 500);
+}
+
 /**
  * Persist a provider API key for the current owner. Resolves on success.
  * Throws an Error with a readable message on failure. On success it also
@@ -120,10 +140,7 @@ export async function saveAgentEngineProviderSettings({
     },
   );
   if (!res.ok) {
-    const message = await res
-      .json()
-      .then((body: { error?: string }) => body?.error)
-      .catch(() => null);
+    const message = await readProviderSettingsError(res);
     throw new Error(
       message ??
         (res.status === 401
