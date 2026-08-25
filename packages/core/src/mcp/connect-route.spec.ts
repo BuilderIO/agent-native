@@ -700,3 +700,33 @@ describe("server name on a multi-label host", () => {
     );
   });
 });
+
+describe("explicit server name", () => {
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue({
+      email: "u@example.com",
+      orgId: "org-1",
+    });
+  });
+  afterEach(() => resetAppConfigForTests());
+
+  // Plan ships `plan` as its server id in
+  // `.agents/plugins/agent-native-visual-plans/.mcp.json`, and the CLI config
+  // writers key existing client entries by it. Falling back to the derived
+  // `agent-native-plan` would write a duplicate on the next connect rather than
+  // updating the entry a user already has.
+  it("wins over the derived name, prefix included", async () => {
+    defineAppConfig({ app: { id: "plan" } });
+    const res = await handleMcpConnect(
+      ev({
+        method: "POST",
+        host: "plan.agent-native.com",
+        body: { label: "laptop", ttlDays: 30 },
+      }),
+      "/token",
+      { serverName: "plan" },
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).serverName).toBe("plan");
+  });
+});

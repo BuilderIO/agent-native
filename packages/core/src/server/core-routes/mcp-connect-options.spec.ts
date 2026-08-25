@@ -68,4 +68,14 @@ describe("resolveCoreRoutesMcpOptions", () => {
     expect(resolved.appId).toBe("legacy");
     expect(resolved.appName).toBe("Legacy");
   });
+
+  it("returns an explicit serverName verbatim, without the agent-native- prefix", () => {
+    // Plan's published id is the bare `plan` — see
+    // `.agents/plugins/agent-native-visual-plans/.mcp.json`. An override is how
+    // an app pins an id clients already have in their config; the derived
+    // default would be `agent-native-plan` and would land as a second entry.
+    expect(
+      resolveCoreRoutesMcpOptions({ mcp: { serverName: "plan" } }).serverName,
+    ).toBe("plan");
+  });
 });
