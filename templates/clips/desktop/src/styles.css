@@ -4767,6 +4767,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-vertical .pill-controls {
   display: flex;
   flex-direction: column;
+  align-self: center;
+  /* The horizontal pill pushes its controls to the right with an auto margin;
+     in this column that is a 3px offset off the capsule's centre line. */
+  margin-left: 0;
   gap: 8px;
   /* The space above the transport is a margin, animated with the height. As
      padding it could not collapse below its own 8px, so the capsule kept a
@@ -4964,7 +4968,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-divider {
-  margin: 0 12px;
+  /* 14px matches the header's title and the transcript's own padding. A rule
+     that overhangs the text it separates is the misalignment you see first. */
+  margin: 0 14px;
   height: 1px;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.1);
@@ -5389,7 +5395,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .pill-inner:not(.pill-inner-compact) .pill-ask-bar {
   gap: 6px;
-  padding: 8px 12px 12px;
+  padding: 8px 14px 12px;
 }
 
 /* Inline ask conversation: a sheet rises from the composer and holds the
@@ -5598,8 +5604,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow-x: auto;
   scrollbar-width: none;
   /* No horizontal padding: it reads as extra space between the chip and its
-     label, on top of the row's own gap. */
-  padding: 2px 0;
+     label, on top of the row's own gap. Vertical padding has to clear the
+     active chip's scale AND its 2px ring, or `overflow-x` clips the ring —
+     one axis set to auto makes the other axis clip too. */
+  padding: 4px 0;
 }
 
 .pill-ask-chips[data-scrolled="true"] {
