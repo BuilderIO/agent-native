@@ -58,16 +58,22 @@ export function MeetingPill() {
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
   const [ask, setAsk] = useState("");
-  // Inline ask exchange (the Wispr interaction): the question and its answer
-  // render in the panel instead of ejecting to the web. The live agent
-  // transport lands with the catch-up-chip PR; the demo streams a canned
-  // answer so the interaction is designable today.
-  const [askThread, setAskThread] = useState<{
-    question: string;
-    answer: string;
-    streaming: boolean;
-  } | null>(null);
+  // Inline ask conversation (the Wispr interaction): a sheet rises from the
+  // composer with the running exchange — user questions as chat bubbles,
+  // streamed answers, and contextual suggestion chips. The live agent
+  // transport lands with the catch-up-chip PR; the demo streams canned
+  // answers so the interaction is designable today.
+  const [askMessages, setAskMessages] = useState<
+    Array<{ role: "user" | "assistant"; text: string; streaming?: boolean }>
+  >([]);
+  const [askSheetOpen, setAskSheetOpen] = useState(false);
+  const [askSheetHeight, setAskSheetHeight] = useState(0.62);
   const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const askSheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const sheetDragRef = useRef<{
+    startY: number;
+    startHeight: number;
+  } | null>(null);
   const activeMeetingIdRef = useRef<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
@@ -333,32 +339,41 @@ export function MeetingPill() {
     }
   };
 
-  const handleAskSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const question = ask.trim();
+  const submitAsk = (question: string) => {
     const mid = activeMeetingIdRef.current;
     if (!question || !mid) return;
-    setAsk("");
     if (pillDemoMode) {
       if (askStreamRef.current) clearInterval(askStreamRef.current);
-      const full =
-        "You landed on three questions after swapping out the design system one. The open risk is indexing time (up to an hour); the fallback is pinning the previous index and swapping when the fresh one lands.";
-      const words = full.split(" ");
+      const canned = question.toLowerCase().includes("miss")
+        ? "Your key points since you tuned out:\n1. The question set is final: three questions, with the design system one swapped out yesterday.\n2. Indexing risk: it can take up to an hour, raised as the main open concern.\n3. Fallback agreed: pin the previous index and swap when the fresh one lands."
+        : "You landed on three questions after swapping out the design system one. The open risk is indexing time (up to an hour); the fallback is pinning the previous index and swapping when the fresh one lands.";
+      const words = canned.split(" ");
       let i = 0;
-      setAskThread({ question, answer: "", streaming: true });
+      setAskSheetOpen(true);
+      setAskMessages((m) => [
+        ...m,
+        { role: "user", text: question },
+        { role: "assistant", text: "", streaming: true },
+      ]);
       askStreamRef.current = setInterval(() => {
         i += 2;
         const done = i >= words.length;
-        setAskThread({
-          question,
-          answer: words.slice(0, i).join(" "),
-          streaming: !done,
+        setAskMessages((m) => {
+          const next = [...m];
+          next[next.length - 1] = {
+            role: "assistant",
+            text: words.slice(0, i).join(" "),
+            streaming: !done,
+          };
+          return next;
         });
+        const scroller = askSheetScrollRef.current;
+        if (scroller) scroller.scrollTop = scroller.scrollHeight;
         if (done && askStreamRef.current) {
           clearInterval(askStreamRef.current);
           askStreamRef.current = null;
         }
-      }, 60);
+      }, 55);
       return;
     }
     emit("clips:open-meeting", {
@@ -368,13 +383,55 @@ export function MeetingPill() {
     }).catch(() => {});
   };
 
-  const dismissAskThread = () => {
+  const handleAskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const question = ask.trim();
+    if (!question) return;
+    setAsk("");
+    submitAsk(question);
+  };
+
+  const closeAskSheet = () => {
     if (askStreamRef.current) {
       clearInterval(askStreamRef.current);
       askStreamRef.current = null;
     }
-    setAskThread(null);
+    setAskSheetOpen(false);
   };
+
+  // The sheet's grab handle: drag to resize, pull down far enough to dismiss.
+  const handleSheetHandlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    sheetDragRef.current = { startY: e.clientY, startHeight: askSheetHeight };
+  };
+  const handleSheetHandlePointerMove = (e: React.PointerEvent) => {
+    const drag = sheetDragRef.current;
+    if (!drag) return;
+    const host = askSheetScrollRef.current?.parentElement?.parentElement;
+    const total = host?.clientHeight ?? 340;
+    const next = drag.startHeight + (drag.startY - e.clientY) / total;
+    setAskSheetHeight(Math.min(0.85, Math.max(0.2, next)));
+  };
+  const handleSheetHandlePointerUp = () => {
+    if (!sheetDragRef.current) return;
+    sheetDragRef.current = null;
+    if (askSheetHeight <= 0.22) {
+      setAskSheetHeight(0.62);
+      closeAskSheet();
+    }
+  };
+
+  // Escape closes the ask sheet before anything else.
+  useEffect(() => {
+    if (!askSheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAskSheet();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askSheetOpen]);
 
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -582,27 +639,62 @@ export function MeetingPill() {
               initialLines={preloadedLines}
             />
           </div>
-          {askThread ? (
-            <div className="pill-ask-thread" data-no-drag>
-              <div className="pill-ask-thread-q">
-                <span className="pill-ask-thread-question">
-                  {askThread.question}
-                </span>
-                <button
-                  type="button"
-                  data-no-drag
-                  className="pill-ask-thread-close"
-                  onClick={dismissAskThread}
-                  aria-label="Dismiss answer"
-                >
-                  <IconX size={13} />
-                </button>
+          {askSheetOpen ? (
+            <div
+              className="pill-ask-sheet"
+              style={{ height: `${Math.round(askSheetHeight * 100)}%` }}
+              data-no-drag
+            >
+              <div
+                className="pill-ask-sheet-grip"
+                role="button"
+                tabIndex={0}
+                aria-label="Resize or dismiss answers"
+                data-no-drag
+                onPointerDown={handleSheetHandlePointerDown}
+                onPointerMove={handleSheetHandlePointerMove}
+                onPointerUp={handleSheetHandlePointerUp}
+                onClick={(e) => {
+                  if (e.detail > 0 && !sheetDragRef.current) closeAskSheet();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") closeAskSheet();
+                }}
+              >
+                <span className="pill-ask-sheet-handle" aria-hidden />
               </div>
-              <div className="pill-ask-thread-a">
-                {askThread.answer}
-                {askThread.streaming ? (
-                  <span className="pill-ask-thread-caret" aria-hidden />
-                ) : null}
+              <div className="pill-ask-sheet-scroll" ref={askSheetScrollRef}>
+                {askMessages.map((m, i) =>
+                  m.role === "user" ? (
+                    <div key={i} className="pill-ask-msg-user">
+                      {m.text}
+                    </div>
+                  ) : (
+                    <div key={i} className="pill-ask-msg-assistant">
+                      {m.text}
+                      {m.streaming ? (
+                        <span className="pill-ask-thread-caret" aria-hidden />
+                      ) : null}
+                    </div>
+                  ),
+                )}
+              </div>
+              <div className="pill-ask-suggestions" data-no-drag>
+                {[
+                  "What did I miss?",
+                  "Summarize decisions",
+                  "Suggest questions",
+                ].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    data-no-drag
+                    className="pill-ask-chip"
+                    onClick={() => submitAsk(chip)}
+                  >
+                    {chip}
+                  </button>
+                ))}
               </div>
             </div>
           ) : null}
@@ -636,6 +728,17 @@ export function MeetingPill() {
                   aria-label="Ask anything about this meeting"
                   disabled={!ctx.meetingId}
                 />
+                {!ask.trim() ? (
+                  <button
+                    type="button"
+                    data-no-drag
+                    className="pill-ask-chip pill-ask-chip-field"
+                    onClick={() => submitAsk("What did I miss?")}
+                    disabled={!ctx.meetingId}
+                  >
+                    What did I miss?
+                  </button>
+                ) : null}
                 <button
                   type="submit"
                   data-no-drag
