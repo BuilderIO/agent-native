@@ -515,6 +515,7 @@ const messages = {
     height: "Height",
     autoplay: "Autoplay",
     startAt: "Start at (seconds)",
+    startAtTimestamp: "Start at {{time}}",
     embedCode: "Embed code",
   },
   shareUi: {

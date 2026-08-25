@@ -5631,7 +5631,11 @@ function TranscriptPanel({
             externalStreaming={runIsActive}
             approvalActions={
               onDeny || onApproveAlways
-                ? { onDeny, onAlwaysAllow: onApproveAlways }
+                ? {
+                    onDeny,
+                    onAlwaysAllow: onApproveAlways,
+                    alwaysAllowScope: "exact-command",
+                  }
                 : undefined
             }
             availableModels={availableModels}

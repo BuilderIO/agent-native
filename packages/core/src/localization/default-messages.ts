@@ -1134,12 +1134,13 @@ const messages = {
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
     providerSetupRequired: "Provider setup required",
     providerSetupDescription:
-      "Complete the required setup in {{name}} first. Then return here to authorize your account.",
+      "Complete the required setup in {{name}} first. Then return here to connect your account.",
     providerSetupFormDescription:
-      "Review the provider requirements and open the official setup guide before connecting your account.",
-    continueToConnect: "I've completed setup",
-    setupTitle: "Set up {{name}}",
+      "Complete provider setup before connecting your account.",
+    continueToConnect: "Connect my account",
+    setupTitle: "Connect {{name}}",
     personal: "Personal",
+    personalConnection: "Personal connection",
     organization: "Organization",
     scopeQuestion: "Who should be able to use this connection?",
     scopeChoiceTitle: "Who should use this?",
@@ -1167,7 +1168,7 @@ const messages = {
     descriptionPlaceholder: "Description (optional)",
     headersPlaceholder: "Authorization: Bearer <token>",
     openSetupDocs: "Open setup docs",
-    viewSetup: "View setup",
+    viewSetup: "Open setup guide",
     test: "Test",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
@@ -1261,7 +1262,7 @@ const messages = {
         useCase:
           "Project management, issue tracking, documentation, team collaboration",
         setupNote:
-          "Atlassian admins manage the allowed AI domains and Rovo integration permissions. Use the current Streamable HTTP endpoint, /v1/mcp, and reconnect after policy changes.",
+          "Ask your Atlassian admin to allow the Clips app domain and enable Rovo/MCP with Read, Write, and Search permissions for your Jira site.",
       },
       cloudflare: {
         description:

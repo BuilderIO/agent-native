@@ -1,5 +1,189 @@
 # @agent-native/core
 
+## 0.173.0
+
+### Minor Changes
+
+- 460080b: Give chat readers control over how much model reasoning is shown, and make
+  reasoning collapsible everywhere it appears.
+
+  Reasoning inside the "Worked for…" summary used to render as flat prose with no
+  disclosure of its own, so opening that summary dumped the full chain of thought
+  between the tool calls with no way to fold it back. It now keeps its own
+  "Thought for Xs" row, collapsible exactly like the tool calls it sits between,
+  and renders its markdown instead of showing `**source characters**` — OpenAI
+  reasoning summaries arrive pre-formatted.
+
+  A new browser-local preference picks between three modes, reachable from the
+  chat panel's ⋮ menu:
+  - **Expanded** — the previous behaviour: the live cell opens itself.
+  - **Collapsed** — the new default. The label and its timing stay visible, the
+    text is one click away, and a live turn no longer pushes the answer out of
+    the viewport.
+  - **Hidden** — no reasoning cells at all.
+
+  Hosts can pin the mode with the `thinkingDisplay` prop on `AgentSidebar`,
+  `AgentPanel`, `AgentChatSurface`, and `AssistantChat`; when pinned, the in-chat
+  control is not offered rather than left as a dead menu item. The preference is
+  presentation only — it never changes what the engine requests or what is
+  persisted, so switching back reveals the same text on the same turns.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 460080b: Send `$ai_generation` and `$ai_span` to PostHog stamped at the moment the operation ended, which is the convention it reads them by: its timeline derives an operation's start as `timestamp - $ai_latency`, so stamping the start drew every bar one full latency too early — model calls overlapped each other by a growing margin, a call's tool spans appeared underneath the _next_ call, and a 35s run rendered as 31.2s. The shift is applied inside the PostHog provider, so the shared event keeps the operation's start for Mixpanel, Amplitude, webhooks, and Agent Native Analytics, which read the timestamp verbatim. Events with no `$ai_latency` — a trace, an exception — are unshifted.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.9
+  - @agent-native/toolkit@0.16.12
+
+## 0.172.10
+
+### Patch Changes
+
+- 200e63b: Make the harness-session generation migration idempotent on SQLite.
+
+## 0.172.9
+
+### Patch Changes
+
+- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
+
+## 0.172.8
+
+### Patch Changes
+
+- e248449: Emit the `signup` event once per real account creation, and stop emitting it for user rows that are not signups.
+
+  Better Auth runs its `user.create.after` hook on every `user` row insert, and the hook treated all of them as a person signing up. Two production paths create rows through `internalAdapter` outside any endpoint, where Better Auth's context — and therefore the request, the browser, and its `an_aid` / `an_ft` cookies — is `null`: `ensureCanonicalUserForLegacySession` (backfilling a canonical row for someone who signed up months ago) and `ensureGoogleAuthIdentity` (provisioning the canonical row during the Google callback). Both emitted an unattributable `signup` recorded as `referral_source: "direct"`, which is why ~94% of `better-auth` signups carried no `anonymous_id` and one person provisioned across sibling apps counted as a dozen acquisitions.
+
+  Google sign-in was also losing its real event: because `ensureGoogleAuthIdentity` writes the canonical row _before_ `createOAuthSession` runs, the `hasBetterAuthUserEmail` probe there concluded the person was an existing user and skipped the one emitter that carries the browser's anonymous id. Callers now pass the `isNewUser` answer they already hold, and the event carries the canonical Better Auth user id rather than the Google profile id, so it still joins to `referrer_user` in the virality panels.
+  - A row insert with no request behind it emits nothing at all.
+  - Emitted events carry `signup_origin` (`browser_signup` / `google_oauth` / `sso_jit`) so acquisitions are selectable from sibling-app provisioning.
+  - `referral_source: "direct"` is no longer fabricated when no browser context was present — "we never saw a visitor" and "a visitor arrived with no campaign" are now different values.
+  - The internal `x-agent-native-signup-attribution` handoff header is stripped from every inbound request instead of only being overwritten on email signup. It is unsigned and outranks the request cookie, so an inbound copy let any client write the `anonymous_id` and campaign onto someone else's signup row.
+  - The `webhook` tracking provider now sends `anonymousId`, which it silently dropped.
+
+  Signup counts will fall to the real number. The removed rows were duplicate and backfilled events, not lost users.
+
+## 0.172.7
+
+### Patch Changes
+
+- be8c373: Fix Analytics chat composer drafts to prefer the stable tab identity over a late-arriving thread identity, preventing typed text from disappearing when the draft scope changes.
+
+## 0.172.6
+
+### Patch Changes
+
+- 415a6d8: Transform virtual runtime modules before serving them to embed sessions. The
+  dev middleware loaded `/@id/__x00__virtual:*` modules through
+  `pluginContainer.load`, which returns plugin source with bare specifiers
+  intact, so react-router's `inject-hmr-runtime` reached the browser still
+  importing `virtual:react-router/hmr-runtime`. Any page loaded on an origin
+  that had an `an_embed_session` cookie failed to hydrate and hung on a spinner.
+- 3fa1b09: Allow organization members to queue Run now for Factory-domain jobs they can already load, without widening Mail or CRM automation edit rights.
+- 6f0392b: Prevent unconfigured LLM engine tests from reporting a false pass.
+
+## 0.172.5
+
+### Patch Changes
+
+- 5a6204c: Rework Calendar's docs into the new per-app format (Overview, Features, Talk to the Agent, Multi-App Workspace, Developer Guide), add a Comparison per-side accent color and a Cards calendar icon, and translate all five Calendar doc pages into every supported locale.
+
+## 0.172.4
+
+### Patch Changes
+
+- 680268e: Send PostHog AI feedback in the shape its LLM analytics feedback view actually reads. A thumbs vote now answers the survey's first question with PostHog's choice index (`1` up, `2` down) instead of the string `"thumbs_up"`, and the free text after a thumbs-down answers the follow-up question (`$survey_response_1`) rather than overwriting the rating. A vote and the text it opens share one submission id per rated message, so PostHog joins them into a single response, and the vote stays marked incomplete until the follow-up arrives. `POSTHOG_AI_FEEDBACK_SURVEY_ID` is the whole configuration; `POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID` is no longer read.
+- 680268e: Fix PostHog LLM analytics showing the assistant's reply as part of the prompt. The agent loop appends its own turns to the message array it is handed, and the trace read that array after the run, so `$ai_input` / `$ai_input_state` carried the run's final transcript instead of its request — PostHog rendered the same assistant message in both Input and Output. The request is now snapshotted before the loop can grow it.
+- 680268e: Stop sending the app's tool definitions to PostHog. `$ai_tools` shipped the whole catalogue — for a large app, dozens of tools with full descriptions — on every generation, and it is identical on every call. The calls that actually happened are already named in `$ai_output_choices` and carry their own spans.
+- 680268e: Report failures at the layer that failed, and never as a bare flag. `$ai_is_error` could travel without any `$ai_error` — every failed tool span did exactly that with the default `captureToolResults: false`, so PostHog showed "error" and nothing else. All three emitters now fall back to a stated reason, add PostHog's `$ai_error_type`, and say when a tool's error text was withheld rather than never reported. The levels mean distinct things: a generation is failed only when the model call itself failed (a provider error or a stream dropped mid-call), a span when the tool crashed or returned an error, and the trace for everything else — step budgets, timeouts, no-progress cut-offs. A tool that stopped the run no longer marks the model call that preceded it as failed, and a run's terminal outcome rides only the layer that actually failed.
+- 680268e: Send each PostHog event's own time at the payload root instead of inside `properties`, where PostHog treated it as an ordinary custom property and stamped the event with its ingestion time. An agent run emits its trace, generation, and every tool span in one burst when the run ends, so a five-minute run rendered as a 100ms waterfall with its steps in flush order rather than the order they ran.
+- 680268e: Emit one `$ai_generation` per model round-trip instead of one per run, and parent each tool span under the generation that requested it. A multi-step agent run rendered in PostHog as a single generation spanning the whole run — a 15-call, 5-minute run drew one 5-minute "model call" — because the run's aggregate usage was reported as if it were one request. Each generation now carries its own prompt, answer, tools, latency, tokens and cost, and `$ai_request_count` counts that call rather than the run, so per-request pricing is right. Run totals (`llm_calls`, `tool_calls`, `successful_tools`, `failed_tools`, `time_to_first_token_ms`, `latency_source`) moved to `$ai_trace`. An engine that never brackets its calls with `model_stream` still falls back to a single aggregate generation. The trace no longer carries `$ai_input_state` / `$ai_output_state`: with every round-trip carrying its own prompt and answer, those repeated the first call's prompt and the last call's answer on a second event. A generation is also no longer marked failed when the run failed after the model answered — a tool that aborted the run, a step budget, or a cut-off now shows on the tool span and the trace, not on a model call that succeeded.
+- 680268e: Three fixes to per-round-trip generations. A tool the run's death interrupts is now associated with the call that requested it — the association is recorded when the tool starts, since an interrupted tool never reaches the completion path and used to hang under the trace root, missing from its generation's counts. A model call the provider failed is marked failed even though its stream bracket closes on the way out, so a provider error is no longer reported as a healthy call and a retry no longer leaves the failed attempt green. And a call that reported its tokens keeps them when a later call throws: usage was gated on the loop's aggregate return value, which never arrives on a throw, so every call that had succeeded lost its tokens and cost.
+- 680268e: Report `$ai_stop_reason` on each generation, and stop discarding an oversized trace payload wholesale. The engine already knew why every model call ended (`end_turn`, `tool_use`, `max_tokens`, …) and never passed it on, so a truncated answer was indistinguishable from a finished one; the `model_stream` close event now carries it. Content over the 128KB ceiling used to be replaced entirely by a placeholder — a 244KB conversation left nothing at all in the trace. An oversized message list now keeps the last user message behind a marker naming how much was dropped — what was asked is what a trace is opened for, and it stays small. `input_truncated` / `output_truncated` still mark anything cut, so a partial payload can never read as a complete one.
+
+## 0.172.3
+
+### Patch Changes
+
+- 0fedac0: Prebundle `diff-match-patch` so the collab text-to-Yjs path loads in the browser.
+
+  `diff-match-patch@1.0.5` ships one CJS file with no ESM entry. It is reached from
+  `collab/text-to-yjs.ts`, which in monorepo dev mode is a source-aliased core
+  module excluded from dep prebundling, so Vite never scanned the import and served
+  the dependency verbatim — its trailing `module.exports` lines threw in the
+  browser. It now has a default `optimizeDeps.include` entry like the other CJS
+  dependencies core reaches from client code.
+
+## 0.172.2
+
+### Patch Changes
+
+- f208c0e: Stop later tool calls in the same assistant message from running while an action
+  waits for human approval.
+
+  The approval gate told the model "the turn is paused" and set
+  `requestedActionStop`, but that flag is only read after the tool loop finishes.
+  The flag that actually suppresses the remaining calls is `turnYieldedToUser`,
+  which the approval path never set — so on `[write(needs approval),
+delete(no approval)]` in one message, the human saw an approval card for the
+  first while the second had already executed. The approval branch now yields the
+  turn like any other action that hands control to the user, and the message shown
+  for a suppressed call names the approval case as well as the ends-turn case.
+
+  A gated call is also no longer eligible for parallel batching. `flushParallelBatch`
+  dispatches a batch through `Promise.all`, so a gated call and its siblings all
+  start before the gate is reached and the suppression lands too late to stop a
+  sibling that already ran. Any action declaring `needsApproval` or `endsTurn` is
+  now serialized, which is what makes the suppression meaningful for the calls
+  after it.
+
+## 0.172.1
+
+### Patch Changes
+
+- bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
+
+## 0.172.0
+
+### Minor Changes
+
+- 5da9484: Add durable action-level approval preferences and recoverable harness checkpoints.
+
+### Patch Changes
+
+- bd7384b: Scope sidebar toggle events to the matching app chat surface.
+- 4fa0d0c: Harden the shell command policy and the untrusted-text prompt boundaries.
+  - `classifyCodeAgentCommandPermission` now matches its blocked and
+    approval-required rules against the quote-stripped form of the command as well
+    as the raw text. The shell removes quoting before the command word exists, so
+    `git 'checkout' main`, `gi''t checkout main`, `drizzle-kit "push"` and
+    `rm -'r'f /` previously ran as unclassified writes. A command using `$'…'`
+    escaping, which this pass cannot decode, now asks for approval instead of
+    falling through.
+  - `runCodingCommand` settles on `exit` with a short grace for `close` instead of
+    waiting on `close` alone, and spawns detached so a timeout signals the whole
+    process group. A command that backgrounds anything (`npm run dev &`) left a
+    grandchild holding the output pipe and the call never returned — past its
+    timeout too, whose `SIGTERM` went to an `sh -c` wrapper that had already
+    exited. When output is cut short this way the result says so rather than
+    reading as a clean finish.
+  - Automation trigger payloads are capped, wrapped in `<event_payload>` tags with
+    an explicit untrusted-data instruction, and no longer sit ahead of the
+    automation's own body — the same defense `condition-evaluator.ts` already
+    applied before this data reached a tool-less classifier, now applied on the
+    path that reaches an agent with the full tool surface.
+  - Prompt `<resource>` blocks escape both halves of the fence in the body, so
+    shared `AGENTS.md`/`LEARNINGS.md` content cannot forge a block header and pass
+    itself off as framework instructions.
+
+## 0.171.3
+
+### Patch Changes
+
+- 2292fac: Allow shared loading spinners to provide localized accessible labels.
+
 ## 0.171.2
 
 ### Patch Changes

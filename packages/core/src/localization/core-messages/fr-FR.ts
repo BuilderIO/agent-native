@@ -4,10 +4,14 @@ const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":
     "Approuver et toujours autoriser cette commande exacte",
+  "approval.alwaysAllowAction": "Toujours autoriser cette action",
+  "approval.alwaysAllowActionHint":
+    "Approuver et toujours autoriser cette action",
   "approval.approve": "Approuver",
   "approval.approved": "Approuvé. Nouvelle exécution de {{tool}}...",
   "approval.denied": "Refusé. {{tool}} n’a pas été exécuté.",
   "approval.deny": "Refuser",
+  "approval.moreOptions": "Plus d’options d’approbation",
   "approval.question": "Approuver l’exécution de {{tool}} ?",
   "auth.expiredDescription":
     "Votre session a peut-être expiré. Déconnectez-vous, puis reconnectez-vous pour rétablir la connexion.",
@@ -208,6 +212,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "Répété {{count}} fois",
   "tool.result": "Résultat",
   "tool.subAgentTask": "Tâche du sous-agent",
+  "thinking.collapsed": "Replié",
+  "thinking.display": "Réflexion",
+  "thinking.expanded": "Développé",
+  "thinking.hidden": "Masqué",
   "tool.thought": "Réflexion",
   "tool.thoughtFor": "Réflexion pendant {{duration}}",
   "tool.viewOutput": "Afficher la sortie de {{tool}}",

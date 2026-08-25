@@ -856,6 +856,9 @@ export function CreateEventPopover({
           deletePersistedDraft(activeDraftId);
           onDraftCreated?.(activeDraftId);
         }
+        if (result?.videoConferenceError === "zoom") {
+          toast.error(t("eventForm.zoomAddFailed"));
+        }
         const eventId = result?.id;
         const undo = eventId
           ? () => {

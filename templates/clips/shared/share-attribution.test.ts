@@ -6,13 +6,13 @@ import {
 } from "./share-attribution";
 
 describe("buildShareContinuationQuery", () => {
-  it("preserves attribution without forwarding share secrets", () => {
+  it("preserves attribution and timestamps without forwarding share secrets", () => {
     const attribution = readShareAttribution(
       "?ref=clip_share&via=owner-1&password=secret&agent_access_token=token",
     );
 
-    expect(buildShareContinuationQuery(attribution)).toBe(
-      "ref=clip_share&via=owner-1",
+    expect(buildShareContinuationQuery(attribution, "90")).toBe(
+      "ref=clip_share&via=owner-1&at=90",
     );
   });
 

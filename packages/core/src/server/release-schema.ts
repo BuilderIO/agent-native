@@ -59,7 +59,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     "AgentToolApprovals",
     () =>
       import("../agent/tool-approval-store.js").then((m) =>
-        m.ensureAgentToolApprovalTable(),
+        Promise.all([
+          m.ensureAgentToolApprovalTable(),
+          m.ensureAgentToolApprovalPolicyTable(),
+        ]).then(() => undefined),
       ),
   ],
   [

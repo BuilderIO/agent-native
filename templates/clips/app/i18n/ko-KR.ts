@@ -518,6 +518,7 @@ const messages = {
     height: "키",
     autoplay: "자동재생",
     startAt: "(초)에 시작",
+    startAtTimestamp: "{{time}}부터 시작",
     embedCode: "임베드 코드",
     sharePlainTitle: "{{title}} 공유",
   },

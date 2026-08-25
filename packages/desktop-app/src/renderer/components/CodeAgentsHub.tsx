@@ -89,6 +89,7 @@ import {
   IconGripVertical,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconMessageCircle,
   IconPlus,
   IconPin,
   IconSearch,
@@ -871,6 +872,9 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
+  const chatFirstAppChatEnabled =
+    chatFirstAppSelected &&
+    shouldUseDesktopAppChatShell(activeChatFirstSurfaceTab?.path);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
@@ -2701,6 +2705,7 @@ export default function CodeAgentsHub({
                 appAuthState={appAuthState}
                 isActive={isTabActive}
                 chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
+                toggleScopeId={tab.id}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div
@@ -2945,6 +2950,33 @@ export default function CodeAgentsHub({
           railFooterSlot={
             <TooltipProvider delayDuration={0}>
               <>
+                {chatFirstAppChatEnabled ? (
+                  <DesktopRailTooltip label="Toggle chat sidebar">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-chat"
+                      data-chat-first-rail-chat
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:toggle", {
+                            detail: {
+                              scopeId: activeChatFirstSurfaceTab?.id,
+                            },
+                          }),
+                        )
+                      }
+                      aria-label="Toggle chat sidebar"
+                      title="Toggle chat sidebar"
+                    >
+                      <IconMessageCircle
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Chat</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
                 <UpdatePrompt />
                 <UpdateIndicator />
                 {onOpenSettings ? (

@@ -306,8 +306,27 @@ export function useMeetingTranscription({
           capturedUntil: string;
         } | null;
       } = { current: null };
+      let includeFromMeetingStart = payload.includeFromMeetingStart === true;
       try {
-        if (payload.includeFromMeetingStart) {
+        if (
+          !includeFromMeetingStart &&
+          payload.reason === "user" &&
+          payload.scheduledStart
+        ) {
+          try {
+            const historyStatus = await invoke<{ available: boolean }>(
+              "rewind_meeting_history_status",
+              { scheduledStart: payload.scheduledStart },
+            );
+            includeFromMeetingStart = historyStatus.available === true;
+          } catch (error) {
+            console.warn(
+              "[clips-popover] Rewind meeting history status unavailable:",
+              error,
+            );
+          }
+        }
+        if (includeFromMeetingStart) {
           if (payload.reason !== "user" || !payload.scheduledStart) {
             throw new Error(
               "Include from meeting start is only available when you manually start a scheduled meeting.",
@@ -614,7 +633,7 @@ export function useMeetingTranscription({
         // The local index may need a moment after the fragment fence. Anchor
         // the live engine where it actually begins, not at the earlier click,
         // so every stored segment remains on one honest meeting timeline.
-        if (payload.includeFromMeetingStart && payload.scheduledStart) {
+        if (includeFromMeetingStart && payload.scheduledStart) {
           session.liveTimelineOffsetMs = Math.max(
             0,
             Date.now() - Date.parse(payload.scheduledStart),

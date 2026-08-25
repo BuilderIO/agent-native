@@ -490,7 +490,7 @@ describe("McpIntegrationDialog", () => {
 
     expect(document.body.textContent).toContain("Provider setup required");
     const continueButton = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "I've completed setup",
+      (button) => button.textContent === "Connect my account",
     );
     expect(continueButton).toBeTruthy();
 
@@ -566,11 +566,59 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    expect(document.body.textContent).toContain("Who should use this?");
-    expect(document.body.textContent).toContain(
-      "Only personal connections are supported for this integration.",
-    );
+    expect(document.body.textContent).not.toContain("Who should use this?");
     expect(document.body.textContent).not.toContain("Set up for workspace");
+
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    act(() => connect?.click());
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+  });
+
+  it("routes personal-only provider setup directly to a personal connection", () => {
+    const atlassian = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "atlassian",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="atlassian"
+            defaultScope="org"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[atlassian]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).not.toContain("Who should use this?");
+    expect(document.body.textContent).toContain("Connect Jira");
+    expect(document.body.textContent).toContain("Personal connection");
+    expect(document.body.textContent).toContain(
+      "Only you can use this connection.",
+    );
+    expect(document.body.textContent).toContain("Open setup guide");
+    expect(document.body.querySelectorAll('a[target="_blank"]')).toHaveLength(
+      1,
+    );
+
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect my account",
+    );
+    expect(connect).toBeTruthy();
+    act(() => connect?.click());
+
+    const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(url, "https://analytics.example.com").searchParams.get("scope"),
+    ).toBe("user");
   });
 
   it("does not offer an unauthenticated test for setup-gated integrations", () => {
@@ -600,17 +648,17 @@ describe("McpIntegrationDialog", () => {
         (button) => button.textContent === "Test",
       ),
     ).toBeUndefined();
-    expect(document.body.textContent).toContain("Set up Slack");
+    expect(document.body.textContent).toContain("Connect Slack");
     expect(document.body.textContent).toContain("Provider setup required");
-    expect(document.body.textContent).toContain("View setup");
+    expect(document.body.textContent).toContain("Open setup guide");
     expect(
       [...document.body.querySelectorAll("a")]
-        .find((link) => link.textContent?.includes("View setup"))
+        .find((link) => link.textContent?.includes("Open setup guide"))
         ?.getAttribute("href"),
     ).toBe(slack.docsUrl);
 
     const continueButton = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "I've completed setup",
+      (button) => button.textContent === "Connect my account",
     );
     expect(continueButton).toBeTruthy();
 
@@ -640,17 +688,12 @@ describe("McpIntegrationDialog", () => {
     });
 
     const viewSetupButton = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "View setup",
+      (button) => button.textContent === "Open setup guide",
     );
     expect(viewSetupButton).toBeTruthy();
 
     act(() => viewSetupButton?.click());
-    expect(document.body.textContent).toContain("Who should use this?");
-    const personal = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Connect for me",
-    );
-    expect(personal).toBeTruthy();
-    act(() => personal?.click());
+    expect(document.body.textContent).not.toContain("Who should use this?");
     expect(document.body.textContent).toContain("Provider setup required");
   });
 

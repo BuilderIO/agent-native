@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.171.2",
+  "version": "0.173.0",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -206,6 +206,7 @@
     "./agent/context-xray/actions/context-evict": "./dist/agent/context-xray/actions/context-evict.js",
     "./agent/context-xray/actions/context-restore": "./dist/agent/context-xray/actions/context-restore.js",
     "./agent/context-xray/actions/context-report": "./dist/agent/context-xray/actions/context-report.js",
+    "./agent/actions/set-tool-approval-policy": "./dist/agent/actions/set-tool-approval-policy.js",
     "./agent/observational-memory": "./dist/agent/observational-memory/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
