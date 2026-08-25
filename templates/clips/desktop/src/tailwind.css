@@ -165,6 +165,11 @@
  * color. Only tailwind.css maps these into Tailwind's namespace.
  */
 :root {
+  /* The live audio meter is this green on every surface — recorder, meeting
+     pill, dictation bar. It lived inside `.record-pill-scope`, so meters
+     outside that scope silently fell back to inherited text color. */
+  /* guard:allow-raw-color — meter green is theme-invariant, like the capture chrome it sits on */
+  --waveform: #97c459;
   --ui-background: 0 0% 100%;
   --ui-foreground: 0 0% 9%;
   --ui-card: 0 0% 100%;
@@ -292,8 +297,7 @@
   --pill-control: rgba(255, 255, 255, 0.1);
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-rec: #e0473f;
-  /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
-  --pill-meter: #97c459;
+  --pill-meter: var(--waveform);
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-card-surface: rgba(252, 252, 252, 0.98);
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */

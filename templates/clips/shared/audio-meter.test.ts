@@ -34,6 +34,20 @@ describe("nextMeterLevel", () => {
   });
 });
 
+describe("foldMeterSources", () => {
+  it("keeps the far end's level up while the local mic is silent", () => {
+    let levels = EMPTY_METER_SOURCES;
+    // Mic and system buffers interleave on one event stream. Someone else
+    // talking on a muted-side call must still drive the meter.
+    for (let i = 0; i < 10; i++) {
+      levels = foldMeterSources(levels, "system", 0.6);
+      levels = foldMeterSources(levels, "mic", 0);
+    }
+    expect(combinedMeterLevel(levels)).toBe(0.6);
+    expect(levels.mic).toBe(0);
+  });
+});
+
 describe("advanceWaveform", () => {
   it("scrolls: the newest sample lands last and the oldest falls off", () => {
     let state = createWaveformState();

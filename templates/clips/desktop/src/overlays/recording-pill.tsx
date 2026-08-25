@@ -61,6 +61,9 @@ const pillDemoMode = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 export function MeetingPill() {
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
+  /** Demo harness only: the meter reads capture events in the real app. */
+  const [demoLevel, setDemoLevel] = useState<number | null>(null);
+  const demoLevelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
   const ctxRef = useRef<PillContext>({ mode: "clip" });
@@ -294,12 +297,19 @@ export function MeetingPill() {
       })
       .catch(() => {});
     if (pillDemoMode) {
+      // Open in the starting state the real pill now shows, so the spinner is
+      // reviewable in the harness rather than only during a live start.
       ctxRef.current = {
         mode: "meeting",
         meetingId: "demo",
         title: "Promotion readiness review",
+        starting: true,
       };
       setCtx(ctxRef.current);
+      setTimeout(() => {
+        ctxRef.current = { ...ctxRef.current, starting: false };
+        setCtx(ctxRef.current);
+      }, 4_000);
       activeMeetingIdRef.current = "demo";
       setExpanded(true);
       setPreloadedLines([
@@ -324,6 +334,9 @@ export function MeetingPill() {
           startMs: 449_000,
         },
       ] as FinalLine[]);
+      demoLevelTimerRef.current = setInterval(() => {
+        setDemoLevel(0.04 + Math.random() * 0.28);
+      }, 90);
     }
     return () => {
       stopped = true;
@@ -340,6 +353,10 @@ export function MeetingPill() {
       }
       askAbortRef.current?.abort();
       askAbortRef.current = null;
+      if (demoLevelTimerRef.current) {
+        clearInterval(demoLevelTimerRef.current);
+        demoLevelTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -828,11 +845,16 @@ export function MeetingPill() {
                 {ctx.title || "Meeting notes"}
               </span>
             ) : null}
-            <LiveWaveform
-              className="pill-wave-meter"
-              bars={expanded && !detached ? 5 : 4}
-              dimmed={paused || finished}
-            />
+            {ctx.starting ? (
+              <Spinner className="pill-media-spinner size-3.5" />
+            ) : (
+              <LiveWaveform
+                className="pill-wave-meter"
+                bars={expanded && !detached ? 5 : 4}
+                dimmed={paused || finished}
+                level={pillDemoMode ? demoLevel : null}
+              />
+            )}
           </div>
           <div className="pill-controls">
             {ctx.starting ? (

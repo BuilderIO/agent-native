@@ -829,31 +829,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   vector-effect: non-scaling-stroke;
 }
 
-/* The one live meter. Bar heights come from the component (they are the
-   signal, in px); everything here is box and color. Bars take `currentColor`,
-   so a surface tints the meter by setting a color on the parent instead of
-   forking the component. */
-.live-waveform {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: opacity 150ms ease-out;
-}
-
-.live-waveform-bar {
-  display: block;
-  border-radius: 999px;
-  background: currentColor;
-  transition: height 100ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .live-waveform-bar {
-    transition: none;
-  }
-}
-
 /* ------------------------------------------------------------------------- */
 /* Primary CTA                                                                */
 /* ------------------------------------------------------------------------- */
@@ -4273,10 +4248,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .flow-bar-meter {
   height: 18px;
-  /* The dictation bar is its own dark chrome, not a themed surface, so the
-     meter is tinted to read on it. */
-  /* guard:allow-raw-color — flow-bar chrome is fixed, not theme-driven */
-  color: #ffffffe6;
 }
 
 .flow-bar-processing {
@@ -4804,10 +4775,17 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-variant-numeric: tabular-nums;
 }
 
-/* Layout and tint only; the bars size themselves. */
+/* The collapsed capsule is its own dark chrome with white content, and the
+   expanded panel is themed — inheriting is the only value that reads on both. */
+.pill-media-spinner {
+  flex: none;
+  color: currentColor;
+  opacity: 0.7;
+}
+
+/* Layout only; the bars size and color themselves. */
 .pill-wave-meter {
   height: 26px;
-  color: hsl(var(--ui-foreground) / 0.75);
 }
 
 .pill-stop-btn {

@@ -1102,7 +1102,7 @@ export function RecordingPill() {
           >
             <span className="inline-flex flex-none items-center">
               <LiveWaveform
-                className="ml-3.5 h-3.5 w-[18px] flex-none text-[var(--pill-meter)]"
+                className="ml-3.5 h-3.5 w-[18px] flex-none"
                 sources="mic"
                 dimmed={meterFlat}
                 level={demoMode ? demoLevel : null}
