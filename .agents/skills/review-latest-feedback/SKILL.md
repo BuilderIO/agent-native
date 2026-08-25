@@ -22,12 +22,10 @@ reply rules in `address-feedback-with-replies` to every actionable Slack item.
 The moment this skill adds `👀` to a Slack parent, that parent enters a
 mandatory reply ledger. Before the run ends, re-read every ledger item and
 confirm that the invoking Slack identity has posted a concise **Fixed**, **In
-progress**, or **Clarification needed** disposition. **In progress** is valid
-only when the complete thread already contains real ownership or an active-fix
-signal; it is open and must be revisited on the next run. A generic bot
-acknowledgement or forward, another person's reply, or the `👀` reaction alone
-never satisfies the ledger. Do not finish the sweep or report success while an
-actionable parent that this run marked has only `👀` or an unrelated reply.
+progress**, or **Clarification needed** disposition. **In progress** requires
+thread ownership or an active-fix signal and must be revisited next run. A bot
+forward, another person's reply, or `👀` alone never satisfies the ledger. Do
+not finish while a marked actionable parent has only `👀` or an unrelated reply.
 
 ## Start cursor
 
@@ -38,15 +36,11 @@ if the invocation names another channel, use that channel instead.
 Scan the channel newest to oldest and choose the most recent parent message
 without a verified disposition from the invoking Slack identity - **Fixed**, an
 open **In progress** ownership reply, or an open **Clarification needed**
-question. An `👀` reaction is only an
-investigation marker and never suppresses the scan. A thread with only that
-reaction, including a fix waiting for internal verification, remains the next
-work item until it receives the invoking identity's verified disposition. **In progress** is
-not terminal and must be revisited before newer work is treated as complete.
-Do not treat an unrelated person's reply, generic bot acknowledgement or
-forward, or vague status update as terminal. A prior reply from the invoking
-identity counts only when it is an explicit disposition and its read-back
-matches that identity.
+question. An `👀` reaction is only an investigation marker and never suppresses
+the scan. A thread with only `👀`, or with **In progress**, remains open until
+the invoking identity's disposition is verified. Do not treat an unrelated
+reply, bot forward, or vague status update as terminal; prior replies count
+only when their read-back matches the invoking identity.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
@@ -280,15 +274,12 @@ evidence, likely owner, and disposition. Use this order:
 
 1. **Mark before investigating** - after the bounded newest-message search
    identifies a concrete repo-owned or missing-evidence Slack item, verify the
-   invoking identity and inspect only enough reaction state to avoid duplicating
-   that identity's own marker. If the invoking identity has no `👀`, add it and
-   read it back immediately before reading the full thread, opening linked
-   evidence, delegating, editing code, or asking a clarification. An eye from
-   another identity does not satisfy this run's marker. If reaction state or
-   the write is unavailable, record the item as unavailable or unverified and
-   stop that item's investigation rather than pretending it was marked. GitHub
-   and Sentry items have no Slack parent, so apply the same evidence-first
-   triage without a reaction.
+   invoking identity and reaction state. If it has no own `👀`, add it as the
+   first external write and read it back before the full thread, linked
+   evidence, delegation, code, or clarification. Another identity's eye does
+   not satisfy this run. If reaction state or the write is unavailable, record
+   unavailable or unverified and stop that item. GitHub and Sentry items have
+   no Slack parent, so use the same evidence-first triage without a reaction.
    - Concrete small Design UI or interaction bugs are in scope. Apply the same
      evidence, reaction, fix, verification, and reply gates without narrowing
      the sweep to Design; route broad redesigns, subjective suggestions, or
@@ -296,11 +287,6 @@ evidence, likely owner, and disposition. Use this order:
    - All Content app feedback is owned by Alice. Leave those items for Alice;
      do not automatically react, investigate, fix, clarify, reply, or dispatch
      them. Record the source and ownership in the disposition.
-   - For a concrete repo-owned or missing-evidence Slack item, add `👀` from
-     the invoking identity as the first external write, before full-thread
-     investigation, delegating, editing code, or asking a clarification. Do
-     not react to status-only,
-     subjective, duplicate, external, or other non-repo-owned items.
 2. **Concrete repo-owned bug** - after the `👀` marker or existing-marker
    check, reproduce or establish it from source, tests, logs, a stack trace, or
    a linked run. Fix it and keep working until the smallest meaningful
