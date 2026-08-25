@@ -17,9 +17,9 @@ import { toast } from "sonner";
 import {
   CopyButton,
   GeneralAccessSelect,
+  InvitePeopleField,
   PeopleAccessSection,
   ShareSectionLabel,
-  copyToClipboard,
   nestedLayerDismissGuards,
   useResourceVisibilityMutation,
   type SharesQuery,
@@ -75,7 +75,6 @@ function ShareMeetingContent({
   shareTranscript: boolean;
   transcriptReady: boolean;
 }) {
-  const t = useT();
   const shareUrl = useMemo(
     () => `${window.location.origin}${appPath(`/share/meeting/${meetingId}`)}`,
     [meetingId],
@@ -217,6 +216,19 @@ function LinkTab({
 
   return (
     <div className="space-y-3">
+      {canManage ? (
+        <InvitePeopleField
+          resourceType="meeting"
+          resourceId={meetingId}
+          sharesQuery={sharesQuery}
+          onError={(err) =>
+            toast.error(
+              err instanceof Error ? err.message : t("shareUi.remove"),
+            )
+          }
+        />
+      ) : null}
+
       <div className="space-y-2">
         <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
         <div className="flex flex-col gap-1">

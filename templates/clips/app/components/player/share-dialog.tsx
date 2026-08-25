@@ -29,7 +29,6 @@ import {
   InvitePeopleField,
   PeopleAccessSection,
   ShareSectionLabel,
-  copyToClipboard,
   nestedLayerDismissGuards,
   useResourceVisibilityMutation,
   type SharesQuery,
@@ -547,15 +546,21 @@ function LinkTab({
 
   return (
     <div className="space-y-4">
-      <InvitePeopleField
-        resourceType="recording"
-        resourceId={recordingId}
-        resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
-        sharesQuery={sharesQuery}
-        onError={(err) =>
-          toast.error(err instanceof Error ? err.message : t("shareUi.remove"))
-        }
-      />
+      {/* `share-resource` requires owner/admin, so anyone else would only get
+          a rejected submission. */}
+      {canManage ? (
+        <InvitePeopleField
+          resourceType="recording"
+          resourceId={recordingId}
+          resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
+          sharesQuery={sharesQuery}
+          onError={(err) =>
+            toast.error(
+              err instanceof Error ? err.message : t("shareUi.remove"),
+            )
+          }
+        />
+      ) : null}
 
       {canViewShares ? (
         visibility ? (

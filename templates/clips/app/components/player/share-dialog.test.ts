@@ -19,24 +19,29 @@ describe("recording share popover", () => {
   it("does not show the same public URL twice", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
-    expect(shareDialogSource).toContain(
-      'isPublic\n            ? t("shareDialog.shareLink")',
-    );
-    expect(shareDialogSource).toContain(
-      'label={t("shareDialog.shareWithAgents")}',
-    );
-    expect(shareDialogSource).not.toContain("<Collapsible");
-    expect(shareDialogSource).toContain("agentDetailsOpen");
+    expect(shareDialogSource).toContain('t("shareDialog.shareWithAgents")');
+    // Both links are copy actions, so neither URL is rendered as text.
+    expect(shareDialogSource).toContain("<CopyButton");
+    expect(shareDialogSource).toContain("value={linkUrl}");
+    expect(shareDialogSource).toContain("value={agentCopyValue}");
+    expect(shareDialogSource).not.toContain("value={shareUrl}");
   });
 
   it("keeps individual access in the primary share surface", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
-    expect(shareDialogSource).toContain("<SharePeopleTab");
+    expect(shareDialogSource).toContain("<PeopleAccessSection");
+    expect(shareDialogSource).toContain("<GeneralAccessSelect");
     expect(shareDialogSource).toContain(
       "const tabCount = 1 + (canEmbed ? 1 : 0);",
     );
     expect(shareDialogSource).not.toContain('value="invite"');
+  });
+
+  it("offers inviting only to managers", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toMatch(/canManage \? \(\s*<InvitePeopleField/);
   });
 
   it("uses the public JSON context URL for public agent sharing", () => {
@@ -81,12 +86,11 @@ describe("recording share popover", () => {
   it("keeps copy fields compact and hides the raw URL", () => {
     const shareUiSource = readSource("../sharing/share-ui.tsx");
 
-    expect(shareUiSource).toContain('t("shareUi.copy")');
-    expect(shareUiSource).toContain("<ShareCopyRow");
-    expect(shareUiSource).not.toContain("IconLink");
-    expect(shareUiSource).toContain('t("recordRoute.linkCopied")');
-    expect(shareUiSource).toContain("description?: string");
-    expect(shareUiSource).not.toContain("readOnly\n          value={value}");
+    expect(shareUiSource).toContain("export function CopyButton");
+    // The URL is only ever passed to the clipboard, never rendered.
+    expect(shareUiSource).not.toContain("readOnly");
+    expect(shareUiSource).toContain('t("shareUi.copied")');
+    expect(shareUiSource).toContain("text-success");
   });
 
   it("offers a rich email preview only for public, unprotected clips", () => {
