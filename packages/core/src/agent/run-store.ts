@@ -2616,7 +2616,6 @@ export function resolveErroredRunTerminalEvent(run: {
         type: "error",
         error: detail || "The agent run failed.",
         ...(code && code !== "unknown" ? { errorCode: code } : {}),
-        recoverable: true,
       },
       shouldPersist: true,
     };
