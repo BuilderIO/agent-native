@@ -57,13 +57,14 @@ const PILLAR_ROWS: Pillar[][] = [
 
 export function BuiltInFeatures() {
   return (
-    <PageSection style={{ borderTop: "1px solid var(--b-border-default)" }}>
+    <PageSection>
       <GridInner
         style={{
           display: "flex",
           flexDirection: "column",
           gap: "var(--spacing-6)",
           padding: "var(--spacing-40) var(--spacing-8) var(--spacing-20)",
+          borderTop: "1px solid var(--b-border-default)",
         }}
       >
         <h2

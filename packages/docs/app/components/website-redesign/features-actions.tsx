@@ -2,13 +2,14 @@ import { GridInner, PageSection } from "./page-grid";
 
 export function FeaturesActions() {
   return (
-    <PageSection style={{ borderTop: "1px solid var(--b-border-default)" }}>
+    <PageSection>
       <GridInner
         style={{
           display: "flex",
           flexDirection: "column",
           gap: "var(--spacing-6)",
           padding: "var(--spacing-40) var(--spacing-8) var(--spacing-20)",
+          borderTop: "1px solid var(--b-border-default)",
         }}
       >
         <h2
@@ -44,7 +45,6 @@ export function FeaturesActions() {
       <GridInner
         style={{
           borderTop: "1px solid var(--b-border-default)",
-          borderBottom: "1px solid var(--b-border-default)",
           background: "var(--b-bg-surface)",
         }}
       >
