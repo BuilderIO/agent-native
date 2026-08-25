@@ -16,6 +16,7 @@ import {
   orgFactoryRunFilter,
   orgFactoryScopedItemWhere,
   readTriageConfigRow,
+  requireExistingFactory,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
@@ -343,6 +344,7 @@ export default defineAction({
         itemId,
         snapshot.headSha,
       );
+      await requireExistingFactory(getDb(), orgId, factoryId);
       await getDb()
         .insert(triageDecisions)
         .values({

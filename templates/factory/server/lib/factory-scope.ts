@@ -134,6 +134,28 @@ export function triageConfigUpdateRowId(
 
 type Db = ReturnType<typeof getDb>;
 
+export async function requireExistingFactory(
+  db: Db,
+  orgId: string,
+  factoryId: string,
+): Promise<void> {
+  const row = (
+    await db
+      .select({ id: factoryDefinitions.id })
+      .from(factoryDefinitions)
+      .where(
+        and(
+          eq(factoryDefinitions.id, factoryId),
+          eq(factoryDefinitions.orgId, orgId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!row) {
+    throw new Error("Factory not found.");
+  }
+}
+
 export async function readTriageConfigRow(
   db: Db,
   orgId: string,

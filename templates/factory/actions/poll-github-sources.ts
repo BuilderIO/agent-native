@@ -8,6 +8,7 @@ import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automa
 import {
   factoryIdSchema,
   readTriageConfigRow,
+  requireExistingFactory,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
@@ -76,6 +77,11 @@ export default defineAction({
     let pullRequestCount = 0;
 
     await db.transaction(async (tx) => {
+      await requireExistingFactory(
+        tx as unknown as ReturnType<typeof getDb>,
+        orgId,
+        factoryId,
+      );
       for (const issue of issues) {
         const id = itemDedupeKey(
           {

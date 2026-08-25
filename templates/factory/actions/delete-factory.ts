@@ -61,13 +61,17 @@ export default defineAction({
       pollingEnabled: config?.pollingEnabled ?? 0,
       githubPollingEnabled: config?.githubPollingEnabled ?? 0,
       sentryPollingEnabled: config?.sentryPollingEnabled ?? 0,
+      slackChannelId: config?.slackChannelId,
+      repository: config?.repository,
+      sentryOrgSlug: config?.sentryOrgSlug,
+      sentryProjectSlug: config?.sentryProjectSlug,
     });
-
-    // Remove schedules first so no new run can begin while owned SQL is removed.
-    await removeFactoryAutomationResources(orgId, factoryId);
 
     const db = getDb();
     try {
+      // Remove schedules before SQL so no new run can start; restore both if
+      // either step fails so a partial cleanup cannot disable a surviving Factory.
+      await removeFactoryAutomationResources(orgId, factoryId);
       await db.transaction(async (tx) => {
         const current = (
           await tx
@@ -88,6 +92,15 @@ export default defineAction({
           );
         }
 
+        await tx
+          .delete(factoryDefinitions)
+          .where(
+            and(
+              eq(factoryDefinitions.id, factoryId),
+              eq(factoryDefinitions.orgId, orgId),
+            ),
+          );
+
         const scopedTables = [
           factoryComments,
           factoryGraphVersions,
@@ -104,14 +117,6 @@ export default defineAction({
             .delete(table)
             .where(and(eq(table.orgId, orgId), eq(table.factoryId, factoryId)));
         }
-        await tx
-          .delete(factoryDefinitions)
-          .where(
-            and(
-              eq(factoryDefinitions.id, factoryId),
-              eq(factoryDefinitions.orgId, orgId),
-            ),
-          );
       });
     } catch (error) {
       try {

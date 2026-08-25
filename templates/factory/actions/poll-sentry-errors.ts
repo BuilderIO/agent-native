@@ -8,6 +8,7 @@ import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automa
 import {
   factoryIdSchema,
   readTriageConfigRow,
+  requireExistingFactory,
   triageConfigUpdateRowId,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
@@ -84,6 +85,11 @@ export default defineAction({
     const configRowId = triageConfigUpdateRowId(config, orgId, factoryId);
 
     await db.transaction(async (tx) => {
+      await requireExistingFactory(
+        tx as unknown as ReturnType<typeof getDb>,
+        orgId,
+        factoryId,
+      );
       for (const issue of observedIssues) {
         const id = itemDedupeKey(
           { source: "sentry", externalId: issue.id },

@@ -12,8 +12,9 @@ import {
   DEFAULT_FACTORY_ID,
   orgFactoryItemFilter,
   orgFactoryRunFilter,
+  readTriageConfigRow,
+  requireExistingFactory,
 } from "../server/lib/factory-scope.js";
-import { readTriageConfigRow } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -463,6 +464,7 @@ export default defineAction({
     }
 
     if (retryableSlackRun) {
+      await requireExistingFactory(db, orgId, factoryId);
       await db
         .update(triageRuns)
         .set({
@@ -474,6 +476,7 @@ export default defineAction({
         })
         .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
     } else {
+      await requireExistingFactory(db, orgId, factoryId);
       await db.insert(triageRuns).values({
         id: runId,
         itemId,

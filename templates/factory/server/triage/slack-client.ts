@@ -26,11 +26,12 @@ export interface SlackReaderIdentity {
   orgId?: string | null;
 }
 
-/** Slack bot usernames drop hyphens, so @agent-native and @agentnative are the same bot. */
+const AGENT_NATIVE_SLACK_USER_NAMES = new Set(["agent-native", "agentnative"]);
+
+/** Slack reports the bot as @agent-native or @agentnative; do not treat hyphen padding as the same handle. */
 export function isAgentNativeSlackUserName(value: string): boolean {
-  return (
-    value.trim().replace(/^@/, "").replace(/-/g, "").toLowerCase() ===
-    "agentnative"
+  return AGENT_NATIVE_SLACK_USER_NAMES.has(
+    value.trim().replace(/^@/, "").toLowerCase(),
   );
 }
 

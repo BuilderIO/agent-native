@@ -71,6 +71,7 @@ beforeEach(() => {
     pollingEnabled: 1,
     githubPollingEnabled: 0,
     sentryPollingEnabled: 0,
+    slackChannelId: "C123",
   });
   removeFactoryAutomationResourcesMock.mockResolvedValue(undefined);
   ensureFactoryAutomationsMock.mockResolvedValue(undefined);
@@ -115,6 +116,7 @@ describe("delete-factory", () => {
       "support-triage",
     );
     expect(deletedTables).toEqual([
+      factoryDefinitions,
       factoryComments,
       factoryGraphVersions,
       factoryAuditEvents,
@@ -124,7 +126,6 @@ describe("delete-factory", () => {
       triageRules,
       triageItems,
       triageConfig,
-      factoryDefinitions,
     ]);
   });
 
@@ -172,7 +173,32 @@ describe("delete-factory", () => {
       "org-1",
       "support-triage",
       {
-        enabledNames: expect.any(Set),
+        enabledNames: new Set(["factory-slack-feedback"]),
+      },
+    );
+  });
+
+  it("restores scheduled automations when schedule removal fails", async () => {
+    const transaction = vi.fn();
+    getDbMock.mockReturnValue({ transaction });
+    removeFactoryAutomationResourcesMock.mockRejectedValue(
+      new Error("scheduler unavailable"),
+    );
+    const { default: action } = await import("./delete-factory.js");
+
+    await expect(
+      action.run(
+        { factoryId: "support-triage", confirmName: "Support triage" },
+        { userEmail: "member@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("scheduler unavailable");
+    expect(transaction).not.toHaveBeenCalled();
+    expect(ensureFactoryAutomationsMock).toHaveBeenCalledWith(
+      "member@example.com",
+      "org-1",
+      "support-triage",
+      {
+        enabledNames: new Set(["factory-slack-feedback"]),
       },
     );
   });
