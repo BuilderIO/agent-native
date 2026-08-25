@@ -1,27 +1,46 @@
 import { IconSettings } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
+import { Select } from "./ds/select";
+import { Toggle } from "./ds/toggle";
 import {
-  HERO_SHADER_SETTINGS_RANGES,
+  HERO_SHADER_FIELD_CONFIG,
   type HeroShaderSettings,
 } from "./hero-shader-settings";
 
 const FIELD_LABELS: Record<keyof HeroShaderSettings, string> = {
   particleCount: "Particle count",
   color: "Color",
+  colorMode: "Color mode",
+  accentColor: "Accent color",
   blinkRate: "Blink rate",
   spin: "Spin",
   turbulence: "Turbulence",
-  intensity: "Intensity",
+  intensity: "Opacity",
+  animationSpeed: "Animation speed",
+  glow: "Glow",
+  scale: "Scale / density",
+  seed: "Seed",
+  vignette: "Vignette",
+  paused: "Pause animation",
 };
 
 const FIELD_ORDER: Array<keyof HeroShaderSettings> = [
   "particleCount",
-  "color",
-  "blinkRate",
+  "scale",
   "spin",
+  "animationSpeed",
   "turbulence",
+  "blinkRate",
+  "glow",
+  "vignette",
+  "seed",
+  "colorMode",
+  "color",
+  "accentColor",
   "intensity",
+  "paused",
 ];
 
 interface HeroShaderSettingsPanelProps {
@@ -39,12 +58,22 @@ export function HeroShaderSettingsPanel({
   onReset,
 }: HeroShaderSettingsPanelProps) {
   const [open, setOpen] = useState(false);
+  const [panelPos, setPanelPos] = useState<{ left: number; top: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
   useEffect(() => {
     if (!open) return;
+
+    // Position is computed from the trigger's real screen position and the
+    // panel is portaled to <body> so it opens *downward* without being
+    // clipped by the hero's `overflow: hidden` section.
+    function updatePosition() {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (rect) setPanelPos({ left: rect.left, top: rect.bottom + 8 });
+    }
+    updatePosition();
 
     function close(e: MouseEvent | TouchEvent) {
       if (
@@ -65,10 +94,14 @@ export function HeroShaderSettingsPanel({
     document.addEventListener("mousedown", close);
     document.addEventListener("touchstart", close);
     document.addEventListener("keydown", handleKey);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("touchstart", close);
       document.removeEventListener("keydown", handleKey);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
     };
   }, [open]);
 
@@ -109,130 +142,161 @@ export function HeroShaderSettingsPanel({
         <IconSettings size={18} stroke={1.5} />
       </button>
 
-      {open && (
-        <div
-          ref={panelRef}
-          id={panelId}
-          role="dialog"
-          aria-label="Shader tweak settings"
-          style={{
-            position: "absolute",
-            left: 0,
-            bottom: "calc(100% + 8px)",
-            width: 260,
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--spacing-4)",
-            padding: "var(--spacing-4)",
-            background: "var(--b-bg-prominent)",
-            border: "1px solid var(--b-border-default)",
-            borderRadius: "var(--b-radius)",
-            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
-          }}
-        >
-          {FIELD_ORDER.map((key) => {
-            const range = HERO_SHADER_SETTINGS_RANGES[key];
-            const label = FIELD_LABELS[key];
-            return (
-              <div
-                key={key}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--spacing-1)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    fontFamily: "var(--b-font-sans)",
-                    fontSize: "var(--b-t-paragraph-3)",
-                    color: "var(--b-text-secondary)",
-                  }}
-                >
-                  <label htmlFor={`${panelId}-${key}`}>{label}</label>
-                  {range && (
-                    <span
-                      style={{
-                        fontFamily: "var(--b-font-mono)",
-                        color: "var(--b-text-primary)",
-                      }}
-                    >
-                      {settings[key]}
-                    </span>
-                  )}
-                </div>
-                {range ? (
-                  <input
-                    id={`${panelId}-${key}`}
-                    type="range"
-                    min={range.min}
-                    max={range.max}
-                    step={range.step}
-                    value={settings[key] as number}
-                    onChange={(e) =>
-                      onChange(
-                        key,
-                        Number(
-                          e.target.value,
-                        ) as HeroShaderSettings[typeof key],
-                      )
-                    }
-                    style={{
-                      width: "100%",
-                      accentColor: "var(--b-action-primary-bg)",
-                    }}
-                  />
-                ) : (
-                  <input
-                    id={`${panelId}-${key}`}
-                    type="color"
-                    value={settings[key] as string}
-                    onChange={(e) =>
-                      onChange(
-                        key,
-                        e.target.value as HeroShaderSettings[typeof key],
-                      )
-                    }
-                    style={{
-                      width: "100%",
-                      height: 28,
-                      padding: 0,
-                      border: "1px solid var(--b-border-default)",
-                      borderRadius: "var(--b-radius-sm)",
-                      background: "transparent",
-                      cursor: "pointer",
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })}
-
-          <button
-            type="button"
-            onClick={onReset}
-            className="hover:text-[var(--b-text-primary)]"
+      {open &&
+        panelPos &&
+        createPortal(
+          <div
+            ref={panelRef}
+            id={panelId}
+            role="dialog"
+            aria-label="Shader tweak settings"
             style={{
-              fontFamily: "var(--b-font-mono)",
-              fontSize: "var(--b-t-label-2)",
-              letterSpacing: "0.02em",
-              textTransform: "uppercase",
-              color: "var(--b-text-secondary)",
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              alignSelf: "flex-start",
-              transition: "color 0.15s",
+              position: "fixed",
+              left: panelPos.left,
+              top: panelPos.top,
+              width: 280,
+              maxHeight: `calc(100vh - ${panelPos.top + 16}px)`,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--spacing-4)",
+              padding: "var(--spacing-4)",
+              background: "var(--b-bg-prominent)",
+              border: "1px solid var(--b-border-default)",
+              borderRadius: "var(--b-radius)",
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
+              zIndex: 50,
             }}
           >
-            Reset to defaults
-          </button>
-        </div>
-      )}
+            {FIELD_ORDER.map((key) => {
+              const field = HERO_SHADER_FIELD_CONFIG[key];
+              const label = FIELD_LABELS[key];
+              // Solid color mode must always render solid: gray out (and
+              // disable) the accent color input instead of letting it blend
+              // in while nothing in the shader is using it.
+              const disabled = key === "accentColor" && settings.colorMode !== "gradient";
+
+              return (
+                <div
+                  key={key}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--spacing-1)",
+                    opacity: disabled ? 0.5 : 1,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      fontFamily: "var(--b-font-sans)",
+                      fontSize: "var(--b-t-paragraph-3)",
+                      color: "var(--b-text-secondary)",
+                    }}
+                  >
+                    <label htmlFor={`${panelId}-${key}`}>{label}</label>
+                    {field.kind === "range" && (
+                      <span
+                        style={{
+                          fontFamily: "var(--b-font-mono)",
+                          color: "var(--b-text-primary)",
+                        }}
+                      >
+                        {settings[key] as number}
+                      </span>
+                    )}
+                  </div>
+
+                  {field.kind === "range" && (
+                    <input
+                      id={`${panelId}-${key}`}
+                      type="range"
+                      min={field.min}
+                      max={field.max}
+                      step={field.step}
+                      value={settings[key] as number}
+                      onChange={(e) =>
+                        onChange(
+                          key,
+                          Number(e.target.value) as HeroShaderSettings[typeof key],
+                        )
+                      }
+                      style={{ width: "100%", accentColor: "var(--b-action-primary-bg)" }}
+                    />
+                  )}
+
+                  {field.kind === "color" && (
+                    <input
+                      id={`${panelId}-${key}`}
+                      type="color"
+                      value={settings[key] as string}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        onChange(
+                          key,
+                          e.target.value as HeroShaderSettings[typeof key],
+                        )
+                      }
+                      style={{
+                        width: "100%",
+                        height: 28,
+                        padding: 0,
+                        border: "1px solid var(--b-border-default)",
+                        borderRadius: "var(--b-radius-sm)",
+                        background: "transparent",
+                        cursor: disabled ? "not-allowed" : "pointer",
+                      }}
+                    />
+                  )}
+
+                  {field.kind === "select" && (
+                    <Select
+                      options={field.options}
+                      value={settings[key] as string}
+                      onChange={(value) =>
+                        onChange(key, value as HeroShaderSettings[typeof key])
+                      }
+                    />
+                  )}
+
+                  {field.kind === "boolean" && (
+                    <Toggle
+                      checked={settings[key] as boolean}
+                      onChange={(checked) =>
+                        onChange(key, checked as HeroShaderSettings[typeof key])
+                      }
+                      label={label}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={onReset}
+              className="hover:text-[var(--b-text-primary)]"
+              style={{
+                fontFamily: "var(--b-font-mono)",
+                fontSize: "var(--b-t-label-2)",
+                letterSpacing: "0.02em",
+                textTransform: "uppercase",
+                color: "var(--b-text-secondary)",
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                alignSelf: "flex-start",
+                transition: "color 0.15s",
+              }}
+            >
+              Reset to defaults
+            </button>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

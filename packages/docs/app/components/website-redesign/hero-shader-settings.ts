@@ -3,31 +3,68 @@ import { useCallback, useEffect, useState } from "react";
 export interface HeroShaderSettings {
   particleCount: number;
   color: string;
+  colorMode: "solid" | "gradient";
+  accentColor: string;
   blinkRate: number;
   spin: number;
   turbulence: number;
   intensity: number;
+  animationSpeed: number;
+  glow: number;
+  scale: number;
+  seed: number;
+  vignette: number;
+  paused: boolean;
 }
 
 export const DEFAULT_HERO_SHADER_SETTINGS: HeroShaderSettings = {
   particleCount: 4,
   color: "#595959",
+  colorMode: "solid",
+  accentColor: "#00d6f6",
   blinkRate: 5,
   spin: 0.03,
   turbulence: 0.4,
   intensity: 0.7,
+  animationSpeed: 1,
+  glow: 1,
+  scale: 1,
+  seed: 0,
+  vignette: 1,
+  paused: false,
 };
 
-export const HERO_SHADER_SETTINGS_RANGES: Record<
+export type HeroShaderFieldConfig =
+  | { kind: "range"; min: number; max: number; step: number }
+  | { kind: "color" }
+  | { kind: "select"; options: Array<{ label: string; value: string }> }
+  | { kind: "boolean" };
+
+export const HERO_SHADER_FIELD_CONFIG: Record<
   keyof HeroShaderSettings,
-  { min: number; max: number; step: number } | null
+  HeroShaderFieldConfig
 > = {
-  particleCount: { min: 1, max: 8, step: 1 },
-  color: null,
-  blinkRate: { min: 1, max: 15, step: 0.5 },
-  spin: { min: -0.15, max: 0.15, step: 0.005 },
-  turbulence: { min: 0, max: 1, step: 0.05 },
-  intensity: { min: 0.1, max: 1, step: 0.05 },
+  particleCount: { kind: "range", min: 1, max: 8, step: 1 },
+  color: { kind: "color" },
+  colorMode: {
+    kind: "select",
+    options: [
+      { label: "Solid", value: "solid" },
+      { label: "Gradient", value: "gradient" },
+    ],
+  },
+  accentColor: { kind: "color" },
+  // No lower clamp above zero: 0 fully disables the sparkle blink/pulse.
+  blinkRate: { kind: "range", min: 0, max: 15, step: 0.5 },
+  spin: { kind: "range", min: -0.15, max: 0.15, step: 0.005 },
+  turbulence: { kind: "range", min: 0, max: 1, step: 0.05 },
+  intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
+  animationSpeed: { kind: "range", min: 0, max: 3, step: 0.1 },
+  glow: { kind: "range", min: 0, max: 3, step: 0.1 },
+  scale: { kind: "range", min: 0.5, max: 3, step: 0.1 },
+  seed: { kind: "range", min: 0, max: 100, step: 1 },
+  vignette: { kind: "range", min: 0, max: 2, step: 0.1 },
+  paused: { kind: "boolean" },
 };
 
 const STORAGE_KEY = "website-redesign:hero-shader-settings";

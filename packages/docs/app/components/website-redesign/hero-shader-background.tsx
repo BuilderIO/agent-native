@@ -27,10 +27,18 @@ uniform float uSpin;
 uniform float uTurbulence;
 uniform vec3 uColor;
 uniform vec3 uBgColor;
+uniform float uSpeed;
+uniform float uGlow;
+uniform float uScale;
+uniform float uSeed;
+uniform float uVignette;
+uniform float uColorMode;
+uniform vec3 uAccentColor;
 
 #define S(a, b, t) smoothstep(a, b, t)
 
 float N21(vec2 p) {
+  p += uSeed;
   vec3 a = fract(vec3(p.xyx) * vec3(213.897, 653.453, 253.098));
   a += dot(a, a.yzx + 79.76);
   return fract((a.x + a.y) * a.z);
@@ -141,7 +149,7 @@ float NetLayer(vec2 st, float n, float t, vec2 pointer, float pointerStrength) {
 
   float sPhase = (sin(t + n) + sin(t * .1)) * .25 + .5;
   sPhase += pow(sin(t * .1) * .5 + .5, 50.) * 5.;
-  m += sparkle * sPhase;
+  m += sparkle * sPhase * uGlow;
 
   return m;
 }
@@ -149,12 +157,13 @@ float NetLayer(vec2 st, float n, float t, vec2 pointer, float pointerStrength) {
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 uv = (fragCoord - iResolution.xy * .5) / iResolution.y;
 
-  float t = iTime * uSpin;
+  float scaledTime = iTime * uSpeed;
+  float t = scaledTime * uSpin;
 
   float s = sin(t);
   float c = cos(t);
   mat2 rot = mat2(c, -s, s, c);
-  vec2 st = uv * rot;
+  vec2 st = uv * rot * uScale;
   vec2 pointerUv = (uPointer.xy - iResolution.xy * .5) / iResolution.y;
 
   float m = 0.;
@@ -164,27 +173,32 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float z = fract(t + i);
     float size = mix(15., 1., z);
     float fade = S(0., .6, z) * S(1., .8, z);
-    vec2 pointerSt = pointerUv * rot * size;
+    vec2 pointerSt = pointerUv * rot * size * uScale;
     vec2 layerSt = st * size;
     float warp = 1. - smoothstep(.15, 2.7, length(layerSt - pointerSt));
     warp = warp * warp * (3. - 2. * warp) * uPointer.z;
     layerSt -= (pointerSt - layerSt) * warp * .035;
-    m += fade * NetLayer(layerSt, i, iTime * 0.3, pointerSt, uPointer.z);
+    m += fade * NetLayer(layerSt, i, scaledTime * 0.3, pointerSt, uPointer.z);
   }
 
   float cursorLift = 1. - smoothstep(.04, .48, length(uv - pointerUv));
   cursorLift = cursorLift * cursorLift * (3. - 2. * cursorLift) * uPointer.z;
   m *= 1. + cursorLift * 1.6;
 
-  vec3 baseCol = uColor * mix(0.342857, 1.0, uDark);
+  // uColorMode is 0 (solid) or 1 (gradient) -- mix() with a 0 factor returns
+  // uColor exactly, so solid mode never blends in the accent color.
+  vec3 gradientColor = mix(uColor, uAccentColor, uv.x * 0.5 + 0.5);
+  vec3 pickedColor = mix(uColor, gradientColor, uColorMode);
+  vec3 baseCol = pickedColor * mix(0.342857, 1.0, uDark);
   vec3 col = baseCol * m;
 
   // Clamped instead of the original raw "1. - dot(uv, uv)": this hero
   // canvas is much wider than tall, so uv.x reaches well past +/-1 near the
   // left/right edges, making the raw vignette go negative there and flip
   // the color's sign instead of fading it out. Clamping keeps it fading to
-  // 0 (pure bg) instead of clipping to black.
-  col *= clamp(1. - dot(uv, uv), 0., 1.);
+  // 0 (pure bg) instead of clipping to black. uVignette scales the falloff
+  // so it can be dialed down to 0 (no vignette) or exaggerated above 1.
+  col *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
 
   float tt = min(iTime, 5.0);
   col *= S(0., 20., tt);
@@ -217,7 +231,6 @@ function hexToRgb01(hex: string): [number, number, number] {
   ];
 }
 
-
 export interface HeroShaderBackgroundProps extends HeroShaderSettings {
   frameRate?: number;
 }
@@ -228,10 +241,18 @@ export interface HeroShaderBackgroundProps extends HeroShaderSettings {
 export function HeroShaderBackground({
   particleCount,
   color,
+  colorMode,
+  accentColor,
   blinkRate,
   spin,
   turbulence,
   intensity,
+  animationSpeed,
+  glow,
+  scale,
+  seed,
+  vignette,
+  paused,
   frameRate = 30,
 }: HeroShaderBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -244,13 +265,49 @@ export function HeroShaderBackground({
   const settingsRef = useRef({
     particleCount,
     color,
+    colorMode,
+    accentColor,
     blinkRate,
     spin,
     turbulence,
+    animationSpeed,
+    glow,
+    scale,
+    seed,
+    vignette,
+    paused,
   });
   useEffect(() => {
-    settingsRef.current = { particleCount, color, blinkRate, spin, turbulence };
-  }, [particleCount, color, blinkRate, spin, turbulence]);
+    settingsRef.current = {
+      particleCount,
+      color,
+      colorMode,
+      accentColor,
+      blinkRate,
+      spin,
+      turbulence,
+      animationSpeed,
+      glow,
+      scale,
+      seed,
+      vignette,
+      paused,
+    };
+  }, [
+    particleCount,
+    color,
+    colorMode,
+    accentColor,
+    blinkRate,
+    spin,
+    turbulence,
+    animationSpeed,
+    glow,
+    scale,
+    seed,
+    vignette,
+    paused,
+  ]);
 
   useEffect(() => {
     const canvasRaw = canvasRef.current;
@@ -325,6 +382,13 @@ export function HeroShaderBackground({
     const uTurbulence = gl.getUniformLocation(program, "uTurbulence");
     const uColor = gl.getUniformLocation(program, "uColor");
     const uBgColor = gl.getUniformLocation(program, "uBgColor");
+    const uSpeed = gl.getUniformLocation(program, "uSpeed");
+    const uGlow = gl.getUniformLocation(program, "uGlow");
+    const uScale = gl.getUniformLocation(program, "uScale");
+    const uSeed = gl.getUniformLocation(program, "uSeed");
+    const uVignette = gl.getUniformLocation(program, "uVignette");
+    const uColorMode = gl.getUniformLocation(program, "uColorMode");
+    const uAccentColor = gl.getUniformLocation(program, "uAccentColor");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -376,6 +440,7 @@ export function HeroShaderBackground({
     function draw(timeSeconds: number, allowPointer = !reducedMotion) {
       easePointer(allowPointer);
       const [r, g, b] = hexToRgb01(settingsRef.current.color);
+      const [ar, ag, ab] = hexToRgb01(settingsRef.current.accentColor);
       gl.uniform1f(uTime, timeSeconds);
       gl.uniform2f(uRes, canvas.width, canvas.height);
       gl.uniform1f(uDark, dark ? 1.0 : 0.0);
@@ -384,7 +449,17 @@ export function HeroShaderBackground({
       gl.uniform1f(uBlinkRate, settingsRef.current.blinkRate);
       gl.uniform1f(uSpin, settingsRef.current.spin);
       gl.uniform1f(uTurbulence, settingsRef.current.turbulence);
+      gl.uniform1f(uSpeed, settingsRef.current.animationSpeed);
+      gl.uniform1f(uGlow, settingsRef.current.glow);
+      gl.uniform1f(uScale, settingsRef.current.scale);
+      gl.uniform1f(uSeed, settingsRef.current.seed);
+      gl.uniform1f(uVignette, settingsRef.current.vignette);
+      gl.uniform1f(
+        uColorMode,
+        settingsRef.current.colorMode === "gradient" ? 1 : 0,
+      );
       gl.uniform3f(uColor, r, g, b);
+      gl.uniform3f(uAccentColor, ar, ag, ab);
       gl.uniform3f(uBgColor, bgColor[0], bgColor[1], bgColor[2]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
@@ -458,6 +533,8 @@ export function HeroShaderBackground({
 
       const rect = container.getBoundingClientRect();
       if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+
+      if (settingsRef.current.paused) return;
 
       draw((now - startTime) * 0.001);
     }
