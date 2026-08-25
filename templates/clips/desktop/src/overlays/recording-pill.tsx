@@ -14,8 +14,15 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  type AskTurn,
+  buildMeetingAskPrompt,
+  MAX_ASK_HISTORY_TURNS,
+  streamMeetingAsk,
+} from "../lib/meeting-ask";
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
+import { loadStoredServerUrl } from "../lib/url";
 import { LiveAudioBars } from "./live-audio-bars";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
@@ -60,15 +67,21 @@ export function MeetingPill() {
   const [ask, setAsk] = useState("");
   // Inline ask conversation (the Wispr interaction): a sheet rises from the
   // composer with the running exchange — user questions as chat bubbles,
-  // streamed answers, and contextual suggestion chips. The live agent
-  // transport lands with the catch-up-chip PR; the demo streams canned
-  // answers so the interaction is designable today.
+  // streamed answers, and contextual suggestion chips. In Tauri the answers
+  // stream live from the agent chat (see `streamMeetingAsk`); the demo
+  // branch streams canned answers so the interaction stays designable in a
+  // plain browser tab.
   const [askMessages, setAskMessages] = useState<
     Array<{ role: "user" | "assistant"; text: string; streaming?: boolean }>
   >([]);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
   const [askSheetHeight, setAskSheetHeight] = useState(0.62);
   const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const askAbortRef = useRef<AbortController | null>(null);
+  // Follow-up context for the live transport: prior scaffolded questions and
+  // final answers, sent as `history` with each ask (no threadId — see
+  // `streamMeetingAsk`). Reset with the session.
+  const askHistoryRef = useRef<AskTurn[]>([]);
   const askSheetScrollRef = useRef<HTMLDivElement | null>(null);
   const sheetDragRef = useRef<{
     startY: number;
@@ -141,6 +154,13 @@ export function MeetingPill() {
         setExpanded(false);
         // Reset transcript state for the new session.
         setPreloadedLines([]);
+        // A new session is a new meeting: drop the old ask conversation and
+        // abort any in-flight answer so it can't stream into the wrong sheet.
+        askAbortRef.current?.abort();
+        askAbortRef.current = null;
+        askHistoryRef.current = [];
+        setAskMessages([]);
+        setAskSheetOpen(false);
         activeMeetingIdRef.current =
           ev.payload?.mode === "meeting" ? (next.meetingId ?? null) : null;
         if (stopFallbackRef.current) {
@@ -251,6 +271,8 @@ export function MeetingPill() {
         clearTimeout(stopFallbackRef.current);
         stopFallbackRef.current = null;
       }
+      askAbortRef.current?.abort();
+      askAbortRef.current = null;
     };
   }, []);
 
@@ -376,11 +398,77 @@ export function MeetingPill() {
       }, 55);
       return;
     }
-    emit("clips:open-meeting", {
-      meetingId: mid,
-      openChat: true,
-      prompt: question,
-    }).catch(() => {});
+    // Live transport: stream the answer from the agent chat into the same
+    // askMessages the demo branch fills, instead of ejecting to the web app.
+    askAbortRef.current?.abort();
+    const controller = new AbortController();
+    askAbortRef.current = controller;
+    setAskSheetOpen(true);
+    setAskMessages((m) => [
+      // A superseded in-flight answer keeps its partial text; drop its caret.
+      ...m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
+      { role: "user", text: question },
+      { role: "assistant", text: "", streaming: true },
+    ]);
+    const appendToAnswer = (delta: string) => {
+      // A late chunk racing the abort must not touch the next ask's bubble.
+      if (controller.signal.aborted) return;
+      setAskMessages((m) => {
+        const last = m[m.length - 1];
+        if (!last || last.role !== "assistant") return m;
+        return [...m.slice(0, -1), { ...last, text: last.text + delta }];
+      });
+      const scroller = askSheetScrollRef.current;
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    };
+    const title = ctxRef.current.title ?? null;
+    void (async () => {
+      try {
+        const answer = await streamMeetingAsk({
+          serverUrl: loadStoredServerUrl(),
+          meetingId: mid,
+          meetingTitle: title,
+          question,
+          history: askHistoryRef.current,
+          signal: controller.signal,
+          onTextDelta: appendToAnswer,
+        });
+        if (controller.signal.aborted) return;
+        const exchange: AskTurn[] = [
+          {
+            role: "user",
+            content: buildMeetingAskPrompt(mid, title, question),
+          },
+          { role: "assistant", content: answer },
+        ];
+        askHistoryRef.current = [...askHistoryRef.current, ...exchange].slice(
+          -MAX_ASK_HISTORY_TURNS,
+        );
+        setAskMessages((m) => {
+          const last = m[m.length - 1];
+          if (!last || last.role !== "assistant") return m;
+          return [...m.slice(0, -1), { ...last, streaming: false }];
+        });
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        const line =
+          err instanceof Error && err.message.trim()
+            ? err.message.trim()
+            : "Couldn't reach the agent. Try again.";
+        setAskMessages((m) => {
+          const last = m[m.length - 1];
+          if (!last || last.role !== "assistant") return m;
+          return [
+            ...m.slice(0, -1),
+            {
+              ...last,
+              text: last.text ? `${last.text}\n${line}` : line,
+              streaming: false,
+            },
+          ];
+        });
+      }
+    })();
   };
 
   const handleAskSubmit = (e: React.FormEvent) => {
@@ -396,6 +484,13 @@ export function MeetingPill() {
       clearInterval(askStreamRef.current);
       askStreamRef.current = null;
     }
+    // Dismissing the sheet abandons the in-flight answer; keep the partial
+    // text (minus its caret) for when the sheet reopens.
+    askAbortRef.current?.abort();
+    askAbortRef.current = null;
+    setAskMessages((m) =>
+      m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
+    );
     setAskSheetOpen(false);
   };
 

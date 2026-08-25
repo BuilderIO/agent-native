@@ -160,7 +160,11 @@ import {
   retryUpdateCheck,
   useUpdateStatus,
 } from "./lib/updater";
-import { normalizeServerUrl } from "./lib/url";
+import {
+  DEFAULT_SERVER_URL,
+  normalizeServerUrl,
+  SERVER_URL_STORAGE_KEY,
+} from "./lib/url";
 import { cn } from "./lib/utils";
 import {
   installDesktopVoiceDictation,
@@ -388,7 +392,8 @@ function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }
 
-const STORAGE_KEY = "clips:server-url";
+// Shared with overlays via lib/url.ts — the meeting pill reads the same key.
+const STORAGE_KEY = SERVER_URL_STORAGE_KEY;
 const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
@@ -410,14 +415,7 @@ const VIDEO_STORAGE_CONFIGURED_KEY = "clips:video-storage-configured";
 const REWIND_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind";
 
-// Sensible defaults so the user never has to type a URL on first launch.
-// Dev builds point at the local dev server; production builds point at the
-// hosted Clips instance. The user can still override from Settings.
-// Dev points at the Clips dev server (shared-app-config says 8094).
-// Prod points at the hosted Clips instance. User can override from Settings.
-const DEFAULT_URL = import.meta.env.DEV
-  ? "http://localhost:8094"
-  : "https://clips.agent-native.com";
+const DEFAULT_URL = DEFAULT_SERVER_URL;
 
 function normalizeCaptureSource(value: string): CaptureSource {
   if (value === "region" && isMacPlatform()) return "region";
