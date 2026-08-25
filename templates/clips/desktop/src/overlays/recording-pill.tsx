@@ -418,8 +418,17 @@ export function MeetingPill() {
   const demoAskSteps = (progress: number, done: boolean): AgentStep[] => {
     const steps: AgentStep[] = [
       {
+        key: "demo-think",
+        label: "Thought",
+        kind: "think",
+        status: "done",
+        detail:
+          "The ask is about what was decided, so the meeting itself comes first, then anything similar from past meetings.",
+      },
+      {
         key: "demo-read",
         label: "Reading this meeting",
+        kind: "read",
         status: progress >= 6 ? "done" : "running",
         detail: progress >= 6 ? "1 result" : undefined,
       },
@@ -428,6 +437,7 @@ export function MeetingPill() {
       steps.push({
         key: "demo-search",
         label: "Searching past meetings",
+        kind: "read",
         status: progress >= 14 ? "done" : "running",
         detail: progress >= 14 ? "3 results" : undefined,
       });

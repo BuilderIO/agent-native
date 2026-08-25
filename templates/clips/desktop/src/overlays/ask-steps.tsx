@@ -1,25 +1,43 @@
 /**
- * The agent's work, above its answer.
+ * The agent's work as a strip of icon chips.
  *
- * While a run streams, each tool call is a row that names what the agent is
- * doing and then reports how it went. Once the answer lands the rows collapse
- * to one line, because after the fact the work is context, not the point —
- * the same reason a finished build shows a summary and not its log.
+ * One chip per step, typed by what kind of work it was — read, think, write,
+ * call, wait — with the current one lit and the trail behind it dimmed. A run
+ * reads as a short sequence of shapes rather than a stack of sentences: the
+ * tool names are the agent's vocabulary, not the user's. The body underneath
+ * shows only the step in flight, and the whole list is one chevron away.
  */
 
 import {
   IconAlertTriangle,
-  IconCheck,
+  IconBrain,
   IconChevronDown,
-  IconChevronRight,
+  IconChevronUp,
   IconHourglass,
+  IconPencil,
+  IconPlug,
+  IconSearch,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { AgentStep } from "../lib/agent-steps";
+import type { AgentStep, AgentStepKind } from "../lib/agent-steps";
 
-/** Rows visible while streaming. Older completed work scrolls off the top. */
-const LIVE_WINDOW = 3;
+const KIND_ICON: Record<AgentStepKind, typeof IconBrain> = {
+  think: IconBrain,
+  read: IconSearch,
+  write: IconPencil,
+  call: IconPlug,
+  wait: IconHourglass,
+};
+
+/** What to call the bucket, in flight and once it is over. */
+const KIND_LABEL: Record<AgentStepKind, { running: string; done: string }> = {
+  think: { running: "Thinking", done: "Thought" },
+  read: { running: "Looking", done: "Looked" },
+  write: { running: "Working", done: "Done" },
+  call: { running: "Calling", done: "Called" },
+  wait: { running: "Waiting", done: "Waited" },
+};
 
 export function AskSteps({
   steps,
@@ -29,73 +47,91 @@ export function AskSteps({
   streaming?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const count = steps?.length ?? 0;
+
+  // Keep the newest chip in view as the strip grows past the pill's width.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (strip) strip.scrollLeft = strip.scrollWidth;
+  }, [count]);
+
   if (!steps?.length) return null;
 
-  const failed = steps.filter((s) => s.status === "error").length;
-  const blocked = steps.some((s) => s.status === "blocked");
-  const collapsed = !streaming && !expanded && !blocked;
-
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        data-no-drag
-        className="pill-ask-steps-summary"
-        onClick={() => setExpanded(true)}
-        aria-label="Show what the agent did"
-      >
-        <IconChevronRight size={12} stroke={2} aria-hidden />
-        {failed
-          ? `${failed} of ${steps.length} ${stepWord(steps.length)} failed`
-          : `${steps.length} ${stepWord(steps.length)}`}
-      </button>
-    );
-  }
-
-  // Streaming keeps the newest rows in view; expanding after the fact shows
-  // everything, since that is the whole reason to expand.
-  const visible = streaming ? steps.slice(-LIVE_WINDOW) : steps;
+  const activeIndex = lastRunningIndex(steps);
+  const active = steps[activeIndex] ?? steps[steps.length - 1];
+  const failed = steps.some((s) => s.status === "error");
+  const label = failed
+    ? "Hit an error"
+    : streaming || active.status === "running"
+      ? KIND_LABEL[active.kind].running
+      : KIND_LABEL[active.kind].done;
 
   return (
-    <div className="pill-ask-steps">
-      {visible.map((step) => (
-        <div key={step.key} className="pill-ask-step" data-status={step.status}>
-          <StepGlyph status={step.status} />
-          <span className="pill-ask-step-label">{step.label}</span>
-          {step.detail ? (
-            <span className="pill-ask-step-detail">{step.detail}</span>
-          ) : null}
+    <div className="pill-ask-work">
+      <div className="pill-ask-work-head">
+        <div className="pill-ask-chips" ref={stripRef}>
+          {steps.map((step, i) => (
+            <span
+              key={step.key}
+              className="pill-ask-chip-icon"
+              data-status={step.status}
+              data-active={i === activeIndex ? "true" : undefined}
+              title={
+                step.detail ? `${step.label} — ${step.detail}` : step.label
+              }
+            >
+              <StepIcon step={step} />
+            </span>
+          ))}
         </div>
-      ))}
-      {expanded ? (
+        <span className="pill-ask-work-label">{label}</span>
         <button
           type="button"
           data-no-drag
-          className="pill-ask-steps-summary"
-          onClick={() => setExpanded(false)}
-          aria-label="Hide what the agent did"
+          className="pill-ask-work-toggle"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Hide the steps" : "Show every step"}
         >
-          <IconChevronDown size={12} stroke={2} aria-hidden />
-          Hide steps
+          {expanded ? (
+            <IconChevronUp size={13} stroke={2} aria-hidden />
+          ) : (
+            <IconChevronDown size={13} stroke={2} aria-hidden />
+          )}
         </button>
+      </div>
+
+      {expanded ? (
+        <ol className="pill-ask-work-list">
+          {steps.map((step) => (
+            <li key={step.key} data-status={step.status}>
+              <span className="pill-ask-work-item-label">{step.label}</span>
+              {step.detail ? (
+                <span className="pill-ask-work-item-detail">{step.detail}</span>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : streaming ? (
+        <p className="pill-ask-work-now">{active.detail ?? active.label}</p>
       ) : null}
     </div>
   );
 }
 
-function StepGlyph({ status }: { status: AgentStep["status"] }) {
-  if (status === "done") {
-    return <IconCheck size={12} stroke={2.5} aria-hidden />;
-  }
-  if (status === "error") {
+function StepIcon({ step }: { step: AgentStep }) {
+  if (step.status === "error") {
     return <IconAlertTriangle size={12} stroke={2} aria-hidden />;
   }
-  if (status === "blocked") {
-    return <IconHourglass size={12} stroke={2} aria-hidden />;
-  }
-  return <span className="pill-ask-step-dot" aria-hidden />;
+  const Icon = KIND_ICON[step.kind];
+  return <Icon size={12} stroke={2} aria-hidden />;
 }
 
-function stepWord(count: number): string {
-  return count === 1 ? "step" : "steps";
+/** The step in flight, or the last one when the run is over. */
+function lastRunningIndex(steps: AgentStep[]): number {
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    if (steps[i].status === "running" || steps[i].status === "blocked")
+      return i;
+  }
+  return steps.length - 1;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyFrame,
+  kindForTool,
   labelForTool,
   parseAgentFrame,
   settleSteps,
@@ -51,6 +52,7 @@ describe("applyFrame", () => {
       {
         key: "id:t1",
         label: "Searching past meetings",
+        kind: "read",
         status: "done",
         detail: "2 results",
       },
@@ -74,6 +76,7 @@ describe("applyFrame", () => {
       {
         key: "tool:create-meeting",
         label: "Creating a meeting",
+        kind: "write",
         status: "done",
         detail: "1 result",
       },
@@ -107,7 +110,12 @@ describe("applyFrame", () => {
   it("stands a progress label alone when no tool is running", () => {
     const steps = fold([{ type: "activity", label: "Thinking it through" }]);
     expect(steps).toEqual([
-      { key: "activity:0", label: "Thinking it through", status: "running" },
+      {
+        key: "activity:0",
+        label: "Thinking it through",
+        kind: "think",
+        status: "running",
+      },
     ]);
   });
 
@@ -128,6 +136,7 @@ describe("applyFrame", () => {
     expect(steps[0]).toEqual({
       key: "approval:0",
       label: "Waiting for approval: Calling a connected app",
+      kind: "wait",
       status: "blocked",
     });
   });
@@ -141,8 +150,8 @@ describe("settleSteps", () => {
 
   it("leaves a settled list alone", () => {
     const settled: AgentStep[] = [
-      { key: "a", label: "Done", status: "done" },
-      { key: "b", label: "Failed", status: "error" },
+      { key: "a", label: "Done", kind: "read", status: "done" },
+      { key: "b", label: "Failed", kind: "write", status: "error" },
     ];
     expect(settleSteps(settled)).toBe(settled);
   });
@@ -150,6 +159,44 @@ describe("settleSteps", () => {
   it("does not resurrect a blocked approval as completed work", () => {
     const blocked = fold([{ type: "approval_required" }]);
     expect(settleSteps(blocked)[0].status).toBe("blocked");
+  });
+});
+
+describe("kindForTool", () => {
+  it("reads by default and only claims a write when the verb says so", () => {
+    // Claiming the agent changed something it only looked at is the worse
+    // error, so an unrecognized tool is a read.
+    expect(kindForTool("get-meeting")).toBe("read");
+    expect(kindForTool("search-meetings")).toBe("read");
+    expect(kindForTool("something-new")).toBe("read");
+    expect(kindForTool("create-meeting")).toBe("write");
+    expect(kindForTool("send-email")).toBe("write");
+    expect(kindForTool("provider-api-request")).toBe("call");
+    expect(kindForTool("")).toBe("think");
+  });
+});
+
+describe("thinking frames", () => {
+  it("collects reasoning onto one step and keeps only the tail", () => {
+    const steps = fold([
+      { type: "thinking", text: "First I should " },
+      { type: "thinking", text: "read the meeting." },
+    ]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe("think");
+    expect(steps[0].detail).toBe("First I should read the meeting.");
+
+    const long = fold([{ type: "thinking", text: "x".repeat(400) }]);
+    expect(long[0].detail?.startsWith("…")).toBe(true);
+    expect(long[0].detail).toHaveLength(221);
+  });
+
+  it("keeps reasoning and tool work on separate chips", () => {
+    const steps = fold([
+      { type: "thinking", text: "Checking the calendar first." },
+      { type: "tool_start", tool: "provider-api-request", id: "t1" },
+    ]);
+    expect(steps.map((s) => s.kind)).toEqual(["think", "call"]);
   });
 });
 

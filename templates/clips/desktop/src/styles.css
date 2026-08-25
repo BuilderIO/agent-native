@@ -5455,85 +5455,153 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: default;
 }
 
-.pill-ask-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-bottom: 6px;
+.pill-ask-work {
+  margin-bottom: 7px;
 }
 
-.pill-ask-step {
+.pill-ask-work-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
-  font-size: 12px;
-  line-height: 16px;
+}
+
+/* The trail scrolls rather than wrapping: a run of ten steps must not push the
+   answer down the sheet. Edges fade so a clipped chip reads as "more". */
+.pill-ask-chips {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 1px 0;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 10px,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 calc(100% - 10px),
+    transparent 100%
+  );
+}
+
+.pill-ask-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.pill-ask-chip-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 50%;
   color: hsl(var(--ui-muted-foreground));
+  background: hsl(var(--ui-background));
+  opacity: 0.55;
+  transition:
+    opacity 160ms cubic-bezier(0.3, 0, 0, 1),
+    border-color 160ms cubic-bezier(0.3, 0, 0, 1);
 }
 
-.pill-ask-step[data-status="error"] {
+.pill-ask-chip-icon[data-active="true"] {
+  opacity: 1;
+  color: hsl(var(--ui-foreground));
+  border-color: hsl(var(--ui-foreground) / 0.35);
+}
+
+.pill-ask-chip-icon[data-status="error"] {
+  opacity: 1;
   color: hsl(var(--ui-destructive));
+  border-color: hsl(var(--ui-destructive) / 0.4);
 }
 
-.pill-ask-step[data-status="running"] {
+.pill-ask-chip-icon[data-status="running"][data-active="true"],
+.pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
+  animation: pill-ask-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pill-ask-chip-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pill-ask-work-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
   color: hsl(var(--ui-foreground));
 }
 
-.pill-ask-step svg {
+.pill-ask-work-toggle {
+  display: grid;
+  place-items: center;
   flex: none;
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: hsl(var(--ui-muted-foreground));
+  cursor: default;
 }
 
-.pill-ask-step-label {
+.pill-ask-work-toggle:hover {
+  color: hsl(var(--ui-foreground));
+  background: hsl(var(--ui-muted) / 0.6);
+}
+
+/* Quoted like the reasoning it is, so it never reads as the answer. */
+.pill-ask-work-now,
+.pill-ask-work-list {
+  margin: 5px 0 0;
+  padding: 0 0 0 9px;
+  border-left: 1.5px solid hsl(var(--ui-border));
+  font-size: 12px;
+  line-height: 17px;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-ask-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+}
+
+.pill-ask-work-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pill-ask-work-list li[data-status="error"] {
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-ask-work-item-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pill-ask-step-detail {
+.pill-ask-work-item-detail {
   flex: none;
   opacity: 0.7;
-  font-variant-numeric: tabular-nums;
-}
-
-/* A running row needs a heartbeat that survives a frozen animation clock in a
-   non-key window: opacity animates, but the dot is visible at rest. */
-.pill-ask-step-dot {
-  width: 5px;
-  height: 5px;
-  margin: 0 3px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: pill-ask-step-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes pill-ask-step-pulse {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-.pill-ask-steps-summary {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  align-self: flex-start;
-  margin-bottom: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  font-size: 12px;
-  line-height: 16px;
-  color: hsl(var(--ui-muted-foreground));
-  cursor: default;
-}
-
-.pill-ask-steps-summary:hover {
-  color: hsl(var(--ui-foreground));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pill-ask-step-dot {
+  .pill-ask-chip-icon[data-status="running"][data-active="true"],
+  .pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
     animation: none;
   }
 }

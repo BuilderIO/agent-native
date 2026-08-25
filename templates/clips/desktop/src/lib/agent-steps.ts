@@ -32,11 +32,21 @@ export type AgentFrame =
 
 export type AgentStepStatus = "running" | "done" | "error" | "blocked";
 
+/**
+ * What kind of work a step is, which is all the icon strip shows.
+ *
+ * Every tool the agent can reach falls into one of these, so a run reads as a
+ * short sequence of shapes — read, think, write — instead of a paragraph of
+ * tool names nobody scans.
+ */
+export type AgentStepKind = "think" | "read" | "write" | "call" | "wait";
+
 /** One row in the sheet's step list. */
 export interface AgentStep {
   /** Tool-call id when the stream gave one, else derived from the tool name. */
   key: string;
   label: string;
+  kind: AgentStepKind;
   status: AgentStepStatus;
   /** One line about the outcome, only when the result actually says something. */
   detail?: string;
@@ -118,6 +128,40 @@ export function labelForTool(tool: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** Verb-first classification. A tool absent here is read-only by default:
+ *  claiming the agent wrote something it only looked at is the worse error. */
+const WRITE_PREFIXES = [
+  "create-",
+  "update-",
+  "add-",
+  "delete-",
+  "trash-",
+  "archive-",
+  "restore-",
+  "move-",
+  "finalize-",
+  "share-",
+  "set-",
+  "send-",
+  "import-",
+  "export-",
+  "trim-",
+  "split-",
+  "remove-",
+  "cleanup-",
+  "regenerate-",
+  "prepare-",
+];
+
+export function kindForTool(tool: string): AgentStepKind {
+  if (!tool) return "think";
+  if (tool.startsWith("provider-api-") || tool.startsWith("integration")) {
+    return "call";
+  }
+  if (WRITE_PREFIXES.some((prefix) => tool.startsWith(prefix))) return "write";
+  return "read";
+}
+
 const DETAIL_MAX = 80;
 const COUNTABLE_KEYS = [
   "meetings",
@@ -156,6 +200,19 @@ export function summarizeToolResult(result: unknown): string | undefined {
   return undefined;
 }
 
+/** Newest reasoning, bounded to what a small overlay can show. */
+const THINKING_TAIL = 220;
+
+function tail(text: string): string | undefined {
+  // Only the leading edge is trimmed. Trailing whitespace is the seam between
+  // two deltas — trimming it here is what runs the next word into this one.
+  const collapsed = text.replace(/\s+/g, " ").replace(/^ /, "");
+  if (!collapsed.trim()) return undefined;
+  return collapsed.length > THINKING_TAIL
+    ? `…${collapsed.slice(-THINKING_TAIL)}`
+    : collapsed;
+}
+
 function countLabel(count: number): string {
   return count === 1 ? "1 result" : `${count} results`;
 }
@@ -177,7 +234,12 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
       }
       return [
         ...steps,
-        { key, label: labelForTool(frame.tool), status: "running" },
+        {
+          key,
+          label: labelForTool(frame.tool),
+          kind: kindForTool(frame.tool),
+          status: "running",
+        },
       ];
     }
     case "tool_done": {
@@ -195,11 +257,43 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
       if (index < 0) {
         return [
           ...steps,
-          { key, label: labelForTool(frame.tool), status, detail },
+          {
+            key,
+            label: labelForTool(frame.tool),
+            kind: kindForTool(frame.tool),
+            status,
+            detail,
+          },
         ];
       }
       const next = [...steps];
       next[index] = { ...next[index], status, detail };
+      return next;
+    }
+    case "thinking": {
+      // Reasoning streams in deltas. Only the tail is kept: the strip shows
+      // what the agent is thinking now, not a transcript of how it got there.
+      const index = lastIndexWhere(
+        steps,
+        (s) => s.kind === "think" && s.status === "running",
+      );
+      if (index < 0) {
+        return [
+          ...steps,
+          {
+            key: `thinking:${steps.length}`,
+            label: "Thought",
+            kind: "think",
+            status: "running",
+            detail: tail(frame.text),
+          },
+        ];
+      }
+      const next = [...steps];
+      next[index] = {
+        ...next[index],
+        detail: tail(`${next[index].detail ?? ""}${frame.text}`),
+      };
       return next;
     }
     case "activity": {
@@ -212,6 +306,7 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
           {
             key: `activity:${steps.length}`,
             label: frame.label,
+            kind: frame.tool ? kindForTool(frame.tool) : "think",
             status: "running",
           },
         ];
@@ -227,7 +322,12 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
         : "Waiting for approval";
       return [
         ...steps,
-        { key: `approval:${steps.length}`, label, status: "blocked" },
+        {
+          key: `approval:${steps.length}`,
+          label,
+          kind: "wait",
+          status: "blocked",
+        },
       ];
     }
     default:
