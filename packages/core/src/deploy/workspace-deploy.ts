@@ -52,7 +52,10 @@ import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
 } from "./build.js";
-import { cloneServerBundleForFunction } from "./function-bundle.js";
+import {
+  cloneServerBundleForFunction,
+  pruneSsrIslandFromRewritingClone,
+} from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
@@ -1012,6 +1015,17 @@ export const config = {
   // is the function entrypoint, mirroring patchNetlifyFunctionEntry.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), server);
+  {
+    // The clone rewrites url.pathname unconditionally, so it can never
+    // route to the SSR page/asset handlers it inherited. Netlify zips and
+    // uploads every function separately, so that island is paid for twice.
+    const freed = pruneSsrIslandFromRewritingClone(dest, server);
+    if (freed > 0) {
+      console.log(
+        `[deploy] Pruned ${(freed / 1024 / 1024).toFixed(1)}MB of unroutable SSR modules from ${path.basename(dest)}.`,
+      );
+    }
+  }
   assertEmittedBackgroundFunctionOnDisk(dest, backgroundName);
   console.log(
     `[workspace-deploy] Emitted durable-background function "${backgroundName}" ` +
@@ -1119,6 +1133,17 @@ export const config = {
 };
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+  {
+    // The clone rewrites url.pathname unconditionally, so it can never route to
+    // the SSR page/asset handlers it inherited. Netlify zips and uploads every
+    // function separately, so that island is paid for on every deploy.
+    const freed = pruneSsrIslandFromRewritingClone(dest, entry);
+    if (freed > 0) {
+      console.log(
+        `[deploy] Pruned ${(freed / 1024 / 1024).toFixed(1)}MB of unroutable SSR modules from ${path.basename(dest)}.`,
+      );
+    }
+  }
 }
 
 function patchNetlifyFunctionEntry(

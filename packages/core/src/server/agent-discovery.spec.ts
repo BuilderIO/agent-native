@@ -6,6 +6,7 @@ import {
   discoverAgents,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -30,6 +31,7 @@ const DISCOVERY_ENV_KEYS = [
   "VERCEL_URL",
   "VERCEL_PROJECT_PRODUCTION_URL",
   "NETLIFY",
+  "NETLIFY_LOCAL",
   "AWS_LAMBDA_FUNCTION_NAME",
 ] as const;
 let previousEnv: Record<
@@ -114,6 +116,10 @@ describe("agent discovery", () => {
     ).toBe(true);
   });
 
+  it("maps the retired videos agent to the current clips agent", () => {
+    expect(normalizeAgentId("videos")).toBe("clips");
+  });
+
   it("seeds built-in remote agents with production URLs only", () => {
     for (const agent of BUILTIN_AGENTS_FOR_SEEDING) {
       expect(agent.url).toMatch(/^https:\/\/.+\.agent-native\.com$/);
@@ -171,6 +177,18 @@ describe("agent discovery", () => {
     expect(slides?.url).toBe("http://localhost:8086");
   });
 
+  it("keeps local URLs when netlify dev marks the runtime local", () => {
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_LOCAL = "true";
+    process.env.APP_URL = "https://content.agent-native.com";
+
+    const slides = getBuiltinAgents("content").find(
+      (agent) => agent.id === "slides",
+    );
+
+    expect(slides?.url).toBe("http://localhost:8086");
+  });
+
   it("ignores stale hidden first-party remote-agent resources", async () => {
     resourceListMock.mockResolvedValue([
       { id: "dispatch-resource", path: "remote-agents/dispatch.json" },
@@ -210,6 +228,32 @@ describe("agent discovery", () => {
     expect(ids).not.toContain("issues");
     expect(ids).not.toContain("recruiting");
     expect(ids).toContain("custom-qa");
+  });
+
+  it("ignores stale loopback custom agents on public runtimes", async () => {
+    process.env.APP_URL = "https://design.agent-native.com";
+    resourceListMock.mockResolvedValue([
+      { id: "codex-resource", path: "remote-agents/codex.json" },
+      {
+        id: "codex-mapped-resource",
+        path: "remote-agents/codex-mapped.json",
+      },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) => ({
+      id,
+      content: JSON.stringify({
+        id: "codex",
+        name: "Codex",
+        url:
+          id === "codex-mapped-resource"
+            ? "http://[::ffff:127.0.0.1]:8789"
+            : "http://127.0.0.1:8789",
+      }),
+    }));
+
+    const agents = await discoverAgents("design");
+
+    expect(agents.find((agent) => agent.id === "codex")).toBeUndefined();
   });
 
   it("discovers legacy agents/*.json remote-agent resources", async () => {
@@ -500,6 +544,86 @@ describe("agent discovery", () => {
           description: "Slides workspace app",
           path: "/slides",
           url: "http://localhost:8086",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("content");
+
+    expect(agents.find((agent) => agent.id === "slides")).toMatchObject({
+      url: "https://slides.agent-native.com",
+    });
+  });
+
+  it("normalizes retired workspace app IDs", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "videos",
+          name: "Videos",
+          description: "Retired videos app",
+          path: "/videos",
+          url: "http://localhost:8087",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("content");
+
+    expect(agents.some((agent) => agent.id === "videos")).toBe(false);
+    expect(agents.find((agent) => agent.id === "clips")).toMatchObject({
+      id: "clips",
+      url: "https://clips.agent-native.com",
+    });
+  });
+
+  it("applies legacy metadata overrides to normalized workspace app IDs", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "videos",
+          name: "Videos",
+          description: "Retired videos app",
+          path: "/videos",
+        },
+      ],
+    });
+    getSettingMock.mockResolvedValue({
+      apps: {
+        videos: {
+          name: "Clips workspace",
+          description: "Edited clips description",
+        },
+      },
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => discoverAgents("content"),
+    );
+
+    expect(agents.find((agent) => agent.id === "clips")).toMatchObject({
+      id: "clips",
+      name: "Clips workspace",
+      description: "Edited clips description",
+    });
+  });
+
+  it("ignores stale IPv6 loopback workspace URLs on public runtimes", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "slides",
+          name: "Slides",
+          description: "Slides workspace app",
+          path: "/slides",
+          url: "http://[::1]:8086",
         },
       ],
     });

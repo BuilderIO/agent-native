@@ -12,13 +12,10 @@ metadata:
 
 # Review Latest Feedback
 
-Run a bounded, evidence-first sweep across the Agent-Native feedback sources.
-The goal is to resolve clear repo-owned bugs at the right seam, not to encode
-one report as a new global instruction. This skill can run from a cron or a
-worktree, but every run must leave an auditable disposition for every item it
-looked at. When several reports clearly describe the same underlying symptom,
-treat them as one similar-feedback cluster and leave one Builder thread for the
-cluster, with the representative report as its cursor anchor.
+Run a bounded, evidence-first, cross-app sweep across Agent-Native feedback
+sources. Resolve repo-owned bugs at their seam; do not encode reports
+globally or stop at triage. Every run leaves a disposition, including
+why items remain open. Cluster symptoms under a Builder thread and cursor.
 
 This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
@@ -53,7 +50,10 @@ That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
 message that is still unhandled. Read the full parent, every reply and
 reaction, and all linked issues, PRs, screenshots, runs, and commits before
-deciding.
+deciding. The candidate worklist stays cross-app and cross-source: later scope
+clarifications add eligible categories; they never remove identified Slack,
+GitHub, or Sentry candidates. Keep non-Design alongside Design and carry every
+candidate into the final disposition, even when only some are fixed.
 
 For GitHub issues and Sentry, use their native state and links as corroborating
 cursor signals: prioritize recent open or unresolved items with no clear
@@ -285,9 +285,10 @@ evidence, likely owner, and disposition. Use this order:
    item as unavailable or unverified and do not guess or add a reaction. GitHub
    and Sentry items have no Slack parent, so apply the same evidence-first
    triage without a reaction.
-   - UX or interaction bugs in the Design app are owned by Sid. Do not
-     automatically react, investigate, fix, clarify, reply, or dispatch those
-     items; record the source and route them to Sid.
+   - Concrete small Design UI or interaction bugs are in scope. Apply the same
+     evidence, reaction, fix, verification, and reply gates without narrowing
+     the sweep to Design; route broad redesigns, subjective suggestions, or
+     non-repo bugs to Sid.
    - All Content app feedback is owned by Alice. Leave those items for Alice;
      do not automatically react, investigate, fix, clarify, reply, or dispatch
      them. Record the source and ownership in the disposition.

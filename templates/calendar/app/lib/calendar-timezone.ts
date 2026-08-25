@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "@shared/api";
+import { addDaysToDateKey, isCalendarTimezone } from "@shared/timezone";
 import {
   addDays,
   endOfMonth,
@@ -42,20 +43,8 @@ export function getBrowserTimezone(): string {
   }
 }
 
-export function isValidTimezone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
-    return true;
-  } catch (error) {
-    if (error instanceof RangeError) return false;
-    throw error;
-  }
-}
-
 export function normalizeTimezone(timezone?: string): string {
-  return timezone && isValidTimezone(timezone)
-    ? timezone
-    : getBrowserTimezone();
+  return isCalendarTimezone(timezone) ? timezone : getBrowserTimezone();
 }
 
 /** Date carriers are kept at local noon so browser DST never changes their date. */
@@ -68,11 +57,7 @@ export function dateToCalendarDateKey(date: Date): string {
   return format(date, "yyyy-MM-dd");
 }
 
-export function addCalendarDays(date: string, amount: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  const next = new Date(Date.UTC(year, month - 1, day + amount));
-  return next.toISOString().slice(0, 10);
-}
+export const addCalendarDays = addDaysToDateKey;
 
 function dateTimeParts(value: Date | string, timezone: string) {
   const parsed = value instanceof Date ? value : new Date(value);
@@ -116,6 +101,25 @@ export function getDateTimePartsInTimezone(
   timezone: string,
 ): CalendarDateTimeParts | null {
   return dateTimeParts(value, normalizeTimezone(timezone));
+}
+
+/**
+ * Build a local Date carrying an event's wall-clock fields so date-fns can
+ * format those fields without converting them through the browser timezone.
+ * The result is for display only; it must not be used for date arithmetic.
+ */
+export function getDisplayDateInTimezone(
+  value: Date | string,
+  timezone?: string | null,
+): Date {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!timezone) return parsed;
+
+  const parts = getDateTimePartsInTimezone(value, timezone);
+  if (!parts) return parsed;
+
+  const [year, month, day] = parts.date.split("-").map(Number);
+  return new Date(year, month - 1, day, parts.hour, parts.minute, parts.second);
 }
 
 export function getDateKeyInTimezone(

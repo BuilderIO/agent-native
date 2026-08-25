@@ -89,6 +89,7 @@ export function normalizeAgentId(id: string): string {
   ) {
     return "assets";
   }
+  if (normalized === "videos") return "clips";
   return normalized;
 }
 
@@ -142,9 +143,12 @@ export function parseWorkspaceAppMetadataSettings(
       ? (record.apps as Record<string, unknown>)
       : {};
   const apps: Record<string, WorkspaceAppMetadataOverride> = {};
+  const canonicalIds = new Set<string>();
 
-  for (const [id, value] of Object.entries(rawApps)) {
-    if (!id.trim() || !value || typeof value !== "object") continue;
+  for (const [rawId, value] of Object.entries(rawApps)) {
+    const id = rawId.trim();
+    const normalizedId = id ? normalizeAgentId(id) : "";
+    if (!normalizedId || !value || typeof value !== "object") continue;
     const item = value as Record<string, unknown>;
     const override: WorkspaceAppMetadataOverride = {};
     const name = cleanOptionalText(item.name);
@@ -160,7 +164,13 @@ export function parseWorkspaceAppMetadataSettings(
     if (updatedAt) override.updatedAt = updatedAt;
     if (updatedBy) override.updatedBy = updatedBy;
 
-    if (Object.keys(override).length > 0) apps[id.trim()] = override;
+    if (Object.keys(override).length > 0) {
+      const isCanonical = id.toLowerCase() === normalizedId;
+      if (isCanonical || !canonicalIds.has(normalizedId)) {
+        apps[normalizedId] = override;
+      }
+      if (isCanonical) canonicalIds.add(normalizedId);
+    }
   }
 
   return { apps };
@@ -189,7 +199,7 @@ export async function writeWorkspaceAppMetadataOverride(input: {
   const key = workspaceAppMetadataSettingsKey();
   if (!key) throw new Error("no authenticated user");
 
-  const appId = input.appId.trim();
+  const appId = normalizeAgentId(input.appId);
   if (!appId) throw new Error("appId is required");
 
   const { getSetting, putSetting } = await import("../settings/index.js");
@@ -226,7 +236,8 @@ export function applyWorkspaceAppMetadataOverride<
     description?: string | null;
   },
 >(app: T, settings: WorkspaceAppMetadataSettings): T {
-  const override = settings.apps[app.id];
+  const override =
+    settings.apps[normalizeAgentId(app.id)] ?? settings.apps[app.id];
   if (!override) return app;
 
   const name = cleanOptionalText(override.name);
@@ -349,23 +360,18 @@ export async function discoverAgents(
         const manifestId = normalizeAgentId(manifest.id);
 
         // If the resource override carries a localhost URL but we're running
-        // in production (e.g. a stale dev-time seed got promoted to the prod
+        // in a hosted runtime (e.g. a stale dev-time seed got promoted to the prod
         // DB), fall back to the matching built-in's prod URL instead of
         // letting the override win — otherwise outbound `call-agent` fetches
         // from a serverless function would target localhost and fail with
         // "fetch failed" instantly. The override still wins for non-localhost
         // URLs (the supported case for self-hosted custom agents).
         let url = manifest.url;
-        const isProduction =
-          typeof process !== "undefined" &&
-          process.env?.NODE_ENV === "production";
-        if (
-          isProduction &&
-          typeof url === "string" &&
-          /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/.test(url)
-        ) {
+        const isHosted = isHostedRuntime();
+        if (isHosted && typeof url === "string" && isLoopbackUrl(url)) {
           const builtin = agentsById.get(manifestId);
           if (builtin?.url) url = builtin.url;
+          else continue;
         }
 
         const builtin = agentsById.get(manifestId);
@@ -441,12 +447,20 @@ function hostnameFromUrlLike(value: string | undefined): string | null {
 
 function isLoopbackUrl(value: string | undefined): boolean {
   const hostname = hostnameFromUrlLike(value);
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0" ||
-    hostname === "::1"
-  );
+  if (!hostname) return false;
+  const normalized = hostname.replace(/^\[|\]$/g, "");
+  if (
+    normalized === "localhost" ||
+    normalized.startsWith("127.") ||
+    normalized === "0.0.0.0" ||
+    normalized === "::1"
+  ) {
+    return true;
+  }
+
+  const mapped = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (!mapped) return false;
+  return Number.parseInt(mapped[1], 16) >>> 8 === 0x7f;
 }
 
 function hasPublicRuntimeUrl(): boolean {
@@ -472,6 +486,7 @@ function hasPublicRuntimeUrl(): boolean {
 }
 
 function isHostedRuntime(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
   return (
     process.env.NODE_ENV === "production" ||
     !!process.env.NETLIFY ||
@@ -538,7 +553,8 @@ function parseWorkspaceAppsManifest(
     .map((entry): WorkspaceAppManifestEntry | null => {
       if (!entry || typeof entry !== "object") return null;
       const e = entry as Record<string, unknown>;
-      const id = typeof e.id === "string" ? e.id.trim() : "";
+      const rawId = typeof e.id === "string" ? e.id.trim() : "";
+      const id = rawId ? normalizeAgentId(rawId) : "";
       const pathValue = typeof e.path === "string" ? e.path.trim() : "";
       if (!id || !pathValue.startsWith("/")) return null;
       return {
@@ -629,11 +645,11 @@ function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
       if (!pkg) return null;
       const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
       return {
-        id: entry.name,
+        id: normalizeAgentId(entry.name),
         name: pkg.displayName || titleCase(entry.name),
         description: pkg.description || "",
         path: `/${entry.name}`,
-        isDispatch: entry.name === "dispatch",
+        isDispatch: normalizeAgentId(entry.name) === "dispatch",
         audience:
           workspaceAppAudienceFromPackageJson(pkg) ??
           DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -689,8 +705,10 @@ async function discoverWorkspaceAgents(
 
   const metadataSettings = await readWorkspaceAppMetadataSettings();
 
+  const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
+
   return workspaceApps
-    .filter((app) => app.id !== selfAppId)
+    .filter((app) => normalizeAgentId(app.id) !== normalizedSelfAppId)
     .map((app) => {
       const withOverride = applyWorkspaceAppMetadataOverride(
         app,

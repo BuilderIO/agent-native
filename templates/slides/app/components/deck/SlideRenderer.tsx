@@ -862,12 +862,22 @@ function MermaidHtmlContent({
   html: string;
   mermaidBlocks: string[];
 }) {
-  // Split on mermaid placeholders and interleave HTML + MermaidRenderer
-  const parts = html.split(/(<div data-mermaid-index="\d+"><\/div>)/);
+  // Split on mermaid placeholders and interleave HTML + MermaidRenderer. The
+  // per-fragment `{ __html }` objects are memoized for the same reason as
+  // BlankSlideContent's `dangerousHtml` above: a fresh literal each render
+  // re-assigns `innerHTML` and wipes the live contentEditable block.
+  const fragments = useMemo(
+    () =>
+      html
+        .split(/(<div data-mermaid-index="\d+"><\/div>)/)
+        .map((part) => ({ __html: part })),
+    [html],
+  );
 
   return (
     <>
-      {parts.map((part, i) => {
+      {fragments.map((fragment, i) => {
+        const part = fragment.__html;
         const match = part.match(/data-mermaid-index="(\d+)"/);
         if (match) {
           const idx = parseInt(match[1], 10);
@@ -881,7 +891,7 @@ function MermaidHtmlContent({
           );
         }
         if (!part.trim()) return null;
-        return <div key={i} dangerouslySetInnerHTML={{ __html: part }} />;
+        return <div key={i} dangerouslySetInnerHTML={fragment} />;
       })}
     </>
   );

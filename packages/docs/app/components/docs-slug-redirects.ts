@@ -43,6 +43,11 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // actions.mdx split into the Actions section (actions-overview, -defining,
   // -access-control, -run-context, -other-surfaces, -advanced).
   actions: "actions-overview",
+  // Calendar's Scheduling and Booking Links pages merged into one Features
+  // doc as part of the app-doc-format rework (Overview / Features / Talking
+  // to the Agent / Developer Guide).
+  "template-calendar-scheduling": "template-calendar-features",
+  "template-calendar-booking-links": "template-calendar-features",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */

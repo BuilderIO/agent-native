@@ -18,7 +18,11 @@ import {
 } from "../../components/app-list-row";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
-import { OtherAppsSection } from "../../components/other-apps-section";
+import {
+  filterOtherAppEntries,
+  mergeOtherAppEntries,
+  OtherAppsSection,
+} from "../../components/other-apps-section";
 import { Button } from "../../components/ui/button";
 import {
   Collapsible,
@@ -92,6 +96,23 @@ function AppsRoute() {
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
   const archivedApps = allApps.filter((app) => app.archived);
+  const connectedApps =
+    (connectedAppsQuery.data as ConnectedAppSummary[] | undefined) ?? [];
+  const curatedTemplates = curatedTemplatesQuery.data as
+    | CuratedWorkspaceTemplatesResult
+    | undefined;
+  const filteredOtherApps = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates: curatedTemplates,
+      connectedApps,
+      workspaceApps: allApps,
+    }),
+    searchQuery,
+  );
+  const otherAppsLoading =
+    curatedTemplatesQuery.isLoading || connectedAppsQuery.isLoading;
+  const otherAppsError =
+    curatedTemplatesQuery.error || connectedAppsQuery.error;
   const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
   const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
   const orderedArchivedApps = orderWorkspaceApps(archivedApps, layout);
@@ -107,7 +128,8 @@ function AppsRoute() {
   const hasSearchResults =
     filteredActiveApps.length > 0 ||
     filteredPendingApps.length > 0 ||
-    filteredArchivedApps.length > 0;
+    filteredArchivedApps.length > 0 ||
+    filteredOtherApps.length > 0;
   const showAppSkeletons = appsLoading && allApps.length === 0;
   const templateLabels: WorkspaceTemplateLabels = {
     appId: t("dispatch.pages.remixAppIdLabel"),
@@ -151,7 +173,10 @@ function AppsRoute() {
               </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-              {!showAppSkeletons && allApps.length > 0 ? (
+              {!showAppSkeletons &&
+              (allApps.length > 0 ||
+                filteredOtherApps.length > 0 ||
+                Boolean(searchQuery.trim())) ? (
                 <WorkspaceAppSearch
                   className="w-full sm:w-[250px]"
                   query={searchQuery}
@@ -193,7 +218,10 @@ function AppsRoute() {
             />
           ) : showAppSkeletons ? (
             <AppsSkeletonGrid />
-          ) : !hasSearchResults && searchQuery.trim() ? (
+          ) : !hasSearchResults &&
+            searchQuery.trim() &&
+            !otherAppsLoading &&
+            !otherAppsError ? (
             <WorkspaceAppSearchEmpty
               query={searchQuery}
               onClear={() => setSearchQuery("")}
@@ -277,30 +305,23 @@ function AppsRoute() {
           </Collapsible>
         ) : null}
 
-        {!searchQuery.trim() ? (
-          <OtherAppsSection
-            templates={
-              curatedTemplatesQuery.data as
-                | CuratedWorkspaceTemplatesResult
-                | undefined
-            }
-            connectedApps={
-              connectedAppsQuery.data as ConnectedAppSummary[] | undefined
-            }
-            workspaceApps={allApps}
-            templatesLoading={curatedTemplatesQuery.isLoading}
-            connectedAppsLoading={connectedAppsQuery.isLoading}
-            templatesError={curatedTemplatesQuery.error}
-            connectedAppsError={connectedAppsQuery.error}
-            onRetryTemplates={() => void curatedTemplatesQuery.refetch()}
-            onRetryConnectedApps={() => void connectedAppsQuery.refetch()}
-            templateLabels={templateLabels}
-            onRemixSuccess={() => {
-              void appsQuery.refetch();
-              void curatedTemplatesQuery.refetch();
-            }}
-          />
-        ) : null}
+        <OtherAppsSection
+          templates={curatedTemplates}
+          connectedApps={connectedApps}
+          workspaceApps={allApps}
+          query={searchQuery}
+          templatesLoading={curatedTemplatesQuery.isLoading}
+          connectedAppsLoading={connectedAppsQuery.isLoading}
+          templatesError={curatedTemplatesQuery.error}
+          connectedAppsError={connectedAppsQuery.error}
+          onRetryTemplates={() => void curatedTemplatesQuery.refetch()}
+          onRetryConnectedApps={() => void connectedAppsQuery.refetch()}
+          templateLabels={templateLabels}
+          onRemixSuccess={() => {
+            void appsQuery.refetch();
+            void curatedTemplatesQuery.refetch();
+          }}
+        />
 
         {archivedApps.length > 0 &&
         (!searchQuery.trim() || filteredArchivedApps.length > 0) ? (

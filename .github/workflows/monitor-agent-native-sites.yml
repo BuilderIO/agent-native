@@ -332,6 +332,20 @@ jobs:
               ...manifest.beta.map((host) => ({ environment: "beta", host })),
               ...manifest.workspace.map((host) => ({ environment: "workspace", host })),
             ];
+            // The public docs host intentionally has no Google sign-in
+            // credential. Keep it in the availability manifest, but do not
+            // turn that expected state into an auth outage.
+            const googleCredentialExemptions = new Set([
+              "production/www.agent-native.com",
+            ]);
+            const credentialHosts = hosts.filter(({ environment, host }) => {
+              const key = `${environment}/${host}`;
+              if (googleCredentialExemptions.has(key)) {
+                console.log(`INFO\\t${environment}\\t${host}\\tcredentials intentionally unconfigured`);
+                return false;
+              }
+              return true;
+            });
 
             // The whole step must finish inside the job timeout even when the
             // fleet is degraded, so probes run concurrently under one deadline
@@ -376,7 +390,7 @@ jobs:
             const mismatched = [];
             let checked = 0;
 
-            const queue = [...hosts];
+            const queue = [...credentialHosts];
             async function worker() {
               for (;;) {
                 const next = queue.shift();
@@ -436,7 +450,10 @@ jobs:
               }
             }
             await Promise.all(
-              Array.from({ length: Math.min(CONCURRENCY, hosts.length) }, worker),
+              Array.from(
+                { length: Math.min(CONCURRENCY, credentialHosts.length) },
+                worker,
+              ),
             );
 
             if (mismatched.length > 0) {

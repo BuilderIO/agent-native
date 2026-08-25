@@ -125,7 +125,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "draw-tool",
     category: "tools",
-    bindings: ["y"],
+    bindings: ["shift+y"],
     labelKey: "designEditor.keyboardShortcuts.commands.drawTool",
     handler: "onDrawTool",
   }),
@@ -387,13 +387,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onDelete",
   }),
   shortcut({
-    id: "rename",
-    category: "edit",
-    bindings: ["$mod+r"],
-    labelKey: "designEditor.keyboardShortcuts.commands.rename",
-    handler: "onRename",
-  }),
-  shortcut({
     id: "find",
     category: "edit",
     bindings: ["$mod+f"],
@@ -421,6 +414,15 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     bindings: ["shift+x"],
     labelKey: "designEditor.keyboardShortcuts.commands.swapFillStroke",
     handler: "onSwapFillStroke",
+  }),
+  shortcut({
+    id: "eyedropper",
+    category: "edit",
+    // Apple platforms also accept literal ctrl+c; only the cross-platform
+    // binding is advertised so the row reads the same everywhere.
+    bindings: ["i"],
+    labelKey: "designEditor.keyboardShortcuts.commands.eyedropper",
+    handler: "onEyedropper",
   }),
 
   shortcut({
@@ -552,11 +554,34 @@ export function formatShortcutKeycaps(
   if (binding === "+") return ["+"];
   const tokens = binding.toLowerCase().split("+");
   const key = tokens.pop() ?? "";
+  const held = (token: string) => tokens.includes(token);
   const keycaps: string[] = [];
-  if (tokens.includes("ctrl")) keycaps.push(applePlatform ? "⌃" : "Ctrl");
-  if (tokens.includes("alt")) keycaps.push(applePlatform ? "⌥" : "Alt");
-  if (tokens.includes("shift")) keycaps.push(applePlatform ? "⇧" : "Shift");
-  if (tokens.includes("$mod")) keycaps.push(applePlatform ? "⌘" : "Ctrl");
+  if (applePlatform) {
+    if (held("ctrl")) keycaps.push("⌃");
+    if (held("alt")) keycaps.push("⌥");
+    if (held("shift")) keycaps.push("⇧");
+    if (held("$mod")) keycaps.push("⌘");
+  } else {
+    // Windows/Linux read Ctrl, Alt, Shift — the reverse of the Mac ⌃⌥⇧⌘ run.
+    // `$mod` and a literal `ctrl` are the same key here, so collapse them or a
+    // ctrl-plus-$mod binding renders "Ctrl+Ctrl".
+    if (held("$mod") || held("ctrl")) keycaps.push("Ctrl");
+    if (held("alt")) keycaps.push("Alt");
+    if (held("shift")) keycaps.push("Shift");
+  }
   keycaps.push(KEY_LABELS[key] ?? (key.length === 1 ? key.toUpperCase() : key));
   return keycaps;
+}
+
+/** One-line menu/tooltip hint, spelled in the viewer's own modifier glyphs.
+ *  Menus must build hints through this — a Mac glyph written into source
+ *  renders verbatim to Windows users. */
+export function formatShortcutLabel(
+  binding: string,
+  applePlatform: boolean,
+): string {
+  if (!binding) return "";
+  return formatShortcutKeycaps(binding, applePlatform).join(
+    applePlatform ? "" : "+",
+  );
 }

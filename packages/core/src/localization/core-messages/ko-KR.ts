@@ -4,10 +4,13 @@ const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
     "이 명령과 정확히 일치하는 명령을 승인하고 항상 허용합니다",
+  "approval.alwaysAllowAction": "이 작업 항상 허용",
+  "approval.alwaysAllowActionHint": "승인하고 이 작업을 항상 허용합니다",
   "approval.approve": "승인",
   "approval.approved": "승인했습니다. {{tool}}을(를) 다시 실행하는 중...",
   "approval.denied": "거부했습니다. {{tool}}이(가) 실행되지 않았습니다.",
   "approval.deny": "거부",
+  "approval.moreOptions": "추가 승인 옵션",
   "approval.question": "{{tool}} 실행을 승인하시겠습니까?",
   "auth.expiredDescription":
     "세션이 만료되었을 수 있습니다. 다시 연결하려면 로그아웃한 후 다시 로그인하세요.",
@@ -36,6 +39,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "진단 정보 복사",
   "aboutAgentNative.unknown": "알 수 없음",
   "common.agent": "에이전트",
+  "agentPanel.mode": "모드",
+  "agentPanel.uiMode": "UI",
   "common.cancel": "취소",
   "common.collapse": "접기",
   "common.connect": "연결",
@@ -290,7 +295,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
   "errorMessages.noProviderConnected":
-    "연결된 LLM 제공업체가 없습니다. 이 앱의 ‘에이전트 관리’ → ‘LLM’을 연 다음 Builder.io를 연결하거나 제공업체 키를 추가하세요.",
+    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
   "errorMessages.providerAuthentication":
     "모델 제공업체가 저장된 API 키를 거부했습니다. 설정 → 연동 → API 키에서 키를 업데이트한 후 다시 시도하세요.",
@@ -497,6 +502,7 @@ const messages: AgentChatTranslation = {
   "share.hideInSearch": "검색에서 숨기기",
   "share.linkCanStillOpen": "링크가 있는 사용자는 계속 열 수 있습니다.",
   "share.loadMore": "더 불러오기",
+  "share.loadFailed": "공유 설정을 불러올 수 없습니다.",
   "share.loadPeopleFailed": "사용자를 불러올 수 없습니다.",
   "share.loading": "불러오는 중...",
   "share.noAccess": "아직 접근 권한이 있는 사용자가 없습니다.",
@@ -561,6 +567,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "{{count}}회 반복",
   "tool.result": "결과",
   "tool.subAgentTask": "하위 에이전트 작업",
+  "thinking.collapsed": "접음",
+  "thinking.display": "생각 표시",
+  "thinking.expanded": "펼침",
+  "thinking.hidden": "숨김",
   "tool.thought": "생각",
   "tool.thoughtFor": "{{duration}} 동안 생각함",
   "tool.viewOutput": "{{tool}} 출력 보기",

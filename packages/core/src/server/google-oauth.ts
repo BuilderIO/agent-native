@@ -462,6 +462,8 @@ export interface OAuthStatePayload {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  /** Optional signed scope for provider-specific OAuth flows. */
+  scope?: string;
   /**
    * Same-origin path to redirect to after a successful web-flow sign-in.
    * Threaded through the (HMAC-signed) state so it survives the round trip
@@ -541,6 +543,7 @@ export interface EncodeOAuthStateOptions {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  scope?: string;
   returnUrl?: string;
   flowId?: string;
   desktopVerifierHash?: string;
@@ -624,6 +627,7 @@ export function encodeOAuthState(
   if (opts.mobile) payload.m = true;
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
+  if (opts.scope) payload.s = opts.scope;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
@@ -680,6 +684,7 @@ export function decodeOAuthState(
         mobile: !!parsed.m,
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,
+        scope: typeof parsed.s === "string" ? parsed.s : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
         // consumer (oauthCallbackResponse → safeReturnPath). The state is
         // HMAC-signed, but we still validate at consumption as defence in
@@ -748,6 +753,15 @@ export async function createOAuthSession(
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
+      /**
+       * Whether this callback created the account, decided by the caller at
+       * the moment it created it. Callers that provision the canonical user
+       * before getting here MUST pass this: the `hasBetterAuthUserEmail`
+       * probe below then reads the row they just wrote and concludes the
+       * person is an existing user, which silently deleted the only
+       * attributed signup event Google sign-in produces.
+       */
+      isNewUser?: boolean;
     };
   },
 ): Promise<OAuthSessionResult> {
@@ -762,11 +776,14 @@ export async function createOAuthSession(
   let shouldTrackSignup = false;
   if (!opts.hasProductionSession || needsDeepLink) {
     if (opts.trackSignup && !opts.hasProductionSession) {
-      const [hasLegacySession, hasBetterAuthUser] = await Promise.all([
-        hasLegacySessionForEmail(email).catch(() => true),
-        hasBetterAuthUserEmail(email).catch(() => true),
-      ]);
-      shouldTrackSignup = !hasLegacySession && !hasBetterAuthUser;
+      shouldTrackSignup =
+        opts.trackSignup.isNewUser ??
+        (await Promise.all([
+          hasLegacySessionForEmail(email).catch(() => true),
+          hasBetterAuthUserEmail(email).catch(() => true),
+        ]).then(
+          ([hasLegacySession, hasUser]) => !hasLegacySession && !hasUser,
+        ));
     }
 
     sessionToken = crypto.randomBytes(32).toString("hex");
@@ -781,6 +798,7 @@ export async function createOAuthSession(
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
+        origin: "google_oauth",
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,

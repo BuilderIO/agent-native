@@ -138,6 +138,12 @@ Le framework calcule un indice de frustration (0-100) à partir des signaux de c
 
 Interprétation des scores : 0-20 = sain, 20-40 = friction, 40-60 = insatisfait, 60+ = session interrompue.
 
+### Retours dans PostHog {#posthog-feedback}
+
+Pouces, catégories et texte libre émettent tous `$ai_feedback`. La vue des retours de l'analytique LLM de PostHog lit en revanche un événement `survey sent` : définissez donc `POSTHOG_AI_FEEDBACK_SURVEY_ID` sur le sondage que PostHog crée depuis l'onglet **Feedback** d'une trace. Cet unique identifiant constitue toute la configuration ; sans lui, aucun événement de sondage n'est envoyé.
+
+Un vote au pouce répond à la première question du sondage par l'indice de choix de PostHog (`1` en haut, `2` en bas), et le texte libre qui suit un pouce vers le bas répond à la relance : le texte n'atterrit donc jamais à la place de la note. Les deux portent un même identifiant de soumission par message noté, ce qui permet à PostHog de les réunir en une seule réponse, et un pouce vers le bas reste marqué incomplet jusqu'à l'arrivée de sa relance.
+
 ## Évaluations automatisées {#evals}
 
 Cinq scoreurs déterministes s'exécutent après chaque exécution d'agent :

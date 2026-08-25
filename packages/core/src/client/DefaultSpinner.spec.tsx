@@ -32,4 +32,14 @@ describe("DefaultSpinner", () => {
     expect(container.textContent).not.toContain("dev server");
     expect(container.querySelector(".an-stall-hint")).toBeNull();
   });
+
+  it("uses a caller-provided accessible loading label", () => {
+    act(() => {
+      root.render(<DefaultSpinner ariaLabel="Mail is reloading" />);
+    });
+
+    expect(
+      container.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("Mail is reloading");
+  });
 });

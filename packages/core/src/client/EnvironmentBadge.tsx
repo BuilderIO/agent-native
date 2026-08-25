@@ -4,13 +4,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AgentNativeDeploymentEnvironment,
   AgentNativeConfig,
 } from "../config.js";
 import {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
@@ -24,6 +26,8 @@ import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
 export {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -46,9 +50,16 @@ export function isAgentNativeDesktopUserAgent(
 export function resolveEnvironmentChannel(
   config: AgentNativeConfig,
   hostname: string | undefined,
-): Extract<AgentNativeDeploymentEnvironment, "beta" | "production"> | null {
+): Extract<
+  AgentNativeDeploymentEnvironment,
+  "local" | "beta" | "production"
+> | null {
   const configured = config.deployment?.environment;
-  if (configured === "beta" || configured === "production") {
+  if (
+    configured === "local" ||
+    configured === "beta" ||
+    configured === "production"
+  ) {
     return configured;
   }
 
@@ -84,6 +95,31 @@ function readBetaOptOutUntil(now = Date.now()): number | null {
   return null;
 }
 
+function rememberForcedProductionSession(sourceHref: string): boolean {
+  let forcedByQuery = false;
+  try {
+    forcedByQuery =
+      new URL(sourceHref).searchParams.get(BETA_FORCE_QUERY_PARAM) === "true";
+  } catch {
+    // coercion-ok: the browser supplied an invalid location.
+  }
+
+  if (typeof window === "undefined") return forcedByQuery;
+
+  try {
+    if (forcedByQuery) {
+      window.sessionStorage.setItem(BETA_FORCE_SESSION_STORAGE_KEY, "1");
+    }
+    return (
+      forcedByQuery ||
+      window.sessionStorage.getItem(BETA_FORCE_SESSION_STORAGE_KEY) === "1"
+    );
+  } catch {
+    // coercion-ok: session storage is optional; the current URL remains authoritative.
+    return forcedByQuery;
+  }
+}
+
 function consumeBetaOptOutQueryParam(
   sourceHref: string,
   now = Date.now(),
@@ -116,6 +152,9 @@ function consumeBetaOptOutQueryParam(
   return active;
 }
 
+const environmentBadgePlacementClasses =
+  "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm";
+
 function EnvironmentLink({ label, href }: { label: string; href: string }) {
   return (
     <Button
@@ -136,7 +175,10 @@ function EnvironmentBadgeContent({
   environment: "beta" | "production";
   targets: EnvironmentBadgeTargets;
 }) {
+  const [isHidden, setIsHidden] = useState(false);
+
   if (typeof window === "undefined") return null;
+  if (isHidden) return null;
 
   const currentHref = window.location.href;
   const betaHref = buildEnvironmentUrl(currentHref, targets.betaHost);
@@ -158,7 +200,7 @@ function EnvironmentBadgeContent({
         <Button
           aria-label={`Open ${title.toLowerCase()} switcher`}
           className={cn(
-            "fixed bottom-3 right-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm",
+            environmentBadgePlacementClasses,
             environment === "beta"
               ? "border-primary/80"
               : "border-border/80 bg-background/95 text-foreground",
@@ -170,7 +212,7 @@ function EnvironmentBadgeContent({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align="center"
+        align="start"
         className="w-[280px] p-5"
         side="top"
         sideOffset={8}
@@ -188,9 +230,33 @@ function EnvironmentBadgeContent({
           ) : (
             <EnvironmentLink href={betaHref!} label="Go to beta" />
           )}
+          <Button
+            className="mt-2 -mb-2 w-full justify-center text-muted-foreground"
+            onClick={() => setIsHidden(true)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Hide badge
+          </Button>
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function LocalEnvironmentBadge() {
+  return (
+    <div
+      aria-label="Local development environment"
+      className={cn(
+        environmentBadgePlacementClasses,
+        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
+      )}
+      role="status"
+    >
+      dev
+    </div>
   );
 }
 
@@ -208,6 +274,8 @@ function ProductionEnvironmentBadge({
   const didAutoRedirect = useRef(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (rememberForcedProductionSession(window.location.href)) return;
     if (!isEligible || didAutoRedirect.current) {
       return;
     }
@@ -239,29 +307,41 @@ function ProductionEnvironmentBadge({
 }
 
 /**
- * First-party hosted lane switcher. Beta is intentionally visible before
- * authentication so a visitor can always leave beta from the sign-in page.
- * Production remains an internal auto-redirect lane for authenticated staff.
+ * Environment indicator and first-party hosted lane switcher. Beta is
+ * intentionally visible before authentication so a visitor can always leave
+ * beta from the sign-in page. Production remains an internal auto-redirect
+ * lane for authenticated staff.
  */
 export function EnvironmentBadge({
   showProduction = true,
 }: {
   showProduction?: boolean;
 } = {}) {
+  const [hydrated, setHydrated] = useState(false);
   const config = useMemo(injectedAgentNativeConfig, []);
   const hostname =
     typeof window === "undefined" ? undefined : window.location.hostname;
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
 
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
   if (
+    !hydrated ||
     typeof window === "undefined" ||
     window.parent !== window ||
-    !environment ||
-    !targets
+    !environment
   ) {
     return null;
   }
+
+  if (environment === "local") {
+    return <LocalEnvironmentBadge />;
+  }
+
+  if (!targets) return null;
 
   if (environment === "beta") {
     return <EnvironmentBadgeContent environment="beta" targets={targets} />;

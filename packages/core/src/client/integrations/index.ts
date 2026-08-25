@@ -1,4 +1,10 @@
-export { IntegrationsPanel } from "./IntegrationsPanel.js";
+export {
+  IntegrationsPanel,
+  McpIntegrationsLanding,
+  McpIntegrationsSection,
+  type McpIntegrationsLandingProps,
+  type McpIntegrationsSectionProps,
+} from "./IntegrationsPanel.js";
 export {
   IntegrationGrid,
   type IntegrationGridItem,
@@ -8,6 +14,13 @@ export {
   IntegrationConnectionChoice,
   type IntegrationConnectionChoiceProps,
 } from "./IntegrationConnectionChoice.js";
+export { GoogleProductLogo, type GoogleProduct } from "./GoogleProductLogo.js";
+export {
+  startWorkspaceProviderOAuth,
+  workspaceProviderOAuthUrl,
+  type WorkspaceProviderOAuthOptions,
+  type WorkspaceProviderOAuthScope,
+} from "./workspace-provider-oauth.js";
 export { useIntegrationStatus } from "./useIntegrationStatus.js";
 export type { IntegrationStatus } from "./useIntegrationStatus.js";
 export {

@@ -140,6 +140,7 @@ import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthUserIdForEmail,
   getAuthSecret,
   getBetterAuth,
   getBetterAuthSync,
@@ -234,9 +235,16 @@ function withSignupAttributionContext<T>(
   );
 }
 
+/**
+ * Replace the internal attribution handoff on a request bound for Better
+ * Auth. Call this on every such request, including the ones with no
+ * attribution to add — the header is unsigned and outranks the request cookie
+ * inside the user-create hook, so an inbound copy is a stranger writing the
+ * `anonymous_id` and campaign of somebody else's signup.
+ */
 function requestWithSignupAttribution(
   request: Request,
-  signupAttribution: SignupAttributionContext,
+  signupAttribution: SignupAttributionContext | undefined,
 ): Request {
   return new Request(request, {
     headers: addSignupAttributionHeader(request.headers, signupAttribution),
@@ -4395,10 +4403,20 @@ async function mountBetterAuthRoutes(
             mobile,
             trackSignup: {
               authProvider: "google",
-              authUserId: typeof user.id === "string" ? user.id : undefined,
+              // The signup event joins to `referrer_user` in the virality
+              // panels, which is always a Better Auth id — the Google profile
+              // id that used to go here joined to nothing. Only looked up when
+              // the event will actually be emitted.
+              authUserId: isNewGoogleUser
+                ? await getBetterAuthUserIdForEmail(email)
+                : undefined,
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
               signupAnonymousId,
+              // `ensureGoogleAuthIdentity` above already wrote the canonical
+              // row, so this callback is the only thing that still knows
+              // whether the person is new.
+              isNewUser: isNewGoogleUser,
             },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {
@@ -5003,12 +5021,10 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      if (signupAttribution) {
-        requestForAuth = requestWithSignupAttribution(
-          requestForAuth,
-          signupAttribution,
-        );
-      }
+      requestForAuth = requestWithSignupAttribution(
+        requestForAuth,
+        signupAttribution,
+      );
 
       let response: Response;
       try {
@@ -5242,6 +5258,28 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, authError.statusCode ?? 401);
         return { error: authError.message };
       }
+    }),
+  );
+
+  // Better Auth redirects new magic-link users through this small public
+  // callback so first-run onboarding is marked only for newly created users.
+  // Keep this before the generic magic-link handler for runtimes whose
+  // app.use() middleware paths match descendants as prefixes.
+  app.use(
+    "/_agent-native/auth/magic-link/new-user",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const query = getQuery(event);
+      const rawReturn = Array.isArray(query.return)
+        ? query.return[0]
+        : query.return;
+      if (await getSession(event)) {
+        setFirstRunOnboardingCookie(event);
+      }
+      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );
 
@@ -5554,26 +5592,6 @@ async function mountBetterAuthRoutes(
       return new Response(getResetPasswordHtml(), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
-    }),
-  );
-
-  // Better Auth redirects new magic-link users through this small public
-  // callback so first-run onboarding is marked only for newly created users.
-  app.use(
-    "/_agent-native/auth/magic-link/new-user",
-    defineEventHandler(async (event) => {
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const query = getQuery(event);
-      const rawReturn = Array.isArray(query.return)
-        ? query.return[0]
-        : query.return;
-      if (await getSession(event)) {
-        setFirstRunOnboardingCookie(event);
-      }
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );
 

@@ -401,15 +401,8 @@ export function shouldEscapeToOverview(args: {
  * node already carries `tag`/`layerNameSource` without needing a separate
  * lookup map.
  *
- * Both the Escape pop-one-level walk (`resolveEscapePopSelectionAction`) and
- * the shared Shift+Enter / "\\" select-parent walk (`handleSelectParentLayer`
- * in DesignEditor.tsx) must treat a parent that resolves to a document-shell
- * node as NO parent at all — otherwise popping from a top-level layer selects
- * the raw `<body>`/`<html>` DOM nodes instead of stopping at the screen/frame
- * level (or fully deselecting), which produces a permanently broken 0x0
- * inspector with no way back to a deselected state.
- *
- * Exported for unit testing.
+ * Select-parent must treat a document-shell parent as NO parent, or walking up
+ * from a top-level layer selects raw `<body>` and strands the inspector at 0x0.
  */
 export function isDocumentShellCodeLayerNode(node: {
   tag: string;
@@ -422,14 +415,9 @@ export function isDocumentShellCodeLayerNode(node: {
 }
 
 /**
- * True only when `parentNode` exists AND is not a document-shell node — see
- * `isDocumentShellCodeLayerNode`. Callers walking the flat code-layer
- * ownership map (Escape pop-one-level, Shift+Enter select-parent) must use
- * this instead of a bare `Boolean(parentNode)` truthiness check, or a
- * top-level layer's collapsed `<body>`/`<html>` ancestor gets treated as a
- * selectable parent layer.
- *
- * Exported for unit testing.
+ * Callers walking the flat code-layer ownership map must use this instead of a
+ * bare `Boolean(parentNode)` check, or a top-level layer's collapsed
+ * `<body>`/`<html>` ancestor gets treated as a selectable parent layer.
  */
 export function hasSelectableCodeLayerParent(args: {
   parentNode: { tag: string; layerNameSource: string } | null | undefined;
@@ -437,48 +425,6 @@ export function hasSelectableCodeLayerParent(args: {
   return (
     args.parentNode != null && !isDocumentShellCodeLayerNode(args.parentNode)
   );
-}
-
-export type EscapePopSelectionAction =
-  | { kind: "pop-to-parent-layer" }
-  | { kind: "pop-to-screen-frame" }
-  | { kind: "deselect" };
-
-/**
- * Figma parity — Escape on a plain canvas selection pops one level at a
- * time (child layer -> parent layer -> containing screen/frame -> fully
- * deselected) instead of deselecting everything on the first press.
- *
- * - A selected layer that has a code-layer parent (`hasLayerParent`) pops to
- *   that parent, reusing the same ancestor-walk `handleSelectParentLayer`
- *   (Shift+Enter / "\\") already uses via `codeLayerOwnerByNodeIdRef`.
- * - A selected TOP-level layer (no code-layer parent) in overview mode pops
- *   to selecting its containing screen/frame — the same selection kind
- *   (`overviewSelectedScreenIds`) clicking a frame directly in overview
- *   already produces.
- * - Anything else — nothing selected, or a top-level layer in single-screen
- *   mode where there's no separate "frame" to pop to (the screen already
- *   fills the view, so top-level already reads as "the frame boundary") —
- *   falls straight through to a full deselect, matching the previous
- *   unconditional Escape behavior.
- *
- * Callers must have already handled every higher-priority Escape consumer
- * (an in-progress marquee/drag, an active breakpoint edit target,
- * `shouldEscapeToOverview`'s zoom-out-to-overview case) before calling this
- * — it only decides the remaining plain-canvas-selection case.
- *
- * Exported for unit testing.
- */
-export function resolveEscapePopSelectionAction(args: {
-  hasSelectedLayer: boolean;
-  hasLayerParent: boolean;
-  viewMode: "single" | "overview";
-}): EscapePopSelectionAction {
-  if (args.hasSelectedLayer) {
-    if (args.hasLayerParent) return { kind: "pop-to-parent-layer" };
-    if (args.viewMode === "overview") return { kind: "pop-to-screen-frame" };
-  }
-  return { kind: "deselect" };
 }
 
 /**

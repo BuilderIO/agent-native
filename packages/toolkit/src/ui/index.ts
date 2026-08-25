@@ -27,6 +27,7 @@ export * from "./logo.js";
 export * from "./menubar.js";
 export * from "./navigation-menu.js";
 export * from "./pagination.js";
+export * from "./pointer-lock.js";
 export * from "./popover.js";
 export * from "./progress.js";
 export * from "./radio-group.js";

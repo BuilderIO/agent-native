@@ -128,7 +128,8 @@ Useful query fields live in `properties`:
 | `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                                                                         |
 | `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                                                                         |
 | `cost_cents_x100`                                | Estimated run cost in centicents                                                                  |
-| `$ai_latency`, `duration_ms`                     | Run duration in seconds / milliseconds                                                            |
+| `duration_ms`                                    | Run duration in milliseconds                                                                      |
+| `$ai_latency`                                    | Model time in seconds (run duration minus tool time), on `$ai_generation`                         |
 | `tool_calls`, `successful_tools`, `failed_tools` | Complete tool-call counts                                                                         |
 | `tools`, `tools_truncated`                       | First 50 tool names, offsets, durations, statuses, and error classes, including interrupted calls |
 | `delegated`, `delegation_protocol`, `caller_app` | Delegated-run attribution                                                                         |

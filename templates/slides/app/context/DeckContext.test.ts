@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   changedDeckIds,
   deckIdFromPathname,
+  getDuplicateSourceSlides,
   hasUncommittedDeckChanges,
   includeOpenDeckIfMissing,
   type Deck,
@@ -49,6 +50,22 @@ describe("DeckContext route hydration helpers", () => {
     const after = [deck("a"), { ...deck("b"), title: "Updated" }, deck("c")];
 
     expect(changedDeckIds(before, after)).toEqual(["b", "c"]);
+  });
+
+  it("uses a preview slide while hydrating a listing deck for duplication", () => {
+    const preview = {
+      id: "preview-slide",
+      content: "<h1>Preview</h1>",
+      notes: "",
+      layout: "title" as const,
+    };
+
+    expect(
+      getDuplicateSourceSlides({
+        ...deck("preview-only"),
+        previewSlide: preview,
+      }),
+    ).toEqual([preview]);
   });
 
   it("treats dirty decks as uncommitted before the debounced save is registered", () => {

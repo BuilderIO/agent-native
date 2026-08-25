@@ -28,6 +28,13 @@ type DesktopIdentitySettings = {
   ssoEnabled: boolean;
 };
 
+type DesktopEnvironmentLane =
+  import("../../shared/environment-lane.js").DesktopEnvironmentLane;
+type DesktopEnvironmentLanePreference =
+  import("../../shared/environment-lane.js").DesktopEnvironmentLanePreference;
+type DesktopEnvironmentLaneState =
+  import("../../shared/ipc-channels.js").DesktopEnvironmentLaneState;
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -838,11 +845,9 @@ interface ElectronAPI {
 
   windowControls: {
     minimize(): void;
-    maximize(): void;
+    toggleWindowMode(): void;
     close(): void;
     setNativeTrafficLightsVisible(visible: boolean): void;
-    isMaximized(): Promise<boolean>;
-    onMaximizedChange(cb: (isMaximized: boolean) => void): () => void;
   };
 
   shortcuts: {
@@ -872,7 +877,14 @@ interface ElectronAPI {
     getStatus(): Promise<DesktopIdentityStatus>;
     getSettings(): Promise<DesktopIdentitySettings>;
     setSsoEnabled(enabled: boolean): Promise<boolean>;
-    ensureAppSession(appId: string): Promise<boolean>;
+    getEnvironmentLane(): Promise<DesktopEnvironmentLaneState>;
+    setEnvironmentLane(
+      preference: DesktopEnvironmentLanePreference,
+    ): Promise<DesktopEnvironmentLaneState>;
+    ensureAppSession(
+      appId: string,
+      options?: { preserveExistingSession?: boolean },
+    ): Promise<boolean>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     authenticate(
@@ -937,7 +949,9 @@ interface ElectronAPI {
     deleteSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
     runScheduleNow(input: unknown): Promise<CodeAgentScheduleResult>;
     listWorktrees(cwd?: string): Promise<CodeAgentWorktreeListResult>;
-    listModels(): Promise<CodeAgentModelListResult>;
+    listModels(options?: {
+      refresh?: boolean;
+    }): Promise<CodeAgentModelListResult>;
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;

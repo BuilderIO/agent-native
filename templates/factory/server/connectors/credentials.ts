@@ -21,6 +21,10 @@ const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
   SLACK_BOT_TOKEN: "slack",
   SLACK_BOT_TOKEN_2: "slack",
 };
+const VAULT_ONLY_KEYS = new Set([
+  ...Object.keys(WORKSPACE_PROVIDER_BY_KEY),
+  "SENTRY_ORG_SLUG",
+]);
 
 function isMissingTableError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
@@ -145,11 +149,12 @@ export async function resolveConnectorSecret(
     }
   }
 
-  // Deployment-managed connector configuration is the last resort inside the
-  // resolver, never a parallel path in a provider client. A designated
-  // Dispatch vault must win over a stale deployment copy of the same key.
-  const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - deploy-level connector fallback
-  if (environmentSecret) return environmentSecret;
+  // Standard provider keys are org/workspace data, not deployment config.
+  // Generic app-owned keys may still use the deployment fallback below.
+  if (!VAULT_ONLY_KEYS.has(key)) {
+    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - deploy-level connector fallback for generic app-owned configuration
+    if (environmentSecret) return environmentSecret;
+  }
 
   return undefined;
 }

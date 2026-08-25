@@ -63,19 +63,17 @@ export default defineAction({
     );
     if (!definition) throw new Error("Factory automation not found.");
     if (
-      readAutomationFactoryId(definition.meta, definition.resource.content) !==
-      factoryId
+      readAutomationFactoryId(
+        definition.meta,
+        definition.resource.content,
+        definition.resource.path,
+      ) !== factoryId
     ) {
       throw new Error("Factory automation not found.");
     }
     if (definition.name !== name) {
       throw new Error(
         "Factory automation id and name do not refer to the same automation.",
-      );
-    }
-    if (!definition.canUpdate) {
-      throw new Error(
-        "Only the automation's creator or an organization admin can update it.",
       );
     }
     if (definition.meta.triggerType === "schedule" && !isValidCron(schedule)) {

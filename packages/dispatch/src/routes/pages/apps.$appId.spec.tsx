@@ -5,15 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const routeState = vi.hoisted(() => ({
   appId: "mail",
+  routeSplat: undefined as string | undefined,
+  location: { pathname: "/apps/mail", search: "", hash: "" },
   hostProps: null as {
     appId?: string;
     navigateToTopWindow?: (href: string) => boolean | void;
+    initialPath?: string;
+    onChildRouteChange?: (path: string) => void;
   } | null,
   navigateToWorkspaceApp: vi.fn(() => true),
+  navigate: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
-  useParams: () => ({ appId: routeState.appId }),
+  useParams: () => ({ appId: routeState.appId, "*": routeState.routeSplat }),
+  useLocation: () => routeState.location,
+  useNavigate: () => routeState.navigate,
 }));
 
 vi.mock("../../components/workspace-app-host", () => ({
@@ -25,6 +32,14 @@ vi.mock("../../components/workspace-app-host", () => ({
 
 vi.mock("../../lib/workspace-apps", () => ({
   navigateToWorkspaceApp: routeState.navigateToWorkspaceApp,
+  workspaceAppInitialPathFromSplat: (
+    routeSplat: string | undefined,
+    search: string,
+    hash: string,
+  ) =>
+    routeSplat || search || hash
+      ? `/${routeSplat ?? ""}${search}${hash}`
+      : undefined,
 }));
 
 import WorkspaceAppRoute from "./apps.$appId";
@@ -36,8 +51,11 @@ describe("WorkspaceAppRoute", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     routeState.appId = "mail";
+    routeState.routeSplat = undefined;
+    routeState.location = { pathname: "/apps/mail", search: "", hash: "" };
     routeState.hostProps = null;
     routeState.navigateToWorkspaceApp.mockClear();
+    routeState.navigate.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -62,5 +80,36 @@ describe("WorkspaceAppRoute", () => {
     routeState.hostProps?.navigateToTopWindow?.("/mail");
 
     expect(routeState.navigateToWorkspaceApp).toHaveBeenCalledWith("/mail");
+  });
+
+  it("keeps the iframe synchronized with standalone deep-link navigation", async () => {
+    routeState.routeSplat = "foobar";
+    routeState.location = {
+      pathname: "/apps/mail/foobar",
+      search: "?view=all",
+      hash: "#top",
+    };
+
+    await act(async () => {
+      root.render(<WorkspaceAppRoute />);
+    });
+
+    expect(routeState.hostProps?.initialPath).toBe("/foobar?view=all#top");
+
+    routeState.routeSplat = "sent";
+    routeState.location = {
+      pathname: "/apps/mail/sent",
+      search: "",
+      hash: "",
+    };
+    await act(async () => {
+      root.render(<WorkspaceAppRoute />);
+    });
+
+    expect(routeState.hostProps?.initialPath).toBe("/sent");
+    routeState.hostProps?.onChildRouteChange?.("/apps/mail/archive");
+    expect(routeState.navigate).toHaveBeenCalledWith("/apps/mail/archive", {
+      replace: true,
+    });
   });
 });

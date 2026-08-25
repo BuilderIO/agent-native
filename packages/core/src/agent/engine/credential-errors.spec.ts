@@ -81,7 +81,7 @@ describe("LLM credential error helpers", () => {
   it("formats agent-specific copy without provider env vars", () => {
     const message = formatLlmCredentialErrorMessage({ agentName: "Slides" });
     expect(message).toContain("Slides agent");
-    expect(message).toContain("Manage agent > LLM");
+    expect(message).toContain("Settings > Agent > AI providers");
     expect(message).not.toContain("ANTHROPIC_API_KEY");
   });
 });

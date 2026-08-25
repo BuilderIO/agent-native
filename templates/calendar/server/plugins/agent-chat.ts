@@ -1,5 +1,7 @@
 import { registerEvent } from "@agent-native/core/event-bus";
 import { getOrgContext } from "@agent-native/core/org";
+
+import "../onboarding.js";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,

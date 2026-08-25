@@ -84,9 +84,12 @@ as a deployment step; clearing one is not the production promotion.
 
 When `/review-latest-feedback` has run before `/ship`, its sweep is a required
 ship input. Carry the sweep's start cursor, grouped reports, evidence links, and
-disposition table into the PR or ship recap. Every actionable item must have an
-owning source seam and focused verification, with one explicit disposition:
-fixed, awaiting reporter clarification, already owned or duplicate, deferred or
+disposition table into the PR or ship recap. The handoff remains cross-app and
+cross-source: adding Design UI bugs to the eligible set must not drop
+Analytics, Dispatch, Calendar, Slides, Content, GitHub, Sentry, or any other
+previously identified candidate. Every actionable item must have an owning
+source seam and focused verification, with one explicit disposition: fixed,
+awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
 
 Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
@@ -102,12 +105,15 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   informational, honor that owning disposition and do not turn the eye into a
   merge blocker. If the reaction state is unavailable, record the item as
   unavailable/unverified and refresh the feedback thread instead of guessing.
-- UX or interaction bugs in the Design app are owned by Sid. All Content app
-  feedback is owned by Alice. Keep those source links and ownership decisions
-  in the ship ledger, but do not include them as this workflow's fixes,
+- Concrete small UI or interaction bugs in the Design app are an additional
+  in-scope category for this workflow and follow the same feedback handoff,
+  verification, and merge gates as other repo-owned fixes. Do not narrow the
+  ship ledger to Design when Design is added to a cross-app sweep. Route broad
+  redesigns or subjective Design suggestions to Sid. All Content app feedback
+  remains owned by Alice; keep those source links and ownership decisions in
+  the ship ledger, but do not include them as this workflow's fixes,
   investigation, clarification requests, replies, dispatches, or merge
-  blockers. Only an explicit invocation assigning a specific item to this
-  workflow can override the owner route.
+  blockers.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present

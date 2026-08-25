@@ -121,6 +121,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 
 - **Do** keep one action, one job; document a reusable action (when to use it, key args, return fields to preserve) in `AGENTS.md` once it's called from outside one narrow screen; promote workflow-heavy actions (provider-backed, cross-app, MCP/A2A, multi-step) into a skill.
 - **Do** use `fail()` for user-friendly errors and import primitives from `@agent-native/core`(`/action`) instead of redefining them; use the core `upload-image` action or `uploadFile()` for durable images/files — never base64 into SQL, markdown, or action results.
+- **Do** signal failure by throwing (`fail()`), never by returning `{ error: ... }`. A returned envelope is a successful return everywhere the framework looks: the retry breakers (`MAX_IDENTICAL_TOOL_ERRORS`, `MAX_SAME_ERROR_ACROSS_ARGUMENTS`) never count it, the call is recorded `completedSideEffect: true` even though nothing was written, and `failed_tools` / `$ai_is_error` stay clean while the model keeps guessing. One production run spent 32% of its cost on three rejected writes that every dashboard reported as successes.
 - **Don't** re-export actions as REST — `/_agent-native/actions/:name` is already the REST surface; duplicating it under `/api/*` hides the operation from agents.
 - **Don't** reach for provider integrations, `outputSchema`, `authorize`, `needsApproval`, or `_agentImages` without checking `references/` first — each has sharp edges covered there, not here.
 

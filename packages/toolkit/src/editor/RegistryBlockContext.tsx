@@ -5,6 +5,10 @@ export interface RegistryBlockSideMapBlock {
   title?: string;
   summary?: string;
   data: unknown;
+  loadError?: {
+    message: string;
+    rawSource?: string;
+  };
 }
 
 export interface RegistryBlockNestedBlock {

@@ -61,4 +61,14 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
       sqlite: "",
     },
   },
+  {
+    version: 4,
+    name: "agent-harness-sessions-generation",
+    sql: {
+      postgres:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0",
+      sqlite:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation INTEGER NOT NULL DEFAULT 0",
+    },
+  },
 ];

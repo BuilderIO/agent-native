@@ -1,5 +1,65 @@
 # @agent-native/dispatch
 
+## 0.31.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.12
+
+## 0.31.16
+
+### Patch Changes
+
+- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
+
+## 0.31.15
+
+### Patch Changes
+
+- c595519: Automations page now writes the selected automation into a `?automationId=` URL param instead of untracked local state, so a selected row can be linked, reloaded, and reached with browser Back on both `/automations` and `/admin/automations`.
+- c595519: Fix a workspace app opened from Dispatch chat-first mode on a narrow viewport mounting its own full-screen agent chat rail on top of the already full-screen side surface panel.
+- c595519: Fix the chat-first side surface panel's close toggle being stacked beneath the panel it controls on viewports at or below 767px, which made the panel undismissable.
+- d74aff9: Keep Dispatch's Feedback, Search, and Collapse controls flush with the bottom of the left sidebar.
+- af1b3bb: Derive the chat model selection localStorage key through one exported helper, `chatModelSelectionStorageKey`. `useChatModels` takes the raw key while `MultiTabAssistantChat` takes only the namespace suffix, so a hero composer that passed the same string to both wrote to a different key than the chat beside it and never saw its model picks.
+- Updated dependencies [6c2e431]
+- Updated dependencies [af1b3bb]
+- Updated dependencies [c595519]
+- Updated dependencies [9735e4d]
+- Updated dependencies [15b86eb]
+  - @agent-native/toolkit@0.16.11
+
+## 0.31.14
+
+### Patch Changes
+
+- 4de4af3: Expose workspace monthly per-user credit usage and workspace app creation breakdowns through the Dispatch agent action.
+- 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.10
+
+## 0.31.13
+
+### Patch Changes
+
+- f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
+
+## 0.31.12
+
+### Patch Changes
+
+- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
+
+## 0.31.11
+
+### Patch Changes
+
+- e5e6934: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
+- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
+
 ## 0.31.10
 
 ### Patch Changes

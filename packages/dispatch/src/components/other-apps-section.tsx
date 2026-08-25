@@ -19,7 +19,7 @@ import {
   type WorkspaceTemplateLabels,
 } from "./workspace-template-card";
 
-type OtherAppEntry =
+export type OtherAppEntry =
   | { kind: "template"; template: CuratedWorkspaceTemplate }
   | { kind: "connected"; app: ConnectedAppSummary };
 
@@ -34,6 +34,26 @@ function getTemplateItems(
 ): CuratedWorkspaceTemplate[] {
   if (!result) return [];
   return Array.isArray(result) ? result : result.templates;
+}
+
+export function otherAppEntryMatchesQuery(
+  entry: OtherAppEntry,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  const searchable =
+    entry.kind === "template"
+      ? `${entry.template.name} ${entry.template.description ?? ""}`
+      : `${entry.app.name} ${entry.app.description ?? ""}`;
+  return searchable.toLowerCase().includes(normalizedQuery);
+}
+
+export function filterOtherAppEntries(
+  entries: OtherAppEntry[],
+  query: string,
+): OtherAppEntry[] {
+  return entries.filter((entry) => otherAppEntryMatchesQuery(entry, query));
 }
 
 export function mergeOtherAppEntries({
@@ -86,6 +106,7 @@ export function OtherAppsSection({
   onRetryConnectedApps,
   templateLabels,
   onRemixSuccess,
+  query = "",
   heading = "Other apps",
   embeddedInList = false,
   className,
@@ -104,20 +125,43 @@ export function OtherAppsSection({
     result: unknown,
     template: CuratedWorkspaceTemplate,
   ) => void;
+  query?: string;
   heading?: string | null;
   embeddedInList?: boolean;
   className?: string;
 }) {
   const t = useT();
-  const entries = mergeOtherAppEntries({
-    templates,
-    connectedApps,
-    workspaceApps,
-  });
+  const entries = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates,
+      connectedApps,
+      workspaceApps,
+    }),
+    query,
+  );
   const isLoading = templatesLoading || connectedAppsLoading;
   const hasError = Boolean(templatesError || connectedAppsError);
 
   if (!isLoading && !hasError && entries.length === 0) return null;
+
+  const entryCards = entries.map((entry) =>
+    entry.kind === "template" ? (
+      <WorkspaceTemplateCard
+        key={`template:${templateKey(entry.template)}`}
+        template={entry.template}
+        labels={templateLabels}
+        catalog
+        className={APP_LIST_GRID_ROW_CLASS}
+        onRemixSuccess={onRemixSuccess}
+      />
+    ) : (
+      <ConnectedAppCard
+        key={`connected:${entry.app.id}`}
+        app={entry.app}
+        className={APP_LIST_GRID_ROW_CLASS}
+      />
+    ),
+  );
 
   const content = (
     <>
@@ -149,23 +193,10 @@ export function OtherAppsSection({
           <OtherAppsSkeletonList />
         )
       ) : entries.length > 0 ? (
-        entries.map((entry) =>
-          entry.kind === "template" ? (
-            <WorkspaceTemplateCard
-              key={`template:${templateKey(entry.template)}`}
-              template={entry.template}
-              labels={templateLabels}
-              catalog
-              className={APP_LIST_GRID_ROW_CLASS}
-              onRemixSuccess={onRemixSuccess}
-            />
-          ) : (
-            <ConnectedAppCard
-              key={`connected:${entry.app.id}`}
-              app={entry.app}
-              className={APP_LIST_GRID_ROW_CLASS}
-            />
-          ),
+        embeddedInList ? (
+          entryCards
+        ) : (
+          <AppList className={APP_LIST_GRID_CLASS}>{entryCards}</AppList>
         )
       ) : null}
     </>

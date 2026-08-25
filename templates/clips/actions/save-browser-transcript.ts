@@ -24,6 +24,7 @@ import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
+import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
 
 // web-speech and macos-native are both mic-only engines — see
@@ -226,6 +227,9 @@ export default defineAction({
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+    if (savedStatus === "ready") {
+      await finalizeEndedMeetingsForRecording(db, args.recordingId);
+    }
 
     const [rec] = await db
       .select({

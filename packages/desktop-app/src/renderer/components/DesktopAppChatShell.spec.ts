@@ -36,7 +36,7 @@ describe("desktop app chat shell", () => {
     ).toBe(false);
   });
 
-  it("keeps the shell open state shared while chat threads stay app-scoped", () => {
+  it("keeps the shell open state shared while new app chats start empty", () => {
     const source = readFileSync(
       new URL("./DesktopAppChatShell.tsx", import.meta.url),
       "utf8",
@@ -46,6 +46,8 @@ describe("desktop app chat shell", () => {
     expect(source).toContain("storageKey={`desktop-app-chat:${appId}`}");
     expect(source).toContain('position="left"');
     expect(source).toContain('agentChatSurface="desktop"');
+    expect(source).toContain("toggleScopeId={toggleScopeId}");
+    expect(source).toContain("restoreActiveThread={false}");
     expect(source).toContain("enabled={showChatSidebar}");
     expect(source).not.toContain(
       "{showChatSidebar ? (\n          <MemoryRouter>",
@@ -54,13 +56,47 @@ describe("desktop app chat shell", () => {
     expect(source).not.toContain("data-desktop-app-sign-in");
   });
 
-  it("does not mount chat until the guest app has a verified session", () => {
+  it("keeps the resolved chat endpoint across app tab switches", () => {
+    const source = readFileSync(
+      new URL("./DesktopAppChatShell.tsx", import.meta.url),
+      "utf8",
+    );
+    const apiUrlEffectStart = source.indexOf("setApiUrl(null);");
+    const apiUrlEffectEnd = source.indexOf(
+      "  useEffect(() => {\n    void preloadAgentChatSurface();",
+      apiUrlEffectStart,
+    );
+    const apiUrlEffect = source.slice(apiUrlEffectStart, apiUrlEffectEnd);
+
+    expect(apiUrlEffect).toContain("}, [appId]);");
+    expect(apiUrlEffect).not.toContain("setDesktopChatRelayActive");
+  });
+
+  it("keeps the app webview boundary visible with or without chat", () => {
+    const shellCss = readFileSync(
+      new URL("../shell.css", import.meta.url),
+      "utf8",
+    );
+
+    expect(shellCss).toMatch(
+      /\.desktop-app-webview-surface,\s*\.code-agents-embedded-app-surface\s*\{[\s\S]*?border-radius: var\(--agent-native-raised-radius, 8px\) 0 0\s+var\(--agent-native-raised-radius, 8px\);[\s\S]*?border-left: 0;[\s\S]*?box-shadow: 0 0 0 1px hsl\(var\(--border\)\);[\s\S]*?\}/,
+    );
+  });
+
+  it("shows chat while the guest app is still loading", () => {
     expect(
       shouldShowDesktopAppChatSidebar({
         apiUrl: "https://dispatch.example/_agent-native/agent-chat",
         appAuthState: "unknown",
       }),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      shouldShowDesktopAppChatSidebar({
+        apiUrl: "https://dispatch.example/_agent-native/agent-chat",
+        appAuthState: "authenticated",
+        desktopIdentityStatus: "checking",
+      }),
+    ).toBe(true);
     expect(
       shouldShowDesktopAppChatSidebar({
         apiUrl: "https://dispatch.example/_agent-native/agent-chat",
@@ -81,5 +117,13 @@ describe("desktop app chat shell", () => {
         desktopIdentityStatus: "signed-in",
       }),
     ).toBe(true);
+    expect(
+      shouldShowDesktopAppChatSidebar({
+        apiUrl: "https://dispatch.example/_agent-native/agent-chat",
+        appAuthState: "authenticated",
+        desktopIdentityStatus: "signed-in",
+        chatEnabled: false,
+      }),
+    ).toBe(false);
   });
 });

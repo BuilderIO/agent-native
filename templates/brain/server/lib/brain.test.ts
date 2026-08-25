@@ -1666,6 +1666,27 @@ describe("Brain knowledge quality gates", () => {
     expect(mocks.rows.captures).toHaveLength(1);
   });
 
+  it("recognizes PostgreSQL unique-violation codes when the message is generic", async () => {
+    seedSource();
+    mocks.insertControls.error = Object.assign(new Error("insert failed"), {
+      code: "23505",
+    });
+    mocks.insertControls.beforeThrow = (_tableRef, row) => {
+      mocks.rows.captures.push({ ...row, id: "capture-from-postgres-race" });
+    };
+
+    const capture = await createCapture({
+      sourceId: "source-1",
+      externalId: "external-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+    });
+
+    expect(capture.id).toBe("capture-from-postgres-race");
+    expect(mocks.rows.captures).toHaveLength(1);
+  });
+
   it("creates a proposal for company-tier knowledge below the auto-publish confidence gate", async () => {
     seedSource();
     seedCapture();

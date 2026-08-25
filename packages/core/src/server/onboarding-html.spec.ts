@@ -33,11 +33,22 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="environment-badge"');
     expect(html).toContain("You're on Agent Native Beta");
     expect(html).toContain("Switch to production");
+    expect(html).toContain('id="environment-hide-badge"');
+    expect(html).toContain("switcher.hidden = true");
     expect(html).toContain("__anInitEnvironmentBadge");
     expect(html).toContain("agentNativeBetaOptOut");
     expect(html).toContain("agent-native:beta-opt-out-until");
+    expect(html).toContain("agent-native:force-production");
     expect(html).toContain("window.localStorage.setItem");
     expect(html).toContain("window.history.replaceState");
+    expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
+    expect(html).toContain("left: 0;");
+    expect(html).toContain(
+      "width: 100%;\n    min-height: 2rem;\n    margin-top: 0.5rem;\n    margin-bottom: -0.5rem;",
+    );
+    expect(html).toContain(
+      "width: min(17.5rem, calc(100vw - 1.5rem));\n    box-sizing: border-box;\n    padding: 1.25rem;",
+    );
     expect(html).toContain('id="environment-badge" aria-expanded="false"');
   });
 

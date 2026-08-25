@@ -611,6 +611,10 @@ export async function handleIdentitySso(
             {
               ...(getRequestContext() ?? {}),
               signupAttribution,
+              // This person already signed up somewhere; we are provisioning
+              // them into this app. Counting it as an acquisition is how one
+              // human became a dozen "signups" across sibling apps.
+              signupOrigin: "sso_jit",
             },
             linkIdentity,
           )

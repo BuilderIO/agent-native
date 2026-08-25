@@ -17,6 +17,15 @@ type NativeDependencyCheck =
       packageName: string;
     }
   | {
+      // Replaced by the serverless build (see stubLocalOnlySqliteDriverForServerless).
+      // Distinct from "absent", which invites an install, and from "broken",
+      // which invites a rebuild — both are wrong for a package this build
+      // removed on purpose.
+      status: "stubbed";
+      packageName: string;
+      packageDir: string;
+    }
+  | {
       status: "healthy";
       packageName: string;
       packageDir: string;
@@ -108,12 +117,34 @@ function probeBetterSqlite3(packageDir: string): unknown | null {
   }
 }
 
+/**
+ * Whether this `better-sqlite3` is the build-time serverless stub rather than a
+ * real install. The stub's constructor throws by design, so probing it would
+ * report a broken native binding and send the CLI into a pointless rebuild.
+ */
+function isServerlessStub(packageDir: string): boolean {
+  const manifestPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(manifestPath)) return false;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+    agentNativeServerlessStub?: unknown;
+  };
+  return manifest.agentNativeServerlessStub === true;
+}
+
 export function checkNativeDependencies(
   fromDirectory = corePackageDirectory(),
 ): NativeDependencyCheck {
-  const packageDir = resolvePackageDirectory(BETTER_SQLITE3, fromDirectory);
+  const packageDir =
+    resolvePackageDirectory(BETTER_SQLITE3, fromDirectory) ??
+    (path.resolve(fromDirectory) === corePackageDirectory()
+      ? null
+      : resolvePackageDirectory(BETTER_SQLITE3, corePackageDirectory()));
   if (!packageDir) {
     return { status: "absent", packageName: BETTER_SQLITE3 };
+  }
+
+  if (isServerlessStub(packageDir)) {
+    return { status: "stubbed", packageName: BETTER_SQLITE3, packageDir };
   }
 
   const error = probeBetterSqlite3(packageDir);

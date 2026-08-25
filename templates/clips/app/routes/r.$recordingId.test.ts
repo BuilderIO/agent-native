@@ -8,6 +8,27 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("prefers public-share timestamps over legacy owner timestamps", () => {
+    const route = readRoute("r.$recordingId.tsx");
+
+    expect(route).toContain('searchParams.get("at") ?? searchParams.get("t")');
+  });
+
+  it("clamps route playback state before exposing it", () => {
+    const recordingRoute = readRoute("r.$recordingId.tsx");
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    expect(recordingRoute).toContain(
+      "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
+    );
+    expect(recordingRoute).toContain("currentMs: Math.round(playbackMs)");
+    expect(recordingRoute).toContain("currentMs={playbackMs}");
+    expect(shareRoute).toContain(
+      "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
+    );
+    expect(shareRoute).toContain("currentMs={playbackMs}");
+  });
+
   it("keeps the main header return control icon-only and shared", () => {
     const route = readRoute("r.$recordingId.tsx");
     const headerStart = route.indexOf(

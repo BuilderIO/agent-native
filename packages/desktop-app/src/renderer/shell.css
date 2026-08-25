@@ -477,6 +477,14 @@ body {
   span,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-chat
+  span,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .desktop-chat-first-rail-settings
+  span,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   .code-agents-rail-footer
   > .update-indicator
   > span {
@@ -507,8 +515,11 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-run-list {
-  visibility: hidden;
-  pointer-events: none;
+  display: none;
+}
+
+.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-rail-scroll {
+  scrollbar-gutter: auto;
 }
 
 .desktop-chat-first-hub .code-agents-rail--collapsed [data-chat-first-notice] {
@@ -950,7 +961,8 @@ body {
 }
 
 .code-agents-rail-footer {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1px;
   border-top: 1px solid hsl(var(--sidebar-border));
   padding: 8px;
@@ -975,7 +987,7 @@ body {
   height: 32px;
 }
 
-.desktop-chat-first-rail-footer-actions > .desktop-chat-first-rail-settings {
+.desktop-chat-first-rail-footer-actions > .desktop-chat-first-rail-feedback {
   flex: 1 1 auto;
 }
 
@@ -1016,6 +1028,22 @@ body {
 
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-settings {
+  width: 40px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .desktop-chat-first-rail-chat {
+  width: 40px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   [data-chat-first-rail-collapse] {
   background: hsl(var(--sidebar-accent));
   color: hsl(var(--sidebar-accent-foreground));
@@ -1026,6 +1054,18 @@ body {
   [data-chat-first-rail-collapse]:hover {
   background: hsl(var(--sidebar-accent) / 0.85);
   color: hsl(var(--sidebar-accent-foreground));
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app][data-app-id] {
+  background-color: transparent;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app][data-app-id]:hover {
+  background-color: hsl(var(--sidebar-accent));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1065,6 +1105,14 @@ body {
   overflow: hidden;
   isolation: isolate;
   background: var(--shell-bg);
+}
+
+.desktop-app-webview-surface,
+.code-agents-embedded-app-surface {
+  border-radius: var(--agent-native-raised-radius, 8px) 0 0
+    var(--agent-native-raised-radius, 8px);
+  border-left: 0;
+  box-shadow: 0 0 0 1px hsl(var(--border));
 }
 
 .code-agents-primary-app-surface {
@@ -1159,6 +1207,16 @@ body {
 
 .desktop-identity-gate__heading {
   margin-bottom: 24px;
+}
+
+.desktop-identity-gate__app-name {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--label-inactive);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .desktop-identity-gate__heading h1 {

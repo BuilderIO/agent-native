@@ -1099,6 +1099,59 @@ describe("wrapNodes", () => {
     expect(patch.content).not.toContain("right: 5px");
   });
 
+  it("keeps an autoLayout wrapper at the selection's own origin instead of the parent's 0,0", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 240px; top: 180px; width: 120px; height: 60px">X</div><div data-agent-native-node-id="y" style="position: absolute; left: 240px; top: 300px; width: 120px; height: 60px">Y</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x", "y"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperStyle = new RegExp(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*style="([^"]*)"`,
+    ).exec(patch.content)?.[1];
+    expect(wrapperStyle).toContain("position: absolute");
+    expect(wrapperStyle).toContain("left: 240px");
+    expect(wrapperStyle).toContain("top: 180px");
+    expect(wrapperStyle).toContain("display: flex");
+    // No width/height: an auto-layout frame hugs its children, like Figma's.
+    expect(wrapperStyle).not.toContain("width:");
+    expect(wrapperStyle).not.toContain("height:");
+  });
+
+  it("keeps an autoLayout wrapper at the origin even when children have no width/height", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 240px; top: 180px">Hello</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperStyle = new RegExp(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*style="([^"]*)"`,
+    ).exec(patch.content)?.[1];
+    expect(wrapperStyle).toContain("left: 240px");
+    expect(wrapperStyle).toContain("top: 180px");
+    expect(wrapperStyle).toContain("display: flex");
+  });
+
+  it("wraps a single absolutely-positioned node at its own bounds", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 64px; top: 32px; width: 100px; height: 40px">X</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 64px; top: 32px");
+    expect(patch.content).toContain("width: 100px; height: 40px");
+    // The child is rebased into the wrapper's coordinate space.
+    expect(patch.content).toContain("left: 0px");
+    expect(patch.content).toContain("top: 0px");
+  });
+
   it("returns unsupported when targets don't share a parent", () => {
     const html = `<main><section><div data-agent-native-node-id="a">A</div></section><div data-agent-native-node-id="b">B</div></main>`;
     const patch = applyVisualEdit(html, {
