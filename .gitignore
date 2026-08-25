@@ -13,6 +13,7 @@ docs/superpowers
 
 /*.png
 tmp/
+/.tmp/
 
 # Playwright MCP logs
 .playwright-mcp/

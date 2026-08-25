@@ -1,17 +1,27 @@
 import { mockEvent, type H3Event } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-const resolveSecretMock = vi.hoisted(() => vi.fn());
+const resolveSecretPairMock = vi.hoisted(() => vi.fn());
+const CredentialStoreUnavailableErrorMock = vi.hoisted(
+  () =>
+    class CredentialStoreUnavailableErrorMock extends Error {
+      readonly errorCode = "credential_store_unavailable";
+      readonly retryable = true;
+    },
+);
 
 vi.mock("../server/credential-provider.js", () => ({
-  resolveSecret: resolveSecretMock,
+  CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
+  resolveSecretPair: resolveSecretPairMock,
 }));
 
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   clearMcpOAuthFlowCookies,
   isValidMcpOAuthFlow,
   readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
+  resolveMcpOAuthStartError,
   resolveMcpOAuthScope,
   resolveManagedMcpOAuthClient,
   setMcpOAuthFlowCookie,
@@ -221,6 +231,16 @@ describe("managed MCP OAuth clients", () => {
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org"),
     ).toBeNull();
     expect(
+      resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org", {
+        allowManagedOrgReconnect: true,
+      }),
+    ).toBe("org");
+    expect(
+      resolveMcpOAuthScope(new URL("https://drivemcp.googleapis.com"), "org", {
+        allowManagedOrgReconnect: true,
+      }),
+    ).toBe("org");
+    expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "user"),
     ).toBe("user");
     expect(
@@ -229,11 +249,13 @@ describe("managed MCP OAuth clients", () => {
   });
 
   it("resolves the workspace HubSpot client without exposing its secret to the browser", async () => {
-    resolveSecretMock.mockImplementation(async (key: string) => {
-      if (key === "HUBSPOT_MCP_CLIENT_ID") return "hubspot-client-id";
-      if (key === "HUBSPOT_MCP_CLIENT_SECRET") return "hubspot-client-secret";
-      return null;
-    });
+    resolveSecretPairMock.mockImplementation(
+      async ([clientIdKey, clientSecretKey]: [string, string]) =>
+        clientIdKey === "HUBSPOT_MCP_CLIENT_ID" &&
+        clientSecretKey === "HUBSPOT_MCP_CLIENT_SECRET"
+          ? ["hubspot-client-id", "hubspot-client-secret"]
+          : null,
+    );
 
     await expect(
       resolveManagedMcpOAuthClient(new URL("https://mcp.hubspot.com")),
@@ -244,13 +266,70 @@ describe("managed MCP OAuth clients", () => {
     });
   });
 
+  it("resolves the shared Google client for official Workspace MCP servers", async () => {
+    resolveSecretPairMock.mockImplementation(
+      async ([clientIdKey, clientSecretKey]: [string, string]) =>
+        clientIdKey === "GOOGLE_CLIENT_ID" &&
+        clientSecretKey === "GOOGLE_CLIENT_SECRET"
+          ? ["google-client-id", "google-client-secret"]
+          : null,
+    );
+
+    for (const origin of [
+      "https://gmailmcp.googleapis.com",
+      "https://drivemcp.googleapis.com",
+      "https://docsmcp.googleapis.com",
+      "https://sheetsmcp.googleapis.com",
+      "https://slidesmcp.googleapis.com",
+      "https://calendarmcp.googleapis.com",
+      "https://chatmcp.googleapis.com",
+      "https://people.googleapis.com",
+    ]) {
+      await expect(
+        resolveManagedMcpOAuthClient(new URL(`${origin}/mcp/v1`)),
+      ).resolves.toEqual({
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      });
+      expect(resolveMcpOAuthScope(new URL(origin), "org")).toBeNull();
+    }
+  });
+
   it("does not resolve a managed client for an unrelated MCP server", async () => {
-    resolveSecretMock.mockReset();
+    resolveSecretPairMock.mockReset();
 
     await expect(
       resolveManagedMcpOAuthClient(new URL("https://mcp.example.com")),
     ).resolves.toBeUndefined();
-    expect(resolveSecretMock).not.toHaveBeenCalled();
+    expect(resolveSecretPairMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("MCP OAuth start failures", () => {
+  it("preserves credential-store outages as retryable service errors", () => {
+    const result = resolveMcpOAuthStartError(
+      new CredentialStoreUnavailableError("database timeout"),
+    );
+
+    expect(result).toEqual({
+      status: 503,
+      body: {
+        error: "database timeout",
+        errorCode: "credential_store_unavailable",
+        retryable: true,
+      },
+    });
+  });
+
+  it("keeps remote OAuth failures as client errors", () => {
+    expect(resolveMcpOAuthStartError(new Error("discovery failed"))).toEqual({
+      status: 400,
+      body: {
+        error:
+          "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+      },
+    });
   });
 });
 

@@ -677,10 +677,28 @@ function getStorePath(): string {
   return path.join(app.getPath("userData"), STORE_FILE);
 }
 
+function seedDefaultApps(): AppConfig[] {
+  const apps = defaultApps();
+  saveApps(apps);
+  saveDesktopAppPreferences({
+    appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+  });
+  return apps;
+}
+
 export function loadApps(): AppConfig[] {
+  let parsed: unknown;
   try {
-    const raw = fs.readFileSync(getStorePath(), "utf-8");
-    let apps = JSON.parse(raw) as AppConfig[];
+    parsed = JSON.parse(fs.readFileSync(getStorePath(), "utf-8"));
+  } catch {
+    // Nothing readable is stored yet. A first launch and a file we cannot parse
+    // at all are the only cases where writing defaults over the store is right.
+    return seedDefaultApps();
+  }
+  if (!Array.isArray(parsed)) return seedDefaultApps();
+
+  try {
+    let apps = parsed as AppConfig[];
     // Migrations
     let migrated = false;
 
@@ -771,14 +789,17 @@ export function loadApps(): AppConfig[] {
 
     if (migrated) saveApps(apps);
     return apps;
-  } catch {
-    // First launch or corrupted — seed with defaults
-    const apps = defaultApps();
-    saveApps(apps);
-    saveDesktopAppPreferences({
-      appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
-    });
-    return apps;
+  } catch (error) {
+    // The store parsed, so anything failing past this point is migration or the
+    // write itself — a malformed entry, or a transient ENOSPC/EACCES. Seeding
+    // defaults here would turn that into permanent loss of the user's custom
+    // and self-hosted apps, so return what was stored and leave the file alone
+    // to be retried on the next launch.
+    console.error(
+      "[app-store] keeping stored apps unmigrated after a load failure",
+      error,
+    );
+    return parsed as AppConfig[];
   }
 }
 
