@@ -108,7 +108,6 @@ const LOGO_ENTRIES: LogoEntry[] = [
     srcHeight: 563,
     fill: true,
   },
-  { name: "contentful", label: "Contentful" },
   {
     name: "Intercom",
     label: "Intercom",
@@ -149,7 +148,6 @@ const LOGO_ENTRIES: LogoEntry[] = [
     srcHeight: 556,
     fill: true,
   },
-  { name: "PayPal-Monogram-FullColor-RGB", label: "PayPal" },
   {
     name: "figma",
     label: "Figma",
@@ -166,7 +164,6 @@ const LOGO_ENTRIES: LogoEntry[] = [
     srcHeight: 562,
     fill: true,
   },
-  { name: "stripe", label: "Stripe" },
   {
     name: "Box,_Inc._logo",
     label: "Box",
@@ -191,7 +188,6 @@ const LOGO_ENTRIES: LogoEntry[] = [
     srcHeight: 568,
     fill: true,
   },
-  { name: "dropbox-blue", label: "Dropbox" },
   {
     name: "sentry",
     label: "Sentry",
@@ -200,21 +196,12 @@ const LOGO_ENTRIES: LogoEntry[] = [
     srcHeight: 568,
     fill: true,
   },
-  { name: "canva-icon", label: "Canva" },
   {
     name: "zapier-logomark",
     label: "Zapier",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc58a7541bca949a0a60cffbc41abec24",
     srcWidth: 552,
     srcHeight: 574,
-    fill: true,
-  },
-  {
-    name: "hubspot",
-    label: "HubSpot",
-    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F82b86304b23b463eae2477ed660f194e",
-    srcWidth: 552,
-    srcHeight: 568,
     fill: true,
   },
   {
@@ -249,7 +236,6 @@ const LOGO_ENTRIES: LogoEntry[] = [
     srcHeight: 568,
     fill: true,
   },
-  { name: "Linear logo 113", label: "Linear" },
   {
     name: "target-mark",
     label: "Granola",
@@ -266,7 +252,6 @@ const LOGO_ENTRIES: LogoEntry[] = [
     srcHeight: 552,
     fill: true,
   },
-  { name: "app-grid-mark", label: "app-grid-mark" },
   {
     name: "CF-Logo",
     label: "Cloudflare",
