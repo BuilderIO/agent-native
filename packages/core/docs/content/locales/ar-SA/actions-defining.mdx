@@ -323,14 +323,14 @@ if (!email) {
 
 ### ما ينتجه كل طرح {#failure-shapes}
 
-| مطروح من `run()` | حالة HTTP | جسم الاستجابة | مُبلَّغ إلى تتبّع الأخطاء |
-| --- | --- | --- | --- |
-| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | لا |
-| `fail(msg, { errorCode, statusCode, details })` | الـ `statusCode` الذي تحدده | `{ error, errorCode, details }` | لا |
-| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | لا |
-| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | لا |
-| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | نعم |
-| مدخل يفشل في `schema` | 400 | `{ error: "Invalid action parameters..." }` | لا |
+| مطروح من `run()`                                | حالة HTTP                   | جسم الاستجابة                                | مُبلَّغ إلى تتبّع الأخطاء |
+| ----------------------------------------------- | --------------------------- | -------------------------------------------- | ------------------------- |
+| `fail(msg)`                                     | 400                         | `{ error: msg, errorCode: "action_failed" }` | لا                        |
+| `fail(msg, { errorCode, statusCode, details })` | الـ `statusCode` الذي تحدده | `{ error, errorCode, details }`              | لا                        |
+| `new ActionContractError(msg, { errorCode })`   | 409                         | `{ error, errorCode, details }`              | لا                        |
+| `new AgentActionStopError(msg)`                 | 500                         | `{ error: msg }`                             | لا                        |
+| `new Error(msg)`                                | 500                         | `{ error: "Internal server error" }`         | نعم                       |
+| مدخل يفشل في `schema`                           | 400                         | `{ error: "Invalid action parameters..." }`  | لا                        |
 
 اطرح `AgentActionStopError` عندما ينبغي للوكيل إنهاء دوره بدل قراءة الفشل والمحاولة مجددًا. أما `ActionContractError` فهو ما يطرحه `fail()` نيابة عنك، فلا تستخدمه مباشرة إلا حين تكون 409 هي الحالة المطلوبة.
 

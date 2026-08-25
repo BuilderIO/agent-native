@@ -325,14 +325,14 @@ The browser receives `{ error, errorCode, details }`. `useActionQuery()`, `useAc
 
 ### What each throw produces {#failure-shapes}
 
-| Thrown from `run()`                              | HTTP status        | Response body                                    | Reported to error tracking |
-| ------------------------------------------------ | ------------------ | ------------------------------------------------ | -------------------------- |
-| `fail(msg)`                                       | 400                | `{ error: msg, errorCode: "action_failed" }`      | No                         |
-| `fail(msg, { errorCode, statusCode, details })`    | your `statusCode`  | `{ error, errorCode, details }`                   | No                         |
-| `new ActionContractError(msg, { errorCode })`      | 409                | `{ error, errorCode, details }`                   | No                         |
-| `new AgentActionStopError(msg)`                    | 500                | `{ error: msg }`                                  | No                         |
-| `new Error(msg)`                                   | 500                | `{ error: "Internal server error" }`              | Yes                        |
-| Input that fails `schema`                          | 400                | `{ error: "Invalid action parameters..." }`       | No                         |
+| Thrown from `run()`                             | HTTP status       | Response body                                | Reported to error tracking |
+| ----------------------------------------------- | ----------------- | -------------------------------------------- | -------------------------- |
+| `fail(msg)`                                     | 400               | `{ error: msg, errorCode: "action_failed" }` | No                         |
+| `fail(msg, { errorCode, statusCode, details })` | your `statusCode` | `{ error, errorCode, details }`              | No                         |
+| `new ActionContractError(msg, { errorCode })`   | 409               | `{ error, errorCode, details }`              | No                         |
+| `new AgentActionStopError(msg)`                 | 500               | `{ error: msg }`                             | No                         |
+| `new Error(msg)`                                | 500               | `{ error: "Internal server error" }`         | Yes                        |
+| Input that fails `schema`                       | 400               | `{ error: "Invalid action parameters..." }`  | No                         |
 
 `AgentActionStopError` is the one to throw when the agent should end its turn rather than read the failure and try again. `ActionContractError` is what `fail()` raises for you, so reach for it directly only when 409 is the status you want.
 

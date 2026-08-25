@@ -325,14 +325,14 @@ El navegador recibe `{ error, errorCode, details }`. `useActionQuery()`, `useAct
 
 ### Qué produce cada lanzamiento {#failure-shapes}
 
-| Lanzado desde `run()` | Estado HTTP | Cuerpo de la respuesta | Reportado al seguimiento de errores |
-| --- | --- | --- | --- |
-| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | No |
-| `fail(msg, { errorCode, statusCode, details })` | tu `statusCode` | `{ error, errorCode, details }` | No |
-| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | No |
-| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | No |
-| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | Sí |
-| Entrada que falla el `schema` | 400 | `{ error: "Invalid action parameters..." }` | No |
+| Lanzado desde `run()`                           | Estado HTTP     | Cuerpo de la respuesta                       | Reportado al seguimiento de errores |
+| ----------------------------------------------- | --------------- | -------------------------------------------- | ----------------------------------- |
+| `fail(msg)`                                     | 400             | `{ error: msg, errorCode: "action_failed" }` | No                                  |
+| `fail(msg, { errorCode, statusCode, details })` | tu `statusCode` | `{ error, errorCode, details }`              | No                                  |
+| `new ActionContractError(msg, { errorCode })`   | 409             | `{ error, errorCode, details }`              | No                                  |
+| `new AgentActionStopError(msg)`                 | 500             | `{ error: msg }`                             | No                                  |
+| `new Error(msg)`                                | 500             | `{ error: "Internal server error" }`         | Sí                                  |
+| Entrada que falla el `schema`                   | 400             | `{ error: "Invalid action parameters..." }`  | No                                  |
 
 `AgentActionStopError` es la que hay que lanzar cuando el agente debe terminar su turno en lugar de leer el fallo e intentarlo de nuevo. `ActionContractError` es lo que `fail()` lanza por ti, así que úsala directamente solo cuando 409 sea el estado que quieres.
 

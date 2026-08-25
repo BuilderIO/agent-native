@@ -325,14 +325,14 @@ if (!email) {
 
 ### हर throw क्या पैदा करता है {#failure-shapes}
 
-| `run()` से throw | HTTP status | Response body | Error tracking को रिपोर्ट |
-| --- | --- | --- | --- |
-| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | नहीं |
-| `fail(msg, { errorCode, statusCode, details })` | आपका `statusCode` | `{ error, errorCode, details }` | नहीं |
-| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | नहीं |
-| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | नहीं |
-| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | हाँ |
-| ऐसा input जो `schema` में fail हो | 400 | `{ error: "Invalid action parameters..." }` | नहीं |
+| `run()` से throw                                | HTTP status       | Response body                                | Error tracking को रिपोर्ट |
+| ----------------------------------------------- | ----------------- | -------------------------------------------- | ------------------------- |
+| `fail(msg)`                                     | 400               | `{ error: msg, errorCode: "action_failed" }` | नहीं                      |
+| `fail(msg, { errorCode, statusCode, details })` | आपका `statusCode` | `{ error, errorCode, details }`              | नहीं                      |
+| `new ActionContractError(msg, { errorCode })`   | 409               | `{ error, errorCode, details }`              | नहीं                      |
+| `new AgentActionStopError(msg)`                 | 500               | `{ error: msg }`                             | नहीं                      |
+| `new Error(msg)`                                | 500               | `{ error: "Internal server error" }`         | हाँ                       |
+| ऐसा input जो `schema` में fail हो               | 400               | `{ error: "Invalid action parameters..." }`  | नहीं                      |
 
 `AgentActionStopError` तब throw करें जब एजेंट को failure पढ़कर दोबारा कोशिश करने के बजाय अपनी turn खत्म करनी चाहिए। `ActionContractError` वही है जो `fail()` आपके लिए throw करता है, इसलिए उसे सीधे तभी इस्तेमाल करें जब 409 ही आपका मनचाहा status हो।
 

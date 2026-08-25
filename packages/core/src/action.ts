@@ -902,7 +902,7 @@ export interface ActionDefinition<TInput, TReturn> {
  * ArkType) for runtime validation and full type inference:
  *
  * ```ts
- * import { defineAction } from "@agent-native/core";
+ * import { defineAction } from "@agent-native/core/action";
  * import { z } from "zod";
  *
  * export default defineAction({

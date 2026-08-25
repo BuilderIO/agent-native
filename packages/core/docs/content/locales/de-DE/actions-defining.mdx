@@ -325,14 +325,14 @@ Der Browser erhält `{ error, errorCode, details }`. `useActionQuery()`, `useAct
 
 ### Was jeder Throw erzeugt {#failure-shapes}
 
-| Geworfen aus `run()` | HTTP-Status | Response-Body | An Error-Tracking gemeldet |
-| --- | --- | --- | --- |
-| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | Nein |
-| `fail(msg, { errorCode, statusCode, details })` | dein `statusCode` | `{ error, errorCode, details }` | Nein |
-| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | Nein |
-| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | Nein |
-| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | Ja |
-| Eingabe, die am `schema` scheitert | 400 | `{ error: "Invalid action parameters..." }` | Nein |
+| Geworfen aus `run()`                            | HTTP-Status       | Response-Body                                | An Error-Tracking gemeldet |
+| ----------------------------------------------- | ----------------- | -------------------------------------------- | -------------------------- |
+| `fail(msg)`                                     | 400               | `{ error: msg, errorCode: "action_failed" }` | Nein                       |
+| `fail(msg, { errorCode, statusCode, details })` | dein `statusCode` | `{ error, errorCode, details }`              | Nein                       |
+| `new ActionContractError(msg, { errorCode })`   | 409               | `{ error, errorCode, details }`              | Nein                       |
+| `new AgentActionStopError(msg)`                 | 500               | `{ error: msg }`                             | Nein                       |
+| `new Error(msg)`                                | 500               | `{ error: "Internal server error" }`         | Ja                         |
+| Eingabe, die am `schema` scheitert              | 400               | `{ error: "Invalid action parameters..." }`  | Nein                       |
 
 `AgentActionStopError` wirfst du, wenn der Agent seinen Zug beenden soll, statt den Fehler zu lesen und es erneut zu versuchen. `ActionContractError` ist das, was `fail()` für dich wirft, greife also nur direkt darauf zurück, wenn 409 der gewünschte Status ist.
 

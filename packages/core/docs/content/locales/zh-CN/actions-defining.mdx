@@ -320,14 +320,14 @@ if (!email) {
 
 ### 每种抛出产生什么 {#failure-shapes}
 
-| 从 `run()` 抛出 | HTTP 状态码 | 响应体 | 是否上报错误跟踪 |
-| --- | --- | --- | --- |
-| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | 否 |
-| `fail(msg, { errorCode, statusCode, details })` | 你指定的 `statusCode` | `{ error, errorCode, details }` | 否 |
-| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | 否 |
-| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | 否 |
-| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | 是 |
-| 未通过 `schema` 校验的输入 | 400 | `{ error: "Invalid action parameters..." }` | 否 |
+| 从 `run()` 抛出                                 | HTTP 状态码           | 响应体                                       | 是否上报错误跟踪 |
+| ----------------------------------------------- | --------------------- | -------------------------------------------- | ---------------- |
+| `fail(msg)`                                     | 400                   | `{ error: msg, errorCode: "action_failed" }` | 否               |
+| `fail(msg, { errorCode, statusCode, details })` | 你指定的 `statusCode` | `{ error, errorCode, details }`              | 否               |
+| `new ActionContractError(msg, { errorCode })`   | 409                   | `{ error, errorCode, details }`              | 否               |
+| `new AgentActionStopError(msg)`                 | 500                   | `{ error: msg }`                             | 否               |
+| `new Error(msg)`                                | 500                   | `{ error: "Internal server error" }`         | 是               |
+| 未通过 `schema` 校验的输入                      | 400                   | `{ error: "Invalid action parameters..." }`  | 否               |
 
 当代理应当结束本轮，而不是读取失败再试一次时，就抛出 `AgentActionStopError`。`ActionContractError` 是 `fail()` 替你抛出的，因此只有在你确实想要 409 时才直接使用它。
 

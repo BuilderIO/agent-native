@@ -325,14 +325,14 @@ if (!email) {
 
 ### 각 throw가 만들어내는 것 {#failure-shapes}
 
-| `run()`에서 throw | HTTP 상태 | 응답 본문 | 오류 추적 보고 |
-| --- | --- | --- | --- |
-| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | 아니요 |
-| `fail(msg, { errorCode, statusCode, details })` | 지정한 `statusCode` | `{ error, errorCode, details }` | 아니요 |
-| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | 아니요 |
-| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | 아니요 |
-| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | 예 |
-| `schema` 검증에 실패한 입력 | 400 | `{ error: "Invalid action parameters..." }` | 아니요 |
+| `run()`에서 throw                               | HTTP 상태           | 응답 본문                                    | 오류 추적 보고 |
+| ----------------------------------------------- | ------------------- | -------------------------------------------- | -------------- |
+| `fail(msg)`                                     | 400                 | `{ error: msg, errorCode: "action_failed" }` | 아니요         |
+| `fail(msg, { errorCode, statusCode, details })` | 지정한 `statusCode` | `{ error, errorCode, details }`              | 아니요         |
+| `new ActionContractError(msg, { errorCode })`   | 409                 | `{ error, errorCode, details }`              | 아니요         |
+| `new AgentActionStopError(msg)`                 | 500                 | `{ error: msg }`                             | 아니요         |
+| `new Error(msg)`                                | 500                 | `{ error: "Internal server error" }`         | 예             |
+| `schema` 검증에 실패한 입력                     | 400                 | `{ error: "Invalid action parameters..." }`  | 아니요         |
 
 `AgentActionStopError`는 에이전트가 실패를 읽고 다시 시도하는 대신 턴을 끝내야 할 때 던집니다. `ActionContractError`는 `fail()`이 대신 던져 주므로, 409가 원하는 상태일 때만 직접 사용하세요.
 

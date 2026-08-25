@@ -325,14 +325,14 @@ Le navigateur reçoit `{ error, errorCode, details }`. `useActionQuery()`, `useA
 
 ### Ce que produit chaque levée {#failure-shapes}
 
-| Levé depuis `run()` | Statut HTTP | Corps de la réponse | Remonté au suivi d’erreurs |
-| --- | --- | --- | --- |
-| `fail(msg)` | 400 | `{ error: msg, errorCode: "action_failed" }` | Non |
-| `fail(msg, { errorCode, statusCode, details })` | votre `statusCode` | `{ error, errorCode, details }` | Non |
-| `new ActionContractError(msg, { errorCode })` | 409 | `{ error, errorCode, details }` | Non |
-| `new AgentActionStopError(msg)` | 500 | `{ error: msg }` | Non |
-| `new Error(msg)` | 500 | `{ error: "Internal server error" }` | Oui |
-| Entrée qui échoue au `schema` | 400 | `{ error: "Invalid action parameters..." }` | Non |
+| Levé depuis `run()`                             | Statut HTTP        | Corps de la réponse                          | Remonté au suivi d’erreurs |
+| ----------------------------------------------- | ------------------ | -------------------------------------------- | -------------------------- |
+| `fail(msg)`                                     | 400                | `{ error: msg, errorCode: "action_failed" }` | Non                        |
+| `fail(msg, { errorCode, statusCode, details })` | votre `statusCode` | `{ error, errorCode, details }`              | Non                        |
+| `new ActionContractError(msg, { errorCode })`   | 409                | `{ error, errorCode, details }`              | Non                        |
+| `new AgentActionStopError(msg)`                 | 500                | `{ error: msg }`                             | Non                        |
+| `new Error(msg)`                                | 500                | `{ error: "Internal server error" }`         | Oui                        |
+| Entrée qui échoue au `schema`                   | 400                | `{ error: "Invalid action parameters..." }`  | Non                        |
 
 `AgentActionStopError` est celle à lever quand l’agent doit terminer son tour plutôt que lire l’échec et réessayer. `ActionContractError` est ce que `fail()` lève pour vous, donc ne l’utilisez directement que si 409 est le statut voulu.
 
