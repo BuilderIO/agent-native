@@ -197,7 +197,7 @@ const LOGOS: Logo[] = [
   },
   {
     name: "PayPal-Monogram-FullColor-RGB",
-    scale: 1.15,
+    scale: 0.85,
     render: () => (
       <img
         src="https://api.builder.io/api/v1/image/assets/TEMP/d1884c5d20eec797ecc506e533839faeb689d5bd?width=111"
