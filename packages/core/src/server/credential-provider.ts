@@ -194,6 +194,14 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "OPENROUTER_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
+  // Same class as the Google pair above: an OAuth *client* identifies the
+  // deployment to the provider, and the per-user identity stays in the scoped
+  // `oauth_tokens` row the consent flow writes. `guards/no-env-credentials`
+  // already classifies these two as deployment configuration; omitting them
+  // here made every signed-in hosted request resolve them as null, so the
+  // consent flow could never start and status reported "missing_credentials".
+  "NOTION_CLIENT_ID",
+  "NOTION_CLIENT_SECRET",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",
