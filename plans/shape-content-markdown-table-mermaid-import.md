@@ -22,9 +22,9 @@ The disposable fixture contains:
 
 Keep this paragraph before the structures.
 
-| Stage | Owner |
-| --- | --- |
-| Draft | Writer |
+| Stage  | Owner  |
+| ------ | ------ |
+| Draft  | Writer |
 | Review | Editor |
 
 ```mermaid
