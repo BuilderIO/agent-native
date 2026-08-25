@@ -646,10 +646,39 @@ export function MeetingPill() {
       const capCentre = baseline - (fontSize * CAP_HEIGHT_RATIO) / 2;
       const rect = controls.getBoundingClientRect();
       const shift = capCentre - (rect.top + rect.bottom) / 2;
-      (header as HTMLElement).style.setProperty(
-        "--header-ink-shift",
-        `${shift.toFixed(2)}px`,
+      const style = (header as HTMLElement).style;
+      style.setProperty("--header-ink-shift", `${shift.toFixed(2)}px`);
+
+      // The meter is measured from its own bars rather than sharing the
+      // controls' shift: its band is what the eye lines up against the text,
+      // and its box does not necessarily sit where their boxes do.
+      const bars = Array.from(
+        header.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
       );
+      if (bars.length) {
+        const rects = bars.map((bar) => bar.getBoundingClientRect());
+        const band =
+          (Math.min(...rects.map((r) => r.top)) +
+            Math.max(...rects.map((r) => r.bottom))) /
+          2;
+        style.setProperty(
+          "--header-meter-shift",
+          `${(capCentre - band).toFixed(2)}px`,
+        );
+      }
+      if (import.meta.env.DEV) {
+        const bars = Array.from(
+          header.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
+        );
+        const band = bars.length
+          ? (Math.min(...bars.map((x) => x.getBoundingClientRect().top)) +
+              Math.max(...bars.map((x) => x.getBoundingClientRect().bottom))) /
+            2
+          : null;
+        console.warn(
+          `[clips-pill] header ink capCentre=${capCentre.toFixed(2)} controls=${((rect.top + rect.bottom) / 2).toFixed(2)} meterBand=${band === null ? "none" : band.toFixed(2)} shift=${shift.toFixed(2)}`,
+        );
+      }
     };
     // After layout, and again on the next frame so a late font swap lands.
     align();
@@ -680,8 +709,19 @@ export function MeetingPill() {
         if (!rect.width) return "hidden";
         return ((rect.left + rect.right) / 2 - centre).toFixed(2);
       };
+      const bars = Array.from(
+        capsule.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
+      );
+      const barInk = bars.length
+        ? (
+            (Math.min(...bars.map((x) => x.getBoundingClientRect().left)) +
+              Math.max(...bars.map((x) => x.getBoundingClientRect().right))) /
+              2 -
+            centre
+          ).toFixed(2)
+        : "none";
       console.warn(
-        `[clips-pill] capsule ink logo=${offsetOf(capsule.querySelector(".pill-logo"))} meter=${offsetOf(capsule.querySelector(".pill-wave-meter"))} pause=${offsetOf(seg.querySelector(".pill-pause-btn"))} stop=${offsetOf(seg.querySelector(".pill-stop-square"))}`,
+        `[clips-pill] capsule ink logo=${offsetOf(capsule.querySelector(".pill-logo"))} meterBox=${offsetOf(capsule.querySelector(".pill-wave-meter"))} meterBars=${barInk} pause=${offsetOf(seg.querySelector(".pill-pause-btn"))} stop=${offsetOf(seg.querySelector(".pill-stop-square"))}`,
       );
     }, 1200);
     return () => clearTimeout(timer);

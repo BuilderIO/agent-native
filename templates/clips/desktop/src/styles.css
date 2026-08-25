@@ -4751,7 +4751,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-vertical .pill-logo {
-  height: 12px;
+  width: 21px;
+  height: auto;
 }
 
 /* The collapsed capsule grows along its long axis to reveal its transport,
@@ -5235,9 +5236,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 /* Everything in the header that is not text rides the measured shift, so the
    glyphs sit on the title's optical centre rather than on its box centre.
    Zero until measured, so a missing measurement changes nothing. */
-.pill-inner:not(.pill-inner-compact) .pill-controls,
-.pill-inner:not(.pill-inner-compact) .pill-wave-meter {
+.pill-inner:not(.pill-inner-compact) .pill-controls {
   transform: translateY(var(--header-ink-shift, 0px));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-wave-meter {
+  transform: translateY(var(--header-meter-shift, 0px));
 }
 
 .pill-inner:not(.pill-inner-compact) .pill-media {
@@ -5288,8 +5292,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .pill-stop-square {
   display: block;
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   border-radius: 3px;
   background: currentColor;
 }
