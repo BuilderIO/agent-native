@@ -120,21 +120,55 @@ export async function createAgentRunner(
 
     let text = "";
     const toolCalls: string[] = [];
+    const toolCallDetails: Array<{
+      name: string;
+      id?: string;
+      input: unknown;
+      startedAtEventIndex: number;
+      completedAtEventIndex?: number;
+      completed?: boolean;
+      completedSideEffect?: boolean;
+      isError?: boolean;
+      result?: string;
+    }> = [];
     let ok = true;
     let error: string | undefined;
+    let eventIndex = 0;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const started = Date.now();
 
     const send = (event: AgentChatEvent): void => {
+      const currentEventIndex = eventIndex++;
       switch (event.type) {
         case "text":
           text += event.text;
           break;
         case "tool_start":
           toolCalls.push(event.tool);
+          toolCallDetails.push({
+            name: event.tool,
+            id: event.id,
+            input: event.input,
+            startedAtEventIndex: currentEventIndex,
+          });
           break;
+        case "tool_done": {
+          const detail = event.id
+            ? toolCallDetails.find((call) => call.id === event.id)
+            : toolCallDetails.find(
+                (call) => call.name === event.tool && !call.completed,
+              );
+          if (detail) {
+            detail.completed = true;
+            detail.completedAtEventIndex = currentEventIndex;
+            detail.completedSideEffect = event.completedSideEffect;
+            detail.isError = event.isError === true;
+            detail.result = event.result;
+          }
+          break;
+        }
         case "error":
           ok = false;
           error = event.error;
@@ -165,6 +199,7 @@ export async function createAgentRunner(
     return {
       text,
       toolCalls,
+      toolCallDetails: toolCallDetails.map(({ id: _id, ...detail }) => detail),
       ok,
       error,
       runId,

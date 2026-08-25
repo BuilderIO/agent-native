@@ -27,7 +27,7 @@
  * See DESIGN-STUDIO-PLAN.md §6.1 (component model) and §7 (action surface).
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { agentUpdateSelection } from "@agent-native/core/collab";
 import {
   accessFilter,

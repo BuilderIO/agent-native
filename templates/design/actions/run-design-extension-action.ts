@@ -25,7 +25,7 @@
  * Plan reference: DESIGN-STUDIO-PLAN.md §6.7 + §7 (`run-design-extension-action`).
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
