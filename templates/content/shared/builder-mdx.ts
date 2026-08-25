@@ -90,6 +90,8 @@ type MdxNode = {
   type: string;
   name?: string;
   value?: string;
+  depth?: number;
+  ordered?: boolean | null;
   children?: MdxNode[];
   attributes?: Array<{
     type: string;
@@ -146,6 +148,34 @@ export function stableHash(value: unknown): string {
 
 export function stableJson(value: unknown): string {
   return `${JSON.stringify(sortJson(value), null, 2)}\n`;
+}
+
+function hasMovedUniqueSemanticUnit(
+  baselineUnits: string[],
+  currentUnits: string[],
+): boolean {
+  const baselineIndexes = new Map<string, number>();
+  const baselineCounts = new Map<string, number>();
+  const currentCounts = new Map<string, number>();
+  for (const [index, unit] of baselineUnits.entries()) {
+    baselineIndexes.set(unit, index);
+    baselineCounts.set(unit, (baselineCounts.get(unit) ?? 0) + 1);
+  }
+  for (const unit of currentUnits) {
+    currentCounts.set(unit, (currentCounts.get(unit) ?? 0) + 1);
+  }
+
+  let previousBaselineIndex = -1;
+  for (const unit of currentUnits) {
+    if (baselineCounts.get(unit) !== 1 || currentCounts.get(unit) !== 1) {
+      continue;
+    }
+    const baselineIndex = baselineIndexes.get(unit);
+    if (baselineIndex === undefined) continue;
+    if (baselineIndex < previousBaselineIndex) return true;
+    previousBaselineIndex = baselineIndex;
+  }
+  return false;
 }
 
 function sortJson(value: unknown): unknown {
@@ -489,9 +519,10 @@ function isReadableUnsupportedBuilderPlaceholder(value: string) {
   );
 }
 
-function countReadableSourceComponentMarkers(markdown: string) {
-  return markdownUnits(markdown).filter(isReadableUnsupportedBuilderPlaceholder)
-    .length;
+async function countReadableSourceComponentMarkers(markdown: string) {
+  return (await readableSemanticUnits(markdown)).filter(
+    isReadableUnsupportedBuilderPlaceholder,
+  ).length;
 }
 
 function sourceComponentMarkerIdForBlock(block: unknown) {
@@ -544,20 +575,21 @@ function parseMarkdownImage(markdown: string) {
 }
 
 async function readableLayoutFingerprint(markdown: string) {
-  const units = markdownUnits(markdown);
   const fingerprint: string[] = [];
-  for (const unit of units) {
-    if (/^>\s*Builder .+ component preserved from source\.$/.test(unit)) {
+  for (const unit of await readableSemanticNodes(markdown)) {
+    if (
+      /^>\s*Builder .+ component preserved from source\.$/.test(unit.markdown)
+    ) {
       fingerprint.push("source:legacy");
       continue;
     }
-    if (/^<SourceComponent\b/.test(unit.trim())) {
-      const parsed = await parseRegistryBlockData(unit);
+    if (/^<SourceComponent\b/.test(unit.markdown.trim())) {
+      const parsed = await parseRegistryBlockData(unit.markdown);
       const id = parsed?.base.id || "missing-id";
       fingerprint.push(`source:${id}`);
       continue;
     }
-    fingerprint.push("prose");
+    fingerprint.push(readableSemanticNodeKind(unit.node));
   }
   return fingerprint;
 }
@@ -571,26 +603,34 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
     if (name === "Text") {
       const table = possibleNativeTableHtml(String(options.text ?? ""));
       if (table) {
-        fingerprint.push("prose");
+        fingerprint.push(...(await readableLayoutFingerprint(table)));
         continue;
       }
-      for (const unit of markdownUnits(
-        htmlToMarkdown(String(options.text ?? "")),
-      )) {
-        if (unit) fingerprint.push("prose");
-      }
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(
+          htmlToMarkdown(String(options.text ?? "")),
+        )),
+      );
       continue;
     }
     if (name === "Code Block" || name === "Blog Code Block") {
-      if (readableCodeBlockMarkdown(options).trim()) fingerprint.push("prose");
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(
+          readableCodeBlockMarkdown(options),
+        )),
+      );
       continue;
     }
     if (name === "Image") {
-      if (builderImageMarkdown(options)) fingerprint.push("prose");
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(builderImageMarkdown(options))),
+      );
       continue;
     }
     if (name === "Video") {
-      if (builderVideoMdx(options)) fingerprint.push("prose");
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(builderVideoMdx(options))),
+      );
       continue;
     }
     if (name === "Tabbed Content") {
@@ -599,7 +639,11 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
         const content =
           isRecord(tab) && Array.isArray(tab.content) ? tab.content : [];
         if (content.some(builderBlockHasReadableOutput)) {
-          fingerprint.push("prose");
+          const label =
+            isRecord(tab) && typeof tab.label === "string" ? tab.label : "Tab";
+          fingerprint.push(
+            ...(await readableLayoutFingerprint(`### ${label}`)),
+          );
           fingerprint.push(
             ...(await expectedReadableLayoutFingerprint(content)),
           );
@@ -622,7 +666,7 @@ async function validateReadableSourceComponentMarkers(
   sidecars: Record<string, string>,
 ) {
   const warnings: string[] = [];
-  const markers = markdownUnits(markdown).filter((unit) =>
+  const markers = (await readableSemanticUnits(markdown)).filter((unit) =>
     /^<SourceComponent\b/.test(unit.trim()),
   );
   for (const marker of markers) {
@@ -1322,37 +1366,27 @@ async function builderBlockToReadableMdx(
   return serializeRegistryBlockToMdx("source-component", { id, data });
 }
 
-function markdownUnits(markdown: string) {
-  const units: string[] = [];
-  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  let current: string[] = [];
-  let fence: string | null = null;
-  const flush = () => {
-    const value = current.join("\n").trim();
-    if (value) units.push(value);
-    current = [];
-  };
+async function readableSemanticUnits(markdown: string) {
+  return (await readableSemanticNodes(markdown)).map((unit) => unit.markdown);
+}
 
-  for (const line of lines) {
-    const fenceMatch = line.match(/^(```|~~~)/);
-    if (fenceMatch) {
-      current.push(line);
-      fence = fence ? null : fenceMatch[1];
-      if (!fence) flush();
-      continue;
-    }
-    if (fence) {
-      current.push(line);
-      continue;
-    }
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-    current.push(line);
+async function readableSemanticNodes(markdown: string) {
+  const normalized = markdown.replace(/\r\n?/g, "\n");
+  const root = await parseMdxRoot(normalized);
+  return (root.children ?? [])
+    .map((node) => ({ node, markdown: nodeSlice(normalized, node) }))
+    .filter((unit) => unit.markdown);
+}
+
+function readableSemanticNodeKind(node: MdxNode) {
+  if (node.type === "heading") return `heading:${node.depth ?? "unknown"}`;
+  if (node.type === "list") {
+    return node.ordered ? "list:ordered" : "list:unordered";
   }
-  flush();
-  return units;
+  if (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") {
+    return `mdx:${node.name || "unknown"}`;
+  }
+  return node.type;
 }
 
 function fencedCodeFromMarkdown(markdown: string) {
@@ -1518,7 +1552,7 @@ export async function builderReadableBodyToBuilderBlocks(args: {
   const segments = collectReadableEditableSegments(baselineBlocks);
   const expectedSourceMarkerCount =
     countExpectedReadableSourceComponentMarkers(baselineBlocks);
-  const currentSourceMarkerCount = countReadableSourceComponentMarkers(
+  const currentSourceMarkerCount = await countReadableSourceComponentMarkers(
     args.localContent,
   );
   if (expectedSourceMarkerCount !== currentSourceMarkerCount) {
@@ -1555,10 +1589,14 @@ export async function builderReadableBodyToBuilderBlocks(args: {
     return { blocks: baselineBlocks, warnings: [] };
   }
 
-  const baselineUnitCounts = segments.map(
-    (segment) => markdownUnits(segment.baseline).length,
+  const baselineUnitsBySegment = await Promise.all(
+    segments.map(async (segment) => readableSemanticUnits(segment.baseline)),
   );
-  const currentUnits = markdownUnits(args.localContent).filter(
+  const baselineUnitCounts = baselineUnitsBySegment.map(
+    (units) => units.length,
+  );
+  const baselineUnits = baselineUnitsBySegment.flat();
+  const currentUnits = (await readableSemanticUnits(args.localContent)).filter(
     (unit) => !isReadableUnsupportedBuilderPlaceholder(unit),
   );
   const expectedUnitCount = baselineUnitCounts.reduce(
@@ -1570,6 +1608,14 @@ export async function builderReadableBodyToBuilderBlocks(args: {
       blocks: null,
       warnings: [
         `Readable Builder body changed structure from ${expectedUnitCount} markdown blocks to ${currentUnits.length}; review in Builder before pushing.`,
+      ],
+    };
+  }
+  if (hasMovedUniqueSemanticUnit(baselineUnits, currentUnits)) {
+    return {
+      blocks: null,
+      warnings: [
+        "Readable Builder body moved existing semantic blocks; refresh or review in Builder before pushing.",
       ],
     };
   }
