@@ -22,6 +22,7 @@ const PILLAR_ROWS: Pillar[][] = [
     {
       title: "Shared application state",
       description: "The agent knows what users are viewing, selecting, and editing.",
+      image: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fae66a78a3f6b42ae91b70007d2737d59",
     },
   ],
   [
