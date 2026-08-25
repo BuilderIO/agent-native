@@ -1558,6 +1558,7 @@ const messages = {
     invite: "招待",
     inviteFailed: "招待できませんでした",
     removePersonFailed: "削除できませんでした",
+    permissionUpdateFailed: "権限を更新できませんでした",
     passwordProtectedDescription:
       "この動画は保護されています。視聴するにはパスワードを入力してください。",
     password: "パスワード",

@@ -1487,6 +1487,7 @@ const messages = {
     invite: "邀请",
     inviteFailed: "无法邀请此人",
     removePersonFailed: "无法移除此人",
+    permissionUpdateFailed: "无法更新权限",
     passwordProtectedDescription: "此视频受密码保护。请输入密码观看。",
     password: "密码",
     unlock: "解锁",

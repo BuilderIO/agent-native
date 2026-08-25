@@ -1560,6 +1560,7 @@ const messages = {
     invite: "Invitar",
     inviteFailed: "No se pudo invitar a la persona",
     removePersonFailed: "No se pudo eliminar a la persona",
+    permissionUpdateFailed: "No se pudo actualizar el permiso",
     passwordProtectedDescription:
       "Este video está protegido. Introduce la contraseña para verlo.",
     password: "Contraseña",

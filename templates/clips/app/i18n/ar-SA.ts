@@ -1544,6 +1544,7 @@ const messages = {
     invite: "دعوة",
     inviteFailed: "تعذرت دعوة الشخص",
     removePersonFailed: "تعذرت إزالة الشخص",
+    permissionUpdateFailed: "تعذر تحديث الإذن",
     passwordProtectedDescription:
       "هذا الفيديو محمي. أدخل كلمة المرور للمشاهدة.",
     password: "كلمة المرور",

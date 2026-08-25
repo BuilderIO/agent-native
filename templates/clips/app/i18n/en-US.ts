@@ -1526,6 +1526,7 @@ const messages = {
     invite: "Invite",
     inviteFailed: "Couldn't invite person",
     removePersonFailed: "Couldn't remove person",
+    permissionUpdateFailed: "Couldn't update permission",
     passwordProtectedDescription:
       "This video is protected. Enter the password to watch.",
     password: "Password",

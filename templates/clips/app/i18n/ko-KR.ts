@@ -1536,6 +1536,7 @@ const messages = {
     invite: "초대",
     inviteFailed: "사용자를 초대할 수 없습니다",
     removePersonFailed: "사용자를 제거할 수 없습니다",
+    permissionUpdateFailed: "권한을 업데이트할 수 없습니다",
     passwordProtectedDescription:
       "이 동영상은 보호되어 있습니다. 보려면 비밀번호를 입력하세요.",
     password: "비밀번호",
