@@ -61,13 +61,16 @@ export default defineAction({
         : email;
     }
 
-    const { clients } = await getClientsWithErrors(ownerEmail, [
+    const { clients, errors } = await getClientsWithErrors(ownerEmail, [
       requestedAccount,
     ]);
     const account = clients.find(
       ({ email }) => email.toLowerCase() === requestedAccount,
     );
-    if (!account) throw new Error("Requested Google account is not connected.");
+    if (!account) {
+      if (errors[0]) throw new Error(errors[0].error);
+      throw new Error("Requested Google account is not connected.");
+    }
 
     try {
       const labelMap = await fetchLabelMap(account.accessToken);

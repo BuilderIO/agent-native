@@ -226,6 +226,23 @@ describe("exact Mail body reads", () => {
     expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
   });
 
+  it("surfaces scoped client resolution failures before reading Gmail", async () => {
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [{ email: OWNER, error: "Google token refresh failed" }],
+    });
+
+    await expect(
+      getEmail.run({ accountEmail: OWNER, id: "message-1" }),
+    ).rejects.toThrow("Google token refresh failed");
+    await expect(
+      getThread.run({ accountEmail: OWNER, id: "thread-1" }),
+    ).rejects.toThrow("Google token refresh failed");
+
+    expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
+    expect(mocks.gmailGetThread).not.toHaveBeenCalled();
+  });
+
   it("uses the inventory-compatible local coordinate for unscoped synthetic mail", async () => {
     mocks.isConnected.mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue({
