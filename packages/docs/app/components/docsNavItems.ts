@@ -46,11 +46,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "what-is-agent-native",
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
-      {
-        id: "faq",
-        labelKey: "faq",
-        slug: "faq",
-      },
     ],
   },
   {
@@ -195,19 +190,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-calendar",
           },
           {
+            id: "template-calendar-features",
+            labelKey: "calendarFeatures",
+            slug: "template-calendar-features",
+          },
+          {
             id: "template-calendar-agent",
             labelKey: "calendarAgent",
             slug: "template-calendar-agent",
           },
           {
-            id: "template-calendar-scheduling",
-            labelKey: "calendarScheduling",
-            slug: "template-calendar-scheduling",
-          },
-          {
-            id: "template-calendar-booking-links",
-            labelKey: "calendarBookingLinks",
-            slug: "template-calendar-booking-links",
+            id: "template-calendar-integrations",
+            labelKey: "calendarIntegrations",
+            slug: "template-calendar-integrations",
           },
           {
             id: "template-calendar-developers",
@@ -848,6 +843,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-web-surfaces",
       },
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
+      { id: "webmcp", labelKey: "webMcp", slug: "webmcp" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
       { id: "progress", labelKey: "progress", slug: "progress" },

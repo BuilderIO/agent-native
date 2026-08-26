@@ -192,6 +192,21 @@ export type EngineEvent =
       error: string;
     }
   | {
+      /**
+       * Token usage for one model call.
+       *
+       * `inputTokens` is the WHOLE prompt and INCLUDES `cacheReadTokens` and
+       * `cacheWriteTokens` — the cache fields say how that total splits, they
+       * do not add to it. Providers disagree here (OpenAI's `prompt_tokens`
+       * includes cached tokens, Anthropic's `input_tokens` excludes them), so
+       * every engine converts to this one convention before emitting. The AI
+       * SDK settled on the same shape: `inputTokens.total` with `noCache` /
+       * `cacheRead` / `cacheWrite` underneath it.
+       *
+       * Emitting the exclusive form instead is not a rounding difference: it
+       * makes `calculateCost` bill the cached tokens twice, once at the full
+       * input rate and again at the cache rate.
+       */
       type: "usage";
       inputTokens: number;
       outputTokens: number;

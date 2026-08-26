@@ -31,6 +31,17 @@ export interface AgentRunOutput {
   readonly text: string;
   /** Names of tools/actions the agent invoked, in call order. */
   readonly toolCalls: readonly string[];
+  /** Tool names, model-produced inputs, and execution outcomes in call order. */
+  readonly toolCallDetails?: readonly {
+    readonly name: string;
+    readonly input: unknown;
+    readonly startedAtEventIndex?: number;
+    readonly completedAtEventIndex?: number;
+    readonly completed?: boolean;
+    readonly completedSideEffect?: boolean;
+    readonly isError?: boolean;
+    readonly result?: string;
+  }[];
   /** Whether the run completed without a terminal error event. */
   readonly ok: boolean;
   /** Terminal error message, if the run errored. */

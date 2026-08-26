@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { createClient } from "@libsql/client";
 import { z } from "zod";
 

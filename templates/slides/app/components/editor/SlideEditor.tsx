@@ -4541,6 +4541,7 @@ export default function SlideEditor({
         selected && !isSlideCanvasShell(selected) ? selected : null,
         clicked && !isSlideCanvasShell(clicked) ? clicked : null,
       );
+      const editableTextBlock = findSmartBlock(target, slideContent);
       const pointerIntent = resolveSlidesCanvasPointerIntent({
         hasSelectedObject: dragTarget !== null,
         targetWithinSelectedObject: dragTarget?.contains(target) ?? false,
@@ -4554,7 +4555,9 @@ export default function SlideEditor({
             e.clientX,
             e.clientY,
           ),
-        targetIsEditableText: Boolean(findSmartBlock(target, slideContent)),
+        targetIsEditableText: Boolean(
+          editableTextBlock && !isSlideCanvasShell(editableTextBlock),
+        ),
       });
       if (
         dragTarget &&

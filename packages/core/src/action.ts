@@ -155,8 +155,10 @@ export type ActionAuthorize<TArgs> = (
 ) => void | boolean | Promise<void | boolean>;
 
 export interface AgentActionStopOptions {
-  /** Optional stable code surfaced in run metadata and tests. */
+  /** Optional stable code safe to surface in run metadata and action transports. */
   errorCode?: string;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
   /** Optional short tool-result text. Defaults to the user-facing message. */
   toolResult?: string;
 }
@@ -204,6 +206,40 @@ export function isActionContractError(
   );
 }
 
+/** Transport metadata for a {@link fail} message. */
+export interface FailOptions {
+  /** Stable machine-readable code. Default: `"action_failed"`. */
+  errorCode?: string;
+  /** HTTP status for the action route. Default: `400`. */
+  statusCode?: number;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Abort an action with a message the caller is meant to read.
+ *
+ * Raises an `ActionContractError`, which is the only reason the message
+ * survives the action HTTP route: an ordinary `throw new Error(...)` is
+ * indistinguishable from a driver or upstream blowup there, so it is replaced
+ * by a generic 500 `"Internal server error"` and reported to error tracking.
+ * Raising through `fail()` is what declares the text safe to echo.
+ *
+ * Default `statusCode` is 400 so a browser query does not retry a refusal
+ * three more times. Pass an explicit status for a different deterministic
+ * cause (`404`, `409`) or a genuinely transient one (`503`, which is retried).
+ *
+ * The CLI runner (`pnpm script`) catches it and exits 1. In-server callers
+ * (agent tools, A2A) get it back as a tool-call error — no process.exit.
+ */
+export function fail(message: string, options: FailOptions = {}): never {
+  throw new ActionContractError(message, {
+    errorCode: options.errorCode ?? "action_failed",
+    statusCode: options.statusCode ?? 400,
+    ...(options.details === undefined ? {} : { details: options.details }),
+  });
+}
+
 /**
  * Throw from an action when the agent should stop the current turn instead of
  * feeding the failure back to the model for another retry.
@@ -211,12 +247,14 @@ export function isActionContractError(
 export class AgentActionStopError extends Error {
   readonly agentNativeStop = true;
   readonly errorCode?: string;
+  readonly details?: Record<string, unknown>;
   readonly toolResult?: string;
 
   constructor(message: string, options: AgentActionStopOptions = {}) {
     super(message);
     this.name = "AgentActionStopError";
     this.errorCode = options.errorCode;
+    this.details = options.details;
     this.toolResult = options.toolResult;
   }
 }
@@ -645,6 +683,8 @@ interface DefineActionWithSchema<
         args: StandardSchemaV1.InferOutput<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  allowPersistentApproval?: boolean;
   /**
    * Authorization gate that runs before `run()` on **every** caller — agent
    * tool, HTTP, frontend, MCP, A2A, and CLI. It wraps `run` itself rather than
@@ -774,6 +814,8 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  allowPersistentApproval?: boolean;
   /** Pre-run authorization gate applied to every caller. See the schema
    *  overload above for full semantics. */
   authorize?: ActionAuthorize<InferParams<TParams>>;
@@ -845,6 +887,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  readonly allowPersistentApproval?: boolean;
   /** Resolved audit-log configuration. Present only when the caller passed
    *  `audit`. The audit capture wrapper is baked into `run`; this field is for
    *  introspection. */
@@ -864,7 +908,7 @@ export interface ActionDefinition<TInput, TReturn> {
  * ArkType) for runtime validation and full type inference:
  *
  * ```ts
- * import { defineAction } from "@agent-native/core";
+ * import { defineAction } from "@agent-native/core/action";
  * import { z } from "zod";
  *
  * export default defineAction({
@@ -1133,6 +1177,9 @@ export function defineAction(options: any) {
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
+      : {}),
+    ...(typeof options.allowPersistentApproval === "boolean"
+      ? { allowPersistentApproval: options.allowPersistentApproval }
       : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
   };

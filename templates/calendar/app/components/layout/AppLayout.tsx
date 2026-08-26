@@ -272,7 +272,10 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   useEffect(() => {
     if (!hasAccounts) return;
-    void prefetchPeopleContacts(queryClient);
+    void Promise.all([
+      prefetchPeopleContacts(queryClient),
+      prefetchPeopleContacts(queryClient, "directory"),
+    ]);
   }, [hasAccounts, queryClient]);
 
   useEffect(() => {

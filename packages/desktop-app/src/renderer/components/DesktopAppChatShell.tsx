@@ -82,6 +82,7 @@ export interface DesktopAppChatShellProps {
   appAuthState?: AppWebviewAuthState;
   isActive?: boolean;
   chatEnabled?: boolean;
+  toggleScopeId?: string;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
@@ -150,6 +151,7 @@ export default function DesktopAppChatShell({
   appAuthState,
   isActive = true,
   chatEnabled = true,
+  toggleScopeId,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
   const shellRootRef = useRef<HTMLDivElement>(null);
@@ -534,6 +536,7 @@ export default function DesktopAppChatShell({
                 label: appName,
                 contextKey: `desktop-app:${appId}`,
               }}
+              toggleScopeId={toggleScopeId}
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
               agentChatSurface="desktop"

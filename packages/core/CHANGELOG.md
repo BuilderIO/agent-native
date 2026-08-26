@@ -1,5 +1,435 @@
 # @agent-native/core
 
+## 0.175.0
+
+### Minor Changes
+
+- da836e2: Use the hardened Run QuickJS evaluator for production sandboxed code execution.
+- cf473dc: Allow mention providers to show custom text or images with optional background
+  colors, or to omit leading media, while preserving the existing icon fallback.
+- 6c71a21: Add opt-in WebMCP producer and browser-session consumer support.
+
+### Patch Changes
+
+- 73ff8c5: Allow apps to configure approval requirements for individual MCP tools and require a fresh approval on every call when persistent approval is disabled.
+- Release all public npm packages with a patch version bump.
+- de5ba2d: Keep shared managed MCP OAuth clients from being overridden by stale personal secrets.
+- Updated dependencies
+- Updated dependencies [cf473dc]
+  - @agent-native/recap-cli@0.5.14
+  - @agent-native/toolkit@0.17.0
+
+## 0.174.2
+
+### Patch Changes
+
+- bb282b1: Removed the FAQ docs page and folded its content into What Is Agent-Native and the docs pages each answer actually belonged to (deployment, environment variables, writing agent instructions, templates, key concepts, syncing template changes).
+- a9aa623: Reset Google sign-in state when an Electron OAuth popup closes and keep Nitro dev startup errors behind the recovery page until the server is ready.
+- Release all public npm packages with a patch version bump.
+- 615c5d5: Skip `git init` when `create` scaffolds into a directory that is already inside a git repository, instead of only when the target directory itself is one. Discovery is delegated to git, so symlinked paths, filesystem boundaries, and `GIT_CEILING_DIRECTORIES` behave exactly as they do everywhere else.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.13
+  - @agent-native/toolkit@0.16.16
+
+## 0.174.1
+
+### Patch Changes
+
+- 5e57bc6: fix fresh chats to use a configured provider instead of an unavailable deployment default
+- 7d90274: Preserve shared OAuth flow cookies across redirects.
+- 7d5cce0: Use the configured Google OAuth client for official Google Workspace MCP servers.
+- a63c4b3: Support Google Workspace MCP OAuth clients that use Google's fixed OAuth endpoints instead of MCP discovery.
+- Release all public npm packages with a patch version bump.
+- a026821: keep provider-auth recovery visible while an agent run is still active
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.12
+  - @agent-native/toolkit@0.16.15
+
+## 0.174.0
+
+### Minor Changes
+
+- b4c3864: Collapse the core-routes `mcpConnect*` options into one `mcp` object, and fix the MCP server name on multi-label hosts.
+
+  `createCoreRoutesPlugin({ mcp: { connect, serverName } })` replaces the four flat keys `disableMcpConnect`, `mcpConnectServerName`, `mcpConnectAppId`, and `mcpConnectAppName` — the same shape `AgentChatMcpOptions` already uses for the protocol mount. All four stay accepted for one minor; setting both forms to disagreeing values throws at plugin init rather than booting with a connect surface nobody chose.
+
+  The two identity keys are deprecated outright rather than carried over: `app.id` and `app.name` are declared config fields, so a per-surface option for them is a third spelling of one thing. Unset, they now resolve from config — the same value the runtime config report already read.
+
+  An explicit `serverName` is returned verbatim, prefix and all — it pins an id clients already hold in their config, which is why Plan publishes the bare `plan` rather than the derived `agent-native-plan`.
+
+  Fixes the server name on hosts with more than one leading label. `serverName` fell back to the first hostname label, and every beta deployment is `beta.<app>.agent-native.com`, so all of them advertised themselves as `agent-native-beta`. Clients key their MCP config by that name, so connecting a second beta app replaced the first. Identity now resolves from `app.id` / `app.template` / `app.slug` before the hostname, which covers every first-party template with no configuration.
+
+- b4c3864: Resolve the app's name, slug, and description once, through app config.
+
+  `server/app-name.ts` is removed. `getAppName()`, `getAppSlug()`, and `getAppDescription()` become `getAppConfig().app.name` / `.slug` / `.description`, and the first-party-template lookup they performed now runs over the resolved config, keyed on `app.packageName` (`npm_package_name`). It fills only what is still unset, so `APP_NAME` or a `defineAppConfig()` value always wins.
+
+  **`getAppConfig()` no longer touches the filesystem.** `getAppName()` read package.json from `process.cwd()` on every resolution path; the repo already treats that as a development-only fallback (`server/cookie-namespace.ts` uses one solely in its non-production branch). A deployment where `npm_package_name` does not reach the runtime should set `app.name` in `server/plugins/config.ts` or `APP_NAME`.
+
+  This removes a second resolver for a declared field: `getAppName()` read `process.env.APP_NAME` directly while `app.name` already declared that alias, so the two disagreed. `core-routes-plugin.ts` resolved the same app name both ways, thirty lines apart — the runtime config report got `undefined` for every first-party template while the MCP connect page got "Mail". Both now read one value.
+
+  `app.slug` and `app.description` are new fields with no env alias: the slug selects the per-app transactional email sender on agent-native.com, so a name the first-party template table already contains is its only source. `app.packageName` and `app.template` are deliberately still env-only — both are read as app-id fallbacks when matching stored workspace connection grants, and filling them from package.json would repoint those lookups.
+
+  A package.json that exists but cannot be read or parsed now throws and names the file, instead of being silently indistinguishable from having none — which previously branded the app "Agent Native" and sent from the generic mailbox with nothing in the log.
+
+- b4c3864: Deprecate `createAgentChatPlugin({ model })` and `({ durableBackgroundRuns })` in favour of the declared `agent.*` config surface.
+
+  `agent.model` (`AGENT_MODEL`) was declared but no agent-chat path read it — every model resolution site read the plugin option directly, so the field was inert. It is now the layer beneath the option, resolved through one helper instead of eight raw reads.
+
+  Fixes two delegated-run gates (A2A and MCP) that tested `durableBackgroundRuns === true` on the raw option instead of calling `isAgentChatDurableBackgroundEnabled`. On Netlify, where durable background is default-on, a mount that did not pass the option was capping delegated turns at the 40s foreground chunk budget while running inside the 13-minute background function.
+
+- b4c3864: Move observability settings out of the settings table and into `defineAppConfig()`.
+
+  `observability` is now a declared config domain. The `observability-config` settings row is no longer read: nothing in core ever wrote it, so its only "UI" was a documented `putSetting(...)` snippet an app author pasted into their own code — which makes it deployment configuration, not a runtime preference. Deployments that wrote that row must move those values into `defineAppConfig({ observability: { … } })`; every field also has a deployment environment variable alias.
+
+  This also takes a database round-trip off the agent hot path. `getObservabilityConfig()` read the settings row on every instrumented run inside a bare `catch {}`, so a database outage was indistinguishable from "never configured" and silently served defaults.
+
+  `defineAppConfig()` now returns a Nitro plugin, so its canonical home is `server/plugins/config.ts` with `export default defineAppConfig({ … })` — the same shape as every other framework plugin. The config layer is still applied at module load, before any plugin reads it. Existing callers that ignore the return value are unaffected.
+
+  **Removed:** `ObservabilityConfig.exporters` and `ObservabilityExporterConfig`. Nothing ever read them — `observability/tracing.ts` states that core deliberately registers no OpenTelemetry provider or exporter — so the documented OTLP export never sent anything, and the docs recommended putting a backend bearer token into the settings table to configure it. Export now happens by registering a `TracerProvider` in the app, which keeps the credential in the app's own wiring and the vault.
+
+  **Removed:** `DEFAULT_OBSERVABILITY_CONFIG`. The schema's declared defaults are the single source now.
+
+### Patch Changes
+
+- d9e978f: Expose model-produced tool inputs to eval scorers so argument-level agent behavior can be verified.
+- 536e193: Compile oversized PostHog transcript bounding against ES2022 by walking the last user message instead of using `Array.findLast`.
+- Release all public npm packages with a patch version bump.
+- f22b29b: Validate OpenRouter keys before saving them and preserve actionable provider setup errors.
+- eae6742: Stop SQL-replayed provider authentication failures from self-continuing.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.11
+  - @agent-native/toolkit@0.16.14
+
+## 0.173.1
+
+### Patch Changes
+
+- 1417ba5: Give UI and agents the parts of a `fail()` failure they were missing.
+
+  Action errors now carry `actionMessage`, the text the action wrote with no
+  `Action <name> failed:` framing, plus an `actionErrorMessage()` helper exported
+  from `@agent-native/core/client/hooks`. Templates render `error.message`
+  directly, so a refusal surfaced as "Action update-brand-kit failed: That name
+  is taken." The helper returns `undefined` when nothing authored a message (a
+  network drop, a proxy's HTML error page, a bare status line), so a UI cannot
+  mistake transport noise for copy.
+
+  Tool results now include the `errorCode` an action chose, as
+  `Error running get-meeting: No such meeting (errorCode: not_found)`, on both
+  the in-app agent loop and MCP. The model can branch on the code without parsing
+  prose. `fail()`'s default `action_failed` is omitted, since it says only "it
+  failed", which the word "Error" already said.
+
+- 191f4d3: Keep the Google account chooser when connecting a managed workspace connection and preselect the signed-in identity.
+- Release all public npm packages with a patch version bump.
+- a4b36e0: Stop billing cached prompt tokens twice, and normalize what `inputTokens` means
+  across every engine.
+
+  Providers disagree: OpenAI's `prompt_tokens` includes cached tokens, Anthropic's
+  `input_tokens` excludes them. The `usage` event never said which it carried, so
+  both conventions reached `calculateCost`, which charged `inputTokens` at the
+  full input rate and then added `cacheReadTokens` / `cacheWriteTokens` on top.
+  On a long cached conversation the cache is nearly the whole prompt, so a turn
+  that cost $0.0054 was reported as $0.0478 — and every `token_usage` row for an
+  OpenAI-family model was inflated the same way.
+  - The `usage` event now documents one convention: `inputTokens` is the whole
+    prompt and INCLUDES both cache counts, which are a slice of it rather than an
+    addition. This matches the AI SDK's own `inputTokens.total` / `noCache` /
+    `cacheRead` / `cacheWrite` normalization, and the Builder gateway.
+  - `anthropic-engine` was the only ENGINE reporting the exclusive form. It now
+    adds the cache counts back, which also fixes its prompt size: a fully cached
+    turn used to report ~3 input tokens instead of the real 42,438.
+  - `calculateCost` treats the three counts as a partition and prices each token
+    exactly once. Callers with no prompt caching pass zeroes and are unaffected.
+
+  The recap CLI carried all three conventions at once and now shares this one:
+  `parseClaudeUsage` adds Anthropic's cache counts back into the prompt,
+  `parseCodexUsage` no longer strips OpenAI's cached tokens out of it (it did that
+  to compensate for the old pricing formula, so keeping both would have swung the
+  error the other way), and `parseOpenAiCompatibleUsage` was already correct.
+
+- a4b36e0: Correct the GPT-5.6 pricing rates, which matched no published tier.
+
+  The `sol` / `terra` / `luna` entries carried input and output rates that appear
+  in neither column of OpenAI's table (luna was $1.00/$6.00 per MTok against a
+  real $0.20/$1.20), and set `cacheWrite: 0` on the belief that OpenAI does not
+  bill cache writes — it does, at above the full input rate. All three now track
+  the published short-context rates:
+
+  |       | input | cached | cache write | output |
+  | ----- | ----- | ------ | ----------- | ------ |
+  | sol   | $4.00 | $0.40  | $5.00       | $20.00 |
+  | terra | $2.00 | $0.20  | $2.50       | $12.00 |
+  | luna  | $0.20 | $0.02  | $0.25       | $1.20  |
+
+  Short context on purpose: each model has a long-context tier at roughly 2x, and
+  a usage row does not preserve the request's context size, so the tier cannot be
+  recovered at pricing time.
+
+  Together with the cached-token double-billing fix, a real 11-call run drops from
+  a reported $0.8524 to $0.0358 — 24x. Pricing that run's cache writes at the
+  input rate instead reproduces PostHog's independently derived $0.0328 to the
+  cent, which is what confirms the rates.
+
+- a4b36e0: Fix tool calls rendering without their output in PostHog LLM analytics.
+
+  Engine messages shipped verbatim as `$ai_input`, in a shape PostHog does not
+  read: `tool-call` / `tool-result` parts with camelCase ids, and tool results
+  carried inside a `user` message because `EngineMessage` has no `tool` role.
+  PostHog dumps raw JSON for shapes it does not recognize, so a tool call rendered
+  as an escaped blob with its result nowhere in sight. Messages now normalize to
+  the OpenAI/Anthropic conventions PostHog reads, and attachment bodies become a
+  marker naming the media type and size instead of inlining base64.
+  - `tool_calls[].id` now carries the id the model issued rather than our span id,
+    so a call and its result actually pair. Span id remains the fallback for
+    emitters that report no call id.
+  - The byte-ceiling rescue in `boundAiContent` keeps "the last user message",
+    which in engine shape was the last tool result — so the user's question was
+    dropped from every oversized generation. Normalizing first fixes it.
+  - A tool span with `captureToolResults` off now carries an explicit "withheld"
+    marker in `$ai_output_state` instead of omitting it, matching what the error
+    path already did. An absent output state reads as a tool that returned
+    nothing, and the tool did answer.
+
+- 7265794: Prevent background chat recovery from reporting completed runs as lost.
+- 1417ba5: Make `fail()` reach the caller, and stop retrying deterministic action failures.
+
+  `fail()` threw a bare `Error`, which the action HTTP route cannot distinguish
+  from a driver or upstream blowup. Every refusal written for a person became a
+  500 `"Internal server error"` with the real message dropped and an
+  error-tracking report filed. It now raises an `ActionContractError` with a
+  default 400, so the message, `errorCode`, and `details` survive the transport,
+  and it accepts an explicit `statusCode` for causes like 404 or 409. `fail()`
+  now lives beside that error in `action.ts` and is exported from
+  `@agent-native/core/action` as well as the package root.
+
+  `defaultActionQueryRetry` retried by exclusion, so every status nobody had
+  added to its deny list was retried three times. A `useActionQuery()` read
+  refused with 400, 404, or 409 cost four executions, and a 500 cost four
+  duplicate error reports. It now retries by exception: `429`, `502`, `503`, and
+  `504`, plus one retry for status-less network failures. A 500 is an action's
+  own unhandled throw, so it is treated as deterministic and surfaces on the
+  first response.
+
+- Updated dependencies
+- Updated dependencies [a4b36e0]
+  - @agent-native/recap-cli@0.5.10
+  - @agent-native/toolkit@0.16.13
+
+## 0.173.0
+
+### Minor Changes
+
+- 460080b: Give chat readers control over how much model reasoning is shown, and make
+  reasoning collapsible everywhere it appears.
+
+  Reasoning inside the "Worked for…" summary used to render as flat prose with no
+  disclosure of its own, so opening that summary dumped the full chain of thought
+  between the tool calls with no way to fold it back. It now keeps its own
+  "Thought for Xs" row, collapsible exactly like the tool calls it sits between,
+  and renders its markdown instead of showing `**source characters**` — OpenAI
+  reasoning summaries arrive pre-formatted.
+
+  A new browser-local preference picks between three modes, reachable from the
+  chat panel's ⋮ menu:
+  - **Expanded** — the previous behaviour: the live cell opens itself.
+  - **Collapsed** — the new default. The label and its timing stay visible, the
+    text is one click away, and a live turn no longer pushes the answer out of
+    the viewport.
+  - **Hidden** — no reasoning cells at all.
+
+  Hosts can pin the mode with the `thinkingDisplay` prop on `AgentSidebar`,
+  `AgentPanel`, `AgentChatSurface`, and `AssistantChat`; when pinned, the in-chat
+  control is not offered rather than left as a dead menu item. The preference is
+  presentation only — it never changes what the engine requests or what is
+  persisted, so switching back reveals the same text on the same turns.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 460080b: Send `$ai_generation` and `$ai_span` to PostHog stamped at the moment the operation ended, which is the convention it reads them by: its timeline derives an operation's start as `timestamp - $ai_latency`, so stamping the start drew every bar one full latency too early — model calls overlapped each other by a growing margin, a call's tool spans appeared underneath the _next_ call, and a 35s run rendered as 31.2s. The shift is applied inside the PostHog provider, so the shared event keeps the operation's start for Mixpanel, Amplitude, webhooks, and Agent Native Analytics, which read the timestamp verbatim. Events with no `$ai_latency` — a trace, an exception — are unshifted.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.9
+  - @agent-native/toolkit@0.16.12
+
+## 0.172.10
+
+### Patch Changes
+
+- 200e63b: Make the harness-session generation migration idempotent on SQLite.
+
+## 0.172.9
+
+### Patch Changes
+
+- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
+
+## 0.172.8
+
+### Patch Changes
+
+- e248449: Emit the `signup` event once per real account creation, and stop emitting it for user rows that are not signups.
+
+  Better Auth runs its `user.create.after` hook on every `user` row insert, and the hook treated all of them as a person signing up. Two production paths create rows through `internalAdapter` outside any endpoint, where Better Auth's context — and therefore the request, the browser, and its `an_aid` / `an_ft` cookies — is `null`: `ensureCanonicalUserForLegacySession` (backfilling a canonical row for someone who signed up months ago) and `ensureGoogleAuthIdentity` (provisioning the canonical row during the Google callback). Both emitted an unattributable `signup` recorded as `referral_source: "direct"`, which is why ~94% of `better-auth` signups carried no `anonymous_id` and one person provisioned across sibling apps counted as a dozen acquisitions.
+
+  Google sign-in was also losing its real event: because `ensureGoogleAuthIdentity` writes the canonical row _before_ `createOAuthSession` runs, the `hasBetterAuthUserEmail` probe there concluded the person was an existing user and skipped the one emitter that carries the browser's anonymous id. Callers now pass the `isNewUser` answer they already hold, and the event carries the canonical Better Auth user id rather than the Google profile id, so it still joins to `referrer_user` in the virality panels.
+  - A row insert with no request behind it emits nothing at all.
+  - Emitted events carry `signup_origin` (`browser_signup` / `google_oauth` / `sso_jit`) so acquisitions are selectable from sibling-app provisioning.
+  - `referral_source: "direct"` is no longer fabricated when no browser context was present — "we never saw a visitor" and "a visitor arrived with no campaign" are now different values.
+  - The internal `x-agent-native-signup-attribution` handoff header is stripped from every inbound request instead of only being overwritten on email signup. It is unsigned and outranks the request cookie, so an inbound copy let any client write the `anonymous_id` and campaign onto someone else's signup row.
+  - The `webhook` tracking provider now sends `anonymousId`, which it silently dropped.
+
+  Signup counts will fall to the real number. The removed rows were duplicate and backfilled events, not lost users.
+
+## 0.172.7
+
+### Patch Changes
+
+- be8c373: Fix Analytics chat composer drafts to prefer the stable tab identity over a late-arriving thread identity, preventing typed text from disappearing when the draft scope changes.
+
+## 0.172.6
+
+### Patch Changes
+
+- 415a6d8: Transform virtual runtime modules before serving them to embed sessions. The
+  dev middleware loaded `/@id/__x00__virtual:*` modules through
+  `pluginContainer.load`, which returns plugin source with bare specifiers
+  intact, so react-router's `inject-hmr-runtime` reached the browser still
+  importing `virtual:react-router/hmr-runtime`. Any page loaded on an origin
+  that had an `an_embed_session` cookie failed to hydrate and hung on a spinner.
+- 3fa1b09: Allow organization members to queue Run now for Factory-domain jobs they can already load, without widening Mail or CRM automation edit rights.
+- 6f0392b: Prevent unconfigured LLM engine tests from reporting a false pass.
+
+## 0.172.5
+
+### Patch Changes
+
+- 5a6204c: Rework Calendar's docs into the new per-app format (Overview, Features, Talk to the Agent, Multi-App Workspace, Developer Guide), add a Comparison per-side accent color and a Cards calendar icon, and translate all five Calendar doc pages into every supported locale.
+
+## 0.172.4
+
+### Patch Changes
+
+- 680268e: Send PostHog AI feedback in the shape its LLM analytics feedback view actually reads. A thumbs vote now answers the survey's first question with PostHog's choice index (`1` up, `2` down) instead of the string `"thumbs_up"`, and the free text after a thumbs-down answers the follow-up question (`$survey_response_1`) rather than overwriting the rating. A vote and the text it opens share one submission id per rated message, so PostHog joins them into a single response, and the vote stays marked incomplete until the follow-up arrives. `POSTHOG_AI_FEEDBACK_SURVEY_ID` is the whole configuration; `POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID` is no longer read.
+- 680268e: Fix PostHog LLM analytics showing the assistant's reply as part of the prompt. The agent loop appends its own turns to the message array it is handed, and the trace read that array after the run, so `$ai_input` / `$ai_input_state` carried the run's final transcript instead of its request — PostHog rendered the same assistant message in both Input and Output. The request is now snapshotted before the loop can grow it.
+- 680268e: Stop sending the app's tool definitions to PostHog. `$ai_tools` shipped the whole catalogue — for a large app, dozens of tools with full descriptions — on every generation, and it is identical on every call. The calls that actually happened are already named in `$ai_output_choices` and carry their own spans.
+- 680268e: Report failures at the layer that failed, and never as a bare flag. `$ai_is_error` could travel without any `$ai_error` — every failed tool span did exactly that with the default `captureToolResults: false`, so PostHog showed "error" and nothing else. All three emitters now fall back to a stated reason, add PostHog's `$ai_error_type`, and say when a tool's error text was withheld rather than never reported. The levels mean distinct things: a generation is failed only when the model call itself failed (a provider error or a stream dropped mid-call), a span when the tool crashed or returned an error, and the trace for everything else — step budgets, timeouts, no-progress cut-offs. A tool that stopped the run no longer marks the model call that preceded it as failed, and a run's terminal outcome rides only the layer that actually failed.
+- 680268e: Send each PostHog event's own time at the payload root instead of inside `properties`, where PostHog treated it as an ordinary custom property and stamped the event with its ingestion time. An agent run emits its trace, generation, and every tool span in one burst when the run ends, so a five-minute run rendered as a 100ms waterfall with its steps in flush order rather than the order they ran.
+- 680268e: Emit one `$ai_generation` per model round-trip instead of one per run, and parent each tool span under the generation that requested it. A multi-step agent run rendered in PostHog as a single generation spanning the whole run — a 15-call, 5-minute run drew one 5-minute "model call" — because the run's aggregate usage was reported as if it were one request. Each generation now carries its own prompt, answer, tools, latency, tokens and cost, and `$ai_request_count` counts that call rather than the run, so per-request pricing is right. Run totals (`llm_calls`, `tool_calls`, `successful_tools`, `failed_tools`, `time_to_first_token_ms`, `latency_source`) moved to `$ai_trace`. An engine that never brackets its calls with `model_stream` still falls back to a single aggregate generation. The trace no longer carries `$ai_input_state` / `$ai_output_state`: with every round-trip carrying its own prompt and answer, those repeated the first call's prompt and the last call's answer on a second event. A generation is also no longer marked failed when the run failed after the model answered — a tool that aborted the run, a step budget, or a cut-off now shows on the tool span and the trace, not on a model call that succeeded.
+- 680268e: Three fixes to per-round-trip generations. A tool the run's death interrupts is now associated with the call that requested it — the association is recorded when the tool starts, since an interrupted tool never reaches the completion path and used to hang under the trace root, missing from its generation's counts. A model call the provider failed is marked failed even though its stream bracket closes on the way out, so a provider error is no longer reported as a healthy call and a retry no longer leaves the failed attempt green. And a call that reported its tokens keeps them when a later call throws: usage was gated on the loop's aggregate return value, which never arrives on a throw, so every call that had succeeded lost its tokens and cost.
+- 680268e: Report `$ai_stop_reason` on each generation, and stop discarding an oversized trace payload wholesale. The engine already knew why every model call ended (`end_turn`, `tool_use`, `max_tokens`, …) and never passed it on, so a truncated answer was indistinguishable from a finished one; the `model_stream` close event now carries it. Content over the 128KB ceiling used to be replaced entirely by a placeholder — a 244KB conversation left nothing at all in the trace. An oversized message list now keeps the last user message behind a marker naming how much was dropped — what was asked is what a trace is opened for, and it stays small. `input_truncated` / `output_truncated` still mark anything cut, so a partial payload can never read as a complete one.
+
+## 0.172.3
+
+### Patch Changes
+
+- 0fedac0: Prebundle `diff-match-patch` so the collab text-to-Yjs path loads in the browser.
+
+  `diff-match-patch@1.0.5` ships one CJS file with no ESM entry. It is reached from
+  `collab/text-to-yjs.ts`, which in monorepo dev mode is a source-aliased core
+  module excluded from dep prebundling, so Vite never scanned the import and served
+  the dependency verbatim — its trailing `module.exports` lines threw in the
+  browser. It now has a default `optimizeDeps.include` entry like the other CJS
+  dependencies core reaches from client code.
+
+## 0.172.2
+
+### Patch Changes
+
+- f208c0e: Stop later tool calls in the same assistant message from running while an action
+  waits for human approval.
+
+  The approval gate told the model "the turn is paused" and set
+  `requestedActionStop`, but that flag is only read after the tool loop finishes.
+  The flag that actually suppresses the remaining calls is `turnYieldedToUser`,
+  which the approval path never set — so on `[write(needs approval),
+delete(no approval)]` in one message, the human saw an approval card for the
+  first while the second had already executed. The approval branch now yields the
+  turn like any other action that hands control to the user, and the message shown
+  for a suppressed call names the approval case as well as the ends-turn case.
+
+  A gated call is also no longer eligible for parallel batching. `flushParallelBatch`
+  dispatches a batch through `Promise.all`, so a gated call and its siblings all
+  start before the gate is reached and the suppression lands too late to stop a
+  sibling that already ran. Any action declaring `needsApproval` or `endsTurn` is
+  now serialized, which is what makes the suppression meaningful for the calls
+  after it.
+
+## 0.172.1
+
+### Patch Changes
+
+- bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
+
+## 0.172.0
+
+### Minor Changes
+
+- 5da9484: Add durable action-level approval preferences and recoverable harness checkpoints.
+
+### Patch Changes
+
+- bd7384b: Scope sidebar toggle events to the matching app chat surface.
+- 4fa0d0c: Harden the shell command policy and the untrusted-text prompt boundaries.
+  - `classifyCodeAgentCommandPermission` now matches its blocked and
+    approval-required rules against the quote-stripped form of the command as well
+    as the raw text. The shell removes quoting before the command word exists, so
+    `git 'checkout' main`, `gi''t checkout main`, `drizzle-kit "push"` and
+    `rm -'r'f /` previously ran as unclassified writes. A command using `$'…'`
+    escaping, which this pass cannot decode, now asks for approval instead of
+    falling through.
+  - `runCodingCommand` settles on `exit` with a short grace for `close` instead of
+    waiting on `close` alone, and spawns detached so a timeout signals the whole
+    process group. A command that backgrounds anything (`npm run dev &`) left a
+    grandchild holding the output pipe and the call never returned — past its
+    timeout too, whose `SIGTERM` went to an `sh -c` wrapper that had already
+    exited. When output is cut short this way the result says so rather than
+    reading as a clean finish.
+  - Automation trigger payloads are capped, wrapped in `<event_payload>` tags with
+    an explicit untrusted-data instruction, and no longer sit ahead of the
+    automation's own body — the same defense `condition-evaluator.ts` already
+    applied before this data reached a tool-less classifier, now applied on the
+    path that reaches an agent with the full tool surface.
+  - Prompt `<resource>` blocks escape both halves of the fence in the body, so
+    shared `AGENTS.md`/`LEARNINGS.md` content cannot forge a block header and pass
+    itself off as framework instructions.
+
+## 0.171.3
+
+### Patch Changes
+
+- 2292fac: Allow shared loading spinners to provide localized accessible labels.
+
+## 0.171.2
+
+### Patch Changes
+
+- 3afcb54: Add pin, reorder, and reload actions to workspace app rail context menus.
+
+## 0.171.1
+
+### Patch Changes
+
+- c56a23e: Preserve explicitly safe stopped-action error codes and details across browser action transport.
+
+## 0.171.0
+
+### Minor Changes
+
+- f60345d: Add `auth.requireEmailVerification` to the app config schema, aliased to
+  `AUTH_REQUIRE_EMAIL_VERIFICATION`, so a deployment can state its password-signup
+  verification policy instead of inheriting the environment-derived one.
+  `AUTH_SKIP_EMAIL_VERIFICATION` stays a local/QA-only convenience that hosted
+  deployments ignore; a declared value outranks it. Setting the field to `false`
+  accepts an unverified address as a login credential and therefore also lifts the
+  hosted no-email-provider signup lock, which exists to prevent exactly that;
+  setting it to `true` where no email provider is configured disables password
+  signup rather than stranding accounts on a verification that cannot be delivered.
+
+### Patch Changes
+
+- f60345d: Stop the dev server from warning that the `agent-native-config` plugin set both `rollupOptions` and `rolldownOptions`. Vite 8 exposes `rollupOptions` as a getter alias of `rolldownOptions`, and spreading the incoming `build` / `optimizeDeps` sections copied that alias back out alongside our own `rolldownOptions`.
+
 ## 0.170.0
 
 ### Minor Changes

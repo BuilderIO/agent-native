@@ -1,9 +1,16 @@
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
+import { observabilityConfig } from "../app-config/observability.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { ObservabilityConfig } from "./types.js";
-import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
-export const DEFAULT_INFERRED_SENTIMENT_MODEL = "gpt-5-6-luna";
+/**
+ * The schema owns this value; read it back rather than restating it. Reachable
+ * only when a caller passes a partial config — `getObservabilityConfig` always
+ * hands over a parsed one, where the declared default has already applied.
+ */
+const DEFAULT_INFERRED_SENTIMENT_MODEL =
+  observabilityConfig.shape.inferredSentimentModel.parse(undefined);
+
 export const HOSTED_INFERRED_SENTIMENT_SAMPLE_RATE = 1;
 export const INFERRED_SENTIMENT_MAX_CHARS = 2_000;
 export const INFERRED_SENTIMENT_TIMEOUT_MS = 5_000;
@@ -96,9 +103,7 @@ export function resolveInferredSentimentConfig(
       storedRate ??
       (hosted ? HOSTED_INFERRED_SENTIMENT_SAMPLE_RATE : 0),
     inferredSentimentModel:
-      envModel ||
-      storedModel ||
-      DEFAULT_OBSERVABILITY_CONFIG.inferredSentimentModel,
+      envModel || storedModel || DEFAULT_INFERRED_SENTIMENT_MODEL,
   };
 }
 

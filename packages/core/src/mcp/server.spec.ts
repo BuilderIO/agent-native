@@ -1545,6 +1545,64 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
   });
 
+  it("gives an external agent the code a fail() chose", async () => {
+    const { fail } = await import("../action.js");
+    // Config local to this test: the shared ones carry exact tools/list
+    // assertions that a new action name would break.
+    const failingConfig = {
+      ...compactSurfaceConfig,
+      actions: {
+        ...compactSurfaceConfig.actions,
+        "get-meeting": {
+          tool: { description: "Read one meeting" },
+          readOnly: true,
+          run: async () => {
+            fail("No such meeting", {
+              errorCode: "not_found",
+              statusCode: 404,
+            });
+          },
+        },
+        "get-note": {
+          tool: { description: "Read one note" },
+          readOnly: true,
+          run: async () => {
+            fail("No such note");
+          },
+        },
+      },
+    };
+
+    const coded = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 260,
+        method: "tools/call",
+        params: { name: "get-meeting", arguments: {} },
+      },
+      { headers: await mcpAppsFullCatalogHeaders(), config: failingConfig },
+    );
+
+    expect(coded.result.isError).toBe(true);
+    expect(coded.result.content[0].text).toBe(
+      "Error: No such meeting (errorCode: not_found)",
+    );
+
+    // `action_failed` is fail()'s stand-in for "the author picked none".
+    const uncoded = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 261,
+        method: "tools/call",
+        params: { name: "get-note", arguments: {} },
+      },
+      { headers: await mcpAppsFullCatalogHeaders(), config: failingConfig },
+    );
+
+    expect(uncoded.result.isError).toBe(true);
+    expect(uncoded.result.content[0].text).toBe("Error: No such note");
+  });
+
   it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
     const out = await callWeb(
       {

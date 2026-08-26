@@ -4,6 +4,7 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
@@ -47,6 +48,7 @@ function isPlanDetailRoute(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -87,19 +89,22 @@ export function Layout({ children }: LayoutProps) {
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
-  const chatRoute = location.pathname === "/";
+  const chatRoute = pathname === "/chat";
+  const { session, isLoading: sessionLoading } = useSession();
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "plans",
-    activePath: location.pathname,
+    activePath: pathname,
     enabled: !chatRoute,
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("plans");
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
-    chatPath: "/",
+    chatPath: "/chat",
+    isChatPath: (path) => (path.replace(/\/+$/, "") || "/") === "/chat",
     requireActiveHandoff: true,
   });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
+  const hideAppHeader = pathname === "/plans" && !sessionLoading && !session;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed
     : sidebarCollapsed;
@@ -168,6 +173,17 @@ export function Layout({ children }: LayoutProps) {
             </button>
           </div>
         )
+      ) : hideAppHeader ? (
+        <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label={t("sidebar.openNavigation")}
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+          >
+            <IconMenu2 className="h-4 w-4" />
+          </button>
+        </div>
       ) : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}

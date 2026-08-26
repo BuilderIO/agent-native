@@ -144,6 +144,7 @@ const messages = {
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
+    sharedWithYou: "आपके साथ साझा किया गया",
     storageStillDisconnected: "संग्रहण अभी भी कनेक्ट नहीं है",
     finishBuilderOrS3:
       "Builder.io पॉपअप समाप्त करें या S3 स्टोरेज कॉन्फ़िगर करें, फिर पुनः प्रयास करें।",
@@ -512,6 +513,7 @@ const messages = {
     height: "ऊंचाई",
     autoplay: "स्वत: प्ले",
     startAt: "प्रारंभ करें (सेकंड)",
+    startAtTimestamp: "{{time}} पर शुरू करें",
     embedCode: "एम्बेड कोड",
     sharePlainTitle: "{{title}} साझा करें",
   },
@@ -982,8 +984,6 @@ const messages = {
     editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
-    mentionSomeone: "किसी का उल्लेख करें",
-    addEmoji: "इमोजी जोड़ें",
   },
   shareMeeting: {
     pageTitle: "मीटिंग नोट्स · Clips",
@@ -1523,6 +1523,7 @@ const messages = {
     invite: "आमंत्रित करें",
     inviteFailed: "व्यक्ति को आमंत्रित नहीं कर सके",
     removePersonFailed: "व्यक्ति को हटा नहीं सके",
+    permissionUpdateFailed: "अनुमति अपडेट नहीं की जा सकी",
     passwordProtectedDescription:
       "यह वीडियो सुरक्षित है। देखने के लिए पासवर्ड दर्ज करें।",
     password: "पासवर्ड",

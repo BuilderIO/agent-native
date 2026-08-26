@@ -152,11 +152,14 @@ Five deterministic scorers run after every agent run:
 Enable sampled LLM-based evaluation by setting `evalSampleRate`:
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -248,18 +251,22 @@ Use the real model identifiers your engine accepts in place of `<your-model-id>`
 
 ## Configuration {#config}
 
-All settings are stored in the `observability-config` key:
+Set from a server plugin with `defineAppConfig()`. Every field also has a deployment environment variable alias — see the declared configuration reference.
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  captureLlmSpans: true,   // Emit one $ai_span per tool call to PostHog
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    captureLlmSpans: true, // Emit one $ai_span per tool call to PostHog
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -297,13 +304,24 @@ All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 When `POSTHOG_API_KEY` is set, every instrumented run is mirrored to PostHog's
 LLM analytics as a full trace tree:
 
-| Event            | Emitted per | Carries                                                 |
-| ---------------- | ----------- | ------------------------------------------------------- |
-| `$ai_trace`      | agent run   | Latency, error state, token totals, cost                |
-| `$ai_generation` | model call  | Model, provider, tokens, cost, tool definitions offered |
-| `$ai_span`       | tool call   | Tool name, duration, error state                        |
+| Event            | Emitted per      | Carries                                                   |
+| ---------------- | ---------------- | --------------------------------------------------------- |
+| `$ai_trace`      | agent run        | Run name, totals, terminal state, run-level failure       |
+| `$ai_generation` | model round-trip | Prompt, answer, model, tokens, cost, latency, stop reason |
+| `$ai_span`       | tool call        | Tool name, duration, failure class                        |
 
-Nodes share the run id as `$ai_trace_id`, so PostHog renders one tree per run.
+Nodes share the run id as `$ai_trace_id`, so PostHog renders one tree per run,
+with each tool span under the generation that requested it. A run's tool
+definitions are never sent: they are the same catalogue on every call, and a
+call is identified by its name in `$ai_output_choices` and by its own span.
+
+`$ai_is_error` means a different thing at each level, and never travels without
+`$ai_error` and `$ai_error_type`. On a generation it is the model call itself
+failing — a provider error, a dropped stream. On a span it is a tool that
+crashed or returned an error. On the trace it is the run: a step budget, a
+timeout, a no-progress cut-off, or a tool that stopped the run. A run that
+failed after the model answered leaves its generations green, because they did
+not fail.
 `$ai_session_id` is the conversation thread; the browser session is sent
 separately as `$session_id` so a trace links to its session replay.
 
@@ -337,32 +355,25 @@ to each other.
 
 Thumbs, category, and free-text feedback all emit `$ai_feedback`. PostHog's LLM
 analytics feedback view reads a `survey sent` event instead, so set
-`POSTHOG_AI_FEEDBACK_SURVEY_ID` (and `POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID`
-for multi-question surveys) to populate it. Without a survey id no survey event
-is sent.
+`POSTHOG_AI_FEEDBACK_SURVEY_ID` to the survey PostHog creates from a trace's
+**Feedback** tab. That one id is the whole configuration; without it no survey
+event is sent.
+
+A thumbs vote answers the survey's first question as PostHog's choice index
+(`1` up, `2` down) and the free text after a thumbs-down answers the follow-up
+question, so the text never lands where the rating belongs. Both carry one
+submission id per rated message, which is how PostHog joins them into a single
+response, and a thumbs-down stays marked incomplete until its follow-up arrives.
 
 ## Export to external platforms {#export}
 
-Send traces to Langfuse, Datadog, Grafana, or any OTel-compatible backend:
+Send traces to Langfuse, Datadog, Grafana, or any OTel-compatible backend by registering an OpenTelemetry provider in your own app — see [OpenTelemetry spans](#otel) below. The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec, and your provider owns the exporter and its credentials.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec.
+Core deliberately ships no exporter and holds no export endpoint or token, so a backend credential lives in your provider wiring (and the vault), never in framework configuration.
 
 ## OpenTelemetry spans {#otel}
 
-Separate from the `exporters` config above (which ships the in-house traces to an OTLP endpoint), the agent loop can also emit **live OpenTelemetry spans** for every run, model call, and tool call — so a host that already runs an OTel collector sees agent activity alongside the rest of its distributed traces.
+The agent loop emits **live OpenTelemetry spans** for every run, model call, and tool call — so a host that already runs an OTel collector sees agent activity alongside the rest of its distributed traces.
 
 This layer is **optional and no-op by default**:
 

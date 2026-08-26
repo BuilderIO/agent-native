@@ -1206,6 +1206,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "clsx" },
     { specifier: "cmdk" },
     { specifier: "date-fns" },
+    { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
     { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
@@ -2230,13 +2231,17 @@ async function loadMountedEmbedRuntimeModule(
   runtimeUrl: string,
 ): Promise<string | null> {
   const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
+
+  // transform import to encode virtual modules in vite as these imports don't work in the browser
+  const result = await server.transformRequest(virtualId ?? runtimeUrl);
+  if (typeof result?.code === "string") return result.code;
+
   if (virtualId) {
     const loaded = await server.pluginContainer?.load?.(virtualId);
     if (typeof loaded === "string") return loaded;
     if (loaded && typeof loaded.code === "string") return loaded.code;
   }
-  const result = await server.transformRequest(runtimeUrl);
-  return result?.code ?? null;
+  return null;
 }
 
 function serveMountedEmbedRuntimeModule(
@@ -2864,7 +2869,11 @@ type NitroModuleGraph = {
   idToModuleMap: Map<string, NitroModuleNode>;
 };
 
-const NITRO_STARTUP_SETTLE_MS = 1_000;
+// Nitro's worker can expose a transformed module graph before its entry
+// module has finished importing. Keep the recovery page up for the same
+// cold-start window instead of letting the first poll render a 500 error.
+const NITRO_STARTUP_SETTLE_MS = 3_000;
+const NITRO_STARTUP_POLL_INTERVAL_MS = 100;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
 const NITRO_STARTUP_RETRY_DELAY_MS = 1_000;
 const NITRO_STARTUP_RETRY_MAX_DELAY_MS = 3_000;
@@ -2991,17 +3000,26 @@ function nitroStartupGate(
       let graphSignature: string | null = null;
       let graphStableAt: number | undefined;
       let startupComplete = false;
+      let readinessTimer: ReturnType<typeof setInterval> | undefined;
 
-      server.middlewares.use((req, res, next) => {
-        if (startupComplete || !isHtmlDocumentRequest(req)) {
-          next();
-          return;
+      const completeStartup = () => {
+        startupComplete = true;
+        if (readinessTimer) {
+          clearInterval(readinessTimer);
+          readinessTimer = undefined;
         }
+      };
+
+      // Observe the graph independently of the first document request. A
+      // server can finish compiling while the shell is still on its loading
+      // screen; measuring stability only from the first request adds the full
+      // settle window to an otherwise-ready server.
+      const observeStartup = () => {
+        if (startupComplete) return;
 
         const timestamp = now();
         if (timestamp - startedAt >= timeoutMs) {
-          startupComplete = true;
-          next();
+          completeStartup();
           return;
         }
 
@@ -3016,13 +3034,48 @@ function nitroStartupGate(
             graphStableAt !== undefined &&
             timestamp - graphStableAt >= settleMs
           ) {
-            startupComplete = true;
-            next();
-            return;
+            completeStartup();
           }
         } else {
           graphSignature = null;
           graphStableAt = undefined;
+        }
+      };
+
+      // Start watching before any HTML request arrives so readiness time is
+      // measured from server startup, not from the user's first navigation.
+      observeStartup();
+      if (!startupComplete) {
+        readinessTimer = setInterval(
+          observeStartup,
+          NITRO_STARTUP_POLL_INTERVAL_MS,
+        );
+        readinessTimer.unref?.();
+        server.httpServer?.once("close", () => {
+          if (readinessTimer) {
+            clearInterval(readinessTimer);
+            readinessTimer = undefined;
+          }
+        });
+      }
+
+      server.middlewares.use((req, res, next) => {
+        if (startupComplete || !isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        const timestamp = now();
+        if (timestamp - startedAt >= timeoutMs) {
+          completeStartup();
+          next();
+          return;
+        }
+
+        observeStartup();
+        if (startupComplete) {
+          next();
+          return;
         }
 
         sendNitroStartingResponse(req, res);
@@ -3695,6 +3748,15 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
+  // Vite 8 defines `rollupOptions` on `build`/`optimizeDeps` as a getter alias
+  // of `rolldownOptions`. Spreading the section copies the alias as a plain own
+  // property, so returning our own `rolldownOptions` alongside it makes the two
+  // diverge and Vite warns that this plugin set both — then ignores the
+  // `rollupOptions` half regardless. Drop the alias from what we spread back.
+  const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
+    userConfig.build ?? {};
+  const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
+    userConfig.optimizeDeps ?? {};
 
   return {
     logLevel:
@@ -3810,7 +3872,7 @@ function createAgentNativeConfig(
       },
     },
     build: {
-      ...(userConfig.build ?? {}),
+      ...userBuild,
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       // Vite 8 defaults CSS minification to Lightning CSS, which collapses a
       // `backdrop-filter` + `-webkit-backdrop-filter` pair down to only the
@@ -3897,7 +3959,7 @@ function createAgentNativeConfig(
           ],
         },
     optimizeDeps: {
-      ...(userConfig.optimizeDeps ?? {}),
+      ...userOptimizeDeps,
       include: [
         ...getDefaultOptimizeDeps(cwd),
         ...(hasDep("@agent-native/pinpoint", cwd)

@@ -8,10 +8,31 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("prefers public-share timestamps over legacy owner timestamps", () => {
+    const route = readRoute("r.$recordingId.tsx");
+
+    expect(route).toContain('searchParams.get("at") ?? searchParams.get("t")');
+  });
+
+  it("clamps route playback state before exposing it", () => {
+    const recordingRoute = readRoute("r.$recordingId.tsx");
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    expect(recordingRoute).toContain(
+      "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
+    );
+    expect(recordingRoute).toContain("currentMs: Math.round(playbackMs)");
+    expect(recordingRoute).toContain("currentMs={playbackMs}");
+    expect(shareRoute).toContain(
+      "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
+    );
+    expect(shareRoute).toContain("currentMs={playbackMs}");
+  });
+
   it("keeps the main header return control icon-only and shared", () => {
     const route = readRoute("r.$recordingId.tsx");
     const headerStart = route.indexOf(
-      'className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2',
+      'className="flex min-w-0 shrink-0 items-center gap-2 px-3 py-2',
     );
     expect(headerStart).toBeGreaterThan(-1);
 

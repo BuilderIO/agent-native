@@ -116,6 +116,9 @@ export function ReadinessPanel({
 
   const [statuses, setStatuses] = useState<PermissionStatuses | null>(null);
   const [checking, setChecking] = useState(false);
+  const [refreshingPane, setRefreshingPane] = useState<MacosPrivacyPane | null>(
+    null,
+  );
 
   const checkStatuses = useCallback(async () => {
     setChecking(true);
@@ -125,6 +128,18 @@ export function ReadinessPanel({
       setChecking(false);
     }
   }, []);
+
+  const refreshPermissions = useCallback(
+    (pane: MacosPrivacyPane) => {
+      setRefreshingPane(null);
+      window.requestAnimationFrame(() => setRefreshingPane(pane));
+      window.setTimeout(() => {
+        setRefreshingPane((current) => (current === pane ? null : current));
+      }, 450);
+      void checkStatuses();
+    },
+    [checkStatuses],
+  );
 
   const grantPermission = useCallback(
     (pane: MacosPrivacyPane) =>
@@ -172,8 +187,8 @@ export function ReadinessPanel({
                     {mac ? (
                       <button
                         type="button"
-                        className={`readiness-refresh ${checking ? "readiness-refresh-spinning" : ""}`}
-                        onClick={checkStatuses}
+                        className={`readiness-refresh ${refreshingPane === item.pane ? "readiness-refresh-rotating" : ""}`}
+                        onClick={() => refreshPermissions(item.pane)}
                         disabled={checking}
                         aria-label="Recheck permissions"
                         title="Recheck"

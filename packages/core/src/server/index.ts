@@ -134,6 +134,7 @@ export {
   type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
+  type MentionItemMedia,
   type MentionProviderItem,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
@@ -275,6 +276,7 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
 export {
   buildRuntimeConfigPrompt,
   formatRuntimeConfigReport,

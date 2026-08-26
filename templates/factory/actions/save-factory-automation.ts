@@ -76,11 +76,6 @@ export default defineAction({
         "Factory automation id and name do not refer to the same automation.",
       );
     }
-    if (!definition.canUpdate) {
-      throw new Error(
-        "Only the automation's creator or an organization admin can update it.",
-      );
-    }
     if (definition.meta.triggerType === "schedule" && !isValidCron(schedule)) {
       throw new Error(`Invalid cron expression "${schedule}".`);
     }

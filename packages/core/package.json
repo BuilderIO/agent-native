@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.170.0",
+  "version": "0.175.0",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -126,6 +126,7 @@
     "./client/feature-flags": "./dist/client/feature-flags/index.js",
     "./client/hooks": "./dist/client/hooks/index.js",
     "./client/host": "./dist/client/host/index.js",
+    "./client/webmcp": "./dist/client/webmcp.js",
     "./client/integrations": "./dist/client/integrations/index.js",
     "./client/navigation": "./dist/client/navigation/index.js",
     "./client/resources": "./dist/client/resources/index.js",
@@ -206,6 +207,7 @@
     "./agent/context-xray/actions/context-evict": "./dist/agent/context-xray/actions/context-evict.js",
     "./agent/context-xray/actions/context-restore": "./dist/agent/context-xray/actions/context-restore.js",
     "./agent/context-xray/actions/context-report": "./dist/agent/context-xray/actions/context-report.js",
+    "./agent/actions/set-tool-approval-policy": "./dist/agent/actions/set-tool-approval-policy.js",
     "./agent/observational-memory": "./dist/agent/observational-memory/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
@@ -427,6 +429,7 @@
     "recharts": "catalog:",
     "remark-gfm": "^4.0.1",
     "roughjs": "4.6.6",
+    "run": "2.0.1",
     "safe-regex2": "5.1.1",
     "shiki": "^4.0.2",
     "sonner": "catalog:",

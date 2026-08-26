@@ -8,7 +8,7 @@
  *   pnpm action list-organization-state
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   organizations,
   orgInvitations,

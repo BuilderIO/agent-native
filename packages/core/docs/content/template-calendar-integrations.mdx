@@ -1,0 +1,78 @@
+---
+title: "Calendar in a Multi-App Workspace"
+description: "How Calendar connects to Dispatch and other apps, the real events other apps can automate against, and natural-language delegation across a multi-app workspace."
+---
+
+# Calendar in a Multi-App Workspace
+
+Calendar is one app among many in a [Dispatch](/docs/template-dispatch)
+workspace. This page covers what that actually means in practice: how the
+connection works, and concrete ways other apps can act on your calendar or
+react to what happens on it. See [Calendar](/docs/template-calendar) for the
+overview.
+
+## How Calendar connects to Dispatch
+
+Whether this is automatic depends on how Calendar and Dispatch were set up
+together, not on whether either one is hosted or running locally.
+
+### Same workspace: automatic
+
+If Calendar and Dispatch were generated or added together into one Agent
+Native workspace (via `create` or `add-app`) and deployed as one unit, they
+already share one `.env`, one `A2A_SECRET`, and one workspace registry.
+Discovery and authenticated A2A calling both just work, with nothing to set
+up, whether that workspace is running on your machine or in production.
+This is the expected setup for a real multi-app product built on Calendar.
+
+### Separate deployments: one manual step
+
+If Calendar and Dispatch are two independently created Agent Native
+projects, they don't share a secret and can't call each other yet.
+Connecting them takes one manual step on each side: add a
+`remote-agents/<id>.json` resource with a shared secret, from Settings →
+Connected Agents, the Agent page's Connections tab, or Dispatch → Agents →
+Add external agent. See [A2A Protocol](/docs/a2a-protocol) for the full
+walkthrough.
+
+To check which situation you're in, ask either app's agent "what apps can
+you see?" If Calendar is missing from Dispatch's answer, you're in the
+second case.
+
+## Integration strategies
+
+**Automating off calendar events.** Creating an event and creating a booking
+both fire a real event on the shared framework event bus
+(`calendar.event.created`, `calendar.booking.created`). Any app's
+[automation](/docs/automations) can subscribe to either one, regardless of
+which app defines it. A booking landing on your calendar could trigger a
+welcome email draft in Mail, or a meeting agenda in Slides, built before the
+meeting happens. Calendar doesn't ship one of these automations out of the
+box, but the event is real and ready to hook into whenever you want to build
+one.
+
+**Natural-language delegation through Dispatch.** A sibling app doesn't need
+a special integration to work with Calendar. It can hand Calendar's agent a
+plain-English request, like "find 30 minutes with Sam next week," the same
+way you would in chat, and Calendar answers or acts on it directly. This is
+the real mechanism behind something like a scheduling request that arrives
+in Mail or Slack turning into a booked event: Dispatch (or the app that
+received the message) delegates the request to Calendar's agent, and
+Calendar handles it like any other prompt.
+
+**Staying decoupled.** Calendar never needs to know Mail's or Slack's
+credentials, or vice versa, for any of this. The event bus and the
+automations that subscribe to it sit between apps, so Calendar only has to
+emit a real event or answer a real request. It doesn't need to know who's
+listening, or how.
+
+## What's next
+
+- [**Calendar**](/docs/template-calendar) — the overview and getting-started steps
+- [**Features**](/docs/template-calendar-features) — views, availability, finding time, and booking links
+- [**Talk to the Agent**](/docs/template-calendar-agent) — prompts by task, application state, and Extensions
+- [**Developer Guide**](/docs/template-calendar-developers) — quick start, actions, data model, and routes
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane these patterns run under
+- [**Automations**](/docs/automations) — declaring an automation that reacts to a calendar event
+- [**A2A Protocol**](/docs/a2a-protocol) — how apps discover, authenticate with, and call each other
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the general pattern of composing first-party apps instead of nesting them

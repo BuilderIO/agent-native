@@ -350,8 +350,29 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
 export function shouldClearDesktopIdentitySessionOnActivation(input: {
   hasLoadedGuestPage: boolean;
   sessionReady: boolean;
+  rememberedStatus?: DesktopIdentityStatus | null;
 }): boolean {
+  // A page loaded under a session the shell has since watched end is not
+  // "usable to preserve": sign-out reloads every app webview including the
+  // hidden ones, so preserving it reveals that app's own signed-out page with
+  // no gate over it until the status round trip lands.
+  if (isDesktopIdentitySignedOutStatus(input.rememberedStatus ?? null)) {
+    return true;
+  }
   return !(input.hasLoadedGuestPage && input.sessionReady);
+}
+
+/**
+ * Whether a status the shell already observed means a loaded guest page can no
+ * longer be treated as signed in. Sign-out publishes "sign-in-required", so
+ * that and a hard "failed" are the only statuses that invalidate a loaded page.
+ * "idle" is excluded deliberately — that is workspace SSO switched off, where
+ * there is no session to gate and re-gating would stall every tab switch.
+ */
+export function isDesktopIdentitySignedOutStatus(
+  status: DesktopIdentityStatus | null,
+): boolean {
+  return status === "sign-in-required" || status === "failed";
 }
 
 const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -757,6 +778,43 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       active: isActive,
       enabled: desktopIdentityEnabled,
     });
+    const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
+    const repairDesktopIdentitySession = useCallback(() => {
+      if (
+        !isActive ||
+        !desktopIdentityGateEligible ||
+        desktopIdentityEnabled !== true ||
+        desktopIdentityStatus !== "signed-in"
+      ) {
+        return Promise.resolve(false);
+      }
+      const existingRepair = desktopIdentityRepairRef.current;
+      if (existingRepair) return existingRepair;
+      const identity = window.electronAPI?.identity;
+      if (!identity) return Promise.resolve(false);
+      const repair = identity
+        .ensureAppSession(app.id)
+        .catch((error) => {
+          console.warn("[desktop-identity] app session repair failed", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+          return false;
+        })
+        .finally(() => {
+          if (desktopIdentityRepairRef.current === repair) {
+            desktopIdentityRepairRef.current = null;
+          }
+        });
+      desktopIdentityRepairRef.current = repair;
+      return repair;
+    }, [
+      app.id,
+      desktopIdentityEnabled,
+      desktopIdentityGateEligible,
+      desktopIdentityStatus,
+      isActive,
+    ]);
     const deferDesktopWebviewLoad = shouldDeferDesktopAppWebviewLoad({
       eligible: desktopIdentityGateEligible,
       enabled: desktopIdentityEnabled,
@@ -922,7 +980,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         rememberedDesktopIdentityStatusAt,
       );
       const preserveLoadedSession =
-        hasLoadedGuestPageRef.current && desktopIdentitySessionReadyRef.current;
+        hasLoadedGuestPageRef.current &&
+        desktopIdentitySessionReadyRef.current &&
+        !isDesktopIdentitySignedOutStatus(rememberedDesktopIdentityStatus);
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
       setDesktopIdentityStatus(
         rememberedSignedIn || preserveLoadedSession ? "signed-in" : "idle",
@@ -936,6 +996,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         shouldClearDesktopIdentitySessionOnActivation({
           hasLoadedGuestPage: hasLoadedGuestPageRef.current,
           sessionReady: desktopIdentitySessionReadyRef.current,
+          rememberedStatus: rememberedDesktopIdentityStatus,
         })
       ) {
         updateDesktopIdentitySessionReady(false);
@@ -961,11 +1022,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           }
           let synchronized: boolean | null;
           try {
-            synchronized = preserveLoadedSession
-              ? await identity.ensureAppSession(app.id, {
-                  preserveExistingSession: true,
-                })
-              : await identity.ensureAppSession(app.id);
+            synchronized = await identity.ensureAppSession(app.id);
           } catch (error) {
             console.warn("[desktop-identity] lazy app synchronization failed", {
               appId: app.id,
@@ -1279,7 +1336,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         onAuthStateChangeRef.current?.("unknown");
         void readAppWebviewAuthState(wv).then((state) => {
           if (disposed || sequence !== authProbeSequenceRef.current) return;
-          onAuthStateChangeRef.current?.(state);
+          const repair =
+            state === "unauthenticated"
+              ? repairDesktopIdentitySession()
+              : Promise.resolve(false);
+          void repair.then((repaired) => {
+            if (disposed || sequence !== authProbeSequenceRef.current) return;
+            onAuthStateChangeRef.current?.(repaired ? "authenticated" : state);
+          });
         });
       };
 
@@ -1400,6 +1464,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       applyGuestTheme,
       applyGuestSurfaceVisibility,
       executeGuestScript,
+      repairDesktopIdentitySession,
       syncGuestAppChatSidebar,
       deferDesktopWebviewLoad,
     ]);
@@ -1458,7 +1523,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       }
       void readAppWebviewAuthState(wv).then((state) => {
         if (!active || sequence !== authProbeSequenceRef.current) return;
-        onAuthStateChangeRef.current?.(state);
+        const repair =
+          state === "unauthenticated"
+            ? repairDesktopIdentitySession()
+            : Promise.resolve(false);
+        void repair.then((repaired) => {
+          if (!active || sequence !== authProbeSequenceRef.current) return;
+          onAuthStateChangeRef.current?.(repaired ? "authenticated" : state);
+        });
       });
       return () => {
         active = false;
@@ -1468,6 +1540,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       desktopIdentitySessionReady,
       desktopIdentityStatus,
       isActive,
+      repairDesktopIdentitySession,
       url,
     ]);
 
@@ -1577,7 +1650,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const failT = setTimeout(
         () => {
           if (isLoading) {
-            loadFailureRef.current = true;
+            // Deliberately not `loadFailureRef`: Chromium never reported a
+            // failure here, we only stopped waiting. The navigation is still in
+            // flight, so a later dom-ready is the real app arriving rather than
+            // the error document that flag exists to suppress — latching it
+            // would strand the user on this screen with the app loaded and
+            // hidden behind it.
             authProbeSequenceRef.current += 1;
             setError(true);
             setIsLoading(false);

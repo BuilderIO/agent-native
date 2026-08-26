@@ -1671,6 +1671,55 @@ const hiIN = {
         builderPrivacyFull: "Builder.io गोपनीयता नीति",
       },
     },
+    about: {
+      eyebrow: "Agent-Native के बारे में",
+      title: "एजेंट और लोगों के लिए ओपन-सोर्स ऐप्स",
+      intro:
+        "Agent-Native एक ओपन-सोर्स फ्रेमवर्क है जो ऐसे ऐप बनाने के लिए है जिनमें AI एजेंट और यूज़र इंटरफ़ेस एक ही actions, डेटा और application state साझा करते हैं।",
+      sections: {
+        project: {
+          title: "साझा संचालन मॉडल",
+          body: "Agent-Native एजेंट और इंटरफ़ेस को बराबर साझेदार मानता है। एक action UI कंट्रोल, एजेंट टूल, HTTP endpoint, MCP या A2A क्षमता, CLI कमांड और audit योग्य workflow को चला सकता है। साझा SQL state मानव और एजेंट की views को एक जैसा रखता है, किसी छिपी हुई दूसरी प्रणाली की ज़रूरत नहीं होती।",
+        },
+        openSource: {
+          title: "डिफ़ॉल्ट रूप से ओपन सोर्स",
+          body: "सोर्स कोड MIT लाइसेंस के तहत BuilderIO/agent-native repository में उपलब्ध है। डेवलपर implementation देख सकते हैं, स्थानीय रूप से चला सकते हैं, database और model providers चुन सकते हैं और इसे अपने product के अनुसार बदल सकते हैं। Hosted services forks और self-hosted deployments से अलग संचालित होती हैं।",
+        },
+        hosted: {
+          title: "होस्टेड और सेल्फ-होस्टेड",
+          body: "Builder.io agent-native.com पर Agent-Native की hosted applications और documentation संचालित करता है। यह framework उन teams के लिए भी बनाया गया है जो अपने applications deploy और support करना चाहती हैं। Actions, access boundaries, agent instructions और public protocols code और docs में देखे जा सकते हैं।",
+        },
+        community: {
+          title: "सार्वजनिक रूप से बनाया गया",
+          body: "Project GitHub issues, pull requests, documentation और Agent-Native community के माध्यम से खुले तौर पर विकसित होता है। Architecture सीखने के लिए docs पढ़ें, implementation verify करने के लिए source देखें, या use case पर चर्चा और contribution के लिए community में आएँ।",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "संपर्क",
+      title: "Agent-Native के बारे में Builder.io से संपर्क करें",
+      intro:
+        "Agent-Native के बारे में सवाल, समस्या रिपोर्ट, सुधार सुझाव या security concern के लिए support, source और community channels का उपयोग करें।",
+      emailLabel: "support@builder.io को ईमेल भेजें",
+      sections: {
+        support: {
+          title: "Product और hosted-service support",
+          body: "Hosted application, account access, documentation problem या ऐसे behavior के बारे में जिसे आप हल नहीं कर पा रहे हैं, support@builder.io पर लिखें। Public URL, छोटी reproducible description और relevant request या run identifier दें। Passwords, API keys, bearer tokens या private customer data न भेजें।",
+        },
+        source: {
+          title: "ओपन-सोर्स प्रोजेक्ट और community",
+          body: "Source-level bugs, feature proposals, pull requests और implementation discussion के लिए GitHub repository का उपयोग करें। दूसरे developers के साथ बातचीत से लाभ होने वाले सवालों के लिए Discord उपयोगी है। पहले existing issues और docs खोजें ताकि maintainers को ज़रूरी context मिल सके।",
+        },
+        security: {
+          title: "सुरक्षा रिपोर्ट",
+          body: "Unpatched vulnerability को public issue या chat में साझा न करें। उपलब्ध security channel से Builder.io को contact करें और reproduce तथा assess करने के लिए ज़रूरी details ही दें। Credentials, private data और exploit material को सामान्य support requests से बाहर रखें।",
+        },
+        legal: {
+          title: "कानूनी और privacy जानकारी",
+          body: "Privacy questions के लिए support से पहले Agent-Native privacy policy और Builder.io legal resources देखें। Builder.io, Inc. का पता 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States है। Hosted-service terms और self-hosting responsibilities Terms of Service में हैं।",
+        },
+      },
+    },
     terms: {
       eyebrow: "सेवा की शर्तें",
       title: "Agent-Native होस्ट किए गए एप्लिकेशन",
@@ -1896,6 +1945,7 @@ const hiIN = {
     externalAgents: "External Agents (host connect करें)",
     externalAgentsCatalog: "बाहरी एजेंट कैटलॉग",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (ब्राउज़र टूल्स)",
     crossAppSso: "Cross-app SSO",
     notifications: "सूचनाएँ",
     automationConnectors: "वर्कफ़्लो कनेक्टर",
@@ -1920,8 +1970,8 @@ const hiIN = {
     calendar: "कैलेंडर",
     calendarOverview: "अवलोकन",
     calendarAgent: "एजेंट से बात करें",
-    calendarScheduling: "शेड्यूलिंग और उपलब्धता",
-    calendarBookingLinks: "बुकिंग लिंक",
+    calendarFeatures: "सुविधाएं",
+    calendarIntegrations: "क्रॉस-ऐप उपयोग",
     calendarDevelopers: "डेवलपर गाइड",
     content: "कॉन्टेंट",
     contentOverview: "अवलोकन",

@@ -1685,6 +1685,55 @@ const jaJP = {
         builderPrivacyFull: "Builder.io プライバシー ポリシー",
       },
     },
+    about: {
+      eyebrow: "Agent-Native について",
+      title: "エージェントと人のためのオープンソースアプリ",
+      intro:
+        "Agent-Native は、AI エージェントとユーザーインターフェースが同じアクション、データ、アプリケーション状態を共有するアプリを構築するためのオープンソースフレームワークです。",
+      sections: {
+        project: {
+          title: "共有された実行モデル",
+          body: "Agent-Native ではエージェントとインターフェースを対等なパートナーとして扱います。1つのアクションが UI コントロール、エージェントツール、HTTP エンドポイント、MCP または A2A の機能、CLI コマンド、監査可能なワークフローを支えます。共有 SQL 状態によって人とエージェントの表示が一致します。",
+        },
+        openSource: {
+          title: "標準でオープンソース",
+          body: "ソースコードは MIT ライセンスで BuilderIO/agent-native リポジトリから利用できます。実装の確認、ローカル実行、データベースやモデルプロバイダーの選択、製品への適応が可能です。ホスト型サービスは fork や自己ホストのデプロイとは別に運用されます。",
+        },
+        hosted: {
+          title: "ホスト型と自己ホスト型",
+          body: "Builder.io は agent-native.com で Agent-Native のホスト型アプリとドキュメントを運用しています。自分でアプリをデプロイし保守したいチームにも対応します。アクション契約、アクセス境界、エージェント指示、公開プロトコルはコードとドキュメントで確認できます。",
+        },
+        community: {
+          title: "公開開発",
+          body: "このプロジェクトは GitHub の issue、pull request、ドキュメント、Agent-Native コミュニティを通じて公開で開発されています。ドキュメントで設計を学び、コードで実装を確認し、ユースケースを相談したり変更に貢献したりできます。",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "お問い合わせ",
+      title: "Agent-Native について Builder.io に連絡する",
+      intro:
+        "Agent-Native に関する質問、問題の報告、改善提案、安全性に関する懸念には、以下のサポート、ソース、コミュニティの窓口をご利用ください。",
+      emailLabel: "support@builder.io にメールする",
+      sections: {
+        support: {
+          title: "製品とホスト型サービスのサポート",
+          body: "ホスト型アプリ、アカウントアクセス、ドキュメントの問題、解決できない動作については support@builder.io にご連絡ください。公開 URL、再現できる最小の説明、関連するリクエストや実行 ID を含めてください。パスワード、API キー、Bearer トークン、非公開の顧客データは送らないでください。",
+        },
+        source: {
+          title: "オープンソースプロジェクトとコミュニティ",
+          body: "ソースコードのバグ、機能提案、pull request、実装の議論には GitHub リポジトリをご利用ください。ほかの開発者との対話が役立つ質問には Discord が適しています。まず issue とドキュメントを検索し、メンテナーが必要な背景を把握できるようにしてください。",
+        },
+        security: {
+          title: "セキュリティ報告",
+          body: "未修正の脆弱性を公開 issue やチャットで開示しないでください。利用可能なセキュリティ窓口から Builder.io に連絡し、再現と評価に必要な情報だけを提供してください。認証情報、非公開データ、悪用手順は通常のサポート依頼に含めないでください。",
+        },
+        legal: {
+          title: "法律とプライバシー",
+          body: "プライバシーに関する質問は、サポートへ連絡する前に Agent-Native のプライバシーポリシーと Builder.io の法務リソースをご確認ください。Builder.io, Inc. の住所は 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States です。ホスト型サービスの規約と自己ホストの責任は利用規約に記載されています。",
+        },
+      },
+    },
     terms: {
       eyebrow: "利用規約",
       title: "Agent-Native ホスト型アプリケーション",
@@ -1911,6 +1960,7 @@ const jaJP = {
     externalAgents: "外部 Agents (ホスト接続)",
     externalAgentsCatalog: "外部 Agents カタログ",
     mcpApps: "MCP Apps (インライン UI)",
+    webMcp: "WebMCP (ブラウザ ツール)",
     crossAppSso: "クロスアプリ SSO",
     notifications: "通知",
     automationConnectors: "ワークフローコネクタ",
@@ -1935,8 +1985,8 @@ const jaJP = {
     calendar: "カレンダー",
     calendarOverview: "概要",
     calendarAgent: "Agent との対話",
-    calendarScheduling: "予定と空き時間",
-    calendarBookingLinks: "予約リンク",
+    calendarFeatures: "機能",
+    calendarIntegrations: "クロスアプリ利用",
     calendarDevelopers: "開発者ガイド",
     content: "コンテンツ",
     contentOverview: "概要",

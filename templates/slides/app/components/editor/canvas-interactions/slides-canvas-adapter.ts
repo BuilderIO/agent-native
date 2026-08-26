@@ -146,8 +146,10 @@ export function resolveSlidesCanvasPointerIntent({
 }): SlidesCanvasPointerIntent {
   if (
     hasSelectedObject &&
-    (targetWithinSelectedObject || targetContainsSelectedObject) &&
-    pointerWithinMoveBand
+    pointerWithinMoveBand &&
+    (targetWithinSelectedObject ||
+      targetContainsSelectedObject ||
+      !targetIsEditableText)
   ) {
     return "move-object-perimeter";
   }

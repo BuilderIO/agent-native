@@ -1654,6 +1654,55 @@ const messages = {
         builderPrivacyFull: "Builder.io 隱私政策",
       },
     },
+    about: {
+      eyebrow: "關於 Agent-Native",
+      title: "為 agents 與人打造的開放原始碼應用程式",
+      intro:
+        "Agent-Native 是開放原始碼框架，用來建立讓 AI agents 與使用者介面共用相同 actions、資料和應用程式狀態的應用程式。",
+      sections: {
+        project: {
+          title: "共用的執行模型",
+          body: "Agent-Native 將 agent 與介面視為平等夥伴。同一個 action 可以提供 UI 控制項、agent 工具、HTTP 端點、MCP 或 A2A 能力、CLI 指令和可稽核流程。共用的 SQL 狀態讓人的視圖和 agent 的視圖保持一致，而不是另外建立隱藏系統。",
+        },
+        openSource: {
+          title: "預設開放原始碼",
+          body: "原始碼以 MIT 授權發布於 BuilderIO/agent-native 儲存庫。開發者可以檢查實作、在本機執行、選擇資料庫和模型供應商，並依產品需要調整。託管服務與 fork 及自託管部署分開營運。",
+        },
+        hosted: {
+          title: "託管與自託管",
+          body: "Builder.io 在 agent-native.com 營運 Agent-Native 託管應用程式和文件。框架也為想要部署及維護自己應用程式的團隊而設計。相同的 action 合約、存取邊界、agent 指示和公開協定都能在原始碼和文件中檢查。",
+        },
+        community: {
+          title: "公開建置",
+          body: "專案透過 GitHub issue、pull request、文件和 Agent-Native 社群公開開發。閱讀文件了解架構，檢查原始碼驗證實作，或加入社群討論使用情境並貢獻改動。",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "聯絡",
+      title: "聯絡 Builder.io 了解 Agent-Native",
+      intro:
+        "使用以下支援、原始碼和社群管道提問、回報問題、建議改善，或提出 Agent-Native 的安全疑慮。",
+      emailLabel: "寄信至 support@builder.io",
+      sections: {
+        support: {
+          title: "產品與託管服務支援",
+          body: "如果你對託管應用程式、帳戶存取、文件問題或無法解決的行為有疑問，請寄信至 support@builder.io。請提供公開 URL、最小可重現描述和相關請求或執行識別碼。請勿在支援訊息中傳送密碼、API 金鑰、Bearer token 或私人客戶資料。",
+        },
+        source: {
+          title: "開放原始碼專案與社群",
+          body: "使用 GitHub 儲存庫回報原始碼錯誤、提出功能建議、提交 pull request 或討論實作。Discord 適合需要和其他開發者交流的問題。請先搜尋既有 issue 和文件，讓維護者取得必要背景。",
+        },
+        security: {
+          title: "安全性回報",
+          body: "不要在公開 issue 或聊天中揭露尚未修補的漏洞。請透過可用的安全管道聯絡 Builder.io，只提供重現和評估所需的資訊。請勿在一般支援請求中提供憑證、私人資料或漏洞利用材料。",
+        },
+        legal: {
+          title: "法律與隱私",
+          body: "隱私問題請先閱讀 Agent-Native 隱私政策和 Builder.io 法律資源，再聯絡支援團隊。Builder.io, Inc. 地址為 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States。託管服務條款和自託管責任載於服務條款。",
+        },
+      },
+    },
     terms: {
       eyebrow: "服務條款",
       title: "Agent-Native 託管應用程式",
@@ -1873,6 +1922,7 @@ const messages = {
     externalAgents: "外部 Agents（連線主機）",
     externalAgentsCatalog: "外部 Agents 目錄",
     mcpApps: "MCP Apps（行內 UI）",
+    webMcp: "WebMCP（瀏覽器工具）",
     crossAppSso: "跨應用 SSO",
     notifications: "通知",
     automationConnectors: "工作流程連接器",
@@ -1897,8 +1947,8 @@ const messages = {
     calendar: "行事曆",
     calendarOverview: "總覽",
     calendarAgent: "與 Agent 對話",
-    calendarScheduling: "排程與可用時間",
-    calendarBookingLinks: "預約連結",
+    calendarFeatures: "功能",
+    calendarIntegrations: "跨應用使用",
     calendarDevelopers: "開發者指南",
     content: "內容",
     contentOverview: "總覽",

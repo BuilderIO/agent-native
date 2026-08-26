@@ -1693,6 +1693,55 @@ const frFR = {
         builderPrivacyFull: "Builder.io Politique de confidentialité",
       },
     },
+    about: {
+      eyebrow: "À propos d’Agent-Native",
+      title: "Des applications open source pour les agents et les personnes",
+      intro:
+        "Agent-Native est un framework open source qui permet de créer des applications où les agents IA et les interfaces partagent les mêmes actions, données et état applicatif.",
+      sections: {
+        project: {
+          title: "Un modèle opérationnel partagé",
+          body: "Agent-Native considère l’agent et l’interface comme des partenaires égaux. Une seule action peut alimenter un contrôle UI, un outil d’agent, une route HTTP, une capacité MCP ou A2A, une commande CLI et un flux auditable. L’état SQL partagé garde les vues humaine et agent alignées.",
+        },
+        openSource: {
+          title: "Open source par défaut",
+          body: "Le code source est disponible sous licence MIT dans le dépôt BuilderIO/agent-native. Les développeurs peuvent l’inspecter, l’exécuter localement, choisir leur base de données et leurs fournisseurs de modèles, puis l’adapter à leur produit. Les services hébergés sont séparés des forks et déploiements autonomes.",
+        },
+        hosted: {
+          title: "Hébergé ou auto-hébergé",
+          body: "Builder.io exploite les applications hébergées et la documentation Agent-Native sur agent-native.com. Le framework est aussi conçu pour les équipes qui souhaitent déployer et maintenir leurs propres applications. Les contrats d’actions, limites d’accès, instructions d’agent et protocoles publics sont vérifiables dans le code et la documentation.",
+        },
+        community: {
+          title: "Développé au grand jour",
+          body: "Le projet avance publiquement grâce aux issues GitHub, pull requests, à la documentation et à la communauté Agent-Native. Consultez la documentation pour comprendre l’architecture, le code pour vérifier une implémentation, ou la communauté pour discuter d’un cas d’usage et contribuer.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "Contact",
+      title: "Contacter Builder.io au sujet d’Agent-Native",
+      intro:
+        "Utilisez les canaux de support, de code source et de communauté pour poser une question, signaler un problème, proposer une amélioration ou communiquer un sujet de sécurité.",
+      emailLabel: "Écrire à support@builder.io",
+      sections: {
+        support: {
+          title: "Support produit et service hébergé",
+          body: "Pour une question sur une application hébergée, un accès de compte, un problème de documentation ou un comportement difficile à résoudre, écrivez à support@builder.io. Ajoutez l’URL publique, une description reproductible et tout identifiant de requête ou d’exécution utile. N’envoyez jamais de mot de passe, clé API, jeton ou donnée privée.",
+        },
+        source: {
+          title: "Projet open source et communauté",
+          body: "Utilisez le dépôt GitHub pour les bugs du code, propositions, pull requests et discussions d’implémentation. Discord convient aux questions qui profitent d’un échange avec d’autres développeurs. Recherchez d’abord les issues et la documentation afin de fournir le contexte nécessaire aux mainteneurs.",
+        },
+        security: {
+          title: "Signalements de sécurité",
+          body: "Ne publiez pas une vulnérabilité non corrigée dans une issue ou un chat public. Contactez Builder.io via le canal de sécurité disponible et transmettez uniquement les éléments nécessaires à la reproduction et à l’évaluation. Gardez les identifiants, données privées et contenus d’exploitation hors du support ordinaire.",
+        },
+        legal: {
+          title: "Juridique et confidentialité",
+          body: "Pour les questions de confidentialité, consultez la politique Agent-Native et les ressources juridiques Builder.io avant de contacter le support. Builder.io, Inc. est situé au 95 3rd Street, 2nd Floor, San Francisco, CA 94103, États-Unis. Les conditions du service hébergé et les responsabilités de l’auto-hébergement sont décrites dans les Conditions d’utilisation.",
+        },
+      },
+    },
     terms: {
       eyebrow: "Conditions d'utilisation",
       title: "Agent-Native applications hébergées",
@@ -1919,6 +1968,7 @@ const frFR = {
     externalAgents: "Agents externes (connecter un hôte)",
     externalAgentsCatalog: "Catalogue d'agents externes",
     mcpApps: "MCP Apps (UI intégrées)",
+    webMcp: "WebMCP (outils du navigateur)",
     crossAppSso: "SSO entre apps",
     notifications: "Alertes",
     automationConnectors: "Connecteurs de workflow",
@@ -1943,8 +1993,8 @@ const frFR = {
     calendar: "Calendrier",
     calendarOverview: "Vue d'ensemble",
     calendarAgent: "Parler à l'agent",
-    calendarScheduling: "Planification et disponibilités",
-    calendarBookingLinks: "Liens de réservation",
+    calendarFeatures: "Fonctionnalités",
+    calendarIntegrations: "Utilisation multi-apps",
     calendarDevelopers: "Guide développeur",
     content: "Contenu",
     contentOverview: "Vue d'ensemble",

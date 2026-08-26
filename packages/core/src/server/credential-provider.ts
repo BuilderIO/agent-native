@@ -1692,6 +1692,157 @@ export async function resolveSecret(key: string): Promise<string | null> {
   return null;
 }
 
+type SecretPairKeys = readonly [string, string];
+type ResolveSecretPairOptions = {
+  allowUserScope?: boolean;
+  preferWorkspaceScope?: boolean;
+};
+
+/**
+ * Resolve the first complete pair from the requested aliases. A complete
+ * lower-precedence pair wins over mixing a partial override with another
+ * source, and workspace preference applies across every alias before org.
+ */
+export async function resolveSecretPairs(
+  keyPairs: ReadonlyArray<SecretPairKeys>,
+  options?: ResolveSecretPairOptions,
+): Promise<[string, string] | null> {
+  if (keyPairs.length === 0) return null;
+
+  const allowUserScope = options?.allowUserScope ?? true;
+  const preferWorkspaceScope = options?.preferWorkspaceScope ?? false;
+  const readPair = async (
+    keys: SecretPairKeys,
+    scope: "user" | "org" | "workspace",
+    scopeId: string,
+  ): Promise<[string, string] | null> => {
+    const { readAppSecrets } = await import("../secrets/storage.js");
+    const secrets = await readAppSecrets({ keys, scope, scopeId });
+    const [firstKey, secondKey] = keys;
+    const first = secrets.get(firstKey)?.value;
+    const second = secrets.get(secondKey)?.value;
+    return first && second ? [first, second] : null;
+  };
+  const readPairs = async (
+    scope: "user" | "org" | "workspace",
+    scopeId: string,
+  ): Promise<[string, string] | null> => {
+    for (const keys of keyPairs) {
+      const pair = await readPair(keys, scope, scopeId);
+      if (pair) return pair;
+    }
+    return null;
+  };
+  const readEnvironmentPairs = (): [string, string] | null => {
+    for (const [firstKey, secondKey] of keyPairs) {
+      if (
+        !canUseDeployCredentialFallbackForRequest(firstKey) ||
+        !canUseDeployCredentialFallbackForRequest(secondKey)
+      ) {
+        continue;
+      }
+      const first = process.env[firstKey];
+      const second = process.env[secondKey];
+      if (first && second) return [first, second];
+    }
+    return null;
+  };
+
+  const email = getRequestUserEmail();
+  if (!email) return readEnvironmentPairs();
+
+  let lookupFailed = false;
+  let cause: unknown;
+  try {
+    let pair: [string, string] | null = null;
+    if (allowUserScope) {
+      pair = await readPairs("user", email);
+      if (pair) return pair;
+    }
+
+    let orgId: string | null | undefined = getRequestOrgId();
+    if (!orgId) {
+      const resolved = await resolveOrgIdForRequestEmail(email);
+      cause = resolved.cause;
+      lookupFailed = cause !== undefined;
+      orgId = resolved.orgId;
+    }
+
+    if (lookupFailed) {
+      const environmentPair = readEnvironmentPairs();
+      if (environmentPair) return environmentPair;
+      assertCredentialStoreReadable({ lookupFailed, cause });
+      return null;
+    }
+
+    if (orgId) {
+      if (preferWorkspaceScope) {
+        pair = await readPairs("workspace", orgId);
+        if (pair) return pair;
+      }
+      pair = await readPairs("org", orgId);
+      if (pair) return pair;
+      if (!preferWorkspaceScope) {
+        pair = await readPairs("workspace", orgId);
+        if (pair) return pair;
+      }
+    }
+
+    if (allowUserScope) {
+      pair = await readPairs("workspace", `solo:${email}`);
+      if (pair) return pair;
+    }
+
+    const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
+    if (vaultOrgId && vaultOrgId !== orgId) {
+      const readDesignatedVaultPairs = async (
+        scope: "org" | "workspace",
+      ): Promise<[string, string] | null> => {
+        for (const keys of keyPairs) {
+          const access = await Promise.all(
+            keys.map((key) => canReadDesignatedVaultFallback(vaultOrgId, key)),
+          );
+          const unavailable = access.find(
+            (result) => result.status === "unavailable",
+          );
+          if (unavailable?.status === "unavailable") {
+            lookupFailed = true;
+            cause = unavailable.cause;
+            continue;
+          }
+          if (access.every((result) => result.status === "allowed")) {
+            const pair = await readPair(keys, scope, vaultOrgId);
+            if (pair) return pair;
+          }
+        }
+        return null;
+      };
+      const designatedScopes: Array<"org" | "workspace"> = preferWorkspaceScope
+        ? ["workspace", "org"]
+        : ["org", "workspace"];
+      for (const scope of designatedScopes) {
+        pair = await readDesignatedVaultPairs(scope);
+        if (pair) return pair;
+      }
+    }
+  } catch (error) {
+    lookupFailed = true;
+    cause = error;
+  }
+
+  const environmentPair = readEnvironmentPairs();
+  if (environmentPair) return environmentPair;
+  assertCredentialStoreReadable({ lookupFailed, cause });
+  return null;
+}
+
+export async function resolveSecretPair(
+  keys: SecretPairKeys,
+  options?: ResolveSecretPairOptions,
+): Promise<[string, string] | null> {
+  return resolveSecretPairs([keys], options);
+}
+
 /**
  * `resolveSecret` without the throw: reports whether the miss is definitive
  * (`lookupFailed: false` — no such row anywhere the caller can reach) or just

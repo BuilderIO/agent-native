@@ -282,42 +282,46 @@ export function visibleOrgAppLinks(
 }
 
 function initialWorkspaceLinks(env: RuntimeEnv): OrgSwitcherAppLink[] {
-  return (
-    parseWorkspaceAppLinksJson(
-      envString(env, "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON"),
-      env,
-    ) ?? [
-      {
-        id: DISPATCH_ID,
-        name: "Dispatch",
-        href: appendPath(workspaceHref("/dispatch", null, env), "overview"),
-        description: "Workspace hub",
-        icon: getTemplate(DISPATCH_ID)?.icon,
-        isDispatch: true,
-        status: "ready",
-      },
-    ]
-  );
+  return [
+    {
+      id: DISPATCH_ID,
+      name: "Dispatch",
+      href: appendPath(workspaceHref("/dispatch", null, env), "overview"),
+      description: "Workspace hub",
+      icon: getTemplate(DISPATCH_ID)?.icon,
+      isDispatch: true,
+      status: "ready",
+    },
+  ];
 }
 
-function workspaceAppFetchUrls(env: RuntimeEnv): string[] {
-  const urls: string[] = [];
+export function workspaceAppFetchUrls(env: RuntimeEnv): string[] {
+  const urls = [
+    "/_agent-native/actions/list-workspace-apps?includeAgentCards=false",
+  ];
   const gatewayUrl = envString(env, "VITE_WORKSPACE_GATEWAY_URL");
   if (gatewayUrl) {
     try {
-      urls.push(
-        new URL(
-          "/_workspace/apps",
-          `${stripTrailingSlash(gatewayUrl)}/`,
-        ).toString(),
-      );
+      const gateway = new URL(gatewayUrl);
+      const localGateway = [
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+      ].includes(gateway.hostname.replace(/^\[|\]$/g, "").toLowerCase());
+      if (localGateway) {
+        urls.push(
+          new URL(
+            "/_workspace/apps",
+            `${stripTrailingSlash(gatewayUrl)}/`,
+          ).toString(),
+        );
+      }
     } catch {
-      // Fall through to the same-origin Dispatch action below.
+      // coercion-ok: malformed gateway URL leaves the authenticated action as
+      // the only hosted source.
     }
   }
-  urls.push(
-    "/_agent-native/actions/list-workspace-apps?includeAgentCards=false",
-  );
   return urls;
 }
 

@@ -29,6 +29,10 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("...(userEmail ? { viewerEmail: userEmail } : {})");
     expect(route).toContain("apiAccessDeniedStatus");
     expect(route).toContain("accessDeniedStatus");
+    expect(route).toContain('const startAt = searchParams.get("at")');
+    expect(route).toContain(
+      "buildShareContinuationQuery(attribution, startAt)",
+    );
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
@@ -100,7 +104,7 @@ describe("authenticated recording route loading", () => {
     expect(recordingRoute).not.toContain("InsightsUnavailableState");
   });
 
-  it("keeps Share primary and places overflow after it in clip viewers", () => {
+  it("gates private recipient sharing and places overflow after Share", () => {
     const recordingRoute = readRoute("r.$recordingId.tsx");
     const shareRoute = readRoute("share.$shareId.tsx");
     const trigger = readFileSync(
@@ -108,6 +112,15 @@ describe("authenticated recording route loading", () => {
       "utf8",
     );
 
+    expect(recordingRoute).toContain("const isPrivateRecipient =");
+    expect(recordingRoute).toContain(
+      '(role === "viewer" || role === "commenter") &&',
+    );
+    expect(recordingRoute).toContain('recording?.visibility === "private";');
+    expect(recordingRoute.match(/isPrivateRecipient \? \(/g)).toHaveLength(2);
+    expect(
+      recordingRoute.match(/t\("recordingPage\.sharedWithYou"\)/g),
+    ).toHaveLength(2);
     expect(recordingRoute.match(/<ClipsShareTrigger/g)).toHaveLength(2);
     expect(shareRoute).toContain("<ClipsShareTrigger");
     expect(trigger).toContain('intent="primary"');

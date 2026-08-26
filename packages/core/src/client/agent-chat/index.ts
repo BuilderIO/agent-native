@@ -359,3 +359,17 @@ export {
   type ChatFirstSurfaceTabsState,
   type ChatFirstSurfaceTabsStore,
 } from "../chat-first.js";
+export {
+  ThinkingDisplayProvider,
+  getBrowserThinkingDisplay,
+  setBrowserThinkingDisplay,
+  subscribeToBrowserThinkingDisplay,
+  useThinkingDisplay,
+  useThinkingDisplayControl,
+} from "../thinking-display.js";
+export {
+  DEFAULT_THINKING_DISPLAY,
+  THINKING_DISPLAY_MODES,
+  isThinkingDisplay,
+  type ThinkingDisplay,
+} from "../../shared/thinking-display.js";

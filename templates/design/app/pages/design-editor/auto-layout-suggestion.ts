@@ -1,6 +1,9 @@
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 
-import type { AlignableRect } from "./layout-operations";
+import {
+  inferFlowAxisFromRects,
+  type AlignableRect,
+} from "./layout-operations";
 
 export interface AutoLayoutInsets {
   top: number;
@@ -120,8 +123,7 @@ export function inferAutoLayoutSuggestion(args: {
   const maxY = Math.max(...children.map((child) => child.y + child.height));
   const spreadX = maxX - minX;
   const spreadY = maxY - minY;
-  const direction: "row" | "column" =
-    children.length === 1 ? "column" : spreadX >= spreadY ? "row" : "column";
+  const direction = inferFlowAxisFromRects(children);
   const primaryStart = (child: SuggestionRect) =>
     direction === "row" ? child.x : child.y;
   const primarySize = (child: SuggestionRect) =>

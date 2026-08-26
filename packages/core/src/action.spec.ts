@@ -342,6 +342,18 @@ describe("defineAction", () => {
     expect(action.needsApproval).toBe(gate);
   });
 
+  it("preserves a per-call-only approval policy on the returned entry", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: true,
+      allowPersistentApproval: false,
+      run: async () => "sent",
+    });
+
+    expect(action.allowPersistentApproval).toBe(false);
+  });
+
   it("leaves needsApproval undefined when not specified (default off)", () => {
     const action = defineAction({
       description: "send an email",
@@ -967,15 +979,17 @@ describe("defineAction — authorize", () => {
 // AgentActionStopError — the stop-the-turn signal used by actions.
 // ---------------------------------------------------------------------------
 describe("AgentActionStopError", () => {
-  it("carries the stop marker, errorCode, and toolResult", () => {
+  it("carries the stop marker, safe details, errorCode, and toolResult", () => {
     const err = new AgentActionStopError("nothing more to do", {
       errorCode: "DONE",
+      details: { reason: "complete" },
       toolResult: "Stopped.",
     });
     expect(err).toBeInstanceOf(Error);
     expect(err.name).toBe("AgentActionStopError");
     expect(err.agentNativeStop).toBe(true);
     expect(err.errorCode).toBe("DONE");
+    expect(err.details).toEqual({ reason: "complete" });
     expect(err.toolResult).toBe("Stopped.");
   });
 

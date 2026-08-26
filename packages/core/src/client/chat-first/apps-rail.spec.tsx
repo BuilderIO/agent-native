@@ -322,6 +322,53 @@ describe("ChatFirstAppsRail", () => {
     ).toEqual(defaultAppIds);
   });
 
+  it("opens collapsed app actions and reloads the selected app", async () => {
+    const onReloadApp = vi.fn();
+    const app = { id: "calendar", name: "Calendar" };
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[app]}
+          collapsed
+          onOpenApp={vi.fn()}
+          onReloadApp={onReloadApp}
+          renderIcon={(item) => <span>{item.name}</span>}
+        />,
+      );
+    });
+
+    const appButton = container.querySelector<HTMLButtonElement>(
+      '[data-app-id="calendar"]',
+    );
+    expect(appButton).not.toBeNull();
+
+    await act(async () => {
+      appButton?.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          button: 2,
+          clientX: 40,
+          clientY: 40,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const reloadItem = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent?.trim() === "Reload app");
+    expect(reloadItem).not.toBeUndefined();
+
+    act(() => {
+      reloadItem?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      reloadItem?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onReloadApp).toHaveBeenCalledWith(app);
+  });
+
   it("persists the expanded rail state across remounts", () => {
     const apps = Array.from({ length: 7 }, (_, index) => ({
       id: `app-${index}`,

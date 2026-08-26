@@ -62,7 +62,6 @@ vi.mock("./run-store.js", () => ({
           type: "error",
           error: detail || "The agent run failed.",
           ...(code && code !== "unknown" ? { errorCode: code } : {}),
-          recoverable: true,
         },
         shouldPersist: true,
       };
@@ -3607,7 +3606,6 @@ describe("run manager soft timeout", () => {
       expect.objectContaining({
         type: "error",
         error: "Connection error.",
-        recoverable: true,
       }),
     );
   });
@@ -4322,6 +4320,38 @@ describe("run manager soft timeout", () => {
   // a user Stop still ends the turn, so both abort sources are exercised here
   // against the same runFn.
   describe("chunk-scoped checkpoints", () => {
+    it("bounds recoverable chunks with the cumulative soft-timeout timer", async () => {
+      let signalReason: unknown;
+      let boundaryReason: string | null = null;
+
+      const run = startRun(
+        "run-chunk-soft-timeout",
+        "thread-chunk-soft-timeout",
+        async (_send, signal, control) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                signalReason = signal.reason;
+                boundaryReason = control.chunkBoundaryReason();
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        },
+        undefined,
+        { softTimeoutMs: 100, recoverChunkBoundaries: true },
+      );
+
+      await vi.advanceTimersByTimeAsync(101);
+      await run.finalized;
+
+      expect(signalReason).toBe("run_timeout");
+      expect(boundaryReason).toBe("run_timeout");
+      expect(run.abort.signal.aborted).toBe(true);
+    });
+
     it("ends only the chunk on a no-progress boundary, leaving the turn alive", async () => {
       const chunkAborts: unknown[] = [];
       let turnAborted = false;

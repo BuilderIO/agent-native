@@ -98,6 +98,16 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain('t("shareDialog.copyEmailPreview")');
   });
 
+  it("offers a visible timestamped public share link control", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain('url.searchParams.set("at",');
+    expect(shareDialogSource).toContain('t("shareDialog.startAtTimestamp"');
+    expect(shareDialogSource).not.toContain(
+      'typeof currentMs === "number" ? (',
+    );
+  });
+
   it("offers commenter as a distinct recording role", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
     const shareUiSource = readSource("../sharing/share-ui.tsx");
@@ -118,5 +128,22 @@ describe("recording share popover", () => {
     expect(shareUiSource).toContain("getRoleLabel(s.role)");
     expect(shareUiSource).toContain('useState<Role>("viewer")');
     expect(meetingDialogSource).not.toContain("roleCopy");
+  });
+
+  it("lets managers change an existing share role", () => {
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
+
+    expect(shareUiSource).toContain(
+      "const handleChangeRole = (s: Share, nextRole: Role)",
+    );
+    expect(shareUiSource).toContain("principalType: s.principalType");
+    expect(shareUiSource).toContain("principalId: s.principalId");
+    expect(shareUiSource).toContain("role: nextRole");
+    expect(shareUiSource).toContain('onError?.(err, "permission")');
+    expect(shareUiSource).toContain("value={s.role}");
+    expect(shareUiSource).toContain(
+      "onValueChange={(value) => handleChangeRole(s, value as Role)}",
+    );
+    expect(shareUiSource).toContain("disabled={share.isPending}");
   });
 });

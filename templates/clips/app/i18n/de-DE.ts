@@ -146,6 +146,7 @@ const messages = {
     recordingNotFound: "Aufnahme nicht gefunden",
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
     backToLibrary: "Zurück zur Bibliothek",
+    sharedWithYou: "Mit Ihnen geteilt",
     storageStillDisconnected: "Der Speicher ist immer noch nicht verbunden",
     finishBuilderOrS3:
       "Beenden Sie das Builder.io-Popup oder konfigurieren Sie den S3-Speicher und versuchen Sie es dann erneut.",
@@ -535,6 +536,7 @@ const messages = {
     height: "Höhe",
     autoplay: "Übersetzt: Autoplay",
     startAt: "Beginnen bei (Sekunden)",
+    startAtTimestamp: "Bei {{time}} starten",
     embedCode: "Einbettungscode",
     sharePlainTitle: "Teilen {{title}}",
   },
@@ -1026,8 +1028,6 @@ const messages = {
     editComment: "Kommentar bearbeiten",
     commentButton: "Kommentar",
     composerPlaceholder: "Kommentar hinzufügen…",
-    mentionSomeone: "Jemanden erwähnen",
-    addEmoji: "Emoji hinzufügen",
   },
   shareMeeting: {
     pageTitle: "Meeting-Notizen · Clips",
@@ -1575,6 +1575,7 @@ const messages = {
     invite: "Einladen",
     inviteFailed: "Person konnte nicht eingeladen werden",
     removePersonFailed: "Person konnte nicht entfernt werden",
+    permissionUpdateFailed: "Berechtigung konnte nicht aktualisiert werden",
     passwordProtectedDescription:
       "Dieses Video ist geschützt. Passwort eingeben, um es anzusehen.",
     password: "Passwort",

@@ -309,6 +309,10 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain('<DesktopRailTooltip label="Settings">');
     expect(hubSource).toContain("onClick={() => onOpenSettings()}");
     expect(hubSource).toContain("<IconSettings");
+    expect(hubSource).toContain("desktop-chat-first-rail-chat");
+    expect(hubSource).toContain('aria-label="Toggle chat sidebar"');
+    expect(hubSource).toContain('new CustomEvent("agent-panel:toggle"');
+    expect(hubSource).toContain("scopeId: activeChatFirstSurfaceTab?.id");
     expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
@@ -332,12 +336,24 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-feedback\s*\{[\s\S]*?flex: 1 1 auto;/,
     );
     expect(shellCss).toContain("desktop-chat-first-rail-settings");
-    expect(shellCss).toContain("visibility: hidden;");
     expect(shellCss).toContain("margin-top: auto;");
     expect(shellCss).toContain("height: 100%;");
     expect(shellCss).toContain("min-height: 0;");
     expect(shellCss).toContain("z-index: 1;");
     expect(shellCss).toContain("[data-chat-first-rail-collapse]");
+    expect(shellCss).toContain("[data-chat-first-app][data-app-id]:hover");
+    expect(shellCss).toContain("background-color: transparent;");
+  });
+
+  it("removes the hidden chat list from the collapsed rail layout", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub\s+\.code-agents-rail--collapsed\s+\.code-agents-run-list\s*\{[\s\S]*?display: none;/,
+    );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub\s+\.code-agents-rail--collapsed\s+\.code-agents-rail-scroll\s*\{[\s\S]*?scrollbar-gutter: auto;/,
+    );
   });
 
   it("routes Electron-forwarded Cmd+backslash to the chat sidebar", () => {

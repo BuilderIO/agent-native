@@ -144,6 +144,7 @@ const messages = {
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
     backToLibrary: "라이브러리로 돌아가기",
+    sharedWithYou: "나에게 공유됨",
     storageStillDisconnected: "저장소가 아직 연결되지 않았습니다.",
     finishBuilderOrS3:
       "Builder.io 팝업을 완료하거나 S3 스토리지를 구성한 후 다시 시도하세요.",
@@ -518,6 +519,7 @@ const messages = {
     height: "키",
     autoplay: "자동재생",
     startAt: "(초)에 시작",
+    startAtTimestamp: "{{time}}부터 시작",
     embedCode: "임베드 코드",
     sharePlainTitle: "{{title}} 공유",
   },
@@ -991,8 +993,6 @@ const messages = {
     editComment: "댓글 편집",
     commentButton: "댓글",
     composerPlaceholder: "댓글 추가…",
-    mentionSomeone: "멘션하기",
-    addEmoji: "이모지 추가",
   },
   shareMeeting: {
     pageTitle: "회의 노트 · Clips",
@@ -1536,6 +1536,7 @@ const messages = {
     invite: "초대",
     inviteFailed: "사용자를 초대할 수 없습니다",
     removePersonFailed: "사용자를 제거할 수 없습니다",
+    permissionUpdateFailed: "권한을 업데이트할 수 없습니다",
     passwordProtectedDescription:
       "이 동영상은 보호되어 있습니다. 보려면 비밀번호를 입력하세요.",
     password: "비밀번호",

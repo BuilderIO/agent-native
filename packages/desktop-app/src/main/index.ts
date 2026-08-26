@@ -531,6 +531,19 @@ function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   }
 }
 
+// Windows/Linux: a cold start (the app was not already running) delivers the
+// deep link as a plain argv entry instead of firing 'open-url' (macOS-only)
+// or 'second-instance' (only reached by an already-running primary
+// instance), so nothing else observes it before the window loads. Queue it
+// into pendingDeepLink the same way the macOS open-url cold-start path below
+// does, for app.whenReady() to drain into handleDeepLink().
+function capturePendingDeepLinkFromArgv(argv: string[]): void {
+  const deepLink = argv.find(isDeepLinkArg);
+  if (deepLink) {
+    pendingDeepLink = deepLink;
+  }
+}
+
 if (IS_DEV) {
   // electron-vite kills the main process and relaunches it on every rebuild
   // (e.g. when the concurrent `@agent-native/core` tsc --watch under
@@ -539,6 +552,7 @@ if (IS_DEV) {
   // and app.quit() — leaving the killed instance's dead Dock tile behind.
   // Skip the lock in dev; keep the deep-link handler for parity.
   app.on("second-instance", handleSecondInstance);
+  capturePendingDeepLinkFromArgv(process.argv);
   // Quit immediately when electron-vite SIGTERMs us so the old process and its
   // Dock tile vanish at once, before the relaunched instance paints its window.
   const exitNow = () => app.exit(0);
@@ -550,6 +564,7 @@ if (IS_DEV) {
     app.quit();
   } else {
     app.on("second-instance", handleSecondInstance);
+    capturePendingDeepLinkFromArgv(process.argv);
   }
 }
 
@@ -2015,6 +2030,26 @@ function getActiveWebviewContents() {
       })) ||
     webviewContents[0]
   );
+}
+
+function reloadWebviewContents(contents?: Electron.WebContents): boolean {
+  if (!contents) return false;
+  try {
+    if (contents.isDestroyed() || contents.getType() !== "webview") {
+      return false;
+    }
+    contents.reloadIgnoringCache();
+    return true;
+  } catch (error) {
+    console.debug("[desktop] webview reload skipped", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return false;
+  }
+}
+
+function reloadActiveWebview(): boolean {
+  return reloadWebviewContents(getActiveWebviewContents());
 }
 
 function getDesktopShortcutSettings(): DesktopShortcutSettings {
@@ -13483,6 +13518,14 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
+    // Cmd+R reloads the guest that received the key instead of asking the
+    // shell renderer to rediscover the active tab.
+    if (key === "r" && !input.alt) {
+      event.preventDefault();
+      reloadWebviewContents(contents);
+      return;
+    }
+
     // Cmd+Option+Up/Down — previous/next app
     if (input.alt && (key === "arrowup" || key === "arrowdown")) {
       event.preventDefault();
@@ -13517,13 +13560,9 @@ app.on("web-contents-created", (_event, contents) => {
 
     const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, \
+    // Forward other Cmd+ shortcuts: F, L, T, Shift+T, \
     const isShortcut =
-      key === "f" ||
-      key === "l" ||
-      key === "r" ||
-      key === "t" ||
-      isAgentSidebarToggleShortcut;
+      key === "f" || key === "l" || key === "t" || isAgentSidebarToggleShortcut;
 
     if (isShortcut) {
       event.preventDefault();
@@ -14217,13 +14256,9 @@ app.whenReady().then(async () => {
     }
 
     // Cmd+R — refresh active webview, not the shell
-    if (key === "r") {
+    if (key === "r" && !input.alt) {
       _event.preventDefault();
-      win.webContents.send("shortcut:keydown", {
-        key: "r",
-        shiftKey: input.shift,
-        ctrlKey: input.control,
-      });
+      reloadActiveWebview();
       return;
     }
 
