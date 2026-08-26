@@ -50,4 +50,13 @@ describe("SlideEditor render-phase safety", () => {
       'document.addEventListener("visibilitychange", flushWhenHidden',
     );
   });
+
+  it("keeps the live draft ref across lifecycle flushes", () => {
+    const start = source.indexOf("const flushInlineEditDraft");
+    const end = source.indexOf("const flushWhenHidden", start);
+    const flushBody = source.slice(start, end);
+    expect(flushBody).toContain("flushPendingSaves();");
+    expect(flushBody).not.toContain("inlineEditDraftRef.current = null");
+    expect(flushBody).not.toContain("onUpdateSlideRef.current");
+  });
 });

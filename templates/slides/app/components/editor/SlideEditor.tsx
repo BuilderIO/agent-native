@@ -662,9 +662,8 @@ interface SlideEditorProps {
   deckId?: string;
   /**
    * Called the moment the user enters contentEditable inline edit mode.
-   * The parent should call `markDeckDirty(deckId)` here so the SSE/poll
-   * reconcile path knows not to replace the deck under an active in-progress
-   * edit, even before a `content` update has been flushed.
+   * The parent should mark the slide as actively edited so the SSE/poll
+   * reconcile path knows not to replace it before a `content` update is queued.
    */
   onInlineEditStart?: (slideId: string) => void;
   /** Called after inline edit mode exits and its draft has been handed off.
@@ -1558,12 +1557,10 @@ export default function SlideEditor({
   // the keepalive queue before browser teardown.
   useEffect(() => {
     const flushInlineEditDraft = () => {
-      const draft = inlineEditDraftRef.current;
-      if (!draft) return;
-      onUpdateSlideRef.current({ content: draft.content }, draft.slideId, {
-        persistence: "debounced",
-      });
-      inlineEditDraftRef.current = null;
+      // Input captures already enqueue the current draft. Keep the ref while
+      // the editor remains mounted so the first edit after tab restore queues
+      // against the previous snapshot instead of being mistaken for setup.
+      if (!inlineEditDraftRef.current) return;
       flushPendingSaves();
     };
     const flushWhenHidden = () => {
@@ -1648,13 +1645,21 @@ export default function SlideEditor({
     (slideId = slide.id) => {
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
-        if (
-          !inlineEditInitialContentRef.current ||
-          inlineEditInitialContentRef.current.slideId !== slideId
-        ) {
-          inlineEditInitialContentRef.current = { slideId, content: html };
+        const next = { slideId, content: html };
+        const previous = inlineEditDraftRef.current;
+        const initial = inlineEditInitialContentRef.current;
+        if (!initial || initial.slideId !== slideId) {
+          inlineEditInitialContentRef.current = next;
         }
-        inlineEditDraftRef.current = { slideId, content: html };
+        if (
+          previous?.slideId === slideId &&
+          previous.content !== next.content
+        ) {
+          onUpdateSlideRef.current({ content: html }, slideId, {
+            preserveLocalState: true,
+          });
+        }
+        inlineEditDraftRef.current = next;
       }
     },
     [readCurrentSlideContentHtml, slide.id],
@@ -1920,14 +1925,18 @@ export default function SlideEditor({
 
     const html = selected ? readCurrentSlideContentHtml() : null;
     const initial = inlineEditInitialContentRef.current;
-    if (
-      html !== null &&
-      shouldPersistInlineEditContent(initial, {
-        slideId: slide.id,
-        content: html,
-      })
-    ) {
-      onUpdateSlideRef.current({ content: html });
+    if (html !== null) {
+      const current = { slideId: slide.id, content: html };
+      if (shouldPersistInlineEditContent(initial, current)) {
+        const latestDraft = inlineEditDraftRef.current;
+        onUpdateSlideRef.current(
+          { content: html },
+          slide.id,
+          shouldPersistInlineEditContent(latestDraft, current)
+            ? undefined
+            : { recordUndoOnly: true },
+        );
+      }
     }
     onInlineEditEnd?.(slide.id);
     inlineEditDraftRef.current = null;
@@ -1966,9 +1975,9 @@ export default function SlideEditor({
       // resize and auto-fit again on the second click.
       setSelectedElementMeasurement(null);
       captureInlineEditDraft(slide.id);
-      // Mark the deck dirty immediately so SSE/poll refreshes do not replace
-      // the deck under an active contentEditable edit, even before the user
-      // types and triggers an onUpdateSlide flush.
+      // Mark the slide active immediately so SSE/poll refreshes do not replace
+      // the live DOM under an active contentEditable edit, even before the
+      // user types and triggers an onUpdateSlide flush.
       onInlineEditStart?.(slide.id);
       // Don't override the selection. The browser's native double-click
       // word-select (or single-click caret) is already on the element from the
@@ -2009,10 +2018,12 @@ export default function SlideEditor({
       draft?.slideId === previousSlideId &&
       shouldPersistInlineEditContent(initial, draft)
     ) {
-      onUpdateSlideRef.current({ content: draft.content }, previousSlideId);
-      inlineEditDraftRef.current = null;
+      onUpdateSlideRef.current({ content: draft.content }, previousSlideId, {
+        recordUndoOnly: true,
+      });
     }
     if (editing || draft) onInlineEditEnd?.(previousSlideId);
+    inlineEditDraftRef.current = null;
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
@@ -2023,9 +2034,20 @@ export default function SlideEditor({
   // otherwise never clear and permanently block live sync for that slide.
   useEffect(() => {
     return () => {
-      if (editingElRef.current || inlineEditDraftRef.current) {
-        onInlineEditEndRef.current?.(previousSlideIdRef.current);
+      const draft = inlineEditDraftRef.current;
+      const initial = inlineEditInitialContentRef.current;
+      if (shouldPersistInlineEditContent(initial, draft) && draft) {
+        onUpdateSlideRef.current({ content: draft.content }, draft.slideId, {
+          recordUndoOnly: true,
+        });
       }
+      if (editingElRef.current || draft) {
+        onInlineEditEndRef.current?.(
+          draft?.slideId ?? previousSlideIdRef.current,
+        );
+      }
+      inlineEditDraftRef.current = null;
+      inlineEditInitialContentRef.current = null;
     };
   }, []);
 
