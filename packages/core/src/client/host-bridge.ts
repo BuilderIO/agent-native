@@ -590,6 +590,38 @@ function toActionManifest(
   );
 }
 
+function toWebMcpActionManifest(
+  tool: AgentNativeWebMcpTool,
+): AgentNativeActionManifestEntry {
+  const { inputSchema, ...metadata } = tool;
+  return serializeForMessage(
+    {
+      source: "webmcp",
+      availability: "current-page",
+      requiresApproval: true,
+      ...metadata,
+      ...(inputSchema ? { schema: inputSchema, parameters: inputSchema } : {}),
+    },
+    "WebMCP tool manifest",
+  );
+}
+
+function findWebMcpTool(
+  tools: AgentNativeWebMcpTool[],
+  name: string,
+  origin?: string,
+): AgentNativeWebMcpTool | undefined {
+  const matches = tools.filter(
+    (tool) => tool.name === name && (!origin || tool.origin === origin),
+  );
+  if (matches.length > 1 && !origin) {
+    throw new Error(
+      `WebMCP tool "${name}" is exposed by multiple origins; origin is required`,
+    );
+  }
+  return matches[0];
+}
+
 async function resolveActionManifest(
   actions: AgentNativeClientActions | undefined,
 ): Promise<AgentNativeActionManifestEntry[]> {
@@ -927,6 +959,33 @@ export function createAgentNativeHostBridge(
       throw new Error(`Client action "${action.name}" was not approved`);
   }
 
+  async function assertWebMcpApproved(
+    tool: AgentNativeWebMcpTool,
+    args: unknown,
+    context: AgentNativeHostContext,
+    requestId: string | undefined,
+    event: MessageEvent,
+  ): Promise<void> {
+    const response = await runHostCommand(
+      "requestApproval",
+      {
+        action: toWebMcpActionManifest(tool),
+        args,
+        context,
+        session,
+        webmcp: tool,
+      },
+      requestId,
+      event,
+    );
+    const approved =
+      response === true ||
+      (isRecord(response) &&
+        (response.approved === true || response.ok === true));
+    if (!approved)
+      throw new Error(`WebMCP tool "${tool.name}" was not approved`);
+  }
+
   async function handleAction(
     message: IncomingHostMessage,
     event: MessageEvent,
@@ -989,9 +1048,19 @@ export function createAgentNativeHostBridge(
         throw new Error("WebMCP is not enabled for this host");
       }
       if (!name) throw new Error("Missing WebMCP tool name");
+      const tools = await options.webmcp.listTools();
+      const tool = findWebMcpTool(tools, name, message.origin);
+      if (!tool) {
+        throw new Error(`WebMCP tool "${name}" is no longer available`);
+      }
+      const context = attachSession(
+        await resolveHostContext(options.getContext),
+        session,
+      );
+      await assertWebMcpApproved(tool, message.args, context, requestId, event);
       emit({ type: "webmcp-tool", name, requestId, origin: event.origin });
       const result = await options.webmcp.executeTool(
-        { name, origin: message.origin },
+        { name: tool.name, origin: tool.origin },
         message.args,
       );
       post({

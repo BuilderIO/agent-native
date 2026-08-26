@@ -208,6 +208,16 @@ describe("browser session store", () => {
       origin: "https://shop.example",
       args: { id: "order-1" },
     });
+
+    await expect(
+      registerBrowserSession("alice@example.com", {
+        session: { id: "tab-too-many-webmcp" },
+        webmcpTools: Array.from({ length: 101 }, (_, index) => ({
+          name: `tool-${index}`,
+          description: "A tool",
+        })),
+      }),
+    ).rejects.toThrow("100-tool limit");
   });
 
   it("waits for a live browser result", async () => {

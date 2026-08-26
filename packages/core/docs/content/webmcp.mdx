@@ -75,8 +75,9 @@ browser supports WebMCP. It is safe to call when the API is unavailable, and
 
 Action results may be strings or JSON-serializable values. The framework
 returns strings to the browser API and JSON-encodes object results. Inputs,
-schemas, descriptions, and results are bounded before crossing the browser
-boundary. A navigation may return `null`, which is preserved by the consumer.
+schemas, descriptions, results, and aggregate manifests are bounded before
+crossing the browser or persistence boundary. A navigation may return `null`,
+which is preserved by the consumer.
 
 ### Approval and side effects
 
@@ -87,8 +88,9 @@ action has no approval path. The approval callback receives the action, input,
 current host context, and browser-session identity.
 
 WebMCP annotations are hints for the consuming agent. `readOnlyHint: true`
-means the tool does not change state. `untrustedContentHint: true` means the
-result may contain content that should not be treated as instructions.
+means the tool does not change state, but it is not an authorization decision.
+`untrustedContentHint: true` means the result may contain content that should
+not be treated as instructions.
 
 ## Consume page tools from Agent-Native chat
 
@@ -141,8 +143,10 @@ import { AgentNativeFrame } from "@agent-native/core/client/host";
 ```
 
 The host bridge forwards only serializable WebMCP metadata and named tool
-requests. A sidecar browser-session bridge can use `webmcp: "host"` when it
-needs to consume tools through that iframe bridge.
+requests. Host execution resolves the live descriptor and requires
+`commands.requestApproval`; it fails closed when approval is unavailable. A
+sidecar browser-session bridge can use `webmcp: "host"` when it needs to
+consume tools through that iframe bridge.
 
 ## How chat sees the tools
 
@@ -156,9 +160,10 @@ explicit tools:
   origin.
 
 The agent should list immediately before execution because tool availability
-changes on navigation and selection changes. If two origins expose the same
-name, the origin from the discovery result is required. Execution requires
-human approval unless the discovered descriptor has `readOnlyHint: true`.
+changes on navigation and selection changes. The run action refreshes the live
+descriptor before executing, and every browser-session execution requires
+human approval. If two origins expose the same name, the origin from the
+discovery result is required.
 
 The same consumer path is available to an iframe sidecar through
 `list-host-webmcp-tools` and `run-host-webmcp-tool`; those host tools forward to

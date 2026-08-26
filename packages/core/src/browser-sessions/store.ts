@@ -25,6 +25,8 @@ export const DEFAULT_BROWSER_SESSION_REQUEST_POLL_MS = 250;
 const SESSION_TABLE = "agent_native_browser_sessions";
 const REQUEST_TABLE = "agent_native_browser_session_requests";
 const SAFE_ID_RE = /^[A-Za-z0-9._:-]{1,160}$/;
+const MAX_WEBMCP_TOOL_COUNT = 100;
+const MAX_WEBMCP_MANIFEST_CHARS = 500_000;
 
 let initPromise: Promise<void> | undefined;
 
@@ -168,6 +170,33 @@ function isWebMcpAction(action: AgentNativeBrowserSessionAction): boolean {
   return action.source === "webmcp";
 }
 
+function normalizeWebMcpTools(value: unknown): AgentNativeWebMcpTool[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("webmcpTools must be an array");
+  }
+  if (value.length > MAX_WEBMCP_TOOL_COUNT) {
+    throw new Error(
+      `WebMCP returned more than the ${MAX_WEBMCP_TOOL_COUNT}-tool limit`,
+    );
+  }
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new Error("WebMCP tool manifest must be JSON-serializable");
+  }
+  if (serialized === undefined) {
+    throw new Error("WebMCP tool manifest must be JSON-serializable");
+  }
+  if (serialized.length > MAX_WEBMCP_MANIFEST_CHARS) {
+    throw new Error(
+      `WebMCP tool manifest exceeds the ${MAX_WEBMCP_MANIFEST_CHARS}-character limit`,
+    );
+  }
+  return value as AgentNativeWebMcpTool[];
+}
+
 function toWebMcpAction(
   tool: AgentNativeWebMcpTool,
 ): AgentNativeBrowserSessionAction {
@@ -262,6 +291,7 @@ function normalizeSessionInput(input: RegisterAgentNativeBrowserSessionInput): {
     connectedAt: new Date(connectedAt).toISOString(),
     ...(url ? { url } : {}),
   };
+  const webmcpTools = normalizeWebMcpTools(input.webmcpTools);
   return {
     sessionId,
     session,
@@ -275,9 +305,7 @@ function normalizeSessionInput(input: RegisterAgentNativeBrowserSessionInput): {
         : undefined,
     actions: [
       ...(Array.isArray(input.actions) ? input.actions : []),
-      ...(Array.isArray(input.webmcpTools)
-        ? input.webmcpTools.map(toWebMcpAction)
-        : []),
+      ...webmcpTools.map(toWebMcpAction),
     ],
     connectedAt,
     ttlMs:

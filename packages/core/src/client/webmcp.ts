@@ -104,6 +104,7 @@ const DEFAULT_RESULT_CHARS = 50_000;
 const DEFAULT_SCHEMA_CHARS = 50_000;
 const DEFAULT_DESCRIPTION_CHARS = 2_000;
 const DEFAULT_TOOL_COUNT = 100;
+const DEFAULT_MANIFEST_CHARS = 500_000;
 const TOOL_NAME_RE = /^[A-Za-z0-9_.-]{1,128}$/;
 const EMPTY_INPUT_SCHEMA = {
   type: "object",
@@ -243,6 +244,7 @@ export interface AgentNativeWebMcpClientOptions {
   maxSchemaChars?: number;
   maxDescriptionChars?: number;
   maxToolCount?: number;
+  maxManifestChars?: number;
 }
 
 export function createAgentNativeWebMcpClient(
@@ -257,6 +259,7 @@ export function createAgentNativeWebMcpClient(
     maxDescriptionChars:
       options.maxDescriptionChars ?? DEFAULT_DESCRIPTION_CHARS,
     maxToolCount: options.maxToolCount ?? DEFAULT_TOOL_COUNT,
+    maxManifestChars: options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
   };
   const nativeTools = new Map<string, NativeRegisteredTool>();
 
@@ -281,11 +284,32 @@ export function createAgentNativeWebMcpClient(
         `WebMCP returned more than the ${limits.maxToolCount}-tool limit`,
       );
     }
-    return result.map((tool) => {
-      const normalized = normalizeTool(tool, limits);
-      nativeTools.set(toolKey(normalized), tool);
-      return normalized;
+    const normalizedTools = result.map((tool) => normalizeTool(tool, limits));
+    jsonLength(
+      normalizedTools,
+      "WebMCP tool manifest",
+      limits.maxManifestChars,
+    );
+    normalizedTools.forEach((tool, index) => {
+      nativeTools.set(toolKey(tool), result[index]);
     });
+    return normalizedTools;
+  }
+
+  function findNativeTool(
+    tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
+  ): NativeRegisteredTool | undefined {
+    const matches = [...nativeTools.values()].filter(
+      (candidate) =>
+        candidate.name === tool.name &&
+        (!tool.origin || candidate.origin === tool.origin),
+    );
+    if (matches.length > 1 && !tool.origin) {
+      throw new Error(
+        `WebMCP tool "${tool.name}" is exposed by multiple origins; origin is required`,
+      );
+    }
+    return matches[0];
   }
 
   async function executeTool(
@@ -302,13 +326,10 @@ export function createAgentNativeWebMcpClient(
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
 
-    let nativeTool = nativeTools.get(toolKey(tool));
+    let nativeTool = findNativeTool(tool);
     if (!nativeTool) {
-      const available = await listTools();
-      const match = available.find(
-        (candidate) => toolKey(candidate) === toolKey(tool),
-      );
-      nativeTool = match ? nativeTools.get(toolKey(match)) : undefined;
+      await listTools();
+      nativeTool = findNativeTool(tool);
     }
     if (!nativeTool) {
       throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
@@ -374,6 +395,8 @@ export interface AgentNativeWebMcpRegistrationOptions {
   maxResultChars?: number;
   maxSchemaChars?: number;
   maxDescriptionChars?: number;
+  maxToolCount?: number;
+  maxManifestChars?: number;
 }
 
 export interface AgentNativeWebMcpRegistration {
@@ -508,18 +531,43 @@ export function createAgentNativeWebMcpRegistration(
   let controller: AbortController | undefined;
   let registered = 0;
   let started = false;
+  let generation = 0;
 
   async function start(): Promise<void> {
     if (started || options.enabled === false || !modelContext) return;
+    const startGeneration = ++generation;
     started = true;
-    controller =
+    const runController =
       typeof AbortController === "undefined"
         ? undefined
         : new AbortController();
+    controller = runController;
+    const isActive = () =>
+      generation === startGeneration &&
+      !(runController?.signal.aborted ?? false);
     try {
       const actions = await resolveActions(options.actions);
+      if (!isActive()) return;
+      const maxToolCount = options.maxToolCount ?? DEFAULT_TOOL_COUNT;
+      if (actions.length > maxToolCount) {
+        throw new Error(
+          `WebMCP returned more than the ${maxToolCount}-tool limit`,
+        );
+      }
+      const manifests = actions.map((action) => {
+        if (!action.name || !action.description) {
+          throw new Error("WebMCP actions require a name and description");
+        }
+        return actionManifest(action);
+      });
+      jsonLength(
+        manifests,
+        "WebMCP tool manifest",
+        options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
+      );
       const session = createSession(options.session);
       for (const action of actions) {
+        if (!isActive()) return;
         if (!action?.name || !action.description) {
           throw new Error("WebMCP actions require a name and description");
         }
@@ -632,15 +680,18 @@ export function createAgentNativeWebMcpRegistration(
           },
           {
             ...(options.exposedTo ? { exposedTo: options.exposedTo } : {}),
-            ...(controller ? { signal: controller.signal } : {}),
+            ...(runController ? { signal: runController.signal } : {}),
           },
         );
+        if (!isActive()) return;
         registered += 1;
       }
     } catch (error) {
-      controller?.abort();
+      if (!isActive()) return;
+      runController?.abort();
       registered = 0;
       started = false;
+      controller = undefined;
       throw error;
     }
   }
@@ -654,7 +705,9 @@ export function createAgentNativeWebMcpRegistration(
     },
     start,
     stop() {
+      generation += 1;
       controller?.abort();
+      controller = undefined;
       registered = 0;
       started = false;
     },

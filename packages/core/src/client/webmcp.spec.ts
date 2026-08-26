@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 
+import type { AgentNativeClientAction } from "./host-bridge.js";
 import {
   AgentNativeWebMcpUnsupportedError,
   createAgentNativeWebMcpClient,
@@ -63,6 +64,9 @@ describe("WebMCP client", () => {
     await expect(client.executeTool(tools[0], { id: "order-1" })).resolves.toBe(
       '{"status":"shipped"}',
     );
+    await expect(
+      client.executeTool({ name: "get-order" }, { id: "order-2" }),
+    ).resolves.toBe('{"status":"shipped"}');
     expect(modelContext.getTools).toHaveBeenCalledWith({
       fromOrigins: ["https://shop.example"],
     });
@@ -163,6 +167,35 @@ describe("WebMCP registration", () => {
     await expect(registration.start()).rejects.toThrow(
       'WebMCP action "delete-order" requires an approval handler',
     );
+    expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+
+  it("does not register actions resolved after stop", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    let resolveActions!: (actions: AgentNativeClientAction[]) => void;
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: () =>
+        new Promise<AgentNativeClientAction[]>((resolve) => {
+          resolveActions = resolve;
+        }),
+    });
+
+    const startPromise = registration.start();
+    registration.stop();
+    resolveActions([
+      {
+        name: "select-order",
+        description: "Select an order",
+        run: async () => ({ ok: true }),
+      },
+    ]);
+
+    await expect(startPromise).resolves.toBeUndefined();
     expect(modelContext.registerTool).not.toHaveBeenCalled();
   });
 });
