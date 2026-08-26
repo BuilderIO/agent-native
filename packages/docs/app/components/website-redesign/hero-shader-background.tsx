@@ -169,6 +169,12 @@ void main() {
 const POINTER_SMOOTHING = 0.09;
 const OPACITY = 0.15;
 
+// Module scope, not per-mount: the shader clock (and with it the intro fade)
+// has to survive a remount, otherwise anything that re-runs the setup effect --
+// HMR, a route revalidation -- replays the fade and it reads as the field
+// fading in twice in a row.
+let shaderEpoch = 0;
+
 function hexToRgb01(hex: string): [number, number, number] {
   const normalized = hex.replace("#", "");
   const value = Number.parseInt(normalized, 16);
@@ -384,7 +390,8 @@ export function HeroShaderBackground({
     );
     visibilityObserver.observe(container);
 
-    const startTime = performance.now();
+    if (!shaderEpoch) shaderEpoch = performance.now();
+    const startTime = shaderEpoch;
     let lastFrame = 0;
     const frameBudget = 1000 / Math.max(1, frameRate);
     const reducedMotionStaticTime = 20;
@@ -426,7 +433,12 @@ export function HeroShaderBackground({
       }
     }
 
-    draw(reducedMotion ? reducedMotionStaticTime : 0, !reducedMotion);
+    draw(
+      reducedMotion
+        ? reducedMotionStaticTime
+        : (performance.now() - startTime) * 0.001,
+      !reducedMotion,
+    );
     if (reducedMotionQuery) {
       reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
     }
