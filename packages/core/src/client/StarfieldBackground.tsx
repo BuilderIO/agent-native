@@ -81,47 +81,47 @@ float NetLayer(vec2 st, float n, float t, vec2 pointer, float pointerStrength) {
   float d; float s; float pulse;
 
   m += line(p4, p0, st);
-  d = length(st-p0); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p0); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p0.x)+fract(p0.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p1, st);
-  d = length(st-p1); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p1); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p1.x)+fract(p1.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p2, st);
-  d = length(st-p2); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p2); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p2.x)+fract(p2.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p3, st);
-  d = length(st-p3); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p3); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p3.x)+fract(p3.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p4, st);
-  d = length(st-p4); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p4); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p4.x)+fract(p4.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p5, st);
-  d = length(st-p5); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p5); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p5.x)+fract(p5.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p6, st);
-  d = length(st-p6); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p6); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p6.x)+fract(p6.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p7, st);
-  d = length(st-p7); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p7); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p7.x)+fract(p7.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
   m += line(p4, p8, st);
-  d = length(st-p8); s = (.005/(d*d)); s *= S(1.,.7,d);
+  d = length(st-p8); s = (.0015/(d*d)); s *= S(1.,.7,d);
   pulse = sin((fract(p8.x)+fract(p8.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
   sparkle += s * pulse;
 
