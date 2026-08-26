@@ -68,6 +68,10 @@ function addSlideFields(
 export type DeckReloadStatus = "loaded" | "failed" | "stale";
 export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
+  /** Queue a draft without replacing the active contentEditable DOM. */
+  preserveLocalState?: boolean;
+  /** Record the edit for undo without enqueueing a duplicate server write. */
+  recordUndoOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -400,10 +404,9 @@ const pendingOpsQueue = new Map<string, GranularOp[]>();
 // whole request duration, starving unrelated agent writes of live sync.
 const inFlightOpSlides = new Map<string, GranularOp[]>();
 
-// Slides currently mid inline-edit (contentEditable open, keystrokes not yet
-// committed to a "patch-slide" op). `onInlineEditStart`/`onInlineEditEnd`
-// keep this current; a slide only reaches `pendingOpsQueue` when editing
-// ends, so this is the only signal that catches live, uncommitted typing.
+// Slides currently mid inline-edit (contentEditable open). `onInlineEditStart`
+// /`onInlineEditEnd` keep this current while content captures queue granular
+// ops without replacing the live DOM.
 const activeInlineEditSlides = new Map<string, Set<string>>();
 
 /** Mark `slideId` as mid inline-edit so a concurrent agent write to the same
@@ -726,7 +729,10 @@ async function flushDeckSave(deckId: string): Promise<void> {
 function enqueueDeckOp(
   deckId: string,
   op: GranularOp,
-  options?: { persistence?: "debounced" | "immediate" },
+  options?: {
+    persistence?: "debounced" | "immediate";
+    coalesceContent?: boolean;
+  },
 ) {
   const existing = pendingSaves.get(deckId);
   if (existing) clearTimeout(existing);
@@ -743,7 +749,21 @@ function enqueueDeckOp(
     pendingOpsQueue.set(deckId, [op]);
   } else {
     const queue = pendingOpsQueue.get(deckId) ?? [];
-    queue.push(op);
+    const previous = queue[queue.length - 1];
+    if (
+      options?.coalesceContent &&
+      previous?.op === "patch-slide" &&
+      op.op === "patch-slide" &&
+      previous.slideId === op.slideId &&
+      Object.keys(previous.fields).length === 1 &&
+      Object.keys(op.fields).length === 1 &&
+      "content" in previous.fields &&
+      "content" in op.fields
+    ) {
+      queue[queue.length - 1] = op;
+    } else {
+      queue.push(op);
+    }
     pendingOpsQueue.set(deckId, queue);
   }
 
@@ -1694,7 +1714,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
       const hasLocalEdits =
         pendingCreateIdsRef.current.has(currentOpenId) ||
-        hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current);
+        hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current) ||
+        (activeInlineEditSlides.get(currentOpenId)?.size ?? 0) > 0;
 
       if (hasLocalEdits && clientDeck) {
         // Content-preserving: only ADD server slides missing locally.
@@ -2447,23 +2468,57 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             : "Edit slide";
       const before = decksRef.current.find((d) => d.id === deckId);
       const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
-      if (before && !deriveInverseOp(before, op)) return;
-      markDeckDirty(deckId);
-      setDecksLocal((prev: Deck[]) =>
-        prev.map((d) => {
-          if (d.id !== deckId) return d;
-          return {
-            ...d,
-            slides: d.slides.map((s) =>
-              s.id === slideId ? { ...s, ...updates } : s,
-            ),
-            updatedAt: new Date().toISOString(),
-          };
-        }),
-      );
+      if (
+        before &&
+        !deriveInverseOp(before, op) &&
+        !options?.preserveLocalState
+      ) {
+        return;
+      }
+      if (options?.recordUndoOnly) {
+        if (before) {
+          setDecksLocal((prev: Deck[]) =>
+            prev.map((d) => {
+              if (d.id !== deckId) return d;
+              return {
+                ...d,
+                slides: d.slides.map((s) =>
+                  s.id === slideId ? { ...s, ...updates } : s,
+                ),
+                updatedAt: new Date().toISOString(),
+              };
+            }),
+          );
+          recordUndo(before, op, {
+            label,
+            coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
+              .sort()
+              .join(",")}`,
+          });
+        }
+        return;
+      }
+      if (!options?.preserveLocalState) markDeckDirty(deckId);
+      if (!options?.preserveLocalState) {
+        setDecksLocal((prev: Deck[]) =>
+          prev.map((d) => {
+            if (d.id !== deckId) return d;
+            return {
+              ...d,
+              slides: d.slides.map((s) =>
+                s.id === slideId ? { ...s, ...updates } : s,
+              ),
+              updatedAt: new Date().toISOString(),
+            };
+          }),
+        );
+      }
       // Granular op — only this slide's changed fields reach the server.
-      enqueueDeckOp(deckId, op, options);
-      if (before) {
+      enqueueDeckOp(deckId, op, {
+        persistence: options?.persistence,
+        coalesceContent: options?.preserveLocalState,
+      });
+      if (before && !options?.preserveLocalState) {
         // Coalesce a burst of edits to the SAME slide's SAME field-set into one
         // undo step (e.g. typing characters into inline text). Distinct
         // field-sets (content vs background vs layout) get distinct undo steps.
