@@ -12,6 +12,15 @@ vi.mock("./analytics.js", () => analyticsMocks);
 
 import { notifySessionInvalidated, useSession } from "./use-session.js";
 
+/**
+ * A fresh copy of the session module. `signingOut` is one-way for the life of a
+ * document, so a case that enters it cannot share module state with the others.
+ */
+async function freshSessionModule() {
+  vi.resetModules();
+  return import("./use-session.js");
+}
+
 let container: HTMLDivElement;
 let root: Root;
 let now = 0;
@@ -325,6 +334,74 @@ describe("useSession", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).toBe("signed-out");
+  });
+
+  it("reports signing-out instead of the last authenticated answer", async () => {
+    // The reported logout race: a cache invalidation only schedules a re-read,
+    // so the hook kept answering "authenticated" from the previous read while
+    // the browser was still navigating to the auth page. The app shell stayed
+    // mounted with no cookie and its queries 401ed into a load-failure screen.
+    const { beginSignOut: begin, useSession: useFreshSession } =
+      await freshSessionModule();
+    const statuses: string[] = [];
+    function Probe() {
+      statuses.push(useFreshSession().status);
+      return null;
+    }
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ userId: "user-9", email: "leaving@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(statuses.at(-1)).toBe("authenticated");
+
+    statuses.length = 0;
+    fetchMock.mockClear();
+    await act(async () => {
+      begin();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Every render from here on, starting with the first.
+    expect(statuses[0]).toBe("signing-out");
+    expect(new Set(statuses)).toEqual(new Set(["signing-out"]));
+    // And it stops asking, so a late reply cannot resurrect the session.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps signing-out terminal for the life of the document", async () => {
+    const { beginSignOut: begin, useSession: useFreshSession } =
+      await freshSessionModule();
+    function Probe() {
+      return <div data-testid="status">{useFreshSession().status}</div>;
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ userId: "user-10", email: "back@example.com" }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      begin();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // A focus revalidation is exactly how a signed-out tab used to flip back.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toBe("signing-out");
   });
 
   it("revalidates a cached session when the browser regains focus", async () => {

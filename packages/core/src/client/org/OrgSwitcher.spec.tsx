@@ -8,7 +8,7 @@ import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
-  notifySessionInvalidated: vi.fn(),
+  beginSignOut: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
   useDemoModeStatus: vi.fn(),
@@ -37,7 +37,7 @@ vi.mock("./hooks.js", () => {
 });
 
 vi.mock("../use-session.js", () => ({
-  notifySessionInvalidated: mocks.notifySessionInvalidated,
+  beginSignOut: mocks.beginSignOut,
   useSession: mocks.useSession,
 }));
 
@@ -68,7 +68,7 @@ describe("OrgSwitcher", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
-    mocks.notifySessionInvalidated.mockReset();
+    mocks.beginSignOut.mockReset();
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();
     mocks.navigate.mockReset();
@@ -313,12 +313,12 @@ describe("OrgSwitcher", () => {
         method: "POST",
         credentials: "include",
       });
-      expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
+      expect(mocks.beginSignOut).toHaveBeenCalledOnce();
       expect(replace).toHaveBeenCalledWith(
         expect.stringContaining("/sign-in?c="),
       );
       expect(warn).toHaveBeenCalledWith(
-        "Logout request returned an error before sign-in",
+        "Sign-out request returned an error",
         503,
       );
       expect(reload).not.toHaveBeenCalled();
