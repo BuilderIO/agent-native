@@ -91,7 +91,7 @@ export function FeaturesActions() {
         />
         <img
           className="theme-img-light"
-          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F512a7d5f0f884608b0dce797c394b104"
+          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2ee8d6c41d884ac08d486ba49634af1d"
           alt="One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI"
           crossOrigin="anonymous"
           loading="lazy"
