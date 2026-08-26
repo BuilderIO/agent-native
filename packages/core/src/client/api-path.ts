@@ -180,6 +180,58 @@ export function isWorkspaceAppPath(path: string): boolean {
   );
 }
 
+/**
+ * Resolves the mount prefix for a surface that is currently rendering at
+ * `appLocalRoute`, anchoring on the live pathname instead of only the
+ * env/manifest-derived base path.
+ *
+ * `appBasePath()` fails closed to `""` whenever the workspace runtime flag or
+ * the app manifest cannot confirm the mount, and `""` is indistinguishable
+ * from "mounted at the origin root". Anything that writes a browser URL from
+ * that value silently escapes the app mount (`/dispatch/settings` ->
+ * `/settings`). The pathname the browser is already serving this surface from
+ * is the authority, so prefer the prefix that sits in front of the surface's
+ * own app-local route.
+ *
+ * Only a prefix that precedes `appLocalRoute` in the current pathname is
+ * accepted, so this never promotes an arbitrary leading segment into a mount
+ * the way a bare first-segment guess would.
+ */
+export function appMountPath(appLocalRoute: string): string {
+  const basePath = appBasePath();
+  if (typeof window === "undefined") return basePath;
+
+  const pathname = window.location.pathname;
+  if (basePath && pathMatchesBasePath(pathname, basePath)) return basePath;
+
+  const marker = normalizeBasePath(appLocalRoute);
+  if (!marker) return basePath;
+
+  const index = pathname.lastIndexOf(marker);
+  if (index < 0) return basePath;
+
+  const boundary = index + marker.length;
+  if (boundary !== pathname.length && pathname[boundary] !== "/") {
+    return basePath;
+  }
+
+  return normalizeBasePath(pathname.slice(0, index));
+}
+
+/**
+ * Prefixes an app-local path for a surface currently rendering at
+ * `appLocalRoute`. Use this instead of `appPath()` when writing a browser URL
+ * (`history.pushState`, `<a href>`) from a surface whose own route is already
+ * visible in the address bar.
+ */
+export function appMountedPath(path: string, appLocalRoute: string): string {
+  if (!path.startsWith("/")) return path;
+  const mountPath = appMountPath(appLocalRoute);
+  if (!mountPath) return path;
+  if (path === mountPath || path.startsWith(`${mountPath}/`)) return path;
+  return `${mountPath}${path}`;
+}
+
 export function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
   const basePath = appBasePath();

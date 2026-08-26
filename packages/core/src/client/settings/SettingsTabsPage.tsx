@@ -19,8 +19,11 @@ import {
 } from "react";
 import { Link } from "react-router";
 
-import { appBasePath, appPath } from "../../client/api-path.js";
-import { buildSettingsRoute } from "../../navigation/index.js";
+import { appMountPath, appMountedPath } from "../../client/api-path.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
@@ -221,12 +224,12 @@ function activeTabFromLocation(
 function appLocalPathname(): string {
   if (typeof window === "undefined") return "/";
   const pathname = window.location.pathname;
-  const basePath = appBasePath();
+  const mountPath = appMountPath(STANDARD_APP_ROUTES.settings);
   if (
-    basePath &&
-    (pathname === basePath || pathname.startsWith(`${basePath}/`))
+    mountPath &&
+    (pathname === mountPath || pathname.startsWith(`${mountPath}/`))
   ) {
-    return pathname.slice(basePath.length) || "/";
+    return pathname.slice(mountPath.length) || "/";
   }
   return pathname;
 }
@@ -251,7 +254,7 @@ function updateRouteForTab(tabId: string, section?: string) {
   window.history.pushState(
     null,
     "",
-    `${appPath(route)}${window.location.search}`,
+    `${appMountedPath(route, STANDARD_APP_ROUTES.settings)}${window.location.search}`,
   );
 }
 

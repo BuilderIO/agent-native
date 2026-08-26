@@ -21,8 +21,11 @@ import {
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
-import { buildSettingsRoute } from "../../navigation/index.js";
-import { agentNativePath } from "../api-path.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
+import { agentNativePath, appMountedPath } from "../api-path.js";
 import { SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 import {
@@ -322,7 +325,10 @@ export function VoiceTranscriptionSection({
     window.history.pushState(
       null,
       "",
-      buildSettingsRoute(`integrations:secrets:${key}`),
+      appMountedPath(
+        buildSettingsRoute(`integrations:secrets:${key}`),
+        STANDARD_APP_ROUTES.settings,
+      ),
     );
     window.dispatchEvent(new Event("popstate"));
   };

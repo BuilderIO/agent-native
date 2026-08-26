@@ -53,7 +53,10 @@ import React, {
 } from "react";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
-import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import {
   saveAgentEngineProviderSettings,
@@ -66,7 +69,7 @@ import {
   providerIdForEngine,
   type AgentProviderId,
 } from "../agent-provider-catalog.js";
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appMountedPath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
   fetchAgentEngineStatus,
@@ -1733,7 +1736,14 @@ function AppDefaultModelPicker({
   const openIntegrations = () => {
     setOpen(false);
     if (typeof window !== "undefined") {
-      window.history.pushState(null, "", buildSettingsRoute("integrations"));
+      window.history.pushState(
+        null,
+        "",
+        appMountedPath(
+          buildSettingsRoute("integrations"),
+          STANDARD_APP_ROUTES.settings,
+        ),
+      );
       window.dispatchEvent(new Event("popstate"));
     }
   };
@@ -3177,7 +3187,10 @@ function SettingsPanelContent({
                     description="Schedule agent tasks or run them from events."
                     control={
                       <a
-                        href="/settings/agent/automations"
+                        href={appMountedPath(
+                          buildSettingsRoute("agent:automations"),
+                          STANDARD_APP_ROUTES.settings,
+                        )}
                         className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
                       >
                         Open automations
