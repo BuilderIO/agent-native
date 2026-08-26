@@ -1376,9 +1376,20 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
   vec3 eye = vec3(0.0, 0.0, uEyeDistance);
 
-  float lightPitchRad = radians(uLightPitch);
-  float lightYawRad = radians(uLightYawOffset) + iTime * uLightSpeed;
-  vec3 l = normalize(rot3xy(vec2(lightPitchRad, lightYawRad)) * vec3(0.0, 0.0, 1.0));
+  // Rotating around a single axis (pitch = X, yaw = Y) only sweeps the
+  // light back and forth along one meridian, so the grazing rim highlight
+  // moves in and out of view rather than tracing the visible edge. Instead,
+  // uLightPitch is used as a fixed cone angle away from the eye/sphere axis
+  // (Z), and uLightSpeed spins the azimuth *around* that axis -- this is
+  // what actually orbits the light around the planet's circumference as
+  // seen from the camera, independent of pitch/yaw.
+  float tiltRad = radians(uLightPitch);
+  float orbitRad = radians(uLightYawOffset) + iTime * uLightSpeed;
+  vec3 l = normalize(vec3(
+    sin(tiltRad) * cos(orbitRad),
+    sin(tiltRad) * sin(orbitRad),
+    cos(tiltRad)
+  ));
 
   float R = uPlanetRadius + uAtmosphereThickness;
   vec2 e = ray_vs_sphere(eye, dir, R);
