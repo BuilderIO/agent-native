@@ -744,7 +744,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   cellField *= cellMask;
 
   float jitter = (N21(cell) - 0.5) * 0.25 * (sin(t * 2. + N21(cell) * 10.) * 0.5 + 0.5);
-  float value = clamp(cellField + jitter, 0., 1.);
+  // Contrast-boost the raw field so peak signal reliably reaches full
+  // brightness (dotMask/radius maxed) instead of asymptotically approaching
+  // it -- ribbonField's summed smoothsteps rarely hit 1.0 on their own.
+  float value = S(0.12, 0.62, clamp(cellField * 1.25 + jitter, 0., 1.));
 
   float radius = mix(0.05, 0.44, value);
   float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.04);

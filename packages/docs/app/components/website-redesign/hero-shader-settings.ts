@@ -38,7 +38,8 @@ export type HeroShaderFieldConfig =
   | { kind: "range"; min: number; max: number; step: number }
   | { kind: "color" }
   | { kind: "select"; options: Array<{ label: string; value: string }> }
-  | { kind: "boolean" };
+  | { kind: "boolean" }
+  | { kind: "number"; min?: number; max?: number; step: number };
 
 export const HERO_SHADER_FIELD_CONFIG: Record<
   keyof HeroShaderSettings,
@@ -112,7 +113,7 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   HeroShaderFieldConfig
 > = {
   ribbonCount: { kind: "range", min: 1, max: 4, step: 1 },
-  density: { kind: "range", min: 0.4, max: 2.5, step: 0.05 },
+  density: { kind: "number", min: 0.1, max: 50, step: 0.1 },
   flowAngle: { kind: "range", min: -180, max: 180, step: 1 },
   warp: { kind: "range", min: 0, max: 1, step: 0.05 },
   speed: { kind: "range", min: 0, max: 3, step: 0.1 },

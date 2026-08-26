@@ -252,7 +252,15 @@ export function HeroShaderSettingsPanel<T extends ShaderSettings>({
                       color: "var(--b-text-secondary)",
                     }}
                   >
-                    <label htmlFor={`${panelId}-${String(key)}`}>{label}</label>
+                    <label
+                      htmlFor={
+                        field.kind === "number"
+                          ? `${panelId}-${String(key)}-number`
+                          : `${panelId}-${String(key)}`
+                      }
+                    >
+                      {label}
+                    </label>
                     {field.kind === "range" && (
                       <span
                         style={{
@@ -279,6 +287,30 @@ export function HeroShaderSettingsPanel<T extends ShaderSettings>({
                       style={{
                         width: "100%",
                         accentColor: "var(--b-action-primary-bg)",
+                      }}
+                    />
+                  )}
+
+                  {field.kind === "number" && (
+                    <input
+                      id={`${panelId}-${String(key)}-number`}
+                      type="number"
+                      min={field.min}
+                      max={field.max}
+                      step={field.step}
+                      value={settings[key] as number}
+                      onChange={(e) =>
+                        onChange(key, Number(e.target.value) as T[typeof key])
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "var(--spacing-1) var(--spacing-2)",
+                        fontFamily: "var(--b-font-mono)",
+                        fontSize: "var(--b-t-paragraph-3)",
+                        color: "var(--b-text-primary)",
+                        background: "var(--b-bg-page)",
+                        border: "1px solid var(--b-border-default)",
+                        borderRadius: "var(--b-radius-sm)",
                       }}
                     />
                   )}
