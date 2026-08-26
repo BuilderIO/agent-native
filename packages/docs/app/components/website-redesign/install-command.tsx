@@ -34,7 +34,7 @@ export function InstallCommand() {
       type="button"
       onClick={handleCopy}
       aria-label="Copy install command"
-      className="hover:text-[var(--b-text-primary)]"
+      className="border-[var(--b-border-default)] bg-[var(--b-bg-raised)] hover:border-[var(--b-border-title-row)] hover:text-[var(--b-text-primary)]"
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -42,14 +42,18 @@ export function InstallCommand() {
         fontFamily: "var(--b-font-mono)",
         fontSize: "var(--b-t-label-1)",
         color: "var(--b-text-secondary)",
-        background: "transparent",
-        border: "none",
-        padding: 0,
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderRadius: "var(--b-radius)",
+        padding: "10px var(--spacing-3)",
+        lineHeight: 1,
         cursor: "pointer",
-        transition: "color 0.15s",
+        transition: "color 0.15s, border-color 0.15s",
       }}
     >
-      <span aria-hidden="true">&gt;</span>
+      <span aria-hidden="true" style={{ color: "var(--b-text-muted)" }}>
+        &gt;
+      </span>
       <code
         style={{
           fontFamily: "inherit",
@@ -64,9 +68,28 @@ export function InstallCommand() {
         {INSTALL_COMMAND}
       </code>
       {copied ? (
-        <IconCheck size={14} stroke={1.75} aria-hidden="true" />
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            marginLeft: "var(--spacing-1)",
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            color: "var(--b-text-primary)",
+          }}
+        >
+          <IconCheck size={14} stroke={1.75} />
+          COPIED
+        </span>
       ) : (
-        <IconCopy size={14} stroke={1.75} aria-hidden="true" />
+        <IconCopy
+          size={14}
+          stroke={1.75}
+          aria-hidden="true"
+          style={{ marginLeft: "var(--spacing-1)" }}
+        />
       )}
       <span aria-live="polite" className="sr-only">
         {copied ? "Copied!" : ""}
