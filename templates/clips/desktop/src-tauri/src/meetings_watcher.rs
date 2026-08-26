@@ -495,23 +495,33 @@ pub(crate) fn find_matching_calendar_meeting(
     Some((*meeting).clone())
 }
 
-pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
+/// `parse_meetings`, but able to say "this was not a meetings list at all".
+///
+/// `None` means no recognized list key and not a bare array — a changed
+/// envelope, or a 200 carrying an error payload. A caller that is about to
+/// *write* based on the answer needs that apart from `Some(vec![])`: an empty
+/// list is a checked "no such meeting", while an unreadable body says nothing,
+/// and treating the second as the first is how a duplicate row gets inserted.
+pub(crate) fn try_parse_meetings(body: &serde_json::Value) -> Option<Vec<MeetingItem>> {
     let payload = body.get("result").unwrap_or(body);
     if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(payload.clone()) {
         if let Some(v) = parsed.upcoming {
-            return v;
+            return Some(v);
         }
         if let Some(v) = parsed.meetings {
-            return v;
+            return Some(v);
         }
         if let Some(v) = parsed.items {
-            return v;
+            return Some(v);
         }
     }
-    if let Ok(arr) = serde_json::from_value::<Vec<MeetingItem>>(payload.clone()) {
-        return arr;
-    }
-    Vec::new()
+    serde_json::from_value::<Vec<MeetingItem>>(payload.clone()).ok()
+}
+
+/// Read-only callers, where "no meetings" and "cannot tell" lead to the same
+/// harmless outcome: nothing to remind about, nothing to enrich with.
+pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
+    try_parse_meetings(body).unwrap_or_default()
 }
 
 #[cfg(test)]

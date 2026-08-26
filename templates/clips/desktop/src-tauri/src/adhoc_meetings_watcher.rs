@@ -76,10 +76,18 @@ const CREATE_RETRY_BACKOFF_SECS: i64 = 60;
 /// which that mis-adoption is possible stays narrow.
 const CREATE_DOUBT_TTL_SECS: i64 = 5 * 60;
 
-/// Slack on the reconcile window's lower edge. `scheduledStart` is stamped by
-/// this process but read back through the server, so allow a little clock skew
-/// rather than missing the row we are looking for by one second.
+/// Slack on the reconcile window's edges. `scheduledStart` is stamped by this
+/// process but read back through the server, so allow a little clock skew rather
+/// than missing the row we are looking for by one second.
 const RECONCILE_SKEW_SECS: i64 = 10;
+
+/// Rows per reconcile page. The agenda view is ascending from the start of the
+/// lookback, so the row a lost response created sits near the front of it; this
+/// only has to exceed the number of meetings that can start inside one
+/// reconcile window. A full page is treated as possibly truncated rather than
+/// assumed complete, so raising this trades a bigger response for fewer
+/// abandoned retries — it is not what makes the lookup correct.
+const RECONCILE_PAGE_LIMIT: usize = 200;
 
 const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
     // (bundle_id, platform, display title)
@@ -1410,16 +1418,23 @@ mod tests {
         })
     }
 
+    fn ts(rfc3339: &str) -> i64 {
+        chrono::DateTime::parse_from_rfc3339(rfc3339)
+            .unwrap()
+            .timestamp()
+    }
+
+    /// The attempt that went unanswered, and the retry reading back a minute on.
+    const ATTEMPT: &str = "2026-08-19T10:00:00Z";
+    const RETRY: &str = "2026-08-19T10:01:00Z";
+
     #[test]
     fn reconcile_adopts_the_row_a_lost_response_left_behind() {
         let meetings = parse_meetings(&serde_json::json!({
             "meetings": [adhoc_row("zoom-row", "zoom", "2026-08-19T10:00:05Z")],
         }));
-        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
-            .unwrap()
-            .timestamp();
 
-        let found = pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts);
+        let found = pick_recent_adhoc_meeting(&meetings, "zoom", ts(ATTEMPT), ts(RETRY));
 
         assert_eq!(found.map(|m| m.id), Some("zoom-row".to_string()));
     }
@@ -1431,11 +1446,27 @@ mod tests {
         let meetings = parse_meetings(&serde_json::json!({
             "meetings": [adhoc_row("old-row", "zoom", "2026-08-19T09:30:00Z")],
         }));
-        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
-            .unwrap()
-            .timestamp();
 
-        assert!(pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).is_none());
+        assert!(pick_recent_adhoc_meeting(&meetings, "zoom", ts(ATTEMPT), ts(RETRY)).is_none());
+    }
+
+    #[test]
+    fn reconcile_ignores_a_scheduled_future_row() {
+        // The agenda view runs from the lookback "onward" with no upper bound,
+        // so a future ad-hoc row for this platform comes back too — and on
+        // recency alone it would beat the row this call actually created.
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                adhoc_row("this-call", "zoom", "2026-08-19T10:00:05Z"),
+                adhoc_row("scheduled-later", "zoom", "2026-08-19T15:00:00Z"),
+            ],
+        }));
+
+        assert_eq!(
+            pick_recent_adhoc_meeting(&meetings, "zoom", ts(ATTEMPT), ts(RETRY)).map(|m| m.id),
+            Some("this-call".to_string()),
+            "a meeting that has not happened yet is not the row we just wrote"
+        );
     }
 
     #[test]
@@ -1451,12 +1482,9 @@ mod tests {
                 },
             ],
         }));
-        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
-            .unwrap()
-            .timestamp();
 
         assert!(
-            pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).is_none(),
+            pick_recent_adhoc_meeting(&meetings, "zoom", ts(ATTEMPT), ts(RETRY)).is_none(),
             "a Teams row and a calendar row are both the wrong meeting to adopt"
         );
     }
@@ -1466,34 +1494,37 @@ mod tests {
         let meetings = parse_meetings(&serde_json::json!({
             "meetings": [
                 adhoc_row("first", "zoom", "2026-08-19T10:00:05Z"),
-                adhoc_row("second", "zoom", "2026-08-19T10:01:10Z"),
+                adhoc_row("second", "zoom", "2026-08-19T10:00:50Z"),
             ],
         }));
-        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
-            .unwrap()
-            .timestamp();
 
         assert_eq!(
-            pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).map(|m| m.id),
+            pick_recent_adhoc_meeting(&meetings, "zoom", ts(ATTEMPT), ts(RETRY)).map(|m| m.id),
             Some("second".to_string())
         );
     }
 
     #[test]
-    fn reconcile_tolerates_clock_skew_on_the_window_edge() {
+    fn reconcile_tolerates_clock_skew_on_both_window_edges() {
         // `scheduledStart` is stamped here but read back through the server.
-        let meetings = parse_meetings(&serde_json::json!({
+        let just_before = parse_meetings(&serde_json::json!({
             "meetings": [adhoc_row("zoom-row", "zoom", "2026-08-19T09:59:55Z")],
         }));
-        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
-            .unwrap()
-            .timestamp();
-
         assert_eq!(
-            pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).map(|m| m.id),
+            pick_recent_adhoc_meeting(&just_before, "zoom", ts(ATTEMPT), ts(RETRY)).map(|m| m.id),
             Some("zoom-row".to_string()),
             "a few seconds of skew must not hide the row we just created"
         );
+
+        let just_after = parse_meetings(&serde_json::json!({
+            "meetings": [adhoc_row("zoom-row", "zoom", "2026-08-19T10:01:05Z")],
+        }));
+        assert_eq!(
+            pick_recent_adhoc_meeting(&just_after, "zoom", ts(ATTEMPT), ts(RETRY)).map(|m| m.id),
+            Some("zoom-row".to_string()),
+            "nor may it hide a row stamped a moment ahead of our clock"
+        );
+
         assert!(
             RECONCILE_SKEW_SECS < CALL_END.as_secs() as i64,
             "the skew allowance must not reach into a previous call"
@@ -1510,8 +1541,76 @@ mod tests {
         }));
 
         assert!(
-            pick_recent_adhoc_meeting(&meetings, "zoom", 0).is_none(),
+            pick_recent_adhoc_meeting(&meetings, "zoom", 0, ts(RETRY)).is_none(),
             "a row whose start cannot be read is not a row we can place in the window"
+        );
+    }
+
+    #[test]
+    fn a_body_that_is_not_a_meetings_list_is_unreadable_not_empty() {
+        // The defect this guards: `parse_meetings` flattens an unknown envelope
+        // to an empty vector, so a 200 error payload would read as a checked
+        // "no such meeting" and the retry would insert the duplicate.
+        use crate::meetings_watcher::try_parse_meetings;
+
+        assert!(
+            try_parse_meetings(&serde_json::json!({ "error": "boom" })).is_none(),
+            "an error payload says nothing about whether a row exists"
+        );
+        assert!(
+            try_parse_meetings(&serde_json::json!({ "rows": [] })).is_none(),
+            "a changed envelope is not an empty list"
+        );
+        assert_eq!(
+            try_parse_meetings(&serde_json::json!({ "meetings": [] })).map(|rows| rows.len()),
+            Some(0),
+            "an actual empty list is the one answer that permits a create"
+        );
+        assert!(
+            parse_meetings(&serde_json::json!({ "error": "boom" })).is_empty(),
+            "read-only callers keep their lenient behavior"
+        );
+    }
+
+    #[test]
+    fn a_short_page_covers_the_reconcile_window() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [adhoc_row("only", "zoom", "2026-08-19T10:00:05Z")],
+        }));
+
+        assert!(
+            reconcile_window_was_covered(&meetings, ts(RETRY)),
+            "a page shorter than the limit is the whole result"
+        );
+    }
+
+    #[test]
+    fn a_full_page_ending_early_does_not_cover_the_window() {
+        // Ascending agenda order means a truncated page proves only what it
+        // reached. Concluding "no row" from it would insert the duplicate.
+        let rows: Vec<serde_json::Value> = (0..RECONCILE_PAGE_LIMIT)
+            .map(|i| adhoc_row(&format!("row-{i}"), "teams", "2026-08-19T09:55:00Z"))
+            .collect();
+        let meetings = parse_meetings(&serde_json::json!({ "meetings": rows }));
+
+        assert_eq!(meetings.len(), RECONCILE_PAGE_LIMIT);
+        assert!(
+            !reconcile_window_was_covered(&meetings, ts(RETRY)),
+            "the row we want could sit past the cut"
+        );
+    }
+
+    #[test]
+    fn a_full_page_reaching_past_the_window_still_covers_it() {
+        let mut rows: Vec<serde_json::Value> = (0..RECONCILE_PAGE_LIMIT - 1)
+            .map(|i| adhoc_row(&format!("row-{i}"), "teams", "2026-08-19T09:55:00Z"))
+            .collect();
+        rows.push(adhoc_row("future", "teams", "2026-08-19T18:00:00Z"));
+        let meetings = parse_meetings(&serde_json::json!({ "meetings": rows }));
+
+        assert!(
+            reconcile_window_was_covered(&meetings, ts(RETRY)),
+            "the page ran past the window, so nothing inside it was cut off"
         );
     }
 
@@ -1651,34 +1750,19 @@ async fn create_adhoc_meeting(
         ));
     };
 
-    // The native watcher knows which conferencing app is active, but not the
-    // calendar event title. Resolve the nearest joinable event first so a
-    // calendar-backed meeting keeps its title, URL, and scheduled span. A
-    // disconnected calendar only loses that enrichment and still gets an
-    // adhoc meeting below.
-    match find_calendar_meeting(app, client, server_url, &session, platform).await {
-        Ok(Some(meeting)) => {
-            dlog!(
-                "[clips-tray] adhoc matched calendar meeting {} for {}",
-                meeting.id,
-                platform
-            );
-            return Ok(meeting);
-        }
-        Ok(None) => {}
-        Err(error) => dlog!(
-            "[clips-tray] adhoc calendar title lookup skipped for {}: {}",
-            platform,
-            error
-        ),
-    }
-
     // A previous attempt for this same call may have committed before its
     // response went missing. `create-meeting` is only idempotent on its
     // `calendarEventId` path (that one claims the event row atomically); the
     // ad-hoc path is a bare insert, so nothing server-side collapses a second
     // attempt into the first. Until it has an idempotency key, the only way not
     // to leave one row per attempt is to go looking for the first row.
+    //
+    // Before the calendar lookup, not after. A retry whose calendar match has
+    // since become resolvable would otherwise return that calendar meeting, and
+    // the caller would clear the doubt against it — stranding the ad-hoc row the
+    // earlier attempt actually wrote, with nothing left that would ever find it.
+    // An outstanding write is settled first; enrichment is what happens on a
+    // call that has no row yet.
     //
     // A lookup that fails is not a lookup that found nothing. Treating an
     // unreadable reconcile as "no existing row" would insert the duplicate this
@@ -1701,6 +1785,28 @@ async fn create_adhoc_meeting(
                 )));
             }
         }
+    }
+
+    // The native watcher knows which conferencing app is active, but not the
+    // calendar event title. Resolve the nearest joinable event first so a
+    // calendar-backed meeting keeps its title, URL, and scheduled span. A
+    // disconnected calendar only loses that enrichment and still gets an
+    // adhoc meeting below.
+    match find_calendar_meeting(app, client, server_url, &session, platform).await {
+        Ok(Some(meeting)) => {
+            dlog!(
+                "[clips-tray] adhoc matched calendar meeting {} for {}",
+                meeting.id,
+                platform
+            );
+            return Ok(meeting);
+        }
+        Ok(None) => {}
+        Err(error) => dlog!(
+            "[clips-tray] adhoc calendar title lookup skipped for {}: {}",
+            platform,
+            error
+        ),
     }
 
     let url = format!("{}/_agent-native/actions/create-meeting", server_url);
@@ -1800,9 +1906,11 @@ async fn find_recent_adhoc_meeting(
     platform: &str,
     since_ts: i64,
 ) -> Result<Option<MeetingItem>, String> {
+    let now_ts = chrono::Utc::now().timestamp();
     // Reach back to the earliest attempt still in doubt, plus a minute so the
     // window cannot close on the row it is looking for.
-    let lookback_min = (((chrono::Utc::now().timestamp() - since_ts).max(0) / 60) + 2).to_string();
+    let lookback_min = (((now_ts - since_ts).max(0) / 60) + 2).to_string();
+    let page_limit = RECONCILE_PAGE_LIMIT.to_string();
     let url = format!("{server_url}/_agent-native/actions/list-meetings");
     let mut req = client
         .get(url)
@@ -1810,7 +1918,7 @@ async fn find_recent_adhoc_meeting(
             ("view", "agenda"),
             ("agendaLookbackMin", lookback_min.as_str()),
             ("includeLiveCalendar", "false"),
-            ("limit", "50"),
+            ("limit", page_limit.as_str()),
         ])
         .header("X-Request-Source", "clips-desktop");
     if let Some(cookie) = session.session_cookie.as_deref() {
@@ -1834,25 +1942,69 @@ async fn find_recent_adhoc_meeting(
         .json()
         .await
         .map_err(|error| format!("list-meetings response: {error}"))?;
-    Ok(pick_recent_adhoc_meeting(
-        &parse_meetings(&body),
-        platform,
-        since_ts,
-    ))
+    // A 200 whose body is not a meetings list — an error payload, or a changed
+    // envelope — is unreadable, not empty. `parse_meetings` flattens both to an
+    // empty vector, and this caller is deciding whether to insert a row, so it
+    // has to see the difference.
+    let rows = crate::meetings_watcher::try_parse_meetings(&body).ok_or_else(|| {
+        format!(
+            "list-meetings response was not a meetings list: {}",
+            body.to_string().chars().take(200).collect::<String>()
+        )
+    })?;
+
+    if let Some(found) = pick_recent_adhoc_meeting(&rows, platform, since_ts, now_ts) {
+        return Ok(Some(found));
+    }
+    // Found nothing — but "nothing on the page we read" is only "no such row" if
+    // the page actually covered the window. The agenda view is ascending from
+    // the start of the lookback, so a full page tells us only that we saw
+    // everything up to its newest row; the row we want could sit past the cut.
+    if !reconcile_window_was_covered(&rows, now_ts) {
+        return Err(format!(
+            "list-meetings returned a full page ending before the reconcile window closed ({} rows)",
+            rows.len()
+        ));
+    }
+    Ok(None)
+}
+
+/// Whether a returned page can be trusted to answer "no such row".
+///
+/// A short page is the whole result, so it can. A full page was truncated, and
+/// only covers up to its newest row — if that is still behind the window's
+/// ceiling, the row a lost response created may be one page further on, and
+/// concluding "no row exists" from it would insert the duplicate.
+fn reconcile_window_was_covered(meetings: &[MeetingItem], now_ts: i64) -> bool {
+    if meetings.len() < RECONCILE_PAGE_LIMIT {
+        return true;
+    }
+    let newest = meetings
+        .iter()
+        .filter_map(|m| m.scheduled_start.as_deref())
+        .filter_map(|start| chrono::DateTime::parse_from_rfc3339(start).ok())
+        .map(|start| start.timestamp())
+        .max();
+    newest.is_some_and(|newest| newest >= now_ts + RECONCILE_SKEW_SECS)
 }
 
 /// The ad-hoc row a lost `create-meeting` response would have left behind: same
-/// platform, `source == "adhoc"`, and scheduled no earlier than the attempt that
-/// went unanswered. Rows older than that belong to a previous call, and adopting
-/// one would attach this call's notes to the wrong meeting. Newest wins, so a
-/// run of attempts that duplicated before this guard existed still lands on the
-/// row this call is actually using.
+/// platform, `source == "adhoc"`, and scheduled inside the attempt window.
+///
+/// Bounded at both ends. Rows older than the attempt belong to a previous call,
+/// and the agenda view runs "from the lookback onward" with no upper bound of
+/// its own, so it also returns *future* ad-hoc rows — a scheduled one would
+/// otherwise win on recency and collect this call's notes. Within the window the
+/// newest wins, so a run of attempts that duplicated before this guard existed
+/// still lands on the row the call is actually using.
 fn pick_recent_adhoc_meeting(
     meetings: &[MeetingItem],
     platform: &str,
     since_ts: i64,
+    now_ts: i64,
 ) -> Option<MeetingItem> {
     let floor = since_ts - RECONCILE_SKEW_SECS;
+    let ceiling = now_ts + RECONCILE_SKEW_SECS;
     meetings
         .iter()
         .filter(|m| m.source.as_deref() == Some("adhoc"))
@@ -1866,7 +2018,7 @@ fn pick_recent_adhoc_meeting(
             let ts = chrono::DateTime::parse_from_rfc3339(start)
                 .ok()?
                 .timestamp();
-            (ts >= floor).then_some((ts, m))
+            (ts >= floor && ts <= ceiling).then_some((ts, m))
         })
         .max_by_key(|(ts, _)| *ts)
         .map(|(_, m)| m.clone())
