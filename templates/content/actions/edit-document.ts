@@ -269,8 +269,8 @@ export default defineAction({
           parentId: existing.parentId,
           icon: existing.icon,
           position: existing.position,
-          isFavorite: existing.isFavorite,
-          hideFromSearch: existing.hideFromSearch,
+          isFavorite: Boolean(existing.isFavorite),
+          hideFromSearch: Boolean(existing.hideFromSearch),
           visibility: existing.visibility,
         }),
         expectedResultContent: applied.content,
@@ -282,6 +282,7 @@ export default defineAction({
           title: receipt.title,
           description: receipt.description,
           ...receipt.metadata,
+          visibility: existing.visibility,
         };
       }
       if (

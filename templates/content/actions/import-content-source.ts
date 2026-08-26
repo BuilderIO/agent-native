@@ -64,6 +64,10 @@ function canEditRole(role: string) {
   return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK.editor;
 }
 
+function canAdminRole(role: string) {
+  return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK.admin;
+}
+
 function normalizedFileEntries(files: Record<string, string>) {
   return Object.entries(files)
     .filter(([filePath]) => isContentSourcePath(filePath))
@@ -352,6 +356,16 @@ export default defineAction({
         const visibilityChanged =
           file.visibility !== undefined &&
           file.visibility !== existing.visibility;
+        if (
+          visibilityChanged &&
+          (!existingRole || !canAdminRole(existingRole))
+        ) {
+          skipped.push({
+            path: file.path,
+            reason: `Requires admin access to change visibility on document "${id}".`,
+          });
+          continue;
+        }
         const sourceUpdates = localSourceFields(file.path, now);
         const sourceChanged =
           existing.sourceMode !== sourceUpdates.sourceMode ||

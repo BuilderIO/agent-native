@@ -21,6 +21,7 @@ let importContentSourceAction: typeof import("./import-content-source.js").defau
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 const OWNER = "owner@example.com";
+const EDITOR = "editor@example.com";
 const VIEWER = "import-viewer@example.com";
 const ORG_ID = "import-viewer-org";
 
@@ -131,6 +132,62 @@ describe("import-content-source descriptions", () => {
         .from(schema.documents)
         .where(eq(schema.documents.id, "doc_visibility_roundtrip")),
     ).resolves.toEqual([{ visibility: "private" }]);
+  });
+
+  it("does not let an editor change visibility through import", async () => {
+    const id = "doc_editor_visibility_guard";
+    const path = `content/editor-visibility--${id}.mdx`;
+    const source = (visibility: "private" | "public", content: string) =>
+      serializeContentSourceDocument({
+        id,
+        parentId: null,
+        title: "Editor visibility guard",
+        content,
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility,
+      });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("private", "Owner body") },
+        dryRun: false,
+      }),
+    );
+    await getDb().insert(schema.documentShares).values({
+      id: "import-editor-visibility-share",
+      resourceId: id,
+      principalType: "user",
+      principalId: EDITOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+
+    const result = await runWithRequestContext({ userEmail: EDITOR }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("public", "Editor body") },
+        dryRun: false,
+      }),
+    );
+
+    expect(result.skipped).toEqual([
+      {
+        path,
+        reason: `Requires admin access to change visibility on document "${id}".`,
+      },
+    ]);
+    await expect(
+      getDb()
+        .select({
+          content: schema.documents.content,
+          visibility: schema.documents.visibility,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id)),
+    ).resolves.toEqual([{ content: "Owner body", visibility: "private" }]);
   });
 
   it("reports structural MDX transformations during a dry-run import", async () => {
