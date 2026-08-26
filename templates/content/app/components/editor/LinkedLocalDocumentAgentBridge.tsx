@@ -18,6 +18,7 @@ type EditArgs = {
   documentId: string;
   expectedContent: string;
   expectedTitle: string;
+  expectedDescription: string;
   edits: DocumentTextEdit[];
 };
 
@@ -44,9 +45,16 @@ export function LinkedLocalDocumentAgentBridge({
           documentId: { type: "string" },
           expectedContent: { type: "string" },
           expectedTitle: { type: "string" },
+          expectedDescription: { type: "string" },
           edits: { type: "array" },
         },
-        required: ["documentId", "expectedContent", "expectedTitle", "edits"],
+        required: [
+          "documentId",
+          "expectedContent",
+          "expectedTitle",
+          "expectedDescription",
+          "edits",
+        ],
       },
       async run(args) {
         const current = documentRef.current;
@@ -62,7 +70,8 @@ export function LinkedLocalDocumentAgentBridge({
         }
         if (
           baseline.document.content !== args.expectedContent ||
-          baseline.document.title !== args.expectedTitle
+          baseline.document.title !== args.expectedTitle ||
+          (baseline.document.description ?? "") !== args.expectedDescription
         ) {
           return {
             status: "conflict",
@@ -97,7 +106,14 @@ export function LinkedLocalDocumentAgentBridge({
         }
         const readBack = await readDocumentFromLinkedLocalSource(next);
         if (!readBack.ok) {
-          return { status: "failed", error: readBack.error };
+          return {
+            status: "source-persisted/history-pending",
+            content: next.content,
+            title: next.title,
+            path: written.path,
+            runtime: written.runtime,
+            revision: written.revision,
+          };
         }
         if (readBack.document.content !== applied.content) {
           return {

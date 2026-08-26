@@ -2512,7 +2512,7 @@ function fencedCodeLineMask(lines: string[]): boolean[] {
     if (fence) {
       mask[index] = true;
       const close = dedented.match(/^(`{3,})\s*$/);
-      if (indent === fence.indent && close && close[1].length >= fence.length) {
+      if (indent >= fence.indent && close && close[1].length >= fence.length) {
         fence = undefined;
       }
       continue;

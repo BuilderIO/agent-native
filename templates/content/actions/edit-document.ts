@@ -14,7 +14,7 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -244,9 +244,21 @@ export default defineAction({
         documentId: id,
         expectedContent: existing.content ?? "",
         expectedTitle: existing.title,
+        expectedDescription: existing.description ?? "",
         expectedResultContent: applied.content,
         edits,
       });
+      if (receipt.status === "source-persisted/history-pending") {
+        return {
+          applied: changeCount,
+          total: edits.length,
+          results,
+          persistence: receipt.status,
+          path: receipt.path,
+          error:
+            "The local file changed, but Content history still needs reconciliation.",
+        };
+      }
       if (receipt.status !== "persisted") {
         return {
           applied: 0,
@@ -271,10 +283,21 @@ export default defineAction({
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
-        await tx
+        const mirrored = await tx
           .update(schema.documents)
           .set({ content, updatedAt: now })
-          .where(eq(schema.documents.id, id));
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.updatedAt, existing.updatedAt),
+            ),
+          )
+          .returning({ id: schema.documents.id });
+        if (mirrored.length !== 1) {
+          throw new Error(
+            "The document changed before Content history could be updated.",
+          );
+        }
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx as unknown as ReturnType<typeof getDb>,

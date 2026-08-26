@@ -17,6 +17,7 @@ const args = {
   documentId: "doc-1",
   expectedContent: "# Original",
   expectedTitle: "Original",
+  expectedDescription: "",
   expectedResultContent: "# Updated",
   edits: [{ find: "Original", replace: "Updated" }],
 };

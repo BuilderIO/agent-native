@@ -18,6 +18,14 @@ type LinkedLocalEditReceipt =
       revision?: string;
     }
   | {
+      status: "source-persisted/history-pending";
+      content: string;
+      title: string;
+      path: string;
+      runtime: "browser" | "desktop";
+      revision?: string;
+    }
+  | {
       status: "conflict" | "unavailable" | "failed";
       error: string;
     };
@@ -25,7 +33,10 @@ type LinkedLocalEditReceipt =
 function isReceipt(value: unknown): value is LinkedLocalEditReceipt {
   if (!value || typeof value !== "object") return false;
   const receipt = value as Record<string, unknown>;
-  if (receipt.status === "persisted") {
+  if (
+    receipt.status === "persisted" ||
+    receipt.status === "source-persisted/history-pending"
+  ) {
     return (
       typeof receipt.content === "string" &&
       typeof receipt.title === "string" &&
@@ -51,6 +62,7 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
   documentId: string;
   expectedContent: string;
   expectedTitle: string;
+  expectedDescription: string;
   expectedResultContent: string;
   edits: DocumentTextEdit[];
 }): Promise<LinkedLocalEditReceipt> {
@@ -85,6 +97,7 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
           documentId: args.documentId,
           expectedContent: args.expectedContent,
           expectedTitle: args.expectedTitle,
+          expectedDescription: args.expectedDescription,
           edits: args.edits,
         },
         timeoutMs: 30_000,
@@ -98,7 +111,8 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
       };
     }
     if (
-      result.status === "persisted" &&
+      (result.status === "persisted" ||
+        result.status === "source-persisted/history-pending") &&
       result.content !== args.expectedResultContent
     ) {
       return {

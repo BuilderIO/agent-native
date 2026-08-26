@@ -1265,11 +1265,11 @@ function DocumentEditorBody({
       setLocalContentUpdatedAt(persisted.updatedAt ?? new Date().toISOString());
       lastSavedTitleRef.current = {
         title: persisted.title,
-        updatedAt: persisted.updatedAt ?? null,
+        updatedAt: lastSavedTitleRef.current.updatedAt,
       };
       lastSavedContentRef.current = {
         content: persisted.content,
-        updatedAt: persisted.updatedAt ?? null,
+        updatedAt: lastSavedContentRef.current.updatedAt,
       };
       setLocalFileSyncRevision((revision) => revision + 1);
       setLocalSourceConflict(null);
