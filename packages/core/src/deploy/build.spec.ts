@@ -1548,6 +1548,9 @@ describe("copyDrizzleMigrationAssets", () => {
     expect(copyDrizzleMigrationAssets(cwd, serverDir)).toEqual([
       "0001_add_priority.sql",
     ]);
+    expect(fs.existsSync(path.join(serverDir, "migrations", ".gitkeep"))).toBe(
+      true,
+    );
     const runtime = globalThis as Record<string, unknown>;
     const hadCfEnv = "__cf_env" in runtime;
     const hadEnv = "__env__" in runtime;

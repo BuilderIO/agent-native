@@ -15,6 +15,7 @@
     "script": "agent-native script",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check",
     "test": "vitest --run --config vitest.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --only-shell chromium",

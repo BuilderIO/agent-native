@@ -67,12 +67,12 @@ describe("loadDrizzleMigrations", () => {
     ]);
   });
 
-  it("returns no migrations before Drizzle Kit creates the output folder", async () => {
+  it("fails when Drizzle Kit has not created the output folder", async () => {
     const root = await createTemporaryDirectory();
 
     await expect(
       loadDrizzleMigrations(join(root, "server", "db", "migrations")),
-    ).resolves.toEqual([]);
+    ).rejects.toThrow("Drizzle migrations folder");
   });
 
   it("fails clearly on filesystem-free runtimes", async () => {

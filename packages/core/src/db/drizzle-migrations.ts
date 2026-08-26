@@ -44,7 +44,11 @@ export async function loadDrizzleMigrations(
   try {
     folders = await readdir(root, { withFileTypes: true });
   } catch (error) {
-    if (isMissingPath(error)) return [];
+    if (isMissingPath(error)) {
+      throw new Error(`Drizzle migrations folder "${root}" does not exist`, {
+        cause: error,
+      });
+    }
     throw error;
   }
 

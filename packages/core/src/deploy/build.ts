@@ -4925,8 +4925,8 @@ export function copyDrizzleMigrationAssets(
   serverDir: string,
 ): string[] {
   const sourceDir = path.join(projectCwd, DRIZZLE_MIGRATIONS_SOURCE_DIR);
+  if (!fs.existsSync(sourceDir)) return [];
   const migrationFiles = listDrizzleMigrationFiles(sourceDir);
-  if (migrationFiles.length === 0) return [];
 
   const destinationDir = path.join(serverDir, "migrations");
   fs.rmSync(destinationDir, { recursive: true, force: true });
@@ -4937,6 +4937,7 @@ export function copyDrizzleMigrationAssets(
       path.join(destinationDir, file),
     );
   }
+  fs.writeFileSync(path.join(destinationDir, ".gitkeep"), "");
   return migrationFiles;
 }
 
