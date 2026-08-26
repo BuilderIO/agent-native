@@ -400,9 +400,8 @@ export function createFetchToolEntry(
             "text/plain";
 
           // A fetched image is useful as model context, not as text decoded
-          // from arbitrary bytes. Passing the public URL through the
-          // well-known result-image field lets vision-capable engines inspect
-          // it while keeping the URL available for slide/image authorship.
+          // from arbitrary bytes. Pass bounded bytes through the well-known
+          // result-image field so vision providers never refetch this URL.
           const saveToFilePath =
             typeof (args as Record<string, unknown>).saveToFile === "string"
               ? ((args as Record<string, unknown>).saveToFile as string).trim()
@@ -427,13 +426,11 @@ export function createFetchToolEntry(
             console.log(
               "[fetch-tool] " +
                 method +
-                " " +
-                rawUrl +
-                " → " +
+                " image → " +
                 response.status +
                 " (" +
                 elapsed +
-                "ms, keys: none, vision image)",
+                "ms, vision image)",
             );
             return {
               status: response.status,
