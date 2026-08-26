@@ -66,6 +66,13 @@
   --b-stroke-gradient-start: #3d3d3d;
   --b-stroke-gradient-end: #1a1a1a;
 
+  /* The snackbar deliberately does not follow the theme: a dark pill on the
+     dark page disappeared into it, so it stays light in both themes and
+     reads as an overlay rather than part of the page. */
+  --b-snackbar-bg: #faf9f5;
+  --b-snackbar-text: #0a0a0a;
+  --b-snackbar-border: #cac9c6;
+
   /* Semantic tokens: border */
   --b-border-default: #1a1a1a;
   --b-border-subtle: #141414;
@@ -203,6 +210,8 @@
 
   --b-stroke-gradient-start: #ababab;
   --b-stroke-gradient-end: #e0e0d7;
+
+  --b-snackbar-bg: #ffffff;
 
   --b-border-default: #cac9c6;
   --b-border-subtle: #e0e0d7;
