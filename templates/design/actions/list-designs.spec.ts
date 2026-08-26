@@ -146,14 +146,23 @@ const db = {
               return Promise.resolve([{ count: rows.length }]);
             }
             return {
-              orderBy: () => ({
-                limit: (limit: number) => ({
-                  offset: (offset: number) => {
-                    mocks.pageCalls.push({ limit, offset });
-                    return Promise.resolve(rows.slice(offset, offset + limit));
-                  },
-                }),
-              }),
+              orderBy: () => {
+                const query = {
+                  limit: (limit: number) => ({
+                    offset: (offset: number) => {
+                      mocks.pageCalls.push({ limit, offset });
+                      return Promise.resolve(
+                        rows.slice(offset, offset + limit),
+                      );
+                    },
+                  }),
+                  then: (
+                    resolve: (value: DesignRow[]) => unknown,
+                    reject: (reason: unknown) => unknown,
+                  ) => Promise.resolve(rows).then(resolve, reject),
+                };
+                return query;
+              },
             };
           }
 
@@ -242,6 +251,26 @@ describe("list-designs", () => {
         projection && typeof projection === "object" && "id" in projection,
     );
     expect(designProjection).not.toHaveProperty("data");
+  });
+
+  it("keeps no-argument callers on the complete lightweight list", async () => {
+    mocks.designRows = [design("design-1", "One"), design("design-2", "Two")];
+
+    const result = await action.run({});
+
+    expect(result.designs.map((item) => item.id)).toEqual([
+      "design-1",
+      "design-2",
+    ]);
+    expect(result).toMatchObject({
+      count: 2,
+      totalCount: 2,
+      hasMore: false,
+      page: 1,
+      pageSize: 2,
+      totalPages: 1,
+    });
+    expect(mocks.pageCalls).toEqual([]);
   });
 
   it("applies Mine to the authenticated owner while retaining access scoping", async () => {

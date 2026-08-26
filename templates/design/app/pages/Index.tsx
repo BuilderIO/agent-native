@@ -771,6 +771,11 @@ export default function Index() {
     setDeleteId(null);
 
     deleteMutation.mutate({ id } as any, {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
+      },
       onError: () => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
@@ -816,7 +821,11 @@ export default function Index() {
     setSelectedDesignIds(new Set());
 
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
-      .then(() => undefined)
+      .then(() =>
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        }),
+      )
       .catch(() => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],

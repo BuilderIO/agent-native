@@ -20,21 +20,22 @@ function escapeLike(value: string): string {
 
 export default defineAction({
   description:
-    "List one page of design projects accessible to the current user. " +
-    "Returns light metadata, pagination, and optional HTML previews.",
+    "List design projects accessible to the current user. Pass page and " +
+    "pageSize for pagination; omit them for the complete lightweight list. " +
+    "Returns optional HTML previews.",
   schema: z.object({
     page: z.coerce
       .number()
       .int()
       .min(1)
-      .default(1)
+      .optional()
       .describe("One-based page number"),
     pageSize: z.coerce
       .number()
       .int()
       .min(1)
       .max(DESIGN_LIST_MAX_PAGE_SIZE)
-      .default(DESIGN_LIST_DEFAULT_PAGE_SIZE)
+      .optional()
       .describe("Maximum designs returned in this page"),
     createdBy: z
       .enum(["all", "me"])
@@ -62,14 +63,17 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async (args) => {
+    const isPaginated = args.page !== undefined || args.pageSize !== undefined;
+    const page = args.page ?? 1;
+    const pageSize = args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE;
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
     if (args.createdBy === "me" && !ownerEmail) {
       return {
         count: 0,
         totalCount: 0,
         hasMore: false,
-        page: args.page,
-        pageSize: args.pageSize,
+        page,
+        pageSize,
         totalPages: 0,
         designs: [],
       };
@@ -86,33 +90,35 @@ export default defineAction({
         ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`
         : undefined,
     );
-    const offset = (args.page - 1) * args.pageSize;
+    const offset = isPaginated ? (page - 1) * pageSize : 0;
 
     // Project only the columns the list path uses. The `data` TEXT column holds
     // the full design JSON (tweaks, selections, etc.) which can be large and is
     // never read on the listing — detail/editor views load it via get-design.
+    const designsQuery = db
+      .select({
+        id: schema.designs.id,
+        title: schema.designs.title,
+        description: schema.designs.description,
+        projectType: schema.designs.projectType,
+        designSystemId: schema.designs.designSystemId,
+        visibility: schema.designs.visibility,
+        ownerEmail: schema.designs.ownerEmail,
+        createdAt: schema.designs.createdAt,
+        updatedAt: schema.designs.updatedAt,
+      })
+      .from(schema.designs)
+      .where(where)
+      .orderBy(desc(schema.designs.updatedAt), desc(schema.designs.id));
+    const rowsPromise = isPaginated
+      ? designsQuery.limit(pageSize).offset(offset)
+      : designsQuery;
     const [countRows, rows] = await Promise.all([
       db
         .select({ count: sql<number>`count(*)` })
         .from(schema.designs)
         .where(where),
-      db
-        .select({
-          id: schema.designs.id,
-          title: schema.designs.title,
-          description: schema.designs.description,
-          projectType: schema.designs.projectType,
-          designSystemId: schema.designs.designSystemId,
-          visibility: schema.designs.visibility,
-          ownerEmail: schema.designs.ownerEmail,
-          createdAt: schema.designs.createdAt,
-          updatedAt: schema.designs.updatedAt,
-        })
-        .from(schema.designs)
-        .where(where)
-        .orderBy(desc(schema.designs.updatedAt), desc(schema.designs.id))
-        .limit(args.pageSize)
-        .offset(offset),
+      rowsPromise,
     ]);
     const totalCount = Number(countRows[0]?.count ?? 0);
 
@@ -185,14 +191,21 @@ export default defineAction({
       return base;
     });
 
-    const hasMore = offset + rows.length < totalCount;
+    const hasMore = isPaginated && offset + rows.length < totalCount;
+    const totalPages = isPaginated
+      ? Math.ceil(totalCount / pageSize)
+      : totalCount > 0
+        ? 1
+        : 0;
     return {
       count: totalCount,
       totalCount,
       hasMore,
-      page: args.page,
-      pageSize: args.pageSize,
-      totalPages: Math.ceil(totalCount / args.pageSize),
+      page,
+      pageSize: isPaginated
+        ? pageSize
+        : totalCount || DESIGN_LIST_DEFAULT_PAGE_SIZE,
+      totalPages,
       designs: items,
     };
   },
