@@ -41,7 +41,7 @@ export function InstallCommand() {
         border: "none",
         borderRadius: "var(--b-radius)",
         background:
-          "linear-gradient(140deg, var(--c-neutral-700) 0%, var(--b-bg-prominent) 100%)",
+          "linear-gradient(140deg, var(--b-stroke-gradient-start) 0%, var(--b-stroke-gradient-end) 100%)",
         lineHeight: 1,
         cursor: "pointer",
         transition: "color 0.15s, background 0.2s ease",

@@ -59,6 +59,12 @@
   --b-text-link: #bef0f5;
   --b-text-eyebrow: #01c8f1;
 
+  /* Endpoints of the 1px gradient hairline used by IconBox-style surfaces.
+     Separate tokens because the two themes need different directions: dark
+     mode lights the edge up out of the fill, light mode shades it down. */
+  --b-stroke-gradient-start: #3d3d3d;
+  --b-stroke-gradient-end: #1a1a1a;
+
   /* Semantic tokens: border */
   --b-border-default: #1a1a1a;
   --b-border-subtle: #141414;
@@ -193,6 +199,9 @@
   --b-text-highlight: #1a1a1a;
   --b-text-link: #00677f;
   --b-text-eyebrow: #00677f;
+
+  --b-stroke-gradient-start: #cac9c0;
+  --b-stroke-gradient-end: #ffffff;
 
   --b-border-default: #cac9c6;
   --b-border-subtle: #e0e0d7;
