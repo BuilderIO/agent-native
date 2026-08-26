@@ -601,8 +601,10 @@ describe("document editor layout", () => {
 
     expect(teardown).toContain("const baseUpdatedAt");
     expect(teardown).toContain("const loadedContentWasEmpty");
+    expect(teardown).toContain("const loadedUpdatedAt");
     expect(teardown).toContain("lastSavedContentRef.current.content");
     expect(teardown).toContain("{ loadedContentWasEmpty }");
+    expect(teardown).toContain("{ loadedUpdatedAt }");
   });
 
   it("keeps the canonical body read-only after collaborative initialization fails", () => {

@@ -1572,12 +1572,17 @@ function DocumentEditorBody({
                 lastSavedContentRef.current.content,
               )
             : undefined;
+        const loadedUpdatedAt =
+          updates.content !== undefined
+            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            : undefined;
         const body = JSON.stringify({
           id: documentId,
           ...updates,
           ...(loadedContentWasEmpty !== undefined
             ? { loadedContentWasEmpty }
             : {}),
+          ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
         const ok = fetch(url, {

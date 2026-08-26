@@ -519,7 +519,9 @@ export async function listPropertiesForDocument(
   // time and via the one-time startup repair (repairUnseededBlocksFields) —
   // never here. A viewer opening a shared/legacy row must not trigger writes on
   // another owner's database.
-  return listPropertiesForDatabase(database.id, document);
+  return listPropertiesForDatabase(database.id, document, {
+    includeContainerDerivedValues: options.requireDatabaseAccess !== false,
+  });
 }
 
 export async function listPropertiesForAllDocumentDatabases(
@@ -563,6 +565,7 @@ export async function listPropertiesForAllDocumentDatabases(
 export async function listPropertiesForDatabase(
   databaseId: string,
   valueDocument?: DocumentRow,
+  options: { includeContainerDerivedValues?: boolean } = {},
 ) {
   const db = getDb();
   const definitions = await db
@@ -583,9 +586,12 @@ export async function listPropertiesForDatabase(
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
   );
-  const rowNumberByDocumentId = valueDocument
-    ? await databaseRowNumbersByDocumentId(databaseId)
-    : new Map<string, number>();
+  const includeContainerDerivedValues =
+    options.includeContainerDerivedValues !== false;
+  const rowNumberByDocumentId =
+    valueDocument && includeContainerDerivedValues
+      ? await databaseRowNumbersByDocumentId(databaseId)
+      : new Map<string, number>();
 
   // Additional (non-primary) Blocks fields keep their content in their own
   // store, keyed by (documentId, propertyId). Load this row's contents up front
@@ -684,11 +690,16 @@ export async function listPropertiesForDatabase(
 
   const nextProperties = [];
   for (const property of evaluatedProperties) {
-    if (property.definition.type === "rollup") {
+    if (
+      property.definition.type === "rollup" &&
+      includeContainerDerivedValues
+    ) {
       nextProperties.push({
         ...property,
         value: await evaluatePropertyRollup(property, evaluatedProperties),
       });
+    } else if (property.definition.type === "rollup") {
+      nextProperties.push({ ...property, value: null });
     } else {
       nextProperties.push(property);
     }

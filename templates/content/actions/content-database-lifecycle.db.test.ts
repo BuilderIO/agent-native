@@ -1620,6 +1620,8 @@ describe("content database soft-delete actions and reads", () => {
     });
     const unrelated = await createDatabase({});
     const propertyId = nextId("property");
+    const relationPropertyId = nextId("relation_property");
+    const rollupPropertyId = nextId("rollup_property");
 
     await db.insert(schema.contentDatabaseItems).values([
       {
@@ -1641,28 +1643,73 @@ describe("content database soft-delete actions and reads", () => {
         updatedAt: now,
       },
     ]);
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id: propertyId,
-      ownerEmail: OWNER,
-      databaseId,
-      name: "Status",
-      type: "text",
-      description: "",
-      visibility: "always_show",
-      optionsJson: "{}",
-      position: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(schema.documentPropertyValues).values({
-      id: nextId("property_value"),
-      ownerEmail: OWNER,
-      documentId: sharedDocumentId,
-      propertyId,
-      valueJson: JSON.stringify("Shared only"),
-      createdAt: now,
-      updatedAt: now,
-    });
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: propertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Status",
+        type: "text",
+        description: "",
+        visibility: "always_show",
+        optionsJson: "{}",
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: relationPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related",
+        type: "relation",
+        description: "",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ relation: { databaseId } }),
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: rollupPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related count",
+        type: "rollup",
+        description: "",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          rollup: {
+            relationPropertyId,
+            targetPropertyId: propertyId,
+            aggregation: "count",
+          },
+        }),
+        position: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyValues).values([
+      {
+        id: nextId("property_value"),
+        ownerEmail: OWNER,
+        documentId: sharedDocumentId,
+        propertyId,
+        valueJson: JSON.stringify("Shared only"),
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: nextId("property_value"),
+        ownerEmail: OWNER,
+        documentId: sharedDocumentId,
+        propertyId: relationPropertyId,
+        valueJson: JSON.stringify([siblingDocumentId]),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
     await db.insert(schema.documentShares).values({
       id: nextId("share"),
       resourceId: sharedDocumentId,
@@ -1701,12 +1748,19 @@ describe("content database soft-delete actions and reads", () => {
     expect(shared).toMatchObject({
       documentId: sharedDocumentId,
       databaseId,
-      properties: [
-        {
-          definition: { id: propertyId, name: "Status" },
+      properties: expect.arrayContaining([
+        expect.objectContaining({
+          definition: expect.objectContaining({
+            id: propertyId,
+            name: "Status",
+          }),
           value: "Shared only",
-        },
-      ],
+        }),
+        expect.objectContaining({
+          definition: expect.objectContaining({ id: rollupPropertyId }),
+          value: null,
+        }),
+      ]),
     });
 
     await expect(
