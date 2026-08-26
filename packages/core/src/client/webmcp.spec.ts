@@ -76,6 +76,40 @@ describe("WebMCP client", () => {
       {},
     );
   });
+
+  it("refreshes the live descriptor and preserves structured results", async () => {
+    const staleTool = {
+      name: "get-order",
+      title: "Stale order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const freshTool = {
+      ...staleTool,
+      title: "Fresh order",
+    };
+    const getTools = vi
+      .fn()
+      .mockResolvedValueOnce([staleTool])
+      .mockResolvedValueOnce([freshTool]);
+    const executeTool = vi.fn(async (tool: { title?: string }) => ({
+      title: tool.title,
+    }));
+    const client = createAgentNativeWebMcpClient({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool,
+      }),
+    });
+
+    const [tool] = await client.listTools();
+    await expect(client.executeTool(tool)).resolves.toEqual({
+      title: "Fresh order",
+    });
+    expect(executeTool).toHaveBeenCalledWith(freshTool, "{}", {});
+  });
 });
 
 describe("WebMCP registration", () => {

@@ -475,11 +475,24 @@ async function executeBrowserSessionRequest(
   request: AgentNativeBrowserSessionRequest,
   options: AgentNativeBrowserSessionBridgeOptions,
 ): Promise<unknown> {
+  const hostOptions = hostRequestOptions(options);
+  if (options.webmcp === "host" && request.type === "list-webmcp-tools") {
+    return requestAgentNativeHostWebMcpTools(hostOptions);
+  }
+  if (options.webmcp === "host" && request.type === "run-webmcp-tool") {
+    if (!request.name) {
+      throw new Error("Browser-session WebMCP request is missing name");
+    }
+    return runAgentNativeHostWebMcpTool(
+      { name: request.name, origin: request.origin },
+      request.args,
+      hostOptions,
+    );
+  }
   if (hasDirectHost(options)) {
     return executeDirectBrowserSessionRequest(request, options);
   }
 
-  const hostOptions = hostRequestOptions(options);
   if (request.type === "get-context") {
     return requestAgentNativeHostContext(hostOptions);
   }

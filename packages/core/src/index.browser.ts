@@ -99,6 +99,7 @@ export {
   type AgentNativeWebMcpTool,
   type AgentNativeWebMcpToolAnnotations,
   type AgentNativeWebMcpToolExecutionOptions,
+  type AgentNativeWebMcpToolResult,
 } from "./client/webmcp.js";
 
 // defineAction — used by template actions, no Node.js deps

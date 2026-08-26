@@ -31,6 +31,10 @@ function responseType(
       return AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS;
     case AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION:
       return AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT;
+    case AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS:
+      return AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS;
+    case AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL:
+      return AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT;
     case AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND:
       return AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND_RESULT;
     default:
@@ -78,6 +82,25 @@ function hostWindow() {
             type: responseType(type),
             ok: true,
             result: { selected: (message.args as { rowId?: string }).rowId },
+          };
+        } else if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS) {
+          response = {
+            type: responseType(type),
+            ok: true,
+            tools: [
+              {
+                name: "get-order",
+                description: "Read an order",
+                origin: "https://shop.example",
+                inputSchema: { type: "object" },
+              },
+            ],
+          };
+        } else if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL) {
+          response = {
+            type: responseType(type),
+            ok: true,
+            result: { status: "shipped" },
           };
         } else if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) {
           response = {
@@ -351,5 +374,73 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       }),
       undefined,
     );
+  });
+
+  it("routes host WebMCP through the host bridge with mixed direct options", async () => {
+    const { host } = hostWindow();
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/_agent-native/browser-sessions" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        expect(body.webmcpTools).toEqual([
+          expect.objectContaining({ name: "get-order" }),
+        ]);
+        return jsonResponse({
+          ok: true,
+          session: {
+            sessionId: body.sessionId,
+            session: body.session,
+            active: true,
+            actions: body.actions,
+            webmcpTools: body.webmcpTools,
+          },
+        });
+      }
+      if (
+        url === "/_agent-native/browser-sessions/mixed-tab/requests/claim" &&
+        method === "POST"
+      ) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-webmcp",
+            sessionId: "mixed-tab",
+            type: "run-webmcp-tool",
+            name: "get-order",
+            origin: "https://shop.example",
+            args: { id: "order-1" },
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 1000,
+          },
+        });
+      }
+      if (
+        url ===
+          "/_agent-native/browser-sessions/mixed-tab/requests/req-webmcp/complete" &&
+        method === "POST"
+      ) {
+        const body = JSON.parse(String(init?.body));
+        expect(body).toEqual({
+          ok: true,
+          result: { status: "shipped" },
+        });
+        return jsonResponse({ ok: true, request: { id: "req-webmcp" } });
+      }
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    });
+
+    const bridge = createAgentNativeBrowserSessionBridge({
+      targetWindow: host,
+      hostOrigin: "https://app.example",
+      webmcp: "host",
+      session: { id: "mixed-tab" },
+      getContext: () => ({ route: { name: "orders" } }),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.claimOnce()).resolves.toMatchObject({
+      id: "req-webmcp",
+    });
   });
 });

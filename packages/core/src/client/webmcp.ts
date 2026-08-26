@@ -27,6 +27,14 @@ export interface AgentNativeWebMcpToolExecutionOptions {
   signal?: AbortSignal;
 }
 
+export type AgentNativeWebMcpToolResult =
+  | string
+  | number
+  | boolean
+  | null
+  | AgentNativeWebMcpToolResult[]
+  | { [key: string]: AgentNativeWebMcpToolResult };
+
 export interface AgentNativeWebMcpClient {
   readonly supported: boolean;
   listTools(options?: {
@@ -36,7 +44,7 @@ export interface AgentNativeWebMcpClient {
     tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
     input?: unknown,
     options?: AgentNativeWebMcpToolExecutionOptions,
-  ): Promise<string | null>;
+  ): Promise<AgentNativeWebMcpToolResult>;
   onToolChange?(listener: () => void): () => void;
 }
 
@@ -59,7 +67,7 @@ interface NativeModelContext {
     tool: NativeRegisteredTool,
     inputObject?: string,
     options?: AgentNativeWebMcpToolExecutionOptions,
-  ): Promise<string | null>;
+  ): Promise<unknown>;
   addEventListener?(type: "toolchange", listener: EventListener): void;
   removeEventListener?(type: "toolchange", listener: EventListener): void;
 }
@@ -236,6 +244,32 @@ function toolKey(tool: Pick<AgentNativeWebMcpTool, "name" | "origin">): string {
   return `${tool.origin ?? ""}\u0000${tool.name}`;
 }
 
+function normalizeToolResult(
+  value: unknown,
+  label: string,
+  maxChars: number,
+): AgentNativeWebMcpToolResult {
+  if (typeof value === "string") {
+    if (value.length > maxChars) {
+      throw new Error(`${label} exceeds the ${maxChars}-character limit`);
+    }
+    return value;
+  }
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new Error(`${label} must be JSON-serializable`);
+  }
+  if (serialized === undefined) {
+    throw new Error(`${label} must be JSON-serializable`);
+  }
+  if (serialized.length > maxChars) {
+    throw new Error(`${label} exceeds the ${maxChars}-character limit`);
+  }
+  return JSON.parse(serialized) as AgentNativeWebMcpToolResult;
+}
+
 export interface AgentNativeWebMcpClientOptions {
   document?: Document;
   fromOrigins?: string[];
@@ -290,6 +324,7 @@ export function createAgentNativeWebMcpClient(
       "WebMCP tool manifest",
       limits.maxManifestChars,
     );
+    nativeTools.clear();
     normalizedTools.forEach((tool, index) => {
       nativeTools.set(toolKey(tool), result[index]);
     });
@@ -316,7 +351,7 @@ export function createAgentNativeWebMcpClient(
     tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
     input: unknown = {},
     executionOptions: AgentNativeWebMcpToolExecutionOptions = {},
-  ): Promise<string | null> {
+  ): Promise<AgentNativeWebMcpToolResult> {
     const context = requireModelContext();
     if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
       throw new Error("A WebMCP tool name is required");
@@ -326,11 +361,8 @@ export function createAgentNativeWebMcpClient(
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
 
-    let nativeTool = findNativeTool(tool);
-    if (!nativeTool) {
-      await listTools();
-      nativeTool = findNativeTool(tool);
-    }
+    await listTools();
+    const nativeTool = findNativeTool(tool);
     if (!nativeTool) {
       throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
     }
@@ -339,17 +371,11 @@ export function createAgentNativeWebMcpClient(
       JSON.stringify(input),
       executionOptions,
     );
-    if (result !== null && typeof result !== "string") {
-      throw new Error(
-        `WebMCP tool "${tool.name}" returned a non-string result`,
-      );
-    }
-    if (typeof result === "string" && result.length > limits.maxResultChars) {
-      throw new Error(
-        `WebMCP tool "${tool.name}" result exceeds the ${limits.maxResultChars}-character limit`,
-      );
-    }
-    return result;
+    return normalizeToolResult(
+      result,
+      `WebMCP tool "${tool.name}" result`,
+      limits.maxResultChars,
+    );
   }
 
   const client: AgentNativeWebMcpClient = {

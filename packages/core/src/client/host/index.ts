@@ -153,6 +153,7 @@ export {
   type AgentNativeWebMcpTool,
   type AgentNativeWebMcpToolAnnotations,
   type AgentNativeWebMcpToolExecutionOptions,
+  type AgentNativeWebMcpToolResult,
 } from "../webmcp.js";
 export {
   AGENT_NATIVE_HOST_TOOL_NAMES,
