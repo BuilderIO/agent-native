@@ -958,6 +958,24 @@ function resolveFillPaint(
   }
 
   // image fill
+  //
+  // An href that no consumer can resolve must not become an `<image>`. The
+  // clipboard import cannot carry image bytes, so it points unresolved fills
+  // at `about:blank` until `hydrate-figma-paste-images` fills them in; passing
+  // that straight through hands Figma a broken reference, and a renderer whose
+  // own document URL is `about:blank` resolves it to the document ITSELF and
+  // paints a recursive smear of the page where the design has a placeholder.
+  // Report the gap instead — an absent image and an unresolvable one are the
+  // same fact, and neither is "here is a picture".
+  if (!/^(https?:|data:|blob:)/i.test(fill.href.trim())) {
+    ctx.report.omitted.push({
+      node: node.name || node.id,
+      reason:
+        `Image fill has no resolvable source (${fill.href.slice(0, 60) || "empty"}); ` +
+        `left unpainted rather than exported as a broken reference.`,
+    });
+    return "none";
+  }
   const id = ctx.nextId("img-fill");
   const par = objectFitToPreserveAspectRatio(fill.fit);
   ctx.defs.push(

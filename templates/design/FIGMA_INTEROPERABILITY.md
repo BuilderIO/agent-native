@@ -324,9 +324,9 @@ Measured 2026-08-26:
 | parity-stress | 2.79% | 3.27% | 0.73% |
 | community untitled-ui landing | 2.65% | 3.07% | 1.63% |
 | autolayout | 3.48% | 5.72% | 3.11% |
-| positivus (clipboard) | 8.37% | 9.57% | 3.95% |
+| untitled-ui (clipboard) | 12.90% | 12.88% | 0.14% |
+| positivus (clipboard) | 8.37% | 8.63% | 2.16% |
 | fills-effects | 14.33% | 23.38% | 9.70% |
-| untitled-ui (clipboard) | 12.90% | 20.42% | 13.25% |
 
 **Load the fonts the SVG names before measuring it.** The exported SVG carries
 `font-family` but no `@font-face` — Figma resolves families against its own font
@@ -349,6 +349,16 @@ harness could see because its own preset designs use none of them:
   starburst; unmasked it covered the entire contact form, and the band around
   it differed by 79.6%. Now rasterized. Positivus export hop 9.57% -> 3.95%.
 - **A percentage border-radius exported as a rounded rectangle** (see below).
+- **An unresolvable image href exported as a broken `<image>`.** The clipboard
+  import cannot carry image bytes, so it points unresolved fills at
+  `about:blank` until `hydrate-figma-paste-images` fills them in. Passing that
+  through hands Figma a broken reference — and a renderer whose own document
+  URL is `about:blank` resolves it to the document ITSELF, painting a recursive
+  smear of the page where the design has a placeholder. Only `http(s):`,
+  `data:` and `blob:` sources become an `<image>` now; anything else is
+  reported as omitted, because an absent image and an unresolvable one are the
+  same fact and neither is "here is a picture". Untitled UI's clipboard export
+  hop 13.25% -> 0.14%, Positivus 3.95% -> 2.16%.
 
 Rasterizing is deliberately restricted to leaves. Rasterizing a container would
 flatten children that export perfectly well as geometry, and those children are

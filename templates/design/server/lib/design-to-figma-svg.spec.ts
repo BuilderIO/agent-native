@@ -1003,3 +1003,31 @@ describe("paints the box model cannot carry", () => {
     expect(node.raster?.href).toBe("");
   });
 });
+
+describe("image fills with no resolvable source", () => {
+  const imageFillNode = (href: string) =>
+    hydrateRawFigmaSvgNode(
+      rawBoxFixture({ backgroundImage: `url("${href}")` }),
+    );
+
+  // A clipboard import cannot carry image bytes, so it points unresolved fills
+  // at about:blank until hydrate-figma-paste-images fills them in. Passing that
+  // through hands Figma a broken reference — and a renderer whose own document
+  // URL is about:blank resolves it to the document ITSELF, painting a recursive
+  // smear of the page where the design has a placeholder.
+  it("keeps a resolvable http/data/blob source", () => {
+    for (const href of [
+      "https://example.com/a.png",
+      "data:image/png;base64,AAA",
+      "blob:https://example.com/x",
+    ]) {
+      const node = imageFillNode(href);
+      expect(node.fills?.some((f) => f.kind === "image")).toBe(true);
+    }
+  });
+
+  it("still records an unresolvable source as an image fill for the paint builder to reject", () => {
+    const node = imageFillNode("about:blank");
+    expect(node.fills?.some((f) => f.kind === "image")).toBe(true);
+  });
+});

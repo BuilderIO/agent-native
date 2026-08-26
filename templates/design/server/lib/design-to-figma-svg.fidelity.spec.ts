@@ -472,3 +472,41 @@ describe("full ellipses in the exported SVG", () => {
     expect(isUniformRadius({ tl: 10, tr: 10, br: 10, bl: 10 })).toBe(true);
   });
 });
+
+describe("image fills the exporter cannot resolve", () => {
+  const withHref = (href: string) => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Hero",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 100, height: 100 },
+      fills: [{ kind: "image", href, fit: "cover" }],
+    };
+    return buildFigmaSvgDocument({ width: 100, height: 100, root });
+  };
+
+  // The clipboard import cannot carry image bytes, so it points unresolved
+  // fills at about:blank until hydrate-figma-paste-images fills them in.
+  // Exporting that hands Figma a broken reference — and a renderer whose own
+  // document URL is about:blank resolves it to the document ITSELF, painting a
+  // recursive smear of the page where the design has a placeholder.
+  it("omits and reports an unresolvable href instead of exporting a broken <image>", () => {
+    const { svg, report } = withHref("about:blank");
+    expect(svg).not.toContain("<image");
+    expect(report.omitted.some((o) => o.node === "Hero")).toBe(true);
+    expect(
+      report.omitted.some((o) => o.reason.includes("no resolvable source")),
+    ).toBe(true);
+  });
+
+  it("still exports a real data: source", () => {
+    const { svg, report } = withHref("data:image/png;base64,AAA");
+    expect(svg).toContain("<image");
+    expect(report.omitted).toHaveLength(0);
+  });
+
+  it("still exports a real https: source", () => {
+    const { svg } = withHref("https://example.com/hero.png");
+    expect(svg).toContain("<image");
+  });
+});
