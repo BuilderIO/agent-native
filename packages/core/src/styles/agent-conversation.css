@@ -128,7 +128,7 @@
   list-style-type: disc;
 }
 
-.agent-conversation-markdown ol {
+.agent-conversation-markdown ol:not(.contains-task-list) {
   list-style-type: decimal;
 }
 
