@@ -86,6 +86,21 @@ export { agentChat } from "./shared/index.js";
 // Pure utilities (no Node.js deps — safe for browser and SSR)
 export { parseArgs, camelCaseArgs } from "./scripts/parse-args.js";
 
+export {
+  AgentNativeWebMcpUnsupportedError,
+  createAgentNativeWebMcpClient,
+  createAgentNativeWebMcpRegistration,
+  isAgentNativeWebMcpSupported,
+  type AgentNativeWebMcpApprovalRequest,
+  type AgentNativeWebMcpClient,
+  type AgentNativeWebMcpClientOptions,
+  type AgentNativeWebMcpRegistration,
+  type AgentNativeWebMcpRegistrationOptions,
+  type AgentNativeWebMcpTool,
+  type AgentNativeWebMcpToolAnnotations,
+  type AgentNativeWebMcpToolExecutionOptions,
+} from "./client/webmcp.js";
+
 // defineAction — used by template actions, no Node.js deps
 export {
   defineAction,

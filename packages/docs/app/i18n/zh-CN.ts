@@ -1923,6 +1923,7 @@ const zhCN = {
     externalAgents: "外部 Agents（连接主机）",
     externalAgentsCatalog: "外部 Agents 目录",
     mcpApps: "MCP Apps（内联 UI）",
+    webMcp: "WebMCP（浏览器工具）",
     crossAppSso: "跨应用 SSO",
     notifications: "通知",
     automationConnectors: "工作流连接器",

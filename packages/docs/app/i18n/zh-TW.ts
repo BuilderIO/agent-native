@@ -1922,6 +1922,7 @@ const messages = {
     externalAgents: "外部 Agents（連線主機）",
     externalAgentsCatalog: "外部 Agents 目錄",
     mcpApps: "MCP Apps（行內 UI）",
+    webMcp: "WebMCP（瀏覽器工具）",
     crossAppSso: "跨應用 SSO",
     notifications: "通知",
     automationConnectors: "工作流程連接器",

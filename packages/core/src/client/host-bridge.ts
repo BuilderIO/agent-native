@@ -1,3 +1,8 @@
+import type {
+  AgentNativeWebMcpClient,
+  AgentNativeWebMcpTool,
+} from "./webmcp.js";
+
 export const AGENT_NATIVE_HOST_BRIDGE_VERSION = "0.1.0";
 
 export const AGENT_NATIVE_HOST_MESSAGE_TYPES = {
@@ -10,6 +15,10 @@ export const AGENT_NATIVE_HOST_MESSAGE_TYPES = {
   ACTIONS: "agentNative.host.actions",
   RUN_ACTION: "agentNative.host.runAction",
   ACTION_RESULT: "agentNative.host.actionResult",
+  LIST_WEBMCP_TOOLS: "agentNative.host.listWebMcpTools",
+  WEBMCP_TOOLS: "agentNative.host.webMcpTools",
+  RUN_WEBMCP_TOOL: "agentNative.host.runWebMcpTool",
+  WEBMCP_TOOL_RESULT: "agentNative.host.webMcpToolResult",
   COMMAND: "agentNative.host.command",
   COMMAND_RESULT: "agentNative.host.commandResult",
   ERROR: "agentNative.host.error",
@@ -200,7 +209,19 @@ export type AgentNativeHostBridgeEvent =
   | { type: "auth"; requestId?: string; origin?: string }
   | { type: "actions"; requestId?: string; count: number; origin?: string }
   | {
+      type: "webmcp-tools";
+      requestId?: string;
+      count: number;
+      origin?: string;
+    }
+  | {
       type: "action";
+      name: string;
+      requestId?: string;
+      origin: string;
+    }
+  | {
+      type: "webmcp-tool";
       name: string;
       requestId?: string;
       origin: string;
@@ -248,6 +269,8 @@ export interface AgentNativeHostBridgeOptions {
    * are only callable while this host page is connected.
    */
   actions?: AgentNativeClientActions;
+  /** Opt-in access to WebMCP tools available in this host document. */
+  webmcp?: AgentNativeWebMcpClient;
   onEvent?: (event: AgentNativeHostBridgeEvent) => void;
 }
 
@@ -261,6 +284,7 @@ export interface AgentNativeHostBridge {
   refreshContext(): Promise<boolean>;
   sendAuth(requestId?: string): Promise<boolean>;
   sendActions(requestId?: string): Promise<boolean>;
+  sendWebMcpTools(requestId?: string): Promise<boolean>;
 }
 
 type IncomingHostMessage =
@@ -282,6 +306,17 @@ type IncomingHostMessage =
       name?: string;
       args?: unknown;
       payload?: unknown;
+    }
+  | {
+      type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS;
+      requestId?: string;
+    }
+  | {
+      type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL;
+      requestId?: string;
+      name?: string;
+      origin?: string;
+      args?: unknown;
     }
   | {
       type: typeof AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND;
@@ -637,6 +672,8 @@ function isIncomingHostMessage(value: unknown): value is IncomingHostMessage {
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION ||
+    value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS ||
+    value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL ||
     value.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND
   );
 }
@@ -704,6 +741,14 @@ export function createAgentNativeHostBridge(
     } catch (error) {
       message.actionsError = messageError(error).message;
       emit({ type: "error", requestId, error: messageError(error) });
+    }
+    if (options.webmcp) {
+      try {
+        message.webmcpTools = await options.webmcp.listTools();
+      } catch (error) {
+        message.webmcpError = messageError(error).message;
+        emit({ type: "error", requestId, error: messageError(error) });
+      }
     }
     const sent = post(message);
     if (sent) emit({ type: "init", requestId });
@@ -775,6 +820,37 @@ export function createAgentNativeHostBridge(
       emit({ type: "error", requestId, error: err });
       return post({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS,
+        ok: false,
+        requestId,
+        error: err.message,
+      });
+    }
+  }
+
+  async function sendWebMcpTools(requestId?: string): Promise<boolean> {
+    if (!options.webmcp) {
+      return post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+        ok: false,
+        requestId,
+        error: "WebMCP is not enabled for this host",
+      });
+    }
+    try {
+      const tools = await options.webmcp.listTools();
+      const sent = post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+        ok: true,
+        requestId,
+        tools,
+      });
+      if (sent) emit({ type: "webmcp-tools", requestId, count: tools.length });
+      return sent;
+    } catch (error) {
+      const err = messageError(error);
+      emit({ type: "error", requestId, error: err });
+      return post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
         ok: false,
         requestId,
         error: err.message,
@@ -900,6 +976,42 @@ export function createAgentNativeHostBridge(
     }
   }
 
+  async function handleWebMcpTool(
+    message: IncomingHostMessage,
+    event: MessageEvent,
+  ) {
+    if (message.type !== AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL)
+      return;
+    const name = typeof message.name === "string" ? message.name : "";
+    const requestId = message.requestId;
+    try {
+      if (!options.webmcp) {
+        throw new Error("WebMCP is not enabled for this host");
+      }
+      if (!name) throw new Error("Missing WebMCP tool name");
+      emit({ type: "webmcp-tool", name, requestId, origin: event.origin });
+      const result = await options.webmcp.executeTool(
+        { name, origin: message.origin },
+        message.args,
+      );
+      post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
+        ok: true,
+        requestId,
+        result,
+      });
+    } catch (error) {
+      const err = messageError(error);
+      emit({ type: "error", requestId, error: err, origin: event.origin });
+      post({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
+        ok: false,
+        requestId,
+        error: err.message,
+      });
+    }
+  }
+
   async function handleCommand(
     message: IncomingHostMessage,
     event: MessageEvent,
@@ -955,6 +1067,14 @@ export function createAgentNativeHostBridge(
       void sendActions(message.requestId);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) {
       void handleAction(message, event);
+    } else if (
+      message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS
+    ) {
+      void sendWebMcpTools(message.requestId);
+    } else if (
+      message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL
+    ) {
+      void handleWebMcpTool(message, event);
     } else if (message.type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) {
       void handleCommand(message, event);
     } else {
@@ -983,6 +1103,7 @@ export function createAgentNativeHostBridge(
     refreshContext: sendContext,
     sendAuth,
     sendActions,
+    sendWebMcpTools,
   };
 
   return bridge;
@@ -1061,7 +1182,13 @@ function requestFromHost<TValue>(
       if (event.data.type !== responseType) return;
       if (event.data.requestId !== id) return;
 
-      const response = pick(event.data);
+      let response: HostResponse<TValue>;
+      try {
+        response = pick(event.data);
+      } catch (error) {
+        finish(() => reject(messageError(error)));
+        return;
+      }
       if (response.ok === true) {
         finish(() => resolve(response.value));
       } else {
@@ -1176,6 +1303,66 @@ export function runAgentNativeHostAction<TArgs = unknown, TResult = unknown>(
   );
 }
 
+export function requestAgentNativeHostWebMcpTools(
+  options: AgentNativeHostRequestOptions = {},
+): Promise<AgentNativeWebMcpTool[]> {
+  return requestFromHost(
+    { type: AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS },
+    AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+    (message) => {
+      if (message.ok === false) {
+        return {
+          ok: false,
+          error: new Error(
+            typeof message.error === "string"
+              ? message.error
+              : "Host WebMCP tools request failed",
+          ),
+        };
+      }
+      if (!Array.isArray(message.tools)) {
+        return {
+          ok: false,
+          error: new Error("Host returned an invalid WebMCP tool list"),
+        };
+      }
+      return { ok: true, value: message.tools as AgentNativeWebMcpTool[] };
+    },
+    options,
+  );
+}
+
+export function runAgentNativeHostWebMcpTool<TResult = string | null>(
+  tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
+  args?: unknown,
+  options: AgentNativeHostRequestOptions = {},
+): Promise<TResult> {
+  if (!tool.name.trim()) throw new Error("WebMCP tool name is required");
+  return requestFromHost(
+    {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL,
+      name: tool.name,
+      ...(tool.origin ? { origin: tool.origin } : {}),
+      args,
+    },
+    AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
+    (message) => {
+      if (message.ok === false) {
+        return {
+          ok: false,
+          error: new Error(
+            typeof message.error === "string"
+              ? message.error
+              : "Host WebMCP tool failed",
+          ),
+        };
+      }
+      return { ok: true, value: message.result as TResult };
+    },
+    options,
+  );
+}
+
 export function sendAgentNativeHostCommand<
   TPayload = unknown,
   TResult = unknown,
@@ -1213,10 +1400,12 @@ export interface AgentNativeHostInit {
   context?: AgentNativeHostContext;
   auth?: AgentNativeHostAuthPayload;
   actions?: AgentNativeActionManifestEntry[];
+  webmcpTools?: AgentNativeWebMcpTool[];
   session?: AgentNativeHostSession;
   contextError?: string;
   authError?: string;
   actionsError?: string;
+  webmcpError?: string;
 }
 
 export function onAgentNativeHostInit(
@@ -1249,6 +1438,9 @@ export function onAgentNativeHostInit(
       actions: Array.isArray(event.data.actions)
         ? (event.data.actions as AgentNativeActionManifestEntry[])
         : undefined,
+      webmcpTools: Array.isArray(event.data.webmcpTools)
+        ? (event.data.webmcpTools as AgentNativeWebMcpTool[])
+        : undefined,
       session: isRecord(event.data.session)
         ? (event.data.session as AgentNativeHostSession)
         : undefined,
@@ -1263,6 +1455,10 @@ export function onAgentNativeHostInit(
       actionsError:
         typeof event.data.actionsError === "string"
           ? event.data.actionsError
+          : undefined,
+      webmcpError:
+        typeof event.data.webmcpError === "string"
+          ? event.data.webmcpError
           : undefined,
     });
   }

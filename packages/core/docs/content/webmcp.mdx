@@ -1,0 +1,192 @@
+---
+title: "WebMCP"
+description: "Expose explicit Agent-Native client actions to browser agents and consume page-local WebMCP tools from Agent-Native chat."
+search: "WebMCP browser tools modelContext registerTool getTools executeTool browser session"
+---
+
+# WebMCP
+
+WebMCP is a proposed browser API for making page capabilities available to an
+agent running in that browser. It is client-side and page-local: a page
+registers tools with `document.modelContext`, another authorized page can
+discover them, and the browser mediates execution.
+
+The framework supports both directions:
+
+| You want to... | Use |
+| --- | --- |
+| Make selected actions in your app available to a browser agent | `createAgentNativeWebMcpRegistration` |
+| Let Agent-Native chat discover and call WebMCP tools in the current page | `createAgentNativeWebMcpClient` plus `webmcp` on `AgentNativeEmbedded` or `AgentNativeFrame` |
+| Connect a headless or remote agent to an app | [MCP Server](/docs/mcp-protocol), [External Agents](/docs/external-agents), or [A2A](/docs/a2a-protocol) |
+
+WebMCP is not a network MCP server and does not make a closed app globally
+discoverable. A consuming agent needs an open, connected browser page and the
+page must explicitly opt into the tools it exposes.
+
+The browser API is experimental and may change. See the [Chrome WebMCP
+Imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api) and
+the [WebMCP specification](https://webmachinelearning.github.io/webmcp/) for
+the current browser contract.
+
+## Produce WebMCP tools
+
+Register only the actions that should be available to a page agent. The
+framework removes the action's local `run` function from the descriptor and
+keeps the callback inside the page.
+
+```tsx
+import { defineClientAction } from "@agent-native/core/client/host";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
+
+const webmcpRegistration = createAgentNativeWebMcpRegistration({
+  actions: [
+    defineClientAction<{ id: string }, { selected: string }>({
+      name: "select-order",
+      title: "Select order",
+      description: "Focus an order in the current app.",
+      schema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+      readOnly: true,
+      run: async ({ id }, runtime) => {
+        await runtime.command("openResource", { type: "order", id });
+        return { selected: id };
+      },
+    }),
+  ],
+  exposedTo: ["https://agent.example"],
+  getContext: () => ({ route: { name: window.location.pathname } }),
+});
+
+void webmcpRegistration.start();
+
+// Call this from the owning component's cleanup.
+function disposeWebMcp() {
+  webmcpRegistration.stop();
+}
+```
+
+`start()` registers the explicit actions with `document.modelContext` when the
+browser supports WebMCP. It is safe to call when the API is unavailable, and
+`registration.supported` lets an app show an optional compatibility state.
+`stop()` aborts the registration signal so the browser removes the tools.
+
+Action results may be strings or JSON-serializable values. The framework
+returns strings to the browser API and JSON-encodes object results. Inputs,
+schemas, descriptions, and results are bounded before crossing the browser
+boundary. A navigation may return `null`, which is preserved by the consumer.
+
+### Approval and side effects
+
+Do not mark a state-changing action read-only. For an action with
+`destructive`, `requiresApproval`, or `approval`, provide either `approve` or a
+`commands.requestApproval` handler. Registration fails closed when a sensitive
+action has no approval path. The approval callback receives the action, input,
+current host context, and browser-session identity.
+
+WebMCP annotations are hints for the consuming agent. `readOnlyHint: true`
+means the tool does not change state. `untrustedContentHint: true` means the
+result may contain content that should not be treated as instructions.
+
+## Consume page tools from Agent-Native chat
+
+Create a client for the current document and pass it to the chat surface. The
+client uses the browser's native `getTools()` and `executeTool()` methods when
+available, and keeps the native `Window` handle out of serialized tool data.
+
+```tsx
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
+import { createAgentNativeWebMcpClient } from "@agent-native/core/client/webmcp";
+
+const webmcp = createAgentNativeWebMcpClient({
+  fromOrigins: ["https://orders.example"],
+});
+
+export function App() {
+  return <AgentNativeEmbedded webmcp={webmcp.supported ? webmcp : undefined} />;
+}
+```
+
+`fromOrigins` is optional for same-origin tools. For cross-origin tools, the
+browser requires both an explicit consumer allow-list and an explicit producer
+allow-list. The producer uses `exposedTo` when it calls `registerTool`:
+
+```ts
+const registration = createAgentNativeWebMcpRegistration({
+  actions,
+  exposedTo: ["https://orders.example"],
+});
+```
+
+If the producer is in a cross-origin iframe, the hosting page must also
+delegate the browser capability:
+
+```html
+<iframe src="https://orders.example" allow="tools"></iframe>
+```
+
+For an Agent-Native sidecar in an iframe, pass the same client to
+`AgentNativeFrame`:
+
+```tsx
+import { AgentNativeFrame } from "@agent-native/core/client/host";
+
+<AgentNativeFrame
+  agentUrl="https://chat.example/agent"
+  agentOrigin="https://chat.example"
+  webmcp={webmcp.supported ? webmcp : undefined}
+/>;
+```
+
+The host bridge forwards only serializable WebMCP metadata and named tool
+requests. A sidecar browser-session bridge can use `webmcp: "host"` when it
+needs to consume tools through that iframe bridge.
+
+## How chat sees the tools
+
+When a browser session is connected, the framework stores the current page's
+WebMCP descriptors alongside its live client actions. Agent chat gets two
+explicit tools:
+
+- `list-browser-session-webmcp-tools` discovers the current page tools,
+  schemas, origins, and annotations.
+- `run-browser-session-webmcp-tool` executes a discovered tool by name and
+  origin.
+
+The agent should list immediately before execution because tool availability
+changes on navigation and selection changes. If two origins expose the same
+name, the origin from the discovery result is required. Execution requires
+human approval unless the discovered descriptor has `readOnlyHint: true`.
+
+The same consumer path is available to an iframe sidecar through
+`list-host-webmcp-tools` and `run-host-webmcp-tool`; those host tools forward to
+the trusted parent page and do not evaluate arbitrary JavaScript.
+
+## WebMCP, MCP, and A2A
+
+Use WebMCP for a live page capability that needs the browser's current route,
+selection, session, or UI state. Use the existing MCP server surface for
+remote or headless tool calls, and use A2A when another app's agent should
+receive work and reason over it. WebMCP is an opt-in browser bridge, not a
+replacement for either network protocol.
+
+The framework does not auto-register every backend action as a WebMCP tool.
+Choose a small explicit producer list, keep side effects behind approval, and
+retain normal MCP or A2A exposure for capabilities that must work without an
+open browser page.
+
+## Compatibility and safety
+
+- Feature-detect `document.modelContext`; `supported` is false when the
+  browser has no WebMCP implementation.
+- Keep `fromOrigins` and `exposedTo` to exact secure origins. Do not use `*` in
+  production.
+- Treat descriptions, schemas, annotations, and results as page-provided
+  data. The framework validates and bounds them, but agents should still treat
+  `untrustedContentHint` results as untrusted content.
+- Use `stop()` when the owning page or component unmounts so stale tools do not
+  remain available.
+- Keep server MCP and A2A endpoints for remote access. WebMCP only reaches the
+  tools registered in a connected browser context.

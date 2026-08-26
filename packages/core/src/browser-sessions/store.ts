@@ -1,3 +1,4 @@
+import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
 import {
   getDbExec,
   intType,
@@ -163,6 +164,44 @@ function parseActions(value: unknown): AgentNativeBrowserSessionAction[] {
     : [];
 }
 
+function isWebMcpAction(action: AgentNativeBrowserSessionAction): boolean {
+  return action.source === "webmcp";
+}
+
+function toWebMcpAction(
+  tool: AgentNativeWebMcpTool,
+): AgentNativeBrowserSessionAction {
+  return {
+    name: tool.name,
+    description: tool.description,
+    ...(tool.title ? { title: tool.title } : {}),
+    ...(tool.inputSchema ? { schema: tool.inputSchema } : {}),
+    ...(tool.origin ? { origin: tool.origin } : {}),
+    ...(tool.annotations ? { annotations: tool.annotations } : {}),
+    source: "webmcp",
+    availability: "browser-session",
+  };
+}
+
+function fromWebMcpAction(
+  action: AgentNativeBrowserSessionAction,
+): AgentNativeWebMcpTool {
+  const schema = action.schema ?? action.parameters;
+  return {
+    name: action.name,
+    description: action.description,
+    ...(typeof action.title === "string" ? { title: action.title } : {}),
+    ...(schema ? { inputSchema: schema } : {}),
+    ...(typeof action.origin === "string" ? { origin: action.origin } : {}),
+    ...(action.annotations && typeof action.annotations === "object"
+      ? {
+          annotations:
+            action.annotations as AgentNativeWebMcpTool["annotations"],
+        }
+      : {}),
+  };
+}
+
 function parseSession(
   value: unknown,
   sessionId: string,
@@ -234,7 +273,12 @@ function normalizeSessionInput(input: RegisterAgentNativeBrowserSessionInput): {
       !Array.isArray(input.context)
         ? input.context
         : undefined,
-    actions: Array.isArray(input.actions) ? input.actions : [],
+    actions: [
+      ...(Array.isArray(input.actions) ? input.actions : []),
+      ...(Array.isArray(input.webmcpTools)
+        ? input.webmcpTools.map(toWebMcpAction)
+        : []),
+    ],
     connectedAt,
     ttlMs:
       typeof input.ttlMs === "number" && input.ttlMs > 0
@@ -249,13 +293,15 @@ function rowToSession(
 ): AgentNativeBrowserSessionRecord {
   const sessionId = String(row.session_id ?? "");
   const expiresAt = Number(row.expires_at ?? 0);
+  const parsedActions = parseActions(row.actions_json);
   return {
     sessionId,
     session: parseSession(row.session_json, sessionId),
     label: typeof row.label === "string" ? row.label : undefined,
     url: typeof row.url === "string" ? row.url : undefined,
     context: parseOptionalObject(row.context_json),
-    actions: parseActions(row.actions_json),
+    actions: parsedActions.filter((action) => !isWebMcpAction(action)),
+    webmcpTools: parsedActions.filter(isWebMcpAction).map(fromWebMcpAction),
     connectedAt: Number(row.connected_at ?? 0),
     lastSeenAt: Number(row.last_seen_at ?? 0),
     expiresAt,
@@ -292,7 +338,16 @@ function rowToRequest(
     ...(row.result_json != null ? { result } : {}),
   };
   if (type === "run-action") request.args = payload;
-  else request.payload = payload;
+  else if (type === "run-webmcp-tool") {
+    const envelope =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as { args?: unknown; origin?: unknown })
+        : undefined;
+    request.args = envelope && "args" in envelope ? envelope.args : payload;
+    if (typeof envelope?.origin === "string" && envelope.origin) {
+      request.origin = envelope.origin;
+    }
+  } else request.payload = payload;
   return request;
 }
 
@@ -435,6 +490,7 @@ function normalizeRequestInput(
 ): {
   type: AgentNativeBrowserSessionRequestType;
   name?: string;
+  origin?: string;
   command?: string;
   payload?: unknown;
   timeoutMs: number;
@@ -443,18 +499,23 @@ function normalizeRequestInput(
     input.type !== "get-context" &&
     input.type !== "list-actions" &&
     input.type !== "run-action" &&
+    input.type !== "list-webmcp-tools" &&
+    input.type !== "run-webmcp-tool" &&
     input.type !== "command"
   ) {
     throw new Error(
-      "request type must be get-context, list-actions, run-action, or command",
+      "request type must be get-context, list-actions, run-action, list-webmcp-tools, run-webmcp-tool, or command",
     );
   }
   const name =
     typeof input.name === "string" && input.name.trim()
       ? input.name.trim()
       : undefined;
-  if (input.type === "run-action" && !name) {
-    throw new Error("name is required for run-action requests");
+  if (
+    (input.type === "run-action" || input.type === "run-webmcp-tool") &&
+    !name
+  ) {
+    throw new Error("name is required for tool execution requests");
   }
   const command =
     typeof input.command === "string" && input.command.trim()
@@ -465,8 +526,14 @@ function normalizeRequestInput(
   return {
     type: input.type,
     name,
+    ...(input.origin ? { origin: input.origin } : {}),
     command,
-    payload: input.type === "run-action" ? input.args : input.payload,
+    payload:
+      input.type === "run-action"
+        ? input.args
+        : input.type === "run-webmcp-tool"
+          ? { args: input.args, origin: input.origin }
+          : input.payload,
     timeoutMs:
       typeof input.timeoutMs === "number" && input.timeoutMs > 0
         ? Math.min(input.timeoutMs, 2 * 60 * 1000)

@@ -1,5 +1,6 @@
 import type {
   AgentNativeBrowserSession,
+  AgentNativeBrowserSessionAction,
   AgentNativeBrowserSessionRecord,
   AgentNativeBrowserSessionRequest,
 } from "../browser-sessions/types.js";
@@ -10,7 +11,9 @@ import {
   defaultAgentNativeHostCommands,
   requestAgentNativeHostActions,
   requestAgentNativeHostContext,
+  requestAgentNativeHostWebMcpTools,
   runAgentNativeHostAction,
+  runAgentNativeHostWebMcpTool,
   sendAgentNativeHostCommand,
   type AgentNativeActionManifestEntry,
   type AgentNativeClientAction,
@@ -21,6 +24,10 @@ import {
   type AgentNativeHostContextGetter,
   type AgentNativeHostSession,
 } from "./host-bridge.js";
+import type {
+  AgentNativeWebMcpClient,
+  AgentNativeWebMcpTool,
+} from "./webmcp.js";
 
 export interface AgentNativeBrowserSessionBridgeOptions extends AgentNativeHostRequestOptions {
   /** Framework browser-session endpoint. Defaults to /_agent-native/browser-sessions. */
@@ -39,6 +46,8 @@ export interface AgentNativeBrowserSessionBridgeOptions extends AgentNativeHostR
   getContext?: AgentNativeHostContextGetter;
   /** Direct in-app client actions exposed to backend browser-session tools. */
   actions?: AgentNativeClientActions;
+  /** WebMCP tools available in this document, or "host" through an iframe bridge. */
+  webmcp?: AgentNativeWebMcpClient | "host";
   /** Direct in-app host commands exposed to backend browser-session tools. */
   commands?: AgentNativeHostCommandHandlers;
   /** Origin label passed to direct action/command callbacks. */
@@ -196,6 +205,7 @@ function hostRequestOptions(
     session: _session,
     getContext: _getContext,
     actions: _actions,
+    webmcp: _webmcp,
     commands: _commands,
     origin: _origin,
     label: _label,
@@ -215,7 +225,8 @@ function hasDirectHost(
     options.getContext ||
     options.actions ||
     options.commands ||
-    options.session,
+    options.session ||
+    (options.webmcp && options.webmcp !== "host"),
   );
 }
 
@@ -313,6 +324,41 @@ async function resolveDirectActionManifest(
     .filter(Boolean) as AgentNativeActionManifestEntry[];
 }
 
+function toBrowserSessionWebMcpTool(
+  tool: AgentNativeWebMcpTool,
+): AgentNativeBrowserSessionAction {
+  return {
+    name: tool.name,
+    description: tool.description,
+    ...(tool.title ? { title: tool.title } : {}),
+    ...(tool.inputSchema ? { schema: tool.inputSchema } : {}),
+    ...(tool.origin ? { origin: tool.origin } : {}),
+    ...(tool.annotations ? { annotations: tool.annotations } : {}),
+    source: "webmcp",
+    availability: "browser-session",
+  };
+}
+
+async function resolveWebMcpTools(
+  options: AgentNativeBrowserSessionBridgeOptions,
+): Promise<AgentNativeWebMcpTool[]> {
+  if (!options.webmcp) return [];
+  if (options.webmcp === "host") {
+    return requestAgentNativeHostWebMcpTools(hostRequestOptions(options));
+  }
+  if (!options.webmcp.supported) return [];
+  return options.webmcp.listTools();
+}
+
+function requireDirectWebMcpClient(
+  options: AgentNativeBrowserSessionBridgeOptions,
+): AgentNativeWebMcpClient {
+  if (!options.webmcp || options.webmcp === "host") {
+    throw new Error("WebMCP is not enabled for this browser session");
+  }
+  return options.webmcp;
+}
+
 async function findDirectAction(
   options: AgentNativeBrowserSessionBridgeOptions,
   name: string,
@@ -356,6 +402,10 @@ async function executeDirectBrowserSessionRequest(
   if (request.type === "list-actions") {
     return resolveDirectActionManifest(options);
   }
+  if (request.type === "list-webmcp-tools") {
+    const tools = await requireDirectWebMcpClient(options).listTools();
+    return tools;
+  }
   if (request.type === "run-action") {
     if (!request.name) {
       throw new Error("Browser-session action request is missing name");
@@ -379,6 +429,15 @@ async function executeDirectBrowserSessionRequest(
       command: (command: string, payload?: unknown) =>
         runDirectCommand(command, payload, request.id, options),
     });
+  }
+  if (request.type === "run-webmcp-tool") {
+    if (!request.name) {
+      throw new Error("Browser-session WebMCP request is missing name");
+    }
+    return requireDirectWebMcpClient(options).executeTool(
+      { name: request.name, origin: request.origin },
+      request.args,
+    );
   }
   if (request.type === "command") {
     return runDirectCommand(
@@ -427,10 +486,23 @@ async function executeBrowserSessionRequest(
   if (request.type === "list-actions") {
     return requestAgentNativeHostActions(hostOptions);
   }
+  if (request.type === "list-webmcp-tools") {
+    return requestAgentNativeHostWebMcpTools(hostOptions);
+  }
   if (request.type === "run-action") {
     if (!request.name)
       throw new Error("Browser-session action request is missing name");
     return runAgentNativeHostAction(request.name, request.args, hostOptions);
+  }
+  if (request.type === "run-webmcp-tool") {
+    if (!request.name) {
+      throw new Error("Browser-session WebMCP request is missing name");
+    }
+    return runAgentNativeHostWebMcpTool(
+      { name: request.name, origin: request.origin },
+      request.args,
+      hostOptions,
+    );
   }
   if (request.type === "command") {
     return sendAgentNativeHostCommand(
@@ -453,14 +525,20 @@ export function createAgentNativeBrowserSessionBridge(
   async function refreshRegistration(): Promise<AgentNativeBrowserSessionRecord> {
     const direct = hasDirectHost(options);
     const hostOptions = hostRequestOptions(options);
-    const [context, actions] = direct
+    const [context, actions, webmcpTools] = direct
       ? await Promise.all([
           resolveDirectContext(options),
           resolveDirectActionManifest(options).catch(() => []),
+          options.webmcp
+            ? resolveWebMcpTools(options)
+            : Promise.resolve<AgentNativeWebMcpTool[] | undefined>(undefined),
         ])
       : await Promise.all([
           requestAgentNativeHostContext(hostOptions),
           requestAgentNativeHostActions(hostOptions).catch(() => []),
+          options.webmcp
+            ? resolveWebMcpTools(options)
+            : Promise.resolve<AgentNativeWebMcpTool[] | undefined>(undefined),
         ]);
     const hostSession = context.session;
     if (!currentSessionId) {
@@ -479,6 +557,9 @@ export function createAgentNativeBrowserSessionBridge(
       sessionId: currentSessionId,
       context,
       actions,
+      ...(webmcpTools
+        ? { webmcpTools: webmcpTools.map(toBrowserSessionWebMcpTool) }
+        : {}),
       ttlMs: options.ttlMs,
     });
     return body.session as AgentNativeBrowserSessionRecord;

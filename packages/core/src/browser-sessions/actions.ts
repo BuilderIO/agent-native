@@ -55,6 +55,39 @@ async function resolveSessionId(
   return sessions[0].sessionId;
 }
 
+async function resolveWebMcpTool(
+  ownerEmail: string,
+  sessionId: string,
+  name: string,
+  origin?: string,
+): Promise<import("../client/webmcp.js").AgentNativeWebMcpTool | undefined> {
+  const session = await getBrowserSession(ownerEmail, sessionId);
+  const matches = (session?.webmcpTools ?? []).filter(
+    (tool) => tool.name === name && (!origin || tool.origin === origin),
+  );
+  if (matches.length > 1 && !origin) {
+    throw new Error(
+      `WebMCP tool "${name}" is exposed by multiple origins; origin is required`,
+    );
+  }
+  return matches[0];
+}
+
+async function requireWebMcpTool(
+  ownerEmail: string,
+  sessionId: string,
+  name: string,
+  origin?: string,
+) {
+  const tool = await resolveWebMcpTool(ownerEmail, sessionId, name, origin);
+  if (!tool) {
+    throw new Error(
+      `WebMCP tool "${name}" is not available in browser session "${sessionId}"`,
+    );
+  }
+  return tool;
+}
+
 function compactSession(
   session: Awaited<ReturnType<typeof getBrowserSession>>,
 ) {
@@ -91,6 +124,8 @@ function compactSession(
       requiresApproval: action.requiresApproval,
       schema: action.schema ?? action.parameters,
     })),
+    webmcpToolCount: session.webmcpTools?.length ?? 0,
+    webmcpTools: session.webmcpTools ?? [],
   };
 }
 
@@ -196,6 +231,122 @@ export function createBrowserSessionActionEntries(
           { timeoutMs: readTimeoutMs(args, options) },
         );
         return { ok: true, sessionId, actions };
+      },
+    },
+
+    "list-browser-session-webmcp-tools": {
+      readOnly: true,
+      tool: {
+        description:
+          "List WebMCP tools exposed by a connected browser page. Use this before running one because names, schemas, origins, and read-only hints are page-local and can change after navigation.",
+        parameters: {
+          type: "object",
+          properties: {
+            sessionId: {
+              type: "string",
+              description:
+                "Browser session id from list-browser-sessions. Optional when only one tab is active.",
+            },
+            timeoutMs: {
+              type: "number",
+              description: "How long to wait for the live tab to respond.",
+            },
+          },
+        },
+      },
+      run: async (args: Record<string, unknown>) => {
+        const ownerEmail = requireOwner(options);
+        const sessionId = await resolveSessionId(
+          ownerEmail,
+          readString(args, "sessionId"),
+        );
+        const tools = await callBrowserSession(
+          ownerEmail,
+          sessionId,
+          {
+            type: "list-webmcp-tools",
+            timeoutMs: readTimeoutMs(args, options),
+          },
+          { timeoutMs: readTimeoutMs(args, options) },
+        );
+        return { ok: true, sessionId, tools };
+      },
+    },
+
+    "run-browser-session-webmcp-tool": {
+      needsApproval: async (args: Record<string, unknown>) => {
+        const ownerEmail = requireOwner(options);
+        const name = readString(args, "name");
+        if (!name) return true;
+        const sessionId = await resolveSessionId(
+          ownerEmail,
+          readString(args, "sessionId"),
+        );
+        const tool = await resolveWebMcpTool(
+          ownerEmail,
+          sessionId,
+          name,
+          readString(args, "origin"),
+        );
+        return tool?.annotations?.readOnlyHint !== true;
+      },
+      tool: {
+        description:
+          "Run a WebMCP tool exposed by a connected browser page. Use list-browser-session-webmcp-tools first, preserve its origin for duplicate names, and expect human approval unless readOnlyHint is true.",
+        parameters: {
+          type: "object",
+          properties: {
+            sessionId: {
+              type: "string",
+              description:
+                "Browser session id from list-browser-sessions. Optional when only one tab is active.",
+            },
+            name: {
+              type: "string",
+              description: "The WebMCP tool name to run.",
+            },
+            origin: {
+              type: "string",
+              description:
+                "The registered tool origin when the same name is exposed by multiple origins.",
+            },
+            args: {
+              type: "object",
+              description:
+                "JSON-serializable arguments matching the discovered WebMCP input schema.",
+            },
+            timeoutMs: {
+              type: "number",
+              description: "How long to wait for the live tab to respond.",
+            },
+          },
+          required: ["name"],
+        },
+      },
+      run: async (args: Record<string, unknown>) => {
+        const ownerEmail = requireOwner(options);
+        const name = readString(args, "name");
+        if (!name) throw new Error("name is required");
+        const timeoutMs = readTimeoutMs(args, options);
+        const sessionId = await resolveSessionId(
+          ownerEmail,
+          readString(args, "sessionId"),
+        );
+        const origin = readString(args, "origin");
+        await requireWebMcpTool(ownerEmail, sessionId, name, origin);
+        const result = await callBrowserSession(
+          ownerEmail,
+          sessionId,
+          {
+            type: "run-webmcp-tool",
+            name,
+            origin,
+            args: args.args,
+            timeoutMs,
+          },
+          { timeoutMs },
+        );
+        return { ok: true, sessionId, name, result };
       },
     },
 
