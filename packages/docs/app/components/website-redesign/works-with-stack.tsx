@@ -233,7 +233,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
   {
     name: "zapier-logomark",
     label: "Zapier",
-    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc58a7541bca949a0a60cffbc41abec24",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e326ef656d429fb65c14c67f68bf31",
     srcWidth: 552,
     srcHeight: 574,
     fill: true,
