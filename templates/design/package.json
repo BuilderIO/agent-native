@@ -21,7 +21,8 @@
     "figma-fidelity:sheet": "tsx scripts/figma-fidelity/make-sheet.ts",
     "figma-fidelity:import": "tsx scripts/figma-fidelity/run-import.ts",
     "figma-fidelity:fig": "tsx scripts/figma-fidelity/run-fig.ts",
-    "figma-fidelity:paste": "tsx scripts/figma-fidelity/run-paste.ts"
+    "figma-fidelity:paste": "tsx scripts/figma-fidelity/run-paste.ts",
+    "figma-fidelity:roundtrip": "tsx scripts/figma-fidelity/run-roundtrip.ts"
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",

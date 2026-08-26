@@ -300,6 +300,51 @@ path is the CORRECT one:
 - Positivus service cards: the "Social Media Marketing" title highlight renders
   green where Figma (and the paste path) render white.
 
+## Round-trip fidelity harness
+
+`pnpm figma-fidelity:roundtrip` is the one that answers the question a user
+actually has: after a design has gone into this app and back out to Figma, does
+it still look like what they started with? The import and export harnesses each
+measure one hop, and a converter can score well on one while losing the design
+on the other, so this scores all three against ONE reference — Figma's own
+render of the source node.
+
+It reuses the artifacts the import and paste runs already produced, so it costs
+no Figma quota and runs on the complex community designs rather than on
+synthetic fixtures.
+
+Measured 2026-08-26:
+
+| case | import | export | export hop |
+| --- | --- | --- | --- |
+| shapes | 0.54% | 0.29% | 0.31% |
+| constraints | 2.33% | 2.46% | 2.47% |
+| community untitled-ui landing | 2.65% | 3.66% | 3.61% |
+| card-grid | 3.14% | 3.53% | 2.99% |
+| autolayout | 3.48% | 6.10% | 5.63% |
+| parity-stress | 2.79% | 4.45% | 3.93% |
+
+**Feed it the document the product PERSISTS, not the converter's fragment.**
+`mapFigmaNodeToHtml` returns a bare `<div>` that only lays out correctly once
+`figma-node-import.ts` wraps it with `withFigmaBoxModelReset` +
+`withFigmaFontLoading` + `normalizeImportedHtmlDocument`. The first version of
+this harness exported the fragment, so the exporter laid it out with the
+browser's content-box default, every padded element grew by its padding, and
+the run reported an export hop costing 12-23% — a harness artifact, not a
+product defect. `run-import.ts` now writes `stored.html` next to `import.html`
+for exactly this reason: anything measuring what happens AFTER import has to
+start from the stored document.
+
+The round trip also found a real export defect that neither single-hop harness
+could see. `getComputedStyle` keeps a percentage border-radius AS a percentage,
+and `parseFloat("50%")` is 50 — so a 125px circle exported as a rounded square
+with 50px corners and a 338x71 ring collapsed into two near-straight lines. A
+percentage now resolves against the element's own box per axis, and an element
+that is a full ellipse on both axes is flagged so `roundedRectPath` draws two
+half-turn arcs with independent `rx`/`ry`. That flag lives on the radii rather
+than at each shape site, so fills, clips, shadows and outlines all pick it up
+from the one path builder.
+
 ## Export fidelity harness
 
 `templates/design/scripts/figma-fidelity/` is the acceptance loop for the

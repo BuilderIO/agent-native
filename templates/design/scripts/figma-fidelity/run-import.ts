@@ -29,6 +29,7 @@ import { chromium } from "@playwright/test";
 import {
   buildGoogleFontsUrl,
   withFigmaBoxModelReset,
+  withFigmaFontLoading,
 } from "../../server/lib/figma-node-import.js";
 import {
   collectFallbackNodeIds,
@@ -37,6 +38,7 @@ import {
   mapFigmaNodeToHtml,
   type FigmaNode,
 } from "../../server/lib/figma-node-to-html.js";
+import { normalizeImportedHtmlDocument } from "../../server/lib/import-design-files.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../../shared/figma-url.js";
 import { comparePngs } from "./lib/compare.js";
 import { renderHtmlToPng } from "./lib/render.js";
@@ -303,6 +305,21 @@ async function runCase(
   const fontUsage = collectFontUsage(node);
   const fontsUrl = buildGoogleFontsUrl(fontUsage);
   writeFileSync(join(dir, "import.html"), html);
+  // The exact document the product persists for this node. `import.html` is
+  // the bare converter fragment and only lays out correctly once wrapped; a
+  // consumer handed the fragment (the export harness did exactly this) lays it
+  // out with the browser's content-box default and every padded element grows.
+  // Anything measuring what happens AFTER import has to start from this.
+  writeFileSync(
+    join(dir, "stored.html"),
+    normalizeImportedHtmlDocument(
+      withFigmaFontLoading(
+        withFigmaBoxModelReset(html || "<div></div>"),
+        fontUsage,
+      ),
+      `Figma node ${nodeId}`,
+    ),
+  );
   writeFileSync(join(dir, "fidelity.json"), JSON.stringify(fidelity, null, 2));
 
   const rendered = await renderHtmlToPng(

@@ -54,6 +54,15 @@ export interface FigmaSvgCornerRadii {
   tr: number;
   br: number;
   bl: number;
+  /**
+   * The element is a full ellipse (CSS `border-radius: 50%` or larger on both
+   * axes). A single scalar radius per corner cannot describe one whose width
+   * and height differ, and `roundedRectPath` draws circular arcs, so a 338x71
+   * ring came out as a pair of straight lines and a 125px circle as a rounded
+   * square. Flagged here rather than at each shape site so fills, clips,
+   * shadows and outlines all pick it up from the one path builder.
+   */
+  ellipse?: boolean;
 }
 
 export const ZERO_RADII: FigmaSvgCornerRadii = { tl: 0, tr: 0, br: 0, bl: 0 };
@@ -239,6 +248,8 @@ export function escapeXmlText(value: string): string {
 }
 
 export function isUniformRadius(radii: FigmaSvgCornerRadii): boolean {
+  // An ellipse has no uniform-`rx` <rect> form; it must go through the path.
+  if (radii.ellipse) return false;
   return (
     radii.tl === radii.tr && radii.tr === radii.br && radii.br === radii.bl
   );
@@ -263,6 +274,17 @@ export function roundedRectPath(
   radii: FigmaSvgCornerRadii,
 ): string {
   const { x, y, width, height } = rect;
+  if (radii.ellipse) {
+    const rx = width / 2;
+    const ry = height / 2;
+    // Two half-turn arcs, so `rx` and `ry` stay independent.
+    return [
+      `M ${n(x)} ${n(y + ry)}`,
+      `A ${n(rx)} ${n(ry)} 0 0 1 ${n(x + width)} ${n(y + ry)}`,
+      `A ${n(rx)} ${n(ry)} 0 0 1 ${n(x)} ${n(y + ry)}`,
+      "Z",
+    ].join(" ");
+  }
   const maxR = Math.max(0, Math.min(width, height) / 2);
   const tl = clampRadius(radii.tl, maxR);
   const tr = clampRadius(radii.tr, maxR);
@@ -2451,12 +2473,41 @@ export function collectRawFigmaSvgScene(
           ? true
           : undefined,
       opacity: Number.parseFloat(style.opacity || "1"),
-      cornerRadiiRaw: {
-        tl: Number.parseFloat(style.borderTopLeftRadius) || 0,
-        tr: Number.parseFloat(style.borderTopRightRadius) || 0,
-        br: Number.parseFloat(style.borderBottomRightRadius) || 0,
-        bl: Number.parseFloat(style.borderBottomLeftRadius) || 0,
-      },
+      cornerRadiiRaw: (() => {
+        // getComputedStyle keeps a percentage radius as a percentage, and
+        // `parseFloat("50%")` is 50 — so a 125px circle became a rounded square
+        // with 50px corners and a 338x71 ring collapsed to two straight lines.
+        // A percentage resolves against the element's own box, per axis.
+        const axis = (raw: string, along: number, across: number) => {
+          const parts = String(raw || "0")
+            .trim()
+            .split(/\s+/);
+          const one = (v: string, basis: number) =>
+            v.endsWith("%")
+              ? ((Number.parseFloat(v) || 0) / 100) * basis
+              : Number.parseFloat(v) || 0;
+          return {
+            x: one(parts[0] ?? "0", along),
+            y: one(parts[1] ?? parts[0] ?? "0", across),
+          };
+        };
+        const w = relRect.width;
+        const h = relRect.height;
+        const tl = axis(style.borderTopLeftRadius, w, h);
+        const tr = axis(style.borderTopRightRadius, w, h);
+        const br = axis(style.borderBottomRightRadius, w, h);
+        const bl = axis(style.borderBottomLeftRadius, w, h);
+        const halves = (r: { x: number; y: number }) =>
+          w > 0 && h > 0 && r.x >= w / 2 - 0.01 && r.y >= h / 2 - 0.01;
+        const ellipse = halves(tl) && halves(tr) && halves(br) && halves(bl);
+        return {
+          tl: tl.x,
+          tr: tr.x,
+          br: br.x,
+          bl: bl.x,
+          ...(ellipse ? { ellipse: true } : {}),
+        };
+      })(),
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
       boxShadow: style.boxShadow,

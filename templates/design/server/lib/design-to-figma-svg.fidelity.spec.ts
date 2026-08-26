@@ -54,6 +54,8 @@ import {
   buildFigmaSvgDocument,
   buildFillLayersFromComputedStyle,
   buildLinearGradientDef,
+  isUniformRadius,
+  roundedRectPath,
   buildRadialGradientDef,
   linearGradientEndpoints,
   normalizeStopOffsets,
@@ -427,5 +429,46 @@ describe("per-side borders", () => {
     expect(lines).toHaveLength(1);
     expect(svg).toContain('x1="0" y1="0.5" x2="400" y2="0.5"');
     expect(svg).toContain('stroke-opacity="0.14"');
+  });
+});
+
+describe("full ellipses in the exported SVG", () => {
+  // getComputedStyle keeps a percentage radius as a percentage, and
+  // parseFloat("50%") is 50 — so a 125px circle exported as a rounded square
+  // with 50px corners, and a 338x71 ring as a pair of near-straight lines.
+  it("draws a circle, not a rounded square", () => {
+    const d = roundedRectPath(
+      { x: 0, y: 0, width: 125, height: 125 },
+      { tl: 62.5, tr: 62.5, br: 62.5, bl: 62.5, ellipse: true },
+    );
+    expect(d).toContain("A 62.5 62.5");
+    // Two half-turn arcs, no straight edges.
+    expect(d).not.toContain("L ");
+  });
+
+  it("keeps rx and ry independent for a non-square ellipse", () => {
+    const d = roundedRectPath(
+      { x: 0, y: 0, width: 338, height: 71 },
+      { tl: 169, tr: 169, br: 169, bl: 169, ellipse: true },
+    );
+    expect(d).toContain("A 169 35.5");
+  });
+
+  it("still draws a rounded rectangle when the radii are not a full ellipse", () => {
+    const d = roundedRectPath(
+      { x: 0, y: 0, width: 200, height: 100 },
+      { tl: 10, tr: 10, br: 10, bl: 10 },
+    );
+    expect(d).toContain("A 10 10");
+    expect(d).toContain("L ");
+  });
+
+  // The uniform-`rx` <rect> shortcut cannot describe an ellipse whose axes
+  // differ, so an ellipse must always take the path branch.
+  it("never takes the uniform-rect shortcut for an ellipse", () => {
+    expect(
+      isUniformRadius({ tl: 169, tr: 169, br: 169, bl: 169, ellipse: true }),
+    ).toBe(false);
+    expect(isUniformRadius({ tl: 10, tr: 10, br: 10, bl: 10 })).toBe(true);
   });
 });

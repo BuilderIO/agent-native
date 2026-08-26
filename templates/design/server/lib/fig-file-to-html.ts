@@ -733,7 +733,11 @@ const TEXT_ALIGN: Record<string, string> = {
 
 function fontWeightFromStyle(style: string | undefined): number | null {
   if (!style) return null;
-  const s = style.toLowerCase();
+  // Figma writes these with spaces — "Semi Bold", "Extra Bold", "Ultra Light" —
+  // so matching only the joined spellings let "Semi Bold" fall past the 600
+  // test to the plain `bold` one and render 700. On Untitled UI that is the
+  // most common style on the page: 427 of 1046 text nodes came out too heavy.
+  const s = style.toLowerCase().replace(/[^a-z]/g, "");
   if (s.includes("thin")) return 100;
   if (s.includes("extralight") || s.includes("ultralight")) return 200;
   if (s.includes("light")) return 300;
