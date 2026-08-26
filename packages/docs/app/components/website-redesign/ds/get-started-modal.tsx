@@ -33,9 +33,29 @@ function shouldOpenInNewTab(event: MouseEvent) {
   );
 }
 
-function Option({ label, children }: { label: string; children: ReactNode }) {
+function Option({
+  label,
+  // A prop rather than a caller-supplied `items-center`: both are align-items
+  // utilities, so which one won would come down to stylesheet order.
+  align = "start",
+  className,
+  children,
+}: {
+  label: string;
+  align?: "start" | "center";
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex flex-col items-start gap-[var(--spacing-3)] rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-[var(--spacing-4)]">
+    <div
+      className={[
+        "flex flex-col gap-[var(--spacing-3)] rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-[var(--spacing-4)]",
+        align === "center" ? "items-center text-center" : "items-start",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <p className="m-0 font-[family-name:var(--b-font-mono)] text-[12px] font-semibold tracking-[0.02em] text-[var(--b-text-secondary)] uppercase">
         {label}
       </p>
@@ -95,46 +115,55 @@ export function GetStartedCta({
             </DialogClose>
           </div>
 
-          <Option label="Build an app locally">
-            <InstallCommand />
-            <Button
-              variant="cta"
-              icon={null}
-              href="/docs"
-              className="uppercase"
-              onClick={() => choose("read_docs")}
+          {/* The local path spans the top row because it carries the install
+              command, which is wider than half of the 520px dialog. One column
+              on a narrow phone, where two would not fit the buttons. */}
+          <div className="grid grid-cols-2 gap-[var(--spacing-3)] narrow:grid-cols-1">
+            <Option
+              label="Build an app locally"
+              align="center"
+              className="col-span-2 narrow:col-span-1"
             >
-              Read the docs
-            </Button>
-          </Option>
+              <InstallCommand />
+              <Button
+                variant="cta"
+                icon={null}
+                href="/docs"
+                className="uppercase"
+                onClick={() => choose("read_docs")}
+              >
+                Read the docs
+              </Button>
+            </Option>
 
-          <Option label="Try an app">
-            <Button
-              variant="cta"
-              icon={null}
-              href="/apps"
-              className="uppercase"
-              onClick={() => choose("browse_apps")}
-            >
-              Browse apps
-            </Button>
-          </Option>
+            <Option label="Try an app">
+              <Button
+                variant="cta"
+                icon={null}
+                href="/apps"
+                className="uppercase"
+                onClick={() => choose("browse_apps")}
+              >
+                Browse apps
+              </Button>
+            </Option>
 
-          {/* BuildOnlinePopover fires its own "click build online" event, so
+            {/* BuildOnlinePopover fires its own "click build online" event, so
               there is nothing to wrap here. Its default trigger belongs to the
               older docs button vocabulary (full width, sans, rounded-md),
               which is why this one used to look nothing like the other two.
               The label stays on the catalog key because it is translated. */}
-          <Option label="Build in the cloud">
-            <BuildOnlinePopover
-              location="get_started_modal"
-              trigger={
-                <Button variant="cta" icon={null} className="uppercase">
-                  {t("buildFromScratch.buildOnline")}
-                </Button>
-              }
-            />
-          </Option>
+            <Option label="Build in the cloud">
+              <BuildOnlinePopover
+                location="get_started_modal"
+                trigger={
+                  <Button variant="cta" icon={null} className="uppercase">
+                    {t("buildFromScratch.buildOnline")}
+                  </Button>
+                }
+              />
+            </Option>
+          </div>
         </DialogContent>
       </Dialog>
     </>
