@@ -1453,6 +1453,30 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // concentric contours. Noise pushes pixels either side of each rounding
   // boundary, turning the contour into a gradient. Alpha gets the same
   // treatment with a decorrelated offset -- it's derived from the same
+  // brightness, so dithering only the color would leave the alpha steps
+  // banding on their own.
+  //
+  // uDitherAmount is in quantization steps: 1.0 is the +/- half-LSB that
+  // exactly cancels banding while staying invisible, and larger values push
+  // past correction into deliberate visible grain.
+  if (uDitherAmount > 0.0) {
+    // Snapping the coordinate to a grid makes each noise sample cover an
+    // uDitherScale-sized block of device pixels, so the grain gets chunkier
+    // rather than denser. Note this is in *device* pixels, so on a HiDPI
+    // display a scale of 1 is finer than one CSS pixel.
+    vec2 ditherCoord = floor(fragCoord / max(uDitherScale, 1.0));
+
+    // Quantizing time reseeds the noise a fixed number of times per second
+    // instead of every rendered frame, which is what makes it read as film
+    // grain running at a chosen rate. 0 freezes it into static grain.
+    float ditherTime = floor(iTime * uDitherSpeed);
+
+    float noise = fract(
+      sin(dot(ditherCoord + ditherTime, vec2(12.9898, 78.233))) * 43758.5453
+    );
+    float noiseAlpha = fract(
+      sin(dot(ditherCoord + ditherTime, vec2(63.7264, 10.873))) * 32416.1873
+    );
     float ditherStep = uDitherAmount / 255.0;
     col += (noise - 0.5) * ditherStep;
     // Scaled by alpha so grain fades out with the effect instead of
