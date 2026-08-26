@@ -357,6 +357,8 @@ graph LR
 
 當代理變更資料時，UI 需要在不手動重新整理的情況下反映出來。`useDbSync()` 就是讓這件事自動發生的機制。同行程的寫入會透過 `/_agent-native/events` 串流；`/_agent-native/poll` 仍然是跨行程和無伺服器情境下的回退方案。當代理寫入資料庫（應用程式狀態、設定或領域資料）時，版本計數器會遞增，用戶端也會讓相關的 React Query 快取失效。
 
+SSE 之所以能涵蓋一般情境而不必使用 WebSockets，是因為它能讓同行程的寫入透過單純的 HTTP 立即傳遞到瀏覽器；而版本計數器輪詢則作為回退方案，在包括無伺服器和邊緣環境在內、可能無法使用持久連線 socket 的每一種部署環境中都能運作。
+
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
 import { useDbSync } from "@agent-native/core/client/hooks";
