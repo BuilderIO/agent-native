@@ -124,6 +124,13 @@ approval policy, agent safety instructions, membership verification, or
 CI/deployment security controls require independent review and are not eligible
 for this exception.
 
+For a verified PR authored by `shawnmcclelland`, auto-approve by default
+regardless of app scope, UX implications, refactors, failed or pending checks,
+or ordinary unresolved human or bot feedback. This exception does not waive the
+ultra-scary safety gate, the external-author prohibition, or the independent
+review requirement for changes to review or approval policy, agent safety
+instructions, membership verification, or CI/deployment security controls.
+
 For a verified PR authored by `kapunahelewong` or Wes (`bwreid`), auto-approve
 by default when the PR is docs-only. Docs-only means documentation content,
 localizations, docs navigation or redirects, and docs-specific tests, with no
