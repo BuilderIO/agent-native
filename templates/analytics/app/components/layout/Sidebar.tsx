@@ -516,6 +516,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const pendingRenameRef = useRef(false);
   const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
@@ -749,11 +750,22 @@ function SortableRow({
                 {t("sidebar.itemActions", { name })}
               </TooltipContent>
             </Tooltip>
-            <DropdownMenuContent side="right" align="start" className="w-44">
+            <DropdownMenuContent
+              side="right"
+              align="start"
+              className="w-44"
+              onCloseAutoFocus={(event) => {
+                if (!pendingRenameRef.current) return;
+                event.preventDefault();
+                pendingRenameRef.current = false;
+                setIsRenaming(true);
+              }}
+            >
               <DropdownMenuItem
                 onSelect={() => {
                   setRenameValue(name);
-                  setIsRenaming(true);
+                  pendingRenameRef.current = true;
+                  setMenuOpen(false);
                 }}
               >
                 <IconPencil className="me-2 h-3.5 w-3.5" />
@@ -1701,6 +1713,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
 
   const {
