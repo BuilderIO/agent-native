@@ -533,6 +533,16 @@ async function overlayRemoteAgentResources(
     if (!manifest) {
       throw new Error(`Invalid remote agent manifest: ${resource.path}`);
     }
+    if (
+      typeof manifest.id !== "string" ||
+      !manifest.id.trim() ||
+      typeof manifest.name !== "string" ||
+      !manifest.name.trim() ||
+      typeof manifest.url !== "string" ||
+      !isAbsoluteHttpUrl(manifest.url)
+    ) {
+      throw new Error(`Invalid remote agent manifest: ${resource.path}`);
+    }
     if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
     const manifestId = normalizeAgentId(manifest.id);
     let url = manifest.url;
@@ -568,6 +578,16 @@ async function overlayRemoteAgentResources(
       // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.
       color: manifest.color || builtin?.color || "#6B7280",
     });
+  }
+}
+
+function isAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    // coercion-ok: malformed URLs and non-HTTP URLs are the same invalid-manifest outcome.
+    return false;
   }
 }
 

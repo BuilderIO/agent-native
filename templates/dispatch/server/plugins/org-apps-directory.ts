@@ -15,7 +15,8 @@
  * `receiveA2ASecretHandler` (`packages/core/src/org/handlers.ts`): peek the
  * unverified `org_domain`, build the ordered candidate-secret set
  * (the org's per-domain `a2a_secret` via `getA2ASecretByDomain` from
- * `@agent-native/core/org`), verify the HS256
+ * `@agent-native/core/org`, with the global secret only for a proven
+ * single-org legacy deployment), verify the HS256
  * signature, then require the verified org_domain to resolve to a LOCAL org
  * (`resolveOrgByDomain`). Cross-org / unauthenticated callers are rejected.
  * The crypto/secret-resolution helpers are imported from `@agent-native/core`
@@ -49,6 +50,7 @@
 import {
   getA2ASecretByDomain,
   getOrgDomain,
+  isSoleOrgDomain,
   resolveOrgByDomain,
 } from "@agent-native/core/org";
 import { getH3App, runWithRequestContext } from "@agent-native/core/server";
@@ -110,6 +112,10 @@ export const orgAppsHandler = defineEventHandler(
     const verified = await verifyA2ABearerToken({
       token,
       resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
+      resolveSoleOrgGlobalSecretByDomain: async (domain) => {
+        if (!(await isSoleOrgDomain(domain))) return null;
+        return process.env.A2A_SECRET?.trim() || null;
+      },
     });
     if (!verified) {
       return jsonResponse(

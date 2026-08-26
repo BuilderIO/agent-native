@@ -843,6 +843,32 @@ describe("agent discovery", () => {
     });
   });
 
+  it("rejects invalid remote manifest fields on the strict directory path", async () => {
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+      {
+        id: "valid",
+        owner: "__shared__",
+        path: "remote-agents/valid.json",
+        content: JSON.stringify({
+          id: "valid",
+          name: "Valid",
+          url: "https://valid.example.test",
+        }),
+      },
+      {
+        id: "invalid-url",
+        owner: "__shared__",
+        path: "remote-agents/invalid-url.json",
+        content: JSON.stringify({ id: "invalid-url", url: 123 }),
+      },
+    ]);
+
+    await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
+      status: "unavailable",
+      reason: "remote-manifests",
+    });
+  });
+
   it("reports strict workspace metadata failure instead of returning a partial directory", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({

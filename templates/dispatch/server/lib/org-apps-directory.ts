@@ -38,10 +38,10 @@
  *
  * Same-org enforcement: the verified token's `org_domain` must resolve to a
  * local org (`resolveOrgByDomain`). A token with no `org_domain`, an unknown
- * domain, or a bad signature is rejected. There is no cross-org disclosure:
- * the only secrets that can sign an accepted token are the deployment's
- * global `A2A_SECRET` (shared first-party fabric) or the specific org's
- * `a2a_secret`.
+ * domain, or a bad signature is rejected. The org-specific secret is the
+ * normal path. A legacy deployment-wide secret is accepted only when the
+ * asserted domain is independently proven to be the deployment's sole org,
+ * so one global credential can never select among local tenants.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -166,9 +166,9 @@ function verifyWithSecret(
  *
  *   1. Decode (unverified) to read the asserted `org_domain`.
  *   2. Resolve the specific org's `a2a_secret` by domain.
- *   3. Verify the signature with that org-bound secret. The deployment-wide
- *      `A2A_SECRET` is deliberately not accepted because it cannot bind a
- *      caller-provided domain to one organization.
+ *   3. Verify the signature with that org-bound secret. A deployment-wide
+ *      compatibility secret may be supplied only after the plugin proves the
+ *      asserted domain is the deployment's sole organization.
  *
  * `resolveOrgSecretByDomain` is injected so this stays pure/testable; the
  * plugin wires it to `getA2ASecretByDomain` from `@agent-native/core/org`.
@@ -178,6 +178,9 @@ function verifyWithSecret(
 export async function verifyA2ABearerToken(input: {
   token: string;
   resolveOrgSecretByDomain: (domain: string) => Promise<string | null>;
+  resolveSoleOrgGlobalSecretByDomain?: (
+    domain: string,
+  ) => Promise<string | null>;
   nowSeconds?: number;
 }): Promise<VerifiedA2APayload | null> {
   const decoded = decodeJwtUnverified(input.token);
@@ -195,6 +198,9 @@ export async function verifyA2ABearerToken(input: {
   let secret: string | null = null;
   try {
     secret = await input.resolveOrgSecretByDomain(assertedDomain);
+    if (!secret?.trim() && input.resolveSoleOrgGlobalSecretByDomain) {
+      secret = await input.resolveSoleOrgGlobalSecretByDomain(assertedDomain);
+    }
     // coercion-ok: secret lookup failure is an authentication denial, never success.
   } catch {
     return null;

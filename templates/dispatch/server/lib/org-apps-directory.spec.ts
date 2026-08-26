@@ -79,6 +79,17 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     expect(v).toBeNull();
   });
 
+  it("ACCEPTS the global secret only through the sole-org compatibility resolver", async () => {
+    const tok = await signGlobal("alice@acme.com", "acme.com");
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      resolveOrgSecretByDomain: async () => null,
+      resolveSoleOrgGlobalSecretByDomain: async (domain) =>
+        domain === "acme.com" ? GLOBAL_SECRET : null,
+    });
+    expect(v).toEqual({ email: "alice@acme.com", orgDomain: "acme.com" });
+  });
+
   it("ACCEPTS a token signed with the org's per-domain a2a_secret", async () => {
     const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET, {
       expiresIn: "5m",

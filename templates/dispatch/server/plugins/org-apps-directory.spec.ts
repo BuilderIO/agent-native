@@ -7,6 +7,7 @@ const discoverOrgDirectoryAgentsMock = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/org", () => ({
   getA2ASecretByDomain: vi.fn(async () => TEST_SECRET),
   getOrgDomain: vi.fn(async () => "example.test"),
+  isSoleOrgDomain: vi.fn(async () => true),
   resolveOrgByDomain: vi.fn(async () => ({
     orgId: "org-123",
     orgName: "Example",
