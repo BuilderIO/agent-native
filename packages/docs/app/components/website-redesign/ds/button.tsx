@@ -17,6 +17,7 @@ export type ButtonVariant =
   | "primary"
   | "primary-alt"
   | "primary-icon"
+  | "raised"
   | "secondary"
   | "secondary-icon";
 
@@ -30,6 +31,11 @@ interface CommonProps {
   // Opt-in dimmer border for the `secondary` variants. The header's button
   // cluster wants it; every other secondary button on the page does not.
   dimBorder?: boolean;
+  // Tighter horizontal padding, for the one place two of these have to sit
+  // side by side inside a 320px carousel card. Lives here rather than as a
+  // caller `px-3` because two padding utilities in one class list resolve by
+  // stylesheet order, not attribute order, so the caller would lose.
+  compact?: boolean;
 }
 
 type ButtonAsButton = CommonProps &
@@ -44,7 +50,7 @@ type ButtonAsAnchor = CommonProps &
 type ButtonProps = ButtonAsButton | ButtonAsAnchor;
 
 const baseClass =
-  "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid px-4 py-[10px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,border-color] duration-150";
+  "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid py-[10px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,border-color] duration-150";
 
 function variantTextClass(variant: ButtonVariant) {
   switch (variant) {
@@ -54,6 +60,8 @@ function variantTextClass(variant: ButtonVariant) {
       return "text-[var(--b-action-primary-text)]";
     case "primary-alt":
       return "text-[var(--b-action-primary-bg)]";
+    case "raised":
+      return "text-[var(--b-text-primary)]";
     case "secondary":
     case "secondary-icon":
     default:
@@ -74,6 +82,8 @@ function variantClasses(variant: ButtonVariant, dimBorder?: boolean) {
       return "border-[var(--b-action-primary-bg)] bg-[var(--b-action-primary-bg)] hover:border-[var(--b-action-primary-hover)] hover:bg-[var(--b-action-primary-hover)] hover:shadow-[0_0_16px_var(--b-action-primary-effect)] data-[force=hover]:border-[var(--b-action-primary-hover)] data-[force=hover]:bg-[var(--b-action-primary-hover)] data-[force=hover]:shadow-[0_0_16px_var(--b-action-primary-effect)]";
     case "primary-alt":
       return "border-[var(--b-action-primary-border)] bg-transparent";
+    case "raised":
+      return "border-[var(--b-border-default)] bg-[var(--b-bg-raised)] hover:bg-[var(--b-bg-prominent)] data-[force=hover]:bg-[var(--b-bg-prominent)]";
     case "secondary":
     case "secondary-icon":
     default:
@@ -92,6 +102,7 @@ export function Button({
   children,
   forceState,
   dimBorder,
+  compact,
   className: extraClassName,
   ...rest
 }: ButtonProps) {
@@ -112,6 +123,7 @@ export function Button({
   // would land after this one on the element and replace the whole variant.
   const className = [
     baseClass,
+    compact ? "px-3" : "px-4",
     variantTextClass(variant),
     variantClasses(variant, dimBorder),
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",

@@ -286,27 +286,32 @@ export function TemplateShowcase() {
                 children of its own, and nesting those inside an anchor is
                 invalid. It still lives in the track so the arrows reach it.
                 Same footprint and divider as an app card so it reads as the
-                last item in the rail, but its content is centred rather than
+                last item in the rail, but vertically centred rather than
                 top-aligned: it has no screenshot to anchor the top of the
-                box. */}
-            <div className="app-carousel-cta-card flex w-[320px] shrink-0 snap-start flex-col items-center justify-center gap-[var(--spacing-4)] border-l border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-6)] py-[var(--spacing-8)] text-center transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[260px]">
+                box. Horizontal padding matches the app cards' text block so
+                the left edge of the copy lines up across the rail, and it is
+                what buys the two buttons room to sit on one line. */}
+            <div className="app-carousel-cta-card flex w-[320px] shrink-0 snap-start flex-col items-start justify-center gap-[var(--spacing-4)] border-l border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-5)] py-[var(--spacing-8)] text-left transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[260px]">
               <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                 Build from scratch
               </h3>
               <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
                 Use the framework guide or build online with Builder.io.
               </p>
-              <div className="mt-[var(--spacing-2)] flex w-full flex-col gap-[var(--spacing-2)]">
+              {/* Wraps rather than shrinks: the labels are whitespace-nowrap,
+                  so on the narrower mobile card they stack instead of
+                  overflowing the card. */}
+              <div className="mt-[var(--spacing-2)] flex flex-wrap gap-[var(--spacing-2)]">
                 <BuildOnlinePopover
                   location="homepage_rail"
                   trigger={
-                    <Button variant="primary" icon={null}>
-                      Build online
+                    <Button variant="raised" icon={null} compact>
+                      BUILD ONLINE
                     </Button>
                   }
                 />
-                <Button variant="secondary" icon={null} href="/docs">
-                  Read the docs
+                <Button variant="secondary" icon={null} compact href="/docs">
+                  READ THE DOCS
                 </Button>
               </div>
             </div>
