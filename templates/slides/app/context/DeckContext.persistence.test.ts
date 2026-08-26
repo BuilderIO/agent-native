@@ -827,7 +827,7 @@ describe("DeckContext deck creation persistence", () => {
 
   it("records one undo entry when an inline draft commits", async () => {
     window.history.pushState({}, "", "/deck/inline-undo-deck");
-    const { setAccessibleDeck } = setupFetch();
+    const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -850,6 +850,7 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
+    vi.useFakeTimers();
     act(() => {
       result.current.updateSlide(
         "inline-undo-deck",
@@ -857,12 +858,26 @@ describe("DeckContext deck creation persistence", () => {
         { content: "<div>Draft</div>" },
         { preserveLocalState: true },
       );
-      // The editor's exit path commits the live DOM through the normal update
-      // path, which records the one deck-level undo entry for the session.
-      result.current.updateSlide("inline-undo-deck", "slide-1", {
-        content: "<div>Draft</div>",
-      });
+      // The editor's exit path updates local state and records the one
+      // deck-level undo entry without replaying an already-queued server op.
+      result.current.updateSlide(
+        "inline-undo-deck",
+        "slide-1",
+        {
+          content: "<div>Draft</div>",
+        },
+        { recordUndoOnly: true },
+      );
     });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(1);
 
     expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
       "<div>Draft</div>",
@@ -870,10 +885,8 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.canUndo).toBe(true);
 
     act(() => result.current.undo());
-    await waitFor(() =>
-      expect(
-        result.current.getDeck("inline-undo-deck")?.slides[0]?.content,
-      ).toBe("<div>Original</div>"),
+    expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
+      "<div>Original</div>",
     );
   });
 

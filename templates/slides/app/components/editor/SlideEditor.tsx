@@ -1927,14 +1927,18 @@ export default function SlideEditor({
 
     const html = selected ? readCurrentSlideContentHtml() : null;
     const initial = inlineEditInitialContentRef.current;
-    if (
-      html !== null &&
-      shouldPersistInlineEditContent(initial, {
-        slideId: slide.id,
-        content: html,
-      })
-    ) {
-      onUpdateSlideRef.current({ content: html });
+    if (html !== null) {
+      const current = { slideId: slide.id, content: html };
+      if (shouldPersistInlineEditContent(initial, current)) {
+        const latestDraft = inlineEditDraftRef.current;
+        onUpdateSlideRef.current(
+          { content: html },
+          slide.id,
+          shouldPersistInlineEditContent(latestDraft, current)
+            ? undefined
+            : { recordUndoOnly: true },
+        );
+      }
     }
     onInlineEditEnd?.(slide.id);
     inlineEditDraftRef.current = null;
@@ -2016,10 +2020,12 @@ export default function SlideEditor({
       draft?.slideId === previousSlideId &&
       shouldPersistInlineEditContent(initial, draft)
     ) {
-      onUpdateSlideRef.current({ content: draft.content }, previousSlideId);
-      inlineEditDraftRef.current = null;
+      onUpdateSlideRef.current({ content: draft.content }, previousSlideId, {
+        recordUndoOnly: true,
+      });
     }
     if (editing || draft) onInlineEditEnd?.(previousSlideId);
+    inlineEditDraftRef.current = null;
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
@@ -2033,7 +2039,9 @@ export default function SlideEditor({
       const draft = inlineEditDraftRef.current;
       const initial = inlineEditInitialContentRef.current;
       if (shouldPersistInlineEditContent(initial, draft) && draft) {
-        onUpdateSlideRef.current({ content: draft.content }, draft.slideId);
+        onUpdateSlideRef.current({ content: draft.content }, draft.slideId, {
+          recordUndoOnly: true,
+        });
       }
       if (editingElRef.current || draft) {
         onInlineEditEndRef.current?.(

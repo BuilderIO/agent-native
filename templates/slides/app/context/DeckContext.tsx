@@ -70,6 +70,8 @@ export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
   /** Queue a draft without replacing the active contentEditable DOM. */
   preserveLocalState?: boolean;
+  /** Record the edit for undo without enqueueing a duplicate server write. */
+  recordUndoOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -2471,6 +2473,29 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         !deriveInverseOp(before, op) &&
         !options?.preserveLocalState
       ) {
+        return;
+      }
+      if (options?.recordUndoOnly) {
+        if (before) {
+          setDecksLocal((prev: Deck[]) =>
+            prev.map((d) => {
+              if (d.id !== deckId) return d;
+              return {
+                ...d,
+                slides: d.slides.map((s) =>
+                  s.id === slideId ? { ...s, ...updates } : s,
+                ),
+                updatedAt: new Date().toISOString(),
+              };
+            }),
+          );
+          recordUndo(before, op, {
+            label,
+            coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
+              .sort()
+              .join(",")}`,
+          });
+        }
         return;
       }
       if (!options?.preserveLocalState) markDeckDirty(deckId);

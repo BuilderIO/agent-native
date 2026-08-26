@@ -179,11 +179,13 @@ export default function DeckEditor() {
   }, []);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
-  const hasPendingDeckEdits =
-    inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
+  // useSaveState re-renders this component when a preserved inline draft enters
+  // or leaves the shared save queue, so the deck-specific read stays current.
+  const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
+  const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
   // Inline drafts flush through SlideEditor keepalive handlers. The native
   // prompt only needs to cover queued or in-flight writes now.
-  usePendingDeckUnloadGuard(id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
+  usePendingDeckUnloadGuard(hasPendingDeckWrites);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
