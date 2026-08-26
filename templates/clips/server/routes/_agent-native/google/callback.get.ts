@@ -10,6 +10,8 @@ import {
   setDesktopExchange,
   type OAuthStatePayload,
 } from "@agent-native/core/server";
+import { putSetting } from "@agent-native/core/settings";
+import { isGoogleProfileImageUrl } from "@agent-native/core/shared";
 import {
   defineEventHandler,
   getQuery,
@@ -25,6 +27,19 @@ import {
   handleGoogleCalendarCallback,
   isCalendarConnectState,
 } from "../../../lib/google-calendar-oauth.js";
+
+export async function persistGoogleProfileImage(
+  email: string,
+  picture: unknown,
+) {
+  if (!isGoogleProfileImageUrl(picture)) return;
+
+  await putSetting(`avatar:${email}`, { image: picture.trim() }).catch(
+    (error) => {
+      console.warn("[auth] failed to store Google profile image:", error);
+    },
+  );
+}
 
 async function handleGoogleSignInCallback(
   event: H3Event,
@@ -104,6 +119,7 @@ async function handleGoogleSignInCallback(
         "Google account email is not verified. Please verify your email with Google and try again.",
       );
     }
+    await persistGoogleProfileImage(email, user.picture);
 
     const { hasProductionSession } = await resolveOAuthOwner(
       event,
