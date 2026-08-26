@@ -38,6 +38,7 @@ export {
   withMigrationRuntime,
   type MigrationEntry,
   type MigrationRunResult,
+  type MigrationSource,
   type MigrationSql,
 } from "./migrations.js";
 export {

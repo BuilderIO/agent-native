@@ -587,16 +587,19 @@ export function useEmails(
   };
 }
 
-export function useEmail(id: string | undefined) {
+export function useEmail(
+  id: string | undefined,
+  accountEmail: string | undefined,
+) {
   return useQuery<EmailMessage>({
-    queryKey: ["email", id],
+    queryKey: ["email", accountEmail, id],
     queryFn: () =>
       callAction<EmailMessage>(
         "get-email",
-        { id: id! },
+        { accountEmail: accountEmail!, id: id! },
         { method: "GET" },
       ).then(assertActionSuccess),
-    enabled: !!id,
+    enabled: !!id && !!accountEmail,
     retry: (failureCount, error) => !isAuthFailure(error) && failureCount < 1,
   });
 }
