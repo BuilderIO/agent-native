@@ -31,6 +31,7 @@ import {
   type H3Event,
 } from "h3";
 
+import type { ActionRunContext } from "../action.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
@@ -577,19 +578,24 @@ export function mountMcpServersRoutes(
 
 async function withMcpAppRequestContext<T>(
   event: H3Event,
-  fn: () => Promise<T>,
+  fn: (context: ActionRunContext) => Promise<T>,
 ): Promise<T | { error: string }> {
   const { email, orgId } = await resolveContextForRequest(event);
   if (!email) {
     setResponseStatus(event, 401);
     return { error: "Authentication required" };
   }
+  const context = {
+    caller: "frontend",
+    userEmail: email,
+    orgId: orgId ?? null,
+  } satisfies ActionRunContext;
   return runWithRequestContext(
     {
       userEmail: email ?? undefined,
       orgId: orgId ?? undefined,
     },
-    fn,
+    () => fn(context),
   ) as Promise<T>;
 }
 
@@ -671,7 +677,7 @@ async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
     return { error: "serverId and same-server toolName are required" };
   }
 
-  return withMcpAppRequestContext(event, async () => {
+  return withMcpAppRequestContext(event, async (context) => {
     const tool = mcpAppCallableTool(manager, serverId, originalToolName);
     if (!tool) {
       setResponseStatus(event, 403);
@@ -683,9 +689,10 @@ async function handleMcpAppCallTool(event: H3Event, manager: McpClientManager) {
         body.arguments && typeof body.arguments === "object"
           ? (body.arguments as Record<string, unknown>)
           : {},
+        { context },
       );
     } catch (err: any) {
-      setResponseStatus(event, 400);
+      setResponseStatus(event, err?.statusCode === 403 ? 403 : 400);
       return { error: err?.message ?? "MCP tool call failed" };
     }
   });

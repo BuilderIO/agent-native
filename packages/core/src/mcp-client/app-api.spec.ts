@@ -91,9 +91,46 @@ describe("MCP app API", () => {
       },
     );
 
-    expect(callTool).toHaveBeenCalledWith("mcp__org_acme_mcp__inspect", {
-      id: "1",
-    });
+    expect(callTool).toHaveBeenCalledWith(
+      "mcp__org_acme_mcp__inspect",
+      { id: "1" },
+      {
+        context: {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          orgId: "acme",
+        },
+      },
+    );
+  });
+
+  it("uses authenticated identity when forwarding an action context", async () => {
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme" },
+      () =>
+        callMcpTool(
+          "org_acme_mcp",
+          "inspect",
+          {},
+          {
+            caller: "http",
+            userEmail: "spoofed@example.com",
+            orgId: "other-org",
+          },
+        ),
+    );
+
+    expect(callTool).toHaveBeenCalledWith(
+      "mcp__org_acme_mcp__inspect",
+      {},
+      {
+        context: {
+          caller: "http",
+          userEmail: "alice@example.com",
+          orgId: "acme",
+        },
+      },
+    );
   });
 
   it("rejects model-only and unknown tools without calling the manager", async () => {

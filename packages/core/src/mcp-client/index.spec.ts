@@ -268,6 +268,28 @@ describe("mcpToolsToActionEntries", () => {
   });
 
   it("updates existing MCP ActionEntry policy when the manager tool set changes", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "inspected" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [
+        {
+          name: "inspect",
+          description: "New description",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      callImpl,
+    };
+    const manager = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await manager.start();
     const target: Record<string, ActionEntry> = {
       mcp__x__inspect: {
         tool: {
@@ -278,25 +300,6 @@ describe("mcpToolsToActionEntries", () => {
         run: async () => "old",
       },
     };
-    const manager = {
-      getTools: () => [
-        {
-          source: "x",
-          name: "mcp__x__inspect",
-          originalName: "inspect",
-          description: "New description",
-          inputSchema: {
-            type: "object",
-            properties: { id: { type: "string" } },
-            required: ["id"],
-          },
-          annotations: { readOnlyHint: true },
-          raw: { annotations: { readOnlyHint: true } },
-        },
-      ],
-      callTool: vi.fn(),
-      readResourceForTool: vi.fn(),
-    } as unknown as McpClientManager;
     const authorize = vi.fn(async () => false);
 
     syncMcpActionEntries(manager, target, {
@@ -328,7 +331,7 @@ describe("mcpToolsToActionEntries", () => {
       { id: "record-1" },
       { caller: "tool", userEmail: "owner@example.com" },
     );
-    expect(manager.callTool).not.toHaveBeenCalled();
+    expect(callImpl).not.toHaveBeenCalled();
   });
 
   it("prefixes error-flagged results with 'Error:'", async () => {

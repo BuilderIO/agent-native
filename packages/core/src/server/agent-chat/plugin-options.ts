@@ -99,10 +99,10 @@ export interface AgentChatPluginOptions {
    */
   backgroundMcpTools?: "requested" | "all";
   /**
-   * Resolve approval and per-call authorization for connected MCP tools as
-   * they enter the agent action registry. Authorization runs inside the MCP
-   * wrapper immediately before each remote call; use `resolveActionSurface`
-   * separately to hide unavailable tools from an interactive request.
+   * Resolve approval and per-call authorization for connected MCP tools.
+   * Authorization runs at the shared MCP invocation boundary for agent and
+   * app calls; use `resolveActionSurface` separately to hide unavailable tools
+   * from an interactive request.
    */
   resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];
   /**

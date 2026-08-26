@@ -18,6 +18,8 @@ export {
   parseMcpToolName,
   MCP_TOOL_PREFIX,
   type McpTool,
+  type McpToolCallOptions,
+  type McpToolAuthorizationResolver,
   type McpClientManagerOptions,
 } from "./manager.js";
 
@@ -271,21 +273,16 @@ function mcpToolToActionEntry(
           );
         }
       }
-      if (authorize) {
-        const verdict = await authorize(args, context);
-        if (verdict === false) {
-          const error = new Error("Not authorized") as Error & {
-            statusCode: number;
-          };
-          error.name = "ForbiddenError";
-          error.statusCode = 403;
-          throw error;
-        }
-      }
       try {
-        const result = await manager.callTool(tool.name, args);
+        const result = await manager.callTool(tool.name, args, {
+          context,
+          authorize,
+        });
         return await buildMcpActionResult(manager, tool, args, result);
       } catch (err: any) {
+        if (err?.name === "ForbiddenError" && err?.statusCode === 403) {
+          throw err;
+        }
         return buildMcpErrorActionResult(
           tool,
           args,

@@ -589,9 +589,17 @@ describe("MCP server routes", () => {
     );
 
     expect(ok.status).toBe(200);
-    expect(manager.callTool).toHaveBeenCalledWith("mcp__apps__render", {
-      id: "1",
-    });
+    expect(manager.callTool).toHaveBeenCalledWith(
+      "mcp__apps__render",
+      { id: "1" },
+      {
+        context: {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          orgId: null,
+        },
+      },
+    );
     expect(ok.body).toEqual({ content: [{ type: "text", text: "ok" }] });
 
     const blocked = await dispatchMountedRoute(
@@ -604,6 +612,53 @@ describe("MCP server routes", () => {
     expect(blocked.body).toEqual({
       error: "serverId and same-server toolName are required",
     });
+  });
+
+  it("preserves authorization denials from MCP App tool calls", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({ orgId: "acme" });
+
+    const denied = new Error("Not authorized") as Error & {
+      statusCode: number;
+    };
+    denied.name = "ForbiddenError";
+    denied.statusCode = 403;
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: () => true,
+      getToolsForServer: () => [
+        {
+          source: "apps",
+          name: "mcp__apps__render",
+          originalName: "render",
+          description: "Render",
+          inputSchema: { type: "object" },
+          raw: { name: "render" },
+        },
+      ],
+      callTool: vi.fn(async () => {
+        throw denied;
+      }),
+      readResource: vi.fn(),
+      getStatus: () => ({
+        connectedServers: ["apps"],
+        configuredServers: ["apps"],
+        errors: {},
+        tools: [{ source: "apps", name: "mcp__apps__render" }],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/call-tool",
+      "POST",
+      { serverId: "apps", toolName: "render", arguments: {} },
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "Not authorized" });
   });
 
   it("requires authentication for MCP App routes outside production too", async () => {

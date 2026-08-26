@@ -1,5 +1,6 @@
 import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
+import type { ActionRunContext } from "../action.js";
 import { getGlobalMcpManager } from "../server/agent-chat/mcp-glue.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
@@ -67,6 +68,7 @@ export async function callMcpTool(
   serverId: string,
   originalToolName: string,
   args: Record<string, unknown> = {},
+  actionContext?: ActionRunContext,
 ): Promise<unknown> {
   const context = requireAuthenticatedRequest();
   const manager = requireMcpManager();
@@ -81,7 +83,14 @@ export async function callMcpTool(
     );
   }
 
-  return manager.callTool(buildMcpToolName(serverId, originalToolName), args);
+  return manager.callTool(buildMcpToolName(serverId, originalToolName), args, {
+    context: {
+      ...actionContext,
+      caller: actionContext?.caller ?? "frontend",
+      userEmail: context.userEmail,
+      orgId: context.orgId ?? null,
+    },
+  });
 }
 
 function requireAuthenticatedRequest() {
