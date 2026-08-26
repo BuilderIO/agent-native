@@ -1409,8 +1409,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // driven by the *other* axis' coordinate, which shears rather than merely
   // translating. Once running it never settles or loops back.
   //
-  // Held off until the intro animations are done, then eased in over a couple
-  // of seconds. Both start times are derived rather than configured: the light
+  // Held off until the intro animations are done, then eased in over ten
+  // seconds. Both start times are derived rather than configured: the light
   // sweep finishes when iTime * uLightSpeed reaches 1 (see lightProgress
   // below), and the ignition ramp finishes at uIntroDuration, so waiting for
   // whichever lands later keeps this correct when either is retuned. A zero
@@ -1420,7 +1420,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // snapping on from a static warp field.
   float lightSweepEnd = abs(uLightSpeed) > 0.0 ? 1.0 / abs(uLightSpeed) : 0.0;
   float warpStart = max(lightSweepEnd, uIntroDuration);
-  float warpGate = smoothstep(warpStart, warpStart + 2.0, iTime);
+  float warpGate = smoothstep(warpStart, warpStart + 10.0, iTime);
 
   if (uWarpAmount > 0.0 && warpGate > 0.0) {
     vec2 wp = fragCoord / iResolution.y * 6.2831 * uWarpScale;
