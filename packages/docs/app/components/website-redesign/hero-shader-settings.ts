@@ -159,6 +159,8 @@ export interface AtmosphereSettings {
   gamma: number;
   outScatterSteps: number;
   inScatterSteps: number;
+  lightSaturation: number;
+  lightScreenAmount: number;
   intensity: number;
   paused: boolean;
 }
@@ -186,6 +188,8 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   gamma: 1.6,
   outScatterSteps: 8,
   inScatterSteps: 80,
+  lightSaturation: 1.8,
+  lightScreenAmount: 0.4,
   intensity: 0.9,
   paused: false,
 };
@@ -216,6 +220,8 @@ export const ATMOSPHERE_FIELD_CONFIG: Record<
   gamma: { kind: "range", min: 1, max: 3, step: 0.05 },
   outScatterSteps: { kind: "range", min: 2, max: 16, step: 1 },
   inScatterSteps: { kind: "range", min: 8, max: 128, step: 4 },
+  lightSaturation: { kind: "range", min: 0, max: 4, step: 0.05 },
+  lightScreenAmount: { kind: "range", min: 0, max: 1, step: 0.05 },
   intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
   paused: { kind: "boolean" },
 };

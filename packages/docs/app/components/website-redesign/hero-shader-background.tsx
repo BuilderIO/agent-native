@@ -1255,6 +1255,8 @@ uniform float uOutSteps;
 uniform float uInSteps;
 uniform vec3 uPageColor;
 uniform float uScreenBlend;
+uniform float uLightSaturation;
+uniform float uLightScreenAmount;
 
 const float PI = 3.14159265359;
 const float MAX = 10000.0;
@@ -1410,16 +1412,25 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // cutting to a flat opaque disc against the void.
   float alpha = clamp(max(max(col.r, col.g), col.b) * 1.6, 0.0, 1.0);
 
-  // Light mode screen-blends here rather than via CSS mix-blend-mode. Every
+  // Light mode composites here rather than via CSS mix-blend-mode. Every
   // ancestor PageSection sets isolation: isolate, which makes the hero an
   // isolated blending group -- a CSS blend mode on this canvas resolves
   // against that group's transparent backdrop instead of the actual page
-  // background, silently collapsing back into plain alpha-over compositing
-  // (which is what kept darkening light mode). Screening against the real
-  // --b-bg-page value in here is immune to that: the result is >= the page
-  // color in every channel, so it can only ever brighten, never darken.
+  // background, silently collapsing back into plain alpha-over compositing.
+  //
+  // Pure screen against a near-white page is mathematically almost a no-op:
+  // with (1 - pageColor) ~= 0.02, the screened result can never sit more than
+  // ~2% away from white, so the effect vanishes no matter how saturated the
+  // scattering is. Hence the two-step: boost saturation first (so whatever
+  // luminance we do spend reads as colored light instead of grey haze), then
+  // mix only partway toward the screened result. uLightScreenAmount = 1 is
+  // pure screen (brightest, zero added darkness, near-invisible) and 0 is a
+  // straight saturated composite (most color, some luminance drop).
   if (uScreenBlend > 0.5) {
-    col = 1.0 - (1.0 - uPageColor) * (1.0 - col);
+    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = clamp(mix(vec3(luma), col, uLightSaturation), 0.0, 1.0);
+    vec3 screened = 1.0 - (1.0 - uPageColor) * (1.0 - col);
+    col = mix(col, screened, uLightScreenAmount);
   }
 
   fragColor = vec4(col, alpha);
@@ -1649,6 +1660,11 @@ function AtmosphereShaderBackground({
     const uInSteps = gl.getUniformLocation(program, "uInSteps");
     const uPageColor = gl.getUniformLocation(program, "uPageColor");
     const uScreenBlend = gl.getUniformLocation(program, "uScreenBlend");
+    const uLightSaturation = gl.getUniformLocation(program, "uLightSaturation");
+    const uLightScreenAmount = gl.getUniformLocation(
+      program,
+      "uLightScreenAmount",
+    );
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1691,6 +1707,11 @@ function AtmosphereShaderBackground({
       gl.uniform1f(uInSteps, settingsRef.current.inScatterSteps);
       gl.uniform3f(uPageColor, pageColor[0], pageColor[1], pageColor[2]);
       gl.uniform1f(uScreenBlend, dark ? 0 : 1);
+      gl.uniform1f(uLightSaturation, settingsRef.current.lightSaturation);
+      gl.uniform1f(
+        uLightScreenAmount,
+        settingsRef.current.lightScreenAmount,
+      );
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
