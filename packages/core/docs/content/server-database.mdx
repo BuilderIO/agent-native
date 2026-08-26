@@ -257,7 +257,7 @@ For new app-owned schema changes, use Drizzle Kit to generate reviewed SQL:
 pnpm db:generate
 ```
 
-<!-- i18n-copy-ignore: Agent-Native punctuation is locale-invariant; the remaining locales already use the correct product spelling. -->
+<!-- i18n-copy-ignore: Agent-Native punctuation is locale-invariant; localized copies use the same product spelling. -->
 This creates `server/db/migrations/<id_name>.sql`. Commit the generated file and
 review its SQL before shipping it. `runDrizzleMigrations`
 loads those files into the shared Agent-Native runner on Node.js and Node-based
