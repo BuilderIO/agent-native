@@ -27,6 +27,8 @@ export interface CompareResult {
   /** Pixels whose max channel delta exceeded `threshold`, over the compared area. */
   diffPixels: number;
   comparedPixels: number;
+  /** Area left out via `excludeRects`; 0 unless a case asked for exclusions. */
+  excludedPixels: number;
   diffRatio: number;
   maxDelta: number;
   meanDelta: number;
@@ -40,6 +42,14 @@ export interface CompareOptions {
   threshold?: number;
   gridCols?: number;
   gridRows?: number;
+  /**
+   * Rectangles to leave out of the score. Only for content the candidate could
+   * not have produced from its input — a clipboard payload carries image
+   * hashes but no image bytes, so those boxes measure a documented absence
+   * rather than the converter. Excluded area is always reported alongside the
+   * ratio so a shrinking denominator can never read as a rising score.
+   */
+  excludeRects?: Array<{ x: number; y: number; width: number; height: number }>;
 }
 
 interface CompareInput {
@@ -48,10 +58,18 @@ interface CompareInput {
   threshold: number;
   gridCols: number;
   gridRows: number;
+  excludeRects: Array<{ x: number; y: number; width: number; height: number }>;
 }
 
 async function compareInPage(input: CompareInput) {
-  const { referenceUrl, candidateUrl, threshold, gridCols, gridRows } = input;
+  const {
+    referenceUrl,
+    candidateUrl,
+    threshold,
+    gridCols,
+    gridRows,
+    excludeRects,
+  } = input;
 
   const load = (src: string) =>
     new Promise<HTMLImageElement>((resolve, reject) => {
@@ -111,9 +129,26 @@ async function compareInPage(input: CompareInput) {
   let diffPixels = 0;
   let maxDelta = 0;
   let deltaSum = 0;
+  let excludedPixels = 0;
+
+  // A per-pixel mask beats testing every rect per pixel on an 8000px-tall page.
+  const excluded = excludeRects.length > 0 ? new Uint8Array(w * h) : null;
+  if (excluded) {
+    for (const r of excludeRects) {
+      const x0 = Math.max(0, Math.floor(r.x));
+      const y0 = Math.max(0, Math.floor(r.y));
+      const x1 = Math.min(w, Math.ceil(r.x + r.width));
+      const y1 = Math.min(h, Math.ceil(r.y + r.height));
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) excluded[y * w + x] = 1;
+      }
+    }
+    for (let i = 0; i < excluded.length; i++) if (excluded[i]) excludedPixels++;
+  }
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
+      if (excluded && excluded[y * w + x]) continue;
       const ri = (y * refW + x) * 4;
       const ci = (y * candW + x) * 4;
       // Composite both against the same ground so a transparent pixel and an
@@ -184,10 +219,11 @@ async function compareInPage(input: CompareInput) {
     candidate: { width: candW, height: candH },
     dimensionMismatch: refW !== candW || refH !== candH,
     diffPixels,
-    comparedPixels: w * h,
-    diffRatio: diffPixels / (w * h),
+    comparedPixels: w * h - excludedPixels,
+    excludedPixels,
+    diffRatio: diffPixels / Math.max(1, w * h - excludedPixels),
     maxDelta,
-    meanDelta: deltaSum / (w * h),
+    meanDelta: deltaSum / Math.max(1, w * h - excludedPixels),
     worstCells: cells.slice(0, 24),
     diffDataUrl: out.toDataURL("image/png"),
   };
@@ -213,6 +249,7 @@ export async function comparePngs(
       threshold: options.threshold ?? 8,
       gridCols: options.gridCols ?? 12,
       gridRows: options.gridRows ?? 12,
+      excludeRects: options.excludeRects ?? [],
     });
     const { diffDataUrl, ...rest } = result;
     return {

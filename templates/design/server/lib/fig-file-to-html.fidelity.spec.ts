@@ -1220,3 +1220,189 @@ describe("masks", () => {
     expect(result.frames[0]?.html).toContain("Masked content");
   });
 });
+
+describe("auto-layout children in the .fig walker", () => {
+  const stack = (stackSpacing: number) => {
+    const doc = makeDocument([
+      {
+        stackMode: "HORIZONTAL",
+        stackSpacing,
+        stackPaddingLeft: 100,
+        stackPaddingRight: 100,
+        size: { x: 1440, y: 400 },
+      },
+    ]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 40, {
+        name: "Card",
+        size: { x: 1240, y: 400 },
+        parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "a" },
+      }),
+      childNode(10, 41, {
+        name: "Art",
+        size: { x: 692, y: 400 },
+        parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "b" },
+      }),
+    );
+    return doc;
+  };
+
+  // Figma keeps a non-growing auto-layout child at its own size and lets the
+  // parent overflow. CSS flex items shrink by default, which redistributed the
+  // overflow and rendered Positivus' 1240px CTA card at 897px.
+  it("pins non-growing children against flex shrinking", () => {
+    const html = renderFrame(stack(0));
+    expect(html.match(/flex-shrink: 0/g)?.length).toBe(2);
+  });
+
+  it("leaves a growing child elastic", () => {
+    const doc = stack(0);
+    const nodes = doc.nodeChanges as Array<Record<string, unknown>>;
+    nodes[nodes.length - 2]!.stackChildPrimaryGrow = 1;
+    const html = renderFrame(doc);
+    expect(html).toContain("flex: 1 0 0");
+    expect(html.match(/flex-shrink: 0/g)?.length).toBe(1);
+  });
+
+  // CSS rejects a negative gap outright, dropping the declaration.
+  it("expresses a negative stackSpacing as an overlap, not a negative gap", () => {
+    const html = renderFrame(stack(-367));
+    expect(html).not.toContain("gap: -367px");
+    expect(html).toContain("margin-left: -367px");
+    expect(html.match(/margin-left: -367px/g)).toHaveLength(1);
+  });
+
+  it("keeps a positive stackSpacing as a gap", () => {
+    const html = renderFrame(stack(24));
+    expect(html).toContain("gap: 24px");
+    expect(html).not.toContain("margin-left: 24px");
+  });
+});
+
+describe("transforms that are not rotations", () => {
+  const flipped = (m: Record<string, number>) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 60, {
+        name: "Flipped",
+        size: { x: 359, y: 394 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0, ...m },
+      }),
+    );
+    return renderFrame(doc);
+  };
+
+  // `hasNonTrivialScale` compares |determinant|, which erases the sign, so a
+  // mirror satisfied neither the scale nor the skew branch and fell through to
+  // `rotate(180deg)` — which moves a box up and left by its own size.
+  it("emits a matrix for a horizontal mirror, never rotate(180deg)", () => {
+    const html = flipped({ m00: -1, m11: 1, m02: 359 });
+    expect(html).not.toContain("rotate(180deg)");
+    expect(html).toContain("matrix(-1, 0, 0, 1, 0, 0)");
+  });
+
+  it("emits a matrix for a vertical mirror", () => {
+    const html = flipped({ m00: 1, m11: -1, m12: 394 });
+    expect(html).not.toContain("rotate(180deg)");
+    expect(html).toContain("matrix(1, 0, 0, -1, 0, 0)");
+  });
+
+  it("still uses rotate() for a real rotation", () => {
+    const html = flipped({ m00: -1, m11: -1 });
+    expect(html).toContain("rotate(180deg)");
+  });
+
+  it("leaves an identity transform alone", () => {
+    const html = flipped({});
+    expect(html).not.toContain("rotate(");
+    expect(html).not.toContain("matrix(");
+  });
+});
+
+describe("parametric shapes", () => {
+  const shape = (overrides: Record<string, unknown>) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 70, {
+        size: { x: 200, y: 200 },
+        strokePaints: [
+          { type: "SOLID", visible: true, color: { r: 0, g: 0, b: 0, a: 1 } },
+        ],
+        strokeWeight: 1,
+        ...overrides,
+      }),
+    );
+    return renderFrame(doc);
+  };
+
+  // A clipboard payload gives a STAR no geometry at all — only `count` and
+  // `starInnerScale` — so without synthesis the shape is silently dropped.
+  it("draws a STAR from its point count and inner scale", () => {
+    const html = shape({
+      type: "STAR",
+      name: "Star",
+      count: 10,
+      starInnerScale: 0.382,
+    });
+    expect(html).toContain("<svg");
+    // 10 tips alternate outer/inner, so 20 points.
+    const d = /<path d="M([^"]+)"/.exec(html)?.[1] ?? "";
+    expect(d.split(" L").length).toBe(20);
+  });
+
+  it("draws a REGULAR_POLYGON from its side count", () => {
+    const html = shape({ type: "REGULAR_POLYGON", name: "Tri", count: 3 });
+    const d = /<path d="M([^"]+)"/.exec(html)?.[1] ?? "";
+    expect(d.split(" L").length).toBe(3);
+  });
+
+  it("does not invent geometry for a shape with no parameters", () => {
+    const html = shape({ type: "VECTOR", name: "Vec" });
+    expect(html).not.toContain("<svg");
+  });
+});
+
+describe("full ellipses", () => {
+  const ellipse = (arcData?: Record<string, number>) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 80, {
+        type: "ELLIPSE",
+        name: "Ring",
+        size: { x: 338, y: 71 },
+        strokePaints: [
+          { type: "SOLID", visible: true, color: { r: 0, g: 0, b: 0, a: 1 } },
+        ],
+        strokeWeight: 1,
+        strokeAlign: "INSIDE",
+        ...(arcData ? { arcData } : {}),
+      }),
+    );
+    return renderHtmlTemplates(doc);
+  };
+
+  // border-radius: 50% reproduces a full ellipse exactly, so suppressing it as
+  // a "geometryless vector" just deleted the shape — Positivus' CTA rings.
+  it("paints a stroke-only full ellipse", () => {
+    const html = ellipse({
+      startingAngle: 0,
+      endingAngle: Math.PI * 2,
+      innerRadius: 0,
+    }).frames[0]!.html;
+    expect(html).toContain("border-radius: 50%");
+    expect(html).toContain("box-shadow");
+  });
+
+  it("still omits an arc, and reports it rather than dropping it silently", () => {
+    const result = ellipse({
+      startingAngle: 0,
+      endingAngle: Math.PI,
+      innerRadius: 0,
+    });
+    expect(
+      result.approximatedNodes.some((e) =>
+        e.notes.some((n) => n.includes("no decodable geometry")),
+      ),
+    ).toBe(true);
+  });
+});

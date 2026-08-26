@@ -143,6 +143,16 @@ export interface FigNode {
   rectangleBottomRightCornerRadius?: number;
   /** Kiwi's spelling of REST's `isMask`: this node clips its later siblings. */
   mask?: boolean;
+  /** STAR point count / REGULAR_POLYGON side count. */
+  count?: number;
+  /** STAR inner-radius ratio; Figma's default is the golden ratio, ~0.382. */
+  starInnerScale?: number;
+  /** ELLIPSE sweep. A full turn with no inner radius is a plain ellipse. */
+  arcData?: {
+    startingAngle?: number;
+    endingAngle?: number;
+    innerRadius?: number;
+  };
   fontSize?: number;
   fontName?: { family?: string; style?: string };
   letterSpacing?: { value: number; units?: string };
@@ -968,6 +978,65 @@ function maskHasSoftAlpha(maskNode: FigNode): boolean {
   );
 }
 
+/**
+ * True when an ELLIPSE sweeps a full turn with no inner radius — i.e. a plain
+ * ellipse that `border-radius: 50%` reproduces exactly. Figma writes the sweep
+ * in radians, and a full circle comes through as 6.2831854820251465 rather
+ * than exactly 2*PI, so the comparison has to carry a tolerance.
+ */
+function isFullTurnArc(arc: FigNode["arcData"]): boolean {
+  if (!arc) return true;
+  if ((arc.innerRadius ?? 0) > 1e-6) return false;
+  const sweep = Math.abs((arc.endingAngle ?? 0) - (arc.startingAngle ?? 0));
+  return sweep >= Math.PI * 2 - 1e-3;
+}
+
+/**
+ * Build the outline of a STAR or REGULAR_POLYGON from its parameters.
+ *
+ * A clipboard payload gives these shapes no flattened `fillGeometry` and no
+ * vector network — just `count` and `starInnerScale` — so without this they
+ * have no drawable geometry at all and get dropped. Positivus' CTA
+ * illustration lost its ten-point starburst that way. Figma fits the shape to
+ * the node's box, so the radii are the half-extents and the first point is at
+ * twelve o'clock.
+ */
+function parametricShapePath(node: FigNode): string | null {
+  const w = node.size?.x;
+  const h = node.size?.y;
+  if (!w || !h) return null;
+  const cx = w / 2;
+  const cy = h / 2;
+  const points: string[] = [];
+  const at = (angle: number, rx: number, ry: number) =>
+    `${num(cx + rx * Math.cos(angle))} ${num(cy + ry * Math.sin(angle))}`;
+
+  if (node.type === "REGULAR_POLYGON") {
+    const sides = node.count ?? 3;
+    if (sides < 3 || sides > 1000) return null;
+    for (let i = 0; i < sides; i++) {
+      points.push(at(-Math.PI / 2 + (i * 2 * Math.PI) / sides, cx, cy));
+    }
+  } else if (node.type === "STAR") {
+    const tips = node.count ?? 5;
+    if (tips < 3 || tips > 1000) return null;
+    const inner = node.starInnerScale ?? 0.382;
+    for (let i = 0; i < tips * 2; i++) {
+      const outer = i % 2 === 0;
+      points.push(
+        at(
+          -Math.PI / 2 + (i * Math.PI) / tips,
+          outer ? cx : cx * inner,
+          outer ? cy : cy * inner,
+        ),
+      );
+    }
+  } else {
+    return null;
+  }
+  return `M${points.join(" L")} Z`;
+}
+
 /** Record one fidelity note against a node the renderer could not reproduce exactly. */
 function recordApproximation(node: FigNode, ctx: Ctx, note: string): void {
   ctx.approximatedNodes.push({
@@ -1280,9 +1349,14 @@ function transformStyle(node: FigNode): {
     Math.abs(t.m01 + Math.sin(angle)) < 0.01 &&
     Math.abs(t.m10 - Math.sin(angle)) < 0.01 &&
     Math.abs(t.m11 - Math.cos(angle)) < 0.01;
-  const hasSkew =
-    (Math.abs(t.m01) > 0.0001 || Math.abs(t.m10) > 0.0001) && !isPureRotation;
-  if (hasNonTrivialScale || hasSkew) {
+  // Anything that is not a pure rotation has to go through the matrix. The
+  // previous guard asked only about scale and skew, and `hasNonTrivialScale`
+  // compares |determinant|, which erases the SIGN — so a mirror (m00 = -1,
+  // m11 = 1: determinant -1, no off-diagonal terms) satisfied neither branch
+  // and fell through to `rotate(180deg)`. A 180 degree rotation about the
+  // top-left corner moves a box up and left by its own size, which is how
+  // Positivus' flipped CTA illustration ended up 394px above its frame.
+  if (hasNonTrivialScale || !isPureRotation) {
     return {
       transform: `matrix(${num(t.m00)}, ${num(t.m10)}, ${num(t.m01)}, ${num(t.m11)}, 0, 0)`,
       transformOrigin: "0 0",
@@ -1293,7 +1367,54 @@ function transformStyle(node: FigNode): {
   return { transform: `rotate(${num(deg)}deg)`, transformOrigin: "top left" };
 }
 
-function autolayoutStyles(node: FigNode): Record<string, string | number> {
+/**
+ * Figma CLAMPS a negative `stackSpacing` so the children still fill a
+ * fixed-size container: the CTA row on the Positivus landing page asks for
+ * -715px between a 1240px card and a 494px illustration inside a 1240px
+ * content box, and Figma lays the illustration out at x=846 (flush with the
+ * card's right edge), not at 625 as a literal -715 would put it —
+ * 1240 + 494 - 494 = 1240 exactly fills the box.
+ *
+ * That clamp distributes the slack evenly between the children, which is
+ * precisely `justify-content: space-between`. When the requested spacing
+ * genuinely overflows the container there is no slack to distribute, Figma
+ * uses the literal value, and the negative margins in `buildCss` carry it.
+ */
+function overlapSpacing(node: FigNode, ctx: Ctx): number | null {
+  const spacing = node.stackSpacing;
+  if (typeof spacing !== "number" || spacing >= 0) return null;
+  const horizontal = node.stackMode === "HORIZONTAL";
+  // Only a fixed primary axis has a container to fill; a hugging one resizes
+  // around whatever the overlap produces, so the literal value stands.
+  if ((node.stackPrimarySizing ?? "RESIZE_TO_FIT") !== "FIXED") return spacing;
+  const total = horizontal ? node.size?.x : node.size?.y;
+  if (!total) return spacing;
+  const padStart = horizontal
+    ? (node.stackPaddingLeft ?? node.stackHorizontalPadding ?? 0)
+    : (node.stackPaddingTop ?? node.stackVerticalPadding ?? 0);
+  const padEnd = horizontal
+    ? (node.stackPaddingRight ?? node.stackHorizontalPadding ?? 0)
+    : (node.stackPaddingBottom ?? node.stackVerticalPadding ?? 0);
+  const available = total - padStart - padEnd;
+  const children = getChildren(node, ctx).filter(
+    (child) => child.visible !== false && child.stackPositioning !== "ABSOLUTE",
+  );
+  if (children.length < 2) return spacing;
+  let sum = 0;
+  for (const child of children) {
+    const size = horizontal ? child.size?.x : child.size?.y;
+    // An unknown child size makes the clamp meaningless; do not guess at it.
+    if (typeof size !== "number") return spacing;
+    sum += size;
+  }
+  const fill = (available - sum) / (children.length - 1);
+  return Math.max(spacing, fill);
+}
+
+function autolayoutStyles(
+  node: FigNode,
+  ctx: Ctx,
+): Record<string, string | number> {
   if (!node.stackMode || node.stackMode === "NONE") return {};
   const out: Record<string, string | number> = {
     display: "flex",
@@ -1304,7 +1425,11 @@ function autolayoutStyles(node: FigNode): Record<string, string | number> {
       STACK_ALIGN[node.stackPrimaryAlignItems] ?? "flex-start";
   if (node.stackCounterAlignItems)
     out.alignItems = STACK_ALIGN[node.stackCounterAlignItems] ?? "flex-start";
-  if (typeof node.stackSpacing === "number")
+  // A negative `stackSpacing` overlaps the children. CSS rejects a negative
+  // `gap` outright, which drops the declaration and silently falls back to 0,
+  // overflowing the stack; the overlap is applied as a negative margin on the
+  // children instead (see `buildCss`).
+  if (typeof node.stackSpacing === "number" && node.stackSpacing > 0)
     out.gap = `${num(node.stackSpacing)}px`;
   // Padding: prefer per-side; fall back to horizontal/vertical.
   const pl = node.stackPaddingLeft ?? node.stackHorizontalPadding;
@@ -1685,6 +1810,29 @@ function buildCss(
   if (parentFlex && node.stackPositioning !== "ABSOLUTE") {
     if ((node.stackChildPrimaryGrow ?? 0) > 0) {
       css.flex = "1 0 0";
+    } else {
+      // Figma never shrinks an auto-layout child that is not growing: it keeps
+      // its own size and the parent overflows. CSS flex items shrink by
+      // default, so an overflowing row quietly redistributed the deficit and
+      // made every child the wrong width — Positivus' CTA card came out 897px
+      // instead of 1240px. Only a growing child is elastic.
+      css.flexShrink = "0";
+    }
+    // CSS rejects a negative gap, so a parent that overlaps its children
+    // expresses it here instead; see the parent's `stackSpacing` handling.
+    // The sibling lookup is guarded on a negative spacing because it is rare,
+    // and doing it unconditionally would sort the parent's children once per
+    // child on trees with tens of thousands of nodes.
+    const overlap = parent ? overlapSpacing(parent, ctx) : null;
+    if (overlap !== null && overlap < 0 && parent) {
+      const siblings = getChildren(parent, ctx);
+      const isFirst =
+        siblings.length === 0 ||
+        guidKey(siblings[0]!.guid) === guidKey(node.guid);
+      if (!isFirst) {
+        css[parent.stackMode === "VERTICAL" ? "marginTop" : "marginLeft"] =
+          `${num(overlap)}px`;
+      }
     }
     if (node.stackChildAlignSelf) {
       const a = STACK_ALIGN[node.stackChildAlignSelf];
@@ -1697,11 +1845,27 @@ function buildCss(
 
   // A vector with no decodable geometry must not paint its bounding box as a
   // solid fill (that renders the shape as a block); render nothing instead.
+  //
+  // A FULL ellipse is the exception: `border-radius: 50%` reproduces it
+  // exactly, fill and stroke included, so suppressing it just deletes the
+  // shape. Positivus' CTA illustration is three stroke-only ellipses and they
+  // vanished entirely. An arc or donut (`arcData` narrower than a full turn,
+  // or a non-zero inner radius) is NOT expressible that way and stays
+  // suppressed — but reported, so the hole is visible rather than silent.
+  const isFullEllipse = node.type === "ELLIPSE" && isFullTurnArc(node.arcData);
   const geometrylessVector =
     !!node.type &&
     VECTOR_LIKE_TYPES.has(node.type) &&
     !vectorLike &&
+    !isFullEllipse &&
     !node.fillPaints?.some((p) => p.visible !== false && p.type === "IMAGE");
+  if (geometrylessVector) {
+    recordApproximation(
+      node,
+      ctx,
+      `${node.type} has no decodable geometry; omitted rather than painted as its bounding box`,
+    );
+  }
 
   // Background (TEXT uses fillPaints for color, not background; vector
   // nodes paint via <path fill> inside the <svg>).
@@ -1730,7 +1894,7 @@ function buildCss(
   // Text styling
   Object.assign(css, textStyles(node, ctx));
   // Autolayout (flex)
-  Object.assign(css, autolayoutStyles(node));
+  Object.assign(css, autolayoutStyles(node, ctx));
 
   // Opacity / blend mode / overflow / visibility
   if (typeof node.opacity === "number" && node.opacity < 0.999)
@@ -2143,7 +2307,10 @@ function isVectorLike(node: FigNode): boolean {
     (node.fillGeometry?.length ?? 0) > 0 ||
     (node.strokeGeometry?.length ?? 0) > 0;
   const hasNetwork = typeof node.vectorData?.vectorNetworkBlob === "number";
-  if (!hasFlatGeometry && !hasNetwork) {
+  // A STAR / REGULAR_POLYGON carries neither in a clipboard payload, but its
+  // parameters describe the outline exactly.
+  const hasParametricShape = parametricShapePath(node) !== null;
+  if (!hasFlatGeometry && !hasNetwork && !hasParametricShape) {
     return false;
   }
   // Nodes with an IMAGE fill render better as a regular <div> with
@@ -2237,6 +2404,27 @@ function emitSvgBody(
   // not flattened geometry). Decode it to a path and paint it with the node's
   // fill/stroke. Network coords are in `normalizedSize` space, so scale into
   // the node's box (the SVG viewBox is 0 0 w h).
+  if (!emittedFlat && typeof node.vectorData?.vectorNetworkBlob !== "number") {
+    const d = parametricShapePath(node);
+    if (d) {
+      const attrs: string[] = [`d="${escapeHtmlAttr(d)}"`];
+      if (fillPaint) {
+        attrs.push(`fill="${fillPaint.color}"`);
+        if (fillPaint.opacity !== undefined)
+          attrs.push(`fill-opacity="${num(fillPaint.opacity)}"`);
+      } else {
+        attrs.push(`fill="none"`);
+      }
+      if (strokePaint && strokeWeight > 0) {
+        attrs.push(`stroke="${strokePaint.color}"`);
+        attrs.push(`stroke-width="${num(strokeWeight)}"`);
+        if (strokePaint.opacity !== undefined)
+          attrs.push(`stroke-opacity="${num(strokePaint.opacity)}"`);
+      }
+      lines.push(`${indent}  <path ${attrs.join(" ")} />`);
+      emittedFlat = true;
+    }
+  }
   if (!emittedFlat && typeof node.vectorData?.vectorNetworkBlob === "number") {
     const net = decodeVectorNetwork(
       ctx.blobs[node.vectorData.vectorNetworkBlob],

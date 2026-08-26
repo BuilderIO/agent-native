@@ -46,6 +46,13 @@ interface PasteCase {
   file: string;
   /** Import case whose `figma.png` / `import.png` are the references. */
   reference?: string;
+  /**
+   * A reference PNG exported straight from the Figma UI, for a design the REST
+   * corpus cannot cover. Figma's account-wide quota blocks every file at once,
+   * so a UI export is the only way to grow the measured corpus while it is
+   * exhausted — and it is the same pixels `/images?scale=1` would return.
+   */
+  referencePng?: string;
   notes?: string;
 }
 
@@ -70,8 +77,56 @@ interface CaseOutcome {
     meanDelta: number;
     dimensionMismatch: boolean;
   };
+  /** vsFigma with the un-carryable image fills left out, plus how much was left out. */
+  vsFigmaExcludingImages?: { diffPercent: number; excludedPercent: number };
   renderWarnings?: string[];
   error?: string;
+}
+
+/**
+ * Bounding boxes of the elements stamped `data-figma-image-ref` — the fills the
+ * clipboard payload could not carry. Measured from the same HTML at the same
+ * width the screenshot used, so the rects line up with the rendered pixels.
+ */
+async function imagePlaceholderRects(
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+  html: string,
+  width: number,
+  height: number,
+): Promise<Array<{ x: number; y: number; width: number; height: number }>> {
+  const page = await browser.newPage({
+    viewport: {
+      width: Math.ceil(width),
+      height: Math.min(2000, Math.ceil(height)),
+    },
+  });
+  try {
+    await page.setContent(html);
+    await page.evaluate("globalThis.__name ||= (fn) => fn;");
+    return await page.evaluate(() => {
+      const out: Array<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }> = [];
+      document
+        .querySelectorAll<HTMLElement>("[data-figma-image-ref]")
+        .forEach((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) return;
+          out.push({
+            x: r.left + window.scrollX,
+            y: r.top + window.scrollY,
+            width: r.width,
+            height: r.height,
+          });
+        });
+      return out;
+    });
+  } finally {
+    await page.close();
+  }
 }
 
 async function runCase(
@@ -143,6 +198,16 @@ async function runCase(
   });
   writeFileSync(join(dir, "paste.png"), rendered.png);
 
+  // Where the clipboard could not carry image bytes, the element renders as a
+  // placeholder. Those boxes measure a documented absence, not the converter,
+  // so they are scored separately rather than folded into one number.
+  const placeholderRects = await imagePlaceholderRects(
+    browser,
+    file.content,
+    width,
+    height,
+  );
+
   const outcome: CaseOutcome = {
     id: testCase.id,
     status: "ok",
@@ -157,7 +222,14 @@ async function runCase(
   };
 
   const reference = testCase.reference;
-  const figmaRef = reference ? join(IMPORT_DIR, reference, "figma.png") : null;
+  const figmaRef =
+    testCase.referencePng ??
+    (reference ? join(IMPORT_DIR, reference, "figma.png") : null);
+  if (testCase.referencePng && !existsSync(testCase.referencePng)) {
+    throw new Error(
+      `referencePng ${testCase.referencePng} is missing; a case that names a reference must have one.`,
+    );
+  }
   const restRef = reference ? join(IMPORT_DIR, reference, "import.png") : null;
   if (figmaRef && existsSync(figmaRef)) {
     const comparison = await comparePngs(
@@ -172,6 +244,24 @@ async function runCase(
       meanDelta: comparison.meanDelta,
       dimensionMismatch: comparison.dimensionMismatch,
     };
+    if (placeholderRects.length) {
+      const converterOnly = await comparePngs(
+        browser,
+        readFileSync(figmaRef),
+        rendered.png,
+        { threshold: 8, excludeRects: placeholderRects },
+      );
+      outcome.vsFigmaExcludingImages = {
+        diffPercent: converterOnly.diffRatio * 100,
+        excludedPercent:
+          (converterOnly.excludedPixels /
+            Math.max(
+              1,
+              converterOnly.excludedPixels + converterOnly.comparedPixels,
+            )) *
+          100,
+      };
+    }
   }
   if (restRef && existsSync(restRef)) {
     const comparison = await comparePngs(
@@ -231,9 +321,9 @@ try {
 
 writeFileSync(join(OUT_DIR, "summary.json"), JSON.stringify(outcomes, null, 2));
 console.log(
-  "\n  case                       vsFigma%   vsRest%   nodes   noImg  notes",
+  "\n  case                       vsFigma%  exImg%   vsRest%   nodes   noImg  notes",
 );
-console.log("  " + "-".repeat(88));
+console.log("  " + "-".repeat(98));
 for (const outcome of outcomes) {
   if (outcome.status === "failed") {
     console.log(`  ${outcome.id.padEnd(25)}  FAILED — ${outcome.error}`);
@@ -248,6 +338,7 @@ for (const outcome of outcomes) {
   console.log(
     `  ${outcome.id.padEnd(25)}  ` +
       `${(outcome.vsFigma ? outcome.vsFigma.diffPercent.toFixed(3) : "—").padStart(8)}  ` +
+      `${(outcome.vsFigmaExcludingImages ? outcome.vsFigmaExcludingImages.diffPercent.toFixed(3) : "—").padStart(7)}  ` +
       `${(outcome.vsRest ? outcome.vsRest.diffPercent.toFixed(3) : "—").padStart(8)}  ` +
       `${String(outcome.nodeCount).padStart(5)}  ` +
       `${String(outcome.unresolvedImages).padStart(5)}  ${notes.join(", ")}`,
@@ -255,6 +346,7 @@ for (const outcome of outcomes) {
 }
 console.log(
   `\n  noImg = image fills the clipboard cannot carry; they render as placeholders.` +
+    `\n  exImg = vsFigma with those placeholder boxes excluded, i.e. the converter alone.` +
     `\n  artifacts: ${OUT_DIR}/<case>/{paste,diff-figma,diff-rest}.png\n`,
 );
 if (outcomes.some((o) => o.status === "failed")) process.exitCode = 1;

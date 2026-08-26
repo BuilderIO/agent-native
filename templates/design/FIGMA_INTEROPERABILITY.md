@@ -206,11 +206,57 @@ Numbers from the Positivus landing page (`330:762`, 1440x8356) and the Untitled
 UI v2 desktop landing page (`1647:376184`, 1440x7060, vertical auto-layout
 throughout), both measured against Figma's own render.
 
-| Fix | paste vs Figma | paste vs REST |
+| Fix | paste vs Figma | converter only |
 | --- | --- | --- |
-| baseline | 23.53% | 21.67% |
-| AUTO line height | 19.11% | 14.19% |
-| masks (fill + stroke) | 14.12% | 7.51% |
+| baseline | 23.53% | — |
+| AUTO line height | 19.11% | — |
+| masks (fill + stroke) | 14.12% | 12.60% |
+| auto-layout overlap + no-shrink | 8.66% | 7.08% |
+| flipped transforms, ellipses, parametric shapes | 8.37% | 6.75% |
+
+"converter only" is `vsFigma` with the image-fill placeholders excluded — a
+clipboard payload carries image hashes but no image bytes, so those boxes
+measure a documented absence rather than the converter. The harness prints
+both, and reports the excluded area, so a shrinking denominator can never read
+as a rising score.
+
+Further defects the same comparison found, all in the shared `.fig`/clipboard
+walker:
+
+- **Override precedence was inverted.** Figma resolves a descendant against the
+  OUTERMOST instance that overrides it — that entry is the edit someone made on
+  the instance they placed, while a nested instance's entry belongs to the
+  component it came from. Merging outer-to-inner let the component's own value
+  win and silently undo the edit: Untitled UI's header rendered
+  "Resources / Resources" where Figma has "Products / Resources".
+- **Auto-layout children shrank.** Figma keeps a non-growing child at its own
+  size and lets the parent overflow; CSS flex items shrink by default, so
+  Positivus' 1240px CTA card rendered at 897px.
+- **Negative `stackSpacing` was emitted as a negative `gap`,** which CSS
+  rejects outright. Figma also CLAMPS it so the children still fill a fixed
+  container: -715px between a 1240px card and a 494px illustration in a 1240px
+  box resolves to -494px, putting the illustration at x=846 rather than 625.
+  The clamp is `max(spacing, (available - sum) / (n - 1))`.
+- **A mirror was rendered as a 180 degree rotation.** The guard tested
+  `|determinant|`, which erases the sign, so `m00 = -1, m11 = 1` (a horizontal
+  flip, no off-diagonal terms) matched neither the scale nor the skew branch
+  and fell through to `rotate(180deg)` — which moves a box up and left by its
+  own size. Positivus' flipped CTA illustration landed 394px above its frame.
+  Anything that is not a pure rotation now goes through the matrix.
+- **Full ellipses were dropped as "geometryless vectors".** `border-radius:
+  50%` reproduces one exactly, fill and stroke included; suppressing it just
+  deleted the shape, and Positivus' three stroke-only CTA rings vanished. An
+  arc or donut (`arcData` narrower than a full turn, or a non-zero inner
+  radius) is still not expressible and stays suppressed — but is now recorded
+  in `approximatedNodes` instead of disappearing silently.
+- **STAR and REGULAR_POLYGON had no geometry to draw.** A clipboard payload
+  gives them neither flattened geometry nor a vector network, only `count` and
+  `starInnerScale`, so the shapes were dropped entirely. Those parameters
+  describe the outline exactly and are now synthesised.
+
+After these, every node in Positivus' CTA block lands on Figma's own
+coordinates: the card at 1240x347 @100, the illustration frame at 494x394 @846,
+and each ellipse and star within a pixel of Figma's reported box.
 
 Two defects the three-way comparison found, both in the shared `.fig`/clipboard
 walker and both invisible to the REST path:
