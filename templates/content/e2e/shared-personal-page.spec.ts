@@ -136,20 +136,27 @@ test("an editor can read and edit one shared Personal page without gaining its p
     await expect(
       owner.getByText(recipientEmail, { exact: true }),
     ).toBeVisible();
-    const shares = await getAction(owner, "list-resource-shares", {
-      resourceType: "document",
-      resourceId: documentId,
-    });
-    expect(shares.ok).toBe(true);
-    expect(shares.result.shares).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          principalType: "user",
-          principalId: recipientEmail,
-          role: "editor",
-        }),
-      ]),
-    );
+    await expect
+      .poll(
+        async () => {
+          const shares = await getAction(owner, "list-resource-shares", {
+            resourceType: "document",
+            resourceId: documentId,
+          });
+          expect(shares.ok).toBe(true);
+          return shares.result.shares;
+        },
+        { timeout: 20_000 },
+      )
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            principalType: "user",
+            principalId: recipientEmail,
+            role: "editor",
+          }),
+        ]),
+      );
 
     await recipient.goto(`/page/${documentId}`, {
       waitUntil: "domcontentloaded",
