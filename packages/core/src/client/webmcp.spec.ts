@@ -111,6 +111,39 @@ describe("WebMCP client", () => {
     expect(executeTool).toHaveBeenCalledWith(freshTool, "{}", {});
   });
 
+  it("executes the approved descriptor after a concurrent listing", async () => {
+    const firstTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = {
+      ...firstTool,
+      title: "Get order",
+    };
+    const getTools = vi
+      .fn()
+      .mockResolvedValueOnce([firstTool])
+      .mockResolvedValueOnce([secondTool]);
+    const executeTool = vi.fn(
+      async (tool: { title?: string }) => tool.title ?? "first",
+    );
+    const client = createAgentNativeWebMcpClient({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool,
+      }),
+    });
+
+    const [approvedTool] = await client.listTools();
+    await client.listTools();
+
+    await expect(client.executeListedTool(approvedTool)).resolves.toBe("first");
+    expect(executeTool).toHaveBeenCalledWith(firstTool, "{}", {});
+  });
+
   it("rejects duplicate tool names from the same origin", async () => {
     const tool = {
       name: "get-order",

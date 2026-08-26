@@ -301,7 +301,8 @@ export function createAgentNativeWebMcpClient(
     maxManifestChars: options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
   };
   const nativeTools = new Map<string, NativeRegisteredTool>();
-  let listedNativeTools = new WeakMap<object, NativeRegisteredTool>();
+  // Keep bindings for in-flight approvals; each descriptor is a listing capability.
+  const listedNativeTools = new WeakMap<object, NativeRegisteredTool>();
 
   function requireModelContext(): NativeModelContext {
     if (!modelContext) throw new AgentNativeWebMcpUnsupportedError();
@@ -340,7 +341,6 @@ export function createAgentNativeWebMcpClient(
       }
       seenKeys.add(key);
     });
-    listedNativeTools = new WeakMap();
     nativeTools.clear();
     normalizedTools.forEach((tool, index) => {
       nativeTools.set(toolKey(tool), result[index]);
@@ -416,7 +416,7 @@ export function createAgentNativeWebMcpClient(
     const nativeTool = listedNativeTools.get(tool);
     if (!nativeTool) {
       throw new Error(
-        `WebMCP tool "${tool.name}" was not returned by the current live listing`,
+        `WebMCP tool "${tool.name}" was not returned by a live listing`,
       );
     }
     return executeNativeTool(tool, nativeTool, input, executionOptions);
