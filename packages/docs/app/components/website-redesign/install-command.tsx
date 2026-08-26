@@ -1,4 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
+import { useT } from "@agent-native/core/client/i18n";
 
 import { useSnackbar } from "./ds/snackbar";
 
@@ -57,20 +58,21 @@ const CLASSES = [
 
 export function InstallCommand() {
   const showSnackbar = useSnackbar();
+  const t = useT();
 
   async function handleCopy() {
     // No feedback when nothing actually landed on the clipboard, rather than
     // falsely claiming it worked.
     if (!(await copyText(INSTALL_COMMAND))) return;
     trackEvent("copy install command", { command: INSTALL_COMMAND });
-    showSnackbar("Copied");
+    showSnackbar(t("common.copied"));
   }
 
   return (
     <button
       type="button"
       onClick={handleCopy}
-      aria-label="Copy install command"
+      aria-label={t("homepage.install.copyCommand")}
       className={CLASSES}
     >
       <span aria-hidden="true" className="text-[var(--b-text-muted)]">

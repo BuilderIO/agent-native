@@ -432,6 +432,103 @@ const enUS = {
       dashboards: "Dashboards",
     },
   },
+  homepage: {
+    hero: {
+      title: "The agentic application framework",
+      bodyLine1:
+        "Build for AI agents without building a second product for users.",
+      bodyLine2: "Bring your own LLM. Deploy anywhere.",
+      learnMore: "Learn more",
+    },
+    install: {
+      copyCommand: "Copy install command",
+    },
+    actions: {
+      title: "One Action powers every surface",
+      bodyLine1: "Actions are the building blocks of an Agent-Native app.",
+      bodyLine2:
+        "Define functionality once, then use it from your UI, agent chat, HTTP API, MCP, A2A, or CLI.",
+      diagramAlt:
+        "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
+    },
+    builtIn: {
+      title: "Built into every Agent-Native app",
+      body: "Everything users and AI agents need to work together, already wired into one application.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "Give users familiar screens for browsing, editing, and reviewing work.",
+        },
+        agentChat: {
+          title: "Embedded agent chat",
+          body: "Let users delegate work, ask questions, and review results without leaving the app.",
+        },
+        sharedState: {
+          title: "Shared application state",
+          body: "The agent knows what users are viewing, selecting, and editing.",
+        },
+        sharedSql: {
+          title: "Shared SQL data",
+          body: "Users and agents read and update the same source of truth.",
+        },
+        skillsMemory: {
+          title: "Skills and memory",
+          body: "Give agents reusable expertise and persistent context.",
+        },
+        automations: {
+          title: "Automations",
+          body: "Run agent work automatically on schedules or application events.",
+        },
+        agentTeams: {
+          title: "Agent teams",
+          body: "Delegate work to specialist agents within the app or across apps.",
+        },
+        auth: {
+          title: "Authentication and organizations",
+          body: "Sign-in, user accounts, and organization membership are built in.",
+        },
+        sharing: {
+          title: "Sharing and permissions",
+          body: "Control who can view, comment, edit, or manage every resource.",
+        },
+      },
+    },
+    stack: {
+      title: "Works with your stack",
+      body: "Bring your LLM, database, tools, and infrastructure, Agent-Native is open source TypeScript, so your application stays yours.",
+      exploreApps: "Explore apps built with Agent-Native",
+    },
+    showcase: {
+      title: "What can you build with Agent-Native?",
+      body: "Start with chat, a focused internal tool, or a complete customer-facing product. Every app gives users a UI and agents the tools to do the same work.",
+      browseApps: "Browse apps",
+      scrollLeft: "Scroll apps left",
+      scrollRight: "Scroll apps right",
+    },
+    bottomCta: {
+      title: "Build your first Agent-Native app",
+      body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
+    },
+    getStartedModal: {
+      title: "Get started",
+      close: "Close",
+      buildLocally: "Build an app locally",
+      tryAnApp: "Try an app",
+      buildInCloud: "Build in the cloud",
+    },
+    footer: {
+      tagline: "The agentic application framework.",
+      framework: "Framework",
+      ecosystem: "Ecosystem",
+      community: "Community",
+      legal: "Legal",
+      docs: "Docs",
+      actions: "Actions",
+      apps: "Apps",
+      privacyPolicy: "Privacy Policy",
+      saasTerms: "SaaS Terms",
+    },
+  },
   templatesPage: {
     title: "Open-source agentic apps you own",
     eyebrow: "Start from a working app and let the agent evolve it.",

@@ -1,10 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { useT } from "@agent-native/core/client/i18n";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
 import type { MouseEvent, ReactNode } from "react";
 import { useState } from "react";
 
 import { BuildOnlinePopover } from "../../BuilderWaitlistPopover";
+import { sitePathForLocale } from "../../docs-locale";
 import {
   Dialog,
   DialogClose,
@@ -16,8 +17,9 @@ import { Button } from "./button";
 
 // The CTA is a real link first: it points at /apps so it still works with the
 // JS bundle missing, and so Cmd/middle-click opens that page in a new tab
-// instead of being swallowed by the modal.
-const CTA_FALLBACK_HREF = "/apps";
+// instead of being swallowed by the modal. Locale-prefixed at render so the
+// no-JS fallback keeps the visitor in their own route tree.
+const CTA_FALLBACK_PATH = "/apps";
 
 // Where the visitor started from, so the funnel can tell the hero CTA apart
 // from the one at the bottom of the page.
@@ -61,12 +63,16 @@ function Option({
 
 export function GetStartedCta({
   location,
+  className,
   children,
 }: {
   location: GetStartedLocation;
+  className?: string;
   children: ReactNode;
 }) {
   const t = useT();
+  const { locale } = useLocale();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
   const [open, setOpen] = useState(false);
 
   function handleTriggerClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -85,7 +91,8 @@ export function GetStartedCta({
       <Button
         variant="cta"
         icon={null}
-        href={CTA_FALLBACK_HREF}
+        href={localizedPath(CTA_FALLBACK_PATH)}
+        className={className}
         onClick={handleTriggerClick}
       >
         {children}
@@ -100,10 +107,10 @@ export function GetStartedCta({
         >
           <div className="flex items-center justify-between gap-[var(--spacing-4)]">
             <DialogTitle className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium tracking-[-0.02em] text-[var(--b-text-primary)]">
-              Get started
+              {t("homepage.getStartedModal.title")}
             </DialogTitle>
             <DialogClose
-              aria-label="Close"
+              aria-label={t("homepage.getStartedModal.close")}
               className="inline-flex cursor-pointer border-none bg-transparent text-[var(--b-text-secondary)] transition-[color] duration-150 ease-[ease] hover:text-[var(--b-text-primary)]"
             >
               <IconX size={18} stroke={1.5} />
@@ -115,30 +122,30 @@ export function GetStartedCta({
               on a narrow phone, where two would not fit the buttons. */}
           <div className="grid grid-cols-2 gap-[var(--spacing-3)] narrow:grid-cols-1">
             <Option
-              label="Build an app locally"
+              label={t("homepage.getStartedModal.buildLocally")}
               className="col-span-2 narrow:col-span-1"
             >
               <InstallCommand />
               <Button
                 variant="cta"
                 icon={null}
-                href="/docs"
+                href={localizedPath("/docs")}
                 className="uppercase"
                 onClick={() => choose("read_docs")}
               >
-                Read the docs
+                {t("common.readDocs")}
               </Button>
             </Option>
 
-            <Option label="Try an app">
+            <Option label={t("homepage.getStartedModal.tryAnApp")}>
               <Button
                 variant="cta"
                 icon={null}
-                href="/apps"
+                href={localizedPath("/apps")}
                 className="uppercase"
                 onClick={() => choose("browse_apps")}
               >
-                Browse apps
+                {t("homepage.showcase.browseApps")}
               </Button>
             </Option>
 
@@ -147,7 +154,7 @@ export function GetStartedCta({
               older docs button vocabulary (full width, sans, rounded-md),
               which is why this one used to look nothing like the other two.
               The label stays on the catalog key because it is translated. */}
-            <Option label="Build in the cloud">
+            <Option label={t("homepage.getStartedModal.buildInCloud")}>
               <BuildOnlinePopover
                 location="get_started_modal"
                 trigger={

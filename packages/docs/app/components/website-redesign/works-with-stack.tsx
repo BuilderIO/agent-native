@@ -1,12 +1,14 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router";
 
 import { BuilderImage } from "../builder-image";
+import { sitePathForLocale } from "../docs-locale";
 import { GridInner, PageSection } from "./page-grid";
 
 interface LogoEntry {
-  name: string;
+  id: string;
   label: string;
   // Real intrinsic pixel size of `src`, required alongside it so the img
   // element always has a definite size and never collapses to 0x0 while
@@ -44,7 +46,7 @@ function LogoPlaceholder({ label }: { label: string }) {
 
 const LOGO_ENTRIES: LogoEntry[] = [
   {
-    name: "anthropic",
+    id: "anthropic",
     label: "Anthropic",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598785896ec84d1daecd7086d7890ab3",
     srcWidth: 552,
@@ -52,7 +54,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "ChatGPT_logo",
+    id: "ChatGPT_logo",
     label: "ChatGPT",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2297fccd17bf4fc198c841ecaf9657b5",
     srcWidth: 552,
@@ -60,7 +62,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "Gemini",
+    id: "Gemini",
     label: "Gemini",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3bd19482cf8e4c35be1b3cd41f8be6ec",
     srcWidth: 552,
@@ -68,7 +70,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "github",
+    id: "github",
     label: "GitHub",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74fc1b966afa4f1081770ecd25455819",
     srcWidth: 552,
@@ -76,7 +78,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "CF-Logo",
+    id: "CF-Logo",
     label: "Cloudflare",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa6a460b41d5b46e0b971ea559006d09e",
     srcWidth: 552,
@@ -84,7 +86,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "Vercel",
+    id: "Vercel",
     label: "Vercel",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9346ea650bed42e0bb520265445dee13",
     srcWidth: 552,
@@ -92,7 +94,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "notion",
+    id: "notion",
     label: "Notion",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6a3e4c053cc447e493ff43cec054b490",
     srcWidth: 552,
@@ -100,7 +102,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "coral-circles",
+    id: "coral-circles",
     label: "Builder",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F133a8e3ebbd54e18aa55730045239cbb",
     srcWidth: 552,
@@ -108,7 +110,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "linear",
+    id: "linear",
     label: "Linear",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa85e87412c594b4292498e407a8d4ebb",
     srcWidth: 552,
@@ -116,7 +118,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "n8n",
+    id: "n8n",
     label: "n8n",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2deab5932bff462b9aac8bbdcec72bb9",
     srcWidth: 552,
@@ -124,7 +126,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "Slack_Technologies_Logo",
+    id: "Slack_Technologies_Logo",
     label: "Slack",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9e900a42e5ea411eb230e28786a25ef1",
     srcWidth: 552,
@@ -132,7 +134,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "supabase-logo-icon",
+    id: "supabase-logo-icon",
     label: "Supabase",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F926627f4baee4fca894fc672ebb684df",
     srcWidth: 552,
@@ -140,7 +142,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "target-mark",
+    id: "target-mark",
     label: "Granola",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdb629eeedd4a4304876c0d9230984469",
     srcWidth: 552,
@@ -148,7 +150,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "Netlify_idmPWmzPWc_1",
+    id: "Netlify_idmPWmzPWc_1",
     label: "Netlify",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F42d5e1951b194c4bb62ce5e44b62e6e2",
     srcWidth: 552,
@@ -156,7 +158,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "Box,_Inc._logo",
+    id: "Box,_Inc._logo",
     label: "Box",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffad235b6ed2b443e8a67ae4fd91b8f60",
     srcWidth: 552,
@@ -164,7 +166,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "gitlab",
+    id: "gitlab",
     label: "GitLab",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb3094a8cde534489a49005169ac58d33",
     srcWidth: 552,
@@ -172,7 +174,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "hubspot-blob",
+    id: "hubspot-blob",
     label: "HubSpot",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F82b86304b23b463eae2477ed660f194e",
     srcWidth: 552,
@@ -180,7 +182,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "unknown-rings",
+    id: "unknown-rings",
     label: "unknown-rings",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1d618bfba92044c7935c74f9f7e34332",
     srcWidth: 569,
@@ -188,7 +190,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "figma",
+    id: "figma",
     label: "Figma",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd3787257de754c7598988b427eb9766c",
     srcWidth: 552,
@@ -196,7 +198,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "Atlassian",
+    id: "Atlassian",
     label: "Atlassian",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F322a2b6e185e4ff1906ab10c87c88451",
     srcWidth: 552,
@@ -204,7 +206,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "sentry",
+    id: "sentry",
     label: "Sentry",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F986416f4b86b44d1aa747f9bc2214e3c",
     srcWidth: 552,
@@ -212,7 +214,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "zapier-logomark",
+    id: "zapier-logomark",
     label: "Zapier",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e326ef656d429fb65c14c67f68bf31",
     srcWidth: 552,
@@ -220,7 +222,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "context7",
+    id: "context7",
     label: "context7",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff3f58f923a6f453e88c858d8115688c4",
     srcWidth: 552,
@@ -228,7 +230,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "asana",
+    id: "asana",
     label: "Asana",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F393fbf832ca1402a9f61948d9c6838f1",
     srcWidth: 552,
@@ -236,7 +238,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "webflow",
+    id: "webflow",
     label: "Webflow",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62041693ed1e41889c493a9c1de2d628",
     srcWidth: 552,
@@ -244,7 +246,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
     fill: true,
   },
   {
-    name: "Intercom",
+    id: "Intercom",
     label: "Intercom",
     src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4e2330c799b348e99bc80cb1e27148ea",
     srcWidth: 552,
@@ -296,15 +298,17 @@ const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
 }));
 
 export function WorksWithStack() {
+  const t = useT();
+  const { locale } = useLocale();
+
   return (
     <PageSection>
       <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
         <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
-          Works with your stack
+          {t("homepage.stack.title")}
         </h2>
         <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
-          Bring your LLM, database, tools, and infrastructure, Agent Native is
-          open source TypeScript, so your application stays yours.
+          {t("homepage.stack.body")}
         </p>
       </GridInner>
 
@@ -312,9 +316,10 @@ export function WorksWithStack() {
         <div className="grid grid-cols-9 border border-solid border-[var(--b-border-subtle)] mobile:grid-cols-6">
           {LOGOS.map((logo) => (
             <div
-              key={logo.name}
+              key={logo.id}
               className={LOGO_TILE_CLASS}
-              aria-label={logo.name}
+              // The brand name, not the asset filename that `id` carries.
+              aria-label={logo.label}
               role="img"
             >
               {/* The per-logo multipliers were tuned by eye against the mobile
@@ -330,8 +335,8 @@ export function WorksWithStack() {
             </div>
           ))}
           <Link
-            to="/apps"
-            aria-label="Explore apps built with Agent-Native"
+            to={sitePathForLocale("/apps", locale)}
+            aria-label={t("homepage.stack.exploreApps")}
             className={`${LOGO_TILE_CLASS} group no-underline`}
           >
             <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)] transition-[background,border-color,color] duration-150 ease-[ease] group-hover:border-[var(--b-text-primary)] group-hover:bg-[var(--b-text-primary)] group-hover:text-[var(--b-bg-page)] narrow:h-11 narrow:w-11">

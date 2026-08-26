@@ -1,7 +1,9 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { sitePathForLocale } from "../docs-locale";
 import { ThemeIconButton } from "./ds/icon-button";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
@@ -21,43 +23,60 @@ interface FooterColumn {
 // Only links with a real, confirmed destination belong here. Delete a link
 // rather than guessing at a route/handle that doesn't exist yet — add it back
 // once the real page or account exists (see #website-redesign Slack thread).
-const COLUMNS: FooterColumn[] = [
-  {
-    title: "Framework",
-    links: [
-      { label: "Docs", href: "/docs" },
-      { label: "Actions", href: "/docs/actions" },
-    ],
-  },
-  {
-    title: "Ecosystem",
-    links: [
-      { label: "Apps", href: "/apps" },
-      {
-        label: "GitHub",
-        href: "https://github.com/BuilderIO/agent-native",
-        external: true,
-      },
-    ],
-  },
-  {
-    title: "Community",
-    links: [
-      {
-        label: "Discord",
-        href: "https://discord.gg/qm82StQ2NC",
-        external: true,
-      },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
-      { label: "Privacy Policy", href: "/privacy" },
-      { label: "SaaS Terms", href: "/terms" },
-    ],
-  },
-];
+// This footer renders on every route, including locale-prefixed ones, so
+// internal destinations have to be built for the active locale rather than
+// dropping the visitor back into the English tree.
+function footerColumns(
+  t: (key: string) => string,
+  localizedPath: (path: string) => string,
+): FooterColumn[] {
+  return [
+    {
+      title: t("homepage.footer.framework"),
+      links: [
+        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
+        {
+          label: t("homepage.footer.actions"),
+          href: localizedPath("/docs/actions-overview"),
+        },
+      ],
+    },
+    {
+      title: t("homepage.footer.ecosystem"),
+      links: [
+        { label: t("homepage.footer.apps"), href: localizedPath("/apps") },
+        {
+          label: "GitHub",
+          href: "https://github.com/BuilderIO/agent-native",
+          external: true,
+        },
+      ],
+    },
+    {
+      title: t("homepage.footer.community"),
+      links: [
+        {
+          label: "Discord",
+          href: "https://discord.gg/qm82StQ2NC",
+          external: true,
+        },
+      ],
+    },
+    {
+      title: t("homepage.footer.legal"),
+      links: [
+        {
+          label: t("homepage.footer.privacyPolicy"),
+          href: localizedPath("/privacy"),
+        },
+        {
+          label: t("homepage.footer.saasTerms"),
+          href: localizedPath("/terms"),
+        },
+      ],
+    },
+  ];
+}
 
 const SOCIAL_LINKS: Array<{
   label: string;
@@ -95,6 +114,11 @@ function FooterNavLink({ label, href, external }: FooterLink) {
 }
 
 export function Footer() {
+  const t = useT();
+  const { locale } = useLocale();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
+  const columns = footerColumns(t, localizedPath);
+
   return (
     <PageSection
       as="footer"
@@ -107,19 +131,19 @@ export function Footer() {
         <GridInner className="flex flex-wrap items-start gap-[var(--spacing-12)] px-[var(--spacing-20)] py-[var(--spacing-16)]">
           <div className="flex w-[320px] flex-[1_1_240px] flex-col items-start gap-[var(--spacing-4)]">
             <Link
-              to="/"
+              to={localizedPath("/")}
               aria-label="Agent-Native"
               className="flex text-[var(--b-text-primary)]"
             >
               <Logo />
             </Link>
             <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)]">
-              The agentic application framework.
+              {t("homepage.footer.tagline")}
             </p>
           </div>
 
           <div className="flex flex-[3_1_480px] flex-wrap items-start gap-[var(--spacing-8)]">
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <div
                 key={column.title}
                 className="flex flex-[1_1_120px] flex-col items-start gap-[var(--spacing-4)]"
@@ -129,7 +153,7 @@ export function Footer() {
                 </p>
                 <div className="flex flex-col items-start gap-[var(--spacing-3)]">
                   {column.links.map((link) => (
-                    <FooterNavLink key={link.label} {...link} />
+                    <FooterNavLink key={link.href} {...link} />
                   ))}
                 </div>
               </div>
@@ -156,6 +180,7 @@ export function Footer() {
 
         <div className="flex items-center gap-[var(--spacing-6)]">
           <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
+            {/* i18n-ignore: a year and the wordmark, nothing translatable */}
             © 2026 AGENT-NATIVE
           </span>
           <div
