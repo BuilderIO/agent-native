@@ -22,6 +22,7 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_MAX_AGE,
 } from "../shared/first-run-onboarding.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
@@ -4386,9 +4387,9 @@ async function mountBetterAuthRoutes(
           if (isNewGoogleUser === true) {
             setFirstRunOnboardingCookie(event);
           }
-          if (typeof user.picture === "string" && user.picture.trim()) {
+          if (isGoogleProfileImageUrl(user.picture)) {
             await putSetting(`avatar:${email}`, {
-              image: user.picture,
+              image: user.picture.trim(),
             }).catch((error) => {
               console.warn(
                 "[auth] failed to store Google profile image:",

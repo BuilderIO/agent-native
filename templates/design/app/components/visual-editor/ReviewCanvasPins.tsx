@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   buildReviewThreads,
@@ -30,7 +31,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -1407,6 +1408,7 @@ function ReviewThreadPopover({
 }) {
   const t = useT();
   const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
+  const avatarUrl = useAvatarUrl(thread.root.authorEmail);
   return (
     <div
       data-review-popover
@@ -1419,6 +1421,7 @@ function ReviewThreadPopover({
     >
       <div className="flex items-start gap-2.5 p-3">
         <Avatar className="size-7 shrink-0">
+          {avatarUrl ? <AvatarImage src={avatarUrl} alt={rootAuthor} /> : null}
           <AvatarFallback className="text-[10px] font-semibold text-muted-foreground">
             {reviewAuthorInitials(rootAuthor)}
           </AvatarFallback>
