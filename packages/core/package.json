@@ -428,6 +428,7 @@
     "recharts": "catalog:",
     "remark-gfm": "^4.0.1",
     "roughjs": "4.6.6",
+    "run": "2.0.1",
     "safe-regex2": "5.1.1",
     "shiki": "^4.0.2",
     "sonner": "catalog:",
