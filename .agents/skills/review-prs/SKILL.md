@@ -76,10 +76,12 @@ this skill:
    from a clean merge state.
 
 When an exception requires independent review, it means a separate,
-attributable `APPROVED` PR review from a different verified current BuilderIO
-member. Self-review, author-stated validation, bot-only review, a
-`COMMENTED`/`CHANGES_REQUESTED` review, or an unverified reviewer does not
-satisfy it; without that evidence, do not use the exception.
+attributable, non-dismissed `APPROVED` PR review from a different verified
+current BuilderIO member, submitted against the current PR head with no later
+`CHANGES_REQUESTED` review. Self-review, author-stated validation, bot-only
+review, a `COMMENTED`/`CHANGES_REQUESTED` review, an unverified reviewer, or
+unverifiable review state does not satisfy it; without that evidence, do not
+use the exception.
 
 ## Owner exceptions
 
