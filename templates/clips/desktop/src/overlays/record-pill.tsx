@@ -18,6 +18,14 @@ import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { flushSync } from "react-dom";
 
+import { resolveCompletion } from "../lib/pill-completion";
+import type {
+  NativeUploadFinished,
+  PillDoneStage as DoneStage,
+} from "../lib/pill-completion";
+import { toolbarEnabledEffect } from "../lib/pill-session";
+import type { PillMode } from "../lib/pill-session";
+
 const SEG_MS = 180;
 const HOVER_INTENT_MS = 150;
 // Within this distance of the right screen edge the pill anchors its RIGHT
@@ -25,21 +33,11 @@ const HOVER_INTENT_MS = 150;
 const RIGHT_EDGE_ANCHOR_PX = 200;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
 
-type PillMode = "recording" | "confirm" | "done";
 type Seg = "mid" | "q" | "del" | "res" | "extras";
-type DoneStage = "finishing" | "uploading" | "uploaded" | "failed";
 
 type RecorderSession = {
   viewUrl?: string | null;
-  localOnly?: boolean;
-};
-
-type NativeUploadFinished = {
-  recordingId?: string;
-  ok?: boolean;
-  viewUrl?: string;
-  error?: string | null;
-  localFilePath?: string | null;
+  recordingId?: string | null;
 };
 
 const hasTauri = "__TAURI_INTERNALS__" in window;
@@ -110,7 +108,7 @@ function formatDurationCopy(ms: number): string {
  *
  *   receives → `clips:recorder-state` { paused, elapsedMs },
  *              `clips:toolbar-enabled`, `clips:toolbar-preparing`,
- *              `clips:recorder-session` { viewUrl, localOnly },
+ *              `clips:recorder-session` { viewUrl, recordingId },
  *              `clips:native-upload-progress` / `-finished`,
  *              `voice:audio-level` { level, source }
  *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:restart`,
@@ -551,12 +549,15 @@ export function RecordingPill() {
     // closure of this function, where the `enabled` state is still false.
     if (!enabledRef.current || modeRef.current === "done") return;
     setDoneDurationMs(elapsedRef.current);
-    if (sessionRef.current.localOnly) {
-      setSavedLocally(true);
-      setDoneStage("uploaded");
-    } else {
-      setDoneStage("finishing");
-    }
+    // Every stop — hosted or local-only — starts as "finishing" and is only
+    // called done by the completion event the stop actually produces. A
+    // local-only export that fails must not have already claimed it saved.
+    setDoneStage("finishing");
+    // Anchor the card on THIS take. The window is reused across restarts, so
+    // anything a previous session's late completion left behind has to go.
+    setViewUrl(sessionRef.current.viewUrl ?? null);
+    setSavedLocally(false);
+    setCopied(false);
     // Hold the window open BEFORE the stop event so the recorder's teardown
     // can't close us out from under the card.
     void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
@@ -591,6 +592,13 @@ export function RecordingPill() {
 
   function confirmDestructive() {
     if (pendingAction) return;
+    // The confirm strip is a question about the session that is ending here.
+    // Leave it now, before either answer is dispatched: the restart path
+    // reuses this same window for the replacement take, and a pill still in
+    // `confirm` would come back with the old question up and Stop/Pause
+    // disabled. `pendingAction` (cleared by the next `toolbar-enabled`) keeps
+    // the restart/delete glyphs disabled meanwhile.
+    resetToRest();
     if (confirmIntent === "restart") {
       setPendingAction("restart");
       setElapsed(0);
@@ -633,15 +641,17 @@ export function RecordingPill() {
   }
 
   function handleUploadFinished(payload: NativeUploadFinished) {
+    const completion = resolveCompletion(
+      sessionRef.current.recordingId,
+      payload,
+    );
+    if (!completion) return;
     if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
-    if (payload.ok && payload.viewUrl) {
-      setViewUrl(payload.viewUrl);
-      setDoneStage("uploaded");
-      return;
-    }
-    setSavedLocally(Boolean(payload.localFilePath));
-    if (payload.viewUrl) setViewUrl(payload.viewUrl);
-    setDoneStage("failed");
+    setSavedLocally(completion.savedLocally);
+    // The session already published this clip's link so Stop could offer Copy
+    // immediately; a payload without one must not take it away.
+    if (completion.viewUrl) setViewUrl(completion.viewUrl);
+    setDoneStage(completion.stage);
   }
 
   // ---- listeners ----
@@ -682,26 +692,27 @@ export function RecordingPill() {
           clearTimeout(fallbackTimerRef.current);
           fallbackTimerRef.current = null;
         }
-        if (payload) {
-          if (!elapsedAnchorRef.current) {
-            elapsedAnchorRef.current = { elapsedMs: 0, at: performance.now() };
-          }
-          // A live session owns the pill now: release any restart hold, and
-          // if a completion card from the previous session is still up, this
-          // reused window becomes the new session's pill.
-          void safeInvoke("set_toolbar_finishing", { hold: false });
-          if (modeRef.current === "done") {
+        if (payload && !elapsedAnchorRef.current) {
+          elapsedAnchorRef.current = { elapsedMs: 0, at: performance.now() };
+        }
+        // A live session owns the pill now: release any restart hold.
+        if (payload) void safeInvoke("set_toolbar_finishing", { hold: false });
+        switch (toolbarEnabledEffect(!!payload, modeRef.current)) {
+          case "adopt-new-session":
             setViewUrl(null);
             setCopied(false);
             setSavedLocally(false);
             setDoneStage("finishing");
             sessionRef.current = {};
             resetToRest();
-          }
-        } else if (modeRef.current !== "done") {
-          setElapsed(0);
-          elapsedAnchorRef.current = null;
-          resetToRest();
+            break;
+          case "reset-to-rest":
+            setElapsed(0);
+            elapsedAnchorRef.current = null;
+            resetToRest();
+            break;
+          case "keep":
+            break;
         }
       }),
     );
@@ -714,7 +725,6 @@ export function RecordingPill() {
       safeListen<RecorderSession>("clips:recorder-session", (payload) => {
         sessionRef.current = payload ?? {};
         if (payload?.viewUrl) setViewUrl(payload.viewUrl);
-        if (payload?.localOnly) setSavedLocally(true);
       }),
     );
     track(

@@ -2496,6 +2496,10 @@ function showFinalizingFeedback() {
  * copy the share link the instant it's clicked instead of waiting for the
  * upload to finish. Re-emitted from every `clips:toolbar-ready` handshake so
  * a pill that mounts late still learns its session.
+ *
+ * `recordingId` is also the pill's session identity: its window is reused
+ * across a restart, so it needs this to tell its own completion event from a
+ * previous take's late one.
  */
 function emitRecorderSession(
   serverUrl: string | null,
@@ -2506,7 +2510,9 @@ function emitRecorderSession(
     serverUrl && recordingId
       ? `${serverUrl.replace(/\/+$/, "")}/r/${recordingId}`
       : null;
-  emit("clips:recorder-session", { viewUrl, localOnly }).catch(() => {});
+  emit("clips:recorder-session", { viewUrl, recordingId, localOnly }).catch(
+    () => {},
+  );
 }
 
 async function clearRecordingState() {
