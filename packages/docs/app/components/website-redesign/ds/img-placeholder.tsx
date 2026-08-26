@@ -3,6 +3,7 @@ interface ImgPlaceholderProps {
   label?: string;
   rounded?: boolean;
   background?: string;
+  bordered?: boolean;
 }
 
 export function ImgPlaceholder({
@@ -10,6 +11,7 @@ export function ImgPlaceholder({
   label = "Image",
   rounded = true,
   background = "var(--b-bg-prominent)",
+  bordered = true,
 }: ImgPlaceholderProps) {
   return (
     <div
@@ -18,7 +20,7 @@ export function ImgPlaceholder({
         aspectRatio,
         borderRadius: rounded ? "var(--b-radius)" : 0,
         background,
-        border: "1px dashed var(--b-border-default)",
+        border: bordered ? "1px dashed var(--b-border-default)" : "none",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

@@ -270,6 +270,7 @@ export function TemplateShowcase() {
                     label=""
                     rounded={false}
                     background="#000"
+                    bordered={false}
                   />
                 </div>
                 <div className="app-carousel-card-body">
