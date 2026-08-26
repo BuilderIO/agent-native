@@ -92,6 +92,8 @@ function setupFetch(options?: {
   let firstPutSignal: AbortSignal | undefined;
   let resolveDeferredPatch: (() => void) | null = null;
   let firstPatchSignal: AbortSignal | undefined;
+  let deferNextGetDeck = false;
+  let resolveDeferredGetDeck: (() => void) | null = null;
   let accessibleDeck: Deck | null = null;
   const patchAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
@@ -177,6 +179,15 @@ function setupFetch(options?: {
 
     if (href.includes("/_agent-native/actions/get-deck")) {
       if (accessibleDeck) {
+        if (deferNextGetDeck) {
+          deferNextGetDeck = false;
+          return new Promise<Response>((resolve) => {
+            resolveDeferredGetDeck = () =>
+              resolve(
+                new Response(JSON.stringify(accessibleDeck), { status: 200 }),
+              );
+          });
+        }
         return Promise.resolve(
           new Response(JSON.stringify(accessibleDeck), { status: 200 }),
         );
@@ -225,6 +236,14 @@ function setupFetch(options?: {
     getFirstPutSignal: () => firstPutSignal,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
+    deferNextGetDeck: () => {
+      deferNextGetDeck = true;
+    },
+    hasDeferredGetDeck: () => resolveDeferredGetDeck !== null,
+    resolveDeferredGetDeck: () => {
+      resolveDeferredGetDeck?.();
+      resolveDeferredGetDeck = null;
+    },
     setAccessibleDeck: (deck: Deck) => {
       accessibleDeck = deck;
     },
@@ -1950,6 +1969,73 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
     ).toEqual(["slide-1", "slide-3"]);
+    vi.useRealTimers();
+  });
+
+  it("keeps a stale refetch from resurrecting a delete after the save settles", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getFirstPatchSignal,
+      resolveDeferredPatch,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(2),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+
+    deferNextGetDeck();
+    const staleRefresh = result.current.refreshOpenDeck("shared-deck");
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(false);
+
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleRefresh;
+    });
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1"]);
     vi.useRealTimers();
   });
 

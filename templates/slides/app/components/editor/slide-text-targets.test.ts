@@ -46,15 +46,23 @@ describe("slide text targets", () => {
       <div class="fmd-slide">
         <div class="fmd-text-box" data-slide-object-id="text-box-1">
           Existing text box
+          <div>Nested text box content</div>
         </div>
       </div>
     `;
 
     const textBox = root.querySelector(".fmd-text-box") as HTMLElement;
+    const nestedText = textBox.querySelector("div") as HTMLElement;
 
     expect(findSmartBlock(textBox, root)).toBe(textBox);
     expect(
       findSmartBlock(textBox, root, {
+        includeTextBoxes: false,
+      }),
+    ).toBeNull();
+    expect(findSmartBlock(nestedText, root)).toBe(nestedText);
+    expect(
+      findSmartBlock(nestedText, root, {
         includeTextBoxes: false,
       }),
     ).toBeNull();

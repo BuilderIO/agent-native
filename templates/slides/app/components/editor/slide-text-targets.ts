@@ -101,8 +101,7 @@ export function findSmartBlock(
   while (element && root.contains(element)) {
     if (
       !includeTextBoxes &&
-      element.classList.contains("fmd-text-box") &&
-      element.hasAttribute("data-slide-object-id")
+      element.closest(".fmd-text-box[data-slide-object-id]")
     ) {
       return null;
     }

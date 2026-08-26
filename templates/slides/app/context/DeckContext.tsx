@@ -1510,6 +1510,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
+  const deletedSlideTombstonesRef = useRef<Map<string, Set<string>>>(new Map());
   const deckBaselineRequestIdRef = useRef(0);
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
   // True only while the SSE channel is actually open. Stays false when SSE is
@@ -1540,6 +1541,54 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     lastExternalUpdateRef.current = 0;
     dirtyDeckIdsRef.current.add(deckId);
   }, []);
+
+  const markSlideDeleteTombstone = useCallback(
+    (deckId: string, slideId: string) => {
+      const tombstones =
+        deletedSlideTombstonesRef.current.get(deckId) ?? new Set<string>();
+      tombstones.add(slideId);
+      deletedSlideTombstonesRef.current.set(deckId, tombstones);
+    },
+    [],
+  );
+
+  const clearSlideDeleteTombstone = useCallback(
+    (deckId: string, slideId: string) => {
+      const tombstones = deletedSlideTombstonesRef.current.get(deckId);
+      if (!tombstones) return;
+      tombstones.delete(slideId);
+      if (tombstones.size === 0) {
+        deletedSlideTombstonesRef.current.delete(deckId);
+      }
+    },
+    [],
+  );
+
+  const clearDeckDeleteTombstones = useCallback((deckId: string) => {
+    deletedSlideTombstonesRef.current.delete(deckId);
+  }, []);
+
+  const reconcileServerDeckWithDeleteTombstones = useCallback(
+    (server: Deck): Deck => {
+      const tombstones = deletedSlideTombstonesRef.current.get(server.id);
+      if (!tombstones?.size) return server;
+
+      const serverSlideIds = new Set(server.slides.map((slide) => slide.id));
+      for (const slideId of tombstones) {
+        if (!serverSlideIds.has(slideId)) tombstones.delete(slideId);
+      }
+      if (tombstones.size === 0) {
+        deletedSlideTombstonesRef.current.delete(server.id);
+        return server;
+      }
+
+      const slides = server.slides.filter((slide) => !tombstones.has(slide.id));
+      return slides.length === server.slides.length
+        ? server
+        : { ...server, slides };
+    },
+    [],
+  );
 
   const deleteDeckAfterPendingCreate = useCallback(
     (deckId: string, onFailure?: () => void) => {
@@ -1597,6 +1646,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             enqueueDeckOp(op.deckId, { op: "full-replace", deck: op.deck });
           } else {
             const { deckId, ...granular } = op;
+            if (granular.op === "delete-slide") {
+              markSlideDeleteTombstone(deckId, granular.slideId);
+            } else if (granular.op === "add-slide") {
+              clearSlideDeleteTombstone(deckId, granular.slideId);
+            }
             enqueueDeckOp(deckId, granular);
           }
         }
@@ -1648,6 +1702,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (options?.clearPendingWrites) {
         discardPendingDeckOps(updated.id);
         dirtyDeckIdsRef.current.delete(updated.id);
+        clearDeckDeleteTombstones(updated.id);
       }
       const before = decksRef.current.find((d) => d.id === updated.id);
       if (
@@ -1670,7 +1725,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         return [...prev, updated];
       });
     },
-    [],
+    [clearDeckDeleteTombstones],
   );
 
   // Re-fetch the deck list and diff it against local state (added/removed
@@ -1748,13 +1803,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const requestId =
         (openDeckRequestIdByDeckRef.current.get(currentOpenId) ?? 0) + 1;
       openDeckRequestIdByDeckRef.current.set(currentOpenId, requestId);
-      const serverDeck = await fetchDeckFromAPI(currentOpenId);
+      const fetchedServerDeck = await fetchDeckFromAPI(currentOpenId);
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
         return null;
       }
       // Null means 404 (row not created yet), a transient failure, or a
       // still-pending create — nothing authoritative to reconcile.
-      if (!serverDeck) return null;
+      if (!fetchedServerDeck) return null;
+      if (options?.clearPendingWrites) {
+        clearDeckDeleteTombstones(currentOpenId);
+      }
+      const serverDeck =
+        reconcileServerDeckWithDeleteTombstones(fetchedServerDeck);
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
       if (options?.clearPendingWrites) {
         lastExternalUpdateRef.current = Date.now();
@@ -1798,7 +1858,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       applyRemoteDeckUpdate(serverDeck);
       return serverDeck;
     },
-    [applyRemoteDeckUpdate],
+    [
+      applyRemoteDeckUpdate,
+      clearDeckDeleteTombstones,
+      reconcileServerDeckWithDeleteTombstones,
+    ],
   );
 
   /**
@@ -2589,6 +2653,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     (deckId: string, slideId: string) => {
       markDeckDirty(deckId);
       const before = decksRef.current.find((d) => d.id === deckId);
+      if (before?.slides.some((slide) => slide.id === slideId)) {
+        markSlideDeleteTombstone(deckId, slideId);
+      }
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -2612,7 +2679,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // behind the "Undo delete" toast in DeckEditor.)
       if (before) recordUndo(before, op, { label: "Delete slide" });
     },
-    [markDeckDirty, recordUndo, setDecksLocal],
+    [markDeckDirty, markSlideDeleteTombstone, recordUndo, setDecksLocal],
   );
 
   const duplicateSlide = useCallback(
@@ -2726,6 +2793,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[]) => {
       const before = decksRef.current.find((deck) => deck.id === deckId);
+      for (const slide of slides) {
+        clearSlideDeleteTombstone(deckId, slide.id);
+      }
       const after = before
         ? { ...before, slides, updatedAt: new Date().toISOString() }
         : null;
@@ -2760,7 +2830,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [markDeckDirty, setDecksLocal],
+    [clearSlideDeleteTombstone, markDeckDirty, setDecksLocal],
   );
 
   return (
