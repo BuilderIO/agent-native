@@ -10,6 +10,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
@@ -34,6 +35,7 @@ import {
   cloudflareWorkerStubAliasArgs,
   configureCloudflareModuleWorkerOutput,
   copyInstalledBrowserRuntimePackages,
+  copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
@@ -1513,6 +1515,78 @@ describe("copyDir", () => {
 
     expect(() => copyDir(src, dest)).not.toThrow();
     expect(fs.existsSync(path.join(dest, "broken"))).toBe(false);
+  });
+});
+
+describe("copyDrizzleMigrationAssets", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("copies generated SQL into the bundled server path", async () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-drizzle-test-"));
+    dirs.push(cwd);
+    const sourceDir = path.join(cwd, "server", "db", "migrations");
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    fs.mkdirSync(path.join(sourceDir, "meta"), { recursive: true });
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceDir, "0001_add_priority.sql"),
+      "\nALTER TABLE tasks ADD COLUMN priority INTEGER;\n--> statement-breakpoint\n",
+    );
+    fs.writeFileSync(path.join(sourceDir, "meta", "_journal.json"), "{}");
+
+    expect(copyDrizzleMigrationAssets(cwd, serverDir)).toEqual([
+      "0001_add_priority.sql",
+    ]);
+    expect(fs.existsSync(path.join(serverDir, "migrations", ".gitkeep"))).toBe(
+      true,
+    );
+    const runtime = globalThis as Record<string, unknown>;
+    const hadCfEnv = "__cf_env" in runtime;
+    const hadEnv = "__env__" in runtime;
+    const previousCfEnv = runtime.__cf_env;
+    const previousEnv = runtime.__env__;
+    Reflect.deleteProperty(runtime, "__cf_env");
+    Reflect.deleteProperty(runtime, "__env__");
+    try {
+      await expect(
+        loadDrizzleMigrations(
+          new URL(
+            "./migrations",
+            pathToFileURL(path.join(serverDir, "main.mjs")),
+          ),
+          { dialect: "postgresql" },
+        ),
+      ).resolves.toMatchObject([
+        {
+          version: 1,
+          name: "0001_add_priority.sql",
+          sql: {
+            postgres:
+              "ALTER TABLE tasks ADD COLUMN priority INTEGER;\n--> statement-breakpoint",
+          },
+          dialectSpecific: true,
+        },
+      ]);
+    } finally {
+      if (hadCfEnv) runtime.__cf_env = previousCfEnv;
+      else Reflect.deleteProperty(runtime, "__cf_env");
+      if (hadEnv) runtime.__env__ = previousEnv;
+      else Reflect.deleteProperty(runtime, "__env__");
+    }
+    expect(fs.existsSync(path.join(serverDir, "migrations", "meta"))).toBe(
+      false,
+    );
   });
 });
 
