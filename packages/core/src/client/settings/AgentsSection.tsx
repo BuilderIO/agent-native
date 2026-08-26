@@ -24,7 +24,7 @@ import {
   REMOTE_AGENT_RESOURCE_PREFIX,
   remoteAgentResourcePath,
 } from "../../resources/metadata.js";
-import { agentNativePath, appBasePath } from "../api-path.js";
+import { agentNativePath, appBasePath, appPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -447,7 +447,9 @@ function AgentAddPopover({
                 <>
                   No shared secret set yet —{" "}
                   <a
-                    href={buildSettingsRoute(STANDARD_SETTINGS_TABS.team)}
+                    href={appPath(
+                      buildSettingsRoute(STANDARD_SETTINGS_TABS.team),
+                    )}
                     className="underline underline-offset-2 hover:text-foreground"
                   >
                     set one on the Team page
@@ -527,7 +529,7 @@ function A2ASecretStatusRow({
       <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-600 dark:text-amber-400">
         No shared secret set — connected apps will reject calls in production.{" "}
         <a
-          href={buildSettingsRoute(STANDARD_SETTINGS_TABS.team)}
+          href={appPath(buildSettingsRoute(STANDARD_SETTINGS_TABS.team))}
           className="underline underline-offset-2 hover:text-amber-500"
         >
           Set one on the Team page
@@ -585,7 +587,7 @@ function A2ASecretStatusRow({
             <>
               {" "}
               <a
-                href={buildSettingsRoute(STANDARD_SETTINGS_TABS.team)}
+                href={appPath(buildSettingsRoute(STANDARD_SETTINGS_TABS.team))}
                 className="underline underline-offset-2"
               >
                 Set the domain

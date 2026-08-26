@@ -8,11 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import { AgentsSection } from "./AgentsSection.js";
 
-vi.mock("../api-path.js", () => ({
-  agentNativePath: (path: string) => path,
-  appBasePath: () => "",
-}));
-
 function renderSection(root: Root) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -79,6 +74,7 @@ describe("AgentsSection", () => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -127,6 +123,42 @@ describe("AgentsSection", () => {
     const text = container.textContent ?? "";
     expect(text.toLowerCase()).not.toContain("not set");
     expect(text.toLowerCase()).toContain("workspace owner");
+  });
+
+  it("keeps the organization settings link inside the active app base path", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/_agent-native/org/me")) {
+          return Response.json({
+            email: "owner@acme.com",
+            orgId: "org-1",
+            orgName: "Acme",
+            role: "owner",
+            orgs: [],
+            pendingInvitations: [],
+            domainMatches: [],
+            allowedDomain: "acme.com",
+            a2aSecretSet: false,
+          });
+        }
+        if (url.includes("/_agent-native/agents/probe")) {
+          return Response.json({ results: [] });
+        }
+        const detail = url.match(/\/resources\/([^?]+)$/);
+        if (detail) return Response.json({ content: contentById[detail[1]] });
+        return Response.json({ resources });
+      }),
+    );
+
+    await renderSection(root);
+
+    const link = Array.from(container.querySelectorAll("a")).find((anchor) =>
+      anchor.textContent?.includes("Set one on the Team page"),
+    );
+    expect(link?.getAttribute("href")).toBe("/dispatch/settings/organization");
   });
 
   it("does not expose shared-agent mutations to organization members", async () => {
