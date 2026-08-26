@@ -573,6 +573,17 @@ function LinkTab({
               description: t("shareUi.recordingCommenter.description"),
             },
           }}
+          onError={(err, action) =>
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : action === "invite"
+                  ? t("clipsFinalRaw.inviteFailed")
+                  : action === "permission"
+                    ? t("clipsFinalRaw.permissionUpdateFailed")
+                    : t("clipsFinalRaw.removePersonFailed"),
+            )
+          }
         />
       ) : null}
 
