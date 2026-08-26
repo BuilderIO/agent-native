@@ -90,7 +90,9 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
           // Centering lives on this wrapper so the pill's own transform is
           // free to carry the enter/exit slide.
           transform: "translateX(-50%)",
-          zIndex: 100,
+          // Above the dialog layers in ../../ui/dialog.tsx: copying the install
+          // command from inside the Get Started modal has to be visible.
+          zIndex: 100060,
           pointerEvents: "none",
         }}
       >

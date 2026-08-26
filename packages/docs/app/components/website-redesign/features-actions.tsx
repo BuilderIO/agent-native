@@ -1,3 +1,4 @@
+import { BuilderImage } from "../builder-image";
 import { GridInner, PageSection } from "./page-grid";
 
 const GRID_CELLS = Array.from({ length: 9 });
@@ -74,11 +75,12 @@ export function FeaturesActions() {
           ))}
         </div>
 
-        <img
+        <BuilderImage
           className="theme-img-dark"
           src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe77f7df4d30242f19b5a06734894d77c"
           alt="One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI"
           crossOrigin="anonymous"
+          sizes="(max-width: 1600px) 100vw, 1600px"
           loading="lazy"
           decoding="async"
           style={{
@@ -89,11 +91,12 @@ export function FeaturesActions() {
             borderRight: "1px solid var(--b-border-subtle)",
           }}
         />
-        <img
+        <BuilderImage
           className="theme-img-light"
           src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2ee8d6c41d884ac08d486ba49634af1d"
           alt="One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI"
           crossOrigin="anonymous"
+          sizes="(max-width: 1600px) 100vw, 1600px"
           loading="lazy"
           decoding="async"
           style={{

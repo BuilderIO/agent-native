@@ -6,7 +6,10 @@ import {
   type ReactNode,
 } from "react";
 
-export const GRID_MAX_WIDTH = 1200;
+// Defined once in global.css so the gridlines, the header, and every page
+// body measure the same. Keep it a var() rather than a number here: a second
+// copy of the value is a second thing to forget to change.
+export const SITE_MAX_WIDTH = "var(--site-max-width)";
 export const GRID_COLUMNS = 3;
 
 // The 1/3 and 2/3 lines are real `repeat(3, 1fr)` grid cells with a
@@ -30,7 +33,7 @@ function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
         left: "50%",
         transform: "translateX(-50%)",
         width: "100%",
-        maxWidth: GRID_MAX_WIDTH,
+        maxWidth: SITE_MAX_WIDTH,
         boxSizing: "border-box",
         display: "grid",
         gridTemplateColumns: `repeat(${columns}, 1fr)`,
@@ -108,7 +111,7 @@ export function GridInner({
   return (
     <Tag
       style={{
-        maxWidth: GRID_MAX_WIDTH,
+        maxWidth: SITE_MAX_WIDTH,
         width: "100%",
         margin: "0 auto",
         position: "relative",

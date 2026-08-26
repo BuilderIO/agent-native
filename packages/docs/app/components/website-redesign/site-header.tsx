@@ -2,23 +2,25 @@ import {
   IconBrandGithub,
   IconMenu2,
   IconMessage,
-  IconMoon,
-  IconSun,
+  IconSearch,
   IconX,
 } from "@tabler/icons-react";
-import {
-  useEffect,
-  useState,
-  type ButtonHTMLAttributes,
-  type ReactNode,
-} from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router";
 
-import { useDocsTheme } from "../ThemeToggle";
+import { useSearchModal } from "../use-search-modal";
 import { Button } from "./ds/button";
+import { IconButton, ThemeIconButton } from "./ds/icon-button";
+import { Kbd } from "./ds/kbd";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
+import { SITE_MAX_WIDTH } from "./page-grid";
+
+// Pulls in the docs search index, so it stays out of the initial header chunk.
+const SearchModal = lazy(() =>
+  import("../SearchModal").then((m) => ({ default: m.SearchModal })),
+);
 
 const NAV_LINKS: Array<{
   label: string;
@@ -46,54 +48,6 @@ function formatStarCount(count: number): string {
   if (count < 1000) return String(count);
   const rounded = Math.round(count / 100) / 10;
   return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}k`;
-}
-
-function IconButton({
-  children,
-  ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
-      style={{
-        width: 40,
-        height: 40,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        borderWidth: 1,
-        borderStyle: "solid",
-        borderRadius: "var(--b-radius)",
-        background: "transparent",
-        color: "var(--b-text-primary)",
-        cursor: "pointer",
-        outline: "none",
-        transition: "background 0.15s, border-color 0.15s",
-      }}
-      {...rest}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ThemeIconButton() {
-  const { theme, toggleTheme } = useDocsTheme();
-  return (
-    <IconButton
-      onClick={toggleTheme}
-      aria-label="Toggle theme"
-      title="Toggle theme"
-    >
-      {theme === "light" ? (
-        <IconSun size={18} stroke={1.5} />
-      ) : (
-        <IconMoon size={18} stroke={1.5} />
-      )}
-    </IconButton>
-  );
 }
 
 function AskAiIconButton() {
@@ -128,12 +82,53 @@ function GithubStarsButton({ starCount }: { starCount: number | null }) {
   );
 }
 
+function SearchTrigger({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Search docs"
+      className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+      style={{
+        height: 40,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "var(--spacing-2)",
+        flexShrink: 0,
+        padding: "0 var(--spacing-3)",
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderRadius: "var(--b-radius)",
+        background: "transparent",
+        fontFamily: "var(--b-font-mono)",
+        fontSize: "var(--b-t-label-1)",
+        color: "var(--b-text-secondary)",
+        cursor: "pointer",
+        outline: "none",
+        transition: "background 0.15s, border-color 0.15s",
+      }}
+    >
+      <IconSearch size={16} stroke={1.75} />
+      <span className="hidden sm:inline">Search</span>
+      <span className="hidden sm:inline">
+        <Kbd>⌘K</Kbd>
+      </span>
+    </button>
+  );
+}
+
 interface SiteHeaderProps {
   starCount: number | null;
 }
 
 export function SiteHeader({ starCount }: SiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const {
+    open: searchOpen,
+    setOpen: setSearchOpen,
+    everOpened: searchEverOpened,
+    openModal: openSearchModal,
+  } = useSearchModal();
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -144,6 +139,11 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     query.addEventListener("change", handleChange);
     return () => query.removeEventListener("change", handleChange);
   }, [mobileOpen]);
+
+  function openSearch() {
+    setMobileOpen(false);
+    openSearchModal();
+  }
 
   return (
     <header
@@ -161,7 +161,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     >
       <div
         style={{
-          maxWidth: 1200,
+          maxWidth: SITE_MAX_WIDTH,
           width: "100%",
           height: "100%",
           margin: "0 auto",
@@ -200,27 +200,34 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Language and theme moved to the footer; the header keeps only
+              search, GitHub, and Ask AI. The mobile panel below still carries
+              all of them, since it is the only nav on small screens. */}
           <div className="hidden items-stretch gap-3 lg:flex">
+            <SearchTrigger onClick={openSearch} />
             <GithubStarsButton starCount={starCount} />
-            <LanguagePicker />
-            <ThemeIconButton />
             <AskAiIconButton />
           </div>
 
-          <button
-            type="button"
-            onClick={() => setMobileOpen((open) => !open)}
-            aria-label="Toggle navigation"
-            aria-expanded={mobileOpen}
-            className="flex h-10 w-10 items-center justify-center text-[var(--b-text-primary)] lg:hidden"
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            {mobileOpen ? <IconX size={20} /> : <IconMenu2 size={20} />}
-          </button>
+          <div className="flex items-center gap-2 lg:hidden">
+            <IconButton onClick={openSearch} aria-label="Search docs">
+              <IconSearch size={18} stroke={1.5} />
+            </IconButton>
+            <button
+              type="button"
+              onClick={() => setMobileOpen((open) => !open)}
+              aria-label="Toggle navigation"
+              aria-expanded={mobileOpen}
+              className="flex h-10 w-10 items-center justify-center text-[var(--b-text-primary)]"
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              {mobileOpen ? <IconX size={20} /> : <IconMenu2 size={20} />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -265,6 +272,12 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             <AskAiIconButton />
           </div>
         </div>
+      )}
+
+      {searchEverOpened && (
+        <Suspense fallback={null}>
+          <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+        </Suspense>
       )}
     </header>
   );

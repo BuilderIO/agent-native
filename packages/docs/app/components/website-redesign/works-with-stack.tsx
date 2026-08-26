@@ -2,6 +2,7 @@ import { IconArrowUpRight } from "@tabler/icons-react";
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router";
 
+import { BuilderImage } from "../builder-image";
 import { GridInner, PageSection } from "./page-grid";
 
 interface LogoEntry {
@@ -276,12 +277,13 @@ const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
   ...entry,
   render: () =>
     entry.src ? (
-      <img
+      <BuilderImage
         src={entry.src}
         alt=""
         width={entry.srcWidth}
         height={entry.srcHeight}
         crossOrigin="anonymous"
+        sizes="(max-width: 768px) 17vw, (max-width: 1600px) 11vw, 178px"
         loading="lazy"
         decoding="async"
         className={entry.fill ? "logo-tile-img-fill" : undefined}

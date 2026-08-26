@@ -176,6 +176,11 @@
   --b-t-label-1: 14px;
   --b-t-label-2: 11px;
 
+  /* The hero shader draws the same greyscale field in both themes, but one
+     opacity cannot serve both: over near-white, 0.15 reads as almost nothing
+     next to what it reads as over near-black. */
+  --b-hero-shader-opacity: 0.15;
+
   background: var(--b-bg-page);
   color: var(--b-text-primary);
   font-family: var(--b-font-sans);
@@ -212,6 +217,8 @@
   --b-stroke-gradient-end: #e0e0d7;
 
   --b-snackbar-bg: #ffffff;
+
+  --b-hero-shader-opacity: 0.28;
 
   --b-border-default: #cac9c6;
   --b-border-subtle: #e0e0d7;

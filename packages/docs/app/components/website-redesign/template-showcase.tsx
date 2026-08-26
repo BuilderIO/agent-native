@@ -12,8 +12,16 @@ import {
 } from "react";
 import { Link } from "react-router";
 
+import { BuilderImage } from "../builder-image";
+import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
+import { Button } from "./ds/button";
 import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
+
+// Card is 320px wide, 260px below the 768px breakpoint (see .app-carousel-card
+// in tokens.css). Without this the browser assumes 100vw and pulls a source
+// several times larger than the slot.
+const CARD_IMAGE_SIZES = "(max-width: 768px) 260px, 320px";
 
 interface ShowcaseApp {
   slug: string;
@@ -34,9 +42,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F53ab0a006ca6460c801b3520d3cee3c6?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F53ab0a006ca6460c801b3520d3cee3c6",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8c58fe985404b36aba808247d419757?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8c58fe985404b36aba808247d419757",
     href: "/apps/clips",
   },
   {
@@ -45,9 +53,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd803cdb0e1714fae8ecccbc49c048d3c?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd803cdb0e1714fae8ecccbc49c048d3c",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F731521261daf4044b1ebcec808002a35?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F731521261daf4044b1ebcec808002a35",
     href: "/apps/design",
   },
   {
@@ -56,9 +64,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff9ad9cbac8dd4f2ca719a398fe4d8112?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff9ad9cbac8dd4f2ca719a398fe4d8112",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8268ac325c8d42f1ab9bc29da763a236?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8268ac325c8d42f1ab9bc29da763a236",
     href: "/apps/slides",
   },
   {
@@ -67,9 +75,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd60771677167437f9aa07175ac040484?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd60771677167437f9aa07175ac040484",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa380454478cf4e2481ae80a0984d7c41?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa380454478cf4e2481ae80a0984d7c41",
     href: "/apps/analytics",
   },
   {
@@ -99,34 +107,6 @@ const APPS: ShowcaseApp[] = [
     description:
       "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and use an AI agent to draft, rewrite, and publish.",
     href: "/apps/content",
-  },
-  {
-    slug: "chat",
-    name: "Chat",
-    description:
-      "Chat-first app scaffold with durable threads, a standard sidebar, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.",
-    href: "/apps/chat",
-  },
-  {
-    slug: "dispatch",
-    name: "Dispatch",
-    description:
-      "Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps over A2A.",
-    href: "/apps/dispatch",
-  },
-  {
-    slug: "forms",
-    name: "Forms",
-    description:
-      "Agent-native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
-    href: "/apps/forms",
-  },
-  {
-    slug: "plan",
-    name: "Plan",
-    description:
-      "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
-    href: "/apps/plan",
   },
 ];
 
@@ -225,6 +205,11 @@ export function TemplateShowcase() {
           customer-facing product. Every app gives users a UI and agents the
           tools to do the same work.
         </p>
+        <div style={{ display: "flex" }}>
+          <Button variant="secondary-icon" href="/apps">
+            Browse apps
+          </Button>
+        </div>
       </GridInner>
 
       <GridInner
@@ -268,10 +253,11 @@ export function TemplateShowcase() {
                           with real geometry (theme-img-* toggles opacity, not
                           display) so loading="lazy" will still fetch whichever
                           one is currently hidden. */}
-                      <img
+                      <BuilderImage
                         className="theme-img-dark"
                         src={app.imageDark}
                         alt={`${app.name} app screenshot`}
+                        sizes={CARD_IMAGE_SIZES}
                         crossOrigin="anonymous"
                         loading="lazy"
                         decoding="async"
@@ -282,10 +268,11 @@ export function TemplateShowcase() {
                           objectFit: "cover",
                         }}
                       />
-                      <img
+                      <BuilderImage
                         className="theme-img-light"
                         src={app.imageLight}
                         alt={`${app.name} app screenshot`}
+                        sizes={CARD_IMAGE_SIZES}
                         crossOrigin="anonymous"
                         loading="lazy"
                         decoding="async"
@@ -342,6 +329,48 @@ export function TemplateShowcase() {
                 </div>
               </Link>
             ))}
+            {/* Not a <Link> like the app cards: it holds two interactive
+                children of its own, and nesting those inside an anchor is
+                invalid. It still lives in the track so the arrows reach it. */}
+            <div className="app-carousel-cta-card">
+              <h3
+                style={{
+                  margin: 0,
+                  fontFamily: "var(--b-font-sans)",
+                  fontSize: "var(--b-t-heading-5)",
+                  fontWeight: 500,
+                  lineHeight: 1.15,
+                  letterSpacing: "-0.02em",
+                  color: "var(--b-text-primary)",
+                }}
+              >
+                Build from scratch
+              </h3>
+              <p
+                style={{
+                  margin: 0,
+                  fontFamily: "var(--b-font-sans)",
+                  fontSize: "var(--b-t-paragraph-2)",
+                  lineHeight: 1.4,
+                  color: "var(--b-text-secondary)",
+                }}
+              >
+                Use the framework guide or build online with Builder.io.
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--spacing-2)",
+                  width: "100%",
+                }}
+              >
+                <BuildOnlinePopover location="homepage_rail" />
+                <Button variant="secondary" icon={null} href="/docs">
+                  Read the docs
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </GridInner>

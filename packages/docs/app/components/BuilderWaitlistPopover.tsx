@@ -9,7 +9,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 export type BuilderWaitlistLocation =
   | "homepage_rail"
   | "templates_index"
-  | "card";
+  | "card"
+  | "get_started_modal";
 
 type BuilderWaitlistProps = {
   location: BuilderWaitlistLocation;

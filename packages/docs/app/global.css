@@ -80,7 +80,10 @@
   --fg-secondary: #666;
   --bg: #fff;
   --bg-secondary: #fafafa;
-  --docs-landing-max-width: 1600px;
+  /* The one content measure for every full-width page: docs landings, the
+     template detail shell, and the redesign page grid all read this, so the
+     gridlines, the header, and the page body can't drift apart. */
+  --site-max-width: 1600px;
   --docs-border: #ebebeb;
   --docs-accent: #0072f5;
   --docs-accent-light: rgba(0, 114, 245, 0.1);
@@ -184,7 +187,7 @@ body {
 
 /* Template detail pages */
 .template-detail-page {
-  max-width: min(var(--docs-landing-max-width), 100%);
+  max-width: min(var(--site-max-width), 100%);
 }
 
 .template-detail-page :where(.grid) > * {

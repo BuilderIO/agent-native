@@ -2,6 +2,8 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "./docs-locale";
+import DocsLanguagePicker from "./DocsLanguagePicker";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Footer() {
   const year = new Date().getFullYear();
@@ -68,6 +70,8 @@ export default function Footer() {
           >
             npm <span className="text-[10px] opacity-50">↗</span>
           </a>
+          <DocsLanguagePicker />
+          <ThemeToggle />
         </div>
       </div>
     </footer>

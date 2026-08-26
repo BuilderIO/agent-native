@@ -8,7 +8,7 @@ type TemplateLandingShellProps = ComponentPropsWithoutRef<"main"> & {
 export function TemplateLandingShell({
   className = "",
   gutterClassName = "px-4 sm:px-6",
-  maxWidthClassName = "max-w-[var(--docs-landing-max-width)]",
+  maxWidthClassName = "max-w-[var(--site-max-width)]",
   ...props
 }: TemplateLandingShellProps) {
   return (

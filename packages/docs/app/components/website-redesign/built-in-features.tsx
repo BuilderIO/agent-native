@@ -1,3 +1,4 @@
+import { BuilderImage } from "../builder-image";
 import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
@@ -142,11 +143,12 @@ export function BuiltInFeatures() {
                           className="pillar-media-spacing"
                           style={{ position: "relative" }}
                         >
-                          <img
+                          <BuilderImage
                             className="theme-img-dark"
                             src={pillar.darkImage}
                             alt=""
                             crossOrigin="anonymous"
+                            sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1600px) 33vw, 533px"
                             loading="lazy"
                             decoding="async"
                             style={{
@@ -157,11 +159,12 @@ export function BuiltInFeatures() {
                               display: "block",
                             }}
                           />
-                          <img
+                          <BuilderImage
                             className="theme-img-light"
                             src={pillar.lightImage}
                             alt=""
                             crossOrigin="anonymous"
+                            sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1600px) 33vw, 533px"
                             loading="lazy"
                             decoding="async"
                             style={{
@@ -175,10 +178,11 @@ export function BuiltInFeatures() {
                           />
                         </div>
                       ) : pillar.image ? (
-                        <img
+                        <BuilderImage
                           src={pillar.image}
                           alt=""
                           crossOrigin="anonymous"
+                          sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1600px) 33vw, 533px"
                           loading="lazy"
                           decoding="async"
                           style={{

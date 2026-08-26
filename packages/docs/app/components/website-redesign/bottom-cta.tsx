@@ -1,4 +1,4 @@
-import { Button } from "./ds/button";
+import { GetStartedCta } from "./ds/get-started-modal";
 import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
 
@@ -54,9 +54,7 @@ export function BottomCta() {
           </p>
         </div>
 
-        <Button variant="cta" icon={null} href="/apps">
-          GET STARTED
-        </Button>
+        <GetStartedCta location="bottom_cta">GET STARTED</GetStartedCta>
 
         <InstallCommand />
       </GridInner>

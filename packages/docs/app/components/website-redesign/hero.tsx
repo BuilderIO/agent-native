@@ -1,4 +1,5 @@
 import { Button } from "./ds/button";
+import { GetStartedCta } from "./ds/get-started-modal";
 import { HeroShaderBackground } from "./hero-shader-background";
 import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
@@ -77,9 +78,7 @@ export function Hero() {
               gap: "var(--spacing-6)",
             }}
           >
-            <Button variant="cta" icon={null} href="/apps">
-              GET STARTED
-            </Button>
+            <GetStartedCta location="hero">GET STARTED</GetStartedCta>
             <Button variant="secondary" icon={null} href="/docs">
               LEARN MORE
             </Button>

@@ -2,6 +2,8 @@ import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { ThemeIconButton } from "./ds/icon-button";
+import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { GridInner, PageSection } from "./page-grid";
 
@@ -252,6 +254,16 @@ export function Footer() {
               background: "var(--b-border-default)",
             }}
           />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--spacing-2)",
+            }}
+          >
+            <LanguagePicker openUpward />
+            <ThemeIconButton />
+          </div>
         </div>
       </GridInner>
     </PageSection>

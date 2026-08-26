@@ -17,6 +17,10 @@ import {
   type DocsLocale,
 } from "../../docs-locale";
 
+interface LanguagePickerProps {
+  openUpward?: boolean;
+}
+
 function preferenceLabel(preference: string) {
   if (preference in DOCS_LOCALE_METADATA) {
     return docsLocaleOptionLabel(preference as DocsLocale);
@@ -27,7 +31,11 @@ function preferenceLabel(preference: string) {
 // Same locale-switching logic as ../../DocsLanguagePicker, restyled against
 // the `--b-*` redesign tokens instead of the main site's shadcn Popover so it
 // matches the rest of this header rather than looking like a foreign control.
-export function LanguagePicker() {
+// The menu is absolutely positioned with no portal and no collision detection,
+// so a footer instance has to be told to open upward or it lands below the
+// fold, unreachable.
+export function LanguagePicker(props: LanguagePickerProps) {
+  const openUpward = props.openUpward === true;
   const { preference } = useLocale();
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -150,7 +158,9 @@ export function LanguagePicker() {
           role="listbox"
           style={{
             position: "absolute",
-            top: "calc(100% + 6px)",
+            ...(openUpward
+              ? { bottom: "calc(100% + 6px)" }
+              : { top: "calc(100% + 6px)" }),
             right: 0,
             minWidth: 208,
             maxHeight: 320,

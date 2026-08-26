@@ -29,7 +29,7 @@ const float WAVE_COUNT = 5.;
 const float WAVE_SCALE = 5.5;
 const float FLOW_ANGLE = 119.;
 const float WARP = 0.35;
-const float SPEED = 0.35;
+const float SPEED = 0.5;
 const float POINTER_AMOUNT = 0.1;
 const vec2 FOCUS = vec2(0., -0.05);
 const float SPREAD = 1.2;
@@ -71,7 +71,9 @@ float waveField(vec2 p, float t) {
   // Domain-warping the coordinate (rather than adding noise to the result)
   // bends the wavefronts themselves, so the bands undulate organically
   // instead of staying parallel rulings with noise laid over them.
-  vec2 warpUv = p * 1.1 + vec2(t * 0.06, t * 0.04);
+  // Drifting the warp field faster than the waves themselves is what makes
+  // the pattern evolve rather than slide past as a rigid texture.
+  vec2 warpUv = p * 1.1 + vec2(t * 0.14, t * 0.1);
   float n1 = valueNoise(warpUv);
   float n2 = valueNoise(warpUv + 5.2);
   vec2 warped = p + (vec2(n1, n2) - 0.5) * WARP;
@@ -167,7 +169,6 @@ void main() {
 `;
 
 const POINTER_SMOOTHING = 0.09;
-const OPACITY = 0.15;
 
 // Module scope, not per-mount: the shader clock (and with it the intro fade)
 // has to survive a remount, otherwise anything that re-runs the setup effect --
@@ -475,7 +476,7 @@ export function HeroShaderBackground({
         position: "absolute",
         inset: 0,
         zIndex: -1,
-        opacity: OPACITY,
+        opacity: "var(--b-hero-shader-opacity)",
       }}
     >
       <canvas
