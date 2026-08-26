@@ -35,22 +35,17 @@ function shouldOpenInNewTab(event: MouseEvent) {
 
 function Option({
   label,
-  // A prop rather than a caller-supplied `items-center`: both are align-items
-  // utilities, so which one won would come down to stylesheet order.
-  align = "start",
   className,
   children,
 }: {
   label: string;
-  align?: "start" | "center";
   className?: string;
   children: ReactNode;
 }) {
   return (
     <div
       className={[
-        "flex flex-col gap-[var(--spacing-3)] rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-[var(--spacing-4)]",
-        align === "center" ? "items-center text-center" : "items-start",
+        "flex flex-col items-center gap-[var(--spacing-3)] rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-[var(--spacing-4)] text-center",
         className,
       ]
         .filter(Boolean)
@@ -121,7 +116,6 @@ export function GetStartedCta({
           <div className="grid grid-cols-2 gap-[var(--spacing-3)] narrow:grid-cols-1">
             <Option
               label="Build an app locally"
-              align="center"
               className="col-span-2 narrow:col-span-1"
             >
               <InstallCommand />
