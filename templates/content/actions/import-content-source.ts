@@ -349,6 +349,9 @@ export default defineAction({
         const discoverabilityChanged =
           file.hideFromSearch !== undefined &&
           boolToInt(file.hideFromSearch) !== (existing.hideFromSearch ?? 0);
+        const visibilityChanged =
+          file.visibility !== undefined &&
+          file.visibility !== existing.visibility;
         const sourceUpdates = localSourceFields(file.path, now);
         const sourceChanged =
           existing.sourceMode !== sourceUpdates.sourceMode ||
@@ -363,6 +366,7 @@ export default defineAction({
           iconChanged ||
           favoriteChanged ||
           discoverabilityChanged ||
+          visibilityChanged ||
           sourceChanged ||
           spaceChanged;
 
@@ -391,6 +395,7 @@ export default defineAction({
           if (discoverabilityChanged) {
             updates.hideFromSearch = boolToInt(file.hideFromSearch);
           }
+          if (visibilityChanged) updates.visibility = file.visibility;
           Object.assign(updates, sourceUpdates);
 
           await db
@@ -428,7 +433,7 @@ export default defineAction({
             isFavorite: boolToInt(file.isFavorite),
             hideFromSearch: boolToInt(file.hideFromSearch),
             ...localSourceFields(file.path, now),
-            visibility: "private",
+            visibility: file.visibility ?? "private",
             createdAt: now,
             updatedAt: now,
           });

@@ -80,6 +80,59 @@ function sourceWithFavorite(isFavorite: boolean) {
 }
 
 describe("import-content-source descriptions", () => {
+  it("creates and updates visibility while preserving it when omitted", async () => {
+    const path = "content/visibility-round-trip--doc_visibility_roundtrip.mdx";
+    const source = (visibility?: "private" | "org" | "public") =>
+      [
+        "---",
+        'id: "doc_visibility_roundtrip"',
+        'title: "Visibility round-trip"',
+        ...(visibility ? [`visibility: "${visibility}"`] : []),
+        "---",
+        "",
+        "Body",
+      ].join("\n");
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("public") },
+        dryRun: false,
+      }),
+    );
+    await expect(
+      getDb()
+        .select({ visibility: schema.documents.visibility })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "doc_visibility_roundtrip")),
+    ).resolves.toEqual([{ visibility: "public" }]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source() },
+        dryRun: false,
+      }),
+    );
+    await expect(
+      getDb()
+        .select({ visibility: schema.documents.visibility })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "doc_visibility_roundtrip")),
+    ).resolves.toEqual([{ visibility: "public" }]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("private") },
+        dryRun: false,
+      }),
+    );
+    await expect(
+      getDb()
+        .select({ visibility: schema.documents.visibility })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "doc_visibility_roundtrip")),
+    ).resolves.toEqual([{ visibility: "private" }]);
+  });
+
   it("reports structural MDX transformations during a dry-run import", async () => {
     const path = "content/mixed-mdx.mdx";
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
