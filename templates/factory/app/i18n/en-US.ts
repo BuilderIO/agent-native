@@ -69,6 +69,14 @@ const messages = {
     status: "Status",
     coverage: "Coverage",
     reason: "Reason",
+    evidence: "Evidence",
+    actionsTaken: "Actions",
+    threadTruncated: "This Slack thread is truncated.",
+    threadUnavailable: "Could not load this Slack thread.",
+    noEvidence: "No source evidence is stored for this item.",
+    noActions: "No actions recorded yet.",
+    nextPage: "Next",
+    previousPage: "Previous",
     updatedAt: "Updated",
     detailTitle: "Decision detail",
     selectItem: "Select an item to inspect its evidence and decisions.",
@@ -175,6 +183,7 @@ const messages = {
     factoryListDescription:
       "Choose a factory to review its purpose, flow, automations, and recent activity. Start a new one from a minimal blank graph when you want to define a fresh review path.",
     inboxTitle: "Observation inbox",
+    inboxTab: "Inbox",
     inboxDescription: "Evidence entering the factory, before autonomous work.",
     selectObservation:
       "Select an observation to inspect its path and feedback.",

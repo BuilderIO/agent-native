@@ -71,6 +71,14 @@ const messages = {
     status: "Status",
     coverage: "Abdeckung",
     reason: "Grund",
+    evidence: "Nachweis",
+    actionsTaken: "Aktionen",
+    threadTruncated: "Dieser Slack-Thread ist unvollständig.",
+    threadUnavailable: "Dieser Slack-Thread konnte nicht geladen werden.",
+    noEvidence: "Für dieses Element ist kein Quellnachweis gespeichert.",
+    noActions: "Noch keine Aktionen erfasst.",
+    nextPage: "Weiter",
+    previousPage: "Zurück",
     updatedAt: "Aktualisiert",
     detailTitle: "Entscheidungsdetails",
     selectItem: "Element auswählen, um Belege und Entscheidungen zu prüfen.",
@@ -177,6 +185,7 @@ const messages = {
     factoryListDescription:
       "Wähle eine Factory aus, um Zweck, Ablauf, Automatisierungen und letzte Aktivitäten zu prüfen. Starte eine neue aus einem minimalen leeren Graphen, wenn du einen neuen Prüfpfad definieren möchtest.",
     inboxTitle: "Beobachtungs-Posteingang",
+    inboxTab: "Posteingang",
     inboxDescription: "Eingehende Belege vor autonomer Arbeit.",
     selectObservation:
       "Wähle eine Beobachtung, um ihren Pfad und ihr Feedback zu prüfen.",

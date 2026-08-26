@@ -71,6 +71,14 @@ const messages = {
     status: "Status",
     coverage: "Cobertura",
     reason: "Motivo",
+    evidence: "Evidência",
+    actionsTaken: "Ações",
+    threadTruncated: "Este tópico do Slack está truncado.",
+    threadUnavailable: "Não foi possível carregar este tópico do Slack.",
+    noEvidence: "Nenhuma evidência de origem está armazenada para este item.",
+    noActions: "Nenhuma ação registrada ainda.",
+    nextPage: "Próximo",
+    previousPage: "Anterior",
     updatedAt: "Atualizado",
     detailTitle: "Detalhes da decisão",
     selectItem: "Selecione um item para inspecionar evidências e decisões.",
@@ -178,6 +186,7 @@ const messages = {
     factoryListDescription:
       "Escolha uma fábrica para revisar seu propósito, fluxo, automações e atividade recente. Inicie uma nova a partir de um grafo em branco mínimo quando quiser definir um novo caminho de revisão.",
     inboxTitle: "Caixa de entrada de observações",
+    inboxTab: "Caixa de entrada",
     inboxDescription:
       "Evidências entrando na fábrica antes do trabalho autônomo.",
     selectObservation:

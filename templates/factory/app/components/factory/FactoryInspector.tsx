@@ -379,7 +379,7 @@ export function FactoryInspector({
               className="h-8 px-2 text-xs"
             >
               <a href={auditHref} aria-label={t("factoryRoute.auditTitle")}>
-                Activity
+                {t("factoryRoute.auditTab")}
                 <IconArrowRight className="size-3.5" />
               </a>
             </Button>
@@ -391,7 +391,7 @@ export function FactoryInspector({
               className="h-8 px-2 text-xs"
             >
               <a href={reviewHref} aria-label={t("factoryRoute.inboxTitle")}>
-                Review
+                {t("factoryRoute.inboxTab")}
                 <IconArrowRight className="size-3.5" />
               </a>
             </Button>

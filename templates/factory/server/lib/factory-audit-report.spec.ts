@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  auditItemMessage,
   auditItemSubject,
   projectFactoryAuditReport,
   type FactoryAuditEventRecord,
@@ -99,6 +100,9 @@ describe("projectFactoryAuditReport", () => {
     expect(report.items).toHaveLength(1);
     expect(report.items[0]?.title).toContain("Analytics");
     expect(report.items[0]?.title).not.toMatch(/Slack thread/i);
+    expect(report.items[0]?.summary).toBe(
+      "`Analytics` stuck in an infinite re-confirmation loop",
+    );
     expect(report.items[0]?.outcome).toBe("held");
     expect(
       report.trace.some((step) => step.action === "list-triage-items"),
@@ -232,5 +236,34 @@ describe("auditItemSubject", () => {
         ],
       ),
     ).toBe("Settings url drops /dispatch from the slug");
+  });
+
+  it("keeps the full stored message separate from the truncated title", () => {
+    const long =
+      "This settings URL drops /dispatch from the slug and then the rest of the Slack report continues well past the title cap so the expanded audit row can still show the entire message.";
+    expect(
+      auditItemMessage(
+        {
+          id: "item",
+          title: "Slack user Enzo",
+          summary: long,
+          source: "slack",
+          sourceUrl: null,
+        },
+        [],
+      ),
+    ).toBe(long);
+    expect(
+      auditItemSubject(
+        {
+          id: "item",
+          title: "Slack user Enzo",
+          summary: long,
+          source: "slack",
+          sourceUrl: null,
+        },
+        [],
+      ).endsWith("…"),
+    ).toBe(true);
   });
 });

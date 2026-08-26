@@ -11,7 +11,6 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertCircle,
   IconArrowLeft,
-  IconExternalLink,
   IconLoader2,
   IconPlayerPlay,
   IconPlus,
@@ -30,10 +29,10 @@ import {
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";
 import { FactoryHistoryView } from "@/components/factory/FactoryHistoryView";
+import { FactoryInboxView } from "@/components/factory/FactoryInboxView";
 import { FactoryInspector } from "@/components/factory/FactoryInspector";
 import { FactorySettingsView } from "@/components/factory/FactorySettingsView";
 import { FactoryWorkspaceActions } from "@/components/factory/FactoryWorkspaceActions";
-import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -71,29 +70,6 @@ type FactorySummary = {
   virtual?: boolean;
 };
 
-type TriageDecision = {
-  decisionId: string;
-  summary?: string | null;
-  reason?: string | null;
-};
-
-type TriageItem = {
-  itemId?: string;
-  id?: string;
-  title?: string | null;
-  source?: string | null;
-  sourceName?: string | null;
-  sourceUrl?: string | null;
-  risk?: string | null;
-  status?: string | null;
-  coverage?: string | number | null;
-  reason?: string | null;
-  decisionSummary?: string | null;
-  decisions?: TriageDecision[] | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-};
-
 type TriageRule = {
   id: string;
   name: string;
@@ -103,7 +79,6 @@ type TriageRule = {
   promptVersion: number;
 };
 
-type Verdict = "correct" | "incorrect" | "uncertain";
 type WorkspaceTab =
   | "overview"
   | "map"
@@ -658,7 +633,7 @@ export default function FactoryRoute() {
               active={activeTab === "inbox"}
               onClick={() => setActiveTab("inbox")}
             >
-              Review
+              {t("factoryRoute.inboxTab")}
             </TabButton>
             <TabButton
               active={activeTab === "rules"}
@@ -676,7 +651,7 @@ export default function FactoryRoute() {
               active={activeTab === "audit"}
               onClick={() => setActiveTab("audit")}
             >
-              Activity
+              {t("factoryRoute.auditTab")}
             </TabButton>
             <TabButton
               active={activeTab === "history"}
@@ -765,7 +740,7 @@ export default function FactoryRoute() {
             />
           </div>
         ) : activeTab === "inbox" ? (
-          <InboxView factoryId={factoryId} t={t} />
+          <FactoryInboxView factoryId={factoryId} />
         ) : activeTab === "rules" ? (
           <RulesView factoryId={factoryId} t={t} />
         ) : activeTab === "settings" ? (
@@ -917,13 +892,13 @@ function OverviewView({
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={onOpenReview}>
-              Review
+              {t("factoryRoute.inboxTab")}
             </Button>
             <Button type="button" variant="outline" onClick={onOpenAutomations}>
               Automations
             </Button>
             <Button type="button" variant="outline" onClick={onOpenActivity}>
-              Activity
+              {t("factoryRoute.auditTab")}
             </Button>
             <Button
               type="button"
@@ -1457,39 +1432,6 @@ function formatInboxDateTime(value: string | number | null | undefined) {
   });
 }
 
-function formatInboxAge(value: string | number | null | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-
-  const elapsedSeconds = Math.max(
-    0,
-    Math.floor((Date.now() - date.getTime()) / 1_000),
-  );
-  if (elapsedSeconds < 60) return "now";
-  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `${elapsedHours}h`;
-  const elapsedDays = Math.floor(elapsedHours / 24);
-  if (elapsedDays < 30) return `${elapsedDays}d`;
-  const elapsedMonths = Math.floor(elapsedDays / 30);
-  if (elapsedMonths < 12) return `${elapsedMonths}mo`;
-  return `${Math.floor(elapsedMonths / 12)}y`;
-}
-
-const reviewListColumns =
-  "w-full gap-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(4.75rem,auto)_minmax(5.5rem,auto)_minmax(4.5rem,auto)_minmax(0,1.3fr)] sm:items-start";
-
-function formatInboxSource(source: string | null | undefined) {
-  const normalized = source?.toLowerCase() ?? "";
-  if (normalized.includes("slack")) return "Slack";
-  if (normalized.includes("github")) return "GitHub";
-  if (normalized.includes("sentry")) return "Sentry";
-  const trimmed = source?.trim();
-  return trimmed ? trimmed : "Source";
-}
-
 function formatModelName(model: string | null | undefined) {
   const value = model?.trim();
   if (!value) return "the app default";
@@ -1500,346 +1442,6 @@ function formatModelName(model: string | null | undefined) {
     .filter(Boolean)
     .map((part) => part[0].toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function InboxView({
-  factoryId,
-  t,
-}: {
-  factoryId: string;
-  t: ReturnType<typeof useT>;
-}) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [status, setStatus] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(
-    searchParams.get("itemId"),
-  );
-  const [feedbackNote, setFeedbackNote] = useState("");
-  const [verdict, setVerdict] = useState<Verdict | null>(null);
-  const selectedRowRef = useRef<HTMLButtonElement | null>(null);
-  const listQuery = useActionQuery("list-triage-items", {
-    factoryId,
-    limit: 50,
-    ...(status.trim()
-      ? {
-          status: status.trim() as
-            | "received"
-            | "context_fetching"
-            | "evidence_ready"
-            | "classified"
-            | "shadow_decided"
-            | "needs_manual"
-            | "failed"
-            | "reconciliation_required",
-        }
-      : {}),
-  });
-  const detailQuery = useActionQuery(
-    "get-triage-item",
-    selectedId ? { factoryId, itemId: selectedId } : undefined,
-    { enabled: Boolean(selectedId) },
-  );
-  const feedbackMutation = useActionMutation("record-triage-feedback");
-  const approveMutation = useActionMutation("approve-factory-item");
-  const items =
-    (listQuery.data as { items?: TriageItem[] } | TriageItem[] | undefined) ??
-    [];
-  const normalizedItems = Array.isArray(items) ? items : (items.items ?? []);
-  const selectedItem = detailQuery.data as TriageItem | undefined;
-
-  useEffect(() => {
-    setSelectedId(searchParams.get("itemId"));
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (!selectedId) return;
-    selectedRowRef.current?.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
-    });
-  }, [selectedId, normalizedItems.length]);
-
-  function selectItem(itemId: string) {
-    setSelectedId(itemId);
-    setVerdict(null);
-    setFeedbackNote("");
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set("itemId", itemId);
-        return next;
-      },
-      { replace: true },
-    );
-  }
-
-  return (
-    <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,.7fr)] lg:p-6">
-      <Card>
-        <CardHeader className="gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <CardTitle className="text-base">Review</CardTitle>
-          </div>
-          <div className="flex items-end gap-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor="factory-status-filter">Status</Label>
-              <Input
-                id="factory-status-filter"
-                className="h-8 w-36"
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                placeholder={t("triage.statusPlaceholder")}
-              />
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void listQuery.refetch()}
-              disabled={listQuery.isFetching}
-            >
-              {listQuery.isFetching && <IconLoader2 className="animate-spin" />}
-              Refresh
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {listQuery.isError ? (
-            <ErrorState
-              message="Could not load observations."
-              onRetry={() => void listQuery.refetch()}
-            />
-          ) : listQuery.isLoading ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              {t("triage.loading")}
-            </p>
-          ) : normalizedItems.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              {t("triage.empty")}
-            </p>
-          ) : (
-            <div className="grid gap-1.5 p-2">
-              <div
-                className={`hidden px-4 py-2 text-[11px] uppercase tracking-wide text-muted-foreground sm:grid ${reviewListColumns}`}
-              >
-                <span />
-                <span>{t("triage.risk")}</span>
-                <span>{t("triage.status")}</span>
-                <span>{t("triage.updatedAt")}</span>
-                <span>{t("triage.reason")}</span>
-              </div>
-              {normalizedItems.map((item) => {
-                const id = item.itemId ?? item.id ?? "";
-                const selected = selectedId === id;
-                const createdAtLabel = formatInboxDateTime(item.createdAt);
-                const updatedAge = formatInboxAge(item.updatedAt);
-                return (
-                  <button
-                    key={id}
-                    ref={selected ? selectedRowRef : undefined}
-                    type="button"
-                    aria-current={selected ? "true" : undefined}
-                    className={`grid rounded-lg px-4 py-3 text-left transition-colors ${reviewListColumns} ${
-                      selected
-                        ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
-                        : "bg-muted/20 hover:bg-muted/50"
-                    }`}
-                    onClick={() => selectItem(id)}
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        {formatInboxSource(item.source ?? item.sourceName)}
-                      </span>
-                      <span className="block truncate text-sm font-medium">
-                        {item.title?.trim() ||
-                          item.sourceName ||
-                          item.source ||
-                          "Untitled"}
-                      </span>
-                      {createdAtLabel && item.createdAt && (
-                        <time
-                          className="mt-0.5 block text-xs text-muted-foreground"
-                          dateTime={item.createdAt}
-                        >
-                          {createdAtLabel}
-                        </time>
-                      )}
-                      {item.sourceUrl && (
-                        <span className="mt-1 flex max-w-full items-center gap-1 truncate text-xs text-primary">
-                          {item.sourceUrl}
-                          <IconExternalLink className="size-3 shrink-0" />
-                        </span>
-                      )}
-                    </span>
-                    <span>
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
-                        {t("triage.risk")}
-                      </span>
-                      <TriageStatusPill status={item.risk} />
-                    </span>
-                    <span>
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
-                        {t("triage.status")}
-                      </span>
-                      <TriageStatusPill status={item.status} />
-                    </span>
-                    <span>
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
-                        {t("triage.updatedAt")}
-                      </span>
-                      {updatedAge && item.updatedAt ? (
-                        <time
-                          className="text-sm tabular-nums text-muted-foreground"
-                          dateTime={item.updatedAt}
-                          title={formatAutomationDate(item.updatedAt)}
-                        >
-                          {updatedAge}
-                        </time>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">-</span>
-                      )}
-                    </span>
-                    <span className="min-w-0 truncate">
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
-                        {t("triage.reason")}
-                      </span>
-                      <span className="text-sm">
-                        {item.reason ?? item.decisionSummary ?? "-"}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("triage.detailTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {!selectedItem ? (
-            <p className="text-sm text-muted-foreground">
-              {t("factoryRoute.selectObservation")}
-            </p>
-          ) : (
-            <>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                    {formatInboxSource(
-                      selectedItem.source ?? selectedItem.sourceName,
-                    )}
-                  </p>
-                  <p className="text-sm font-medium">
-                    {selectedItem.title?.trim() ||
-                      selectedItem.sourceName ||
-                      selectedItem.source}
-                  </p>
-                  {selectedItem.sourceUrl && (
-                    <a
-                      href={selectedItem.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                    >
-                      {t("triage.openSource")}
-                      <IconExternalLink className="size-3" />
-                    </a>
-                  )}
-                </div>
-                <TriageStatusPill status={selectedItem.status} />
-              </div>
-              <Button
-                size="sm"
-                onClick={() => {
-                  const decision =
-                    selectedItem.decisions?.[
-                      (selectedItem.decisions?.length ?? 1) - 1
-                    ];
-                  if (!decision) return;
-                  approveMutation.mutate({
-                    factoryId,
-                    itemId: selectedItem.itemId ?? selectedItem.id ?? "",
-                    decisionId: decision.decisionId,
-                    confirm: true,
-                  });
-                }}
-                disabled={
-                  !selectedItem.decisions?.length || approveMutation.isPending
-                }
-              >
-                <IconPlayerPlay className="size-4" />
-                {t("factoryRoute.approveAndStart")}
-              </Button>
-              {selectedItem.decisionSummary && (
-                <p className="rounded-md bg-muted px-3 py-2 text-sm">
-                  {selectedItem.decisionSummary}
-                </p>
-              )}
-              <div className="rounded-lg bg-muted/20 p-3 shadow-sm">
-                <p className="text-sm font-medium">{t("triage.decisions")}</p>
-                {selectedItem.decisions?.length ? (
-                  selectedItem.decisions.map((decision) => (
-                    <div
-                      key={decision.decisionId}
-                      className="mt-3 space-y-3 rounded-lg bg-card p-3 shadow-sm"
-                    >
-                      <p className="text-sm">
-                        {decision.summary ?? decision.reason}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {(
-                          ["correct", "incorrect", "uncertain"] as Verdict[]
-                        ).map((value) => (
-                          <Button
-                            key={value}
-                            size="sm"
-                            variant={verdict === value ? "default" : "outline"}
-                            onClick={() => setVerdict(value)}
-                          >
-                            {value}
-                          </Button>
-                        ))}
-                      </div>
-                      <Input
-                        value={feedbackNote}
-                        onChange={(event) =>
-                          setFeedbackNote(event.target.value)
-                        }
-                        placeholder={t("triage.notePlaceholder")}
-                      />
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          if (verdict)
-                            feedbackMutation.mutate({
-                              factoryId,
-                              decisionId: decision.decisionId,
-                              verdict,
-                              ...(feedbackNote.trim()
-                                ? { note: feedbackNote.trim() }
-                                : {}),
-                            });
-                        }}
-                        disabled={!verdict || feedbackMutation.isPending}
-                      >
-                        Record feedback
-                      </Button>
-                    </div>
-                  ))
-                ) : (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {t("triage.noDecisions")}
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
 }
 
 function RulesView({

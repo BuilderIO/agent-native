@@ -71,6 +71,14 @@ const messages = {
     status: "Estado",
     coverage: "Cobertura",
     reason: "Motivo",
+    evidence: "Evidencia",
+    actionsTaken: "Acciones",
+    threadTruncated: "Este hilo de Slack está truncado.",
+    threadUnavailable: "No se pudo cargar este hilo de Slack.",
+    noEvidence: "No hay evidencia de origen para este elemento.",
+    noActions: "Aún no hay acciones registradas.",
+    nextPage: "Siguiente",
+    previousPage: "Anterior",
     updatedAt: "Actualizado",
     detailTitle: "Detalle de la decisión",
     selectItem:
@@ -180,6 +188,7 @@ const messages = {
     factoryListDescription:
       "Elige una fábrica para revisar su propósito, flujo, automatizaciones y actividad reciente. Inicia una nueva desde un grafo vacío mínimo cuando quieras definir una ruta de revisión.",
     inboxTitle: "Bandeja de observaciones",
+    inboxTab: "Bandeja",
     inboxDescription:
       "Evidencia que entra en la fábrica antes del trabajo autónomo.",
     selectObservation:

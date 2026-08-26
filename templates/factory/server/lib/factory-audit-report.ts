@@ -38,6 +38,7 @@ export type FactoryAuditReportItem = {
   source: string | null;
   sourceUrl: string | null;
   title: string;
+  summary: string | null;
   outcome: FactoryAuditItemOutcome;
   status: string;
   rationale: string | null;
@@ -166,6 +167,7 @@ function projectItem(
       events.find((event) => event.sourceUrl)?.sourceUrl ??
       null,
     title: auditItemSubject(item, events),
+    summary: auditItemMessage(item, events),
     outcome,
     status:
       outcome === "failed"
@@ -212,15 +214,7 @@ export function auditItemSubject(
   item: FactoryAuditItemSnapshot | undefined,
   events: FactoryAuditEventRecord[],
 ): string {
-  const observed = events.find(
-    (event) =>
-      isPollEvent(event) && event.summary.trim() && !isEmptyObservation(event),
-  )?.summary;
-  const detailSummary = events
-    .map((event) => readStringDetail(event.details, "itemSummary"))
-    .find((value): value is string => Boolean(value));
-  const storedSummary =
-    item?.summary?.trim() || detailSummary?.trim() || observed?.trim() || "";
+  const storedSummary = readStoredFeedbackText(item, events);
   if (storedSummary) return firstLine(storedSummary, 110);
 
   const storedTitle = item?.title?.trim() ?? "";
@@ -231,6 +225,29 @@ export function auditItemSubject(
   if (listedTitle && !isGenericSlackTitle(listedTitle)) return listedTitle;
 
   return storedTitle || "Item";
+}
+
+export function auditItemMessage(
+  item: FactoryAuditItemSnapshot | undefined,
+  events: FactoryAuditEventRecord[],
+): string | null {
+  return readStoredFeedbackText(item, events);
+}
+
+function readStoredFeedbackText(
+  item: FactoryAuditItemSnapshot | undefined,
+  events: FactoryAuditEventRecord[],
+): string | null {
+  const observed = events.find(
+    (event) =>
+      isPollEvent(event) && event.summary.trim() && !isEmptyObservation(event),
+  )?.summary;
+  const detailSummary = events
+    .map((event) => readStringDetail(event.details, "itemSummary"))
+    .find((value): value is string => Boolean(value));
+  const stored =
+    item?.summary?.trim() || detailSummary?.trim() || observed?.trim() || "";
+  return stored || null;
 }
 
 function collapseTrace(

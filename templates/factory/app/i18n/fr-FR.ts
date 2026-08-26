@@ -71,6 +71,14 @@ const messages = {
     status: "État",
     coverage: "Couverture",
     reason: "Motif",
+    evidence: "Preuve",
+    actionsTaken: "Actions",
+    threadTruncated: "Ce fil Slack est tronqué.",
+    threadUnavailable: "Impossible de charger ce fil Slack.",
+    noEvidence: "Aucune preuve source n'est enregistrée pour cet élément.",
+    noActions: "Aucune action enregistrée pour le moment.",
+    nextPage: "Suivant",
+    previousPage: "Précédent",
     updatedAt: "Mis à jour",
     detailTitle: "Détail de la décision",
     selectItem:
@@ -180,6 +188,7 @@ const messages = {
     factoryListDescription:
       "Choisissez une factory pour examiner son objectif, son flux, ses automatisations et son activité récente. Créez-en une depuis un graphe vierge minimal pour définir un nouveau parcours de revue.",
     inboxTitle: "Boîte de réception des observations",
+    inboxTab: "Boîte de réception",
     inboxDescription:
       "Les éléments observés entrent dans la factory avant le travail autonome.",
     selectObservation:

@@ -37,6 +37,8 @@ const requiredKeys = [
   "factoryRoute.ruleNameLabel",
   "factoryRoute.defaultFactoryLabel",
   "factoryRoute.savedFactoryLabel",
+  "factoryRoute.inboxTab",
+  "factoryRoute.auditTab",
   "factoryRoute.auditGuardsLabel",
   "factoryRoute.auditTrace",
   "factoryRoute.factorySettings",

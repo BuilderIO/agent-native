@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -10,6 +10,10 @@ import {
   orgFactoryDecisionFilter,
   orgFactoryItemFilter,
 } from "../server/lib/factory-scope.js";
+import {
+  decodeInboxCursor,
+  encodeInboxCursor,
+} from "../server/lib/inbox-cursor.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -22,20 +26,25 @@ import {
 
 export default defineAction({
   description:
-    "List the Factory observation queue. Results are scoped to the active workspace and include the latest shadow decision summary. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed.",
+    "List the Factory observation queue. Returns { items, nextCursor, hasMore }. Results are scoped to the active workspace and include the latest shadow decision summary. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed; iterate the items array.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     status: triageItemStatusSchema.optional(),
     source: triageSourceSchema.optional(),
     needsReview: z.boolean().default(false),
     limit: z.coerce.number().int().min(1).max(100).default(50),
+    cursor: z.string().trim().min(1).max(400).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ factoryId, status, source, needsReview, limit }, context) => {
+  run: async (
+    { factoryId, status, source, needsReview, limit, cursor },
+    context,
+  ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
     const db = getDb();
     const reviewStatuses =
       source === "github"
@@ -43,7 +52,7 @@ export default defineAction({
         : source === "slack"
           ? ["received", "automation_started", "evidence_ready"]
           : ["received"];
-    const items = await db
+    const rows = await db
       .select()
       .from(triageItems)
       .where(
@@ -55,10 +64,22 @@ export default defineAction({
               ? eq(triageItems.status, status)
               : undefined,
           source ? eq(triageItems.source, source) : undefined,
+          parsedCursor
+            ? or(
+                lt(triageItems.updatedAt, parsedCursor.updatedAt),
+                and(
+                  eq(triageItems.updatedAt, parsedCursor.updatedAt),
+                  lt(triageItems.id, parsedCursor.id),
+                ),
+              )
+            : undefined,
         ),
       )
-      .orderBy(desc(triageItems.updatedAt))
-      .limit(limit);
+      .orderBy(desc(triageItems.updatedAt), desc(triageItems.id))
+      .limit(limit + 1);
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const last = page[page.length - 1];
 
     const decisions = await db
       .select()
@@ -73,7 +94,7 @@ export default defineAction({
       }
     }
 
-    const listedItems = items.map((item) => {
+    const listedItems = page.map((item) => {
       const latestDecision = latestByItem.get(item.id);
       return {
         id: item.id,
@@ -129,6 +150,13 @@ export default defineAction({
       },
       factoryId,
     );
-    return listedItems;
+    return {
+      items: listedItems,
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeInboxCursor({ updatedAt: last.updatedAt, id: last.id })
+          : null,
+    };
   },
 });

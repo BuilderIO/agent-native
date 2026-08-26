@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 
+import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type FactoryAuditCounts = {
@@ -41,6 +42,7 @@ type FactoryAuditItem = {
   source: string | null;
   sourceUrl: string | null;
   title: string;
+  summary: string | null;
   outcome: "held" | "dispatched" | "failed" | "inspected";
   status: string;
   rationale: string | null;
@@ -363,20 +365,27 @@ function AuditItemRow({
         <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
       <div className="bg-muted/20 px-4 pb-4 pt-3">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {item.rationale || item.dispatchError
-                ? t("factoryRoute.auditWhy")
-                : t("factoryRoute.auditWhatHappened")}
-            </p>
-            <p className="mt-1 max-w-[72ch] text-sm leading-6">
-              {item.dispatchError ??
-                item.rationale ??
-                t("factoryRoute.auditInspectedOnly")}
-            </p>
+        <AuditDecisionFacts item={item} />
+        {item.summary ? (
+          <div
+            className={`rounded-md border border-border bg-background px-3 py-2 ${
+              hasAuditFacts(item) ? "mt-3" : ""
+            }`}
+          >
+            <SlackMrkdwn text={item.summary} />
           </div>
-          <AuditDecisionFacts item={item} />
+        ) : null}
+        <div className={item.summary || hasAuditFacts(item) ? "mt-3" : ""}>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {item.rationale || item.dispatchError
+              ? t("factoryRoute.auditWhy")
+              : t("factoryRoute.auditWhatHappened")}
+          </p>
+          <p className="mt-1 text-sm leading-6">
+            {item.dispatchError ??
+              item.rationale ??
+              t("factoryRoute.auditInspectedOnly")}
+          </p>
         </div>
 
         {item.events.length > 0 && (
@@ -429,19 +438,23 @@ function AuditItemRow({
   );
 }
 
+function hasAuditFacts(item: FactoryAuditItem): boolean {
+  return (
+    item.clearBug !== null ||
+    item.productUx !== null ||
+    Boolean(item.ownerArea) ||
+    Boolean(item.guards)
+  );
+}
+
 function AuditDecisionFacts({ item }: { item: FactoryAuditItem }) {
   const t = useT();
-  if (
-    item.clearBug === null &&
-    item.productUx === null &&
-    !item.ownerArea &&
-    !item.guards
-  ) {
+  if (!hasAuditFacts(item)) {
     return null;
   }
 
   return (
-    <div className="flex flex-wrap content-start gap-x-3 gap-y-1 text-xs text-muted-foreground sm:max-w-[260px] sm:justify-end">
+    <div className="flex flex-wrap content-start gap-x-3 gap-y-1 text-xs text-muted-foreground">
       {item.clearBug !== null && (
         <AuditFact
           label={t("factoryRoute.auditClearBug")}

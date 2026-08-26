@@ -15,6 +15,10 @@ describe("FactoryAuditView outcome-first audit", () => {
     expect(source).toContain("formatRunHeadline(run.counts, t)");
     expect(source).toContain("run.items");
     expect(source).toContain('t("factoryRoute.auditTrace")');
+    expect(source.indexOf("AuditDecisionFacts")).toBeLessThan(
+      source.indexOf('t("factoryRoute.auditWhy")'),
+    );
+    expect(source).toContain("SlackMrkdwn");
     expect(source).not.toContain("formatAuditCountLabel");
     expect(source).not.toContain("Slack thread");
   });
