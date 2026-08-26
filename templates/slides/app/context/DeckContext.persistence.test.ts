@@ -547,6 +547,81 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("persists inline drafts without replacing the local editor state", async () => {
+    window.history.pushState({}, "", "/deck/inline-draft-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-draft-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-draft-deck",
+        "slide-1",
+        { content: "<div>First draft</div>" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        "inline-draft-deck",
+        "slide-1",
+        { content: "<div>Final draft</div>" },
+        { preserveLocalState: true },
+      );
+    });
+
+    expect(
+      result.current.getDeck("inline-draft-deck")?.slides[0]?.content,
+    ).toBe("<div>Original</div>");
+    expect(hasUncommittedDeckChanges("inline-draft-deck", new Set())).toBe(
+      true,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      return actionCallBody(init).deckId === "inline-draft-deck";
+    });
+    expect(patchCalls).toHaveLength(1);
+    expect(actionCallBody(patchCalls[0]?.[1])).toMatchObject({
+      deckId: "inline-draft-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Final draft</div>" },
+        },
+      ],
+    });
+    expect(hasUncommittedDeckChanges("inline-draft-deck", new Set())).toBe(
+      false,
+    );
+  });
+
   it("persists a duplicated slide after the optimistic insert", async () => {
     window.history.pushState({}, "", "/");
     const { fetchMock, resolveCreate } = setupFetch();

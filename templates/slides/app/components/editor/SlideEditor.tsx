@@ -1605,13 +1605,20 @@ export default function SlideEditor({
     (slideId = slide.id) => {
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
-        if (
-          !inlineEditInitialContentRef.current ||
-          inlineEditInitialContentRef.current.slideId !== slideId
-        ) {
-          inlineEditInitialContentRef.current = { slideId, content: html };
+        const next = { slideId, content: html };
+        const initial = inlineEditInitialContentRef.current;
+        if (!initial || initial.slideId !== slideId) {
+          inlineEditInitialContentRef.current = next;
         }
-        inlineEditDraftRef.current = { slideId, content: html };
+        if (
+          initial?.slideId === slideId &&
+          shouldPersistInlineEditContent(initial, next)
+        ) {
+          onUpdateSlideRef.current({ content: html }, slideId, {
+            preserveLocalState: true,
+          });
+        }
+        inlineEditDraftRef.current = next;
       }
     },
     [readCurrentSlideContentHtml, slide.id],
@@ -1980,9 +1987,18 @@ export default function SlideEditor({
   // otherwise never clear and permanently block live sync for that slide.
   useEffect(() => {
     return () => {
-      if (editingElRef.current || inlineEditDraftRef.current) {
-        onInlineEditEndRef.current?.(previousSlideIdRef.current);
+      const draft = inlineEditDraftRef.current;
+      const initial = inlineEditInitialContentRef.current;
+      if (shouldPersistInlineEditContent(initial, draft) && draft) {
+        onUpdateSlideRef.current({ content: draft.content }, draft.slideId);
       }
+      if (editingElRef.current || draft) {
+        onInlineEditEndRef.current?.(
+          draft?.slideId ?? previousSlideIdRef.current,
+        );
+      }
+      inlineEditDraftRef.current = null;
+      inlineEditInitialContentRef.current = null;
     };
   }, []);
 
