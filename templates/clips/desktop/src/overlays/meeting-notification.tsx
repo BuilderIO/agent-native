@@ -129,6 +129,9 @@ export function MeetingNotification() {
   const [pending, setPending] = useState(false);
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
+  /** What this reminder was showing when it stepped aside for a starting pill.
+   *  Held only until that start reports success or failure. */
+  const startingRef = useRef<NotificationData | null>(null);
   const dismissedKeysRef = useRef(new Map<string, number>());
   // Real DOM hover only fires while this overlay window is key, which macOS
   // won't grant it without a click (`show_without_activation` never
@@ -206,6 +209,14 @@ export function MeetingNotification() {
     options?: { hydrated?: boolean },
   ) {
     if (isDismissed(payload)) return;
+    // A newer reminder owns this card now. Whatever start was holding it open
+    // for a possible failure has lost its claim, so it cannot reappear over
+    // this one later.
+    startingRef.current = null;
+    // A visible reminder means a pill is likely within a minute or two. Build
+    // its webview now, hidden: on the first meeting of a session that build
+    // otherwise lands between the click and anything appearing.
+    invoke("recording_pill_prewarm").catch(() => {});
     setData(payload);
     setError(null);
     setMenuOpen(false);
@@ -255,6 +266,10 @@ export function MeetingNotification() {
       "meetings:hide-notification",
       (ev) => {
         if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        // Startup hides this as soon as the pill is on screen, before capture
+        // has attached. Keep what was on screen so a failure after that point
+        // still has something to reappear as.
+        startingRef.current = dataRef.current;
         hideNotification();
       },
     );
@@ -262,13 +277,36 @@ export function MeetingNotification() {
     const errorListener = listen<TranscriptionStatusPayload>(
       "meetings:transcription-error",
       (ev) => {
-        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        // `hideNotification` nulls `dataRef`, so matching only against it
+        // drops the error for exactly the case that produces one: a start
+        // that failed after the reminder stepped aside.
+        const starting = startingRef.current;
+        const restoring =
+          !dataRef.current &&
+          starting !== null &&
+          starting.meetingId === ev.payload.meetingId;
+        if (!restoring && ev.payload.meetingId !== dataRef.current?.meetingId)
+          return;
+        if (restoring) {
+          setData(starting);
+          setMenuOpen(false);
+        }
+        startingRef.current = null;
         setPending(false);
         setError(ev.payload.error || "Could not start notes.");
         scheduleAutoHide(15_000);
       },
     );
     trackListen(errorListener);
+    const startedListener = listen<TranscriptionStatusPayload>(
+      "meetings:transcription-started",
+      (ev) => {
+        if (startingRef.current?.meetingId === ev.payload.meetingId) {
+          startingRef.current = null;
+        }
+      },
+    );
+    trackListen(startedListener);
 
     // Cold overlay boot: hydrate any payload stored before this webview
     // mounted (calendar or adhoc).
@@ -278,7 +316,7 @@ export function MeetingNotification() {
     // hide listener registers leaves a card nothing can take back; a show
     // landing before the show listener registers is dropped while the payload it
     // duplicated has already been consumed, so no card appears at all.
-    Promise.all([showListener, hideListener, errorListener])
+    Promise.all([showListener, hideListener, errorListener, startedListener])
       .then(() =>
         invoke<NotificationData | null>("take_pending_meeting_notification"),
       )
@@ -346,6 +384,9 @@ export function MeetingNotification() {
 
   function dismissNotification() {
     const current = dataRef.current;
+    // An explicit dismissal outranks a pending start: this reminder must not
+    // come back on its own, even to report a failure.
+    startingRef.current = null;
     if (current) {
       dismissedKeysRef.current.set(
         notificationKey(current),
