@@ -574,6 +574,7 @@ function oauthDebugUrlPath(value: unknown): string | undefined {
     const url = new URL(value);
     return url.pathname;
   } catch {
+    // coercion-ok: invalid OAuth URLs cannot safely derive an app id.
     return undefined;
   }
 }
