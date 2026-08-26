@@ -44,6 +44,10 @@ const APPS: ShowcaseApp[] = [
     name: "Design",
     description:
       "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa9829305c75e4164a0f589fc86e866d1?format=webp&width=800",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f612ed381042b49f29eec5cbbf450b?format=webp&width=800",
     href: "/apps/design",
   },
   {
@@ -51,6 +55,10 @@ const APPS: ShowcaseApp[] = [
     name: "Slides",
     description:
       "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F24ea8488612743fcb2db79970d4eb7cd?format=webp&width=800",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8776a7006922445ab2f4ebf4f0c6d083?format=webp&width=800",
     href: "/apps/slides",
   },
   {
