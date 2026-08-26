@@ -51,14 +51,14 @@ None changes the public contract or the smallest compatible repair. Work should 
 
 ## Competing hypotheses
 
-| Hypothesis | Result | Basis |
-|---|---|---|
-| Personal-page sharing is disallowed by policy | Rejected | Direct user shares are admitted by the page resource's shared access primitive. |
-| Page body fetch is denied | Rejected for the demonstrated code path; verify in real repro | `get-document` authorizes and returns the page row including content before the separate property query. |
-| Files-container authorization blocks rendering | Supported; governing cause for this shape | The explicit property request asserts access to the backing database document, and the UI converts its failure into perpetual loading. |
-| SQLite contention causes the reported blank body | Unconfirmed and unnecessary | No request/log evidence; it could only be one source of a separate 500 path. |
-| Failed collab initialization becomes synchronized empty content | Confirmed latent hazard, not required for the viewer symptom | All initial-state failures currently end in `isSynced: true`; editors can then bind an empty Y.Doc. |
-| A generic list cache seeds an empty authoritative body | Not supported on current `main` | List/database snapshots are explicitly prevented from owning the editable body cache; the dedicated `get-document` request is authoritative. |
+| Hypothesis                                                      | Result                                                        | Basis                                                                                                                                        |
+| --------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Personal-page sharing is disallowed by policy                   | Rejected                                                      | Direct user shares are admitted by the page resource's shared access primitive.                                                              |
+| Page body fetch is denied                                       | Rejected for the demonstrated code path; verify in real repro | `get-document` authorizes and returns the page row including content before the separate property query.                                     |
+| Files-container authorization blocks rendering                  | Supported; governing cause for this shape                     | The explicit property request asserts access to the backing database document, and the UI converts its failure into perpetual loading.       |
+| SQLite contention causes the reported blank body                | Unconfirmed and unnecessary                                   | No request/log evidence; it could only be one source of a separate 500 path.                                                                 |
+| Failed collab initialization becomes synchronized empty content | Confirmed latent hazard, not required for the viewer symptom  | All initial-state failures currently end in `isSynced: true`; editors can then bind an empty Y.Doc.                                          |
+| A generic list cache seeds an empty authoritative body          | Not supported on current `main`                               | List/database snapshots are explicitly prevented from owning the editable body cache; the dedicated `get-document` request is authoritative. |
 
 ## Architecture grounding
 
