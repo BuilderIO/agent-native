@@ -214,6 +214,8 @@ export interface DocumentProperty {
 export interface DocumentPropertiesResponse {
   documentId: string;
   databaseId: string | null;
+  canEditValues?: boolean;
+  canManageSchema?: boolean;
   properties: DocumentProperty[];
 }
 

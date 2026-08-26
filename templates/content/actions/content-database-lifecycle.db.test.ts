@@ -1736,6 +1736,15 @@ describe("content database soft-delete actions and reads", () => {
       accessRole: "editor",
       databaseMembership: { databaseId },
     });
+    const contextFreeDocument = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => getDocumentAction.run({ id: sharedDocumentId }),
+    );
+    expect(contextFreeDocument).toMatchObject({
+      id: sharedDocumentId,
+      content: "Keep this nonempty Personal body.",
+      accessRole: "editor",
+    });
 
     const shared = await runWithRequestContext(
       { userEmail: COLLABORATOR },
@@ -1748,6 +1757,8 @@ describe("content database soft-delete actions and reads", () => {
     expect(shared).toMatchObject({
       documentId: sharedDocumentId,
       databaseId,
+      canEditValues: false,
+      canManageSchema: false,
       properties: expect.arrayContaining([
         expect.objectContaining({
           definition: expect.objectContaining({
@@ -1755,6 +1766,12 @@ describe("content database soft-delete actions and reads", () => {
             name: "Status",
           }),
           value: "Shared only",
+          editable: false,
+        }),
+        expect.objectContaining({
+          definition: expect.objectContaining({ id: relationPropertyId }),
+          value: null,
+          editable: false,
         }),
         expect.objectContaining({
           definition: expect.objectContaining({ id: rollupPropertyId }),

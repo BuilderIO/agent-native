@@ -35,15 +35,25 @@ export default defineAction({
       "viewer",
       { requireDatabaseAccess: false },
     );
+    const databaseAccess = database
+      ? await resolveAccess("document", database.documentId)
+      : null;
+    const canEditValues =
+      databaseAccess?.role === "owner" ||
+      databaseAccess?.role === "admin" ||
+      databaseAccess?.role === "editor";
+    const canManageSchema = canEditValues;
 
     return {
       documentId,
       databaseId: database?.id ?? null,
+      canEditValues,
+      canManageSchema,
       properties: await listPropertiesForDocument(access.resource, databaseId, {
         // The page share authorizes this page's definitions and values. The
         // supplied database is checked only as this page's exact membership;
         // its backing document remains private for container operations.
-        requireDatabaseAccess: false,
+        requireDatabaseAccess: databaseAccess !== null,
       }),
     };
   },

@@ -464,6 +464,8 @@ export function seedDatabaseItemDocumentCaches(
       {
         documentId: item.document.id,
         databaseId: item.databaseId,
+        canEditValues: false,
+        canManageSchema: false,
         properties: item.properties,
       },
     );

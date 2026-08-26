@@ -656,8 +656,12 @@ export async function listPropertiesForDatabase(
         createdAt: definition.createdAt,
         updatedAt: definition.updatedAt,
       },
-      value,
-      editable: !definition.systemRole && !isComputedPropertyType(type),
+      value:
+        !includeContainerDerivedValues && type === "relation" ? null : value,
+      editable:
+        includeContainerDerivedValues &&
+        !definition.systemRole &&
+        !isComputedPropertyType(type),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(

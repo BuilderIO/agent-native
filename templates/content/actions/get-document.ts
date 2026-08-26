@@ -112,10 +112,9 @@ export default defineAction({
     const propertyDatabase = args.databaseId
       ? await getDatabaseById(args.databaseId)
       : await resolvePropertyDatabaseForDocument(doc);
-    const propertyDatabaseAccess =
-      args.databaseId && propertyDatabase
-        ? await resolveDocumentAccess(propertyDatabase.documentId)
-        : null;
+    const propertyDatabaseAccess = propertyDatabase
+      ? await resolveDocumentAccess(propertyDatabase.documentId)
+      : null;
     if (
       args.databaseId &&
       (!propertyDatabase ||
