@@ -104,6 +104,24 @@ function endsSentence(text: string): boolean {
   return /[.!?]["')\]}]*$/.test(text.trim());
 }
 
+export function getTranscriptSeekMs(
+  displaySegment: TranscriptSegment,
+  query: string,
+  segments: TranscriptSegment[],
+): number {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery || segments.length === 0) return displaySegment.startMs;
+
+  return (
+    segments.find(
+      (segment) =>
+        segment.startMs >= displaySegment.startMs &&
+        segment.endMs <= displaySegment.endMs &&
+        segment.text.toLowerCase().includes(normalizedQuery),
+    )?.startMs ?? displaySegment.startMs
+  );
+}
+
 export function TranscriptPanel(props: TranscriptPanelProps) {
   const t = useT();
   const {
@@ -331,6 +349,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <ul className="py-1">
             {filtered.map((seg) => {
               const isActive = displaySegments[activeIndex] === seg;
+              const seekMs = getTranscriptSeekMs(seg, query, segments);
               return (
                 <li key={seg.startMs}>
                   <TranscriptSegmentRow
@@ -339,12 +358,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                     gutter="panel"
                     onClick={(event) => {
                       if (hasSelectionWithin(event.currentTarget)) return;
-                      onSeek(seg.startMs);
+                      onSeek(seekMs);
                     }}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      onSeek(seg.startMs);
+                      onSeek(seekMs);
                     }}
                   >
                     <span

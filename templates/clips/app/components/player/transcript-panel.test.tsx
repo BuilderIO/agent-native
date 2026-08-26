@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  getTranscriptSeekMs,
   mergeTranscriptSegmentsForDisplay,
   TranscriptPanel,
 } from "./transcript-panel";
@@ -112,5 +113,17 @@ describe("mergeTranscriptSegmentsForDisplay", () => {
         text: "What's up, Sean? So in terms of users and audience, not too different, the big thing here is basically like, the builder audience is just big enough.",
       },
     ]);
+  });
+
+  it("seeks to the matching raw cue when a paragraph is searched", () => {
+    const segments = [
+      { startMs: 0, endMs: 2_000, text: "First thought." },
+      { startMs: 2_000, endMs: 4_000, text: "The matching phrase." },
+    ];
+    const [displaySegment] = mergeTranscriptSegmentsForDisplay(segments);
+
+    expect(
+      getTranscriptSeekMs(displaySegment, "matching phrase", segments),
+    ).toBe(2_000);
   });
 });
