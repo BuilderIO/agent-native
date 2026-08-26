@@ -525,6 +525,7 @@ export function createAgentNativeBrowserSessionBridge(
   let fallbackSessionId: string | null = null;
   let started = false;
   let onVisibility: (() => void) | undefined;
+  let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
 
   async function refreshRegistration(): Promise<AgentNativeBrowserSessionRecord> {
     const direct = hasDirectHost(options);
@@ -540,6 +541,7 @@ export function createAgentNativeBrowserSessionBridge(
           requestAgentNativeHostActions(hostOptions).catch(() => []),
           resolveWebMcpTools(options),
         ]);
+    if (webmcpTools !== undefined) lastWebMcpTools = webmcpTools;
     const hostSession = context.session;
     if (!currentSessionId) {
       currentSessionId =
@@ -557,7 +559,9 @@ export function createAgentNativeBrowserSessionBridge(
       sessionId: currentSessionId,
       context,
       actions,
-      ...(webmcpTools ? { webmcpTools } : {}),
+      ...(lastWebMcpTools !== undefined
+        ? { webmcpTools: lastWebMcpTools }
+        : {}),
       ttlMs: options.ttlMs,
     });
     return body.session as AgentNativeBrowserSessionRecord;
