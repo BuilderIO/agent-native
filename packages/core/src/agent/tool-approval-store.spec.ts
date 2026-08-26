@@ -299,6 +299,52 @@ describe("agent tool approval store", () => {
     ).toBe(false);
   });
 
+  it("persists Always Allow when another tab approved the exact ask first", async () => {
+    queueApprovalTableReady();
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            turn_id: binding.turnId,
+            tool_name: binding.toolName,
+            approval_key_hash: "approval-hash",
+            status: "approved",
+            expires_at: Date.now() + 60_000,
+          },
+        ],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+    const { alwaysAllowAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      alwaysAllowAgentToolApproval({
+        approval: {
+          approvalId: "ask-1",
+          ownerEmail: binding.ownerEmail,
+          orgId: binding.orgId,
+          threadId: binding.threadId,
+        },
+        policy: {
+          ownerEmail: binding.ownerEmail,
+          orgId: binding.orgId,
+          toolName: binding.toolName,
+        },
+      }),
+    ).resolves.toBe("approved");
+    expect(
+      dbMocks.execute.mock.calls.some(([statement]) =>
+        String(statement.sql).includes(
+          "INSERT INTO agent_tool_approval_policies",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("uses one conditional atomic batch for Always Allow on D1", async () => {
     dbMocks.getDialect.mockReturnValue("d1");
     queueApprovalTableReady();
@@ -339,13 +385,13 @@ describe("agent tool approval store", () => {
       }),
       expect.objectContaining({
         sql: expect.stringMatching(
-          /INSERT INTO agent_tool_approval_policies[\s\S]*WHERE EXISTS[\s\S]*status = 'always_allowed'/,
+          /INSERT INTO agent_tool_approval_policies[\s\S]*WHERE EXISTS[\s\S]*status IN \('approved', 'always_allowed', 'consumed'\)/,
         ),
       }),
     ]);
   });
 
-  it("denies one logical call idempotently without touching parallel approvals", async () => {
+  it("denies one durable ask idempotently without touching matching parallel approvals", async () => {
     queueApprovalTableReady();
     const logical = {
       turn_id: binding.turnId,
@@ -357,7 +403,7 @@ describe("agent tool approval store", () => {
         rows: [{ ...logical, status: "pending" }],
         rowsAffected: 0,
       })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 2 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({
         rows: [{ status: "denied" }],
         rowsAffected: 0,
@@ -393,8 +439,9 @@ describe("agent tool approval store", () => {
     expect(denyQuery.sql).toMatch(
       /approval_key_hash = \?[\s\S]*status = 'pending'/,
     );
+    expect(denyQuery.sql).toMatch(/WHERE id = \?/);
+    expect(denyQuery.args).toContain("ask-1");
     expect(denyQuery.args).toContain("approval-hash");
-    expect(denyQuery.args).not.toContain("parallel-ask");
   });
 
   it("returns terminal resolutions used to rehydrate approval cards after reload", async () => {

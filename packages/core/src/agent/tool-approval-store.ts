@@ -561,10 +561,14 @@ export async function alwaysAllowAgentToolApproval(input: {
         await writeAgentToolApprovalPolicy(tx, input.policy, true);
         return "approved";
       }
-      return storedApprovalDecision(
-        await readAgentToolApproval(input.approval, tx),
-        now,
-      );
+      const approval = await readAgentToolApproval(input.approval, tx);
+      const decision = storedApprovalDecision(approval, now);
+      if (decision === "denied") return decision;
+      if (approval?.tool_name !== input.policy.toolName) return null;
+      if (decision === "approved" || decision === "consumed") {
+        await writeAgentToolApprovalPolicy(tx, input.policy, true);
+      }
+      return decision;
     });
   }
   if (!client.atomicBatch) {
@@ -580,7 +584,8 @@ export async function alwaysAllowAgentToolApproval(input: {
         SELECT 1 FROM agent_tool_approvals
         WHERE id = ? AND owner_email = ?
           AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-          AND thread_id = ? AND tool_name = ? AND status = 'always_allowed'
+          AND thread_id = ? AND tool_name = ?
+          AND status IN ('approved', 'always_allowed', 'consumed')
       )`,
   );
   policy.args = [
@@ -617,6 +622,7 @@ export async function denyAgentToolApproval(
   if (logical.status !== "pending") return null;
 
   const logicalArgs = [
+    input.approvalId,
     input.ownerEmail,
     input.orgId ?? null,
     input.orgId ?? null,
@@ -629,7 +635,7 @@ export async function denyAgentToolApproval(
   await client.execute({
     sql: `UPDATE agent_tool_approvals
       SET status = 'denied', updated_at = ?
-      WHERE owner_email = ?
+      WHERE id = ? AND owner_email = ?
         AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
         AND thread_id = ?
         AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
