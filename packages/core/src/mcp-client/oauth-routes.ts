@@ -373,7 +373,10 @@ export async function resolveManagedMcpOAuthClient(
   if (!client) return undefined;
 
   for (const [clientIdKey, clientSecretKey] of client.credentialPairs) {
-    const credentials = await resolveSecretPair([clientIdKey, clientSecretKey]);
+    const credentials = await resolveSecretPair(
+      [clientIdKey, clientSecretKey],
+      { allowUserScope: false },
+    );
     if (credentials) {
       const [clientId, clientSecret] = credentials;
       return {

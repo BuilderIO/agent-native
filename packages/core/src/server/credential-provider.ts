@@ -1698,8 +1698,10 @@ export async function resolveSecret(key: string): Promise<string | null> {
  */
 export async function resolveSecretPair(
   keys: readonly [string, string],
+  options?: { allowUserScope?: boolean },
 ): Promise<[string, string] | null> {
   const [firstKey, secondKey] = keys;
+  const allowUserScope = options?.allowUserScope ?? true;
   const readPair = async (
     scope: "user" | "org" | "workspace",
     scopeId: string,
@@ -1728,8 +1730,11 @@ export async function resolveSecretPair(
   let lookupFailed = false;
   let cause: unknown;
   try {
-    let pair = await readPair("user", email);
-    if (pair) return pair;
+    let pair: [string, string] | null = null;
+    if (allowUserScope) {
+      pair = await readPair("user", email);
+      if (pair) return pair;
+    }
 
     let orgId: string | null | undefined = getRequestOrgId();
     if (!orgId) {
@@ -1753,8 +1758,10 @@ export async function resolveSecretPair(
       if (pair) return pair;
     }
 
-    pair = await readPair("workspace", `solo:${email}`);
-    if (pair) return pair;
+    if (allowUserScope) {
+      pair = await readPair("workspace", `solo:${email}`);
+      if (pair) return pair;
+    }
 
     const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
     if (vaultOrgId && vaultOrgId !== orgId) {
