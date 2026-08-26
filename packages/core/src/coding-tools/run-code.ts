@@ -32,6 +32,8 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
+import { createRunner, RunError, type HostFunctions } from "run";
+
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -64,8 +66,26 @@ const TOOL_ORCHESTRATION_MAX_CALLS = 128;
 const TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES = 20;
 /** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
+const RUN_MAX_CONSOLE_OUTPUT_BYTES = 512 * 1024;
+const RUN_MAX_RESULT_BYTES = 2 * 1024 * 1024;
+const RUN_MAX_SOURCE_BYTES = 256 * 1024;
+
+const runEvaluator = createRunner({
+  limits: {
+    memoryLimitBytes: 64 * 1024 * 1024,
+    maxStackSizeBytes: 2 * 1024 * 1024,
+    maxResultBytes: RUN_MAX_RESULT_BYTES,
+    maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
+    maxSourceBytes: RUN_MAX_SOURCE_BYTES,
+    maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
+    maxHostFunctionOutputBytes: 4 * 1024 * 1024,
+    maxBridgeRequests: 256,
+    maxInFlightBridgeRequests: 32,
+  },
+});
 
 export type SandboxCodeMode = "run-code" | "tool-orchestration";
+export type SandboxCodeEvaluator = "node" | "run";
 
 /** Tools callable via the sandbox bridge by default. */
 const DEFAULT_BRIDGE_TOOLS = new Set([
@@ -82,6 +102,8 @@ export interface RunCodeOptions {
    * forward to the registered action registry.
    */
   bridgeTools?: string[];
+  /** Evaluator used by this action surface. Production uses the hardened Run runtime. */
+  evaluator?: SandboxCodeEvaluator;
 }
 
 /**
@@ -96,6 +118,7 @@ export function createRunCodeEntry(
   opts: RunCodeOptions = {},
 ): ActionEntry {
   const extraBridgeTools = new Set(opts.bridgeTools ?? []);
+  const evaluator = opts.evaluator ?? "node";
 
   // Make this entry's action surface available to the durable background
   // executor (first registration wins — the host builds the full-surface
@@ -110,8 +133,18 @@ export function createRunCodeEntry(
         getActions,
         extraBridgeTools,
         context,
+        evaluator,
       }),
   });
+
+  const runtimeDescription =
+    evaluator === "run"
+      ? "The production evaluator is a hardened QuickJS runtime: it has no Node modules, filesystem, environment, network, timers, or imports; authenticated access is available only through the approved globals."
+      : "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.";
+  const codeDescription =
+    evaluator === "run"
+      ? "JavaScript source to execute. Top-level await and return are allowed; Node ESM imports are not available. Required unless polling with executionId."
+      : "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.";
 
   return {
     readOnly: true,
@@ -122,9 +155,11 @@ export function createRunCodeEntry(
     maxResultChars: MAX_OUTPUT_CHARS,
     tool: {
       description: [
-        "Execute JavaScript (Node.js, ESM, top-level await supported) in an isolated sandbox.",
+        evaluator === "run"
+          ? "Execute JavaScript (top-level await and return supported) in a hardened isolated QuickJS sandbox."
+          : "Execute JavaScript (Node.js, ESM, top-level await supported) in an isolated sandbox.",
         "Use this to fetch, join, aggregate, and reduce large datasets, returning only printed output to the conversation.",
-        "The sandbox runs with a scrubbed environment (no secrets) and, where the Node permission model is available, no filesystem access outside its own temp dir, no child processes, and no workers. Authenticated calls must go through the provided globals; direct network requests carry no credentials. Note: isolation is process-level (env scrub + Node permission model), not an OS-level container — outbound network from sandbox code is not blocked.",
+        runtimeDescription,
         "Available globals:",
         "  - `appAction(name, args?)` — call any registered agent-exposed read-only app action/tool and get its parsed result.",
         "    Use this to loop over app data readers and compose multi-source analyses without forcing every intermediate result into chat.",
@@ -154,8 +189,7 @@ export function createRunCodeEntry(
         properties: {
           code: {
             type: "string",
-            description:
-              "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.",
+            description: codeDescription,
           },
           timeoutMs: {
             type: "number",
@@ -226,6 +260,7 @@ export function createRunCodeEntry(
           getActions,
           extraBridgeTools,
           context,
+          evaluator,
         });
 
       const combined =
@@ -256,7 +291,7 @@ export function createRunCodeEntry(
 // ---------------------------------------------------------------------------
 
 export interface ExecuteSandboxCodeOptions {
-  /** Raw user JavaScript (ESM, top-level await allowed). */
+  /** Raw user JavaScript (ESM for Node, function-body source for Run). */
   code: string;
   /** Hard wall-clock timeout enforced by the adapter. */
   timeoutMs: number;
@@ -270,6 +305,8 @@ export interface ExecuteSandboxCodeOptions {
   maxToolCalls?: number;
   /** Request context (owner/org) applied to bridged tool calls. */
   context?: ActionRunContext;
+  /** Evaluator used for this execution. Defaults to the existing Node adapter. */
+  evaluator?: SandboxCodeEvaluator;
 }
 
 export interface ExecuteSandboxCodeResult {
@@ -292,8 +329,27 @@ export async function executeSandboxCode(
   options: ExecuteSandboxCodeOptions,
 ): Promise<ExecuteSandboxCodeResult> {
   const actions = options.getActions();
-  const bridgeToken = crypto.randomBytes(32).toString("hex");
   const mode = options.mode ?? "run-code";
+  const evaluator = options.evaluator ?? "node";
+
+  if (evaluator === "run") {
+    const bridge = createBridgeInvoker({
+      actions,
+      context: options.context,
+      defaultTools: DEFAULT_BRIDGE_TOOLS,
+      extraTools: options.extraBridgeTools ?? new Set(),
+      mode,
+      maxToolCalls: options.maxToolCalls,
+    });
+    return executeRunSandboxCode({
+      code: options.code,
+      timeoutMs: options.timeoutMs,
+      mode,
+      bridge,
+    });
+  }
+
+  const bridgeToken = crypto.randomBytes(32).toString("hex");
 
   // Start bridge server — resolves once the server is listening.
   const {
@@ -339,6 +395,7 @@ export async function executeSandboxCode(
           bridgePort,
           bridgeToken,
           mode,
+          evaluator,
         ),
         env: safeEnv,
         timeoutMs: options.timeoutMs,
@@ -657,6 +714,131 @@ interface BridgeResult {
   cleanup: () => void;
 }
 
+interface BridgeInvoker {
+  invoke: (toolName: string, args: Record<string, unknown>) => Promise<string>;
+  getUsedTools: () => string[];
+}
+
+interface BridgeInvokerOptions {
+  actions: Record<string, ActionEntry>;
+  context: ActionRunContext | undefined;
+  defaultTools: Set<string>;
+  extraTools: Set<string>;
+  mode: SandboxCodeMode;
+  maxToolCalls: number | undefined;
+}
+
+class BridgeInvocationError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "BridgeInvocationError";
+  }
+}
+
+function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
+  const usedTools = new Set<string>();
+  const callBudget =
+    options.mode === "tool-orchestration"
+      ? {
+          count: 0,
+          max: normalizeToolCallBudget(options.maxToolCalls),
+        }
+      : undefined;
+
+  const invoke = async (
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<string> => {
+    const entry = options.actions[toolName];
+    if (!entry) {
+      throw new BridgeInvocationError(
+        404,
+        `Tool "${toolName}" is not registered.`,
+      );
+    }
+
+    const isReadOnlyAction =
+      entry.readOnly === true &&
+      entry.agentTool !== false &&
+      entry.toolCallable !== false &&
+      isCallableWithoutApproval(entry);
+    const childArgs =
+      options.mode === "tool-orchestration"
+        ? boundToolOrchestrationArgs(toolName, args)
+        : args;
+
+    if (options.mode === "tool-orchestration") {
+      if (callBudget && callBudget.count >= callBudget.max) {
+        throw new BridgeInvocationError(
+          429,
+          `Tool-orchestration child-call budget exceeded (${callBudget.max}). Aggregate the current results or increase maxToolCalls within its limit.`,
+        );
+      }
+      if (!isAllowedToolOrchestrationCall(toolName, childArgs, entry)) {
+        throw new BridgeInvocationError(
+          403,
+          `Tool "${toolName}" is not permitted by tool-orchestration. Only read-only tools and GET/HEAD provider or web reads without staging or saving files are allowed; call mutating tools directly.`,
+        );
+      }
+    } else {
+      if (!isCallableWithoutApproval(entry)) {
+        throw new BridgeInvocationError(
+          403,
+          `Tool "${toolName}" requires approval and cannot be called from sandbox code. Call it directly as a native tool.`,
+        );
+      }
+      if (
+        !options.defaultTools.has(toolName) &&
+        !options.extraTools.has(toolName) &&
+        !isReadOnlyAction
+      ) {
+        const isMutatingAction =
+          entry.agentTool !== false && entry.readOnly !== true;
+        throw new BridgeInvocationError(
+          403,
+          isMutatingAction
+            ? `Tool "${toolName}" is a mutating action and cannot be called from run-code (appAction only exposes read-only actions). Call "${toolName}" directly as a native tool. For large content bodies, stage the content and pass "contentFromAttachment" instead of an inline string rather than routing it through run-code.`
+            : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
+        );
+      }
+    }
+
+    if (callBudget) callBudget.count += 1;
+    usedTools.add(toolName);
+    try {
+      return formatBridgeResult(await entry.run(childArgs, options.context));
+    } catch (error) {
+      throw new BridgeInvocationError(
+        500,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  return {
+    invoke,
+    getUsedTools: () => Array.from(usedTools).sort(),
+  };
+}
+
+function formatBridgeResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  const serialized = JSON.stringify(result, null, 2);
+  return serialized === undefined ? String(result) : serialized;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
 async function startBridgeServer(
   token: string,
   actions: Record<string, ActionEntry>,
@@ -666,14 +848,14 @@ async function startBridgeServer(
   mode: SandboxCodeMode,
   maxToolCalls: number | undefined,
 ): Promise<BridgeResult> {
-  const usedTools = new Set<string>();
-  const callBudget =
-    mode === "tool-orchestration"
-      ? {
-          count: 0,
-          max: normalizeToolCallBudget(maxToolCalls),
-        }
-      : undefined;
+  const bridge = createBridgeInvoker({
+    actions,
+    context,
+    defaultTools,
+    extraTools,
+    mode,
+    maxToolCalls,
+  });
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/tool") {
       res.writeHead(404);
@@ -705,17 +887,7 @@ async function startBridgeServer(
     });
     req.on("end", () => {
       if (rejected) return;
-      handleBridgeRequest(
-        body,
-        actions,
-        context,
-        defaultTools,
-        extraTools,
-        usedTools,
-        mode,
-        callBudget,
-        res,
-      );
+      handleBridgeRequest(body, bridge.invoke, res);
     });
     req.on("error", () => {
       res.writeHead(500);
@@ -740,26 +912,26 @@ async function startBridgeServer(
   return {
     server,
     bridgePort,
-    getUsedTools: () => Array.from(usedTools).sort(),
+    getUsedTools: bridge.getUsedTools,
     cleanup,
   };
 }
 
 function handleBridgeRequest(
   rawBody: string,
-  actions: Record<string, ActionEntry>,
-  context: ActionRunContext | undefined,
-  defaultTools: Set<string>,
-  extraTools: Set<string>,
-  usedTools: Set<string>,
-  mode: SandboxCodeMode,
-  callBudget: { count: number; max: number } | undefined,
+  invoke: BridgeInvoker["invoke"],
   res: http.ServerResponse,
 ): void {
-  let parsed: { tool?: string; args?: Record<string, unknown> };
+  let parsed: unknown;
   try {
     parsed = JSON.parse(rawBody);
   } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid JSON body" }));
+    return;
+  }
+
+  if (!isPlainRecord(parsed)) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Invalid JSON body" }));
     return;
@@ -772,87 +944,122 @@ function handleBridgeRequest(
     return;
   }
 
-  // Enforce allowlist.
-  const entry = actions[toolName];
-  // Unknown/mistyped tool: report "not registered" (404) before the
-  // access-control branch below. Otherwise an undefined `entry` falls into the
-  // allowlist 403 and returns a misleading access error for a tool that simply
-  // does not exist. (Bridge-allowlisted tools always have an entry, so this
-  // cannot mask a legitimate allowlisted call.)
-  if (!entry) {
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
-    return;
-  }
-  const isReadOnlyAction =
-    entry.readOnly === true &&
-    entry.agentTool !== false &&
-    entry.toolCallable !== false;
-  const toolArgs = parsed.args ?? {};
-  const childArgs =
-    mode === "tool-orchestration"
-      ? boundToolOrchestrationArgs(toolName, toolArgs)
-      : toolArgs;
-
-  if (mode === "tool-orchestration") {
-    if (callBudget && callBudget.count >= callBudget.max) {
-      res.writeHead(429, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          error: `Tool-orchestration child-call budget exceeded (${callBudget.max}). Aggregate the current results or increase maxToolCalls within its limit.`,
-        }),
-      );
-      return;
-    }
-    if (!isAllowedToolOrchestrationCall(toolName, childArgs, entry)) {
-      res.writeHead(403, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          error: `Tool "${toolName}" is not permitted by tool-orchestration. Only read-only tools and GET/HEAD provider or web reads without staging or saving files are allowed; call mutating tools directly.`,
-        }),
-      );
-      return;
-    }
-  } else if (
-    !defaultTools.has(toolName) &&
-    !extraTools.has(toolName) &&
-    !isReadOnlyAction
-  ) {
-    // A registered, agent-exposed action that isn't read-only is a mutation.
-    // (Unknown tools already returned 404 above, so `entry` is defined here.)
-    // Point the caller at the native tool path instead of leaving them to guess
-    // (the common trap: retrying create-extension/update-extension through
-    // appAction, which cannot work).
-    const isMutatingAction =
-      entry.agentTool !== false && entry.readOnly !== true;
-    res.writeHead(403, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        error: isMutatingAction
-          ? `Tool "${toolName}" is a mutating action and cannot be called from run-code (appAction only exposes read-only actions). Call "${toolName}" directly as a native tool. For large content bodies, stage the content and pass "contentFromAttachment" instead of an inline string rather than routing it through run-code.`
-          : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
-      }),
-    );
+  const toolArgs =
+    parsed.args === undefined
+      ? {}
+      : isPlainRecord(parsed.args)
+        ? parsed.args
+        : null;
+  if (!toolArgs) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Tool args must be a JSON object" }));
     return;
   }
 
-  if (callBudget) callBudget.count += 1;
-  usedTools.add(toolName);
-  // Run the tool with the parent request context so auth/org/owner resolution
-  // works exactly as it does in the normal agent loop.
-  entry
-    .run(childArgs, context)
-    .then((result: unknown) => {
-      const body =
-        typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  void invoke(toolName, toolArgs)
+    .then((body) => {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ result: body }));
     })
-    .catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      res.writeHead(500, { "Content-Type": "application/json" });
+    .catch((error: unknown) => {
+      const statusCode =
+        error instanceof BridgeInvocationError ? error.statusCode : 500;
+      const message = error instanceof Error ? error.message : String(error);
+      res.writeHead(statusCode, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: message }));
     });
+}
+
+interface RunBridgeResponse {
+  ok: boolean;
+  result?: string;
+  error?: string;
+}
+
+async function executeRunSandboxCode(input: {
+  code: string;
+  timeoutMs: number;
+  mode: SandboxCodeMode;
+  bridge: BridgeInvoker;
+}): Promise<ExecuteSandboxCodeResult> {
+  const hostFunctions = {
+    bridge: {
+      call: async (...args: unknown[]): Promise<RunBridgeResponse> => {
+        const toolName = args[0];
+        const toolArgs = args[1];
+        if (typeof toolName !== "string" || !toolName.trim()) {
+          return { ok: false, error: "Missing tool name" };
+        }
+        if (toolArgs !== undefined && !isPlainRecord(toolArgs)) {
+          return { ok: false, error: "Tool args must be a JSON object" };
+        }
+        try {
+          return {
+            ok: true,
+            result: await input.bridge.invoke(
+              toolName.trim(),
+              (toolArgs as Record<string, unknown> | undefined) ?? {},
+            ),
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    },
+  } as HostFunctions;
+
+  try {
+    const result = await runEvaluator.run({
+      source: buildSandboxModule(input.code, 0, "", input.mode, "run"),
+      hostFunctions,
+      limits: { timeoutMs: input.timeoutMs },
+    });
+
+    if (result.status !== "completed") {
+      return {
+        stdout: "",
+        stderr: "Run was interrupted before it completed.",
+        exitCode: 1,
+        timedOut: false,
+        bridgeToolsUsed: input.bridge.getUsedTools(),
+      };
+    }
+
+    const value = result.value as { stdout?: unknown; stderr?: unknown };
+    if (typeof value?.stdout !== "string" || typeof value.stderr !== "string") {
+      return {
+        stdout: "",
+        stderr: "Run returned an invalid output envelope.",
+        exitCode: 1,
+        timedOut: false,
+        bridgeToolsUsed: input.bridge.getUsedTools(),
+      };
+    }
+    return {
+      stdout: value.stdout,
+      stderr: value.stderr,
+      exitCode: 0,
+      timedOut: false,
+      bridgeToolsUsed: input.bridge.getUsedTools(),
+    };
+  } catch (error) {
+    const timedOut = RunError.isInstance(error) && error.code === "RUN_TIMEOUT";
+    return {
+      stdout: "",
+      stderr: formatRunError(error),
+      exitCode: 1,
+      timedOut,
+      bridgeToolsUsed: input.bridge.getUsedTools(),
+    };
+  }
+}
+
+function formatRunError(error: unknown): string {
+  if (RunError.isInstance(error)) return `${error.code}: ${error.message}`;
+  return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeToolCallBudget(value: number | undefined): number {
@@ -1019,6 +1226,7 @@ function buildSandboxModule(
   bridgePort: number,
   bridgeToken: string,
   mode: SandboxCodeMode = "run-code",
+  evaluator: SandboxCodeEvaluator = "node",
 ): string {
   const orchestrationHelpers =
     mode === "tool-orchestration"
@@ -1076,7 +1284,18 @@ async function workspaceAppend(path, content) {
 }
 `
       : "";
-  return `
+  const bridgeSetup =
+    evaluator === "run"
+      ? `
+async function _bridgeCall(tool, args) {
+  const response = await bridge.call(tool, args);
+  if (!response || response.ok !== true) {
+    throw new Error(response?.error || "Bridge call failed");
+  }
+  return response.result;
+}
+`
+      : `
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
@@ -1118,6 +1337,68 @@ async function _bridgeCall(tool, args) {
     req.end(body);
   });
 }
+`;
+  const runOutputPrelude =
+    evaluator === "run"
+      ? `
+let __runStdout = "";
+let __runStderr = "";
+let __runOutputTruncated = false;
+function __runFormat(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "undefined") return "undefined";
+  if (typeof value === "bigint") return String(value) + "n";
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? String(value) : json;
+  } catch {
+    return String(value);
+  }
+}
+function __runWrite(stream, args) {
+  const text = args.map(__runFormat).join(" ") + "\\n";
+  const current = stream === "stderr" ? __runStderr : __runStdout;
+  const remaining = ${RUN_MAX_CONSOLE_OUTPUT_BYTES} - current.length;
+  if (remaining <= 0) {
+    __runOutputTruncated = true;
+    return;
+  }
+  const next = text.slice(0, remaining);
+  if (stream === "stderr") __runStderr += next;
+  else __runStdout += next;
+  if (next.length < text.length) __runOutputTruncated = true;
+}
+const __runConsole = Object.freeze({
+  log: (...args) => __runWrite("stdout", args),
+  info: (...args) => __runWrite("stdout", args),
+  debug: (...args) => __runWrite("stdout", args),
+  warn: (...args) => __runWrite("stderr", args),
+  error: (...args) => __runWrite("stderr", args),
+});
+const console = __runConsole;
+globalThis.console = __runConsole;
+`
+      : "";
+  const userExecution =
+    evaluator === "run"
+      ? `
+await (async () => {
+${userCode}
+})();
+return { stdout: __runStdout, stderr: __runStderr };
+`
+      : `
+// Run user code
+(async () => {
+${userCode}
+})().catch((err) => {
+  console.error("Unhandled error:", err?.message ?? String(err));
+  process.exit(1);
+});
+`;
+  return `
+${bridgeSetup}
+${runOutputPrelude}
 
 function _parseBridgeResult(rawResult) {
   if (typeof rawResult !== "string") return rawResult;
@@ -1893,12 +2174,6 @@ async function workspaceList(prefix) {
   throw new Error("workspaceList: unexpected result shape: " + JSON.stringify(parsed).slice(0, 200));
 }
 
-// Run user code
-(async () => {
-${userCode}
-})().catch((err) => {
-  console.error("Unhandled error:", err?.message ?? String(err));
-  process.exit(1);
-});
+${userExecution}
 `;
 }
