@@ -89,6 +89,9 @@ export function buildGenerationBriefContext(
 const RESPONSIVE_GENERATION_REQUIREMENTS =
   'Responsive behavior is mandatory for every web design. Read the form-factor answer above: for Desktop or Both/responsive, call generate-design with `primaryViewport: "desktop"` and a 1440x1024 canvas frame; use `primaryViewport: "mobile"` only for an explicitly mobile-primary choice. Use mobile-first responsive CSS, then take desktop and mobile screenshots and fix any overflow before reporting the design complete.';
 
+const SETTLED_ANSWERS_INSTRUCTION =
+  "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
+
 /**
  * Polls design-scoped question state. When the agent writes structured
  * questions, the editor surfaces a full-canvas overlay for only this design.
@@ -115,6 +118,7 @@ export function useQuestionFlow(
     buildSubmitContext: ({ formattedAnswers }) =>
       [
         "The user answered the pre-generation questions.",
+        SETTLED_ANSWERS_INSTRUCTION,
         designId ? `Design ID: ${designId}` : "",
         "",
         "Answers:",
@@ -194,6 +198,7 @@ export function useQuestionFlow(
       );
       const context = [
         "The user answered the pre-generation questions.",
+        SETTLED_ANSWERS_INSTRUCTION,
         designId ? `Design ID: ${designId}` : "",
         "",
         "Answers:",
