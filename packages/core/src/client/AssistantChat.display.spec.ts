@@ -81,7 +81,36 @@ describe("tool approval resolution", () => {
           ],
         },
       ]),
-    ).toEqual({ threadId: "thread-1", revision: '["ask-1"]' });
+    ).toEqual({
+      threadId: "thread-1",
+      revision: '[1,"ask-1"]',
+      durable: true,
+    });
+
+    const beforeCompletion = agentToolApprovalHydrationTarget("thread-1", [
+      {
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            approval: { approvalKey: "key-1", askId: "ask-1" },
+          },
+        ],
+      },
+    ]);
+    const afterCompletion = agentToolApprovalHydrationTarget("thread-1", [
+      {
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            approval: { approvalKey: "key-1", askId: "ask-1" },
+          },
+        ],
+      },
+      { content: [{ type: "text", text: "Completed" }] },
+    ]);
+    expect(afterCompletion?.revision).not.toBe(beforeCompletion?.revision);
   });
 
   it.each([
@@ -530,11 +559,16 @@ describe("createUserMessageRunConfig model snapshot", () => {
       undefined,
       ["create-builder-branch:{}"],
       "queued-approval",
+      undefined,
+      undefined,
+      undefined,
+      "ask-1",
     );
 
     expect(options.runConfig?.custom).toMatchObject({
       approvedToolCalls: ["create-builder-branch:{}"],
       agentNativeQueuedMessageId: "queued-approval",
+      approvalId: "ask-1",
     });
   });
 
@@ -1620,7 +1654,9 @@ describe("tool approval continuation", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
-    const start = source.indexOf("const approveToolCall = useCallback");
+    const start = source.indexOf(
+      "const continueApprovedToolCall = useCallback",
+    );
     const end = source.indexOf("const approvalCtx = useMemo", start);
     const approvalSource = source.slice(start, end);
 

@@ -3332,7 +3332,7 @@ export interface ExecuteAgentToolCallOptions {
   ) => Promise<string | void>;
   consumeApproval?: (
     binding: AgentApprovalBinding,
-  ) => Promise<boolean | "denied">;
+  ) => Promise<boolean | "denied" | "consumed">;
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
@@ -4680,7 +4680,7 @@ export async function runAgentLoop(opts: {
   ) => Promise<string | void>;
   consumeApproval?: (
     binding: AgentApprovalBinding,
-  ) => Promise<boolean | "denied">;
+  ) => Promise<boolean | "denied" | "consumed">;
   /** User-scoped action-type policy, checked only after needsApproval. */
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
@@ -5989,14 +5989,19 @@ export async function runAgentLoop(opts: {
           ? await opts.consumeApproval(approvalBinding)
           : requestedApproval;
       const wasApproved = approvalDecision === true;
-      if (approvalDecision === "denied") {
+      if (approvalDecision === "denied" || approvalDecision === "consumed") {
         const result =
-          `Denied by the user: "${toolCall.name}" did NOT execute. ` +
-          "This exact request cannot be approved later.";
+          approvalDecision === "denied"
+            ? `Denied by the user: "${toolCall.name}" did NOT execute. ` +
+              "This exact request cannot be approved later."
+            : `The approved "${toolCall.name}" request already completed and was not run again.`;
         turnYieldedToUser = true;
         requestedActionStop ??= {
           message: result,
-          errorCode: "approval-denied",
+          errorCode:
+            approvalDecision === "denied"
+              ? "approval-denied"
+              : "approval-consumed",
         };
         return declineToolCall(result);
       }
@@ -9561,6 +9566,10 @@ export function createProductionAgentHandler(
             .filter((key: unknown): key is string => typeof key === "string")
             .slice(0, 200)
         : undefined;
+    const requestedApprovalId =
+      typeof body.approvalId === "string" && body.approvalId.trim()
+        ? body.approvalId.trim()
+        : undefined;
     // The durable approval row is the authorization boundary. Do not require
     // the client to reproduce the original structured history exactly: the UI
     // may truncate tool arguments and intentionally assigns fresh replay ids.
@@ -9647,6 +9656,7 @@ export function createProductionAgentHandler(
             threadId,
             requestedTurnId: requestTurnId,
             approvalKeys: requestedApprovedToolCalls,
+            approvalId: requestedApprovalId,
           })
         : null;
     const effectiveTurnId =
@@ -9670,6 +9680,7 @@ export function createProductionAgentHandler(
         orgId: approvalOrgId,
         threadId: effectiveThreadId,
         turnId: effectiveTurnId,
+        ...(requestedApprovalId ? { approvalId: requestedApprovalId } : {}),
         toolName: binding.toolName,
         callId: binding.callId,
         approvalKey: binding.approvalKey,

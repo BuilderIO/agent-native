@@ -70,8 +70,10 @@ import {
   type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
 import {
+  alwaysAllowAgentToolApproval,
   appendAgentChatContextToMessage,
   AgentToolApprovalRequestError,
+  approveAgentToolApproval,
   denyAgentToolApproval,
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
@@ -311,6 +313,7 @@ export function createUserMessageRunConfig(
     effort?: ReasoningEffort;
   },
   turnId?: string,
+  approvalId?: string,
 ) {
   const custom: {
     references?: Reference[];
@@ -318,6 +321,7 @@ export function createUserMessageRunConfig(
     trackInRunsTray?: boolean;
     agentNativeQueuedMessageId?: string;
     approvedToolCalls?: string[];
+    approvalId?: string;
     model?: string;
     engine?: string;
     effort?: ReasoningEffort;
@@ -340,6 +344,9 @@ export function createUserMessageRunConfig(
   }
   if (approvedToolCalls && approvedToolCalls.length > 0) {
     custom.approvedToolCalls = approvedToolCalls;
+  }
+  if (approvalId) {
+    custom.approvalId = approvalId;
   }
   if (turnId) {
     custom.turnId = turnId;
@@ -1778,6 +1785,7 @@ type QueuedMessage = {
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
   approvedToolCalls?: string[];
+  approvalId?: string;
   /** Preserve the logical turn when a hidden reconnect recovery is re-issued. */
   turnId?: string;
   /**
@@ -2126,7 +2134,8 @@ export interface AssistantChatProps {
     onAlwaysAllow?: (
       approvalKey: string,
       toolName: string,
-    ) => void | Promise<void>;
+      askId?: string,
+    ) => ApprovalResolution | void | Promise<ApprovalResolution | void>;
     alwaysAllowScope?: "action" | "exact-command";
   };
   /**
@@ -2448,9 +2457,10 @@ export function resolveApprovalResolution(input: {
 export function agentToolApprovalHydrationTarget(
   threadId: string | null | undefined,
   messages: readonly { content?: readonly unknown[] }[],
-): { threadId: string; revision: string } | null {
+): { threadId: string; revision: string; durable: boolean } | null {
   if (!threadId) return null;
   const approvals: string[] = [];
+  let durable = true;
   for (const message of messages) {
     for (const part of message.content ?? []) {
       if (!part || typeof part !== "object") continue;
@@ -2466,16 +2476,25 @@ export function agentToolApprovalHydrationTarget(
       ) {
         continue;
       }
-      approvals.push(
+      if (
         typeof toolCall.approval.askId === "string" &&
-          toolCall.approval.askId.length > 0
-          ? toolCall.approval.askId
-          : `${typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : ""}\u0000${toolCall.approval.approvalKey}`,
-      );
+        toolCall.approval.askId.length > 0
+      ) {
+        approvals.push(toolCall.approval.askId);
+      } else {
+        durable = false;
+        approvals.push(
+          `${typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : ""}\u0000${toolCall.approval.approvalKey}`,
+        );
+      }
     }
   }
   return approvals.length > 0
-    ? { threadId, revision: JSON.stringify(approvals) }
+    ? {
+        threadId,
+        revision: JSON.stringify([messages.length, ...approvals]),
+        durable,
+      }
     : null;
 }
 
@@ -4798,6 +4817,7 @@ const AssistantChatInner = forwardRef<
                 effort: next.effort,
               },
               next.turnId,
+              next.approvalId,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
           appended = true;
@@ -5178,6 +5198,7 @@ const AssistantChatInner = forwardRef<
       submitMessageId?: string,
       approvedToolCalls?: string[],
       continuationTurnId?: string,
+      continuationApprovalId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       if (!preserveReconnectAutoRecoveryBudget) {
@@ -5357,6 +5378,9 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
+            ...(continuationApprovalId
+              ? { approvalId: continuationApprovalId }
+              : {}),
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
             ...modelSnapshot,
           },
@@ -5380,6 +5404,9 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
+            ...(continuationApprovalId
+              ? { approvalId: continuationApprovalId }
+              : {}),
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
             ...modelSnapshot,
           },
@@ -5403,6 +5430,7 @@ const AssistantChatInner = forwardRef<
               hideUserMessage,
               undefined,
               continuationTurnId,
+              continuationApprovalId,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
@@ -5915,10 +5943,12 @@ const AssistantChatInner = forwardRef<
     scope: string;
     status: "loading" | "ready" | "error";
     resolutions: Record<string, ApprovalResolution>;
+    canResolve: boolean;
   }>(() => ({
     scope: approvalHydrationScope,
     status: approvalHydrationThreadId ? "loading" : "ready",
     resolutions: {},
+    canResolve: true,
   }));
   useEffect(() => {
     const controller = new AbortController();
@@ -5926,6 +5956,7 @@ const AssistantChatInner = forwardRef<
       scope: approvalHydrationScope,
       status: approvalHydrationThreadId ? "loading" : "ready",
       resolutions: {},
+      canResolve: true,
     });
     if (!approvalHydrationThreadId) return () => controller.abort();
     void loadAgentToolApprovalResolutions(
@@ -5933,18 +5964,20 @@ const AssistantChatInner = forwardRef<
       approvalHydrationThreadId,
       controller.signal,
     )
-      .then((resolutions) => {
+      .then(({ resolutions, canResolve }) => {
         if (!controller.signal.aborted) {
           setPersistedApprovals({
             scope: approvalHydrationScope,
             status: "ready",
             resolutions,
+            canResolve,
           });
         }
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
         const unsupportedCustomRoute =
+          approvalHydrationTarget?.durable === false &&
           apiUrl !== defaultApprovalApiUrl &&
           error instanceof AgentToolApprovalRequestError &&
           error.status === 404;
@@ -5952,6 +5985,7 @@ const AssistantChatInner = forwardRef<
           scope: approvalHydrationScope,
           status: unsupportedCustomRoute ? "ready" : "error",
           resolutions: {},
+          canResolve: true,
         });
       });
     return () => controller.abort();
@@ -5960,6 +5994,7 @@ const AssistantChatInner = forwardRef<
     approvalHydrationScope,
     approvalHydrationThreadId,
     approvalHydrationRetry,
+    approvalHydrationTarget?.durable,
     defaultApprovalApiUrl,
   ]);
   const approvalHydrationStatus = !approvalHydrationThreadId
@@ -6012,27 +6047,8 @@ const AssistantChatInner = forwardRef<
     [approvalResolutionScope],
   );
 
-  // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
-  // tool call, re-issue the turn carrying the call's approval key so the server
-  // gate lets that specific call run. Reuses the same append path as recovery /
-  // queued messages (no hand-written fetch).
-  const approveToolCall = useCallback(
+  const continueApprovedToolCall = useCallback(
     async (approvalKey: string, askId?: string) => {
-      if (threadId && askId) {
-        try {
-          const resolutions = await loadAgentToolApprovalResolutions(
-            apiUrl,
-            threadId,
-          );
-          if (resolutions[askId] === "denied") return "denied" as const;
-        } catch (error) {
-          const unsupportedCustomRoute =
-            apiUrl !== defaultApprovalApiUrl &&
-            error instanceof AgentToolApprovalRequestError &&
-            error.status === 404;
-          if (!unsupportedCustomRoute) throw error;
-        }
-      }
       await addToQueue(
         "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
         undefined,
@@ -6047,46 +6063,67 @@ const AssistantChatInner = forwardRef<
         true, // hideUserMessage: this is a protocol continuation, not a new prompt
         undefined,
         [approvalKey],
+        undefined,
+        askId,
       );
       return "approved" as const;
     },
-    [addToQueue, apiUrl, defaultApprovalApiUrl, threadId],
+    [addToQueue],
+  );
+  // Durable asks are resolved before their hidden continuation is queued. The
+  // exact ask row, not client state, decides concurrent Approve/Deny clicks.
+  const approveToolCall = useCallback(
+    async (approvalKey: string, askId?: string) => {
+      if (threadId && askId) {
+        const resolution = await approveAgentToolApproval(apiUrl, {
+          threadId,
+          approvalId: askId,
+        });
+        if (resolution === "denied") return resolution;
+        if (resolution === "consumed") return "approved" as const;
+      }
+      return continueApprovedToolCall(approvalKey, askId);
+    },
+    [apiUrl, continueApprovedToolCall, threadId],
   );
   const alwaysAllowToolCall = useCallback(
-    (approvalKey: string, toolName: string, askId?: string) => {
+    async (approvalKey: string, toolName: string, askId?: string) => {
       if (approvalActions?.onAlwaysAllow) {
-        return approvalActions.onAlwaysAllow(approvalKey, toolName);
+        return approvalActions.onAlwaysAllow(approvalKey, toolName, askId);
       }
-      return callAction("set-tool-approval-policy", {
-        toolName,
-        enabled: true,
-      }).then(() => approveToolCall(approvalKey, askId));
+      if (threadId && askId) {
+        const resolution = await alwaysAllowAgentToolApproval(apiUrl, {
+          threadId,
+          approvalId: askId,
+          toolName,
+        });
+        if (resolution === "denied") return resolution;
+        if (resolution === "consumed") return "approved" as const;
+      } else {
+        await callAction("set-tool-approval-policy", {
+          toolName,
+          enabled: true,
+        });
+      }
+      return continueApprovedToolCall(approvalKey, askId);
     },
-    [approvalActions, approveToolCall],
+    [apiUrl, approvalActions, continueApprovedToolCall, threadId],
   );
   const denyToolCall = useCallback(
     async (approvalKey: string, askId?: string) => {
       let resolution: ApprovalResolution = "denied";
       if (threadId && askId) {
-        try {
-          resolution = await denyAgentToolApproval(apiUrl, {
-            threadId,
-            approvalId: askId,
-          });
-        } catch (error) {
-          const unsupportedCustomRoute =
-            apiUrl !== defaultApprovalApiUrl &&
-            error instanceof AgentToolApprovalRequestError &&
-            error.status === 404;
-          if (!unsupportedCustomRoute) throw error;
-        }
+        resolution = await denyAgentToolApproval(apiUrl, {
+          threadId,
+          approvalId: askId,
+        });
       }
       if (resolution === "denied") {
         await Promise.resolve(approvalActions?.onDeny?.(approvalKey));
       }
       return resolution;
     },
-    [apiUrl, approvalActions, defaultApprovalApiUrl, threadId],
+    [apiUrl, approvalActions, threadId],
   );
   const showActionTypeApprovalPolicy =
     approvalActions?.alwaysAllowScope !== "exact-command";
@@ -6094,6 +6131,10 @@ const AssistantChatInner = forwardRef<
     () => ({
       getApprovalResolution,
       approvalHydrationStatus,
+      canResolveApprovals:
+        persistedApprovals.scope === approvalHydrationScope
+          ? persistedApprovals.canResolve
+          : false,
       onRetryApprovalResolutions: () =>
         setApprovalHydrationRetry((value) => value + 1),
       onApprovalResolved: recordApprovalResolution,
@@ -6106,9 +6147,12 @@ const AssistantChatInner = forwardRef<
     [
       alwaysAllowToolCall,
       approvalHydrationStatus,
+      approvalHydrationScope,
       approveToolCall,
       denyToolCall,
       getApprovalResolution,
+      persistedApprovals.canResolve,
+      persistedApprovals.scope,
       recordApprovalResolution,
       showActionTypeApprovalPolicy,
     ],

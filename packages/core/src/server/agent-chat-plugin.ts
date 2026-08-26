@@ -111,6 +111,8 @@ import {
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import {
+  alwaysAllowAgentToolApproval,
+  approveAgentToolApproval,
   denyAgentToolApproval,
   listAgentToolApprovalResolutions,
 } from "../agent/tool-approval-store.js";
@@ -132,6 +134,7 @@ import {
   registerChatThreadsShareable,
   resolveRunThreadScope,
   resolveThreadAccess,
+  resolveThreadAccessIdentity,
   listThreads,
   searchThreads,
   renameThread,
@@ -467,7 +470,7 @@ export async function resolveAgentApprovalThreadScope(
   activeOrgId: string | null | undefined,
   threadId: string,
   role: "viewer" | "editor",
-  resolveAccess: typeof resolveThreadAccess = resolveThreadAccess,
+  resolveAccess: typeof resolveThreadAccessIdentity = resolveThreadAccessIdentity,
 ) {
   return resolveProductionAgentApprovalThreadScope(
     callerEmail,
@@ -5271,12 +5274,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ? (getQuery(event).threadId ?? "")
                 : (body?.threadId ?? ""),
             );
-            const approvalScope = await resolveAgentApprovalThreadScope(
+            const editorScope = await resolveAgentApprovalThreadScope(
               ownerEmail,
               orgId,
               threadId,
-              method === "GET" ? "viewer" : "editor",
+              "editor",
             );
+            const approvalScope =
+              editorScope ??
+              (method === "GET"
+                ? await resolveAgentApprovalThreadScope(
+                    ownerEmail,
+                    orgId,
+                    threadId,
+                    "viewer",
+                  )
+                : null);
             if (!threadId || !approvalScope) {
               setResponseStatus(event, 404);
               return { error: "Thread not found" };
@@ -5285,21 +5298,53 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 resolutions:
                   await listAgentToolApprovalResolutions(approvalScope),
+                canResolve: Boolean(editorScope),
               };
             }
             if (method !== "POST" || typeof body?.approvalId !== "string") {
               setResponseStatus(event, 400);
               return { error: "approvalId required" };
             }
-            const resolution = await denyAgentToolApproval({
-              ...approvalScope,
-              approvalId: body.approvalId,
-            });
+            const operation = body?.operation ?? "deny";
+            let resolution;
+            if (operation === "approve") {
+              resolution = await approveAgentToolApproval({
+                ...approvalScope,
+                approvalId: body.approvalId,
+              });
+            } else if (operation === "always_allow") {
+              if (typeof body?.toolName !== "string" || !body.toolName.trim()) {
+                setResponseStatus(event, 400);
+                return { error: "toolName required" };
+              }
+              resolution = await alwaysAllowAgentToolApproval({
+                approval: {
+                  ...approvalScope,
+                  approvalId: body.approvalId,
+                },
+                policy: {
+                  ownerEmail,
+                  orgId,
+                  toolName: body.toolName,
+                },
+              });
+            } else if (operation === "deny") {
+              resolution = await denyAgentToolApproval({
+                ...approvalScope,
+                approvalId: body.approvalId,
+              });
+            } else {
+              setResponseStatus(event, 400);
+              return { error: "Invalid approval operation" };
+            }
             if (!resolution) {
               setResponseStatus(event, 404);
               return { error: "Approval not found" };
             }
-            return { resolution };
+            return {
+              resolution: resolution === "consumed" ? "approved" : resolution,
+              ...(resolution === "consumed" ? { consumed: true } : {}),
+            };
           },
         ),
       );

@@ -158,6 +158,8 @@ export type ApprovalContextValue = {
     toolName: string,
     askId?: string,
   ) => ApprovalResolution | void | Promise<ApprovalResolution | void>;
+  /** Whether this caller has editor access to resolve durable approvals. */
+  canResolveApprovals?: boolean;
   approvalHydrationStatus?: "loading" | "ready" | "error";
   onRetryApprovalResolutions?: () => void;
 };
@@ -594,8 +596,11 @@ function ApprovalAffordance({
   const approveInFlight = React.useRef(false);
   const denyInFlight = React.useRef(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const canResolveApprovals = ctx?.canResolveApprovals !== false;
   const onAlwaysAllow =
-    approval.allowPersistentApproval === false ? undefined : ctx?.onAlwaysAllow;
+    approval.allowPersistentApproval === false || !canResolveApprovals
+      ? undefined
+      : ctx?.onAlwaysAllow;
   const retainedResolution =
     ctx?.getApprovalResolution?.(
       approval.approvalKey,
@@ -702,7 +707,7 @@ function ApprovalAffordance({
       <span className="min-w-0 flex-1 text-xs text-muted-foreground">
         {t("agentChat.approval.question", { tool: toolName })}
       </span>
-      {ctx && (
+      {ctx && canResolveApprovals && (
         <div className="inline-flex shrink-0 items-stretch">
           <button
             type="button"
@@ -747,19 +752,21 @@ function ApprovalAffordance({
           )}
         </div>
       )}
-      <button
-        type="button"
-        disabled={isResolving || hydrationBlocked}
-        onClick={() => void handleDeny()}
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
-          "text-foreground hover:bg-muted",
-          "disabled:pointer-events-none disabled:opacity-50",
-        )}
-      >
-        <IconX className="h-3.5 w-3.5" />
-        {t("agentChat.approval.deny")}
-      </button>
+      {(!ctx || canResolveApprovals) && (
+        <button
+          type="button"
+          disabled={isResolving || hydrationBlocked}
+          onClick={() => void handleDeny()}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+            "text-foreground hover:bg-muted",
+            "disabled:pointer-events-none disabled:opacity-50",
+          )}
+        >
+          <IconX className="h-3.5 w-3.5" />
+          {t("agentChat.approval.deny")}
+        </button>
+      )}
       {saveFailed && (
         <span role="alert" className="basis-full text-xs text-destructive">
           {t("agentChat.common.saveFailed")}

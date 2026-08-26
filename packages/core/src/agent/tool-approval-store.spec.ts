@@ -2,11 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
   execute: vi.fn(),
+  transaction: vi.fn(),
+  atomicBatch: vi.fn(),
+  getDialect: vi.fn(() => "sqlite"),
   isPostgres: vi.fn(() => false),
 }));
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: dbMocks.execute }),
+  getDbExec: () => ({
+    execute: dbMocks.execute,
+    transaction: dbMocks.transaction,
+    atomicBatch: dbMocks.atomicBatch,
+  }),
+  getDialect: dbMocks.getDialect,
   intType: () => "INTEGER",
   isPostgres: dbMocks.isPostgres,
   retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
@@ -40,8 +48,16 @@ describe("agent tool approval store", () => {
     vi.resetModules();
     dbMocks.execute.mockReset();
     dbMocks.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    dbMocks.transaction.mockReset();
+    dbMocks.transaction.mockImplementation(async (fn) =>
+      fn({ execute: dbMocks.execute }),
+    );
+    dbMocks.atomicBatch.mockReset();
+    dbMocks.atomicBatch.mockResolvedValue([]);
     dbMocks.isPostgres.mockReset();
     dbMocks.isPostgres.mockReturnValue(false);
+    dbMocks.getDialect.mockReset();
+    dbMocks.getDialect.mockReturnValue("sqlite");
     ddlMocks.ensureIndexExists.mockReset();
     ddlMocks.ensureIndexExists.mockResolvedValue(undefined);
     ddlMocks.ensureTableExists.mockReset();
@@ -66,9 +82,7 @@ describe("agent tool approval store", () => {
     expect(dbMocks.execute.mock.calls[4]?.[0].args).not.toContain(
       binding.approvalKey,
     );
-    expect(dbMocks.execute.mock.calls[5]?.[0].sql).toContain(
-      "status <> 'pending'",
-    );
+    expect(dbMocks.execute).toHaveBeenCalledTimes(5);
   });
 
   it("gives a delayed approval click at least 30 minutes before the grant expires", async () => {
@@ -138,6 +152,30 @@ describe("agent tool approval store", () => {
     ).resolves.toBeNull();
   });
 
+  it("recovers the original turn from the exact ask after Deny wins", async () => {
+    queueApprovalTableReady();
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [{ turn_id: "turn-1" }],
+      rowsAffected: 0,
+    });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        approvalId: "ask-1",
+        approvalKeys: [binding.approvalKey],
+      }),
+    ).resolves.toBe("turn-1");
+    expect(dbMocks.execute.mock.calls[4]?.[0]).toMatchObject({
+      sql: expect.stringContaining("id = ?"),
+      args: expect.arrayContaining(["ask-1"]),
+    });
+  });
+
   it.each([
     { rowsAffected: 1, expected: true },
     { rowsAffected: 0, expected: false },
@@ -199,6 +237,114 @@ describe("agent tool approval store", () => {
     expect(consumeQuery.sql).toMatch(/NOT EXISTS[\s\S]*status = 'denied'/);
   });
 
+  it("binds consumption to the exact approval and treats replay as terminal", async () => {
+    const { consumeAgentToolApproval, hashAgentToolApprovalKey } =
+      await import("./tool-approval-store.js");
+    queueApprovalTableReady();
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          turn_id: binding.turnId,
+          tool_name: binding.toolName,
+          approval_key_hash: hashAgentToolApprovalKey(binding.approvalKey),
+          status: "consumed",
+          expires_at: Date.now() + 60_000,
+        },
+      ],
+      rowsAffected: 0,
+    });
+    await expect(
+      consumeAgentToolApproval({ ...binding, approvalId: "ask-1" }),
+    ).resolves.toBe("consumed");
+    const consume = dbMocks.execute.mock.calls[4]?.[0] as {
+      sql: string;
+      args: unknown[];
+    };
+    expect(consume.sql).toContain("id = ?");
+    expect(consume.args).toContain("ask-1");
+  });
+
+  it("atomically refuses Always Allow after Deny wins", async () => {
+    queueApprovalTableReady();
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [{ status: "denied" }], rowsAffected: 0 });
+    const { alwaysAllowAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      alwaysAllowAgentToolApproval({
+        approval: {
+          approvalId: "ask-1",
+          ownerEmail: binding.ownerEmail,
+          orgId: binding.orgId,
+          threadId: binding.threadId,
+        },
+        policy: {
+          ownerEmail: "editor@example.com",
+          orgId: binding.orgId,
+          toolName: binding.toolName,
+        },
+      }),
+    ).resolves.toBe("denied");
+    expect(dbMocks.transaction).toHaveBeenCalledOnce();
+    expect(
+      dbMocks.execute.mock.calls.some(([statement]) =>
+        String(statement.sql).includes(
+          "INSERT INTO agent_tool_approval_policies",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("uses one conditional atomic batch for Always Allow on D1", async () => {
+    dbMocks.getDialect.mockReturnValue("d1");
+    queueApprovalTableReady();
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            status: "always_allowed",
+            expires_at: Date.now() + 60_000,
+          },
+        ],
+        rowsAffected: 0,
+      });
+    const { alwaysAllowAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      alwaysAllowAgentToolApproval({
+        approval: {
+          approvalId: "ask-1",
+          ownerEmail: binding.ownerEmail,
+          orgId: binding.orgId,
+          threadId: binding.threadId,
+        },
+        policy: {
+          ownerEmail: binding.ownerEmail,
+          orgId: binding.orgId,
+          toolName: binding.toolName,
+        },
+      }),
+    ).resolves.toBe("approved");
+    expect(dbMocks.transaction).not.toHaveBeenCalled();
+    expect(dbMocks.atomicBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        sql: expect.stringContaining("status = 'always_allowed'"),
+      }),
+      expect.objectContaining({
+        sql: expect.stringMatching(
+          /INSERT INTO agent_tool_approval_policies[\s\S]*WHERE EXISTS[\s\S]*status = 'always_allowed'/,
+        ),
+      }),
+    ]);
+  });
+
   it("denies one logical call idempotently without touching parallel approvals", async () => {
     queueApprovalTableReady();
     const logical = {
@@ -257,6 +403,11 @@ describe("agent tool approval store", () => {
       rows: [
         { id: "ask-approved", status: "consumed" },
         { id: "ask-denied", status: "denied" },
+        {
+          id: "ask-inflight",
+          status: "approved",
+          expires_at: Date.now() + 60_000,
+        },
       ],
       rowsAffected: 0,
     });

@@ -10100,6 +10100,38 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("does not execute or re-ask when an exact approval was already consumed", async () => {
+    const run = vi.fn(async () => "delivered");
+    const onApprovalRequired = vi.fn(async () => "replacement-ask");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run,
+        },
+      },
+      approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+      consumeApproval: vi.fn(async () => "consumed" as const),
+      onApprovalRequired,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(onApprovalRequired).not.toHaveBeenCalled();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("consumes an approval grant after the first exact tool-call match", async () => {
     const first = approvalEngine();
     const run = vi.fn(async () => "delivered");

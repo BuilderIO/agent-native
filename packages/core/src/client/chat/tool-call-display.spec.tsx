@@ -2788,6 +2788,30 @@ describe("ApprovalAffordance", () => {
     expect(retry).toHaveBeenCalledOnce();
   });
 
+  it("does not render mutating approval controls for a shared viewer", () => {
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{ onApprove: vi.fn(), canResolveApprovals: false }}
+        >
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1", askId: "ask-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Approve to run bash?");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash"]);
+  });
+
   it("renders Always allow only when onAlwaysAllow is provided, and it approves on click", async () => {
     const onApprove = vi.fn();
     const onAlwaysAllow = vi.fn();

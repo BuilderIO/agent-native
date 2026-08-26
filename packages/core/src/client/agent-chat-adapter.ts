@@ -2027,6 +2027,13 @@ export function createAgentChatAdapter(
         );
         return keys.length > 0 ? keys : undefined;
       })();
+      const approvalId = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { approvalId?: unknown }).approvalId
+            : undefined;
+        return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+      })();
       const requestMode =
         runConfigRequestMode === "act" || runConfigRequestMode === "plan"
           ? runConfigRequestMode
@@ -3898,6 +3905,7 @@ export function createAgentChatAdapter(
                     ? { references: runConfig.custom.references }
                     : {}),
                   ...(approvedToolCalls ? { approvedToolCalls } : {}),
+                  ...(approvalId ? { approvalId } : {}),
                 }),
               },
               STARTUP_RESPONSE_TIMEOUT_MS,

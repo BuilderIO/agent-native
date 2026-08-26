@@ -31,6 +31,14 @@ import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 export type AgentChatRequestMode = "act" | "plan";
 
 export type AgentToolApprovalResolution = "approved" | "denied";
+export type AgentToolApprovalDecision =
+  | AgentToolApprovalResolution
+  | "consumed";
+
+export interface AgentToolApprovalState {
+  resolutions: Record<string, AgentToolApprovalResolution>;
+  canResolve: boolean;
+}
 
 export class AgentToolApprovalRequestError extends Error {
   constructor(
@@ -51,14 +59,18 @@ async function approvalJson(
       response.status,
     );
   }
-  return (await response.json()) as Record<string, unknown>;
+  const payload = await response.json();
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new AgentToolApprovalRequestError("Invalid approval response", 500);
+  }
+  return payload as Record<string, unknown>;
 }
 
 export async function loadAgentToolApprovalResolutions(
   apiUrl: string,
   threadId: string,
   signal?: AbortSignal,
-): Promise<Record<string, AgentToolApprovalResolution>> {
+): Promise<AgentToolApprovalState> {
   const payload = await approvalJson(
     await fetch(
       `${apiUrl}/approvals?threadId=${encodeURIComponent(threadId)}`,
@@ -70,13 +82,65 @@ export async function loadAgentToolApprovalResolutions(
     ),
   );
   const resolutions: Record<string, AgentToolApprovalResolution> = {};
-  if (!payload.resolutions || typeof payload.resolutions !== "object") {
-    return resolutions;
+  if (
+    !payload.resolutions ||
+    typeof payload.resolutions !== "object" ||
+    Array.isArray(payload.resolutions)
+  ) {
+    throw new AgentToolApprovalRequestError("Invalid approval response", 500);
   }
   for (const [id, value] of Object.entries(payload.resolutions)) {
     if (value === "approved" || value === "denied") resolutions[id] = value;
   }
-  return resolutions;
+  return {
+    resolutions,
+    canResolve:
+      typeof payload.canResolve === "boolean" ? payload.canResolve : true,
+  };
+}
+
+async function resolveAgentToolApproval(
+  apiUrl: string,
+  input: {
+    threadId: string;
+    approvalId: string;
+    operation: "approve" | "always_allow";
+    toolName?: string;
+  },
+): Promise<AgentToolApprovalDecision> {
+  const payload = await approvalJson(
+    await fetch(`${apiUrl}/approvals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Agent-Native-CSRF": "1",
+      },
+      body: JSON.stringify(input),
+    }),
+  );
+  if (payload.resolution !== "approved" && payload.resolution !== "denied") {
+    throw new AgentToolApprovalRequestError("Invalid approval response", 500);
+  }
+  return payload.resolution === "approved" && payload.consumed === true
+    ? "consumed"
+    : payload.resolution;
+}
+
+export async function approveAgentToolApproval(
+  apiUrl: string,
+  input: { threadId: string; approvalId: string },
+): Promise<AgentToolApprovalDecision> {
+  return resolveAgentToolApproval(apiUrl, { ...input, operation: "approve" });
+}
+
+export async function alwaysAllowAgentToolApproval(
+  apiUrl: string,
+  input: { threadId: string; approvalId: string; toolName: string },
+): Promise<AgentToolApprovalDecision> {
+  return resolveAgentToolApproval(apiUrl, {
+    ...input,
+    operation: "always_allow",
+  });
 }
 
 export async function denyAgentToolApproval(
