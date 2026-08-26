@@ -25,5 +25,5 @@ export function normalizeDocumentTitle(
 ): string {
   if (isHumanReadableDocumentTitle(value)) return value.trim();
   if (isHumanReadableDocumentTitle(fallbackTitle)) return fallbackTitle.trim();
-  return "Agent Native";
+  return "Agent-Native";
 }

@@ -1776,7 +1776,7 @@ export function createCoreRoutesPlugin(
       registerFrameworkSecrets();
       registerBuiltinProviders();
       // Named for the destination it actually reaches: every configured
-      // tracking provider (PostHog, Mixpanel, Amplitude, Agent Native
+      // tracking provider (PostHog, Mixpanel, Amplitude, Agent-Native
       // Analytics, webhook), not just one of them.
       registerErrorCaptureProvider("tracking", (error, context) => {
         // Attribute to the in-flight request's user so server exceptions and
@@ -2932,9 +2932,9 @@ export function createCoreRoutesPlugin(
 
       // Branch-creation waitlist signup. Used by ConnectBuilderCard when the
       // current request has no Builder branch project configured. Hosted
-      // Agent Native deployments submit into the Builder-org Forms waitlist;
+      // Agent-Native deployments submit into the Builder-org Forms waitlist;
       // local/self-hosted deployments keep the analytics signal without
-      // sending private workspace data to Agent Native.
+      // sending private workspace data to Agent-Native.
       getH3App(nitroApp).use(
         `${P}/builder/branch-waitlist`,
         defineEventHandler(async (event: H3Event) => {
@@ -4391,7 +4391,7 @@ export function createCoreRoutesPlugin(
       // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
       // links the verified email into this app's local Better Auth store. The
       // handler fails closed unless direct web SSO is configured or the
-      // packaged Desktop SSO Canary requests a canonical Agent Native app.
+      // packaged Desktop SSO Canary requests a canonical Agent-Native app.
       // Mounting the handler unconditionally lets that request-scoped decision
       // work.
       getH3App(nitroApp).use(

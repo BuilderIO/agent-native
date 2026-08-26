@@ -35,7 +35,7 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mentionner des fichiers, des agents ou des ressources",
   "commands.new": "Identique à /clear",
   "commands.plan": "Passer à la planification en lecture seule",
-  "aboutAgentNative.title": "À propos d’Agent Native",
+  "aboutAgentNative.title": "À propos d’Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environnement",
   "aboutAgentNative.build": "Build",
@@ -317,7 +317,7 @@ const messages: AgentChatTranslation = {
   "composer.planDescription":
     "Recherche et approbation en lecture seule en premier",
   "composer.planDesktopRequired":
-    "Ouvrez Agent Native Desktop pour utiliser le mode Plan.",
+    "Ouvrez Agent-Native Desktop pour utiliser le mode Plan.",
   "composer.previewAttachment": "Aperçu {{name}}",
   "composer.reasoning": "Raisonnement",
   "composer.reasoningEffort.auto": "Auto",

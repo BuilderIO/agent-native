@@ -122,7 +122,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- Clicking the Agent Native logo now toggles the app sidebar.
+- Clicking the Agent-Native logo now toggles the app sidebar.
 
 ### Fixed
 
@@ -222,7 +222,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- The collapsed sidebar keeps the Agent Native logo visible and removes the theme toggle from the sidebar.
+- The collapsed sidebar keeps the Agent-Native logo visible and removes the theme toggle from the sidebar.
 
 ## 2026-07-26
 
@@ -901,7 +901,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Design editor panel borders are cleaner so the canvas edge stays rounded without doubled dividers.
 - Drawing prompts now reliably open and submit to the design agent.
-- Editor app menus now use an outline Agent Native mark with bordered, instant submenus.
+- Editor app menus now use an outline Agent-Native mark with bordered, instant submenus.
 - Layer selection now updates chat context without opening the agent sidebar.
 - Layer selections now preserve hidden and locked canvas state more faithfully.
 - Screen overview now handles zooming, drawing, opening, and deleting screens more reliably.

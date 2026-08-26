@@ -40,7 +40,7 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 
 ## Mobile companion lifecycle
 
-The Agent Native mobile app uses the same recording rows and binary upload
+The Agent-Native mobile app uses the same recording rows and binary upload
 routes with native capture primitives:
 
 1. Camera video/import uses `expo-camera` / the system photo picker; meeting
@@ -48,7 +48,7 @@ routes with native capture primitives:
 2. The native file is copied into the documents directory and a typed
    AsyncStorage capture job is written before upload starts.
 3. `create-recording` receives a stable client-generated id,
-   `sourceAppName: "Agent Native Mobile"`, and the container MIME type.
+   `sourceAppName: "Agent-Native Mobile"`, and the container MIME type.
 4. Upload reads at most 3 MiB through an Expo FileHandle and persists the next
    chunk index after every acknowledged POST. The 4 MiB server cap still
    applies.

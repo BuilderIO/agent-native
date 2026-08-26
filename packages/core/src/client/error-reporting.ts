@@ -84,7 +84,7 @@ export function buildGitHubIssueUrl(
   const title =
     cleanText(options.issueTitle) ??
     [
-      cleanText(options.appName) ?? "Agent Native",
+      cleanText(options.appName) ?? "Agent-Native",
       cleanText(options.title) ?? "Error screen",
     ].join(": ");
   const url = new URL(GITHUB_ISSUE_URL);

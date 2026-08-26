@@ -163,7 +163,7 @@ describe("dashboard agent context route", () => {
     const row = dashboardRow("public");
     row.id = FIRST_PARTY_DASHBOARD_ID;
     row.config = JSON.stringify({
-      name: "Agent Native Templates (First-party)",
+      name: "Agent-Native Templates (First-party)",
       panels: [
         {
           id: "new-vs-recurring-users",

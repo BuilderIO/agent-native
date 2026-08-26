@@ -3351,7 +3351,7 @@ export async function executeAgentToolCall(
   let streamCalls = 0;
   const engine: AgentEngine = {
     name: "agent-native:single-tool",
-    label: "Agent Native tool runtime",
+    label: "Agent-Native tool runtime",
     defaultModel: "agent-native:single-tool",
     supportedModels: ["agent-native:single-tool"],
     capabilities: {
@@ -3399,7 +3399,7 @@ export async function executeAgentToolCall(
     await runAgentLoop({
       engine,
       model: engine.defaultModel,
-      systemPrompt: "Execute the selected Agent Native tool call.",
+      systemPrompt: "Execute the selected Agent-Native tool call.",
       tools,
       availableTools: tools,
       messages: [

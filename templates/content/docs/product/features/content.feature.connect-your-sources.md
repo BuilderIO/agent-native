@@ -31,7 +31,7 @@ Choose governed native and provider Sources, preserve their identity, and compos
 ## Product contract
 
 - **Sources catalog:** Lists approved personal, workspace, and organization connections with their capabilities and policy.
-- **Provider adapters:** Give Builder, Notion, Drive, Agent Native apps, and later providers one shared contract with independent certification.
+- **Provider adapters:** Give Builder, Notion, Drive, Agent-Native apps, and later providers one shared contract with independent certification.
 - **Item binding:** Maps each provider item to one stable Content identity without turning the provider into the Page's owner.
 - **Typed Queries:** Combine Databases, Sources, and other Queries through one visual selection and alignment model.
 - **Provenance:** Shows where each value or representation came from and which system owns changes to it.

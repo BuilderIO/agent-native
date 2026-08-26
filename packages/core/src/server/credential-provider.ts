@@ -194,6 +194,9 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "OPENROUTER_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
+  // OAuth client ids identify the deployment; user identity remains in scoped tokens.
+  "NOTION_CLIENT_ID",
+  "NOTION_CLIENT_SECRET",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",

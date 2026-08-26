@@ -42,7 +42,7 @@ launcher, where it is hidden from the model and redeemed once.
   credential-free `openUrl` only when a read-only fallback is acceptable.
 - In Claude Code Desktop's Code tab, prefer the rendered MCP App. Preview
   `openUrl` in the Browser pane only as the read-only fallback.
-- In VS Code, use the Agent Native Design webview/deep link described below.
+- In VS Code, use the Agent-Native Design webview/deep link described below.
 - Inline browser availability is host-dependent. CLI, remote, or restricted
   sessions may not expose one. If the inline surface is unavailable or disabled,
   return the normal **Open design** link instead of claiming it opened.
@@ -363,10 +363,10 @@ Fallback, only when `open-visual-edit` is unavailable:
   one-time local-editor capability. The credential-free `openUrl` / action link
   is the safe read-only fallback; never build a capability URL yourself.
 - Never return or open a hand-built `/design/:id?_session=...` URL.
-- If the user is working in VS Code, the Agent Native extension can open the
+- If the user is working in VS Code, the Agent-Native extension can open the
   same URL via
   `vscode://builder.agent-native/open?url=<encoded-design-url>`. Its
-  `Agent Native: Open Design Canvas` command also starts the local bridge and
+  `Agent-Native: Open Design Canvas` command also starts the local bridge and
   opens hosted Design in the VS Code side panel.
 - After `open-visual-edit`, confirm the Design editor is in overview mode
   with the requested URL-backed frames visible, and that they render the app

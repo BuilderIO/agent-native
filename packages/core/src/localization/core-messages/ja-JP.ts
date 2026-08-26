@@ -32,7 +32,7 @@ const messages: AgentChatTranslation = {
   "commands.mention": "ファイル、エージェント、リソースをメンション",
   "commands.new": "/clear と同じ",
   "commands.plan": "読み取り専用の計画モードに切り替え",
-  "aboutAgentNative.title": "Agent Native について",
+  "aboutAgentNative.title": "Agent-Native について",
   "aboutAgentNative.version": "バージョン",
   "aboutAgentNative.environment": "環境",
   "aboutAgentNative.build": "ビルド",
@@ -148,7 +148,7 @@ const messages: AgentChatTranslation = {
   "composer.plan": "計画",
   "composer.planDescription": "まず読み取り専用で調査し、承認を得ます",
   "composer.planDesktopRequired":
-    "計画モードを使用するには Agent Native Desktop を開いてください。",
+    "計画モードを使用するには Agent-Native Desktop を開いてください。",
   "composer.previewAttachment": "{{name}} をプレビュー",
   "composer.reasoning": "推論",
   "composer.reasoningEffort.auto": "自動",

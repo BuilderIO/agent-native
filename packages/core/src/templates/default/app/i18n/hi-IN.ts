@@ -209,7 +209,7 @@ const messages = {
     useBuilder: "बिल्डर का प्रयोग करें",
     openDesktopToEditCode: "कोड संपादित करने के लिए डेस्कटॉप खोलें",
     codeUnavailableDescription:
-      "सोर्स-कोड परिवर्तन और CLI एक्सेस Agent Native डेस्कटॉप ऐप में उपलब्ध हैं।",
+      "सोर्स-कोड परिवर्तन और CLI एक्सेस Agent-Native डेस्कटॉप ऐप में उपलब्ध हैं।",
     downloadDesktop: "डेस्कटॉप डाउनलोड करें",
     chatMode: "चैट मोड",
     chat: "चैट",
@@ -318,7 +318,7 @@ const messages = {
       '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
     subtitle:
       "यह क्रिया स्रोत कोड बनाती या संशोधित करती है, जिसके लिए इस सतह से डेस्कटॉप या बिल्डर की आवश्यकता होती है।",
-    desktopTitle: "Agent Native डेस्कटॉप का उपयोग करें",
+    desktopTitle: "Agent-Native डेस्कटॉप का उपयोग करें",
     desktopDescription:
       "स्रोत संपादन और CLI एक्सेस सक्षम करने के लिए डेस्कटॉप ऐप में प्रोजेक्ट खोलें।",
     builderAgentTitle: "Builder.io एजेंट का प्रयोग करें",

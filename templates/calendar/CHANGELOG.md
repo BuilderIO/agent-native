@@ -98,7 +98,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-29
 
@@ -259,7 +259,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Connected calendars keep their own color when you customize them.
 - Each connected Google account can now have its own calendar color
 - Events spanning multiple days now show on every day they cover in month view
-- Google Calendar now finishes connecting correctly after signing in through Agent Native Desktop.
+- Google Calendar now finishes connecting correctly after signing in through Agent-Native Desktop.
 
 ### Removed
 

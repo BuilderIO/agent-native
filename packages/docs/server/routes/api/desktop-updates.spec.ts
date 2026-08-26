@@ -168,7 +168,7 @@ describe("desktop update asset route", () => {
           json: async () => [
             {
               tag_name: "v0.1.0-nightly.1",
-              name: "Agent Native Nightly v0.1.0-nightly.1",
+              name: "Agent-Native Nightly v0.1.0-nightly.1",
               published_at: "2026-01-02T00:00:00Z",
               draft: false,
               prerelease: true,

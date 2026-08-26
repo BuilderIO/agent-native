@@ -52,7 +52,7 @@ export interface ShareableResourceRegistration {
   getResourcePath?: (resource: any) => string | undefined;
   /**
    * Optional resolver for the share-notification email's brand logo. Return an
-   * absolute `https://` URL to override the default embedded Agent Native logo
+   * absolute `https://` URL to override the default embedded Agent-Native logo
    * (e.g. the sharing org's own logo), or undefined to fall back. Receives the
    * resource row being shared so the template can scope the logo to its org.
    */

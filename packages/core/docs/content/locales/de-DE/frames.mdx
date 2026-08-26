@@ -93,7 +93,7 @@ Das Panel läuft in einem von zwei Werkzeugmodi:
   und Datenbankzugriff zusätzlich zu den App-Tools, damit der Agent die App ändern kann
   eigene Quelle. Codeanfragen werden blockiert: wenn eine Nachricht Code erfordert
   (`type: "code"`) und kein codefähiger Rahmen angeschlossen ist, zeigt das Panel ein
-  Dialog, der erklärt, dass Codeänderungen Agent Native Desktop oder Builder erfordern;
+  Dialog, der erklärt, dass Codeänderungen Agent-Native Desktop oder Builder erfordern;
   Wenn ein Frame verbunden ist, wird die Anfrage an ihn und einen Code-Agenten weitergeleitet
   -Anzeige wird angezeigt, während es funktioniert (`useSendToAgentChat`). Für das Kanonische
   Coding-Tool-Liste und gemeinsame UI-Verträge, siehe
@@ -219,7 +219,7 @@ cd my-app
 pnpm dev
 ```
 
-Der lokale Entwicklungsrahmen (das private `@agent-native/frame`-Paket im Framework-Repository) ist ein internes Toolpaket, das nicht auf npm veröffentlicht wird. Es lädt den Entwicklungsserver der aktiven App in einen Iframe, stellt das eingebettete Panel daneben bereit und wählt die App über den Abfrageparameter `app` aus. Das integrierte CLI-Terminal erfordert den Agent Native-Desktop, der den lokalen Code und den PTY-Zugriff bereitstellt, den das Terminal benötigt; Ohne diese Option zeigt das Panel die Chat-Oberfläche an und fordert Sie auf, Desktop zu öffnen, um CLI zu verwenden.
+Der lokale Entwicklungsrahmen (das private `@agent-native/frame`-Paket im Framework-Repository) ist ein internes Toolpaket, das nicht auf npm veröffentlicht wird. Es lädt den Entwicklungsserver der aktiven App in einen Iframe, stellt das eingebettete Panel daneben bereit und wählt die App über den Abfrageparameter `app` aus. Das integrierte CLI-Terminal erfordert den Agent-Native-Desktop, der den lokalen Code und den PTY-Zugriff bereitstellt, den das Terminal benötigt; Ohne diese Option zeigt das Panel die Chat-Oberfläche an und fordert Sie auf, Desktop zu öffnen, um CLI zu verwenden.
 
 ## Kompatibilitätshinweise {#compatibility}
 
