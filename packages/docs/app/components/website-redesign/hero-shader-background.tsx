@@ -30,7 +30,11 @@ const float WAVE_SCALE = 5.5;
 const float FLOW_ANGLE = 119.;
 const float WARP = 0.35;
 const float SPEED = 0.5;
-const float POINTER_AMOUNT = 0.1;
+// Displacement peaks at roughly 0.48 * this, in uv units, where the whole
+// field spans about +/-0.9 -- so this is ~0.09 at its strongest. Much smaller
+// and the smoothed pointer lag is all you can see, which reads as the field
+// drifting on its own rather than answering the mouse.
+const float POINTER_AMOUNT = 0.18;
 const vec2 FOCUS = vec2(0., -0.05);
 const float SPREAD = 1.2;
 const float DOT_DENSITY = 131.;
@@ -113,14 +117,19 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 cellCenter = (cell + 0.5) * cellSize;
   vec2 cellUv = (uv - cellCenter) / cellSize;
 
-  // Pointer drags the sampled position, falling off with distance, so the
-  // wavefronts bend locally toward the cursor rather than the whole field
+  // Pointer drags the pattern with it, falling off with distance, so the
+  // wavefronts bend locally around the cursor rather than the whole field
   // sliding as one.
+  //
+  // The offset is *subtracted*: sampling the field from a point pulled toward
+  // the cursor shows the pattern that lives over there, which reads as the
+  // field sliding away from the mouse. Sampling from the far side is what
+  // makes the pattern travel the same direction the cursor does.
   vec2 pointerDelta = pointerUv - cellCenter;
   float pull = 1. - S(0.05, 1.6, length(pointerDelta));
   pull = pull * pull * (3. - 2. * pull);
   vec2 samplePos =
-    cellCenter + pointerDelta * pull * 0.35 * POINTER_AMOUNT * uPointer.z;
+    cellCenter - pointerDelta * pull * POINTER_AMOUNT * uPointer.z;
 
   float tone = waveField(samplePos, t);
 

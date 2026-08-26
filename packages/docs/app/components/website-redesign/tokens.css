@@ -432,6 +432,29 @@
   color: var(--b-bg-page);
 }
 
+/* Same footprint and divider as an app card so it reads as the last item in
+   the rail, but its content is centred rather than top-aligned: it has no
+   screenshot to anchor the top of the box. */
+.builder-brand-tokens .app-carousel-cta-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--spacing-4);
+  width: 320px;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  padding: var(--spacing-8) var(--spacing-6);
+  border-left: 1px solid var(--b-border-subtle);
+  background: var(--b-bg-page);
+  transition: background-color 0.15s;
+}
+
+.builder-brand-tokens .app-carousel-cta-card:hover {
+  background: var(--b-bg-raised);
+}
+
 .builder-brand-tokens .works-with-stack-arrow-tile {
   text-decoration: none;
 }
@@ -516,7 +539,8 @@
     transform: scale(var(--logo-scale, 1));
   }
 
-  .builder-brand-tokens .app-carousel-card {
+  .builder-brand-tokens .app-carousel-card,
+  .builder-brand-tokens .app-carousel-cta-card {
     width: 260px;
   }
 

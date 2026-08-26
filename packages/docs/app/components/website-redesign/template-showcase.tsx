@@ -364,9 +364,17 @@ export function TemplateShowcase() {
                   flexDirection: "column",
                   gap: "var(--spacing-2)",
                   width: "100%",
+                  marginTop: "var(--spacing-2)",
                 }}
               >
-                <BuildOnlinePopover location="homepage_rail" />
+                <BuildOnlinePopover
+                  location="homepage_rail"
+                  trigger={
+                    <Button variant="primary" icon={null}>
+                      Build online
+                    </Button>
+                  }
+                />
                 <Button variant="secondary" icon={null} href="/docs">
                   Read the docs
                 </Button>

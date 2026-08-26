@@ -2,7 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2 } from "@tabler/icons-react";
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -136,8 +136,12 @@ export function BuilderWaitlistContent({
 
 export function BuildOnlinePopover({
   location,
+  trigger,
 }: {
   location: BuilderWaitlistLocation;
+  // Redesign surfaces style their buttons from the --b-* token system; the
+  // default trigger below belongs to the older docs button vocabulary.
+  trigger?: ReactElement;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -153,9 +157,11 @@ export function BuildOnlinePopover({
       }}
     >
       <PopoverTrigger asChild>
-        <button type="button" className={primaryButtonClassName}>
-          {t("buildFromScratch.buildOnline")}
-        </button>
+        {trigger ?? (
+          <button type="button" className={primaryButtonClassName}>
+            {t("buildFromScratch.buildOnline")}
+          </button>
+        )}
       </PopoverTrigger>
       <PopoverContent
         align="center"
