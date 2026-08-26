@@ -63,6 +63,11 @@ const COOLDOWN_SECS: i64 = 8 * 60;
 /// this recently.
 const CALENDAR_SOFT_GUARD_SECS: i64 = 3 * 60;
 
+/// How long a failed `create-meeting` waits before the same call tries again.
+/// The evidence still says a call is underway, so without a backoff the retry
+/// lands on the next tick and every tick after it.
+const CREATE_RETRY_BACKOFF_SECS: i64 = 60;
+
 const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
     // (bundle_id, platform, display title)
     ("us.zoom.xos", "zoom", "Zoom meeting detected"),
@@ -306,15 +311,35 @@ impl AdhocMeetingsWatcherInner {
         self.dismissed_until.remove(platform);
     }
 
+    /// A create failed. Let the same call try again, but not on the next tick:
+    /// the evidence is untouched, so it reconfirms immediately.
+    fn note_create_failed(&mut self, platform: &str, now_ts: i64) {
+        self.session_notified.remove(platform);
+        self.prompt_cooldown_until
+            .insert(platform.to_string(), now_ts + CREATE_RETRY_BACKOFF_SECS);
+    }
+
     /// Stop tracking calls entirely: the feature is off, or a meeting is
-    /// already being transcribed. The per-call suppression goes with the
-    /// evidence, because evidence is the only thing that releases it — dropping
-    /// one and keeping the other leaves a platform suppressed with nothing left
-    /// that could ever clear it. A dismissal keeps its own clock, so it stays.
-    fn clear_tracking(&mut self) {
+    /// already being transcribed.
+    ///
+    /// The evidence that would have released `session_notified` is going away,
+    /// so that flag cannot stay as it is — nothing would ever clear it. It also
+    /// cannot simply be dropped: transcription can stop while the call and its
+    /// stream keep running, and a blank slate re-detects that call within one
+    /// `MIC_DWELL` and prompts for it again. So it becomes the cooldown, which
+    /// is bounded: a call that outlives transcription stays suppressed, and a
+    /// platform is never suppressed for longer than the cooldown. A dismissal
+    /// already has its own clock and is left alone.
+    fn clear_tracking(&mut self, now_ts: i64) {
         self.evidence.clear();
-        self.session_notified.clear();
-        self.prompt_cooldown_until.clear();
+        let notified: Vec<String> = self.session_notified.drain().map(|(p, _)| p).collect();
+        for platform in notified {
+            let until = now_ts + COOLDOWN_SECS;
+            self.prompt_cooldown_until
+                .entry(platform)
+                .and_modify(|existing| *existing = (*existing).max(until))
+                .or_insert(until);
+        }
     }
 
     fn retain_live_cooldowns(&mut self, now_ts: i64) {
@@ -582,10 +607,13 @@ async fn tick_macos(
     let meeting = match create_adhoc_meeting(app, client, platform).await {
         Ok(meeting) => meeting,
         Err(err) => {
-            // Allow retry on next dwell if create failed.
+            // Retry, but not on the very next tick. The evidence is untouched,
+            // so the call reconfirms immediately and would re-submit every two
+            // seconds for as long as the call runs. A create whose response was
+            // lost after it committed would leave one meeting row per attempt.
             if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
                 if let Ok(mut g) = state.inner.lock() {
-                    g.end_call_session(platform);
+                    g.note_create_failed(platform, now_ts);
                 }
             }
             return Err(err);
@@ -985,10 +1013,11 @@ mod tests {
     }
 
     #[test]
-    fn abandoning_evidence_takes_the_suppression_it_would_have_released() {
-        // Transcription starts, so the watcher stops sampling. Keeping the
-        // per-call flag while dropping the evidence that releases it leaves the
-        // platform suppressed with nothing left that could clear it.
+    fn abandoning_evidence_converts_suppression_into_a_bounded_one() {
+        // Transcription starts, so the watcher stops sampling. The per-call flag
+        // cannot stay (nothing would be left to release it) and cannot simply
+        // go (stopping notes mid-call would re-prompt the call still running),
+        // so it becomes the cooldown, which expires on its own.
         let now_ts = 1_000;
         let mut state = AdhocMeetingsWatcherInner::default();
         state.note_prompted("zoom", now_ts);
@@ -997,16 +1026,49 @@ mod tests {
             .evidence
             .insert("zoom".to_string(), CallEvidence::default());
 
-        state.clear_tracking();
+        state.clear_tracking(now_ts + 30);
 
         assert!(state.evidence.is_empty());
         assert!(
-            !state.is_suppressed("zoom", now_ts + 1),
-            "the next call after transcription prompts normally"
+            state.session_notified.is_empty(),
+            "the clockless flag never survives the evidence that releases it"
         );
         assert!(
-            state.is_suppressed("teams", now_ts + 1),
+            state.is_suppressed("zoom", now_ts + 31),
+            "a call that outlives transcription is not prompted for twice"
+        );
+        assert!(
+            !state.is_suppressed("zoom", now_ts + 30 + COOLDOWN_SECS),
+            "and the suppression is bounded, so it can never strand"
+        );
+        assert!(
+            state.is_suppressed("teams", now_ts + 31),
             "a dismissal has its own clock and is not ours to discard"
+        );
+    }
+
+    #[test]
+    fn a_failed_create_backs_off_instead_of_retrying_every_tick() {
+        // The evidence still says a call is underway, so the retry lands on the
+        // next two-second tick and every tick after it — and a create that
+        // committed but lost its response leaves a row per attempt.
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_prompted("zoom", now_ts);
+
+        state.note_create_failed("zoom", now_ts);
+
+        assert!(
+            state.is_suppressed("zoom", now_ts + CREATE_RETRY_BACKOFF_SECS - 1),
+            "the same call must not resubmit on the next tick"
+        );
+        assert!(
+            !state.is_suppressed("zoom", now_ts + CREATE_RETRY_BACKOFF_SECS),
+            "but the call is retried rather than abandoned"
+        );
+        assert!(
+            CREATE_RETRY_BACKOFF_SECS < COOLDOWN_SECS,
+            "a failed create retries sooner than a successful prompt repeats"
         );
     }
 
@@ -1125,7 +1187,7 @@ mod tests {
 fn reset_evidence(app: &AppHandle) {
     if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
         if let Ok(mut g) = state.inner.lock() {
-            g.clear_tracking();
+            g.clear_tracking(chrono::Utc::now().timestamp());
         }
     }
 }
