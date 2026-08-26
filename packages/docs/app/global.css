@@ -107,8 +107,10 @@
 :root {
   --fg: #171717;
   --fg-secondary: #666;
-  --bg: #fff;
-  --bg-secondary: #fafafa;
+  /* Mirrors the brand --b-bg-page / --b-bg-prominent that tokens.css paints on
+     the body; drifting from those values shows up as a seam. */
+  --bg: #faf9f5;
+  --bg-secondary: #f0efeb;
   /* The one content measure for every full-width page: docs landings, the
      template detail shell, and the redesign page grid all read this, so the
      gridlines, the header, and the page body can't drift apart. */
@@ -119,7 +121,7 @@
   --header-bg: rgba(255, 255, 255, 0.8);
   --code-bg: #f5f5f5;
   --code-border: #ebebeb;
-  --table-header-bg: #fafafa;
+  --table-header-bg: #f0efeb;
   --sidebar-hover: #f5f5f5;
   --selection: rgba(0, 114, 245, 0.15);
   --approaches-good: #15803d;
@@ -135,14 +137,14 @@
   --fg: #ededed;
   --fg-secondary: #a0a0a0;
   --bg: #0a0a0a;
-  --bg-secondary: #0a0a0a;
+  --bg-secondary: #1a1a1a;
   --docs-border: #1f1f1f;
   --docs-accent: #52a8ff;
   --docs-accent-light: rgba(82, 168, 255, 0.1);
   --header-bg: rgba(10, 10, 10, 0.8);
   --code-bg: #111;
   --code-border: #1f1f1f;
-  --table-header-bg: #0a0a0a;
+  --table-header-bg: #1a1a1a;
   --sidebar-hover: #111;
   --selection: rgba(82, 168, 255, 0.2);
   --approaches-good: #86efac;
@@ -156,14 +158,14 @@
     --fg: #ededed;
     --fg-secondary: #a0a0a0;
     --bg: #0a0a0a;
-    --bg-secondary: #0a0a0a;
+  --bg-secondary: #1a1a1a;
     --docs-border: #1f1f1f;
     --docs-accent: #52a8ff;
     --docs-accent-light: rgba(82, 168, 255, 0.1);
     --header-bg: rgba(10, 10, 10, 0.8);
     --code-bg: #111;
     --code-border: #1f1f1f;
-    --table-header-bg: #0a0a0a;
+    --table-header-bg: #1a1a1a;
     --sidebar-hover: #111;
     --selection: rgba(82, 168, 255, 0.2);
     --approaches-good: #86efac;
@@ -1858,7 +1860,6 @@ html.dark .shiki span {
 }
 
 /* Feature cards */
-.docs-home-page :where(.grid) > *,
 .templates-index-page :where(.grid) > * {
   min-width: 0;
 }
@@ -1872,177 +1873,6 @@ html.dark .shiki span {
     background-color 200ms ease;
 }
 
-.templates-side-scroll {
-  align-items: stretch;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.templates-side-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-.template-rail-card {
-  display: flex;
-}
-
-.template-rail-card > .feature-card {
-  width: 100%;
-  height: 100%;
-}
-
-.template-rail-card:not(.template-rail-cta) > .feature-card > p:nth-of-type(1) {
-  display: -webkit-box;
-  min-height: 2.6em;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.template-rail-card:not(.template-rail-cta) > .feature-card > p:nth-of-type(2) {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-}
-
-.feature-cloud {
-  isolation: isolate;
-  -webkit-mask-image: radial-gradient(
-    ellipse at 54% 50%,
-    #000 0%,
-    #000 46%,
-    rgba(0, 0, 0, 0.62) 62%,
-    transparent 82%
-  );
-  mask-image: radial-gradient(
-    ellipse at 54% 50%,
-    #000 0%,
-    #000 46%,
-    rgba(0, 0, 0, 0.62) 62%,
-    transparent 82%
-  );
-}
-
-.feature-cloud-word {
-  z-index: 1;
-  pointer-events: none;
-  font-family: var(--font-mono);
-  letter-spacing: 0;
-  text-shadow:
-    0 1px 18px rgba(255, 255, 255, 0.9),
-    0 0 1px #fff;
-}
-
-:is(.dark) .feature-cloud-word {
-  text-shadow:
-    0 1px 18px rgba(0, 0, 0, 0.9),
-    0 0 1px #000;
-}
-
-.feature-cloud-row:nth-child(1),
-.feature-cloud-row:nth-child(12) {
-  opacity: 0.55;
-}
-
-.feature-cloud-row:nth-child(2),
-.feature-cloud-row:nth-child(11) {
-  opacity: 0.68;
-}
-
-.feature-cloud-row:nth-child(3),
-.feature-cloud-row:nth-child(10) {
-  opacity: 0.78;
-}
-
-.feature-cloud-row:nth-child(4),
-.feature-cloud-row:nth-child(9) {
-  opacity: 0.88;
-}
-
-.hero-gradient-text {
-  display: inline-block;
-  padding-bottom: 0.12em;
-  line-height: 1.25;
-  background: linear-gradient(90deg, #0987c4 0%, #0ea5e9 50%, #22d3ee 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-:is(.dark) .hero-gradient-text {
-  background: linear-gradient(
-    90deg,
-    #18b4f4 0%,
-    #1ec7f7 25%,
-    #24d9f9 50%,
-    #29ecfc 75%,
-    #2fffff 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-/* Home hero */
-.hero-section {
-  text-align: center;
-  padding: 80px 24px 64px;
-}
-
-.hero-section h1 {
-  font-size: 48px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1.1;
-  margin-bottom: 24px;
-}
-
-@media (max-width: 767px) {
-  .hero-section {
-    text-align: left;
-    padding: 48px 24px;
-  }
-
-  .hero-section .flex {
-    justify-content: flex-start;
-  }
-
-  .hero-section p {
-    margin-left: 0;
-    margin-right: 0;
-  }
-
-  /* Constrain the hero content flex item so it can't exceed viewport width.
-     Without this, min-width: auto on the flex item lets the nowrap command
-     text push the item wider than the mobile viewport (the root overflow cause). */
-  .hero-content {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .hero-section button {
-    margin-left: 0;
-    margin-right: auto;
-    /* size to content but never wider than parent */
-    width: max-content;
-    max-width: 100%;
-    overflow: hidden;
-  }
-
-  .terminal-command-text {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-}
-
-@media (min-width: 768px) {
-  .hero-section h1 {
-    font-size: 64px;
-  }
-}
-
 /* Hide scrollbar for carousel */
 .scrollbar-hide {
   -ms-overflow-style: none;
@@ -2050,15 +1880,6 @@ html.dark .shiki span {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
-}
-
-/* Comparison media */
-.homepage-comparison-video {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: 4px;
 }
 
 .approaches-table-wrapper {

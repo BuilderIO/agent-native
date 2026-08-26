@@ -99,13 +99,15 @@ export function Footer() {
     <PageSection
       as="footer"
       showGrid={false}
-      className="border-t border-solid border-[var(--b-border-default)]"
+      // The --b-* variables live on the builder-brand-tokens class, and the
+      // footer renders on docs pages that do not otherwise opt in.
+      className="builder-brand-tokens border-t border-solid border-[var(--b-border-default)]"
     >
       <div className="border-b border-solid border-[var(--b-border-default)]">
         <GridInner className="flex flex-wrap items-start gap-[var(--spacing-12)] px-[var(--spacing-20)] py-[var(--spacing-16)]">
           <div className="flex w-[320px] flex-[1_1_240px] flex-col items-start gap-[var(--spacing-4)]">
             <Link
-              to="/website-redesign/homepage"
+              to="/"
               aria-label="Agent-Native"
               className="flex text-[var(--b-text-primary)]"
             >

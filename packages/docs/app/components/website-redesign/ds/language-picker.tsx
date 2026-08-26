@@ -84,13 +84,6 @@ export function LanguagePicker(props: LanguagePickerProps) {
   }
 
   function hrefForPreference(value: string) {
-    // This isolated preview tree has no locale-prefixed route variants, so
-    // sitePathForLocale would otherwise build a nonexistent path (e.g.
-    // /fr-FR/website-redesign/homepage). Stay put and just persist the
-    // preference for when the visitor navigates into the localized docs.
-    if (location.pathname.startsWith("/website-redesign")) {
-      return `${location.pathname}${location.search}${location.hash}`;
-    }
     const path = sitePathForLocale(
       location.pathname,
       localeForPreference(value),

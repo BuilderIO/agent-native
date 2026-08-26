@@ -36,14 +36,14 @@ import {
   docsAlternateLinksForPath,
   docsMarkdownPathForPath,
 } from "./components/docs-seo";
-import Footer from "./components/Footer";
+import { Footer } from "./components/website-redesign/footer";
 import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
-import appCss from "./global.css?url";
 import tokensCss from "./components/website-redesign/tokens.css?url";
+import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
@@ -154,8 +154,12 @@ function useRootLocaleData() {
 
 export const links = () => [
   { rel: "stylesheet", href: appCss },
-  // Every selector in tokens.css is scoped under .builder-brand-tokens, so
-  // loading it site-wide cannot restyle a page that does not opt in.
+  // Every selector in tokens.css is scoped under .builder-brand-tokens, which
+  // the header, the footer, and the homepage opt into. It deliberately stays
+  // off <body>: global.css has `:where(:not(.builder-brand-tokens *))`
+  // exclusions carrying the docs prose chrome, and a body-level opt-in would
+  // silently make all three of them match nothing. The page background is
+  // unified through --bg in global.css instead, which mirrors --b-bg-page.
   { rel: "stylesheet", href: tokensCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
   { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
@@ -183,17 +187,7 @@ export const meta = () => [
   { property: "og:site_name", content: "Agent-Native" },
 ];
 
-// The /website-redesign tree brings its own footer, styled against the same
-// `--b-*` tokens as its page body; the docs footer would stack underneath it.
-function isWebsiteRedesignPath(pathname: string): boolean {
-  return (
-    pathname === "/website-redesign" ||
-    pathname.startsWith("/website-redesign/")
-  );
-}
-
 function DocsChrome({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
   const { starCount } = useRootLocaleData();
 
   return (
@@ -201,7 +195,7 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
       <ScrollManager />
       <SiteHeader starCount={starCount} />
       {children}
-      {isWebsiteRedesignPath(location.pathname) ? null : <Footer />}
+      <Footer />
     </div>
   );
 }

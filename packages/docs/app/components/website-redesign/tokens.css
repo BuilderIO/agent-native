@@ -1,9 +1,11 @@
 /*
- * Scoped Builder brand design tokens for the hidden /website-redesign route.
- * Ported from the "Website Redesign Design System" reference doc. Every
- * selector is namespaced under .builder-brand-tokens so this file cannot
- * visually leak onto any other route even if it were accidentally loaded
- * elsewhere.
+ * Builder brand design tokens, ported from the "Website Redesign Design
+ * System" reference doc. Every selector is namespaced under
+ * .builder-brand-tokens, which <body> carries in root.tsx, so these are the
+ * site-wide page background, text color, and font. The legacy --bg/--fg
+ * variables in global.css are kept pointed at the same values; changing a
+ * page/surface color here means changing them too, or a section background
+ * meeting the page body shows a seam.
  *
  * Component styling belongs in Tailwind utilities on the components, not here.
  * What is left is token definitions plus two deliberate exceptions, both of
