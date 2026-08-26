@@ -122,22 +122,23 @@ export function useNavigationState() {
 }
 
 function viewForPath(pathname: string): string {
+  const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
   // Recaps are a kind of plan; both detail routes map to the "plan" view so the
   // agent's navigation/selection state is the same surface regardless of route.
   if (
-    pathname.startsWith("/plans/") ||
-    pathname.startsWith("/recaps/") ||
-    pathname.startsWith("/local-plans/")
+    normalizedPathname.startsWith("/plans/") ||
+    normalizedPathname.startsWith("/recaps/") ||
+    normalizedPathname.startsWith("/local-plans/")
   ) {
     return "plan";
   }
-  if (pathname === "/") {
+  if (normalizedPathname === "/chat") {
     return "chat";
   }
   if (
-    pathname.startsWith("/plans") ||
-    pathname.startsWith("/recaps") ||
-    pathname.startsWith("/local-plans")
+    normalizedPathname.startsWith("/plans") ||
+    normalizedPathname.startsWith("/recaps") ||
+    normalizedPathname.startsWith("/local-plans")
   ) {
     return "plans";
   }
@@ -187,7 +188,7 @@ function localPathFromCommandPath(value: unknown): string | null {
 function pathForView(view?: string): string {
   switch (view) {
     case "chat":
-      return "/";
+      return "/chat";
     case "plan":
     case "plans":
       return "/plans";
@@ -198,7 +199,7 @@ function pathForView(view?: string): string {
     case "team":
       return "/settings/organization";
     default:
-      return "/";
+      return "/chat";
   }
 }
 

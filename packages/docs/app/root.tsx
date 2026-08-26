@@ -7,7 +7,14 @@ import {
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import {
   Links,
   Meta,
@@ -61,6 +68,20 @@ const JSON_LD = JSON.stringify({
       name: "Builder.io",
       url: "https://builder.io",
       sameAs: ["https://github.com/BuilderIO/agent-native"],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "support@builder.io",
+        url: "https://www.agent-native.com/contact",
+      },
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: "95 3rd Street, 2nd Floor",
+        addressLocality: "San Francisco",
+        addressRegion: "CA",
+        postalCode: "94103",
+        addressCountry: "US",
+      },
     },
     {
       "@type": "WebSite",
@@ -191,6 +212,8 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
 }
 
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function SeoLinks() {
   const location = useLocation();
@@ -290,7 +313,7 @@ function ScrollManager() {
   const ref = useRef<HTMLSpanElement>(null);
   const isInitialEffectRef = useRef(true);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const isInitialEffect = isInitialEffectRef.current;
     isInitialEffectRef.current = false;
 

@@ -17,7 +17,11 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 import {
   DeckProvider,
+  clearSlideEditingActive,
+  flushPendingSaves,
+  hasUnsavedDeckChanges,
   hasUncommittedDeckChanges,
+  markSlideEditingActive,
   mergeServerAddedSlides,
   useDecks,
   type Deck,
@@ -268,6 +272,7 @@ describe("DeckContext deck creation persistence", () => {
 
   afterEach(() => {
     cleanup();
+    window.history.pushState({}, "", "/");
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -317,6 +322,143 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.decks).toEqual([accessible]);
+  });
+
+  it("keeps an unload flush behind the active save chain", async () => {
+    window.history.pushState({}, "", "/deck/flush-order-deck");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-order-deck",
+      title: "Flush order deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "flush-order-deck",
+        "slide-1",
+        { content: "<h1>First</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.updateSlide("flush-order-deck", "slide-1", {
+        content: "<h1>Latest</h1>",
+      });
+      flushPendingSaves();
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(1);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls[1]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls[1]?.[1])).toMatchObject({
+      deckId: "flush-order-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<h1>Latest</h1>" },
+        },
+      ],
+    });
+
+    await result.current.flushDeckSave("flush-order-deck");
+  });
+
+  it("requeues a failed keepalive flush for a normal retry", async () => {
+    window.history.pushState({}, "", "/deck/flush-retry-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchFailures: { deckId: "flush-retry-deck", count: 1 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-retry-deck",
+      title: "Flush retry deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide("flush-retry-deck", "slide-1", {
+        content: "<h1>Latest</h1>",
+      });
+      flushPendingSaves();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPatchAttempts("flush-retry-deck")).toBe(1);
+    expect(hasUnsavedDeckChanges("flush-retry-deck")).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPatchAttempts("flush-retry-deck")).toBe(2);
+    expect(hasUnsavedDeckChanges("flush-retry-deck")).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/_agent-native/actions/patch-deck") &&
+          init?.keepalive === true,
+      ),
+    ).toBe(true);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
@@ -545,6 +687,318 @@ describe("DeckContext deck creation persistence", () => {
         "<div>Edited</div>",
       ),
     );
+  });
+
+  it("persists inline drafts without replacing the local editor state", async () => {
+    window.history.pushState({}, "", "/deck/inline-draft-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-draft-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-draft-deck",
+        "slide-1",
+        { content: "<div>First draft</div>" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        "inline-draft-deck",
+        "slide-1",
+        { content: "<div>Final draft</div>" },
+        { preserveLocalState: true },
+      );
+    });
+
+    expect(
+      result.current.getDeck("inline-draft-deck")?.slides[0]?.content,
+    ).toBe("<div>Original</div>");
+    expect(hasUncommittedDeckChanges("inline-draft-deck", new Set())).toBe(
+      true,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      return actionCallBody(init).deckId === "inline-draft-deck";
+    });
+    expect(patchCalls).toHaveLength(1);
+    expect(actionCallBody(patchCalls[0]?.[1])).toMatchObject({
+      deckId: "inline-draft-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Final draft</div>" },
+        },
+      ],
+    });
+    expect(hasUncommittedDeckChanges("inline-draft-deck", new Set())).toBe(
+      false,
+    );
+  });
+
+  it("persists the latest inline draft when the user reverts before debounce", async () => {
+    window.history.pushState({}, "", "/deck/inline-revert-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-revert-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-revert-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        "inline-revert-deck",
+        "slide-1",
+        { content: "<div>Original</div>" },
+        { preserveLocalState: true },
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      return actionCallBody(init).deckId === "inline-revert-deck";
+    });
+    expect(patchCalls).toHaveLength(1);
+    expect(actionCallBody(patchCalls[0]?.[1])).toMatchObject({
+      operations: [
+        {
+          fields: { content: "<div>Original</div>" },
+        },
+      ],
+    });
+  });
+
+  it("records one undo entry when an inline draft commits", async () => {
+    window.history.pushState({}, "", "/deck/inline-undo-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-undo-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-undo-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+      // The editor's exit path updates local state and records the one
+      // deck-level undo entry without replaying an already-queued server op.
+      result.current.updateSlide(
+        "inline-undo-deck",
+        "slide-1",
+        {
+          content: "<div>Draft</div>",
+        },
+        { recordUndoOnly: true },
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(1);
+
+    expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
+      "<div>Draft</div>",
+    );
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => result.current.undo());
+    expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
+      "<div>Original</div>",
+    );
+  });
+
+  it("does not full-replace after an inline draft save and later deck render", async () => {
+    window.history.pushState({}, "", "/deck/inline-render-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-render-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-render-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const fullSaveCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      return (
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === "inline-render-deck"
+      );
+    });
+    expect(fullSaveCalls).toHaveLength(0);
+  });
+
+  it("protects an active inline draft after its autosave drains", async () => {
+    window.history.pushState({}, "", "/deck/inline-active-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const original = {
+      id: "inline-active-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    } satisfies Deck;
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    markSlideEditingActive("inline-active-deck", "slide-1");
+    try {
+      vi.useFakeTimers();
+      act(() => {
+        result.current.updateSlide(
+          "inline-active-deck",
+          "slide-1",
+          { content: "<div>Draft</div>" },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      setAccessibleDeck({
+        ...original,
+        slides: [{ ...original.slides[0], content: "<div>Agent</div>" }],
+      });
+      await act(async () => {
+        await result.current.refreshOpenDeck("inline-active-deck");
+      });
+
+      expect(
+        result.current.getDeck("inline-active-deck")?.slides[0]?.content,
+      ).toBe("<div>Original</div>");
+    } finally {
+      clearSlideEditingActive("inline-active-deck", "slide-1");
+    }
   });
 
   it("persists a duplicated slide after the optimistic insert", async () => {

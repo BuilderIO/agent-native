@@ -25,12 +25,14 @@ describe("isRedirectedDocsPath", () => {
 describe("buildPrerenderPaths", () => {
   const paths = buildPrerenderPaths();
 
-  it("enumerates docs, locale docs, and static marketing pages", () => {
+  it("prerenders published docs and marketing pages", () => {
     expect(paths).toContain("/");
     expect(paths).toContain("/docs");
     expect(paths).toContain("/docs/actions-overview");
     expect(paths).toContain("/docs/what-is-agent-native");
     expect(paths).toContain("/ja-JP/docs/actions-overview");
+    expect(paths).toContain("/about");
+    expect(paths).toContain("/apps/calendar");
     expect(paths.every((page) => !isRedirectedDocsPath(page))).toBe(true);
   });
 

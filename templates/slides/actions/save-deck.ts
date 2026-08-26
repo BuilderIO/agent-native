@@ -7,7 +7,7 @@
  * `patch-deck`, `update-slide`, and `add-slide` so concurrent writers on
  * different slides don't clobber each other.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,

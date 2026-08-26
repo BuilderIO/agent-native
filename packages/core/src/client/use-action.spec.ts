@@ -7,6 +7,7 @@ vi.mock("./analytics.js", () => analyticsMocks);
 
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  actionErrorMessage,
   callAction,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
@@ -654,6 +655,55 @@ describe("tryCallActionKeepalive", () => {
   });
 });
 
+describe("actionErrorMessage", () => {
+  it("returns the action's own text without the console framing", async () => {
+    vi.stubGlobal("fetch", async () =>
+      jsonResponse(
+        { error: "No such meeting", errorCode: "not_found" },
+        { status: 404 },
+      ),
+    );
+
+    const error: any = await callAction("get-meeting").catch((err) => err);
+
+    // The framing stays on `message` for the console.
+    expect(error.message).toBe("Action get-meeting failed: No such meeting");
+    // A toast wants only what the action wrote.
+    expect(actionErrorMessage(error)).toBe("No such meeting");
+    expect(error.errorCode).toBe("not_found");
+  });
+
+  it("returns undefined when nothing authored a message", async () => {
+    // An HTML error page from a proxy is transport noise, not copy a UI can
+    // show. Absent must stay distinguishable from "the action said this".
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response("<html><body>502 Bad Gateway</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+    );
+
+    const error: any = await callAction("get-meeting").catch((err) => err);
+
+    expect(actionErrorMessage(error)).toBeUndefined();
+    expect(error.status).toBe(502);
+  });
+
+  it("returns undefined for a network failure and for a non-error value", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const error = await callAction("get-meeting").catch((err) => err);
+
+    expect(actionErrorMessage(error)).toBeUndefined();
+    expect(actionErrorMessage(undefined)).toBeUndefined();
+    expect(actionErrorMessage("boom")).toBeUndefined();
+  });
+});
+
 describe("action query retry defaults", () => {
   it("does not retry auth failures or timeouts, retries other errors up to 3 times", () => {
     const authError = Object.assign(new Error("nope"), { status: 401 });
@@ -665,6 +715,32 @@ describe("action query retry defaults", () => {
     expect(defaultActionQueryRetry(0, flakyError)).toBe(true);
     expect(defaultActionQueryRetry(2, flakyError)).toBe(true);
     expect(defaultActionQueryRetry(3, flakyError)).toBe(false);
+  });
+
+  it("does not retry deterministic failures, 500 included", () => {
+    // The old deny-list retried every status nobody had listed, so an action
+    // refusing a read cost four executions for one unchanging answer — and a
+    // 500 cost four error-tracking reports on top.
+    for (const status of [400, 404, 405, 409, 422, 500, 501]) {
+      const refusal = Object.assign(new Error("nope"), { status });
+      expect(defaultActionQueryRetry(0, refusal)).toBe(false);
+    }
+  });
+
+  it("retries only statuses a second identical request can resolve", () => {
+    const rateLimited = Object.assign(new Error("slow down"), { status: 429 });
+
+    expect(defaultActionQueryRetry(0, rateLimited)).toBe(true);
+    expect(defaultActionQueryRetry(2, rateLimited)).toBe(true);
+    expect(defaultActionQueryRetry(3, rateLimited)).toBe(false);
+
+    // Gateway/infrastructure 5xx — the origin can be healthy on the next try.
+    for (const status of [502, 503, 504]) {
+      const transient = Object.assign(new Error("down"), { status });
+      expect(defaultActionQueryRetry(0, transient)).toBe(true);
+      expect(defaultActionQueryRetry(2, transient)).toBe(true);
+      expect(defaultActionQueryRetry(3, transient)).toBe(false);
+    }
   });
 
   it("caps retry backoff at 2s so real failures surface fast", () => {
@@ -695,13 +771,22 @@ describe("shouldRetryActionQueryForError", () => {
     expect(shouldRetryActionQueryForError(1, networkError)).toBe(false);
   });
 
-  it("keeps three retries for HTTP errors that reached the server", () => {
-    const httpError = Object.assign(
+  it("keeps three retries for transient errors that reached the server", () => {
+    // Contrast with the network-level case above: reaching the server earns
+    // the full budget, but only for a status a retry can actually change. A
+    // 500 is the action's own throw, so it gets none.
+    const gatewayError = Object.assign(
+      new Error("Action list-documents failed: HTTP 503"),
+      { status: 503 },
+    );
+    expect(shouldRetryActionQueryForError(2, gatewayError)).toBe(true);
+    expect(shouldRetryActionQueryForError(3, gatewayError)).toBe(false);
+
+    const appError = Object.assign(
       new Error("Action list-documents failed: HTTP 500"),
       { status: 500 },
     );
-    expect(shouldRetryActionQueryForError(2, httpError)).toBe(true);
-    expect(shouldRetryActionQueryForError(3, httpError)).toBe(false);
+    expect(shouldRetryActionQueryForError(0, appError)).toBe(false);
   });
 
   it("does not retry auth failures", () => {

@@ -47,7 +47,7 @@ export default defineAction({
           factoryId,
     );
     return Promise.all(
-      scoped.map(async ({ resource, name, meta, body, canUpdate }) => {
+      scoped.map(async ({ resource, name, meta, body }) => {
         const runs = await listAutomationRuns({
           owners: [resource.owner],
           automation: automationRunHistoryKey(resource.path),
@@ -72,7 +72,7 @@ export default defineAction({
             Number.isFinite(resource.updatedAt) && resource.updatedAt > 0
               ? new Date(resource.updatedAt).toISOString()
               : null,
-          canUpdate,
+          canUpdate: true,
           runs: runs.filter((run) => run.path === resource.path),
         };
       }),

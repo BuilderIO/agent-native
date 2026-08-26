@@ -1,9 +1,9 @@
 ---
-title: "Your first feature in Chat"
+title: "Chat: Your First Feature"
 description: "The one file that renders Chat's starter screen, what its real props do, and a full walkthrough of adding a feature end to end."
 ---
 
-# Your first feature in Chat
+# Your First Feature
 
 This page is for developers extending the [Chat template](/docs/template-chat). It covers the single file that renders the starter chat screen, then walks through everything the agent typically touches when you ask for a real feature.
 
@@ -96,7 +96,7 @@ Most first features follow the same shape: a table, one or two actions, a route,
 
 > Add a data model for `notes`. A note has an id, title, body, and owner. Render a notes page at `/notes`, add create/list actions, and keep chat able to create notes.
 
-Chat ships with no `server/db/schema.ts` at all (see [What's not in it](/docs/template-chat#not-in-it)), so the first change is a new file, following the same `table`/`text`/`ownableColumns` shape every other template uses:
+Chat ships with no `server/db/schema.ts` at all (see [What ships](/docs/template-chat#what-ships)), so the first change is a new file, following the same `table`/`text`/`ownableColumns` shape every other template uses:
 
 <Diff
   id="doc-block-chat5"
@@ -139,7 +139,7 @@ Use this when your model orchestration already lives elsewhere, but you still wa
 
 ## What's next
 
-- [**Chat Template**](/docs/template-chat) — what ships by default and when to pick it
-- [**Chat — runtime and admin surfaces**](/docs/template-chat-developers) — core tables, auth, and the admin pages
+- [**Chat**](/docs/template-chat) — what ships by default and when to pick it
+- [**Chat: Developer Guide**](/docs/template-chat-developers) — quick start, actions, core tables, auth, and the admin pages
 - [**Actions**](/docs/actions-overview) — the action system chat and UI both call
 - [**Native Chat UI**](/docs/native-chat-ui) — chat surface primitives and runtime options

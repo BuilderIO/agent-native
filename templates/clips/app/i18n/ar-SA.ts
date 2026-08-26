@@ -143,6 +143,7 @@ const messages = {
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
     backToLibrary: "العودة إلى المكتبة",
+    sharedWithYou: "تمت مشاركته معك",
     storageStillDisconnected: "وحدة التخزين لا تزال غير متصلة",
     finishBuilderOrS3:
       "قم بإنهاء النافذة المنبثقة Builder.io أو قم بتكوين مساحة تخزين S3، ثم حاول مرة أخرى.",
@@ -518,6 +519,7 @@ const messages = {
     height: "ارتفاع",
     autoplay: "التشغيل التلقائي",
     startAt: "البدء عند (ثواني)",
+    startAtTimestamp: "البدء عند {{time}}",
     embedCode: "كود التضمين",
     sharePlainTitle: "مشاركة {{title}}",
   },
@@ -1001,8 +1003,6 @@ const messages = {
     editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
-    mentionSomeone: "أذكر شخصًا",
-    addEmoji: "أضف رمزًا تعبيريًا",
   },
   shareMeeting: {
     pageTitle: "ملاحظات الاجتماع · Clips",
@@ -1544,6 +1544,7 @@ const messages = {
     invite: "دعوة",
     inviteFailed: "تعذرت دعوة الشخص",
     removePersonFailed: "تعذرت إزالة الشخص",
+    permissionUpdateFailed: "تعذر تحديث الإذن",
     passwordProtectedDescription:
       "هذا الفيديو محمي. أدخل كلمة المرور للمشاهدة.",
     password: "كلمة المرور",

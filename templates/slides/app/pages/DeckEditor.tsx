@@ -160,7 +160,6 @@ export default function DeckEditor() {
     addSlide,
     flushDeckSave,
     reorderSlides,
-    markDeckDirty,
     undo,
     loading,
     loadError,
@@ -180,9 +179,13 @@ export default function DeckEditor() {
   }, []);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
-  const hasPendingDeckEdits =
-    inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
-  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  // useSaveState re-renders this component when a preserved inline draft enters
+  // or leaves the shared save queue, so the deck-specific read stays current.
+  const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
+  const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
+  // Inline drafts flush through SlideEditor keepalive handlers. The native
+  // prompt only needs to cover queued or in-flight writes now.
+  usePendingDeckUnloadGuard(hasPendingDeckWrites);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -1545,9 +1548,9 @@ export default function DeckEditor() {
         onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
         onToggleTextBoxMode={toggleTextBoxMode}
-        onDuplicateDeck={() => {
+        onDuplicateDeck={async () => {
           const newId = `deck-${nanoid()}`;
-          const optimistic = duplicateDeck(id, newId, undefined, () => {
+          const optimistic = await duplicateDeck(id, newId, undefined, () => {
             // The background duplicate-deck action failed after we already
             // navigated to the optimistic copy. If the user is still there,
             // send them back instead of stranding them on a "Deck
@@ -1773,7 +1776,6 @@ export default function DeckEditor() {
             }
             onInlineEditStart={(slideId) => {
               setInlineEditActive(true);
-              markDeckDirty(id);
               if (id) markSlideEditingActive(id, slideId);
             }}
             onInlineEditEnd={(slideId) => {

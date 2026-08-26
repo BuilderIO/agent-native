@@ -127,6 +127,17 @@ describe("VideoPlayer playback", () => {
     return video;
   }
 
+  function getPlayerControls(): HTMLDivElement {
+    const scrubber = container.querySelector<HTMLElement>(
+      "[data-player-scrubber]",
+    );
+    const controls = scrubber?.parentElement?.parentElement;
+    if (!(controls instanceof HTMLDivElement)) {
+      throw new Error("player controls did not render");
+    }
+    return controls;
+  }
+
   it("toggles play/pause on the real video element when the surface is clicked", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
@@ -172,6 +183,16 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps paused progress visible and interactive after the idle timeout", () => {
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
   });
 
   it("keeps owner playback on the same-origin media request path", () => {
@@ -438,6 +459,14 @@ describe("VideoPlayer playback", () => {
     expect(playSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Buffering");
     expect(container.textContent).not.toContain("Starting playback");
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
   });
 
   it.each(["AbortError", "NotAllowedError"])(
@@ -512,9 +541,14 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
-  it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {
+  it("toggles playback on touch taps and suppresses the synthetic follow-up click", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
+
+    act(() => {
+      surface.click();
+    });
+    expect(video.paused).toBe(false);
 
     act(() => {
       surface.dispatchEvent(
@@ -541,10 +575,8 @@ describe("VideoPlayer playback", () => {
       );
     });
 
-    // A touch tap on the surface only reveals controls (matching native
-    // mobile players) — it must not start playback on its own.
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPause).toHaveBeenCalledTimes(1);
 
     // Real browsers fire a synthetic "click" immediately after a touch tap.
     // The component must swallow exactly that one click rather than treating
@@ -556,7 +588,7 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPlay).toHaveBeenCalledOnce();
 
     // A later, unrelated real click still toggles playback normally — proving
     // the suppression is a one-shot flag consumed by the synthetic click, not
@@ -566,7 +598,7 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(video.paused).toBe(false);
-    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(onPlay).toHaveBeenCalledTimes(2);
   });
 
   it("uses WebKit video fullscreen when the player container cannot enter fullscreen", () => {

@@ -23,11 +23,13 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 import {
@@ -331,6 +333,9 @@ export function PositionLayoutProperties({
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
@@ -422,21 +427,21 @@ export function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.textAligns.left")}
-              shortcut="⌥A"
+              shortcut={shortcut("alt+a")}
               onClick={() => handlePositionAlignH("left")}
             >
               <IconLayoutAlignLeft className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.center")}
-              shortcut="⌥H"
+              shortcut={shortcut("alt+h")}
               onClick={() => handlePositionAlignH("center")}
             >
               <IconLayoutAlignCenter className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.right")}
-              shortcut="⌥D"
+              shortcut={shortcut("alt+d")}
               onClick={() => handlePositionAlignH("right")}
             >
               <IconLayoutAlignRight className="size-3.5" />
@@ -445,21 +450,21 @@ export function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.start")}
-              shortcut="⌥W"
+              shortcut={shortcut("alt+w")}
               onClick={() => handlePositionAlignV("top")}
             >
               <IconLayoutAlignTop className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.center")}
-              shortcut="⌥V"
+              shortcut={shortcut("alt+v")}
               onClick={() => handlePositionAlignV("middle")}
             >
               <IconLayoutAlignMiddle className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.end")}
-              shortcut="⌥S"
+              shortcut={shortcut("alt+s")}
               onClick={() => handlePositionAlignV("bottom")}
             >
               <IconLayoutAlignBottom className="size-3.5" />

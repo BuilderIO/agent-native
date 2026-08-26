@@ -68,6 +68,10 @@ Each field is a JSON object:
 - `label` — display label
 - `required` — boolean
 
+Always pass fields as these complete objects. Never encode a field as shorthand
+text such as `text: Enter a name`; `patch-form-fields` upserts also require the
+field `id` so they cannot be ambiguous.
+
 ### Optional properties
 - `placeholder` — input placeholder text
 - `description` — help text below the field

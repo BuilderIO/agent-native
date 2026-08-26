@@ -45,6 +45,7 @@ const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
+const mockFinalizeEndedMeetingsForRecording = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -168,6 +169,11 @@ vi.mock("./lib/audio-only-transcription.js", () => ({
 vi.mock("./lib/loom-transcript.js", () => ({
   fetchLoomTranscript: (...args: unknown[]) => mockFetchLoomTranscript(...args),
   loomTranscriptUnavailableMessage: () => "Loom transcript unavailable.",
+}));
+
+vi.mock("./lib/finalize-ended-meetings.js", () => ({
+  finalizeEndedMeetingsForRecording: (...args: unknown[]) =>
+    mockFinalizeEndedMeetingsForRecording(...args),
 }));
 
 import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status";

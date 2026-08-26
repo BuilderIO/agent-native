@@ -87,9 +87,43 @@ describe("agent web generators", () => {
     });
 
     expect(headers["content-type"]).toBe("text/markdown; charset=utf-8");
+    expect(headers.vary).toBe("Accept, Accept-Encoding");
     expect(headers["x-markdown-tokens"]).toBe(
       String(estimateMarkdownTokens("# Docs\n\nContent")),
     );
     expect(headers.link).toContain('rel="llms-txt"');
+  });
+
+  it("lists developer resources in both llms files", () => {
+    const files = buildAgentWebStaticFiles({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com",
+      config,
+      whenToUse: [
+        "Use Agent-Native when an agent and UI share actions and state.",
+      ],
+      pages: [],
+      developerResources: [
+        {
+          title: "OpenAPI specification",
+          url: "/openapi.json",
+          description: "Typed HTTP operations.",
+        },
+        {
+          title: "CLI",
+          url: "https://www.npmjs.com/package/@agent-native/core",
+        },
+      ],
+    });
+
+    const byPath = new Map(files.map((file) => [file.path, file.content]));
+    expect(byPath.get("llms.txt")).toContain("## Developer resources");
+    expect(byPath.get("llms.txt")).toContain("## When to use this");
+    expect(byPath.get("llms.txt")).toContain(
+      "https://www.agent-native.com/openapi.json",
+    );
+    expect(byPath.get("llms-full.txt")).toContain(
+      "https://www.npmjs.com/package/@agent-native/core",
+    );
   });
 });

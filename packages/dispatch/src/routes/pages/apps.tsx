@@ -19,8 +19,8 @@ import {
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
 import {
+  filterOtherAppEntries,
   mergeOtherAppEntries,
-  otherAppEntryMatchesQuery,
   OtherAppsSection,
 } from "../../components/other-apps-section";
 import { Button } from "../../components/ui/button";
@@ -101,19 +101,18 @@ function AppsRoute() {
   const curatedTemplates = curatedTemplatesQuery.data as
     | CuratedWorkspaceTemplatesResult
     | undefined;
-  const otherAppEntries = mergeOtherAppEntries({
-    templates: curatedTemplates,
-    connectedApps,
-    workspaceApps: allApps,
-  });
-  const otherAppsSearchReady =
-    !connectedAppsQuery.isLoading && !curatedTemplatesQuery.isLoading;
-  const otherAppsMatchSearch =
-    !searchQuery.trim() ||
-    !otherAppsSearchReady ||
-    otherAppEntries.some((entry) =>
-      otherAppEntryMatchesQuery(entry, searchQuery),
-    );
+  const filteredOtherApps = filterOtherAppEntries(
+    mergeOtherAppEntries({
+      templates: curatedTemplates,
+      connectedApps,
+      workspaceApps: allApps,
+    }),
+    searchQuery,
+  );
+  const otherAppsLoading =
+    curatedTemplatesQuery.isLoading || connectedAppsQuery.isLoading;
+  const otherAppsError =
+    curatedTemplatesQuery.error || connectedAppsQuery.error;
   const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
   const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
   const orderedArchivedApps = orderWorkspaceApps(archivedApps, layout);
@@ -130,7 +129,7 @@ function AppsRoute() {
     filteredActiveApps.length > 0 ||
     filteredPendingApps.length > 0 ||
     filteredArchivedApps.length > 0 ||
-    otherAppsMatchSearch;
+    filteredOtherApps.length > 0;
   const showAppSkeletons = appsLoading && allApps.length === 0;
   const templateLabels: WorkspaceTemplateLabels = {
     appId: t("dispatch.pages.remixAppIdLabel"),
@@ -174,7 +173,10 @@ function AppsRoute() {
               </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-              {!showAppSkeletons && allApps.length > 0 ? (
+              {!showAppSkeletons &&
+              (allApps.length > 0 ||
+                filteredOtherApps.length > 0 ||
+                Boolean(searchQuery.trim())) ? (
                 <WorkspaceAppSearch
                   className="w-full sm:w-[250px]"
                   query={searchQuery}
@@ -216,7 +218,10 @@ function AppsRoute() {
             />
           ) : showAppSkeletons ? (
             <AppsSkeletonGrid />
-          ) : !hasSearchResults && searchQuery.trim() ? (
+          ) : !hasSearchResults &&
+            searchQuery.trim() &&
+            !otherAppsLoading &&
+            !otherAppsError ? (
             <WorkspaceAppSearchEmpty
               query={searchQuery}
               onClear={() => setSearchQuery("")}

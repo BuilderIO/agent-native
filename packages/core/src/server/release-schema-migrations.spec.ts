@@ -21,10 +21,13 @@ function applySqliteMigrations(
       .split(";")
       .map((part) => part.trim())
       .filter(Boolean)) {
+      const hadIfNotExists = /ADD COLUMN IF NOT EXISTS/i.test(statement);
       try {
         db.exec(statement.replace(/ADD COLUMN IF NOT EXISTS/gi, "ADD COLUMN"));
       } catch (error) {
-        if (!/duplicate column name/i.test(String(error))) throw error;
+        if (!hadIfNotExists || !/duplicate column name/i.test(String(error))) {
+          throw error;
+        }
       }
     }
   }
@@ -74,8 +77,9 @@ describe("framework release schema migrations", () => {
     db.close();
   });
 
-  it("creates harness session and usage alert schemas before their actions run", () => {
+  it("creates harness schemas and tolerates rerunning their migrations", () => {
     const db = new Database(":memory:");
+    applySqliteMigrations(db, AGENT_HARNESS_SESSION_MIGRATIONS);
     applySqliteMigrations(db, AGENT_HARNESS_SESSION_MIGRATIONS);
     applySqliteMigrations(db, USAGE_ALERT_MIGRATIONS);
 
@@ -98,7 +102,9 @@ describe("framework release schema migrations", () => {
     });
     expect(generationMigration?.sql).toMatchObject({
       postgres: expect.stringContaining("generation BIGINT"),
-      sqlite: expect.stringContaining("generation INTEGER"),
+      sqlite: expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS generation INTEGER",
+      ),
     });
     expect(
       (

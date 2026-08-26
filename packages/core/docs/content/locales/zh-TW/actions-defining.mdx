@@ -264,6 +264,97 @@ POST 是預設值，`http: { method: "GET" }` 會將它變成 GET。React 掛鉤
 - **`readOnly: true`**：明確跳過輪詢重新整理，即使是不會變更任何資料的 POST action 也一樣。這不是存取控制，它不會限制誰可以呼叫此 action，也不會影響 `useActionQuery()`、`useActionMutation()` 或任何用戶端掛鉤。它唯一的作用是抑制呼叫後的重新整理事件，並讓此 action 退出寫入稽核。若要對模型隱藏一個 action，請使用 `agentTool: false`。若要限制誰可以呼叫它，請使用[存取與授權](/docs/actions-access-control)中的驗證與存取選項。
 - **`parallelSafe: true`**：允許一個變更資料的 action 與同一回合中的其他工具呼叫同時執行。只有在此 action 可以安全地並行執行、且不依賴順序時才設定此項。變更資料的 action 預設會依序執行。
 
+## 讓 action 失敗 {#failing}
+
+action 透過拋出例外來回報失敗。改為回傳 `{ error: "..." }` 在框架的每個環節看來都是成功，因此代理的重試斷路器永遠不會計入它，而這次呼叫會被記錄成一次已完成的副作用。
+
+你拋出什麼，決定了訊息能保留多少。`fail()` 會拋出 `ActionContractError`，正是這個型別讓文字能夠抵達呼叫方。裸的 `throw new Error("No such email")` 與 Postgres 或上游故障無法區分，因此 action 路由會把它換成通用的 500 `"Internal server error"`，把真正的訊息只留在伺服器日誌裡，並回報給錯誤追蹤。把裸拋留給真正的內部故障。500 就是為此而存在的。
+
+`fail()` 接受一則訊息與一個選項物件：
+
+- **message**: 呼叫方讀到的文字。為人而寫，而不是為日誌而寫。
+- **options.errorCode**: 穩定且機器可讀的代碼。預設為 `"action_failed"`。
+- **options.statusCode**: action 路由的 HTTP 狀態碼。預設為 `400`。
+- **options.details**: 給呼叫方的安全結構化脈絡。切勿在此放入密鑰或驅動的原始輸出。
+
+最簡單的呼叫只需要一則訊息：
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+替原因命名，UI 才能針對失敗做分支處理，而不只是把它印出來。代碼與狀態碼都能通過傳輸層保留下來：
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+瀏覽器會收到 `{ error, errorCode, details }`。`useActionQuery()`、`useActionMutation()` 與 `callAction()` 都會把它暴露成帶有 `status`、`errorCode`、`details` 與 `actionMessage` 的 `Error`。
+
+`error.message` 會保留 `Action <name> failed:` 前綴，它適合出現在主控台，放進 toast 則讀起來彆扭。`actionErrorMessage()` 只回傳 action 寫下的文字，若無人撰寫則回傳 `undefined`：
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+網路中斷、代理伺服器回傳的 HTML 錯誤頁，以及單純的狀態行都沒有撰寫訊息，因此它們回傳 `undefined`，而不是一段 UI 會誤顯示的字串。請務必搭配你自己的文案使用。
+
+### 每種拋出會產生什麼 {#failure-shapes}
+
+| 從 `run()` 拋出                                 | HTTP 狀態碼           | 回應主體                                     | 是否回報錯誤追蹤 |
+| ----------------------------------------------- | --------------------- | -------------------------------------------- | ---------------- |
+| `fail(msg)`                                     | 400                   | `{ error: msg, errorCode: "action_failed" }` | 否               |
+| `fail(msg, { errorCode, statusCode, details })` | 你指定的 `statusCode` | `{ error, errorCode, details }`              | 否               |
+| `new ActionContractError(msg, { errorCode })`   | 409                   | `{ error, errorCode, details }`              | 否               |
+| `new AgentActionStopError(msg)`                 | 500                   | `{ error: msg }`                             | 否               |
+| `new Error(msg)`                                | 500                   | `{ error: "Internal server error" }`         | 是               |
+| 未通過 `schema` 驗證的輸入                      | 400                   | `{ error: "Invalid action parameters..." }`  | 否               |
+
+當代理應該結束這一輪，而不是讀取失敗再試一次時，就拋出 `AgentActionStopError`。`ActionContractError` 是 `fail()` 替你拋出的，因此只有在你確實想要 409 時才直接使用它。
+
+### 挑選一個重試政策能據以行動的狀態碼 {#failure-status}
+
+`useActionQuery()` 會重試 `429`、`502`、`503` 與 `504`，最多三次，退避依序為 500 毫秒、1 秒、2 秒。其他狀態碼一律視為確定性的，在第一次回應時就浮現。重送一個因本身有誤而被拒絕的請求，只會再買到同一個拒絕。`useActionMutation()` 完全不重試。
+
+所以狀態碼不是裝飾。以 `404` 送出的拒絕只需一次往返。同樣的拒絕若以 `500` 送出，或者裸拋，就要付出四次往返與四份重複的錯誤報告。
+
+代理呼叫方看不到狀態碼。代理在行程內執行 `run()`，因此無論型別為何都直接以 `Error running <action>: <message>` 的形式收到訊息。非預設值 `action_failed` 的 `errorCode` 會以 `(errorCode: not_found)` 的形式附加，讓模型不必解析文字即可據此分支。透過 MCP 接入的外部代理會收到同樣的文字。訊息中的密鑰會先被遮蔽，而代理自己的重複錯誤斷路器會限制它重試的次數。
+
 ## 讓 action 介面保持精簡 {#small-surface}
 
 代理能看到的每個 action 都會佔用模型工具清單中的一個位置，而冗長、重疊的清單會讓模型更難挑選正確的工具。請把 action 介面設計成一套您自己維護的 API，而不是 UI 中每個按鈕都對應一個 action：

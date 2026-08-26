@@ -29,7 +29,7 @@
  * Called by DesignEditor on design open when designs.data.boardFileId is absent.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { seedFromText } from "@agent-native/core/collab";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";

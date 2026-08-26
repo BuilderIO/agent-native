@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import {
   assertAccess,

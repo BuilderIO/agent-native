@@ -49,6 +49,7 @@ import React, {
 
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { ThinkingDisplay } from "../shared/thinking-display.js";
 import {
   clearPendingTurnIfMatches,
   clearActiveRunIfMatches,
@@ -186,6 +187,7 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
+import { isProviderAuthenticationError } from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -211,6 +213,7 @@ import {
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
+import { ThinkingDisplayProvider } from "./thinking-display.js";
 import { callAction } from "./use-action.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
@@ -2123,6 +2126,13 @@ export interface AssistantChatProps {
     ) => void | Promise<void>;
     alwaysAllowScope?: "action" | "exact-command";
   };
+  /**
+   * Pin how much model reasoning this chat shows: "expanded" opens the live
+   * cell, "collapsed" keeps it one click away, "hidden" renders none. Omit to
+   * let the reader's own preference apply, which is what surfaces the in-chat
+   * control — a pinned mode hides it rather than leaving a dead menu item.
+   */
+  thinkingDisplay?: ThinkingDisplay;
 }
 
 export function shouldShowAssistantChatModelSelector(
@@ -2540,7 +2550,7 @@ const AssistantChatInner = forwardRef<
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
-  const composerDraftScope = threadId || tabId;
+  const composerDraftScope = tabId || threadId;
   const initialComposerText = useMemo(
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
@@ -2822,6 +2832,8 @@ const AssistantChatInner = forwardRef<
   const [dismissedRunErrorKey, setDismissedRunErrorKey] = useState<
     string | null
   >(null);
+  const [dismissedProviderAuthErrorKey, setDismissedProviderAuthErrorKey] =
+    useState<string | null>(null);
   const userStoppedRunRef = useRef<{
     at: number;
     runId?: string;
@@ -2940,14 +2952,23 @@ const AssistantChatInner = forwardRef<
       ? storedActiveRun?.turnId
       : undefined) ?? (showRunningInUI ? reconnectTurnIdRef.current : null);
   const chatRunStartedAtRef = useRef<number | null>(null);
+  const chatRunTurnIdRef = useRef<string | null>(null);
   const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
     number | null
   >(null);
   useEffect(() => {
     if (showRunningInUI) {
-      if (chatRunStartedAtRef.current == null) {
+      const startedForDifferentTurn =
+        chatRunStartedAtRef.current != null &&
+        chatRunTurnIdRef.current != null &&
+        activeChatTurnId != null &&
+        activeChatTurnId !== chatRunTurnIdRef.current;
+      if (chatRunStartedAtRef.current == null || startedForDifferentTurn) {
         chatRunStartedAtRef.current = Date.now();
+        chatRunTurnIdRef.current = activeChatTurnId ?? null;
         setLastChatRunDurationMs(null);
+      } else if (chatRunTurnIdRef.current == null && activeChatTurnId != null) {
+        chatRunTurnIdRef.current = activeChatTurnId;
       }
       return;
     }
@@ -2956,8 +2977,9 @@ const AssistantChatInner = forwardRef<
         Math.max(0, Date.now() - chatRunStartedAtRef.current),
       );
       chatRunStartedAtRef.current = null;
+      chatRunTurnIdRef.current = null;
     }
-  }, [showRunningInUI]);
+  }, [activeChatTurnId, showRunningInUI]);
   // A revealed activity label wins; otherwise keep recovery states calm and
   // product-facing. Reconnect is transport machinery, so normal replay reads as
   // ongoing work instead of exposing "Reconnecting" mid-chat.
@@ -4545,6 +4567,7 @@ const AssistantChatInner = forwardRef<
         ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
       });
       setDismissedRunErrorKey(null);
+      setDismissedProviderAuthErrorKey(null);
       // An errored continuation must not keep showing "Resuming" — there is
       // no further chunk coming to clear it.
       clearAutoResume();
@@ -5106,6 +5129,7 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      setDismissedProviderAuthErrorKey(null);
       setComposerError(null);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
@@ -5639,7 +5663,6 @@ const AssistantChatInner = forwardRef<
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
-  const showMissingKeySetup = engineSetupRequired && !authError;
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -5681,6 +5704,30 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  const providerAuthErrorKey =
+    visibleRunError &&
+    isProviderAuthenticationError(
+      [visibleRunError.message, visibleRunError.details]
+        .filter(Boolean)
+        .join("\n"),
+      visibleRunError.errorCode,
+    )
+      ? visibleRunErrorKey
+      : null;
+  const showProviderAuthSetup =
+    providerAuthErrorKey !== null &&
+    providerAuthErrorKey !== dismissedProviderAuthErrorKey &&
+    !authError &&
+    (showRunningInUI || !shouldShowRunError);
+  const showMissingKeySetup =
+    (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const handleProviderSetupConnected = useCallback(() => {
+    handleBuilderConnected();
+    if (providerAuthErrorKey === null) return;
+    setDismissedProviderAuthErrorKey(providerAuthErrorKey);
+    setDismissedRunErrorKey(providerAuthErrorKey);
+    setRunErrorInfo(null);
+  }, [handleBuilderConnected, providerAuthErrorKey]);
   // The banner covers one run; every failed turn it does not cover keeps its own
   // inline marker, so a failure stays visible after the next prompt.
   const messageActionsCtx = useMemo(
@@ -5894,7 +5941,9 @@ const AssistantChatInner = forwardRef<
       <CheckpointContext.Provider value={checkpointCtx}>
         <MessageActionsContext.Provider value={messageActionsCtx}>
           <ApprovalContext.Provider value={approvalCtx}>
-            <ChatRunDurationContext.Provider value={lastChatRunDurationMs}>
+            <ChatRunDurationContext.Provider
+              value={showRunningInUI ? null : lastChatRunDurationMs}
+            >
               <ServerRunActiveContext.Provider value={serverRunActive}>
                 <ChatRunningRunIdContext.Provider value={activeChatRunId}>
                   <ChatRunningTurnIdContext.Provider value={activeChatTurnId}>
@@ -6428,7 +6477,7 @@ const AssistantChatInner = forwardRef<
                                 attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
-                                onConnected={handleBuilderConnected}
+                                onConnected={handleProviderSetupConnected}
                               />
                             ) : null}
                             {/* Input area */}
@@ -6693,26 +6742,28 @@ export const AssistantChat = forwardRef<
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <TooltipProvider delayDuration={200}>
-        <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
-          <AssistantUiStaleIndexErrorBoundary
-            resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
-            componentName="AssistantChat"
-          >
-            <AssistantChatInner
-              ref={ref}
-              {...props}
-              browserTabId={browserTabId}
-              contextScope={contextScope}
-              contextNamespace={contextNamespace}
-              isActiveComposer={isActiveComposer}
-              apiUrl={apiUrl}
-              tabId={tabId}
-              threadId={threadId}
-            />
-          </AssistantUiStaleIndexErrorBoundary>
-        </ThreadPrimitive.Root>
-      </TooltipProvider>
+      <ThinkingDisplayProvider value={props.thinkingDisplay}>
+        <TooltipProvider delayDuration={200}>
+          <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
+            <AssistantUiStaleIndexErrorBoundary
+              resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
+              componentName="AssistantChat"
+            >
+              <AssistantChatInner
+                ref={ref}
+                {...props}
+                browserTabId={browserTabId}
+                contextScope={contextScope}
+                contextNamespace={contextNamespace}
+                isActiveComposer={isActiveComposer}
+                apiUrl={apiUrl}
+                tabId={tabId}
+                threadId={threadId}
+              />
+            </AssistantUiStaleIndexErrorBoundary>
+          </ThreadPrimitive.Root>
+        </TooltipProvider>
+      </ThinkingDisplayProvider>
     </AssistantRuntimeProvider>
   );
 });

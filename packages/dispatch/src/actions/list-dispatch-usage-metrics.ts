@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";

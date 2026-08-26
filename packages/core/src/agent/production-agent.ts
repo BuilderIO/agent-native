@@ -14,6 +14,7 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
   describeToolParameterSignature,
+  isActionContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   type ActionAutomationContext,
@@ -781,6 +782,11 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * Whether a user-scoped action preference may satisfy `needsApproval`
+   * without prompting for this call. Defaults to true.
+   */
+  allowPersistentApproval?: boolean;
   /**
    * The action hands control back to the user: once it succeeds the loop stops
    * the turn instead of asking the model for another step, and any remaining
@@ -5042,7 +5048,11 @@ export async function runAgentLoop(opts: {
         const closeModelStreamBracket = () => {
           if (!modelStreamBracketOpen) return;
           modelStreamBracketOpen = false;
-          send({ type: "model_stream", status: "end" });
+          send({
+            type: "model_stream",
+            status: "end",
+            ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+          });
         };
         let lastModelStreamProgressAt = Date.now();
         // FIX 2: true once a real (non-heartbeat) engine-stream event has been
@@ -5964,7 +5974,11 @@ export async function runAgentLoop(opts: {
           // than silently running a high-consequence action.
           mustApprove = true;
         }
-        if (mustApprove && opts.isToolAlwaysAllowed) {
+        if (
+          mustApprove &&
+          actionEntry.allowPersistentApproval !== false &&
+          opts.isToolAlwaysAllowed
+        ) {
           try {
             mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
           } catch {
@@ -5994,6 +6008,9 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(actionEntry.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
             ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
@@ -6035,6 +6052,12 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
           });
           recordToolResult(result, false);
+          // Control is genuinely handed to the user here — the result above
+          // tells the model "the turn is paused". `requestedActionStop` alone
+          // does not stop anything until after the tool loop drains, so
+          // without this the *rest* of this assistant message still executes
+          // while the human is still looking at the approval card.
+          turnYieldedToUser = true;
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",
@@ -6619,7 +6642,17 @@ export async function runAgentLoop(opts: {
             };
           } else {
             const message = sanitizeToolErrorValue(err);
-            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+            // A code the action chose is worth more to the model than the
+            // prose alone: it can branch on `not_found` without parsing a
+            // sentence. `action_failed` is what `fail()` fills in when the
+            // author picked nothing, so it says only "it failed" — which the
+            // word "Error" already said. Appending it would be noise the
+            // breaker then has to key on.
+            const errorCode =
+              isActionContractError(err) && err.errorCode !== "action_failed"
+                ? ` (errorCode: ${err.errorCode})`
+                : "";
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
           }
           isError = true;
         }
@@ -6734,6 +6767,16 @@ export async function runAgentLoop(opts: {
       // alongside genuine reads, which can reorder it ahead of a later mutating
       // call and break the model's intended sequencing.
       if (!entry) return null;
+      // A call that can pause the turn must not share a batch. `flushParallelBatch`
+      // dispatches through `Promise.all`, so a gated call and its siblings all
+      // start before the gate is reached, and `turnYieldedToUser` would then be
+      // set too late to stop a sibling that already ran. Serializing here is what
+      // makes that flag mean anything for the calls after it. `needsApproval` may
+      // be an async predicate, so this cannot resolve whether approval is truly
+      // required — declaring it at all is enough to serialize.
+      if (entry.needsApproval !== undefined || entry.endsTurn === true) {
+        return null;
+      }
       if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
@@ -6763,7 +6806,8 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): EngineContentPart => {
       const result =
-        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `Not executed: ${toolCall.name} was called after an action that paused the turn ` +
+        `(an action that ends the turn, or one waiting on the user's approval). ` +
         `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
       send({
         type: "tool_start",

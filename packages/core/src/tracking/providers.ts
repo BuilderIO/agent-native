@@ -178,6 +178,29 @@ function isPostHogAiObservabilityEvent(eventName: string): boolean {
  * `$exception_list` — the framework's own `captureException()` emits camelCase
  * fields that PostHog would otherwise render as an empty, ungroupable issue.
  */
+/**
+ * PostHog reads an AI event's timestamp as the moment the operation ENDED and
+ * recovers its start by subtracting `$ai_latency` (its `operationStartMs`).
+ * The framework stamps events when the operation began — which Mixpanel,
+ * Amplitude, webhooks and Agent Native Analytics consume verbatim — so the
+ * shift belongs here, in the one backend that reads it that way. Events with no
+ * `$ai_latency` (a trace, an exception) are unshifted: there is nothing for
+ * PostHog to subtract.
+ */
+function postHogAiEndTimestamp(event: TrackingEvent): string | undefined {
+  const latencySeconds = Number(event.properties?.["$ai_latency"]);
+  if (
+    !event.timestamp ||
+    !Number.isFinite(latencySeconds) ||
+    latencySeconds <= 0
+  ) {
+    return event.timestamp;
+  }
+  const startedAt = Date.parse(event.timestamp);
+  if (Number.isNaN(startedAt)) return event.timestamp;
+  return new Date(startedAt + Math.round(latencySeconds * 1000)).toISOString();
+}
+
 function createPostHogProvider(
   apiKey: string,
   host: string,
@@ -193,11 +216,16 @@ function createPostHogProvider(
       JSON.stringify({
         api_key: apiKey,
         event: event.name,
+        // Top level, NOT inside `properties`: PostHog reads the event time from
+        // the payload root and treats a `properties.timestamp` as an ordinary
+        // custom property, stamping the event with its ingestion time instead.
+        // An agent run emits its whole tree in one burst at the end, so that
+        // collapsed a five-minute waterfall into the 100ms it took to flush.
+        timestamp: postHogAiEndTimestamp(event),
         properties: {
           distinct_id: distinctId,
           ...properties,
           ...(event.sessionId ? { $session_id: event.sessionId } : {}),
-          timestamp: event.timestamp,
         },
       }),
     );
@@ -234,10 +262,10 @@ function createPostHogProvider(
           api_key: apiKey,
           event: event.name,
           distinct_id: distinctId,
+          timestamp: event.timestamp,
           properties: {
             ...event.properties,
             ...(event.sessionId ? { $session_id: event.sessionId } : {}),
-            timestamp: event.timestamp,
           },
         }),
       );
@@ -289,7 +317,8 @@ export function sendPostHogEvent(
       api_key: apiKey,
       event: name,
       distinct_id: distinctId,
-      properties: { ...properties, timestamp: new Date().toISOString() },
+      timestamp: new Date().toISOString(),
+      properties,
     }),
   );
   return true;
@@ -411,6 +440,9 @@ function createWebhookProvider(
           event: event.name,
           properties: event.properties,
           userId: event.userId,
+          // Without this a webhook consumer cannot join a signup back to the
+          // anonymous pageviews that preceded it — the whole point of the id.
+          anonymousId: event.anonymousId,
           sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),

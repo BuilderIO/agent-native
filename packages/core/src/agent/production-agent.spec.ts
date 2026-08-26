@@ -6,7 +6,7 @@ import path from "node:path";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentActionStopError } from "../action.js";
+import { AgentActionStopError, fail } from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -5679,6 +5679,137 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(events)).not.toContain("identical arguments");
   });
 
+  it("gives the model the code a fail() chose, not just the prose", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      fail("No such meeting", { errorCode: "not_found", statusCode: 404 });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "get-meeting",
+              input: { id: "m_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-meeting": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-meeting",
+        result:
+          "Error running get-meeting: No such meeting (errorCode: not_found)",
+      }),
+    );
+  });
+
+  it("omits fail()'s stand-in code, which tells the model nothing", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      fail("No such meeting");
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "get-meeting",
+              input: { id: "m_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-meeting": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-meeting",
+        result: "Error running get-meeting: No such meeting",
+      }),
+    );
+  });
+
   it("stops after repeated identical tool errors", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -9442,6 +9573,234 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  // The paused tool result tells the model "the turn is paused". That has to be
+  // true for the REST of the same assistant message too: a second call emitted
+  // alongside the gated one previously still executed while the human was
+  // looking at the approval card.
+  it("does not run later tool calls in the same message while approval is pending", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "approval-call-1",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "follow-up-call-1",
+                name: "delete-records",
+                input: { id: "42" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const sendEmail = vi.fn(async () => "delivered");
+    const deleteRecords = vi.fn(async () => "deleted");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "delete-records": {
+          ...actionEntry({ readOnly: false }),
+          run: deleteRecords,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    // The whole point: the un-gated sibling must not fire either.
+    expect(deleteRecords).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "delete-records",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+  });
+
+  // Same guarantee, but through the parallel path. A batch is dispatched with
+  // `Promise.all`, so if a gated call were batchable its siblings would already
+  // be running by the time the gate is reached — including a mutating
+  // `parallelSafe` one.
+  it("does not run parallelSafe siblings batched alongside a gated call", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "gated-1",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "sibling-1",
+                name: "bulk-write",
+                input: { id: "42" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const sendEmail = vi.fn(async () => "delivered");
+    const bulkWrite = vi.fn(async () => "written");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        // Declares BOTH parallelSafe and needsApproval — without serializing
+        // gated calls this lands in a write batch with its sibling.
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          parallelSafe: true,
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "bulk-write": {
+          ...actionEntry({ readOnly: false }),
+          parallelSafe: true,
+          run: bulkWrite,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(bulkWrite).not.toHaveBeenCalled();
+  });
+
+  it("requires a fresh approval when persistent approval is disabled", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          allowPersistentApproval: false,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval_required",
+        tool: "send-email",
+        allowPersistentApproval: false,
+      }),
+    );
+  });
+
+  it("honors persistent approval by default", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
     // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();
@@ -10641,6 +11000,20 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: 0,
       }),
     ).toBe(true);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error: "Missing Authentication header",
+            errorCode: "http_401",
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("preserves the specific continuation reason for recoverable background errors", () => {

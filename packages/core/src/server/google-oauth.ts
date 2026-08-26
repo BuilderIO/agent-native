@@ -17,9 +17,9 @@ import {
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -753,6 +753,15 @@ export async function createOAuthSession(
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
+      /**
+       * Whether this callback created the account, decided by the caller at
+       * the moment it created it. Callers that provision the canonical user
+       * before getting here MUST pass this: the `hasBetterAuthUserEmail`
+       * probe below then reads the row they just wrote and concludes the
+       * person is an existing user, which silently deleted the only
+       * attributed signup event Google sign-in produces.
+       */
+      isNewUser?: boolean;
     };
   },
 ): Promise<OAuthSessionResult> {
@@ -767,11 +776,14 @@ export async function createOAuthSession(
   let shouldTrackSignup = false;
   if (!opts.hasProductionSession || needsDeepLink) {
     if (opts.trackSignup && !opts.hasProductionSession) {
-      const [hasLegacySession, hasBetterAuthUser] = await Promise.all([
-        hasLegacySessionForEmail(email).catch(() => true),
-        hasBetterAuthUserEmail(email).catch(() => true),
-      ]);
-      shouldTrackSignup = !hasLegacySession && !hasBetterAuthUser;
+      shouldTrackSignup =
+        opts.trackSignup.isNewUser ??
+        (await Promise.all([
+          hasLegacySessionForEmail(email).catch(() => true),
+          hasBetterAuthUserEmail(email).catch(() => true),
+        ]).then(
+          ([hasLegacySession, hasUser]) => !hasLegacySession && !hasUser,
+        ));
     }
 
     sessionToken = crypto.randomBytes(32).toString("hex");
@@ -786,6 +798,7 @@ export async function createOAuthSession(
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
+        origin: "google_oauth",
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
@@ -1004,7 +1017,7 @@ export function oauthDesktopExchangePage(
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function resolveOAuthAppName(explicit?: string): string {
-  const raw = explicit || getAppName() || "Agent Native";
+  const raw = explicit || getAppConfig().app.name || "Agent Native";
   if (!/^[a-z0-9_-]+$/.test(raw)) return raw;
   return raw
     .split(/[-_]+/)

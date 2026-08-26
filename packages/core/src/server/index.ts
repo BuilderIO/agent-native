@@ -134,6 +134,7 @@ export {
   type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
+  type MentionItemMedia,
   type MentionProviderItem,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
@@ -275,6 +276,7 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
 export {
   buildRuntimeConfigPrompt,
   formatRuntimeConfigReport,
@@ -568,6 +570,11 @@ export {
   resolveSecret,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
+export {
+  hasBuilderApiCredentialCustody,
+  resolveBuilderApiAuthorization,
+} from "./builder-api-auth.js";
+export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,

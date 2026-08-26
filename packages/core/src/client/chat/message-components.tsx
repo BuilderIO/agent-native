@@ -46,6 +46,10 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
+import {
+  DEFAULT_THINKING_DISPLAY,
+  type ThinkingDisplay,
+} from "../../shared/thinking-display.js";
 import { getActiveRun } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
@@ -79,6 +83,7 @@ import {
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
+import { useThinkingDisplay } from "../thinking-display.js";
 import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
@@ -1493,14 +1498,19 @@ export function isAlwaysVisibleAssistantTool(part: {
   );
 }
 
-export function isCollapsibleAssistantWorkPart(part: {
-  type?: string;
-  toolName?: string;
-  chatUI?: unknown;
-  mcpApp?: unknown;
-  approval?: { approvalKey?: string; dismissed?: boolean };
-}): boolean {
-  if (part.type === "reasoning") return true;
+export function isCollapsibleAssistantWorkPart(
+  part: {
+    type?: string;
+    toolName?: string;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+    approval?: { approvalKey?: string; dismissed?: boolean };
+  },
+  thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
+): boolean {
+  // Hidden reasoning renders nothing, so counting it as work would wrap a
+  // reasoning-only turn in an empty "Worked for…" disclosure.
+  if (part.type === "reasoning") return thinkingDisplay !== "hidden";
   return (
     part.type === "tool-call" &&
     !isAlwaysVisibleAssistantTool(part) &&
@@ -1549,36 +1559,33 @@ export function getAssistantToolSummaryInfo(
   };
 }
 
+export interface AssistantWorkPart {
+  type?: string;
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  chatUI?: unknown;
+  mcpApp?: unknown;
+  approval?: { approvalKey?: string; dismissed?: boolean };
+}
+
 export function groupAssistantWorkParts(
-  part: {
-    type?: string;
-    toolCallId?: string;
-    toolName?: string;
-    args?: Record<string, unknown>;
-    chatUI?: unknown;
-    mcpApp?: unknown;
-    approval?: { approvalKey?: string; dismissed?: boolean };
-  },
+  part: AssistantWorkPart,
   index: number,
-  parts: readonly {
-    type?: string;
-    toolCallId?: string;
-    toolName?: string;
-    args?: Record<string, unknown>;
-    chatUI?: unknown;
-    mcpApp?: unknown;
-    approval?: { approvalKey?: string; dismissed?: boolean };
-  }[],
+  parts: readonly AssistantWorkPart[],
+  thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
 ): ["group-work"] | null {
   if (isCallAgentToolCallShadowed(parts, index)) {
     const previousPart = parts[index - 1];
     const previousPartIsInWorkGroup =
       previousPart != null &&
-      (isCollapsibleAssistantWorkPart(previousPart) ||
+      (isCollapsibleAssistantWorkPart(previousPart, thinkingDisplay) ||
         isCallAgentToolCallShadowed(parts, index - 1));
     return previousPartIsInWorkGroup ? ["group-work"] : null;
   }
-  if (isCollapsibleAssistantWorkPart(part)) return ["group-work"];
+  if (isCollapsibleAssistantWorkPart(part, thinkingDisplay)) {
+    return ["group-work"];
+  }
   return null;
 }
 
@@ -1721,6 +1728,16 @@ export function AssistantMessage() {
   const userStoppedRun = React.useContext(UserStoppedRunContext);
   const isUserStoppedRun =
     assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
+  const thinkingDisplay = useThinkingDisplay();
+  const groupWorkParts = useCallback(
+    (
+      part: AssistantWorkPart,
+      index: number,
+      parts: readonly AssistantWorkPart[],
+    ): ["group-work"] | null =>
+      groupAssistantWorkParts(part, index, parts, thinkingDisplay),
+    [thinkingDisplay],
+  );
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const hasActiveTool = assistantMessageHasActiveTool(msg.content);
@@ -1943,14 +1960,14 @@ export function AssistantMessage() {
       (p, index) =>
         !isCallAgentToolCallShadowed(msgContent, index) &&
         (p.type !== "tool-call" || p.activity !== true) &&
-        isCollapsibleAssistantWorkPart(p),
+        isCollapsibleAssistantWorkPart(p, thinkingDisplay),
     );
   const firstWorkPartIndex = Array.isArray(msgContent)
     ? msgContent.findIndex(
         (p, index) =>
           !isCallAgentToolCallShadowed(msgContent, index) &&
           (p.type !== "tool-call" || p.activity !== true) &&
-          isCollapsibleAssistantWorkPart(p),
+          isCollapsibleAssistantWorkPart(p, thinkingDisplay),
       )
     : -1;
   const shadowedToolCallIds = Array.isArray(msgContent)
@@ -1977,7 +1994,7 @@ export function AssistantMessage() {
           />
         )}
         <ToolCallStackMotion>
-          <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
+          <MessagePrimitive.GroupedParts groupBy={groupWorkParts}>
             {({ part, children }) => {
               switch (part.type) {
                 case "group-work": {

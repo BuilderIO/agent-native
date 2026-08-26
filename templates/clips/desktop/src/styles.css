@@ -25,11 +25,10 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
-  /* Keep the side and bottom shadow clear of the transparent Tauri window.
-     The top is intentionally tighter: the popover should feel attached to
-     its menu-bar icon, where a clipped shadow is not visible anyway. */
-  --popover-shadow-gutter: 24px;
-  --popover-shadow-gutter-top: 6px;
+  /* Transparent apron reserved for CSS-painted shadows on the overlays that
+     still use them (bubble, countdown). The popover and other converted
+     windows are sized to their content exactly and use the native NSWindow
+     shadow instead. */
   --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
@@ -67,9 +66,9 @@
 }
 
 /* Tauri window is `transparent: true` + `decorations: false`, so the HTML
-   paints the visible shape. A padded transparent outer, with a rounded
-   inner panel that carries the actual background + shadow, gives us the
-   round-cornered chromeless popover. */
+   paints the visible shape. The popover window is sized to the rounded panel
+   exactly; macOS derives a native shadow from the panel's alpha, giving us
+   the round-cornered chromeless popover with no transparent apron. */
 html,
 body {
   margin: 0;
@@ -116,10 +115,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow: hidden;
 }
 
-body[data-clips-route="recording-pill"] #root {
-  padding: var(--overlay-shadow-gutter);
-}
-
 /* ------------------------------------------------------------------------- */
 /* App shell                                                                  */
 /* ------------------------------------------------------------------------- */
@@ -132,14 +127,12 @@ body[data-clips-route="recording-pill"] #root {
   gap: 14px;
   background: var(--bg);
   border: 1px solid var(--border);
+  /* The rounded corners shape the native NSWindow shadow — the window is
+     sized to this panel exactly, so a CSS box-shadow would just clip. */
   border-radius: 14px;
-  /* Subtle drop shadow so the popover visually detaches from the menu bar. */
-  box-shadow: var(--shadow-md);
   /* No fixed height — the Tauri window is resized to match the rendered
      content via resize_popover, so the shell just flows naturally. */
-  max-height: calc(
-    100vh - var(--popover-shadow-gutter) - var(--popover-shadow-gutter)
-  );
+  max-height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -1131,9 +1124,17 @@ body[data-clips-route="recording-pill"] #root {
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition:
+    opacity 120ms,
     color 120ms,
     background 120ms;
   flex-shrink: 0;
+  opacity: 0;
+}
+
+.readiness-item:hover .readiness-refresh,
+.readiness-item:focus-within .readiness-refresh,
+.readiness-item .readiness-refresh-rotating {
+  opacity: 1;
 }
 
 .readiness-refresh:hover {
@@ -1146,13 +1147,19 @@ body[data-clips-route="recording-pill"] #root {
   cursor: default;
 }
 
-.readiness-refresh-spinning svg {
-  animation: readiness-spin 0.8s linear infinite;
+.readiness-refresh-rotating svg {
+  animation: readiness-spin 420ms ease-out;
 }
 
 @keyframes readiness-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .readiness-refresh-rotating svg {
+    animation: none;
   }
 }
 
@@ -1620,7 +1627,7 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 4px;
-  max-height: 280px;
+  max-height: 420px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -2161,26 +2168,6 @@ body[data-clips-route="recording-pill"] #root {
   color: var(--fg-muted);
   font-size: 14px;
   line-height: 1.55;
-}
-
-.mic-off-confirmation-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 16px 18px 18px;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.mic-off-confirmation-actions .primary,
-.mic-off-confirmation-actions .secondary {
-  width: auto;
-  min-width: 0;
-  height: 42px;
-  padding: 0 12px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -3425,291 +3412,6 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Vertical Loom-style recording pill                                         */
-/* ------------------------------------------------------------------------- */
-
-.toolbar-v {
-  position: fixed;
-  left: var(--overlay-shadow-gutter);
-  top: var(--overlay-shadow-gutter);
-  width: 72px;
-  height: 150px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  /* Pin content to the top in BOTH states. The primary controls are
-     centered inside their own fixed-height zone (.toolbar-v-primary), so
-     the collapsed→expanded growth only adds room BELOW them. Without this,
-     flipping justify-content center→flex-start on hover yanked the Stop
-     button up toward the bar's top edge. */
-  justify-content: flex-start;
-  /* Equal inset on all four sides from the pill edge to the buttons. */
-  padding: 10px;
-  overflow: hidden;
-  border-radius: 24px;
-  background: rgba(20, 22, 28, 0.94);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  user-select: none;
-  -webkit-user-select: none;
-  cursor: grab;
-  transition: border-radius 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.toolbar-v:hover,
-.toolbar-v:focus-within {
-  /* Matches TOOLBAR_EXPANDED_HEIGHT in toolbar.tsx — the fixed 130px primary
-     zone + 88px hover actions (+2 margin) + 20px vertical padding. */
-  height: 240px;
-  border-radius: 26px;
-}
-
-.toolbar-v:active {
-  cursor: grabbing;
-}
-
-/* Fixed-height home for Stop / time / Pause. Its height equals the collapsed
-   pill's content box (150px − 20px vertical padding = 130px), so the trio is
-   centered exactly as before when collapsed and never shifts when the pill
-   grows on hover — the extra height flows into .toolbar-v-hover-actions below. */
-.toolbar-v-primary {
-  flex: 0 0 130px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.toolbar-v-stop {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
-  min-height: 30px;
-  flex: 0 0 30px;
-  aspect-ratio: 1 / 1;
-  border-radius: 50%;
-  border: none;
-  /* orange-500 — a touch softer than the red-orange we had before. */
-  background: #f97316;
-  color: white;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.toolbar-v-stop:hover {
-  background: #ea580c;
-}
-
-.toolbar-v-stop:active {
-  transform: scale(0.94);
-}
-
-.toolbar-v-stop-square {
-  width: 14px;
-  height: 14px;
-  background: currentColor;
-  border-radius: 2px;
-  display: inline-block;
-}
-
-.toolbar-v-spinner {
-  animation: toolbar-v-spin 0.8s linear infinite;
-}
-
-@keyframes toolbar-v-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.toolbar-v-time {
-  flex: 0 0 auto;
-  appearance: none;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  font-weight: 600;
-  color: white;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-}
-
-.toolbar-v-time:hover,
-.toolbar-v-time:focus-visible {
-  background: rgba(255, 255, 255, 0.1);
-  outline: none;
-}
-
-.toolbar-v-time-preparing {
-  font-size: 9px;
-  letter-spacing: 0;
-}
-
-.toolbar-v-pause {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
-  min-height: 30px;
-  flex: 0 0 30px;
-  aspect-ratio: 1 / 1;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.toolbar-v-pause:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-}
-
-.toolbar-v-hover-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  height: 0;
-  margin-top: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(-6px);
-  pointer-events: none;
-  visibility: hidden;
-  transition:
-    opacity 130ms ease-out,
-    transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.toolbar-v:hover .toolbar-v-hover-actions,
-.toolbar-v:focus-within .toolbar-v-hover-actions {
-  height: 88px;
-  margin-top: 2px;
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-  visibility: visible;
-}
-
-.toolbar-v-action {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  flex: 0 0 40px;
-  aspect-ratio: 1 / 1;
-  border-radius: 999px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.95);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out,
-    transform 120ms ease-out;
-}
-
-.toolbar-v-action:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: white;
-}
-
-.toolbar-v-action:active {
-  transform: scale(0.94);
-}
-
-.toolbar-v-action-danger:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.toolbar-v-paused {
-  border-color: rgba(245, 158, 11, 0.35);
-}
-
-/* Pre-record state: the toolbar is visible during the bubble session so the
-   user can drag + position it before hitting Start. Buttons are disabled
-   (no recorder to drive yet). Greyed out + not-allowed cursor makes the
-   "not yet" affordance obvious. */
-.toolbar-v-disabled .toolbar-v-stop,
-.toolbar-v-disabled .toolbar-v-pause,
-.toolbar-v-disabled .toolbar-v-action {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.35);
-  cursor: not-allowed;
-  pointer-events: auto;
-}
-.toolbar-v-disabled .toolbar-v-stop:hover,
-.toolbar-v-disabled .toolbar-v-pause:hover,
-.toolbar-v-disabled .toolbar-v-action:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.35);
-}
-.toolbar-v-stop:disabled,
-.toolbar-v-pause:disabled,
-.toolbar-v-action:disabled {
-  cursor: not-allowed;
-}
-
-.toolbar-v-disk-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #f59e0b;
-  opacity: 0.9;
-  flex-shrink: 0;
-}
-
-.toolbar-v-disk-indicator-critical {
-  color: #ef4444;
-  animation: toolbar-v-disk-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes toolbar-v-disk-pulse {
-  0%,
-  100% {
-    opacity: 0.7;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.toolbar-v-disk-warning {
-  border-color: rgba(245, 158, 11, 0.45);
-}
-
-.toolbar-v-disk-critical {
-  border-color: rgba(239, 68, 68, 0.5);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .toolbar-v,
-  .toolbar-v-hover-actions,
-  .toolbar-v-action {
-    transition: none;
-  }
-  .toolbar-v-disk-indicator-critical {
-    animation: none;
-  }
-}
-
-/* ------------------------------------------------------------------------- */
 /* Overlay: camera bubble                                                     */
 /* ------------------------------------------------------------------------- */
 
@@ -4504,10 +4206,12 @@ body[data-clips-route="recording-pill"] #root {
 
 /* Wispr Flow-style dictation pill: small capsule anchored to the bottom
    of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust. */
+   bottom-center on the primary display by show_flow_bar in Rust, sized to
+   the content exactly — elevation is the native NSWindow shadow, so there
+   is no transparent shadow-gutter apron here. */
 .flow-bar-root {
   position: fixed;
-  inset: var(--overlay-shadow-gutter);
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4936,10 +4640,12 @@ body[data-clips-route="recording-pill"] #root {
 /* Overlay: recording pill                                                    */
 /* ------------------------------------------------------------------------- */
 
-/* Fills the window minus the shadow gutter `#root` already pads out. The
-   collapsed capsule centers here rather than hugging a corner: hover is polled
-   against the window frame, so slack between frame and capsule would light the
-   pill up while the cursor is nowhere near it. */
+/* Fills the window, which Rust sizes to the visible capsule exactly —
+   elevation is the native NSWindow shadow (see recording_indicator.rs), so
+   there is no transparent shadow-gutter apron here. The collapsed capsule
+   centers rather than hugging a corner: hover is polled against the window
+   frame, so slack between frame and capsule would light the pill up while
+   the cursor is nowhere near it. */
 .pill-outer {
   display: flex;
   height: 100%;

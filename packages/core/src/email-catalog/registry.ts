@@ -22,7 +22,7 @@
  * which is how per-email delivery and open metrics are attributed later.
  */
 
-import { getAppSlug } from "../server/app-name.js";
+import { getAppConfig } from "../app-config/index.js";
 import type { RenderedEmailMessage } from "../server/email-templates.js";
 
 export interface TransactionalEmailDefinition {
@@ -72,7 +72,7 @@ function resolveDefinition(
 ): RegisteredTransactionalEmail {
   return {
     ...definition,
-    app: definition.app ?? getAppSlug() ?? "unknown",
+    app: definition.app ?? getAppConfig().app.slug ?? "unknown",
   };
 }
 
@@ -162,7 +162,7 @@ export function replaceTransactionalEmails(
   idPrefix: string,
   definitions: readonly TransactionalEmailDefinition[],
 ): RegisteredTransactionalEmail[] {
-  const runtimeApp = getAppSlug();
+  const runtimeApp = getAppConfig().app.slug;
   if (!ownerApp || ownerApp.includes(".") || idPrefix !== `${ownerApp}.`) {
     throw new Error(
       "Transactional email replacement requires an owner app and its exact namespace prefix.",

@@ -275,6 +275,13 @@ export interface DesktopAppCreationSettings {
   appsRoot: string;
 }
 
+/** `settings` always reflects the current on-disk value, so a rejected update still snaps the UI back to something real. */
+export interface DesktopAppCreationSettingsUpdateResult {
+  ok: boolean;
+  settings: DesktopAppCreationSettings;
+  error?: string;
+}
+
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;

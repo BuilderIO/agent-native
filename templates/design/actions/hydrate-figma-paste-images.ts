@@ -15,7 +15,7 @@
  * supplies the REST resolver.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
