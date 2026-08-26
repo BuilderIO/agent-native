@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import type {
+  AtmosphereSettings,
   HeroShaderSettings,
   HeroShaderVariant,
   RibbonFieldSettings,
@@ -1211,10 +1212,560 @@ function RibbonFieldShaderBackground({
   );
 }
 
+const atmosphereVertexShader = vertexShader;
+
+// Adapted from the classic "Atmospheric Scattering" GLSL by GLtracy
+// (public-domain Shadertoy demo): a planet + Rayleigh/Mie atmosphere
+// raymarched per-pixel. The sphere is anchored toward the bottom of the
+// canvas via uCenterX/uCenterY so mostly its upper limb and atmosphere halo
+// are in frame, and the sun direction is animated (pitch/yaw uniforms) so
+// its grazing-angle glow sweeps around the visible rim over time instead of
+// the original demo's camera-orbit.
+const atmosphereFragmentShader = `
+precision highp float;
+
+uniform float iTime;
+uniform vec2 iResolution;
+uniform float uPlanetRadius;
+uniform float uAtmosphereThickness;
+uniform float uFov;
+uniform float uEyeDistance;
+uniform float uCenterX;
+uniform float uCenterY;
+uniform float uLightPitch;
+uniform float uLightYawOffset;
+uniform float uLightSpeed;
+uniform vec3 uRayleighColor;
+uniform float uRayleighHeight;
+uniform float uMieStrength;
+uniform float uMieExtinction;
+uniform float uMieHeight;
+uniform float uMieG;
+uniform float uExposure;
+uniform float uGamma;
+uniform float uOutSteps;
+uniform float uInSteps;
+
+const float PI = 3.14159265359;
+const float MAX = 10000.0;
+
+vec2 ray_vs_sphere(vec3 p, vec3 dir, float r) {
+  float b = dot(p, dir);
+  float c = dot(p, p) - r * r;
+
+  float d = b * b - c;
+  if (d < 0.0) {
+    return vec2(MAX, -MAX);
+  }
+  d = sqrt(d);
+
+  return vec2(-b - d, -b + d);
+}
+
+float phase_mie(float g, float c, float cc) {
+  float gg = g * g;
+
+  float a = (1.0 - gg) * (1.0 + cc);
+
+  float b = 1.0 + gg - 2.0 * g * c;
+  b *= sqrt(b);
+  b *= 2.0 + gg;
+
+  return (3.0 / 8.0 / PI) * a / b;
+}
+
+float phase_ray(float cc) {
+  return (3.0 / 16.0 / PI) * (1.0 + cc);
+}
+
+float density(vec3 p, float ph) {
+  return exp(-max(length(p) - uPlanetRadius, 0.0) / ph);
+}
+
+float optic(vec3 p, vec3 q, float ph) {
+  vec3 s = (q - p) / uOutSteps;
+  vec3 v = p + s * 0.5;
+
+  float sum = 0.0;
+  for (int i = 0; i < 16; i++) {
+    if (float(i) >= uOutSteps) break;
+    sum += density(v, ph);
+    v += s;
+  }
+  sum *= length(s);
+
+  return sum;
+}
+
+vec3 in_scatter(vec3 o, vec3 dir, vec2 e, vec3 l) {
+  float ph_ray = uRayleighHeight;
+  float ph_mie = uMieHeight;
+
+  vec3 k_ray = uRayleighColor;
+  vec3 k_mie = vec3(uMieStrength);
+  float k_mie_ex = uMieExtinction;
+  float R = uPlanetRadius + uAtmosphereThickness;
+
+  vec3 sum_ray = vec3(0.0);
+  vec3 sum_mie = vec3(0.0);
+
+  float n_ray0 = 0.0;
+  float n_mie0 = 0.0;
+
+  float len = (e.y - e.x) / uInSteps;
+  vec3 s = dir * len;
+  vec3 v = o + dir * (e.x + len * 0.5);
+
+  for (int i = 0; i < 160; i++) {
+    if (float(i) >= uInSteps) break;
+
+    float d_ray = density(v, ph_ray) * len;
+    float d_mie = density(v, ph_mie) * len;
+
+    n_ray0 += d_ray;
+    n_mie0 += d_mie;
+
+    vec2 f = ray_vs_sphere(v, l, R);
+    vec3 u = v + l * f.y;
+
+    float n_ray1 = optic(v, u, ph_ray);
+    float n_mie1 = optic(v, u, ph_mie);
+
+    vec3 att = exp(-(n_ray0 + n_ray1) * k_ray - (n_mie0 + n_mie1) * k_mie * k_mie_ex);
+
+    sum_ray += d_ray * att;
+    sum_mie += d_mie * att;
+
+    v += s;
+  }
+
+  float c = dot(dir, -l);
+  float cc = c * c;
+  vec3 scatter =
+    sum_ray * k_ray * phase_ray(cc) +
+    sum_mie * k_mie * phase_mie(uMieG, c, cc);
+
+  return uExposure * scatter;
+}
+
+mat3 rot3xy(vec2 angle) {
+  vec2 c = cos(angle);
+  vec2 s = sin(angle);
+
+  return mat3(
+    c.y,       0.0,  -s.y,
+    s.y * s.x, c.x,  c.y * s.x,
+    s.y * c.x, -s.x, c.y * c.x
+  );
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 center = vec2(iResolution.x * uCenterX, iResolution.y * uCenterY);
+  vec2 xy = fragCoord - center;
+
+  float cot_half_fov = tan(radians(90.0 - uFov * 0.5));
+  float zdist = iResolution.y * 0.5 * cot_half_fov;
+  vec3 dir = normalize(vec3(xy, -zdist));
+
+  vec3 eye = vec3(0.0, 0.0, uEyeDistance);
+
+  float lightPitchRad = radians(uLightPitch);
+  float lightYawRad = radians(uLightYawOffset) + iTime * uLightSpeed;
+  vec3 l = normalize(rot3xy(vec2(lightPitchRad, lightYawRad)) * vec3(0.0, 0.0, 1.0));
+
+  float R = uPlanetRadius + uAtmosphereThickness;
+  vec2 e = ray_vs_sphere(eye, dir, R);
+  if (e.x > e.y) {
+    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  vec2 f = ray_vs_sphere(eye, dir, uPlanetRadius);
+  e.y = min(e.y, f.x);
+
+  vec3 I = in_scatter(eye, dir, e, l);
+  vec3 col = pow(max(I, vec3(0.0)), vec3(1.0 / uGamma));
+
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+
+void main() {
+  mainImage(gl_FragColor, gl_FragCoord.xy);
+}
+`;
+
+interface AtmosphereShaderBackgroundProps extends AtmosphereSettings {
+  frameRate?: number;
+}
+
+function AtmosphereShaderBackground({
+  planetRadius,
+  atmosphereThickness,
+  fov,
+  eyeDistance,
+  centerX,
+  centerY,
+  lightPitch,
+  lightYawOffset,
+  lightSpeed,
+  rayleighR,
+  rayleighG,
+  rayleighB,
+  rayleighHeight,
+  mieStrength,
+  mieExtinction,
+  mieHeight,
+  mieG,
+  exposure,
+  gamma,
+  outScatterSteps,
+  inScatterSteps,
+  intensity,
+  paused,
+  frameRate = 30,
+}: AtmosphereShaderBackgroundProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number>(0);
+  const animationControlRef = useRef<{
+    start: () => void;
+    stop: () => void;
+  } | null>(null);
+
+  const settingsRef = useRef({
+    planetRadius,
+    atmosphereThickness,
+    fov,
+    eyeDistance,
+    centerX,
+    centerY,
+    lightPitch,
+    lightYawOffset,
+    lightSpeed,
+    rayleighR,
+    rayleighG,
+    rayleighB,
+    rayleighHeight,
+    mieStrength,
+    mieExtinction,
+    mieHeight,
+    mieG,
+    exposure,
+    gamma,
+    outScatterSteps,
+    inScatterSteps,
+    paused,
+  });
+  useEffect(() => {
+    settingsRef.current = {
+      planetRadius,
+      atmosphereThickness,
+      fov,
+      eyeDistance,
+      centerX,
+      centerY,
+      lightPitch,
+      lightYawOffset,
+      lightSpeed,
+      rayleighR,
+      rayleighG,
+      rayleighB,
+      rayleighHeight,
+      mieStrength,
+      mieExtinction,
+      mieHeight,
+      mieG,
+      exposure,
+      gamma,
+      outScatterSteps,
+      inScatterSteps,
+      paused,
+    };
+  }, [
+    planetRadius,
+    atmosphereThickness,
+    fov,
+    eyeDistance,
+    centerX,
+    centerY,
+    lightPitch,
+    lightYawOffset,
+    lightSpeed,
+    rayleighR,
+    rayleighG,
+    rayleighB,
+    rayleighHeight,
+    mieStrength,
+    mieExtinction,
+    mieHeight,
+    mieG,
+    exposure,
+    gamma,
+    outScatterSteps,
+    inScatterSteps,
+    paused,
+  ]);
+
+  useEffect(() => {
+    const canvasRaw = canvasRef.current;
+    const containerRaw = containerRef.current;
+    if (!canvasRaw || !containerRaw) return;
+    const canvas: HTMLCanvasElement = canvasRaw;
+    const container: HTMLElement = containerRaw;
+
+    const glRaw = canvas.getContext("webgl", {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: false,
+    });
+    if (!glRaw) return;
+    const gl: WebGLRenderingContext = glRaw;
+
+    function compileShader(type: number, src: string) {
+      const shader = gl.createShader(type);
+      if (!shader) return null;
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+      }
+      return shader;
+    }
+
+    const vs = compileShader(gl.VERTEX_SHADER, atmosphereVertexShader);
+    const fs = compileShader(gl.FRAGMENT_SHADER, atmosphereFragmentShader);
+    if (!vs || !fs) return;
+
+    const program = gl.createProgram();
+    if (!program) return;
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error(gl.getProgramInfoLog(program));
+      gl.deleteProgram(program);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      return;
+    }
+    gl.useProgram(program);
+
+    const buf = gl.createBuffer();
+    if (!buf) {
+      gl.deleteProgram(program);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      return;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW,
+    );
+    const posAttrib = gl.getAttribLocation(program, "position");
+    gl.enableVertexAttribArray(posAttrib);
+    gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    const uTime = gl.getUniformLocation(program, "iTime");
+    const uRes = gl.getUniformLocation(program, "iResolution");
+    const uPlanetRadius = gl.getUniformLocation(program, "uPlanetRadius");
+    const uAtmosphereThickness = gl.getUniformLocation(
+      program,
+      "uAtmosphereThickness",
+    );
+    const uFov = gl.getUniformLocation(program, "uFov");
+    const uEyeDistance = gl.getUniformLocation(program, "uEyeDistance");
+    const uCenterX = gl.getUniformLocation(program, "uCenterX");
+    const uCenterY = gl.getUniformLocation(program, "uCenterY");
+    const uLightPitch = gl.getUniformLocation(program, "uLightPitch");
+    const uLightYawOffset = gl.getUniformLocation(program, "uLightYawOffset");
+    const uLightSpeed = gl.getUniformLocation(program, "uLightSpeed");
+    const uRayleighColor = gl.getUniformLocation(program, "uRayleighColor");
+    const uRayleighHeight = gl.getUniformLocation(program, "uRayleighHeight");
+    const uMieStrength = gl.getUniformLocation(program, "uMieStrength");
+    const uMieExtinction = gl.getUniformLocation(program, "uMieExtinction");
+    const uMieHeight = gl.getUniformLocation(program, "uMieHeight");
+    const uMieG = gl.getUniformLocation(program, "uMieG");
+    const uExposure = gl.getUniformLocation(program, "uExposure");
+    const uGamma = gl.getUniformLocation(program, "uGamma");
+    const uOutSteps = gl.getUniformLocation(program, "uOutSteps");
+    const uInSteps = gl.getUniformLocation(program, "uInSteps");
+
+    const reducedMotionQuery =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    let reducedMotion = reducedMotionQuery?.matches ?? false;
+
+    let dpr = 1;
+
+    function draw(timeSeconds: number) {
+      gl.uniform1f(uTime, timeSeconds);
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uPlanetRadius, settingsRef.current.planetRadius);
+      gl.uniform1f(
+        uAtmosphereThickness,
+        settingsRef.current.atmosphereThickness,
+      );
+      gl.uniform1f(uFov, settingsRef.current.fov);
+      gl.uniform1f(uEyeDistance, settingsRef.current.eyeDistance);
+      gl.uniform1f(uCenterX, settingsRef.current.centerX);
+      gl.uniform1f(uCenterY, settingsRef.current.centerY);
+      gl.uniform1f(uLightPitch, settingsRef.current.lightPitch);
+      gl.uniform1f(uLightYawOffset, settingsRef.current.lightYawOffset);
+      gl.uniform1f(uLightSpeed, settingsRef.current.lightSpeed);
+      gl.uniform3f(
+        uRayleighColor,
+        settingsRef.current.rayleighR,
+        settingsRef.current.rayleighG,
+        settingsRef.current.rayleighB,
+      );
+      gl.uniform1f(uRayleighHeight, settingsRef.current.rayleighHeight);
+      gl.uniform1f(uMieStrength, settingsRef.current.mieStrength);
+      gl.uniform1f(uMieExtinction, settingsRef.current.mieExtinction);
+      gl.uniform1f(uMieHeight, settingsRef.current.mieHeight);
+      gl.uniform1f(uMieG, settingsRef.current.mieG);
+      gl.uniform1f(uExposure, settingsRef.current.exposure);
+      gl.uniform1f(uGamma, settingsRef.current.gamma);
+      gl.uniform1f(uOutSteps, settingsRef.current.outScatterSteps);
+      gl.uniform1f(uInSteps, settingsRef.current.inScatterSteps);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    function resize() {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      dpr = Math.min(window.devicePixelRatio, 1.5);
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+
+    // Tracks hero visibility so the RAF loop can stop entirely once scrolled
+    // past instead of waking every frame just to no-op.
+    let isVisible = true;
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        isVisible = entry?.isIntersecting ?? true;
+        if (isVisible) startAnimation();
+      },
+      { threshold: 0 },
+    );
+    visibilityObserver.observe(container);
+
+    const startTime = performance.now();
+    let lastFrame = 0;
+    const frameBudget = 1000 / Math.max(1, frameRate);
+    const reducedMotionStaticTime = 20;
+
+    function render(now: number) {
+      if (reducedMotion || !isVisible || settingsRef.current.paused) {
+        rafRef.current = 0;
+        return;
+      }
+      rafRef.current = requestAnimationFrame(render);
+
+      if (now - lastFrame < frameBudget) return;
+      lastFrame = now;
+
+      draw((now - startTime) * 0.001);
+    }
+
+    function startAnimation() {
+      if (
+        !rafRef.current &&
+        !reducedMotion &&
+        isVisible &&
+        !settingsRef.current.paused
+      ) {
+        rafRef.current = requestAnimationFrame(render);
+      }
+    }
+
+    function stopAnimation() {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
+    }
+
+    animationControlRef.current = {
+      start: startAnimation,
+      stop: stopAnimation,
+    };
+
+    function handleReducedMotionChange() {
+      reducedMotion = reducedMotionQuery?.matches ?? false;
+      if (reducedMotion) {
+        stopAnimation();
+        lastFrame = 0;
+        draw(reducedMotionStaticTime);
+      } else {
+        startAnimation();
+      }
+    }
+
+    draw(reducedMotion ? reducedMotionStaticTime : 0);
+    if (reducedMotionQuery) {
+      reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
+    }
+    if (!reducedMotion) startAnimation();
+
+    return () => {
+      stopAnimation();
+      animationControlRef.current = null;
+      if (reducedMotionQuery) {
+        reducedMotionQuery.removeEventListener(
+          "change",
+          handleReducedMotionChange,
+        );
+      }
+      visibilityObserver.disconnect();
+      window.removeEventListener("resize", resize);
+      gl.deleteProgram(program);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.deleteBuffer(buf);
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    };
+  }, [frameRate]);
+
+  useEffect(() => {
+    if (!paused) animationControlRef.current?.start();
+  }, [paused]);
+
+  return (
+    <div
+      ref={containerRef}
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: -1,
+        opacity: intensity,
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{ display: "block", width: "100%", height: "100%" }}
+      />
+    </div>
+  );
+}
+
 export interface HeroShaderBackgroundProps {
   variant: HeroShaderVariant;
   constellation: HeroShaderSettings;
   ribbonField: RibbonFieldSettings;
+  atmosphere: AtmosphereSettings;
   frameRate?: number;
 }
 
@@ -1227,11 +1778,17 @@ export function HeroShaderBackground({
   variant,
   constellation,
   ribbonField,
+  atmosphere,
   frameRate,
 }: HeroShaderBackgroundProps) {
   if (variant === "ribbon-field") {
     return (
       <RibbonFieldShaderBackground {...ribbonField} frameRate={frameRate} />
+    );
+  }
+  if (variant === "atmosphere") {
+    return (
+      <AtmosphereShaderBackground {...atmosphere} frameRate={frameRate} />
     );
   }
   return (

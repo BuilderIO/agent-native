@@ -7,7 +7,7 @@ import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
 
 export function Hero() {
-  const { variant, setVariant, constellation, ribbonField } =
+  const { variant, setVariant, constellation, ribbonField, atmosphere } =
     useHeroShaderSettings();
 
   return (
@@ -16,6 +16,7 @@ export function Hero() {
         variant={variant}
         constellation={constellation.settings}
         ribbonField={ribbonField.settings}
+        atmosphere={atmosphere.settings}
       />
       <div
         role="tablist"
@@ -39,6 +40,12 @@ export function Hero() {
         >
           Ribbon Field
         </TabItem>
+        <TabItem
+          active={variant === "atmosphere"}
+          onClick={() => setVariant("atmosphere")}
+        >
+          Atmosphere
+        </TabItem>
       </div>
       {variant === "ribbon-field" ? (
         <HeroShaderSettingsPanel
@@ -46,6 +53,13 @@ export function Hero() {
           settings={ribbonField.settings}
           onChange={ribbonField.updateSetting}
           onReset={ribbonField.resetSettings}
+        />
+      ) : variant === "atmosphere" ? (
+        <HeroShaderSettingsPanel
+          variant={variant}
+          settings={atmosphere.settings}
+          onChange={atmosphere.updateSetting}
+          onReset={atmosphere.resetSettings}
         />
       ) : (
         <HeroShaderSettingsPanel

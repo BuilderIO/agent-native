@@ -5,20 +5,27 @@ import { createPortal } from "react-dom";
 import { Select } from "./ds/select";
 import { Toggle } from "./ds/toggle";
 import {
+  ATMOSPHERE_FIELD_CONFIG,
   HERO_SHADER_FIELD_CONFIG,
   RIBBON_FIELD_FIELD_CONFIG,
+  type AtmosphereSettings,
   type HeroShaderFieldConfig,
   type HeroShaderSettings,
   type HeroShaderVariant,
   type RibbonFieldSettings,
 } from "./hero-shader-settings";
 
-type ShaderSettings = HeroShaderSettings | RibbonFieldSettings;
+type ShaderSettings =
+  | HeroShaderSettings
+  | RibbonFieldSettings
+  | AtmosphereSettings;
 
-const FIELD_LABELS: Record<
-  keyof HeroShaderSettings | keyof RibbonFieldSettings,
-  string
-> = {
+type ShaderFieldKey =
+  | keyof HeroShaderSettings
+  | keyof RibbonFieldSettings
+  | keyof AtmosphereSettings;
+
+const FIELD_LABELS: Record<ShaderFieldKey, string> = {
   particleCount: "Particle count",
   color: "Color",
   colorMode: "Color mode",
@@ -45,6 +52,27 @@ const FIELD_LABELS: Record<
   spread: "Focus spread",
   contrast: "Contrast",
   brightness: "Brightness",
+  planetRadius: "Planet radius",
+  atmosphereThickness: "Atmosphere thickness",
+  fov: "Field of view",
+  eyeDistance: "Camera distance",
+  centerX: "Center X",
+  centerY: "Center Y",
+  lightPitch: "Light pitch",
+  lightYawOffset: "Light yaw offset",
+  lightSpeed: "Light rotation speed",
+  rayleighR: "Rayleigh red",
+  rayleighG: "Rayleigh green",
+  rayleighB: "Rayleigh blue",
+  rayleighHeight: "Rayleigh height",
+  mieStrength: "Mie strength",
+  mieExtinction: "Mie extinction",
+  mieHeight: "Mie height",
+  mieG: "Mie anisotropy (g)",
+  exposure: "Exposure",
+  gamma: "Gamma",
+  outScatterSteps: "Out-scatter steps",
+  inScatterSteps: "In-scatter steps",
 };
 
 const CONSTELLATION_FIELD_ORDER: Array<keyof HeroShaderSettings> = [
@@ -84,6 +112,32 @@ const RIBBON_FIELD_ORDER: Array<keyof RibbonFieldSettings> = [
   "paused",
 ];
 
+const ATMOSPHERE_FIELD_ORDER: Array<keyof AtmosphereSettings> = [
+  "planetRadius",
+  "atmosphereThickness",
+  "centerX",
+  "centerY",
+  "fov",
+  "eyeDistance",
+  "lightPitch",
+  "lightYawOffset",
+  "lightSpeed",
+  "rayleighR",
+  "rayleighG",
+  "rayleighB",
+  "rayleighHeight",
+  "mieStrength",
+  "mieExtinction",
+  "mieHeight",
+  "mieG",
+  "exposure",
+  "gamma",
+  "outScatterSteps",
+  "inScatterSteps",
+  "intensity",
+  "paused",
+];
+
 interface HeroShaderSettingsPanelProps<T extends ShaderSettings> {
   variant: HeroShaderVariant;
   settings: T;
@@ -104,10 +158,18 @@ export function HeroShaderSettingsPanel<T extends ShaderSettings>({
   const panelId = useId();
 
   const fieldOrder = (
-    variant === "ribbon-field" ? RIBBON_FIELD_ORDER : CONSTELLATION_FIELD_ORDER
+    variant === "ribbon-field"
+      ? RIBBON_FIELD_ORDER
+      : variant === "atmosphere"
+        ? ATMOSPHERE_FIELD_ORDER
+        : CONSTELLATION_FIELD_ORDER
   ) as Array<keyof T>;
   const fieldConfigMap = (
-    variant === "ribbon-field" ? RIBBON_FIELD_FIELD_CONFIG : HERO_SHADER_FIELD_CONFIG
+    variant === "ribbon-field"
+      ? RIBBON_FIELD_FIELD_CONFIG
+      : variant === "atmosphere"
+        ? ATMOSPHERE_FIELD_CONFIG
+        : HERO_SHADER_FIELD_CONFIG
   ) as Record<keyof T, HeroShaderFieldConfig>;
 
   async function handleCopySettings() {

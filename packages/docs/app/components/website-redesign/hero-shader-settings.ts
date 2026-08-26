@@ -68,7 +68,7 @@ export const HERO_SHADER_FIELD_CONFIG: Record<
   paused: { kind: "boolean" },
 };
 
-export type HeroShaderVariant = "constellation" | "ribbon-field";
+export type HeroShaderVariant = "constellation" | "ribbon-field" | "atmosphere";
 
 export interface RibbonFieldSettings {
   ribbonCount: number;
@@ -133,6 +133,87 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   paused: { kind: "boolean" },
 };
 
+export interface AtmosphereSettings {
+  planetRadius: number;
+  atmosphereThickness: number;
+  fov: number;
+  eyeDistance: number;
+  centerX: number;
+  centerY: number;
+  lightPitch: number;
+  lightYawOffset: number;
+  lightSpeed: number;
+  rayleighR: number;
+  rayleighG: number;
+  rayleighB: number;
+  rayleighHeight: number;
+  mieStrength: number;
+  mieExtinction: number;
+  mieHeight: number;
+  mieG: number;
+  exposure: number;
+  gamma: number;
+  outScatterSteps: number;
+  inScatterSteps: number;
+  intensity: number;
+  paused: boolean;
+}
+
+export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
+  planetRadius: 1.35,
+  atmosphereThickness: 0.55,
+  fov: 45,
+  eyeDistance: 3.4,
+  centerX: 0.5,
+  centerY: 0.12,
+  lightPitch: 8,
+  lightYawOffset: -70,
+  lightSpeed: 0.22,
+  rayleighR: 3.8,
+  rayleighG: 13.5,
+  rayleighB: 33.1,
+  rayleighHeight: 0.05,
+  mieStrength: 21,
+  mieExtinction: 1.1,
+  mieHeight: 0.02,
+  mieG: -0.78,
+  exposure: 10,
+  gamma: 2.2,
+  outScatterSteps: 8,
+  inScatterSteps: 80,
+  intensity: 0.9,
+  paused: false,
+};
+
+export const ATMOSPHERE_FIELD_CONFIG: Record<
+  keyof AtmosphereSettings,
+  HeroShaderFieldConfig
+> = {
+  planetRadius: { kind: "range", min: 0.3, max: 2.2, step: 0.05 },
+  atmosphereThickness: { kind: "range", min: 0.05, max: 2, step: 0.05 },
+  fov: { kind: "range", min: 15, max: 100, step: 1 },
+  eyeDistance: { kind: "range", min: 1.2, max: 8, step: 0.1 },
+  centerX: { kind: "range", min: 0, max: 1, step: 0.01 },
+  centerY: { kind: "range", min: -0.5, max: 1.5, step: 0.01 },
+  lightPitch: { kind: "range", min: -90, max: 90, step: 1 },
+  lightYawOffset: { kind: "range", min: -180, max: 180, step: 1 },
+  lightSpeed: { kind: "range", min: -2, max: 2, step: 0.02 },
+  rayleighR: { kind: "range", min: 0, max: 50, step: 0.1 },
+  rayleighG: { kind: "range", min: 0, max: 50, step: 0.1 },
+  rayleighB: { kind: "range", min: 0, max: 50, step: 0.1 },
+  rayleighHeight: { kind: "range", min: 0.005, max: 0.3, step: 0.005 },
+  mieStrength: { kind: "range", min: 0, max: 60, step: 0.5 },
+  mieExtinction: { kind: "range", min: 0.1, max: 3, step: 0.05 },
+  mieHeight: { kind: "range", min: 0.002, max: 0.2, step: 0.002 },
+  mieG: { kind: "range", min: -0.999, max: -0.05, step: 0.01 },
+  exposure: { kind: "range", min: 1, max: 40, step: 0.5 },
+  gamma: { kind: "range", min: 1, max: 3, step: 0.05 },
+  outScatterSteps: { kind: "range", min: 2, max: 16, step: 1 },
+  inScatterSteps: { kind: "range", min: 8, max: 128, step: 4 },
+  intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
+  paused: { kind: "boolean" },
+};
+
 const STORAGE_KEY = "website-redesign:hero-shader-settings";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -143,6 +224,7 @@ interface StoredHeroShaderState {
   variant: HeroShaderVariant;
   constellation: HeroShaderSettings;
   ribbonField: RibbonFieldSettings;
+  atmosphere: AtmosphereSettings;
 }
 
 function readStoredHeroShaderState(): StoredHeroShaderState {
@@ -150,6 +232,7 @@ function readStoredHeroShaderState(): StoredHeroShaderState {
     variant: "constellation",
     constellation: DEFAULT_HERO_SHADER_SETTINGS,
     ribbonField: DEFAULT_RIBBON_FIELD_SETTINGS,
+    atmosphere: DEFAULT_ATMOSPHERE_SETTINGS,
   };
   if (typeof window === "undefined") return fallback;
   try {
@@ -166,11 +249,16 @@ function readStoredHeroShaderState(): StoredHeroShaderState {
         variant: "constellation",
         constellation: { ...DEFAULT_HERO_SHADER_SETTINGS, ...parsed },
         ribbonField: DEFAULT_RIBBON_FIELD_SETTINGS,
+        atmosphere: DEFAULT_ATMOSPHERE_SETTINGS,
       };
     }
 
     const variant: HeroShaderVariant =
-      parsed.variant === "ribbon-field" ? "ribbon-field" : "constellation";
+      parsed.variant === "ribbon-field"
+        ? "ribbon-field"
+        : parsed.variant === "atmosphere"
+          ? "atmosphere"
+          : "constellation";
     return {
       variant,
       constellation: {
@@ -180,6 +268,10 @@ function readStoredHeroShaderState(): StoredHeroShaderState {
       ribbonField: {
         ...DEFAULT_RIBBON_FIELD_SETTINGS,
         ...(isRecord(parsed.ribbonField) ? parsed.ribbonField : {}),
+      },
+      atmosphere: {
+        ...DEFAULT_ATMOSPHERE_SETTINGS,
+        ...(isRecord(parsed.atmosphere) ? parsed.atmosphere : {}),
       },
     };
   } catch {
@@ -203,22 +295,27 @@ export function useHeroShaderSettings() {
   const [ribbonField, setRibbonField] = useState<RibbonFieldSettings>(
     DEFAULT_RIBBON_FIELD_SETTINGS,
   );
+  const [atmosphere, setAtmosphere] = useState<AtmosphereSettings>(
+    DEFAULT_ATMOSPHERE_SETTINGS,
+  );
 
-  // Persisted writes need the latest values of all three pieces of state at
+  // Persisted writes need the latest values of all four pieces of state at
   // once, so this ref is kept in sync on every render instead of nesting
   // setState callbacks just to read current state.
   const stateRef = useRef<StoredHeroShaderState>({
     variant,
     constellation,
     ribbonField,
+    atmosphere,
   });
-  stateRef.current = { variant, constellation, ribbonField };
+  stateRef.current = { variant, constellation, ribbonField, atmosphere };
 
   useEffect(() => {
     const stored = readStoredHeroShaderState();
     setVariantState(stored.variant);
     setConstellation(stored.constellation);
     setRibbonField(stored.ribbonField);
+    setAtmosphere(stored.atmosphere);
   }, []);
 
   const setVariant = useCallback((next: HeroShaderVariant) => {
@@ -266,6 +363,22 @@ export function useHeroShaderSettings() {
     });
   }, []);
 
+  const updateAtmosphereSetting = useCallback(function updateAtmosphereSetting<
+    K extends keyof AtmosphereSettings,
+  >(key: K, value: AtmosphereSettings[K]) {
+    const next = { ...stateRef.current.atmosphere, [key]: value };
+    setAtmosphere(next);
+    writeStoredHeroShaderState({ ...stateRef.current, atmosphere: next });
+  }, []);
+
+  const resetAtmosphereSettings = useCallback(() => {
+    setAtmosphere(DEFAULT_ATMOSPHERE_SETTINGS);
+    writeStoredHeroShaderState({
+      ...stateRef.current,
+      atmosphere: DEFAULT_ATMOSPHERE_SETTINGS,
+    });
+  }, []);
+
   return {
     variant,
     setVariant,
@@ -278,6 +391,11 @@ export function useHeroShaderSettings() {
       settings: ribbonField,
       updateSetting: updateRibbonFieldSetting,
       resetSettings: resetRibbonFieldSettings,
+    },
+    atmosphere: {
+      settings: atmosphere,
+      updateSetting: updateAtmosphereSetting,
+      resetSettings: resetAtmosphereSettings,
     },
   };
 }
