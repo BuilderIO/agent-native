@@ -83,6 +83,43 @@ describe("template refinement output", () => {
       ]),
     ).toBe(true);
   });
+
+  it("treats a changed tracked support file as completed template refinement", () => {
+    const stylesheet = {
+      id: "file-css",
+      filename: "styles.css",
+      fileType: "css",
+      content: "body { margin: 0 }",
+      createdAt: "2026-07-10T12:00:00.000Z",
+      updatedAt: "2026-07-10T12:00:00.000Z",
+    };
+    const pending = {
+      templateId: "template-1",
+      templateBaselineFiles: [
+        { id: copied.id, contentHash: sourceContentHash(copied.content) },
+        {
+          id: stylesheet.id,
+          contentHash: sourceContentHash(stylesheet.content),
+        },
+      ],
+    };
+
+    expect(hasPendingGenerationOutput(pending, [copied, stylesheet])).toBe(
+      false,
+    );
+    expect(
+      hasPendingGenerationOutput(pending, [
+        copied,
+        { ...stylesheet, content: "body { margin: 16px }" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasPendingGenerationOutput({ templateId: "template-1" }, [
+        copied,
+        { ...stylesheet, updatedAt: "2026-07-10T12:01:00.000Z" },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("board file is not generation output", () => {

@@ -57,6 +57,10 @@ export function shouldSkipPendingGenerationResume<
   return generationOutputFiles(files).length > 0 && !pending.templateId;
 }
 
+function isTrackedTemplateOutputFile(file: { filename?: string }): boolean {
+  return !(file.filename && isBoardFile(file.filename));
+}
+
 export function hasPendingGenerationOutput(
   pending: PendingGeneration | null,
   files: readonly {
@@ -68,14 +72,17 @@ export function hasPendingGenerationOutput(
     updatedAt?: string | null;
   }[],
 ): boolean {
-  const screenFiles = generationOutputFiles(files);
-  if (!pending?.templateId) return screenFiles.length > 0;
+  if (!pending?.templateId) return generationOutputFiles(files).length > 0;
+
+  // Template refinements can persist CSS/JSX/assets without a new HTML screen.
+  // Fresh generation still requires a rendered HTML screen.
+  const trackedFiles = files.filter(isTrackedTemplateOutputFile);
 
   if (pending.templateBaselineFiles?.length) {
     const baseline = new Map(
       pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
     );
-    return screenFiles.some(
+    return trackedFiles.some(
       (file) =>
         !baseline.has(file.id) ||
         baseline.get(file.id) !== sourceContentHash(file.content),
@@ -85,7 +92,7 @@ export function hasPendingGenerationOutput(
   // Recovery for template refinements started before baseline hashes were
   // recorded. Freshly copied files have matching creation/update revisions;
   // only a later write is evidence that refinement produced output.
-  return screenFiles.some(
+  return trackedFiles.some(
     (file) =>
       Boolean(file.createdAt && file.updatedAt) &&
       file.createdAt !== file.updatedAt,
