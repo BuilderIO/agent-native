@@ -206,6 +206,7 @@ import {
   ownsRunStream,
   releaseRunStream,
 } from "./run-stream-ownership.js";
+import { signOut } from "./sign-out.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -6072,23 +6073,8 @@ const AssistantChatInner = forwardRef<
                                       {authError.sessionExpired &&
                                         !authSessionAvailable && (
                                           <button
-                                            onClick={async () => {
-                                              try {
-                                                await fetch(
-                                                  agentNativePath(
-                                                    "/_agent-native/auth/logout",
-                                                  ),
-                                                  {
-                                                    method: "POST",
-                                                  },
-                                                );
-                                              } catch (error) {
-                                                console.error(
-                                                  "Failed to log out before reloading the chat",
-                                                  error,
-                                                );
-                                              }
-                                              window.location.reload();
+                                            onClick={() => {
+                                              void signOut();
                                             }}
                                             className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
                                           >
