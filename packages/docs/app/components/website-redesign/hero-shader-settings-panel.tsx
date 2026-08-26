@@ -6,10 +6,19 @@ import { Select } from "./ds/select";
 import { Toggle } from "./ds/toggle";
 import {
   HERO_SHADER_FIELD_CONFIG,
+  RIBBON_FIELD_FIELD_CONFIG,
+  type HeroShaderFieldConfig,
   type HeroShaderSettings,
+  type HeroShaderVariant,
+  type RibbonFieldSettings,
 } from "./hero-shader-settings";
 
-const FIELD_LABELS: Record<keyof HeroShaderSettings, string> = {
+type ShaderSettings = HeroShaderSettings | RibbonFieldSettings;
+
+const FIELD_LABELS: Record<
+  keyof HeroShaderSettings | keyof RibbonFieldSettings,
+  string
+> = {
   particleCount: "Particle count",
   color: "Color",
   colorMode: "Color mode",
@@ -24,9 +33,20 @@ const FIELD_LABELS: Record<keyof HeroShaderSettings, string> = {
   seed: "Seed",
   vignette: "Vignette",
   paused: "Pause animation",
+  ribbonCount: "Ribbon count",
+  density: "Dot density",
+  flowAngle: "Flow angle",
+  warp: "Warp",
+  speed: "Speed",
+  pointerAmount: "Pointer amount",
+  smoothing: "Pointer smoothing",
+  focusX: "Focus X",
+  focusY: "Focus Y",
+  spread: "Focus spread",
+  contrast: "Contrast",
 };
 
-const FIELD_ORDER: Array<keyof HeroShaderSettings> = [
+const CONSTELLATION_FIELD_ORDER: Array<keyof HeroShaderSettings> = [
   "particleCount",
   "scale",
   "spin",
@@ -43,29 +63,56 @@ const FIELD_ORDER: Array<keyof HeroShaderSettings> = [
   "paused",
 ];
 
-interface HeroShaderSettingsPanelProps {
-  settings: HeroShaderSettings;
-  onChange: <K extends keyof HeroShaderSettings>(
-    key: K,
-    value: HeroShaderSettings[K],
-  ) => void;
+const RIBBON_FIELD_ORDER: Array<keyof RibbonFieldSettings> = [
+  "ribbonCount",
+  "density",
+  "flowAngle",
+  "warp",
+  "speed",
+  "pointerAmount",
+  "smoothing",
+  "focusX",
+  "focusY",
+  "spread",
+  "contrast",
+  "glow",
+  "vignette",
+  "seed",
+  "intensity",
+  "paused",
+];
+
+interface HeroShaderSettingsPanelProps<T extends ShaderSettings> {
+  variant: HeroShaderVariant;
+  settings: T;
+  onChange: <K extends keyof T>(key: K, value: T[K]) => void;
   onReset: () => void;
 }
 
-export function HeroShaderSettingsPanel({
+export function HeroShaderSettingsPanel<T extends ShaderSettings>({
+  variant,
   settings,
   onChange,
   onReset,
-}: HeroShaderSettingsPanelProps) {
+}: HeroShaderSettingsPanelProps<T>) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
+  const fieldOrder = (
+    variant === "ribbon-field" ? RIBBON_FIELD_ORDER : CONSTELLATION_FIELD_ORDER
+  ) as Array<keyof T>;
+  const fieldConfigMap = (
+    variant === "ribbon-field" ? RIBBON_FIELD_FIELD_CONFIG : HERO_SHADER_FIELD_CONFIG
+  ) as Record<keyof T, HeroShaderFieldConfig>;
+
   async function handleCopySettings() {
     try {
-      await navigator.clipboard.writeText(JSON.stringify(settings, null, 2));
+      await navigator.clipboard.writeText(
+        JSON.stringify({ variant, settings }, null, 2),
+      );
     } catch {
       // coercion-ok: clipboard permission/availability failures mean the
       // copy silently didn't happen, so skip the success feedback below
@@ -173,18 +220,21 @@ export function HeroShaderSettingsPanel({
               zIndex: 2147483647,
             }}
           >
-            {FIELD_ORDER.map((key) => {
-              const field = HERO_SHADER_FIELD_CONFIG[key];
-              const label = FIELD_LABELS[key];
+            {fieldOrder.map((key) => {
+              const field = fieldConfigMap[key];
+              const label = FIELD_LABELS[key as keyof typeof FIELD_LABELS];
               // Solid color mode must always render solid: gray out (and
               // disable) the accent color input instead of letting it blend
-              // in while nothing in the shader is using it.
+              // in while nothing in the shader is using it. Only applies to
+              // Constellation -- Ribbon Field has no color fields at all.
               const disabled =
-                key === "accentColor" && settings.colorMode !== "gradient";
+                variant === "constellation" &&
+                key === "accentColor" &&
+                (settings as HeroShaderSettings).colorMode !== "gradient";
 
               return (
                 <div
-                  key={key}
+                  key={key as string}
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -202,7 +252,7 @@ export function HeroShaderSettingsPanel({
                       color: "var(--b-text-secondary)",
                     }}
                   >
-                    <label htmlFor={`${panelId}-${key}`}>{label}</label>
+                    <label htmlFor={`${panelId}-${String(key)}`}>{label}</label>
                     {field.kind === "range" && (
                       <span
                         style={{
@@ -217,19 +267,14 @@ export function HeroShaderSettingsPanel({
 
                   {field.kind === "range" && (
                     <input
-                      id={`${panelId}-${key}`}
+                      id={`${panelId}-${String(key)}`}
                       type="range"
                       min={field.min}
                       max={field.max}
                       step={field.step}
                       value={settings[key] as number}
                       onChange={(e) =>
-                        onChange(
-                          key,
-                          Number(
-                            e.target.value,
-                          ) as HeroShaderSettings[typeof key],
-                        )
+                        onChange(key, Number(e.target.value) as T[typeof key])
                       }
                       style={{
                         width: "100%",
@@ -240,15 +285,12 @@ export function HeroShaderSettingsPanel({
 
                   {field.kind === "color" && (
                     <input
-                      id={`${panelId}-${key}`}
+                      id={`${panelId}-${String(key)}`}
                       type="color"
                       value={settings[key] as string}
                       disabled={disabled}
                       onChange={(e) =>
-                        onChange(
-                          key,
-                          e.target.value as HeroShaderSettings[typeof key],
-                        )
+                        onChange(key, e.target.value as T[typeof key])
                       }
                       style={{
                         width: "100%",
@@ -267,7 +309,7 @@ export function HeroShaderSettingsPanel({
                       options={field.options}
                       value={settings[key] as string}
                       onChange={(value) =>
-                        onChange(key, value as HeroShaderSettings[typeof key])
+                        onChange(key, value as T[typeof key])
                       }
                     />
                   )}
@@ -276,7 +318,7 @@ export function HeroShaderSettingsPanel({
                     <Toggle
                       checked={settings[key] as boolean}
                       onChange={(checked) =>
-                        onChange(key, checked as HeroShaderSettings[typeof key])
+                        onChange(key, checked as T[typeof key])
                       }
                       label={label}
                     />

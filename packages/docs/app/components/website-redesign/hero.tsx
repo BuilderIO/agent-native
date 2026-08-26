@@ -1,4 +1,5 @@
 import { Button } from "./ds/button";
+import { TabItem } from "./ds/tab-item";
 import { HeroShaderBackground } from "./hero-shader-background";
 import { useHeroShaderSettings } from "./hero-shader-settings";
 import { HeroShaderSettingsPanel } from "./hero-shader-settings-panel";
@@ -6,16 +7,54 @@ import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
 
 export function Hero() {
-  const { settings, updateSetting, resetSettings } = useHeroShaderSettings();
+  const { variant, setVariant, constellation, ribbonField } =
+    useHeroShaderSettings();
 
   return (
     <PageSection>
-      <HeroShaderBackground {...settings} />
-      <HeroShaderSettingsPanel
-        settings={settings}
-        onChange={updateSetting}
-        onReset={resetSettings}
+      <HeroShaderBackground
+        variant={variant}
+        constellation={constellation.settings}
+        ribbonField={ribbonField.settings}
       />
+      <div
+        role="tablist"
+        style={{
+          position: "absolute",
+          left: "var(--spacing-6)",
+          top: "var(--spacing-6)",
+          zIndex: 2,
+          display: "flex",
+        }}
+      >
+        <TabItem
+          active={variant === "constellation"}
+          onClick={() => setVariant("constellation")}
+        >
+          Constellation
+        </TabItem>
+        <TabItem
+          active={variant === "ribbon-field"}
+          onClick={() => setVariant("ribbon-field")}
+        >
+          Ribbon Field
+        </TabItem>
+      </div>
+      {variant === "ribbon-field" ? (
+        <HeroShaderSettingsPanel
+          variant={variant}
+          settings={ribbonField.settings}
+          onChange={ribbonField.updateSetting}
+          onReset={ribbonField.resetSettings}
+        />
+      ) : (
+        <HeroShaderSettingsPanel
+          variant={variant}
+          settings={constellation.settings}
+          onChange={constellation.updateSetting}
+          onReset={constellation.resetSettings}
+        />
+      )}
       {/* No borderTop on the GridInner below: the sticky SiteHeader already
           draws the border directly above this section, so a second one would
           double the line. */}

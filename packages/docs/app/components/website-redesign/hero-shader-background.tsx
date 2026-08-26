@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 
-import type { HeroShaderSettings } from "./hero-shader-settings";
+import type {
+  HeroShaderSettings,
+  HeroShaderVariant,
+  RibbonFieldSettings,
+} from "./hero-shader-settings";
 
 // Forked from @agent-native/core's StarfieldBackground (packages/core/src/client/StarfieldBackground.tsx)
 // so the hero can expose live-tunable uniforms (particle count, color, blink
@@ -231,14 +235,14 @@ function hexToRgb01(hex: string): [number, number, number] {
   ];
 }
 
-export interface HeroShaderBackgroundProps extends HeroShaderSettings {
+interface ConstellationShaderBackgroundProps extends HeroShaderSettings {
   frameRate?: number;
 }
 
 // Sits behind the page-grid's column-divider lines inside the hero's
 // `PageSection` (which is `position: relative`, so `zIndex: -1` here stays
 // scoped to that section instead of dropping behind the whole page).
-export function HeroShaderBackground({
+function ConstellationShaderBackground({
   particleCount,
   color,
   colorMode,
@@ -254,7 +258,7 @@ export function HeroShaderBackground({
   vignette,
   paused,
   frameRate = 30,
-}: HeroShaderBackgroundProps) {
+}: ConstellationShaderBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
@@ -639,5 +643,559 @@ export function HeroShaderBackground({
         style={{ display: "block", width: "100%", height: "100%" }}
       />
     </div>
+  );
+}
+
+const ribbonVertexShader = vertexShader;
+
+// Original implementation (not a port): flowing sine "ribbons" are
+// domain-warped with the same N21 hash noise used above, biased toward
+// `focusX`/`focusY` by a radial falloff mask, then resolved through a
+// halftone dot-matrix grid so the whole field reads as an animated dot
+// pattern rather than smooth bands. Strictly two-color (bg/fg, both read
+// from brand tokens) so it is greyscale by construction in both themes.
+const ribbonFragmentShader = `
+precision highp float;
+
+uniform float iTime;
+uniform vec2 iResolution;
+uniform vec3 uPointer;
+uniform float uRibbonCount;
+uniform float uDensity;
+uniform float uFlowAngle;
+uniform float uWarp;
+uniform float uSpeed;
+uniform float uPointerAmount;
+uniform float uFocusX;
+uniform float uFocusY;
+uniform float uSpread;
+uniform float uContrast;
+uniform float uGlow;
+uniform float uSeed;
+uniform float uVignette;
+uniform vec3 uFgColor;
+uniform vec3 uBgColor;
+
+#define S(a, b, t) smoothstep(a, b, t)
+
+float N21(vec2 p) {
+  p += uSeed;
+  vec3 a = fract(vec3(p.xyx) * vec3(213.897, 653.453, 253.098));
+  a += dot(a, a.yzx + 79.76);
+  return fract((a.x + a.y) * a.z);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  float a = N21(i);
+  float b = N21(i + vec2(1., 0.));
+  float c = N21(i + vec2(0., 1.));
+  float d = N21(i + vec2(1., 1.));
+  vec2 u = f * f * (3. - 2. * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1. - u.x) + (d - b) * u.x * u.y;
+}
+
+float ribbonField(vec2 p, float t) {
+  float angle = radians(uFlowAngle);
+  vec2 dir = vec2(cos(angle), sin(angle));
+  vec2 perp = vec2(-dir.y, dir.x);
+
+  vec2 warpUv = p * 1.3 + vec2(t * 0.05, t * 0.03);
+  float n1 = valueNoise(warpUv);
+  float n2 = valueNoise(warpUv + 5.2);
+  vec2 warped = p + (vec2(n1, n2) - 0.5) * uWarp * 1.2;
+
+  float along = dot(warped, dir);
+  float across = dot(warped, perp);
+
+  float field = 0.;
+  for (float i = 0.; i < 4.; i += 1.) {
+    if (i >= uRibbonCount) break;
+    float phase = i * 2.399963;
+    float bandFreq = 2.4 + i * 0.6;
+    float band = sin(along * bandFreq + t * (0.6 + i * 0.15) + phase);
+    float bandWidth = 0.35 + 0.1 * sin(t * 0.2 + i);
+    float offset = band * 0.4 - i * 0.18 + 0.27;
+    field += S(bandWidth, 0., abs(across - offset) - 0.05);
+  }
+  return clamp(field, 0., 1.);
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = (fragCoord - iResolution.xy * .5) / iResolution.y;
+  vec2 pointerUv = (uPointer.xy - iResolution.xy * .5) / iResolution.y;
+  vec2 focus = vec2(uFocusX, uFocusY);
+  float t = iTime * uSpeed;
+
+  float cellSize = 0.16 / max(uDensity, 0.05);
+  vec2 cell = floor(uv / cellSize);
+  vec2 cellUv = fract(uv / cellSize) - 0.5;
+  vec2 cellCenter = (cell + 0.5) * cellSize;
+
+  vec2 cellPointerDelta = pointerUv - cellCenter;
+  float cellPull = 1. - S(0.05, 1.6, length(cellPointerDelta));
+  cellPull = cellPull * cellPull * (3. - 2. * cellPull);
+  vec2 cellSamplePos =
+    cellCenter + cellPointerDelta * cellPull * 0.4 * uPointerAmount * uPointer.z;
+  float cellField = ribbonField(cellSamplePos, t);
+  float cellDistFromFocus = length(cellCenter - focus) / max(uSpread, 0.001);
+  float cellMask = 1. - S(0., 1.4, cellDistFromFocus);
+  cellField *= cellMask;
+
+  float jitter = (N21(cell) - 0.5) * 0.25 * (sin(t * 2. + N21(cell) * 10.) * 0.5 + 0.5);
+  float value = clamp(cellField + jitter, 0., 1.);
+
+  float radius = mix(0.04, 0.46, value);
+  float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.05);
+  float dotShape = 1. - S(radius - edge, radius + edge, length(cellUv));
+
+  float glowRadius = radius + uGlow * 0.5;
+  float glowTerm = (1. - S(radius, glowRadius, length(cellUv))) * uGlow * value;
+
+  float dotMask = clamp(dotShape + glowTerm * 0.6, 0., 1.);
+  dotMask *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
+  dotMask *= S(0., 20., min(iTime, 5.0));
+
+  vec3 col = mix(uBgColor, uFgColor, clamp(dotMask, 0., 1.));
+  fragColor = vec4(col, 1.);
+}
+
+void main() {
+  mainImage(gl_FragColor, gl_FragCoord.xy);
+}
+`;
+
+interface RibbonFieldShaderBackgroundProps extends RibbonFieldSettings {
+  frameRate?: number;
+}
+
+function RibbonFieldShaderBackground({
+  ribbonCount,
+  density,
+  flowAngle,
+  warp,
+  speed,
+  pointerAmount,
+  smoothing,
+  focusX,
+  focusY,
+  spread,
+  contrast,
+  glow,
+  intensity,
+  seed,
+  vignette,
+  paused,
+  frameRate = 30,
+}: RibbonFieldShaderBackgroundProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number>(0);
+  const animationControlRef = useRef<{
+    start: () => void;
+    stop: () => void;
+  } | null>(null);
+
+  const settingsRef = useRef({
+    ribbonCount,
+    density,
+    flowAngle,
+    warp,
+    speed,
+    pointerAmount,
+    smoothing,
+    focusX,
+    focusY,
+    spread,
+    contrast,
+    glow,
+    seed,
+    vignette,
+    paused,
+  });
+  useEffect(() => {
+    settingsRef.current = {
+      ribbonCount,
+      density,
+      flowAngle,
+      warp,
+      speed,
+      pointerAmount,
+      smoothing,
+      focusX,
+      focusY,
+      spread,
+      contrast,
+      glow,
+      seed,
+      vignette,
+      paused,
+    };
+  }, [
+    ribbonCount,
+    density,
+    flowAngle,
+    warp,
+    speed,
+    pointerAmount,
+    smoothing,
+    focusX,
+    focusY,
+    spread,
+    contrast,
+    glow,
+    seed,
+    vignette,
+    paused,
+  ]);
+
+  useEffect(() => {
+    const canvasRaw = canvasRef.current;
+    const containerRaw = containerRef.current;
+    if (!canvasRaw || !containerRaw) return;
+    const canvas: HTMLCanvasElement = canvasRaw;
+    const container: HTMLElement = containerRaw;
+
+    const glRaw = canvas.getContext("webgl", {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: false,
+    });
+    if (!glRaw) return;
+    const gl: WebGLRenderingContext = glRaw;
+
+    function compileShader(type: number, src: string) {
+      const shader = gl.createShader(type);
+      if (!shader) return null;
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+      }
+      return shader;
+    }
+
+    const vs = compileShader(gl.VERTEX_SHADER, ribbonVertexShader);
+    const fs = compileShader(gl.FRAGMENT_SHADER, ribbonFragmentShader);
+    if (!vs || !fs) return;
+
+    const program = gl.createProgram();
+    if (!program) return;
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error(gl.getProgramInfoLog(program));
+      gl.deleteProgram(program);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      return;
+    }
+    gl.useProgram(program);
+
+    const buf = gl.createBuffer();
+    if (!buf) {
+      gl.deleteProgram(program);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      return;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW,
+    );
+    const posAttrib = gl.getAttribLocation(program, "position");
+    gl.enableVertexAttribArray(posAttrib);
+    gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    const uTime = gl.getUniformLocation(program, "iTime");
+    const uRes = gl.getUniformLocation(program, "iResolution");
+    const uPointer = gl.getUniformLocation(program, "uPointer");
+    const uRibbonCount = gl.getUniformLocation(program, "uRibbonCount");
+    const uDensity = gl.getUniformLocation(program, "uDensity");
+    const uFlowAngle = gl.getUniformLocation(program, "uFlowAngle");
+    const uWarp = gl.getUniformLocation(program, "uWarp");
+    const uSpeed = gl.getUniformLocation(program, "uSpeed");
+    const uPointerAmount = gl.getUniformLocation(program, "uPointerAmount");
+    const uFocusX = gl.getUniformLocation(program, "uFocusX");
+    const uFocusY = gl.getUniformLocation(program, "uFocusY");
+    const uSpread = gl.getUniformLocation(program, "uSpread");
+    const uContrast = gl.getUniformLocation(program, "uContrast");
+    const uGlow = gl.getUniformLocation(program, "uGlow");
+    const uSeed = gl.getUniformLocation(program, "uSeed");
+    const uVignette = gl.getUniformLocation(program, "uVignette");
+    const uFgColor = gl.getUniformLocation(program, "uFgColor");
+    const uBgColor = gl.getUniformLocation(program, "uBgColor");
+
+    const reducedMotionQuery =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    let reducedMotion = reducedMotionQuery?.matches ?? false;
+
+    let dpr = 1;
+    let hasPointer = false;
+    let pointerX = 0;
+    let pointerY = 0;
+    let pointerStrength = 0;
+    let targetX = 0;
+    let targetY = 0;
+    let targetStrength = 0;
+
+    // --b-bg-page and --b-text-secondary are authored as hex strings in
+    // tokens.css and both flip value under `.light .builder-brand-tokens`,
+    // so reading them here keeps the shader theme-correct without any
+    // user-facing color pickers.
+    function readBgColor(): [number, number, number] {
+      const raw = getComputedStyle(container)
+        .getPropertyValue("--b-bg-page")
+        .trim();
+      return hexToRgb01(raw || "#0a0a0a");
+    }
+
+    function readFgColor(): [number, number, number] {
+      const raw = getComputedStyle(container)
+        .getPropertyValue("--b-text-secondary")
+        .trim();
+      return hexToRgb01(raw || "#aeadac");
+    }
+
+    let bgColor = readBgColor();
+    let fgColor = readFgColor();
+
+    function easePointer(allowPointer: boolean) {
+      if (!allowPointer) {
+        pointerStrength = 0;
+        return;
+      }
+      const rate = settingsRef.current.smoothing;
+      pointerX += (targetX - pointerX) * rate * 6;
+      pointerY += (targetY - pointerY) * rate * 6;
+      pointerStrength += (targetStrength - pointerStrength) * rate * 4;
+      if (pointerStrength < 0.001 && targetStrength === 0) {
+        pointerStrength = 0;
+      }
+    }
+
+    function draw(timeSeconds: number, allowPointer = !reducedMotion) {
+      easePointer(allowPointer);
+      gl.uniform1f(uTime, timeSeconds);
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform3f(uPointer, pointerX, pointerY, pointerStrength);
+      gl.uniform1f(uRibbonCount, settingsRef.current.ribbonCount);
+      gl.uniform1f(uDensity, settingsRef.current.density);
+      gl.uniform1f(uFlowAngle, settingsRef.current.flowAngle);
+      gl.uniform1f(uWarp, settingsRef.current.warp);
+      gl.uniform1f(uSpeed, settingsRef.current.speed);
+      gl.uniform1f(uPointerAmount, settingsRef.current.pointerAmount);
+      gl.uniform1f(uFocusX, settingsRef.current.focusX);
+      gl.uniform1f(uFocusY, settingsRef.current.focusY);
+      gl.uniform1f(uSpread, settingsRef.current.spread);
+      gl.uniform1f(uContrast, settingsRef.current.contrast);
+      gl.uniform1f(uGlow, settingsRef.current.glow);
+      gl.uniform1f(uSeed, settingsRef.current.seed);
+      gl.uniform1f(uVignette, settingsRef.current.vignette);
+      gl.uniform3f(uFgColor, fgColor[0], fgColor[1], fgColor[2]);
+      gl.uniform3f(uBgColor, bgColor[0], bgColor[1], bgColor[2]);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    function resize() {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      dpr = Math.min(window.devicePixelRatio, 1.5);
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      if (!hasPointer) {
+        pointerX = targetX = canvas.width * 0.5;
+        pointerY = targetY = canvas.height * 0.5;
+      }
+    }
+
+    function handlePointerMove(event: PointerEvent | MouseEvent) {
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const inside = x >= 0 && x <= rect.width && y >= 0 && y <= rect.height;
+
+      hasPointer = true;
+      targetX = x * dpr;
+      targetY = (rect.height - y) * dpr;
+      targetStrength = inside ? 1 : 0;
+    }
+
+    function fadePointer() {
+      targetStrength = 0;
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+    window.addEventListener("pointermove", handlePointerMove, {
+      passive: true,
+    });
+    window.addEventListener("mousemove", handlePointerMove, { passive: true });
+    document.addEventListener("pointerleave", fadePointer, { passive: true });
+    window.addEventListener("blur", fadePointer);
+
+    const observer = new MutationObserver(() => {
+      bgColor = readBgColor();
+      fgColor = readFgColor();
+      if (reducedMotion) draw(20, false);
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
+
+    let isVisible = true;
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        isVisible = entry?.isIntersecting ?? true;
+        if (isVisible) startAnimation();
+      },
+      { threshold: 0 },
+    );
+    visibilityObserver.observe(container);
+
+    const startTime = performance.now();
+    let lastFrame = 0;
+    const frameBudget = 1000 / Math.max(1, frameRate);
+    const reducedMotionStaticTime = 20;
+
+    function render(now: number) {
+      if (reducedMotion || !isVisible || settingsRef.current.paused) {
+        rafRef.current = 0;
+        return;
+      }
+      rafRef.current = requestAnimationFrame(render);
+
+      if (now - lastFrame < frameBudget) return;
+      lastFrame = now;
+
+      draw((now - startTime) * 0.001);
+    }
+
+    function startAnimation() {
+      if (
+        !rafRef.current &&
+        !reducedMotion &&
+        isVisible &&
+        !settingsRef.current.paused
+      ) {
+        rafRef.current = requestAnimationFrame(render);
+      }
+    }
+
+    function stopAnimation() {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
+    }
+
+    animationControlRef.current = {
+      start: startAnimation,
+      stop: stopAnimation,
+    };
+
+    function handleReducedMotionChange() {
+      reducedMotion = reducedMotionQuery?.matches ?? false;
+      if (reducedMotion) {
+        stopAnimation();
+        lastFrame = 0;
+        draw(reducedMotionStaticTime, false);
+      } else {
+        startAnimation();
+      }
+    }
+
+    draw(reducedMotion ? reducedMotionStaticTime : 0, !reducedMotion);
+    if (reducedMotionQuery) {
+      reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
+    }
+    if (!reducedMotion) startAnimation();
+
+    return () => {
+      stopAnimation();
+      animationControlRef.current = null;
+      if (reducedMotionQuery) {
+        reducedMotionQuery.removeEventListener(
+          "change",
+          handleReducedMotionChange,
+        );
+      }
+      observer.disconnect();
+      visibilityObserver.disconnect();
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("mousemove", handlePointerMove);
+      document.removeEventListener("pointerleave", fadePointer);
+      window.removeEventListener("blur", fadePointer);
+      gl.deleteProgram(program);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.deleteBuffer(buf);
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    };
+  }, [frameRate]);
+
+  useEffect(() => {
+    if (!paused) animationControlRef.current?.start();
+  }, [paused]);
+
+  return (
+    <div
+      ref={containerRef}
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: -1,
+        opacity: intensity,
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{ display: "block", width: "100%", height: "100%" }}
+      />
+    </div>
+  );
+}
+
+export interface HeroShaderBackgroundProps {
+  variant: HeroShaderVariant;
+  constellation: HeroShaderSettings;
+  ribbonField: RibbonFieldSettings;
+  frameRate?: number;
+}
+
+// Sits behind the page-grid's column-divider lines inside the hero's
+// `PageSection` (which is `position: relative`, so `zIndex: -1` here stays
+// scoped to that section instead of dropping behind the whole page). Only
+// the active variant is mounted so a single GL context/RAF loop is ever
+// alive at once.
+export function HeroShaderBackground({
+  variant,
+  constellation,
+  ribbonField,
+  frameRate,
+}: HeroShaderBackgroundProps) {
+  if (variant === "ribbon-field") {
+    return (
+      <RibbonFieldShaderBackground {...ribbonField} frameRate={frameRate} />
+    );
+  }
+  return (
+    <ConstellationShaderBackground {...constellation} frameRate={frameRate} />
   );
 }
