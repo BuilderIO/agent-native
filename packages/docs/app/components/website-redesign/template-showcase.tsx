@@ -66,6 +66,10 @@ const APPS: ShowcaseApp[] = [
     name: "Analytics",
     description:
       "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd60771677167437f9aa07175ac040484?format=webp&width=800",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa380454478cf4e2481ae80a0984d7c41?format=webp&width=800",
     href: "/apps/analytics",
   },
   {
