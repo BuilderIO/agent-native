@@ -714,7 +714,7 @@ function saveDeckToAPI(deck: Deck) {
  * is fine: granular ops are small, and if a full-replace payload is too large
  * to send keepalive the normal debounce/poll path still catches up on reopen.
  */
-function flushPendingSaves() {
+export function flushPendingSaves() {
   const actionsBase = agentNativePath("/_agent-native/actions");
   const actionUrl = `${actionsBase}/patch-deck`;
   const saveDeckUrl = `${actionsBase}/save-deck`;
