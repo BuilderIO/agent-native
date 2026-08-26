@@ -59,7 +59,11 @@ import {
   CanvasCommentPins,
   MultiSelectChip,
 } from "@/components/visual-editor";
-import type { Slide, UpdateSlideOptions } from "@/context/DeckContext";
+import {
+  flushPendingSaves,
+  type Slide,
+  type UpdateSlideOptions,
+} from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import {
   computeCanvasFitZoom,
@@ -1548,6 +1552,45 @@ export default function SlideEditor({
     null,
   );
   const previousSlideIdRef = useRef(slide.id);
+
+  // Inline editing keeps its latest HTML in the DOM until blur so React does
+  // not rerender the contentEditable on every keystroke. Hand that draft to
+  // the keepalive queue before browser teardown.
+  useEffect(() => {
+    const flushInlineEditDraft = () => {
+      const draft = inlineEditDraftRef.current;
+      if (!draft) return;
+      onUpdateSlideRef.current({ content: draft.content }, draft.slideId, {
+        persistence: "debounced",
+      });
+      inlineEditDraftRef.current = null;
+      flushPendingSaves();
+    };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushInlineEditDraft();
+    };
+
+    window.addEventListener("beforeunload", flushInlineEditDraft, {
+      capture: true,
+    });
+    window.addEventListener("pagehide", flushInlineEditDraft, {
+      capture: true,
+    });
+    document.addEventListener("visibilitychange", flushWhenHidden, {
+      capture: true,
+    });
+    return () => {
+      window.removeEventListener("beforeunload", flushInlineEditDraft, {
+        capture: true,
+      });
+      window.removeEventListener("pagehide", flushInlineEditDraft, {
+        capture: true,
+      });
+      document.removeEventListener("visibilitychange", flushWhenHidden, {
+        capture: true,
+      });
+    };
+  }, []);
 
   const readCurrentSlideContentHtml = useCallback(() => {
     const slideContent = containerRef.current?.querySelector(
