@@ -33,6 +33,35 @@ export default defineAction({
           ? access.resource.orgId
           : undefined;
       const db = getDb();
+      const shares = await db
+        .select({
+          principalType: schema.deckShares.principalType,
+          principalId: schema.deckShares.principalId,
+        })
+        .from(schema.deckShares)
+        .where(eq(schema.deckShares.resourceId, id));
+      const ownerRecipients = new Set<string>();
+      const orgRecipients = new Set<string>();
+      const normalizedOwner = owner.trim().toLowerCase();
+      if (normalizedOwner) ownerRecipients.add(normalizedOwner);
+      if (access.resource.visibility === "org" && orgId) {
+        orgRecipients.add(orgId);
+      }
+      for (const share of shares) {
+        if (
+          share.principalType === "user" &&
+          typeof share.principalId === "string"
+        ) {
+          const recipient = share.principalId.trim().toLowerCase();
+          if (recipient) ownerRecipients.add(recipient);
+        } else if (
+          share.principalType === "org" &&
+          typeof share.principalId === "string"
+        ) {
+          const recipient = share.principalId.trim();
+          if (recipient) orgRecipients.add(recipient);
+        }
+      }
       await db
         .delete(schema.deckVersions)
         .where(
@@ -49,7 +78,12 @@ export default defineAction({
       if (result.length === 0) {
         throw deckHttpError(404, "Deck not found");
       }
-      notifyClients(id, { type: "deck-deleted", owner, orgId });
+      for (const recipient of ownerRecipients) {
+        notifyClients(id, { type: "deck-deleted", owner: recipient });
+      }
+      for (const recipient of orgRecipients) {
+        notifyClients(id, { type: "deck-deleted", orgId: recipient });
+      }
       return { success: true };
     } catch (err) {
       // 404 rather than 403 so callers can't probe for decks they can't see.

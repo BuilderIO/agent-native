@@ -36,7 +36,7 @@ export interface NotifyClientsOptions {
   slideId?: string;
   /** Who made the change: "agent" for AI writes, "human" otherwise. */
   actor?: "agent" | "human";
-  /** Pre-delete ownership metadata for access-aware deletion events. */
+  /** Per-user scope for access-aware events whose resource may be gone. */
   owner?: string;
   orgId?: string;
 }

@@ -38,7 +38,7 @@ describe("notifyClients", () => {
     });
   });
 
-  it("preserves deletion scope after the deck row is removed", () => {
+  it("preserves pre-delete scope for access-aware deletion events", () => {
     notifyClients("deck-1", {
       type: "deck-deleted",
       owner: "owner@example.com",
