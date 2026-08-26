@@ -191,7 +191,12 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
   const { starCount } = useRootLocaleData();
 
   return (
-    <div className="w-full min-w-0 overflow-x-clip">
+    // core's `.agent-sidebar-shell` sits between <body> and this chrome and
+    // paints an opaque surface from the shadcn `--sidebar-background` token, so
+    // the background on <body> never shows and every route inherited a color
+    // from a token system the brand palette knows nothing about. Painting --bg
+    // here is what actually decides the page color, on every route.
+    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
       <ScrollManager />
       <SiteHeader starCount={starCount} />
       {children}
