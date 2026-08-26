@@ -18,6 +18,8 @@ const args = {
   expectedContent: "# Original",
   expectedTitle: "Original",
   expectedDescription: "",
+  expectedMetadata:
+    '{"parentId":null,"icon":null,"position":0,"isFavorite":false,"hideFromSearch":false}',
   expectedResultContent: "# Updated",
   edits: [{ find: "Original", replace: "Updated" }],
 };

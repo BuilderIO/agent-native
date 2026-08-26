@@ -245,6 +245,14 @@ export default defineAction({
         expectedContent: existing.content ?? "",
         expectedTitle: existing.title,
         expectedDescription: existing.description ?? "",
+        expectedMetadata: JSON.stringify({
+          parentId: existing.parentId,
+          icon: existing.icon,
+          position: existing.position,
+          isFavorite: existing.isFavorite,
+          hideFromSearch: existing.hideFromSearch,
+          visibility: existing.visibility,
+        }),
         expectedResultContent: applied.content,
         edits,
       });

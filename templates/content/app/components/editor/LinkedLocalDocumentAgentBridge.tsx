@@ -19,6 +19,7 @@ type EditArgs = {
   expectedContent: string;
   expectedTitle: string;
   expectedDescription: string;
+  expectedMetadata: string;
   edits: DocumentTextEdit[];
 };
 
@@ -46,6 +47,7 @@ export function LinkedLocalDocumentAgentBridge({
           expectedContent: { type: "string" },
           expectedTitle: { type: "string" },
           expectedDescription: { type: "string" },
+          expectedMetadata: { type: "string" },
           edits: { type: "array" },
         },
         required: [
@@ -53,6 +55,7 @@ export function LinkedLocalDocumentAgentBridge({
           "expectedContent",
           "expectedTitle",
           "expectedDescription",
+          "expectedMetadata",
           "edits",
         ],
       },
@@ -71,7 +74,15 @@ export function LinkedLocalDocumentAgentBridge({
         if (
           baseline.document.content !== args.expectedContent ||
           baseline.document.title !== args.expectedTitle ||
-          (baseline.document.description ?? "") !== args.expectedDescription
+          (baseline.document.description ?? "") !== args.expectedDescription ||
+          JSON.stringify({
+            parentId: baseline.document.parentId,
+            icon: baseline.document.icon,
+            position: baseline.document.position,
+            isFavorite: baseline.document.isFavorite,
+            hideFromSearch: baseline.document.hideFromSearch,
+            visibility: baseline.document.visibility,
+          }) !== args.expectedMetadata
         ) {
           return {
             status: "conflict",
