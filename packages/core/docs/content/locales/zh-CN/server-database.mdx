@@ -252,9 +252,15 @@ export const getDb = createGetDb(schema);
 
 对于新的应用 schema 变更，请使用 `pnpm db:generate` 生成可审查的 SQL。
 它会创建 `server/db/migrations/<id_name>.sql`，并由
-`runDrizzleMigrations` 将这些文件加载到共享的 Agent Native runner 中。生产
-变更仍由发布步骤负责。方言专用 SQL、D1 行为、数据回填和延迟 JavaScript
-步骤继续使用 `runMigrations()`。
+`runDrizzleMigrations` 在 Node.js 和基于 Node 的 serverless runtime 中将这些
+文件加载到共享的 Agent Native runner。生产变更仍由发布步骤负责。方言专用
+SQL、D1 行为、数据回填和延迟 JavaScript 步骤继续使用 `runMigrations()`。
+
+基于文件系统的 loader 不适用于 Cloudflare Workers/Pages 或其他没有可部署
+文件系统的 edge runtime，包括 D1。在这些环境中，请使用嵌入 worker bundle
+的 SQL 条目调用 `runMigrations()`。一个 Drizzle 输出文件夹只有一个方言特定
+的 metadata baseline，因此请针对主要部署方言生成，不要在同一个文件夹中切换
+SQLite 和 PostgreSQL。
 
 <Callout tone="risk">
   切勿针对生产数据库运行 `drizzle-kit push`。模板 schema 只定义了应用特有的表；
@@ -263,7 +269,7 @@ export const getDb = createGetDb(schema);
   数据丢失。
 </Callout>
 
-每个应用根目录下的 `drizzle.config.ts` 为本地开发时的 schema 检查配置了 drizzle-kit：
+每个应用根目录下的 `drizzle.config.ts` 为本地开发时的 schema 检查配置了 drizzle-kit。如果一个 migration 文件夹服务多个 backend，请显式设置主要部署方言，例如 `createDrizzleConfig({ dialect: "postgresql" })`：
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";

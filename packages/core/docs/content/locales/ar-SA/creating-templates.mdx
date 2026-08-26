@@ -209,7 +209,9 @@ export const projectShares = createSharesTable("project_shares");
 يجب أن تكون تغييرات المخطط إضافية. بالنسبة إلى الجداول والأعمدة الجديدة الخاصة
 بالتطبيق، استخدم `drizzle-kit generate` لإنشاء SQL قابل للمراجعة ضمن
 `server/db/migrations/<id_name>.sql`، ثم حمّله عبر
-`runDrizzleMigrations()` من خطوة الإصدار. احتفظ بـ `runMigrations()` للتاريخ
+`runDrizzleMigrations()` من خطوة الإصدار في عمليات نشر Node.js. لا يوفر
+Cloudflare Workers/Pages وD1 نظام ملفات قابلًا للنشر، لذا ضمّن SQL المُنشأ في
+حزمة العامل ومرّره إلى `runMigrations()` هناك. احتفظ بـ `runMigrations()` للتاريخ
 المكتوب يدويًا والحالات الخاصة. لا تستخدم مطلقًا SQL أو `drizzle-kit push` أو
 إعادة تسمية الجداول أو إسقاط الأعمدة.
 

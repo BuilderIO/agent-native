@@ -111,10 +111,14 @@ Chaque entrée nécessite un numéro `version` et une chaîne `sql`. L'option `t
 </Callout>
 
 Pour les nouvelles tables et colonnes propres à l'application, préférez le SQL
-généré par Drizzle Kit avec `runDrizzleMigrations`. Utilisez `runMigrations` pour
-le SQL propre au dialecte, le comportement D1, les backfills et les étapes
-JavaScript différées. Le runner lit `server/db/migrations/<id_name>.sql`
-après le garde-fou commun des requêtes.
+généré par Drizzle Kit avec `runDrizzleMigrations` sur Node.js et les runtimes
+serverless basés sur Node. Utilisez `runMigrations` pour le SQL propre au dialecte,
+le comportement D1, les backfills et les étapes JavaScript différées. Le runner lit
+`server/db/migrations/<id_name>.sql` après le garde-fou commun des requêtes.
+
+Cloudflare Workers/Pages et D1 ne fournissent pas de système de fichiers
+déployable. Utilisez-y `runMigrations()` avec des entrées SQL intégrées au bundle
+du worker plutôt que le chargeur basé sur des fichiers.
 
 ## Écrire des plugins personnalisés {#custom-plugins}
 

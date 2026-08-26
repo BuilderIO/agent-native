@@ -91,6 +91,11 @@ export default runDrizzleMigrations(
 );
 ```
 
+This filesystem-backed helper is for Node.js and Node-based serverless
+deployments. Cloudflare Workers/Pages and D1 do not provide a deployable
+filesystem, so use `runMigrations()` with SQL entries embedded in the worker
+bundle instead.
+
 Use `runMigrations` from `@agent-native/core/db` for handwritten entries and
 cases that need dialect-specific SQL, D1-specific behavior, data backfills, or
 deferred JavaScript steps:
@@ -124,8 +129,8 @@ tracking table. Use a name unique to your app so it does not collide with
 framework migrations. See [Database](/docs/server-database#migrations) for the
 full schema authoring guide and the name-based tracking rationale.
 
-`runDrizzleMigrations` reads each committed `<id_name>.sql` file lazily after
-the shared request guard. Both helpers remain release-safe. The explicit
+On Node.js runtimes, `runDrizzleMigrations` reads each committed `<id_name>.sql`
+file lazily after the shared request guard. Both helpers remain release-safe. The explicit
 `migrate:production` command is the production owner of schema changes.
 
 <Callout tone="warning">

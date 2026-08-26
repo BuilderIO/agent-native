@@ -110,9 +110,13 @@ export default runMigrations(
 </Callout>
 
 بالنسبة إلى الجداول والأعمدة الجديدة الخاصة بالتطبيق، فضّل SQL الذي ينشئه Drizzle
-Kit عبر `runDrizzleMigrations`. استخدم `runMigrations` للحالات التي تحتاج إلى SQL
-خاص باللهجة أو D1، أو إلى عمليات ملء البيانات، أو خطوات JavaScript المؤجلة. يقرأ
-المشغّل ملفات `server/db/migrations/<id_name>.sql` بعد اجتياز حارس الطلب.
+Kit عبر `runDrizzleMigrations` في بيئات Node.js وبيئات serverless المستندة إلى
+Node. استخدم `runMigrations` للحالات التي تحتاج إلى SQL خاص باللهجة أو D1، أو إلى
+عمليات ملء البيانات، أو خطوات JavaScript المؤجلة. يقرأ المشغّل ملفات
+`server/db/migrations/<id_name>.sql` بعد اجتياز حارس الطلب.
+
+لا يوفر Cloudflare Workers/Pages وD1 نظام ملفات قابلًا للنشر، لذلك استخدم هناك
+`runMigrations()` مع إدخالات SQL مضمّنة في حزمة العامل بدلًا من محمّل الملفات.
 
 ## كتابة إضافات مخصصة {#custom-plugins}
 

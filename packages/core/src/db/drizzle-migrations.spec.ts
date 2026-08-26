@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { loadDrizzleMigrations } from "./drizzle-migrations.js";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -72,6 +73,14 @@ describe("loadDrizzleMigrations", () => {
     await expect(
       loadDrizzleMigrations(join(root, "server", "db", "migrations")),
     ).resolves.toEqual([]);
+  });
+
+  it("fails clearly on filesystem-free runtimes", async () => {
+    vi.stubGlobal("__cf_env", {});
+
+    await expect(loadDrizzleMigrations("/missing/migrations")).rejects.toThrow(
+      "loadDrizzleMigrations requires a Node.js filesystem",
+    );
   });
 
   it("ignores non-SQL metadata files", async () => {

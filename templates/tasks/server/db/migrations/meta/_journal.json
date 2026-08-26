@@ -1,10 +1,10 @@
 {
   "version": "7",
-  "dialect": "sqlite",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "6",
+      "version": "7",
       "when": 1787762710211,
       "tag": "0000_legacy-baseline",
       "breakpoints": true

@@ -260,9 +260,18 @@ von ihrer Versionsnummer verfolgt.
 Verwenden Sie für neue Schemaänderungen der App `pnpm db:generate`, um
 prüfbares SQL zu erzeugen. Dadurch entsteht
 `server/db/migrations/<id_name>.sql`. `runDrizzleMigrations` lädt diese
-Dateien in den gemeinsamen Agent-Native-Runner. Der Release-Schritt bleibt für
-Produktionsänderungen zuständig. Verwenden Sie `runMigrations()` weiterhin für
-dialektspezifisches SQL, D1-Verhalten, Backfills und verzögerte JavaScript-Schritte.
+Dateien in Node.js- und Node-basierten Serverless-Runtimes in den gemeinsamen
+Agent-Native-Runner. Der Release-Schritt bleibt für Produktionsänderungen
+zuständig. Verwenden Sie `runMigrations()` weiterhin für dialektspezifisches SQL,
+D1-Verhalten, Backfills und verzögerte JavaScript-Schritte.
+
+Der dateisystembasierte Loader ist in Cloudflare Workers/Pages und anderen Edge-
+Runtimes ohne bereitgestelltes Dateisystem, einschließlich D1, nicht verfügbar.
+Verwenden Sie dort `runMigrations()` mit in das Worker-Bundle eingebetteten
+SQL-Einträgen. Ein Drizzle-Ausgabeordner hat eine dialektspezifische
+Metadaten-Baseline. Erzeugen Sie Migrationen daher für den primären
+Bereitstellungsdialekt und wechseln Sie denselben Ordner nicht zwischen SQLite
+und PostgreSQL.
 
 <Callout tone="risk">
   Führen Sie `drizzle-kit push` niemals gegen eine Produktionsdatenbank aus.
@@ -273,7 +282,7 @@ dialektspezifisches SQL, D1-Verhalten, Backfills und verzögerte JavaScript-Schr
   Datenverlust führt.
 </Callout>
 
-`drizzle.config.ts` im Root jeder App konfiguriert drizzle-kit für die lokale Schema-Inspektion in der Entwicklung:
+`drizzle.config.ts` im Root jeder App konfiguriert drizzle-kit für die lokale Schema-Inspektion in der Entwicklung. Wenn ein Migrationsordner mehrere Backends bedient, geben Sie den primären Bereitstellungsdialekt explizit an, zum Beispiel `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";

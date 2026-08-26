@@ -1548,20 +1548,34 @@ describe("copyDrizzleMigrationAssets", () => {
     expect(copyDrizzleMigrationAssets(cwd, serverDir)).toEqual([
       "0001_add_priority.sql",
     ]);
-    await expect(
-      loadDrizzleMigrations(
-        new URL(
-          "./migrations",
-          pathToFileURL(path.join(serverDir, "main.mjs")),
+    const runtime = globalThis as Record<string, unknown>;
+    const hadCfEnv = "__cf_env" in runtime;
+    const hadEnv = "__env__" in runtime;
+    const previousCfEnv = runtime.__cf_env;
+    const previousEnv = runtime.__env__;
+    Reflect.deleteProperty(runtime, "__cf_env");
+    Reflect.deleteProperty(runtime, "__env__");
+    try {
+      await expect(
+        loadDrizzleMigrations(
+          new URL(
+            "./migrations",
+            pathToFileURL(path.join(serverDir, "main.mjs")),
+          ),
         ),
-      ),
-    ).resolves.toMatchObject([
-      {
-        version: 1,
-        name: "0001_add_priority.sql",
-        sql: "ALTER TABLE tasks ADD COLUMN priority INTEGER;\n--> statement-breakpoint",
-      },
-    ]);
+      ).resolves.toMatchObject([
+        {
+          version: 1,
+          name: "0001_add_priority.sql",
+          sql: "ALTER TABLE tasks ADD COLUMN priority INTEGER;\n--> statement-breakpoint",
+        },
+      ]);
+    } finally {
+      if (hadCfEnv) runtime.__cf_env = previousCfEnv;
+      else Reflect.deleteProperty(runtime, "__cf_env");
+      if (hadEnv) runtime.__env__ = previousEnv;
+      else Reflect.deleteProperty(runtime, "__env__");
+    }
     expect(fs.existsSync(path.join(serverDir, "migrations", "meta"))).toBe(
       false,
     );

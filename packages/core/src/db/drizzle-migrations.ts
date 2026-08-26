@@ -1,7 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-
+import { isNodeRuntime } from "../shared/runtime.js";
 import {
   runMigrations,
   type MigrationEntry,
@@ -9,10 +6,6 @@ import {
 } from "./migrations.js";
 
 export type DrizzleMigrationsFolder = string | URL;
-
-function folderPath(folder: DrizzleMigrationsFolder): string {
-  return typeof folder === "string" ? folder : fileURLToPath(folder);
-}
 
 function isMissingPath(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
@@ -22,13 +15,31 @@ function isMissingPath(error: unknown): boolean {
  * Read Drizzle Kit's generated migration files as Agent Native migrations.
  *
  * Drizzle Kit owns SQL generation. The Agent Native runner remains the runtime
- * owner, so release authorization, dialect adaptation, D1, and bookkeeping
- * stay in one place. The file name becomes the stable migration name.
+ * owner, so release authorization, dialect adaptation, and bookkeeping stay in
+ * one place. The file name becomes the stable migration name.
+ *
+ * This filesystem loader is for Node.js runtimes. Cloudflare Workers and D1
+ * callers must pass embedded entries to `runMigrations` instead.
  */
 export async function loadDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,
 ): Promise<Array<MigrationEntry>> {
-  const root = folderPath(migrationsFolder);
+  if (!isNodeRuntime()) {
+    throw new Error(
+      "loadDrizzleMigrations requires a Node.js filesystem. Cloudflare Workers and D1 must use runMigrations with embedded entries.",
+    );
+  }
+
+  const [{ readdir, readFile }, { join }, { fileURLToPath }] =
+    await Promise.all([
+      import("node:fs/promises"),
+      import("node:path"),
+      import("node:url"),
+    ]);
+  const root =
+    typeof migrationsFolder === "string"
+      ? migrationsFolder
+      : fileURLToPath(migrationsFolder);
   let folders;
   try {
     folders = await readdir(root, { withFileTypes: true });
@@ -77,6 +88,7 @@ export async function loadDrizzleMigrations(
  *
  * The folder is read lazily after the shared serverless request guard runs.
  * This keeps migration-file I/O out of request paths when releases own DDL.
+ * The filesystem-backed loader is intentionally unavailable on edge runtimes.
  */
 export function runDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,

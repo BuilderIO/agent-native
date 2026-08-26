@@ -257,8 +257,9 @@ pnpm db:generate
 
 This creates `server/db/migrations/<id_name>.sql`. Commit the generated file and
 review its SQL before shipping it. `runDrizzleMigrations`
-loads those files into the shared Agent Native runner, so release authorization,
-dialect handling, D1 support, and bookkeeping stay in one place:
+loads those files into the shared Agent Native runner on Node.js and Node-based
+serverless runtimes, so release authorization, dialect handling, and bookkeeping
+stay in one place:
 
 ```ts filename="server/plugins/db.ts"
 import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
@@ -268,6 +269,13 @@ export default runDrizzleMigrations(
   { table: "my_app_migrations" },
 );
 ```
+
+The filesystem-backed loader is not available in Cloudflare Workers/Pages or
+other filesystem-free edge runtimes, including D1. Keep using `runMigrations()`
+there with SQL entries embedded in the worker bundle. A single Drizzle output
+folder has one dialect-specific metadata baseline, so generate against the
+primary deployment dialect and do not switch the same folder between SQLite and
+PostgreSQL.
 
 If an app already has handwritten entries, keep that history and load generated
 entries into the same `runMigrations()` source after it. Do not give one schema
@@ -304,7 +312,7 @@ steps.
   drop them, causing immediate data loss.
 </Callout>
 
-`drizzle.config.ts` at the root of each app configures drizzle-kit for local development schema inspection and migration generation:
+`drizzle.config.ts` at the root of each app configures drizzle-kit for local development schema inspection and migration generation. If one migration folder serves multiple runtime backends, pass its primary dialect explicitly, for example `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";

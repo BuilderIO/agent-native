@@ -110,11 +110,15 @@ export default runMigrations(
   を起動プラグインに書かないでください。
 </Callout>
 
-新しいアプリ固有のテーブルや列には、Drizzle Kit が生成した SQL を
-`runDrizzleMigrations` で使うことを推奨します。方言固有の SQL、D1 の動作、
-データのバックフィル、遅延 JavaScript ステップには `runMigrations` を使います。
-ランナーは共通のリクエストガードを通過した後に
-`server/db/migrations/<id_name>.sql` を読み込みます。
+新しいアプリ固有のテーブルや列には、Node.js と Node ベースの serverless
+ランタイムで Drizzle Kit が生成した SQL を `runDrizzleMigrations` で使うことを
+推奨します。方言固有の SQL、D1 の動作、データのバックフィル、遅延 JavaScript
+ステップには `runMigrations` を使います。ランナーは共通のリクエストガードを
+通過した後に `server/db/migrations/<id_name>.sql` を読み込みます。
+
+Cloudflare Workers/Pages と D1 にはデプロイ可能なファイルシステムがありません。
+その場合はファイルローダーではなく、worker bundle に SQL エントリを埋め込んで
+`runMigrations()` を使います。
 
 ## カスタム プラグインを書く {#custom-plugins}
 

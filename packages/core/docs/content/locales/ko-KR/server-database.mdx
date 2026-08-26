@@ -258,9 +258,16 @@ export const getDb = createGetDb(schema);
 
 새 앱 스키마 변경에는 `pnpm db:generate`를 사용해 검토 가능한 SQL을
 생성하세요. 이 명령은 `server/db/migrations/<id_name>.sql`을 만들고,
-`runDrizzleMigrations`가 이 파일들을 공유 Agent Native 러너에 로드합니다. 운영
-변경의 책임은 계속 릴리스 단계에 있습니다. 방언별 SQL, D1 동작, backfill 및
-지연된 JavaScript 단계에는 `runMigrations()`를 계속 사용하세요.
+`runDrizzleMigrations`가 Node.js 및 Node 기반 serverless 런타임에서 이 파일들을
+공유 Agent Native 러너에 로드합니다. 운영 변경의 책임은 계속 릴리스 단계에
+있습니다. 방언별 SQL, D1 동작, backfill 및 지연된 JavaScript 단계에는
+`runMigrations()`를 계속 사용하세요.
+
+파일 시스템 기반 로더는 Cloudflare Workers/Pages 및 D1을 포함해 배포 가능한
+파일 시스템이 없는 다른 edge 런타임에서 사용할 수 없습니다. 이러한 환경에서는
+worker bundle에 SQL 항목을 임베드하고 `runMigrations()`를 사용하세요. 하나의
+Drizzle 출력 폴더에는 방언별 메타데이터 baseline이 하나만 있으므로 주 배포
+방언을 대상으로 생성하고 같은 폴더를 SQLite와 PostgreSQL 사이에서 바꾸지 마세요.
 
 <Callout tone="risk">
   프로덕션 데이터베이스에 대해 `drizzle-kit push`를 절대 실행하지 마세요. 템플릿
@@ -270,7 +277,7 @@ export const getDb = createGetDb(schema);
   즉각적인 데이터 손실로 이어집니다.
 </Callout>
 
-각 앱 루트의 `drizzle.config.ts`는 로컬 개발용 스키마 검사를 위해 drizzle-kit을 구성합니다.
+각 앱 루트의 `drizzle.config.ts`는 로컬 개발용 스키마 검사를 위해 drizzle-kit을 구성합니다. 하나의 migration 폴더가 여러 backend를 대상으로 한다면 `createDrizzleConfig({ dialect: "postgresql" })`처럼 주 배포 방언을 명시하세요.
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";

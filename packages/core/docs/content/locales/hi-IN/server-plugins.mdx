@@ -109,11 +109,14 @@ export default runMigrations(
   (`DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) न रखें।
 </Callout>
 
-नए ऐप-स्वामित्व वाले टेबल और कॉलम के लिए Drizzle Kit से बने SQL को
-`runDrizzleMigrations` के माध्यम से प्राथमिकता दें। डायलेक्ट-विशिष्ट SQL, D1 व्यवहार,
-backfill और स्थगित JavaScript चरणों के लिए `runMigrations` का उपयोग करें। रनर
-साझा request guard पार करने के बाद `server/db/migrations/<id_name>.sql`
-पढ़ता है।
+नए ऐप-स्वामित्व वाले टेबल और कॉलम के लिए Node.js और Node-आधारित serverless
+रनटाइम में Drizzle Kit से बने SQL को `runDrizzleMigrations` के माध्यम से
+प्राथमिकता दें। डायलेक्ट-विशिष्ट SQL, D1 व्यवहार, backfill और स्थगित JavaScript
+चरणों के लिए `runMigrations` का उपयोग करें। रनर साझा request guard पार करने के बाद
+`server/db/migrations/<id_name>.sql` पढ़ता है।
+
+Cloudflare Workers/Pages और D1 deployable फ़ाइल-सिस्टम नहीं देते। वहाँ file loader
+की जगह worker bundle में embedded SQL entries के साथ `runMigrations()` का उपयोग करें।
 
 ## कस्टम प्लगइन्स लिखना {#custom-plugins}
 

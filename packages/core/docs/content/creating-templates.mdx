@@ -213,11 +213,13 @@ export const projectShares = createSharesTable("project_shares");
 Schema changes must be additive. For new app-owned tables and columns, use
 `drizzle-kit generate` to create reviewed SQL under
 `server/db/migrations/<id_name>.sql`, then load it through
-`runDrizzleMigrations()` from the release migration command. Keep
-`runMigrations()` for existing handwritten history and cases that need
-dialect-specific SQL, D1-specific behavior, data backfills, or deferred
-JavaScript steps. Never use destructive SQL, `drizzle-kit push`, table renames,
-or column drops.
+`runDrizzleMigrations()` from the release migration command on Node.js
+deployments. Cloudflare Workers/Pages and D1 have no deployable filesystem, so
+keep generated SQL in entries embedded in the worker bundle and pass them to
+`runMigrations()`. Keep using `runMigrations()` for existing handwritten history
+and cases that need dialect-specific SQL, D1-specific behavior, data backfills,
+or deferred JavaScript steps. Never use destructive SQL, `drizzle-kit push`,
+table renames, or column drops.
 
 For app reads and writes, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not write product code with raw SQL when Drizzle can express the query, and do not import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in templates.
 
