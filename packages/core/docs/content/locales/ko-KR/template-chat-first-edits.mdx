@@ -1,70 +1,173 @@
 ---
-title: "채팅에서 첫 번째 기능 추가하기"
-description: "Chat의 시작 화면을 렌더링하는 단 하나의 파일, 실제 props가 하는 일, 그리고 기능을 처음부터 끝까지 추가하는 전체 안내."
+title: "채팅: 첫 번째 기능"
+description: "채팅의 시작 화면을 렌더링하는 단 하나의 파일과 그 실제 props가 하는 일, 그리고 기능을 처음부터 끝까지 추가하는 전체 안내."
 ---
 
-# 채팅에서 첫 번째 기능 추가하기
+# 첫 번째 기능
 
-이 페이지는 [채팅 템플릿](/docs/template-chat)을 확장하는 개발자를 위한 것입니다. 시작 채팅 화면을 렌더링하는 단 하나의 파일을 다루고, 실제 기능을 요청할 때 에이전트가 일반적으로 다루는 모든 것을 안내합니다.
+이 페이지는 [채팅 템플릿](/docs/template-chat)을 확장하는 개발자를 위한 것입니다.
+시작 채팅 화면을 렌더링하는 단 하나의 파일을 다룬 다음, 실제 기능을 요청할 때
+에이전트가 일반적으로 다루게 되는 모든 것을 안내합니다.
 
 ## 검사할 첫 번째 코드 {#first-code}
 
-- `actions/hello.ts`는 에이전트가 호출할 수 있는 시작 동작입니다. 교체하거나
-  옆에 actions를 추가하세요.
-- `app/routes/_index.tsx`는 전체 페이지 채팅 화면을 렌더링합니다. 조정
-  제안, 빈 상태, 작곡가 또는 주변 레이아웃이 여기에 있습니다.
-- `AGENTS.md`는 내장 에이전트에게 이 앱 내에서 작업하는 방법을 알려줍니다.
+- `actions/hello.ts`는 에이전트가 호출할 수 있는 시작 동작입니다. 이를 교체하거나
+  그 옆에 액션을 추가하세요.
+- `app/routes/_index.tsx`는 전체 페이지 채팅 화면을 렌더링합니다. 제안, 빈 상태,
+  컴포저, 또는 주변 레이아웃을 여기서 조정하세요.
+- `AGENTS.md`는 내장 에이전트에게 이 앱 안에서 작업하는 방법을 알려줍니다.
 
 <FileTree
-  id="doc-block-9fl54l"
-  title={"Chat 템플릿 레이아웃"}
+  id="doc-block-chat3"
+  title="채팅 템플릿 레이아웃"
   entries={[
     {
       path: "actions/hello.ts",
-      note: "하나의 예시 action; 교체하거나 옆에 actions 추가",
+      note: "하나뿐인 예제 액션; 교체하거나 그 옆에 액션을 추가하세요",
     },
     {
       path: "actions/view-screen.ts",
-      note: "에이전트가 읽는 표준 context action",
+      note: "에이전트가 가장 먼저 호출하는 표준 context 액션",
     },
     {
       path: "actions/navigate.ts",
-      note: "표준 navigation action",
+      note: "표준 내비게이션 액션",
     },
     {
       path: "app/routes/_index.tsx",
-      note: "전체 페이지 chat 화면을 렌더링; suggestions, empty state, composer 편집",
+      note: "전체 페이지 채팅 화면을 렌더링; 제안, 빈 상태, 컴포저를 편집",
     },
     {
       path: "app/routes/chat.$threadId.tsx",
-      note: "_index.tsx를 다시 내보내므로 /chat/:threadId는 URL에 스레드 id가 포함된 동일한 화면을 렌더링합니다",
+      note: "_index.tsx를 다시 내보내므로 /chat/:threadId는 URL에 스레드 id가 담긴 동일한 화면을 렌더링합니다",
     },
     {
       path: "AGENTS.md",
-      note: "내장 에이전트가 읽는 chat-first 지침",
+      note: "내장 에이전트가 읽는 채팅 우선 지침",
     },
   ]}
 />
 
-실제 시작 파일은 단순한 `<AgentChatSurface />` 이상입니다. 스레드 URL 동기화, 탭 아이덴티티, hero 컴포저 레이아웃은 `app/routes/_index.tsx`를 참고하세요.
+실제 시작 파일은 단순한 `<AgentChatSurface />` 하나로 끝나지 않습니다. 스레드
+URL 동기화, 다중 탭 실행을 위한 탭 아이덴티티, hero 컴포저 레이아웃까지 함께
+연결되어 있으며, 그 문구는 리터럴 문자열이 아니라 i18n 키에서 가져옵니다.
 
-## 자체 에이전트 백엔드 사용 {#own-agent-backend}
-
-템플릿은 기본적으로 내장된 앱 에이전트 루프를 사용합니다. 사용자 정의 백엔드를 연결하려면 UI를 다시 작성하는 대신 에이전트 채팅 플러그인 뒤의 채팅 런타임을 교체하세요. Chat 경로는 공유 채팅 화면 주위에 얇은 렌더러로 유지되어야 합니다. 백엔드 선택은 서버 플러그인/런타임 어댑터에 속합니다.
-
-모델 오케스트레이션이 이미 다른 곳에 있지만 인증, 스레드, actions, UI 상태 및 배포 가능한 페이지가 있는 앱을 원하는 경우 이 방법을 사용하세요.
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/routes/_index.tsx (축약됨)"
+  filename="app/routes/_index.tsx"
+  language="tsx"
+  code={
+    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "19-21",
+      label: "스레드 URL 동기화",
+      note: "`/chat/:threadId`(`chat.$threadId.tsx`)는 이 동일한 컴포넌트를 다시 내보냅니다. 라우트에 스레드 id가 있으면 `threadUrlSync`가 URL과 활성 스레드를 계속 맞춰줍니다: 스레드를 전환하면 `/chat/<id>`로 URL이 바뀌고, 그 URL을 열면 해당 스레드가 다시 복원됩니다.",
+    },
+    {
+      lines: "38",
+      label: "탭 아이덴티티",
+      note: "`TAB_ID`(`app/lib/tab-id.ts`에서 브라우저 탭당 한 번 생성되는 무작위 id)는 공유 채팅 런타임이 같은 앱을 열어 둔 여러 탭을 서로 구분하게 해 주므로, 한 탭에서 시작한 실행이 다른 탭의 것으로 오인되지 않습니다.",
+    },
+    {
+      lines: "39-44",
+      label: "제안은 i18n 키",
+      note: '제안 문구는 `t("chat.suggestionCapabilities")` 등(`app/i18n/en-US.ts` 참고)에서 오며, 리터럴 영어 문자열이 아닙니다. `dynamicSuggestions={false}`는 런타임 자체의 제안 생성 기능을 끄고 이 세 가지를 대신 사용합니다.',
+    },
+    {
+      lines: "46-47",
+      label: "Hero 컴포저 레이아웃",
+      note: '`composerLayoutVariant="hero"`와 `centerComposerWhenEmpty`는 다른 `mode="page"` 채팅 라우트가 쓰는 일반적인 하단 고정 컴포저 대신, 제목/설명을 위에 둔 채로 컴포저를 화면 중앙에 배치합니다.',
+    },
+    {
+      lines: "49-54",
+      label: "composerSlot",
+      note: '컴포저가 중앙에 있을 때만 그 위에 렌더링되는 임의의 JSX입니다 — "무엇을 도와드릴까요?" 제목이 여기에 있습니다. 런타임을 건드리지 않고 빈 상태의 문구를 바꾸려면 여기를 편집하세요.',
+    },
+    {
+      lines: "23-31",
+      label: "홈 핸드오프",
+      note: '이 페이지에서 실행이 시작되면 `markAgentChatHomeHandoff("chat")`가 홈 화면이 활성 실행을 소유하고 있다는 사실을 기록해서, 다른 곳으로 이동했다가 돌아와도 그 실행을 잃지 않고 다시 붙을 수 있게 합니다.',
+    },
+  ]}
+/>
 
 ## 첫 번째 수정 {#first-edits}
 
-비계를 설치한 후 상담원에게 다음을 질문하세요.
+대부분의 첫 기능은 같은 형태를 따릅니다: 테이블 하나, 액션 한두 개, 라우트 하나,
+내비게이션 항목 하나, 그리고 `AGENTS.md` 업데이트. 에이전트에게 다음처럼
+요청해 보세요.
 
-> `notes`에 대한 데이터 모델을 추가합니다. 메모에는 ID, 제목, 본문, 소유자가 있습니다. `/notes`에서 노트 페이지를 렌더링하고, actions 생성/목록을 추가하고, 채팅에서 노트를 생성할 수 있도록 유지하세요.
+> `notes`에 대한 데이터 모델을 추가해줘. note는 id, title, body, owner를 가져.
+> `/notes`에 notes 페이지를 렌더링하고, create/list 액션을 추가하고, 채팅에서도
+> note를 만들 수 있게 유지해줘.
 
-에이전트는 Drizzle 스키마, actions, 경로, 탐색 및 지침을 추가해야 합니다. 그런 다음 UI 또는 채팅에서 메모 기능을 사용할 수 있습니다.
+채팅에는 `server/db/schema.ts`가 전혀 없는 상태로 제공되므로([무엇이 제공되는가](/docs/template-chat#what-ships)
+참고), 첫 번째 변경은 새 파일이며, 다른 모든 템플릿이 쓰는 것과 같은
+`table`/`text`/`ownableColumns` 형태를 따릅니다.
+
+<Diff
+  id="doc-block-chat5"
+  title="새로운 notes 테이블"
+  filename="server/db/schema.ts"
+  language="ts"
+  before={""}
+  after={
+    'import {\n  table,\n  text,\n  ownableColumns,\n} from "@agent-native/core/db/schema";\n\nexport const notes = table("notes", {\n  id: text("id").primaryKey(),\n  title: text("title").notNull(),\n  body: text("body").notNull(),\n  createdAt: text("created_at").notNull(),\n  updatedAt: text("updated_at").notNull(),\n  ...ownableColumns(),\n});'
+  }
+  annotations={[
+    {
+      lines: "1-5",
+      label: "공유 스키마 헬퍼",
+      note: "`table`/`text`/`ownableColumns`는 `@agent-native/core/db/schema`에서 옵니다 — 모든 템플릿이 사용하는 것과 같은 dialect에 종속되지 않는 헬퍼이므로, 이 파일은 SQLite/Postgres 사이에서도 그대로 이식됩니다.",
+    },
+    {
+      lines: "13",
+      label: "ownableColumns",
+      note: "`...ownableColumns()`는 프레임워크의 `accessFilter`/`resolveAccess` 헬퍼가 기대하는 owner/org 컬럼을 추가하므로, notes는 별도의 배관 작업 없이 표준 사용자별/조직별 공유 모델에 그대로 들어맞습니다.",
+    },
+  ]}
+/>
+
+나머지 기능은 여기서부터 자연스럽게 이어집니다.
+
+- `actions/create-note.ts` — `actions/hello.ts`와 같은 형태로, Zod 스키마
+  (`title`, `body`)를 가진 `defineAction`.
+- `actions/list-notes.ts` — `actions/view-screen.ts`처럼 `accessFilter`를 통해 새
+  테이블을 조회하는 읽기 전용 액션(`readOnly: true`).
+- `app/routes/notes.tsx` — 새 라우트. 이 앱은 파일 시스템 기반 라우팅
+  (`app/routes.ts`의 `flatRoutes()`)을 사용하므로, 파일을 추가하는 것만으로
+  `/notes`가 마운트됩니다.
+- `app/components/layout/Sidebar.tsx`의 `navItems` 배열에 `/notes`를 가리키는
+  새 항목.
+- notes가 존재한다는 사실과 이를 관리하는 액션이 무엇인지 에이전트에게 알려주는
+  `AGENTS.md` 추가.
+
+새 액션은 만들어지는 즉시 채팅에서 호출할 수 있습니다 — 모든 `defineAction`은
+`agentTool: false`로 설정하지 않는 한 기본적으로 도구입니다. 다만 모델의 아주 첫
+요청에 반드시 포함되지는 않습니다: `server/plugins/agent-chat.ts`는
+`INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`를 설정하는데, 이는
+첫 턴에 어떤 도구 스키마가 전송되는지만 제어합니다. 새로 만든 `create-note`를
+포함한 나머지는 모두 `tool-search`를 통해 계속 접근 가능하며 필요할 때 로드됩니다
+— 첫 메시지부터 모델의 기본 도구 세트에 포함하고 싶을 때만 이 목록에 이름을
+추가하세요.
+
+## 자체 에이전트 백엔드 사용하기 {#own-agent-backend}
+
+템플릿은 기본적으로 내장 앱-에이전트 루프를 사용합니다. 사용자 정의 백엔드를
+연결하려면 UI를 다시 작성하는 대신 에이전트 채팅 플러그인 뒤에 있는 채팅 런타임을
+교체하세요. 채팅 라우트는 공유 채팅 화면을 감싸는 얇은 렌더러로 남아 있어야
+하며, 백엔드 선택은 서버 플러그인/런타임 어댑터에 속합니다.
+
+모델 오케스트레이션이 이미 다른 곳에 있지만, 인증, 스레드, 액션, UI 상태, 배포
+가능한 페이지를 갖춘 앱은 여전히 원할 때 이 방법을 사용하세요.
 
 ## 다음 단계
 
-- [**채팅 템플릿**](/docs/template-chat) — 기본으로 제공되는 것과 선택 시기
-- [**Chat — 런타임 및 관리자 화면**](/docs/template-chat-developers) — 핵심 테이블, 인증, 관리자 페이지
-- [**Actions**](/docs/actions-overview) — 액션 시스템 채팅과 UI 모두 호출
-- [**Native 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소 및 런타임 옵션
+- [**채팅**](/docs/template-chat) — 기본으로 제공되는 것과 선택 시기
+- [**채팅: 개발자 가이드**](/docs/template-chat-developers) — 빠른 시작, 액션,
+  핵심 테이블, 인증, 관리자 페이지
+- [**액션**](/docs/actions-overview) — 채팅과 UI가 모두 호출하는 액션 시스템
+- [**기본 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소와 런타임 옵션
