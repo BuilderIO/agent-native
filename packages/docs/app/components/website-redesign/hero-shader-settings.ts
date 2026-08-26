@@ -192,7 +192,7 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   mieG: -0.78,
   exposure: 6,
   gamma: 1.05,
-  outScatterSteps: 16,
+  outScatterSteps: 5,
   inScatterSteps: 52,
   lightSaturation: 4,
   lightScreenAmount: 0.65,
