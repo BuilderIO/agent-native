@@ -406,20 +406,21 @@ export function createFetchToolEntry(
             typeof (args as Record<string, unknown>).saveToFile === "string"
               ? ((args as Record<string, unknown>).saveToFile as string).trim()
               : "";
+          const hasCredentials =
+            allUsedKeys.length > 0 ||
+            hasCredentialBearingImageRequest(resolvedUrl, headers);
           if (
             !saveToFilePath &&
             method === "GET" &&
             response.ok &&
             VISION_IMAGE_CONTENT_TYPES.has(contentType.toLowerCase()) &&
-            resolvedUrl.startsWith("https://")
+            resolvedUrl.startsWith("https://") &&
+            !hasCredentials
           ) {
             const imageBody = await readResponseBytesWithLimit(
               response,
               MAX_EXTENSION_PROXY_RESPONSE_SIZE,
             );
-            const hasCredentials =
-              allUsedKeys.length > 0 ||
-              hasCredentialBearingImageRequest(resolvedUrl, headers);
             if (imageBody.truncated) {
               return `HTTP ${response.status} ${response.statusText}\n\nContent-Type: ${contentType}\n\nImage response too large to attach (${imageBody.size} bytes, max ${MAX_EXTENSION_PROXY_RESPONSE_SIZE}).`;
             }
@@ -436,7 +437,7 @@ export function createFetchToolEntry(
               status: response.status,
               statusText: response.statusText,
               contentType,
-              ...(hasCredentials ? {} : { url: resolvedUrl }),
+              url: resolvedUrl,
               _agentImages: [
                 {
                   data: uint8ArrayToBase64(imageBody.bytes),

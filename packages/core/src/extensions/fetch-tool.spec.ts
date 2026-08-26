@@ -131,25 +131,24 @@ describe("createFetchToolEntry", () => {
         url: "https://93.184.216.34/frame.jpg#access_token=example-token",
       },
     },
-  ])("does not attach image responses with $name", async ({ args }) => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("jpeg bytes", {
-        status: 200,
-        statusText: "OK",
-        headers: { "content-type": "image/jpeg" },
-      }),
-    );
+  ])(
+    "does not attach credentialed image responses with $name",
+    async ({ args }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("jpeg bytes", {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
 
-    const result = await createFetchToolEntry()["web-request"].run(args);
+      const result = await createFetchToolEntry()["web-request"].run(args);
 
-    expect(result).toMatchObject({
-      status: 200,
-      statusText: "OK",
-      contentType: "image/jpeg",
-      _agentImages: [{ data: "anBlZyBieXRlcw==", mediaType: "image/jpeg" }],
-    });
-    expect(result).not.toHaveProperty("url");
-  });
+      expect(result).toContain("HTTP 200 OK");
+      expect(result).not.toContain("anBlZyBieXRlcw==");
+      expect(result).not.toContain("_agentImages");
+    },
+  );
 
   it("blocks redirects to private/internal addresses", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
