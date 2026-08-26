@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.17.2
+
+### Patch Changes
+
+- 65a3b88: Keep shared feedback controls clear of the environment badge and editor chrome.
+- Release all public npm packages with a patch version bump.
+
 ## 0.17.1
 
 ### Patch Changes
