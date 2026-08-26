@@ -1698,10 +1698,14 @@ export async function resolveSecret(key: string): Promise<string | null> {
  */
 export async function resolveSecretPair(
   keys: readonly [string, string],
-  options?: { allowUserScope?: boolean },
+  options?: {
+    allowUserScope?: boolean;
+    preferWorkspaceScope?: boolean;
+  },
 ): Promise<[string, string] | null> {
   const [firstKey, secondKey] = keys;
   const allowUserScope = options?.allowUserScope ?? true;
+  const preferWorkspaceScope = options?.preferWorkspaceScope ?? false;
   const readPair = async (
     scope: "user" | "org" | "workspace",
     scopeId: string,
@@ -1752,10 +1756,16 @@ export async function resolveSecretPair(
     }
 
     if (orgId) {
+      if (preferWorkspaceScope) {
+        pair = await readPair("workspace", orgId);
+        if (pair) return pair;
+      }
       pair = await readPair("org", orgId);
       if (pair) return pair;
-      pair = await readPair("workspace", orgId);
-      if (pair) return pair;
+      if (!preferWorkspaceScope) {
+        pair = await readPair("workspace", orgId);
+        if (pair) return pair;
+      }
     }
 
     if (allowUserScope) {

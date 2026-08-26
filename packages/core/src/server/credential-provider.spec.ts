@@ -1453,11 +1453,41 @@ describe("resolveSecretPair", () => {
     await expect(
       resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], {
         allowUserScope: false,
+        preferWorkspaceScope: true,
       }),
     ).resolves.toEqual(["workspace-client", "workspace-secret"]);
     expect(
       mockReadAppSecrets.mock.calls.map(([args]) => args.scope),
     ).not.toContain("user");
+  });
+
+  it("prefers workspace credentials over a stale org pair", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope }: { scope: string }) => {
+        if (scope === "org") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "stale-org-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "stale-org-secret" }],
+          ]);
+        }
+        if (scope === "workspace") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "workspace-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "workspace-secret" }],
+          ]);
+        }
+        return new Map();
+      },
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], {
+        allowUserScope: false,
+        preferWorkspaceScope: true,
+      }),
+    ).resolves.toEqual(["workspace-client", "workspace-secret"]);
   });
 
   it("skips a stale solo workspace pair for shared OAuth clients", async () => {

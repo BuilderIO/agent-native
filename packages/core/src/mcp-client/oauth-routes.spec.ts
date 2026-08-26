@@ -297,7 +297,7 @@ describe("managed MCP OAuth clients", () => {
     }
     expect(resolveSecretPairMock).toHaveBeenLastCalledWith(
       ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-      { allowUserScope: false },
+      { allowUserScope: false, preferWorkspaceScope: true },
     );
   });
 
