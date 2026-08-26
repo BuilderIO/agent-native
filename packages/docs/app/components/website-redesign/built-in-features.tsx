@@ -112,6 +112,24 @@ export function BuiltInFeatures() {
             borderBottom: "1px solid var(--b-border-subtle)",
           }}
         >
+          {/* A real border-left/border-right on this wrapper would eat 2px
+              out of the 1200px available to .pillars-grid below, so its 3
+              columns would divide 1198px into thirds instead of 1200px,
+              landing off by ~1px from the page-wide decorative grid's exact
+              1/3 marks (always computed against the full 1200px). Drawing
+              the line on this later, absolutely positioned overlay keeps
+              the full width for that column math while still painting on
+              top of the pillar cells' opaque backgrounds below. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderLeft: "1px solid var(--b-border-subtle)",
+              borderRight: "1px solid var(--b-border-subtle)",
+              pointerEvents: "none",
+            }}
+          />
           {PILLAR_ROWS.map((row, rowIndex) => (
             <div
               key={row.map((pillar) => pillar.title).join("-")}
