@@ -414,29 +414,34 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
             if let Some(state) = app.try_state::<MeetingsWatcherState>() {
                 state.note_calendar_notify(m.platform.as_deref());
             }
-            let app_clone = app.clone();
-            let id_clone = m.id.clone();
-            let title_clone = title.clone();
-            let join_clone = join_url.clone();
-            let start_clone = m.scheduled_start.clone();
-            let end_clone = m.scheduled_end.clone();
-            let platform_clone = m.platform.clone();
             let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
-            tauri::async_runtime::spawn(async move {
-                let _ = crate::notifications::notify_meeting_starting(
-                    app_clone,
-                    id_clone,
-                    title_clone,
-                    secs_until,
-                    join_clone,
-                    start_clone,
-                    end_clone,
-                    platform_clone,
-                    Some(auto_start),
-                    None,
-                )
-                .await;
-            });
+            // Awaited, not spawned. The stored payload has to exist before
+            // auto-start is announced below: startup acknowledges itself with
+            // `meetings:hide-notification`, and an acknowledgement that arrives
+            // before the payload was stored clears nothing, leaving a spawned
+            // task free to install a "Take notes?" card over a meeting that is
+            // already recording. Ordering it here makes that impossible rather
+            // than unlikely, and matches the ad-hoc path.
+            if let Err(err) = crate::notifications::notify_meeting_starting(
+                app.clone(),
+                m.id.clone(),
+                title.clone(),
+                secs_until,
+                join_url.clone(),
+                m.scheduled_start.clone(),
+                m.scheduled_end.clone(),
+                m.platform.clone(),
+                Some(auto_start),
+                None,
+            )
+            .await
+            {
+                dlog!(
+                    "[clips-tray] calendar notification failed for {}: {}",
+                    m.id,
+                    err
+                );
+            }
         }
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Auto {
             let _ = app.emit(
