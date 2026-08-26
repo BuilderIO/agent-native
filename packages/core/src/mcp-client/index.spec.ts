@@ -299,6 +299,41 @@ describe("mcpToolsToActionEntries", () => {
     expect(callImpl).toHaveBeenCalledOnce();
   });
 
+  it("propagates a custom 403 authorization error", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const denied = Object.assign(new Error("Workspace access revoked"), {
+      statusCode: 403,
+    });
+    const authorize = vi.fn(async () => {
+      throw denied;
+    });
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+
+    await expect(
+      entry.run(
+        { recordId: "record-1" },
+        {
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+          caller: "tool",
+        },
+      ),
+    ).rejects.toBe(denied);
+    expect(callImpl).not.toHaveBeenCalled();
+  });
+
   it("updates existing MCP ActionEntry policy when the manager tool set changes", async () => {
     const callImpl = vi.fn(() => ({
       content: [{ type: "text", text: "inspected" }],

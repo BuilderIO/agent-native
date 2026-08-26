@@ -280,7 +280,7 @@ function mcpToolToActionEntry(
         });
         return await buildMcpActionResult(manager, tool, args, result);
       } catch (err: any) {
-        if (err?.name === "ForbiddenError" && err?.statusCode === 403) {
+        if (err?.statusCode === 403) {
           throw err;
         }
         return buildMcpErrorActionResult(
