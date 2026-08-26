@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.175.0
+
+### Minor Changes
+
+- da836e2: Use the hardened Run QuickJS evaluator for production sandboxed code execution.
+- cf473dc: Allow mention providers to show custom text or images with optional background
+  colors, or to omit leading media, while preserving the existing icon fallback.
+- 6c71a21: Add opt-in WebMCP producer and browser-session consumer support.
+
+### Patch Changes
+
+- 73ff8c5: Allow apps to configure approval requirements for individual MCP tools and require a fresh approval on every call when persistent approval is disabled.
+- Release all public npm packages with a patch version bump.
+- de5ba2d: Keep shared managed MCP OAuth clients from being overridden by stale personal secrets.
+- Updated dependencies
+- Updated dependencies [cf473dc]
+  - @agent-native/recap-cli@0.5.14
+  - @agent-native/toolkit@0.17.0
+
 ## 0.174.2
 
 ### Patch Changes
