@@ -75,3 +75,23 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   }
   return !!(await resolveBuilderPrivateKey());
 }
+
+/**
+ * Whether the effective Builder credential can authorize an API request with
+ * the requested scope. OAuth custody deliberately wins over deploy keys here.
+ */
+export async function canAuthorizeBuilderApiRequest(
+  requiredScope?: string,
+): Promise<boolean> {
+  const ownerEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId();
+
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+    const session = await getBuilderOAuthSession(ownerEmail, orgId);
+    return (
+      !!session && (!requiredScope || session.scopes.includes(requiredScope))
+    );
+  }
+
+  return !!(await resolveBuilderPrivateKey());
+}

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
 } from "./builder-api-auth.js";
@@ -120,6 +121,28 @@ describe("resolveBuilderApiAuthorization", () => {
       "Bearer bpk-deploy",
     );
     expect(hasBuilderOAuthSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("canAuthorizeBuilderApiRequest", () => {
+  it("requires the requested scope for OAuth credentials", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: ["builder:ai:invoke"],
+    });
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("accepts a legacy private key", async () => {
+    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      true,
+    );
   });
 });
 
