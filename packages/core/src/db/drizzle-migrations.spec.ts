@@ -58,11 +58,13 @@ describe("loadDrizzleMigrations", () => {
         version: 1,
         name: "0000_initial.sql",
         sql: "CREATE TABLE records (id TEXT PRIMARY KEY);",
+        dialectSpecific: true,
       },
       {
         version: 2,
         name: "0001_add_title.sql",
         sql: "CREATE TABLE titles (id TEXT PRIMARY KEY);",
+        dialectSpecific: true,
       },
     ]);
   });

@@ -85,10 +85,9 @@ If your app defines custom database tables, add `server/plugins/db.ts` to regist
 ```ts filename="server/plugins/db.ts"
 import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
-export default runDrizzleMigrations(
-  new URL("../db/migrations", import.meta.url),
-  { table: "my_app_migrations" },
-);
+export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
+  table: "my_app_migrations",
+});
 ```
 
 This filesystem-backed helper is for Node.js and Node-based serverless

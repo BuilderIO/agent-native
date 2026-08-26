@@ -550,6 +550,39 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
   });
 
+  it("preserves dialect-specific generated SQL on Postgres", async () => {
+    vi.mocked(isPostgres).mockReturnValue(true);
+    const pooledExec = makeExec([{ v: 0 }]);
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+
+    const directExec = makeExec([{ v: 0 }]);
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 1,
+          name: "0001_add_priority.sql",
+          sql: "ALTER TABLE tasks ADD COLUMN priority integer;",
+          dialectSpecific: true,
+        },
+      ],
+      { table: "generated_pg_migrations" },
+    );
+    await plugin(null);
+
+    const calls = directExec.execute.mock.calls.map((c) =>
+      typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
+    );
+    expect(
+      calls.some((sql) =>
+        /ALTER TABLE tasks ADD COLUMN priority integer/i.test(sql),
+      ),
+    ).toBe(true);
+    expect(calls.some((sql) => /priority BIGINT/i.test(sql))).toBe(false);
+  });
+
   it("uses the pooled exec for a pending run-only migration", async () => {
     vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeNamedExec({ version: 131, appliedNames: [] });

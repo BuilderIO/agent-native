@@ -264,10 +264,9 @@ stay in one place:
 ```ts filename="server/plugins/db.ts"
 import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
-export default runDrizzleMigrations(
-  new URL("../db/migrations", import.meta.url),
-  { table: "my_app_migrations" },
-);
+export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
+  table: "my_app_migrations",
+});
 ```
 
 The filesystem-backed loader is not available in Cloudflare Workers/Pages or

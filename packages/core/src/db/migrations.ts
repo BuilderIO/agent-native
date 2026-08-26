@@ -246,6 +246,11 @@ export interface MigrationEntry {
   version: number;
   sql: MigrationSql;
   /**
+   * SQL was generated for a specific dialect and must not be rewritten by the
+   * portable handwritten-migration adapter.
+   */
+  dialectSpecific?: boolean;
+  /**
    * Stable, unique slug for this migration (e.g. `"analytics-alert-rules-table"`).
    * When present, this migration is tracked by NAME instead of by version
    * number — see the `runMigrations` doc comment for the full rationale and
@@ -798,7 +803,11 @@ export function runMigrations(
           // errors only for those statements.
           const originalStatements = splitSqlStatements(raw);
           const statements = originalStatements.map((orig) => ({
-            sql: pg ? adaptSqlForPostgres(orig) : adaptSqlForSqlite(orig),
+            sql: m.dialectSpecific
+              ? orig
+              : pg
+                ? adaptSqlForPostgres(orig)
+                : adaptSqlForSqlite(orig),
             hadIfNotExists: IF_NOT_EXISTS_ADD_COLUMN_RE.test(orig),
           }));
           let currentStmt = "";

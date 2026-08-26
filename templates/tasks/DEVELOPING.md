@@ -170,6 +170,9 @@ Before changing the schema, run `pnpm db:check` to validate the checked-in
 Drizzle metadata baseline, then run `pnpm db:generate` to create the reviewed
 SQL migration. Tasks keeps one PostgreSQL baseline because that is its
 deployment dialect; do not switch this migration folder between dialects.
+Use `pnpm db:push` only for the local SQLite database; it uses the separate
+`drizzle.local.config.ts` so the PostgreSQL generation config does not redirect
+local development to a synthetic Postgres URL.
 
 | Variable              | Required                        | Description                                                                |
 | --------------------- | ------------------------------- | -------------------------------------------------------------------------- |

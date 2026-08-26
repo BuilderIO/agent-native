@@ -81,6 +81,7 @@ export async function loadDrizzleMigrations(
       version: index + 1,
       name: file.name,
       sql: trimmedSql,
+      dialectSpecific: true,
     });
   }
 
