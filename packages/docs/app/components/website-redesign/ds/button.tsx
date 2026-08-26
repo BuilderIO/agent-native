@@ -27,6 +27,9 @@ interface CommonProps {
   icon?: TablerIcon | null;
   children: ReactNode;
   forceState?: "default" | "hover" | "focus";
+  // Opt-in dimmer border for the `secondary` variants. The header's button
+  // cluster wants it; every other secondary button on the page does not.
+  dimBorder?: boolean;
 }
 
 type ButtonAsButton = CommonProps &
@@ -40,87 +43,46 @@ type ButtonAsAnchor = CommonProps &
 
 type ButtonProps = ButtonAsButton | ButtonAsAnchor;
 
-const baseStyle = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 6,
-  fontFamily: "var(--b-font-mono)",
-  fontWeight: 600,
-  fontSize: "var(--b-t-label-1)",
-  letterSpacing: "0.02em",
-  textDecoration: "none",
-  cursor: "pointer",
-  borderWidth: 1,
-  borderStyle: "solid" as const,
-  outline: "none",
-  transition: "background 0.15s, box-shadow 0.15s, border-color 0.15s",
-  borderRadius: "var(--b-radius)",
-  whiteSpace: "nowrap" as const,
-  lineHeight: 1,
-  userSelect: "none" as const,
-  padding: "10px 16px",
-};
+const baseClass =
+  "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid px-4 py-[10px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,border-color] duration-150";
 
-function variantColor(variant: ButtonVariant) {
+function variantTextClass(variant: ButtonVariant) {
   switch (variant) {
     case "cta":
     case "primary":
     case "primary-icon":
-      return "var(--b-action-primary-text)";
+      return "text-[var(--b-action-primary-text)]";
     case "primary-alt":
-      return "var(--b-action-primary-bg)";
+      return "text-[var(--b-action-primary-bg)]";
     case "secondary":
     case "secondary-icon":
     default:
-      return "var(--b-action-secondary-text)";
+      return "text-[var(--b-action-secondary-text)]";
   }
 }
 
-// background/border-color/box-shadow live in classes, not inline style, so the
-// real :hover pseudo-class can win — inline style always beats a stylesheet
-// rule regardless of specificity, which would otherwise make hover: classes inert.
-function variantClasses(variant: ButtonVariant) {
+// Showcase-only: forceState="hover" has to render the hover look with the
+// mouse elsewhere, so each hover rule is mirrored onto a `data-[force=hover]:`
+// variant. Forcing it through inline style instead would beat the real :hover
+// pseudo-class and make it inert.
+function variantClasses(variant: ButtonVariant, dimBorder?: boolean) {
   switch (variant) {
     case "cta":
-      return "bg-[var(--b-text-primary)] border-[var(--b-text-primary)] hover:bg-[var(--b-action-cta-hover)] hover:border-[var(--b-action-cta-hover)]";
+      return "border-[var(--b-text-primary)] bg-[var(--b-text-primary)] hover:border-[var(--b-action-cta-hover)] hover:bg-[var(--b-action-cta-hover)] data-[force=hover]:border-[var(--b-action-cta-hover)] data-[force=hover]:bg-[var(--b-action-cta-hover)]";
     case "primary":
     case "primary-icon":
-      return "bg-[var(--b-action-primary-bg)] border-[var(--b-action-primary-bg)] hover:bg-[var(--b-action-primary-hover)] hover:border-[var(--b-action-primary-hover)] hover:shadow-[0_0_16px_var(--b-action-primary-effect)]";
+      return "border-[var(--b-action-primary-bg)] bg-[var(--b-action-primary-bg)] hover:border-[var(--b-action-primary-hover)] hover:bg-[var(--b-action-primary-hover)] hover:shadow-[0_0_16px_var(--b-action-primary-effect)] data-[force=hover]:border-[var(--b-action-primary-hover)] data-[force=hover]:bg-[var(--b-action-primary-hover)] data-[force=hover]:shadow-[0_0_16px_var(--b-action-primary-effect)]";
     case "primary-alt":
-      return "bg-transparent border-[var(--b-action-primary-border)]";
+      return "border-[var(--b-action-primary-border)] bg-transparent";
     case "secondary":
     case "secondary-icon":
     default:
-      return "bg-[var(--b-action-secondary-bg)] border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)]";
-  }
-}
-
-// Showcase-only: forceState="hover" must render the hover look regardless of
-// real mouse position, so this deliberately forces it back into inline style.
-function forcedHoverStyle(
-  variant: ButtonVariant,
-  forceState?: CommonProps["forceState"],
-) {
-  if (forceState !== "hover") return {};
-  switch (variant) {
-    case "cta":
-      return {
-        background: "var(--b-action-cta-hover)",
-        borderColor: "var(--b-action-cta-hover)",
-      };
-    case "primary":
-    case "primary-icon":
-      return {
-        background: "var(--b-action-primary-hover)",
-        borderColor: "var(--b-action-primary-hover)",
-        boxShadow: "0 0 16px var(--b-action-primary-effect)",
-      };
-    case "secondary":
-    case "secondary-icon":
-      return { background: "var(--b-action-secondary-hover)" };
-    default:
-      return {};
+      return [
+        "bg-[var(--b-action-secondary-bg)] hover:bg-[var(--b-action-secondary-hover)] data-[force=hover]:bg-[var(--b-action-secondary-hover)]",
+        dimBorder
+          ? "border-[var(--b-action-secondary-border-dim)]"
+          : "border-[var(--b-action-secondary-border)]",
+      ].join(" ");
   }
 }
 
@@ -129,6 +91,7 @@ export function Button({
   icon,
   children,
   forceState,
+  dimBorder,
   ...rest
 }: ButtonProps) {
   const showsIconByDefault = variant === "cta" || variant.endsWith("-icon");
@@ -137,12 +100,6 @@ export function Button({
       ? null
       : (icon ?? (showsIconByDefault ? IconArrowUpRight : null));
 
-  const style = {
-    ...baseStyle,
-    color: variantColor(variant),
-    ...forcedHoverStyle(variant, forceState),
-  };
-
   const content = (
     <>
       {children}
@@ -150,13 +107,15 @@ export function Button({
     </>
   );
 
-  const interactiveClass = [
-    variantClasses(variant),
+  const className = [
+    baseClass,
+    variantTextClass(variant),
+    variantClasses(variant, dimBorder),
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
-    "disabled:opacity-40 disabled:cursor-not-allowed",
-  ]
-    .filter(Boolean)
-    .join(" ");
+    "disabled:cursor-not-allowed disabled:opacity-40",
+  ].join(" ");
+
+  const forceAttr = forceState === "hover" ? "hover" : undefined;
 
   if ("href" in rest && rest.href !== undefined) {
     const { href, target, ...anchorRest } = rest as ButtonAsAnchor;
@@ -167,8 +126,8 @@ export function Button({
       return (
         <Link
           to={href}
-          style={style}
-          className={interactiveClass}
+          data-force={forceAttr}
+          className={className}
           {...anchorRest}
         >
           {content}
@@ -179,8 +138,8 @@ export function Button({
       <a
         href={href}
         target={target}
-        style={style}
-        className={interactiveClass}
+        data-force={forceAttr}
+        className={className}
         {...anchorRest}
       >
         {content}
@@ -192,8 +151,8 @@ export function Button({
   return (
     <button
       type="button"
-      style={style}
-      className={interactiveClass}
+      data-force={forceAttr}
+      className={className}
       {...buttonRest}
     >
       {content}

@@ -3,8 +3,8 @@
 // tokens.css. The duplicated second path (drawn over the gradient-filled
 // first path) is preserved verbatim from the source export.
 export function Logo({
-  width = 188,
-  height = 22,
+  width = 160,
+  height = 19,
 }: {
   width?: number;
   height?: number;

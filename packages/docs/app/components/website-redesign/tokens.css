@@ -97,6 +97,10 @@
   --b-action-secondary-hover: var(--b-bg-prominent);
   --b-action-secondary-text: #faf9f5;
   --b-action-secondary-border: #5e5e5e;
+  /* One step dimmer, for buttons that sit in dense chrome (the header's
+     search/GitHub/Ask AI cluster) where the default border reads too loud.
+     Opt-in only — the shared secondary border stays where it is. */
+  --b-action-secondary-border-dim: #2e2e2e;
   /* The cta variant fills with --b-text-primary, so its hover has to move in
      the opposite direction per theme: dimmer than near-white in dark, lifted
      off near-black in light. A single palette value can't do that, which is
@@ -229,6 +233,7 @@
   --b-action-primary-text: #ffffff;
   --b-action-primary-border: #00677f;
   --b-action-secondary-text: #0a0a0a;
+  --b-action-secondary-border-dim: #ababab;
   --b-action-cta-hover: #2e2e2e;
   --b-action-tab-bg: #faf9f5;
   --b-action-tab-bg-active: #e5f8fa;

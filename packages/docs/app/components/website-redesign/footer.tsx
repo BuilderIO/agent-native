@@ -138,7 +138,7 @@ export function Footer() {
               aria-label="Agent-Native"
               style={{ display: "flex", color: "var(--b-text-primary)" }}
             >
-              <Logo width={160} height={19} />
+              <Logo />
             </Link>
             <p
               style={{

@@ -11,12 +11,6 @@ import {
 
 const VISIBLE_MS = 2400;
 const TRANSITION_MS = 200;
-const TRANSITION =
-  "opacity " +
-  TRANSITION_MS +
-  "ms ease, transform " +
-  TRANSITION_MS +
-  "ms ease";
 
 interface SnackbarMessage {
   // Bumped per call so repeating the same text still restarts the timer and
@@ -83,38 +77,22 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
       <div
         role="status"
         aria-live="polite"
-        style={{
-          position: "fixed",
-          bottom: "var(--spacing-6)",
-          left: "50%",
-          // Centering lives on this wrapper so the pill's own transform is
-          // free to carry the enter/exit slide.
-          transform: "translateX(-50%)",
-          // Above the dialog layers in ../../ui/dialog.tsx: copying the install
-          // command from inside the Get Started modal has to be visible.
-          zIndex: 100060,
-          pointerEvents: "none",
-        }}
+        // Centering lives on this wrapper so the pill's own transform is free
+        // to carry the enter/exit slide. The z-index sits above the dialog
+        // layers in ../../ui/dialog.tsx: copying the install command from
+        // inside the Get Started modal has to stay visible.
+        className="pointer-events-none fixed bottom-[var(--spacing-6)] left-1/2 z-[100060] -translate-x-1/2"
       >
         {message ? (
           <div
             key={message.id}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "var(--spacing-2)",
-              padding: "10px var(--spacing-4)",
-              borderRadius: "var(--b-radius)",
-              border: "1px solid var(--b-snackbar-border)",
-              background: "var(--b-snackbar-bg)",
-              color: "var(--b-snackbar-text)",
-              fontFamily: "var(--b-font-mono)",
-              fontSize: "var(--b-t-label-1)",
-              lineHeight: 1,
-              opacity: shown ? 1 : 0,
-              transform: shown ? "translateY(0)" : "translateY(12px)",
-              transition: TRANSITION,
-            }}
+            // duration-200 must stay equal to TRANSITION_MS, which is what the
+            // unmount timer waits on before dropping the pill.
+            className={[
+              "inline-flex items-center gap-[var(--spacing-2)] rounded-[var(--b-radius)] border border-solid border-[var(--b-snackbar-border)] bg-[var(--b-snackbar-bg)] px-[var(--spacing-4)] py-[10px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] leading-none text-[var(--b-snackbar-text)]",
+              "transition-[opacity,transform] duration-200 ease-[ease]",
+              shown ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
+            ].join(" ")}
           >
             {message.icon}
             {message.text}

@@ -43,6 +43,7 @@ function AskAiIconButton() {
   const label = t("header.askAssistant");
   return (
     <IconButton
+      dimBorder
       onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
       aria-label={label}
       title={label}
@@ -56,6 +57,7 @@ function GithubStarsButton({ starCount }: { starCount: number | null }) {
   return (
     <Button
       variant="secondary"
+      dimBorder
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"
@@ -84,10 +86,10 @@ function SearchTrigger({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+      className="border-[var(--b-action-secondary-border-dim)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
       style={{
         height: 40,
-        width: 360,
+        width: 320,
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "space-between",

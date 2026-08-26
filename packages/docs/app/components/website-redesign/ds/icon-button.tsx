@@ -8,19 +8,29 @@ import { useDocsTheme } from "../../ThemeToggle";
 // :hover pseudo-class can win — inline style beats a stylesheet rule
 // regardless of specificity, which would make hover: classes inert.
 const interactiveClassName =
-  "border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]";
+  "hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]";
 
 export function IconButton({
   children,
   className,
+  dimBorder,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  children: ReactNode;
+  dimBorder?: boolean;
+}) {
   return (
     <button
       type="button"
-      className={
-        className ? `${interactiveClassName} ${className}` : interactiveClassName
-      }
+      className={[
+        interactiveClassName,
+        dimBorder
+          ? "border-[var(--b-action-secondary-border-dim)]"
+          : "border-[var(--b-action-secondary-border)]",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       style={{
         width: 40,
         height: 40,

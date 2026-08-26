@@ -75,6 +75,26 @@
   --font-poppins: var(--font-sans);
 }
 
+/* `max-w-site` for the one content measure. This can be a `@theme` alias
+   because --site-max-width is defined at :root below. The redesign's `--b-*`
+   and `--spacing-*` tokens cannot: they live under `.builder-brand-tokens`,
+   and a custom property declared at :root resolves its var() at :root, where
+   those are undefined — the alias would compute to the guaranteed-invalid
+   value and inherit as such, so `bg-brand-page` would paint nothing. Redesign
+   components therefore reference the scoped tokens directly, as
+   `bg-[var(--b-bg-page)]` / `p-[var(--spacing-6)]`, which substitutes at the
+   element and so keeps both the scope and the light-theme override — and
+   inherits the mobile shrink those two scales get from a media query in
+   tokens.css, which a static `p-40` would throw away. */
+@theme {
+  --container-site: var(--site-max-width);
+}
+
+/* The site toggles a `.light` class on the document, not
+   `prefers-color-scheme`, so Tailwind's built-in `dark:` cannot see the theme.
+   This is how a theme-conditional utility gets written: `light:opacity-0`. */
+@custom-variant light (&:where(.light *));
+
 :root {
   --fg: #171717;
   --fg-secondary: #666;

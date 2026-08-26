@@ -30,7 +30,7 @@ const float WAVE_COUNT = 5.;
 const float WAVE_SCALE = 5.5;
 const float FLOW_ANGLE = 119.;
 const float WARP = 0.35;
-const float SPEED = 0.5;
+const float SPEED = 0.65;
 // How far the bright centre travels toward the pointer: 0 pins it to FOCUS, 1
 // parks it exactly under the cursor. Short of 1 so the glow reads as drawn
 // toward the mouse rather than attached to it.
