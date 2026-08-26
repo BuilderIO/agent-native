@@ -41,6 +41,7 @@ const float SEED = 56.;
 const float VIGNETTE = 1.7;
 // Exponent shaping the tonal distribution: >1 crushes the bright areas inward.
 const float TONE_GAMMA = 2.6;
+const float FADE_IN_SECONDS = 0.7;
 
 float N21(vec2 p) {
   p += SEED;
@@ -146,7 +147,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float value = clamp(dotMask + glowTerm * 0.6, 0., 1.);
 
   value *= clamp(1. - dot(uv, uv) * VIGNETTE, 0., 1.);
-  value *= S(0., 2.5, iTime);
+  value *= S(0., FADE_IN_SECONDS, iTime);
 
   // Extrapolating away from bg along the fg/bg contrast direction (rather
   // than mixing toward literal white) keeps brightness correct in both
