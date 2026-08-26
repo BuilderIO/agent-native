@@ -1,5 +1,46 @@
 # @agent-native/core
 
+## 0.175.1
+
+### Patch Changes
+
+- 5a045bf: Fix file uploads for Builder connections made through OAuth. New connections
+  store only an OAuth grant, but the upload provider and the storage capability
+  gates still looked for a legacy `bpk-` private key, so uploads failed for every
+  newly connected user.
+
+  Builder OAuth now also requests `builder:assets:write`, the scope its
+  `/api/v1/upload/*` endpoints enforce, and the upload provider sends the OAuth
+  token when the request's owner has a grant — falling back to a private key only
+  when there is no grant at all.
+
+  Already-connected users must authorize Builder once more to pick up the new
+  scope.
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.15
+  - @agent-native/toolkit@0.17.1
+
+## 0.175.0
+
+### Minor Changes
+
+- da836e2: Use the hardened Run QuickJS evaluator for production sandboxed code execution.
+- cf473dc: Allow mention providers to show custom text or images with optional background
+  colors, or to omit leading media, while preserving the existing icon fallback.
+- 6c71a21: Add opt-in WebMCP producer and browser-session consumer support.
+
+### Patch Changes
+
+- 73ff8c5: Allow apps to configure approval requirements for individual MCP tools and require a fresh approval on every call when persistent approval is disabled.
+- Release all public npm packages with a patch version bump.
+- de5ba2d: Keep shared managed MCP OAuth clients from being overridden by stale personal secrets.
+- Updated dependencies
+- Updated dependencies [cf473dc]
+  - @agent-native/recap-cli@0.5.14
+  - @agent-native/toolkit@0.17.0
+
 ## 0.174.2
 
 ### Patch Changes
