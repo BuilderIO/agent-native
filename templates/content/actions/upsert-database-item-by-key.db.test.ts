@@ -95,7 +95,6 @@ function envelope(
 ) {
   return {
     target: {
-      authorityScope: discovered.target.authorityScope,
       spaceId: discovered.target.spaceId,
       databaseId: discovered.target.databaseId,
       databaseDocumentId: discovered.target.databaseDocumentId,
@@ -213,6 +212,52 @@ describe("reliable Content database row mutations", () => {
         expect.objectContaining({ type: "blocks", writable: false }),
       ]),
     );
+  });
+
+  it("derives authority and validates typed agent property entries against the discovered contract", async () => {
+    const ids = await fixture();
+    const evidenceId = await addProperty({
+      ...ids,
+      name: "Evidence",
+      type: "text",
+    });
+    const discovered = await contract(ids.databaseId);
+    const input = {
+      ...envelope(discovered, "typed-agent-create"),
+      title: "Typed agent row",
+      propertyEntries: [
+        {
+          propertyId: evidenceId,
+          propertyType: "text" as const,
+          value: "preserve me",
+        },
+      ],
+    };
+
+    const created = await asOwner(() => createRow.run(input));
+    expect(created.receipt.target.authorityScope).toEqual({
+      kind: "personal",
+      id: OWNER,
+    });
+    expect(created.receipt.readback.propertyValues[evidenceId]).toBe(
+      "preserve me",
+    );
+
+    await expect(
+      asOwner(() =>
+        createRow.run({
+          ...input,
+          idempotencyKey: "typed-agent-mismatched-type",
+          propertyEntries: [
+            {
+              propertyId: evidenceId,
+              propertyType: "number",
+              value: 3314,
+            },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "INVALID_PROPERTY_VALUE" });
   });
 
   it("creates every supported non-Blocks value without coercion and returns one durable verified receipt", async () => {

@@ -12,7 +12,7 @@
  *   pnpm action get-organization-insights --organizationId=<id> --days=14
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 

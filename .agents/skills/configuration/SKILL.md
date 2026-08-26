@@ -86,6 +86,18 @@ export const emailConfig = z.object({
 
 Then read it: `getAppConfig().email.brandColor`.
 
+An app sets it from `server/plugins/config.ts`, which is what `defineAppConfig`
+returns a Nitro plugin for:
+
+```ts
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  email: { brandColor: "#0f172a" },
+});
+```
+
 When adding a public `AgentNativeConfig` field, add its deterministic env-path
 descriptor and focused parser coverage in `packages/core/src/config.ts` and
 `packages/core/src/config.spec.ts`. The descriptor is the runtime contract

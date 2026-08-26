@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { createApp, createRouter, defineEventHandler } from "h3";
 import { describe, expect, it } from "vitest";
 
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
+import { signEmbedSessionToken } from "./embed-session.js";
 import {
   computeInlineScriptHash,
   createSecurityHeadersMiddleware,
@@ -153,6 +155,61 @@ describe("createSecurityHeadersMiddleware", () => {
     );
     expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
       "require-corp",
+    );
+  });
+
+  it("keeps a same-origin Referer on embed responses", async () => {
+    const previousSecret = process.env.OAUTH_STATE_SECRET;
+    process.env.OAUTH_STATE_SECRET = "embed-header-test-secret";
+    try {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/apps/design",
+        ttlSeconds: 60,
+      });
+
+      const app = createApp();
+      app.use(createSecurityHeadersMiddleware());
+
+      const router = createRouter();
+      router.get(
+        "/apps/design",
+        defineEventHandler(() => new Response("ok")),
+      );
+      app.use(router);
+
+      const res = await app.request("http://localhost/apps/design", {
+        headers: { cookie: `${EMBED_SESSION_COOKIE}=${token}` },
+      });
+
+      // `no-referrer` here stripped the Referer from every later same-origin
+      // request an embedded Dispatch made, which is the only signal that
+      // separates it from a child app minting its own session.
+      expect(res.headers.get("Referrer-Policy")).toBe("same-origin");
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.OAUTH_STATE_SECRET;
+      } else {
+        process.env.OAUTH_STATE_SECRET = previousSecret;
+      }
+    }
+  });
+
+  it("keeps the cross-origin default on ordinary responses", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+
+    const router = createRouter();
+    router.get(
+      "/settings",
+      defineEventHandler(() => new Response("ok")),
+    );
+    app.use(router);
+
+    const res = await app.request("http://localhost/settings");
+
+    expect(res.headers.get("Referrer-Policy")).toBe(
+      "strict-origin-when-cross-origin",
     );
   });
 });

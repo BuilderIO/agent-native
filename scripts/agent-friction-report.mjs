@@ -155,6 +155,12 @@ const PATTERNS = [
     re: /\b(collision|overwrit\w+|clobber\w*|reverted (my|our|their) work|lost (my|our) (work|edits)|another agent (is|was) (shipping|editing))\b/i,
   },
   {
+    key: "repo-temp-files",
+    label: "Had to clarify where repo-local temporary files belong",
+    fixedBy: "AGENTS.md root .tmp/ rule (2026-08-25)",
+    re: /\b(?:where|only|put|place|stop|don['’]t|do not)\b[^.!?]{0,80}\b(?:temp(?:orary)?|scratch)\b[^.!?]{0,80}\b(?:files?|artifacts?|output|folder|directory|repo|repository|gitignored)\b/i,
+  },
+  {
     key: "unpushed-work",
     label: "Had to demand local work be pushed",
     fixedBy: "pnpm ship:push (scripts/ship-push.mjs, 2026-08-12)",

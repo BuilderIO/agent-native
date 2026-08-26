@@ -197,6 +197,18 @@ const messages = {
     automationsTab: "Automatisierungen",
     agentsTab: "Agenten",
     factorySettings: "Einstellungen",
+    dangerZone: "Gefahrenbereich",
+    deleteFactory: "Factory löschen",
+    deleteFactoryDescription:
+      "Diese Factory einschließlich Karte, Warteschlange, Regeln, Aktivitäten, Einstellungen, Abfragen und Automatisierungen dauerhaft entfernen. Diese Aktion kann nicht rückgängig gemacht werden.",
+    deleteFactoryTitle: "{{name}} löschen?",
+    deleteFactoryWarning:
+      "Bereits laufende Arbeit in GitHub, Slack oder Builder wird nicht abgebrochen.",
+    deleteFactoryConfirmation: "Geben Sie zur Bestätigung {{name}} ein",
+    deleteFactoryCancel: "Abbrechen",
+    deleteFactoryConfirm: "Factory löschen",
+    factoryDeleted: "Factory gelöscht.",
+    factoryDeleteFailed: "Die Factory konnte nicht gelöscht werden.",
     agenticAppsTitle: "Agentische Apps",
     agenticAppsEmpty: "Noch keine agentischen Apps in diesem Workspace.",
     createApp: "App erstellen",

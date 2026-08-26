@@ -77,3 +77,16 @@ describe("FactorySettingsView unsaved-change bar", () => {
     );
   });
 });
+
+describe("FactorySettingsView danger zone", () => {
+  it("requires the exact Factory name and returns to the list after deletion", () => {
+    const source = readViewSource();
+
+    expect(source).toContain('useActionMutation("delete-factory",');
+    expect(source).toContain('method: "DELETE"');
+    expect(source).toContain('factoryId !== "product-feedback"');
+    expect(source).toContain("deleteConfirmation !== factoryName");
+    expect(source).toContain("confirmName: deleteConfirmation");
+    expect(source).toContain("onDeleted();");
+  });
+});

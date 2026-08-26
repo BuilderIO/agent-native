@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect } from "vitest";
 
+import { observabilityConfig } from "../app-config/observability.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -13,7 +14,17 @@ import {
   __resetAgentTracerCache,
   __setAgentTracerForTests,
 } from "./tracing.js";
-import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
+import type { ObservabilityConfig } from "./types.js";
+
+// A fully-populated config, for building the `config` argument these tests
+// pass in directly. The two sentiment toggles are `.optional()` in the schema
+// so `resolveInferredSentimentConfig` can tell "unset" from an explicit
+// opt-out; the values here are the self-hosted outcome it produces.
+const DEFAULT_OBSERVABILITY_CONFIG: ObservabilityConfig = {
+  ...observabilityConfig.parse({}),
+  inferredSentimentEnabled: false,
+  inferredSentimentSampleRate: 0,
+};
 
 // M14 in the MCP/A2A audit: tool inputs persisted into trace spans can
 // include verbatim credentials (e.g. db-exec INSERTs that contain a raw

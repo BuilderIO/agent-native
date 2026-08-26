@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";

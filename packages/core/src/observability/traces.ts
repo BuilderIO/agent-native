@@ -18,7 +18,6 @@ import {
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
-import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -497,19 +496,13 @@ function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
-  let stored: Partial<ObservabilityConfig> | null = null;
-  try {
-    const { getSetting } = await import("../settings/store.js");
-    stored = (await getSetting(
-      "observability-config",
-    )) as Partial<ObservabilityConfig> | null;
-  } catch {}
+  const { getAppConfig } = await import("../app-config/store.js");
+  const config = getAppConfig().observability;
   const { resolveInferredSentimentConfig } = await import("./sentiment.js");
-  return {
-    ...DEFAULT_OBSERVABILITY_CONFIG,
-    ...(stored ?? {}),
-    ...resolveInferredSentimentConfig(stored),
-  };
+  // Sentiment keeps its own resolver as the top layer: it derives a default
+  // from whether this is a first-party hosted deployment, which no declared
+  // default can express.
+  return { ...config, ...resolveInferredSentimentConfig(config) };
 }
 
 export async function instrumentAgentLoop(opts: {

@@ -38,11 +38,13 @@ import {
   BUILDER_OAUTH_SCOPE,
   BUILDER_OAUTH_SCOPES,
   deleteBuilderOAuthSession,
+  exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
+  saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
 } from "./builder-oauth.js";
 
@@ -97,7 +99,7 @@ beforeEach(() => {
 });
 
 describe("Builder hosted user OAuth", () => {
-  it("uses the exact fixed Builder contract and one least-privilege scope", () => {
+  it("uses the exact fixed Builder contract and least-privilege scopes", () => {
     expect({
       issuer: BUILDER_OAUTH_ISSUER,
       resource: BUILDER_OAUTH_RESOURCE,
@@ -105,10 +107,12 @@ describe("Builder hosted user OAuth", () => {
     }).toEqual({
       issuer: "https://mcp.builder.io",
       resource: "https://api.builder.io",
-      scopes: ["builder:ai:invoke"],
+      // Uploads need the asset scope: Builder's /api/v1/upload/* endpoints
+      // enforce it, so without it a connected user cannot store a file.
+      scopes: ["builder:ai:invoke", "builder:assets:write"],
     });
     expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toMatch(
-      /offline_access|project|design|browser|agent|assets/,
+      /offline_access|project|design|browser|agent/,
     );
   });
 
@@ -139,9 +143,42 @@ describe("Builder hosted user OAuth", () => {
       serverUrl: BUILDER_OAUTH_RESOURCE,
       redirectUrl: "https://app.example.com/_agent-native/builder/callback",
       state: "<STATE_EXAMPLE>",
-      scope: BUILDER_OAUTH_SCOPE,
+      scope: BUILDER_OAUTH_SCOPES.join(" "),
       resourceMetadataUrl:
         "https://mcp.builder.io/.well-known/oauth-protected-resource/api",
+    });
+  });
+
+  it("separates PKCE exchange from credential persistence", async () => {
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    const exchanged = await exchangeBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(exchanged).toEqual(finished);
+    expect(saveMock).not.toHaveBeenCalled();
+
+    await saveBuilderOAuthCredentials({
+      ownerEmail,
+      orgId: DEFAULT_ORG,
+      credentials: exchanged,
+    });
+    expect(saveMock).toHaveBeenCalledWith({
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+      credentials: finished,
     });
   });
 
@@ -174,6 +211,67 @@ describe("Builder hosted user OAuth", () => {
     );
     expect(finishMock).toHaveBeenCalledWith(
       expect.objectContaining({ iss: BUILDER_OAUTH_ISSUER }),
+    );
+  });
+
+  // Without this the grant's scopes would have to be guessed on every later
+  // read, and a new two-scope grant is indistinguishable from a legacy one.
+  it("records the requested scopes when the token response omits them", async () => {
+    const finished = credentials({
+      tokens: {
+        access_token: "<ACCESS_TOKEN_EXAMPLE>",
+        issuer: BUILDER_OAUTH_ISSUER,
+      },
+    });
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: expect.objectContaining({
+          tokens: expect.objectContaining({
+            scope: BUILDER_OAUTH_SCOPES.join(" "),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("leaves a declared scope claim untouched", async () => {
+    const finished = credentials({
+      tokens: {
+        access_token: "<ACCESS_TOKEN_EXAMPLE>",
+        scope: BUILDER_OAUTH_SCOPE,
+        issuer: BUILDER_OAUTH_ISSUER,
+      },
+    });
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({ credentials: finished }),
     );
   });
 
@@ -365,6 +463,32 @@ describe("Builder hosted user OAuth", () => {
     );
     await expect(getBuilderOAuthSession(ownerEmail)).resolves.toMatchObject({
       scopes: ["builder:ai:invoke", "builder:context:read"],
+    });
+    await expect(
+      resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: "builder:assets:write",
+      }),
+    ).rejects.toThrow("does not grant builder:assets:write");
+  });
+
+  // A stored credential with no `scope` claim predates both Builder always
+  // setting one and this flow recording it, so it can only be an AI-only grant.
+  // Crediting it with the upload scope would trade a clear local error for an
+  // opaque 403 from Builder.
+  it("keeps a scope-less legacy credential AI-only", async () => {
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    readMock.mockResolvedValue(
+      credentials({
+        tokens: {
+          access_token: "<ACCESS_TOKEN_EXAMPLE>",
+          issuer: BUILDER_OAUTH_ISSUER,
+        },
+      }),
+    );
+
+    await expect(getBuilderOAuthSession(ownerEmail)).resolves.toMatchObject({
+      scopes: [BUILDER_OAUTH_SCOPE],
     });
     await expect(
       resolveBuilderOAuthRequestAccess({

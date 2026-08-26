@@ -28,6 +28,13 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+const RESTRICTED_REQUEST_HEADERS = new Set([
+  ...HOP_BY_HOP_HEADERS,
+  "content-length",
+  "cookie2",
+]);
+const RELAY_FAILURE_MESSAGE =
+  "Desktop app chat relay failed. Update or restart the desktop app, then try again.";
 
 interface RelayState {
   port: number;
@@ -128,6 +135,22 @@ function requestHeaderValue(
   return value;
 }
 
+export function shouldForwardRequestHeader(
+  name: string,
+  value: string | string[] | undefined,
+  blockedHeaders: ReadonlySet<string> = RESTRICTED_REQUEST_HEADERS,
+): boolean {
+  const normalizedName = name.toLowerCase();
+  return (
+    value !== undefined &&
+    !blockedHeaders.has(normalizedName) &&
+    normalizedName !== "host" &&
+    normalizedName !== "origin" &&
+    normalizedName !== "referer" &&
+    normalizedName !== "cookie"
+  );
+}
+
 function corsHeaders(request: IncomingMessage): Record<string, string> {
   const origin = requestHeaderValue(request.headers.origin) ?? "*";
   const requestedHeaders =
@@ -203,17 +226,23 @@ async function proxyRequest(
   upstream.setHeader("Referer", `${targetUrl.origin}/`);
   if (cookieHeader) upstream.setHeader("Cookie", cookieHeader);
 
+  if (
+    request.headers["content-length"] !== undefined ||
+    request.headers["transfer-encoding"] !== undefined
+  ) {
+    upstream.chunkedEncoding = true;
+  }
+
+  const blockedHeaders = new Set(RESTRICTED_REQUEST_HEADERS);
+  for (const connectionToken of (
+    requestHeaderValue(request.headers.connection) ?? ""
+  ).split(",")) {
+    const normalizedToken = connectionToken.trim().toLowerCase();
+    if (normalizedToken) blockedHeaders.add(normalizedToken);
+  }
+
   for (const [name, value] of Object.entries(request.headers)) {
-    if (
-      HOP_BY_HOP_HEADERS.has(name) ||
-      name === "host" ||
-      name === "origin" ||
-      name === "referer" ||
-      name === "cookie" ||
-      value === undefined
-    ) {
-      continue;
-    }
+    if (!shouldForwardRequestHeader(name, value, blockedHeaders)) continue;
     const headerValue = requestHeaderValue(value);
     if (headerValue !== undefined) upstream.setHeader(name, headerValue);
   }
@@ -255,7 +284,7 @@ async function proxyRequest(
       response.destroy(error);
       return;
     }
-    sendError(request, response, 502, "Desktop app chat relay failed");
+    sendError(request, response, 502, RELAY_FAILURE_MESSAGE);
   });
 }
 
@@ -280,7 +309,7 @@ function ensureRelay(): Promise<RelayState> {
       relayPath.targetPath += parsed.search;
       void proxyRequest(request, response, relayPath).catch((error) => {
         console.warn("[desktop-chat] relay request failed:", error);
-        sendError(request, response, 502, "Desktop app chat relay failed");
+        sendError(request, response, 502, RELAY_FAILURE_MESSAGE);
       });
     });
 

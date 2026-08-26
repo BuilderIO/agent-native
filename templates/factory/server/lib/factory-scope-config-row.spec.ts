@@ -7,6 +7,7 @@ import {
   factoryAutomationLeafName,
   factoryConfigRowId,
   readAutomationFactoryId,
+  requireExistingFactory,
   triageConfigUpdateRowId,
 } from "./factory-scope.js";
 
@@ -140,5 +141,30 @@ describe("builderSlackUserIdSchema", () => {
       /U01234567/,
     );
     expect(() => builderSlackUserIdSchema.parse("U".padEnd(33, "0"))).toThrow();
+  });
+});
+
+describe("requireExistingFactory", () => {
+  it("allows the virtual default Factory without a definition row", async () => {
+    const db = { select: vi.fn() };
+    await expect(
+      requireExistingFactory(db as never, "org-1", "product-feedback"),
+    ).resolves.toBeUndefined();
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing user-created Factory", async () => {
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+    };
+    await expect(
+      requireExistingFactory(db as never, "org-1", "support-triage"),
+    ).rejects.toThrow("Factory not found.");
   });
 });

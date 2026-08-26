@@ -63,6 +63,7 @@ import {
   type DesktopOpenRequest,
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
+  type DesktopAppCreationSettingsUpdateResult,
   type DesktopAppRuntimeStatus,
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
@@ -228,7 +229,7 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.APPS_GET_CREATION_SETTINGS),
     updateCreationSettings: (
       settings: Partial<DesktopAppCreationSettings>,
-    ): Promise<DesktopAppCreationSettings> =>
+    ): Promise<DesktopAppCreationSettingsUpdateResult> =>
       ipcRenderer.invoke(IPC.APPS_UPDATE_CREATION_SETTINGS, settings),
     createFromPrompt: (
       request: DesktopCreateAppRequest,

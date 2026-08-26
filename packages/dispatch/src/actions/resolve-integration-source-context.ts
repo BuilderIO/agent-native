@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { resolveIntegrationSourceContext } from "@agent-native/core/integrations";
 import {
   getRequestOrgId,
