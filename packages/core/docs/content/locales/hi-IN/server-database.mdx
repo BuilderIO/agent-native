@@ -259,7 +259,7 @@ named migrations को version number से स्वतंत्र track क
 ऐप स्कीमा में नए बदलावों के लिए समीक्षा योग्य SQL बनाने हेतु
 `pnpm db:generate` चलाएं। इससे `server/db/migrations/<id_name>.sql`
 बनता है और `runDrizzleMigrations` इन फ़ाइलों को Node.js और Node-आधारित serverless
-रनटाइम में साझा Agent Native रनर में लोड करता है। प्रोडक्शन बदलावों की
+रनटाइम में साझा Agent-Native रनर में लोड करता है। प्रोडक्शन बदलावों की
 जिम्मेदारी release चरण की रहती है। डायलेक्ट-विशिष्ट SQL, D1 व्यवहार, backfill और
 स्थगित JavaScript चरणों के लिए `runMigrations()` का उपयोग जारी रखें।
 
