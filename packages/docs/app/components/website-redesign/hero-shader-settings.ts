@@ -83,6 +83,7 @@ export interface RibbonFieldSettings {
   spread: number;
   contrast: number;
   glow: number;
+  brightness: number;
   intensity: number;
   seed: number;
   vignette: number;
@@ -102,6 +103,7 @@ export const DEFAULT_RIBBON_FIELD_SETTINGS: RibbonFieldSettings = {
   spread: 1,
   contrast: 0.5,
   glow: 0.3,
+  brightness: 1.4,
   intensity: 0.7,
   seed: 0,
   vignette: 1.1,
@@ -124,6 +126,7 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   spread: { kind: "range", min: 0.2, max: 2, step: 0.05 },
   contrast: { kind: "range", min: 0, max: 1, step: 0.05 },
   glow: { kind: "range", min: 0, max: 1, step: 0.05 },
+  brightness: { kind: "range", min: 0, max: 3, step: 0.1 },
   intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
   seed: { kind: "range", min: 0, max: 100, step: 1 },
   vignette: { kind: "range", min: 0, max: 2, step: 0.1 },

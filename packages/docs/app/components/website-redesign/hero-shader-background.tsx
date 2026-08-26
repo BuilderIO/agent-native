@@ -671,6 +671,7 @@ uniform float uFocusY;
 uniform float uSpread;
 uniform float uContrast;
 uniform float uGlow;
+uniform float uBrightness;
 uniform float uSeed;
 uniform float uVignette;
 uniform vec3 uFgColor;
@@ -760,7 +761,19 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   dotMask *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
   dotMask *= S(0., 20., min(iTime, 5.0));
 
-  vec3 col = mix(uBgColor, uFgColor, clamp(dotMask, 0., 1.));
+  // uBrightness extrapolates the brightest cells (value above the 0.55
+  // threshold) further away from uBgColor along the existing fg/bg
+  // contrast direction, on top of the flat uFgColor every dot would
+  // otherwise render at -- so peak-signal dots can pop brighter/higher
+  // contrast than the rest of the field instead of every "on" dot reading
+  // as the same shade. Extrapolating away from bg (rather than mixing
+  // toward literal white) keeps this correct in both themes: in dark mode
+  // fg is lighter than bg so it pushes toward white, in light mode fg is
+  // darker than bg so it pushes toward black.
+  float hot = clamp((value - 0.55) * 2.5, 0., 1.) * clamp(uBrightness - 1.0, 0., 2.0);
+  vec3 dotColor = clamp(uFgColor + (uFgColor - uBgColor) * hot, 0., 1.);
+
+  vec3 col = mix(uBgColor, dotColor, clamp(dotMask, 0., 1.));
   fragColor = vec4(col, 1.);
 }
 
@@ -786,6 +799,7 @@ function RibbonFieldShaderBackground({
   spread,
   contrast,
   glow,
+  brightness,
   intensity,
   seed,
   vignette,
@@ -813,6 +827,7 @@ function RibbonFieldShaderBackground({
     spread,
     contrast,
     glow,
+    brightness,
     seed,
     vignette,
     paused,
@@ -831,6 +846,7 @@ function RibbonFieldShaderBackground({
       spread,
       contrast,
       glow,
+      brightness,
       seed,
       vignette,
       paused,
@@ -848,6 +864,7 @@ function RibbonFieldShaderBackground({
     spread,
     contrast,
     glow,
+    brightness,
     seed,
     vignette,
     paused,
@@ -930,6 +947,7 @@ function RibbonFieldShaderBackground({
     const uSpread = gl.getUniformLocation(program, "uSpread");
     const uContrast = gl.getUniformLocation(program, "uContrast");
     const uGlow = gl.getUniformLocation(program, "uGlow");
+    const uBrightness = gl.getUniformLocation(program, "uBrightness");
     const uSeed = gl.getUniformLocation(program, "uSeed");
     const uVignette = gl.getUniformLocation(program, "uVignette");
     const uFgColor = gl.getUniformLocation(program, "uFgColor");
@@ -1001,6 +1019,7 @@ function RibbonFieldShaderBackground({
       gl.uniform1f(uSpread, settingsRef.current.spread);
       gl.uniform1f(uContrast, settingsRef.current.contrast);
       gl.uniform1f(uGlow, settingsRef.current.glow);
+      gl.uniform1f(uBrightness, settingsRef.current.brightness);
       gl.uniform1f(uSeed, settingsRef.current.seed);
       gl.uniform1f(uVignette, settingsRef.current.vignette);
       gl.uniform3f(uFgColor, fgColor[0], fgColor[1], fgColor[2]);

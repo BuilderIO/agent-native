@@ -44,6 +44,7 @@ const FIELD_LABELS: Record<
   focusY: "Focus Y",
   spread: "Focus spread",
   contrast: "Contrast",
+  brightness: "Brightness",
 };
 
 const CONSTELLATION_FIELD_ORDER: Array<keyof HeroShaderSettings> = [
@@ -76,6 +77,7 @@ const RIBBON_FIELD_ORDER: Array<keyof RibbonFieldSettings> = [
   "spread",
   "contrast",
   "glow",
+  "brightness",
   "vignette",
   "seed",
   "intensity",
