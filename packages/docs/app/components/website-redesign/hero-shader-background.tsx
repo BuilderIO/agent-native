@@ -1407,16 +1407,29 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // single sine would visibly slosh back and forth, whereas summing
   // incommensurate ones gives a long, non-repeating wander. Each axis is
   // driven by the *other* axis' coordinate, which shears rather than merely
-  // translating. This runs off raw iTime, uncoupled from the one-shot light
-  // sweep, so the motion continues indefinitely after the intro settles.
-  if (uWarpAmount > 0.0) {
+  // translating. Once running it never settles or loops back.
+  //
+  // Held off until the intro animations are done, then eased in over a couple
+  // of seconds. Both start times are derived rather than configured: the light
+  // sweep finishes when iTime * uLightSpeed reaches 1 (see lightProgress
+  // below), and the ignition ramp finishes at uIntroDuration, so waiting for
+  // whichever lands later keeps this correct when either is retuned. A zero
+  // light speed never completes a sweep, so there's nothing to wait on.
+  // Ramping the amplitude (rather than starting the clock late) means the
+  // motion arrives already mid-phase and eases up from nothing, instead of
+  // snapping on from a static warp field.
+  float lightSweepEnd = abs(uLightSpeed) > 0.0 ? 1.0 / abs(uLightSpeed) : 0.0;
+  float warpStart = max(lightSweepEnd, uIntroDuration);
+  float warpGate = smoothstep(warpStart, warpStart + 2.0, iTime);
+
+  if (uWarpAmount > 0.0 && warpGate > 0.0) {
     vec2 wp = fragCoord / iResolution.y * 6.2831 * uWarpScale;
     float wt = iTime * uWarpSpeed;
     vec2 warp = vec2(
       sin(wp.y + wt) + 0.5 * sin(wp.y * 2.3 - wt * 1.3),
       sin(wp.x * 0.9 - wt * 0.8) + 0.5 * sin(wp.x * 1.7 + wt * 1.1)
     );
-    xy += warp * uWarpAmount;
+    xy += warp * uWarpAmount * warpGate;
   }
 
   float cot_half_fov = tan(radians(90.0 - uFov * 0.5));
