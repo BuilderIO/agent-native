@@ -8,76 +8,23 @@ export function Hero() {
   return (
     <PageSection>
       <HeroShaderBackground />
-      {/* No borderTop on the GridInner below: the sticky SiteHeader already
+      {/* No top border on the GridInner below: the sticky SiteHeader already
           draws the border directly above this section, so a second one would
           double the line. */}
-      <GridInner
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "var(--spacing-12)",
-          padding: "var(--spacing-50) var(--spacing-10) var(--spacing-40)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "var(--spacing-6)",
-            maxWidth: 875,
-            width: "100%",
-          }}
-        >
-          <h1
-            className="hero-title"
-            style={{
-              margin: 0,
-              textAlign: "center",
-              fontFamily: "var(--b-font-sans)",
-              fontSize: "var(--b-t-heading-1)",
-              fontWeight: 500,
-              lineHeight: 1.05,
-              letterSpacing: "-0.02em",
-              color: "var(--b-text-primary)",
-            }}
-          >
+      <GridInner className="flex flex-col items-center gap-[var(--spacing-12)] px-[var(--spacing-10)] pt-[var(--spacing-50)] pb-[var(--spacing-40)]">
+        <div className="flex w-full max-w-[875px] flex-col items-center gap-[var(--spacing-6)]">
+          <h1 className="hero-title m-0 text-center font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-1)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
             The agentic application framework
           </h1>
-          <p
-            style={{
-              margin: 0,
-              textAlign: "center",
-              fontFamily: "var(--b-font-sans)",
-              fontSize: "var(--b-t-paragraph-1)",
-              lineHeight: 1.3,
-              color: "var(--b-text-primary)",
-            }}
-          >
+          <p className="m-0 text-center font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.3] text-[var(--b-text-primary)]">
             Build for AI agents without building a second product for users.
             <br className="hero-subtitle-break" />
             Bring your own LLM. Deploy anywhere.
           </p>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "var(--spacing-6)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexWrap: "wrap",
-              gap: "var(--spacing-6)",
-            }}
-          >
+        <div className="flex flex-col items-center gap-[var(--spacing-6)]">
+          <div className="flex flex-wrap items-center justify-center gap-[var(--spacing-6)]">
             <GetStartedCta location="hero">GET STARTED</GetStartedCta>
             <Button variant="secondary" icon={null} href="/docs">
               LEARN MORE

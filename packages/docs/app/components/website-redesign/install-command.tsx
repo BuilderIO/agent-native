@@ -44,6 +44,9 @@ async function copyText(text: string): Promise<boolean> {
 // a whole device pixel and rounds up to 2px when it doesn't. Only the fill
 // layer changes on hover; the gradient stays put.
 const CLASSES = [
+  // The two properties have different durations, so this keeps the shorthand
+  // verbatim rather than flattening both onto one `duration-*`.
+  "inline-flex cursor-pointer items-center gap-[var(--spacing-2)] rounded-[var(--b-radius)] px-[var(--spacing-3)] py-[9px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] leading-none text-[var(--b-text-secondary)] [transition:color_0.15s,background_0.2s_ease]",
   "border border-transparent bg-origin-border [background-clip:padding-box,border-box]",
   "bg-[image:linear-gradient(var(--b-bg-inset),var(--b-bg-inset)),linear-gradient(140deg,var(--b-stroke-gradient-start),var(--b-stroke-gradient-end))]",
   "hover:bg-[image:linear-gradient(var(--b-bg-prominent),var(--b-bg-prominent)),linear-gradient(140deg,var(--b-stroke-gradient-start),var(--b-stroke-gradient-end))]",
@@ -69,34 +72,11 @@ export function InstallCommand() {
       onClick={handleCopy}
       aria-label="Copy install command"
       className={CLASSES}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--spacing-2)",
-        fontFamily: "var(--b-font-mono)",
-        fontSize: "var(--b-t-label-1)",
-        color: "var(--b-text-secondary)",
-        padding: "9px var(--spacing-3)",
-        borderRadius: "var(--b-radius)",
-        lineHeight: 1,
-        cursor: "pointer",
-        transition: "color 0.15s, background 0.2s ease",
-      }}
     >
-      <span aria-hidden="true" style={{ color: "var(--b-text-muted)" }}>
+      <span aria-hidden="true" className="text-[var(--b-text-muted)]">
         &gt;
       </span>
-      <code
-        style={{
-          fontFamily: "inherit",
-          fontSize: "inherit",
-          color: "inherit",
-          background: "transparent",
-          border: "none",
-          borderRadius: 0,
-          padding: 0,
-        }}
-      >
+      <code className="rounded-none border-none bg-transparent p-0 font-[family-name:inherit] text-[length:inherit] text-inherit">
         {INSTALL_COMMAND}
       </code>
     </button>

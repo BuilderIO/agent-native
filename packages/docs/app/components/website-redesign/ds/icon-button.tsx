@@ -10,6 +10,9 @@ import { useDocsTheme } from "../../ThemeToggle";
 const interactiveClassName =
   "hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]";
 
+const baseClassName =
+  "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none transition-[background,border-color] duration-150 ease-[ease]";
+
 export function IconButton({
   children,
   className,
@@ -23,6 +26,7 @@ export function IconButton({
     <button
       type="button"
       className={[
+        baseClassName,
         interactiveClassName,
         dimBorder
           ? "border-[var(--b-action-secondary-border-dim)]"
@@ -31,22 +35,6 @@ export function IconButton({
       ]
         .filter(Boolean)
         .join(" ")}
-      style={{
-        width: 40,
-        height: 40,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        borderWidth: 1,
-        borderStyle: "solid",
-        borderRadius: "var(--b-radius)",
-        background: "transparent",
-        color: "var(--b-text-primary)",
-        cursor: "pointer",
-        outline: "none",
-        transition: "background 0.15s, border-color 0.15s",
-      }}
       {...rest}
     >
       {children}

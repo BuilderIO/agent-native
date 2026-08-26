@@ -2,12 +2,7 @@ export function ColumnDivider() {
   return (
     <div
       aria-hidden
-      style={{
-        width: 1,
-        alignSelf: "stretch",
-        background: "var(--b-border-subtle)",
-        flexShrink: 0,
-      }}
+      className="w-px shrink-0 self-stretch bg-[var(--b-border-subtle)]"
     />
   );
 }

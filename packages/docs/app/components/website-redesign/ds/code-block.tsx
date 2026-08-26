@@ -31,20 +31,10 @@ export function CodeBlock({
   if (tabs && tabs.length > 0) {
     const active = tabs[activeTab];
     return (
-      <div
-        style={{
-          border: "1px solid var(--b-border-default)",
-          borderRadius: "var(--b-radius)",
-          overflow: "hidden",
-          background: "var(--b-bg-raised)",
-        }}
-      >
+      <div className="overflow-hidden rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)]">
         <div
           role="tablist"
-          style={{
-            display: "flex",
-            borderBottom: "1px solid var(--b-border-default)",
-          }}
+          className="flex border-b border-solid border-[var(--b-border-default)]"
         >
           {tabs.map((tab, i) => (
             <TabItem
@@ -56,7 +46,7 @@ export function CodeBlock({
             </TabItem>
           ))}
         </div>
-        <div style={{ padding: "var(--spacing-2)" }}>
+        <div className="p-[var(--spacing-2)]">
           <SharedCodeBlock code={active.code} lang={active.language} />
         </div>
       </div>
@@ -64,15 +54,7 @@ export function CodeBlock({
   }
 
   return (
-    <div
-      style={{
-        border: "1px solid var(--b-border-default)",
-        borderRadius: "var(--b-radius)",
-        overflow: "hidden",
-        background: "var(--b-bg-raised)",
-        padding: "var(--spacing-2)",
-      }}
-    >
+    <div className="overflow-hidden rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-[var(--spacing-2)]">
       <SharedCodeBlock code={code ?? ""} lang={language} />
     </div>
   );

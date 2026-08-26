@@ -96,7 +96,7 @@ export function Select<T extends string>({
   }, [focusedIndex, open]);
 
   return (
-    <div style={{ position: "relative", display: "inline-block" }}>
+    <div className="relative inline-block">
       <button
         ref={triggerRef}
         id={id}
@@ -108,27 +108,12 @@ export function Select<T extends string>({
           setOpen((o) => !o);
           setFocusedIndex(options.findIndex((o) => o.value === value));
         }}
-        className="bg-[var(--b-bg-raised)] transition-[border-color,background] duration-150 hover:bg-[var(--c-neutral-800)]"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          minWidth: 160,
-          fontFamily: "var(--b-font-sans)",
-          fontSize: "var(--b-t-paragraph-2)",
-          color: "var(--b-text-primary)",
-          border: "1px solid var(--b-action-secondary-border)",
-          borderRadius: "var(--b-radius)",
-          padding: "8px 12px",
-          cursor: "pointer",
-        }}
+        className="inline-flex min-w-40 cursor-pointer items-center justify-between gap-2 rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-[var(--b-bg-raised)] px-3 py-2 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-primary)] transition-[border-color,background] duration-150 hover:bg-[var(--c-neutral-800)]"
       >
         {selected?.label ?? placeholder ?? "Select..."}
         <IconChevronDown
           size={16}
-          className="transition-transform duration-150"
-          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+          className={`transition-transform duration-150 ${open ? "rotate-180" : "rotate-0"}`}
         />
       </button>
       {open && (
@@ -136,19 +121,10 @@ export function Select<T extends string>({
           ref={menuRef}
           id={listboxId}
           role="listbox"
-          style={{
-            position: "absolute",
-            left: 0,
-            [flipUp ? "bottom" : "top"]: "calc(100% + 4px)",
-            minWidth: "100%",
-            margin: 0,
-            padding: 4,
-            listStyle: "none",
-            background: "var(--b-bg-prominent)",
-            border: "1px solid var(--b-border-default)",
-            borderRadius: "var(--b-radius)",
-            zIndex: 20,
-          }}
+          className={[
+            "absolute left-0 z-20 m-0 min-w-full list-none rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-prominent)] p-1",
+            flipUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]",
+          ].join(" ")}
         >
           {visibleOptions.map((option, i) => (
             <li
@@ -164,19 +140,11 @@ export function Select<T extends string>({
                 setOpen(false);
                 triggerRef.current?.focus();
               }}
-              className={`transition-[background,color] duration-100 hover:bg-white/8 ${
+              className={`cursor-pointer rounded-[var(--b-radius-sm)] px-[10px] py-2 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-primary)] transition-[background,color] duration-100 hover:bg-white/8 ${
                 i === focusedIndex
                   ? "bg-[var(--b-bg-raised)]"
                   : "bg-transparent"
               }`}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "var(--b-radius-sm)",
-                fontFamily: "var(--b-font-sans)",
-                fontSize: "var(--b-t-paragraph-2)",
-                color: "var(--b-text-primary)",
-                cursor: "pointer",
-              }}
             >
               {option.label}
             </li>

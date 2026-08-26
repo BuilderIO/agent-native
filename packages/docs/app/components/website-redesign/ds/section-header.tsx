@@ -19,38 +19,19 @@ export function SectionHeader({
 }: SectionHeaderProps) {
   return (
     <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--spacing-3)",
-        textAlign: align,
-        alignItems: align === "center" ? "center" : "flex-start",
-      }}
+      className={[
+        "flex flex-col gap-[var(--spacing-3)]",
+        align === "center"
+          ? "items-center text-center"
+          : "items-start text-left",
+      ].join(" ")}
     >
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-      <Tag
-        style={{
-          margin: 0,
-          fontSize: "var(--b-t-heading-2)",
-          fontWeight: 500,
-          lineHeight: 1.1,
-          letterSpacing: "-0.02em",
-          color: "var(--b-text-primary)",
-          fontFamily: "var(--b-font-sans)",
-        }}
-      >
+      <Tag className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]">
         {heading}
       </Tag>
       {subheading && (
-        <p
-          style={{
-            margin: 0,
-            fontSize: "var(--b-t-paragraph-2)",
-            color: "var(--b-text-secondary)",
-            lineHeight: 1.4,
-            fontFamily: "var(--b-font-sans)",
-          }}
-        >
+        <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
           {subheading}
         </p>
       )}

@@ -5,19 +5,7 @@ type InputProps = InputHTMLAttributes<HTMLInputElement>;
 export function Input(props: InputProps) {
   return (
     <input
-      className="border-[var(--b-action-secondary-border)] focus:border-[var(--b-action-primary-bg)] disabled:opacity-45 disabled:cursor-not-allowed"
-      style={{
-        fontFamily: "var(--b-font-sans)",
-        fontSize: "var(--b-t-paragraph-2)",
-        color: "var(--b-text-primary)",
-        background: "var(--b-bg-raised)",
-        borderWidth: 1,
-        borderStyle: "solid",
-        borderRadius: "var(--b-radius)",
-        padding: "8px 12px",
-        outline: "none",
-        transition: "border-color 0.15s, background 0.15s",
-      }}
+      className="rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-[var(--b-bg-raised)] px-3 py-2 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-primary)] outline-none transition-[border-color,background] duration-150 ease-[ease] focus:border-[var(--b-action-primary-bg)] disabled:cursor-not-allowed disabled:opacity-45"
       {...props}
     />
   );

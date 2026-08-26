@@ -17,22 +17,10 @@ export function FormSelect<T extends string>({
 }: FormSelectProps<T>) {
   const id = useId();
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--spacing-2)",
-      }}
-    >
+    <div className="flex flex-col gap-[var(--spacing-2)]">
       <label
         htmlFor={id}
-        style={{
-          fontFamily: "var(--b-font-mono)",
-          fontSize: "var(--b-t-label-2)",
-          color: "var(--b-text-secondary)",
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-        }}
+        className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-secondary)]"
       >
         {label}
       </label>

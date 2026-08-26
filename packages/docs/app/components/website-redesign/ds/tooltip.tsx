@@ -10,7 +10,7 @@ export function Tooltip({ content, children }: TooltipProps) {
 
   return (
     <span
-      style={{ position: "relative", display: "inline-flex" }}
+      className="relative inline-flex"
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
@@ -20,20 +20,7 @@ export function Tooltip({ content, children }: TooltipProps) {
       {open && (
         <span
           role="tooltip"
-          style={{
-            position: "absolute",
-            bottom: "calc(100% + 6px)",
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: "var(--b-bg-prominent)",
-            color: "var(--b-text-primary)",
-            fontSize: "var(--b-t-label-2)",
-            fontFamily: "var(--b-font-sans)",
-            padding: "4px 8px",
-            borderRadius: "var(--b-radius-sm)",
-            whiteSpace: "nowrap",
-            zIndex: 10,
-          }}
+          className="absolute bottom-[calc(100%+6px)] left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-[var(--b-radius-sm)] bg-[var(--b-bg-prominent)] px-2 py-1 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-label-2)] text-[var(--b-text-primary)]"
         >
           {content}
         </span>

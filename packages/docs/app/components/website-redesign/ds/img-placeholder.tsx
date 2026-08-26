@@ -15,21 +15,14 @@ export function ImgPlaceholder({
 }: ImgPlaceholderProps) {
   return (
     <div
-      style={{
-        width: "100%",
-        aspectRatio,
-        borderRadius: rounded ? "var(--b-radius)" : 0,
-        background,
-        border: bordered ? "1px dashed var(--b-border-default)" : "none",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "var(--b-text-muted)",
-        fontFamily: "var(--b-font-mono)",
-        fontSize: "var(--b-t-label-2)",
-        textTransform: "uppercase",
-        letterSpacing: "0.04em",
-      }}
+      className={[
+        "flex w-full items-center justify-center font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-muted)]",
+        rounded ? "rounded-[var(--b-radius)]" : "rounded-none",
+        bordered && "border border-dashed border-[var(--b-border-default)]",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{ aspectRatio, background }}
     >
       {label}
     </div>

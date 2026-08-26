@@ -119,7 +119,7 @@ export function LanguagePicker(props: LanguagePickerProps) {
   ];
 
   return (
-    <div style={{ position: "relative", display: "inline-flex" }}>
+    <div className="relative inline-flex">
       <button
         ref={triggerRef}
         type="button"
@@ -129,23 +129,7 @@ export function LanguagePicker(props: LanguagePickerProps) {
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((o) => !o)}
-        className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
-        style={{
-          width: 40,
-          height: 40,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          borderWidth: 1,
-          borderStyle: "solid",
-          borderRadius: "var(--b-radius)",
-          background: "transparent",
-          color: "var(--b-text-primary)",
-          cursor: "pointer",
-          outline: "none",
-          transition: "background 0.15s, border-color 0.15s",
-        }}
+        className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none transition-[background,border-color] duration-150 ease-[ease] border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
       >
         <IconLanguage size={18} stroke={1.5} />
         <span className="sr-only">{label}</span>
@@ -156,22 +140,10 @@ export function LanguagePicker(props: LanguagePickerProps) {
           ref={menuRef}
           id={listId}
           role="listbox"
-          style={{
-            position: "absolute",
-            ...(openUpward
-              ? { bottom: "calc(100% + 6px)" }
-              : { top: "calc(100% + 6px)" }),
-            right: 0,
-            minWidth: 208,
-            maxHeight: 320,
-            overflowY: "auto",
-            margin: 0,
-            padding: 4,
-            background: "var(--b-bg-prominent)",
-            border: "1px solid var(--b-border-default)",
-            borderRadius: "var(--b-radius)",
-            zIndex: 60,
-          }}
+          className={[
+            "absolute right-0 z-[60] m-0 max-h-80 min-w-52 overflow-y-auto rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-prominent)] p-1",
+            openUpward ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]",
+          ].join(" ")}
         >
           {options.map((option) => {
             const selected = option.value === preference;
@@ -183,24 +155,17 @@ export function LanguagePicker(props: LanguagePickerProps) {
                 data-an-prefetch="viewport"
                 role="option"
                 aria-selected={selected}
-                className={
-                  "flex items-center gap-2 no-underline transition-[background,color] duration-100 hover:bg-white/8 hover:no-underline focus-visible:bg-white/8 focus-visible:outline-none " +
-                  (selected ? "bg-[var(--b-bg-raised)]" : "bg-transparent")
-                }
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: "var(--b-radius-sm)",
-                  fontFamily: "var(--b-font-sans)",
-                  fontSize: "var(--b-t-paragraph-2)",
-                  color: selected
-                    ? "var(--b-text-primary)"
-                    : "var(--b-text-secondary)",
-                }}
+                className={[
+                  "flex items-center gap-2 rounded-[var(--b-radius-sm)] px-[10px] py-2 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] no-underline transition-[background,color] duration-100 hover:bg-white/8 hover:no-underline focus-visible:bg-white/8 focus-visible:outline-none",
+                  selected
+                    ? "bg-[var(--b-bg-raised)] text-[var(--b-text-primary)]"
+                    : "bg-transparent text-[var(--b-text-secondary)]",
+                ].join(" ")}
               >
                 <IconCheck
                   size={14}
                   stroke={2}
-                  style={{ opacity: selected ? 1 : 0, flexShrink: 0 }}
+                  className={`shrink-0 ${selected ? "opacity-100" : "opacity-0"}`}
                 />
                 <span className="truncate">{option.label}</span>
               </Link>

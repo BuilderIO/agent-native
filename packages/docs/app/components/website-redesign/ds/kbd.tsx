@@ -6,17 +6,7 @@ interface KbdProps {
 
 export function Kbd({ children }: KbdProps) {
   return (
-    <kbd
-      style={{
-        fontFamily: "var(--b-font-mono)",
-        fontSize: "var(--b-t-label-2)",
-        color: "var(--b-text-secondary)",
-        background: "var(--b-bg-prominent)",
-        border: "1px solid var(--b-border-default)",
-        borderRadius: "var(--b-radius-sm)",
-        padding: "2px 6px",
-      }}
-    >
+    <kbd className="rounded-[var(--b-radius-sm)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-prominent)] px-[6px] py-[2px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
       {children}
     </kbd>
   );

@@ -6,17 +6,7 @@ interface CodeTagProps {
 
 export function CodeTag({ children }: CodeTagProps) {
   return (
-    <code
-      style={{
-        fontFamily: "var(--b-font-mono)",
-        fontSize: "var(--b-t-paragraph-3)",
-        color: "var(--c-green-400)",
-        background: "var(--b-bg-raised)",
-        border: "1px solid var(--b-border-default)",
-        borderRadius: "var(--b-radius-sm)",
-        padding: "1px 5px",
-      }}
-    >
+    <code className="rounded-[var(--b-radius-sm)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] px-[5px] py-px font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-paragraph-3)] text-[var(--c-green-400)]">
       {children}
     </code>
   );

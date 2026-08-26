@@ -1,15 +1,17 @@
 import {
   forwardRef,
-  type CSSProperties,
   type ElementType,
   type HTMLAttributes,
   type ReactNode,
 } from "react";
 
 // Defined once in global.css so the gridlines, the header, and every page
-// body measure the same. Keep it a var() rather than a number here: a second
-// copy of the value is a second thing to forget to change.
+// body measure the same, and aliased into Tailwind's theme as the `site`
+// container so it can be spelled `max-w-site`. Keep it a var() rather than a
+// number here: a second copy of the value is a second thing to forget.
 export const SITE_MAX_WIDTH = "var(--site-max-width)";
+// Tailwind cannot build a class from a runtime value, so the `grid-cols-3`
+// utilities below spell this number out. Changing it means changing those too.
 export const GRID_COLUMNS = 3;
 
 // The 1/3 and 2/3 lines are real `repeat(3, 1fr)` grid cells with a
@@ -26,29 +28,18 @@ function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
   return (
     <div
       aria-hidden="true"
-      style={{
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        left: "50%",
-        transform: "translateX(-50%)",
-        width: "100%",
-        maxWidth: SITE_MAX_WIDTH,
-        boxSizing: "border-box",
-        display: "grid",
-        gridTemplateColumns: `repeat(${columns}, 1fr)`,
-        borderLeft: "1px solid var(--b-border-subtle)",
-        borderRight: "1px solid var(--b-border-subtle)",
-        pointerEvents: "none",
-        zIndex: 0,
-      }}
+      className={[
+        "pointer-events-none absolute inset-y-0 left-1/2 z-0 box-border grid w-full max-w-site -translate-x-1/2",
+        "border-x border-solid border-[var(--b-border-subtle)]",
+        columns === GRID_COLUMNS ? "grid-cols-3" : "grid-cols-1",
+      ].join(" ")}
     >
       {Array.from({ length: columns }, (_, i) => (
         <div
           key={i}
-          style={
+          className={
             i < columns - 1
-              ? { borderRight: "1px solid var(--b-border-subtle)" }
+              ? "border-r border-solid border-[var(--b-border-subtle)]"
               : undefined
           }
         />
@@ -62,7 +53,6 @@ interface PageSectionProps extends HTMLAttributes<HTMLElement> {
   showGrid?: boolean;
   gridLines?: "all" | "edges";
   children?: ReactNode;
-  style?: CSSProperties;
 }
 
 export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
@@ -72,7 +62,7 @@ export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
       showGrid = true,
       gridLines = "all",
       children,
-      style,
+      className,
       ...rest
     },
     ref,
@@ -80,13 +70,9 @@ export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
     return (
       <Tag
         ref={ref}
-        style={{
-          position: "relative",
-          width: "100%",
-          overflow: "hidden",
-          isolation: "isolate",
-          ...style,
-        }}
+        className={["relative w-full overflow-hidden isolate", className]
+          .filter(Boolean)
+          .join(" ")}
         {...rest}
       >
         {showGrid && <GridLines gridLines={gridLines} />}
@@ -99,26 +85,22 @@ export const PageSection = forwardRef<HTMLElement, PageSectionProps>(
 interface GridInnerProps extends HTMLAttributes<HTMLElement> {
   as?: ElementType;
   children?: ReactNode;
-  style?: CSSProperties;
 }
 
 export function GridInner({
   children,
-  style,
+  className,
   as: Tag = "div",
   ...rest
 }: GridInnerProps) {
   return (
     <Tag
-      style={{
-        maxWidth: SITE_MAX_WIDTH,
-        width: "100%",
-        margin: "0 auto",
-        position: "relative",
-        zIndex: 1,
-        boxSizing: "border-box",
-        ...style,
-      }}
+      className={[
+        "relative z-[1] mx-auto box-border w-full max-w-site",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       {...rest}
     >
       {children}
@@ -128,17 +110,12 @@ export function GridInner({
 
 interface GridColsProps extends HTMLAttributes<HTMLDivElement> {
   children?: ReactNode;
-  style?: CSSProperties;
 }
 
-export function GridCols({ children, style, ...rest }: GridColsProps) {
+export function GridCols({ children, className, ...rest }: GridColsProps) {
   return (
     <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: `repeat(${GRID_COLUMNS}, 1fr)`,
-        ...style,
-      }}
+      className={["grid grid-cols-3", className].filter(Boolean).join(" ")}
       {...rest}
     >
       {children}

@@ -6,19 +6,7 @@ interface IconBoxProps {
 
 export function IconBox({ children }: IconBoxProps) {
   return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 40,
-        height: 40,
-        borderRadius: "var(--b-radius)",
-        background: "var(--b-bg-prominent)",
-        border: "1px solid var(--b-border-default)",
-        color: "var(--b-text-eyebrow)",
-      }}
-    >
+    <div className="inline-flex h-10 w-10 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-prominent)] text-[var(--b-text-eyebrow)]">
       {children}
     </div>
   );
