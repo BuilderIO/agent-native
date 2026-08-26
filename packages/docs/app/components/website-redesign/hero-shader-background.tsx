@@ -1261,6 +1261,8 @@ uniform float uIntroDuration;
 uniform float uDitherAmount;
 uniform float uDitherScale;
 uniform float uDitherSpeed;
+uniform float uDitherMode;
+uniform float uPosterizeLevels;
 
 const float PI = 3.14159265359;
 const float MAX = 10000.0;
@@ -1364,6 +1366,20 @@ vec3 in_scatter(vec3 o, vec3 dir, vec2 e, vec3 l) {
   return uExposure * scatter;
 }
 
+// Ordered (Bayer) dither thresholds, built recursively so no const array
+// lookup is needed -- WebGL 1 can't index an array by a non-constant, and this
+// closed form is the standard workaround. Returns a per-pixel threshold in
+// [0,1) spread evenly enough that quantizing against it yields the classic
+// uniform crosshatch rather than clumped noise.
+float bayer2(vec2 a) {
+  a = floor(a);
+  return fract(a.x / 2.0 + a.y * a.y * 0.75);
+}
+
+float bayer8(vec2 a) {
+  return bayer2(0.25 * a) * 0.0625 + bayer2(0.5 * a) * 0.25 + bayer2(a);
+}
+
 mat3 rot3xy(vec2 angle) {
   vec2 c = cos(angle);
   vec2 s = sin(angle);
@@ -1459,18 +1475,33 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // uDitherAmount is in quantization steps: 1.0 is the +/- half-LSB that
   // exactly cancels banding while staying invisible, and larger values push
   // past correction into deliberate visible grain.
-  if (uDitherAmount > 0.0) {
-    // Snapping the coordinate to a grid makes each noise sample cover an
-    // uDitherScale-sized block of device pixels, so the grain gets chunkier
-    // rather than denser. Note this is in *device* pixels, so on a HiDPI
-    // display a scale of 1 is finer than one CSS pixel.
-    vec2 ditherCoord = floor(fragCoord / max(uDitherScale, 1.0));
+  // Snapping the coordinate to a grid makes each sample cover an
+  // uDitherScale-sized block of device pixels, so the pattern gets chunkier
+  // rather than denser. Note this is in *device* pixels, so on a HiDPI
+  // display a scale of 1 is finer than one CSS pixel.
+  vec2 ditherCoord = floor(fragCoord / max(uDitherScale, 1.0));
 
-    // Quantizing time reseeds the noise a fixed number of times per second
-    // instead of every rendered frame, which is what makes it read as film
-    // grain running at a chosen rate. 0 freezes it into static grain.
-    float ditherTime = floor(iTime * uDitherSpeed);
+  // Quantizing time advances the pattern a fixed number of times per second
+  // instead of every rendered frame, which is what makes it read as grain
+  // running at a chosen rate. 0 freezes it into a static pattern.
+  float ditherTime = floor(iTime * uDitherSpeed);
 
+  if (uDitherMode > 0.5) {
+    // Ordered/Bayer: posterize to uPosterizeLevels tonal bands, offsetting
+    // each pixel by its Bayer threshold before the floor(). That threshold
+    // is what turns the hard band boundaries into the classic crosshatch --
+    // pixels near a boundary tip to either side in a regular pattern, so the
+    // eye reads intermediate tones that the reduced palette can't represent.
+    float levels = max(uPosterizeLevels, 2.0) - 1.0;
+    float threshold = bayer8(ditherCoord + ditherTime);
+
+    col = clamp(floor(col * levels + threshold) / levels, 0.0, 1.0);
+    // Alpha is posterized against the same threshold so it steps in lockstep
+    // with the color. This is what makes the texture visible at all: the
+    // effect fades out via alpha, so leaving alpha smooth would blur the
+    // crosshatch away exactly where it should be most legible.
+    alpha = clamp(floor(alpha * levels + threshold) / levels, 0.0, 1.0);
+  } else if (uDitherAmount > 0.0) {
     float noise = fract(
       sin(dot(ditherCoord + ditherTime, vec2(12.9898, 78.233))) * 43758.5453
     );
@@ -1522,9 +1553,11 @@ function AtmosphereShaderBackground({
   lightSaturation,
   lightScreenAmount,
   introDuration,
+  ditherMode,
   ditherAmount,
   ditherScale,
   ditherSpeed,
+  posterizeLevels,
   intensity,
   paused,
   frameRate = 30,
@@ -1567,9 +1600,11 @@ function AtmosphereShaderBackground({
     lightSaturation,
     lightScreenAmount,
     introDuration,
+    ditherMode,
     ditherAmount,
     ditherScale,
     ditherSpeed,
+    posterizeLevels,
     paused,
   });
   useEffect(() => {
@@ -1599,9 +1634,11 @@ function AtmosphereShaderBackground({
       lightSaturation,
       lightScreenAmount,
       introDuration,
+      ditherMode,
       ditherAmount,
       ditherScale,
       ditherSpeed,
+      posterizeLevels,
       paused,
     };
   }, [
@@ -1630,9 +1667,11 @@ function AtmosphereShaderBackground({
     lightSaturation,
     lightScreenAmount,
     introDuration,
+    ditherMode,
     ditherAmount,
     ditherScale,
     ditherSpeed,
+    posterizeLevels,
     paused,
   ]);
 
@@ -1748,6 +1787,8 @@ function AtmosphereShaderBackground({
     const uDitherAmount = gl.getUniformLocation(program, "uDitherAmount");
     const uDitherScale = gl.getUniformLocation(program, "uDitherScale");
     const uDitherSpeed = gl.getUniformLocation(program, "uDitherSpeed");
+    const uDitherMode = gl.getUniformLocation(program, "uDitherMode");
+    const uPosterizeLevels = gl.getUniformLocation(program, "uPosterizeLevels");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1799,6 +1840,11 @@ function AtmosphereShaderBackground({
       gl.uniform1f(uDitherAmount, settingsRef.current.ditherAmount);
       gl.uniform1f(uDitherScale, settingsRef.current.ditherScale);
       gl.uniform1f(uDitherSpeed, settingsRef.current.ditherSpeed);
+      gl.uniform1f(
+        uDitherMode,
+        settingsRef.current.ditherMode === "ordered" ? 1 : 0,
+      );
+      gl.uniform1f(uPosterizeLevels, settingsRef.current.posterizeLevels);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 

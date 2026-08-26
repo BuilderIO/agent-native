@@ -78,9 +78,11 @@ const FIELD_LABELS: Record<ShaderFieldKey, string> = {
   lightSaturation: "Light mode saturation",
   lightScreenAmount: "Light mode screen amount",
   introDuration: "Intro ignition (s)",
-  ditherAmount: "Dither / grain",
-  ditherScale: "Grain size (px)",
-  ditherSpeed: "Grain speed (fps)",
+  ditherMode: "Dither mode",
+  ditherAmount: "Grain strength (noise)",
+  ditherScale: "Pattern size (px)",
+  ditherSpeed: "Pattern speed (fps)",
+  posterizeLevels: "Posterize levels (ordered)",
 };
 
 const CONSTELLATION_FIELD_ORDER: Array<keyof HeroShaderSettings> = [
@@ -147,9 +149,11 @@ const ATMOSPHERE_FIELD_ORDER: Array<keyof AtmosphereSettings> = [
   "lightSaturation",
   "lightScreenAmount",
   "introDuration",
+  "ditherMode",
   "ditherAmount",
   "ditherScale",
   "ditherSpeed",
+  "posterizeLevels",
   "intensity",
   "paused",
 ];

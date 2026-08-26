@@ -162,9 +162,11 @@ export interface AtmosphereSettings {
   lightSaturation: number;
   lightScreenAmount: number;
   introDuration: number;
+  ditherMode: "noise" | "ordered";
   ditherAmount: number;
   ditherScale: number;
   ditherSpeed: number;
+  posterizeLevels: number;
   intensity: number;
   paused: boolean;
 }
@@ -195,9 +197,11 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   lightSaturation: 4,
   lightScreenAmount: 0.7,
   introDuration: 2.4,
+  ditherMode: "ordered",
   ditherAmount: 1,
-  ditherScale: 1,
-  ditherSpeed: 12,
+  ditherScale: 2,
+  ditherSpeed: 0,
+  posterizeLevels: 5,
   intensity: 0.9,
   paused: false,
 };
@@ -231,9 +235,17 @@ export const ATMOSPHERE_FIELD_CONFIG: Record<
   lightSaturation: { kind: "range", min: 0, max: 4, step: 0.05 },
   lightScreenAmount: { kind: "range", min: 0, max: 1, step: 0.05 },
   introDuration: { kind: "range", min: 0, max: 8, step: 0.1 },
+  ditherMode: {
+    kind: "select",
+    options: [
+      { label: "Noise (grain)", value: "noise" },
+      { label: "Ordered (Bayer)", value: "ordered" },
+    ],
+  },
   ditherAmount: { kind: "range", min: 0, max: 48, step: 0.5 },
   ditherScale: { kind: "range", min: 1, max: 16, step: 1 },
   ditherSpeed: { kind: "range", min: 0, max: 30, step: 1 },
+  posterizeLevels: { kind: "range", min: 2, max: 24, step: 1 },
   intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
   paused: { kind: "boolean" },
 };
