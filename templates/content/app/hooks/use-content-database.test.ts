@@ -663,12 +663,12 @@ describe("applyDocumentPropertyValueToDatabaseResponse", () => {
     const updated = applyDocumentPropertyValueToDatabaseResponse(current, {
       documentId: "document-0",
       propertyId: "status",
-      value: "Agent Native",
+      value: "Agent-Native",
     });
 
     expect(updated?.items[0]?.properties[0]).toMatchObject({
       definition: { id: "status", name: "Status" },
-      value: "Agent Native",
+      value: "Agent-Native",
       editable: true,
     });
   });

@@ -223,7 +223,7 @@ export class A2AClient {
 
   /**
    * Detect which A2A path the target agent uses.
-   * Agent-native apps use /_agent-native/a2a, external agents may use /a2a.
+   * Agent-Native apps use /_agent-native/a2a, external agents may use /a2a.
    */
   async resolveEndpoint(): Promise<void> {
     await this.ensureEndpointCandidates();

@@ -1,11 +1,11 @@
 ---
 title: "自定义设计系统"
-description: "无需替换 Agent Native 的行为，即可在 Agent Native 应用和共享 Toolkit 体验中使用公司的 React 设计系统。"
+description: "无需替换 Agent-Native 的行为，即可在 Agent-Native 应用和共享 Toolkit 体验中使用公司的 React 设计系统。"
 ---
 
 # 自定义设计系统
 
-Agent Native 可以使用公司的 React 组件渲染应用自有屏幕和共享 Toolkit 体验。注册一次明确且类型安全的适配器后，原有的功能控制器仍会负责操作、状态、无障碍要求以及对代理可见的行为。
+Agent-Native 可以使用公司的 React 组件渲染应用自有屏幕和共享 Toolkit 体验。注册一次明确且类型安全的适配器后，原有的功能控制器仍会负责操作、状态、无障碍要求以及对代理可见的行为。
 
 适配器契约不要求 Tailwind、shadcn、Radix、`className` 或任何特定的样式运行时。组件可以使用主题提供程序、CSS-in-JS、CSS Modules、React Aria 或普通 CSS。`className` 和 `style` 是可选的互操作钩子，而不是样式要求。
 
@@ -24,7 +24,7 @@ Agent Native 可以使用公司的 React 组件渲染应用自有屏幕和共享
 
 ## 注册适配器
 
-客户适配器就是普通的 npm 包。在 `app/design-system.ts` 中显式导入一个适配器；Agent Native 不会扫描依赖、自动检测库，也不会从 JSON 加载组件。
+客户适配器就是普通的 npm 包。在 `app/design-system.ts` 中显式导入一个适配器；Agent-Native 不会扫描依赖、自动检测库，也不会从 JSON 加载组件。
 
 将构建时主题放在依赖较少的模块中，这样 Vite 加载配置时无需评估客户的 React 包：
 
@@ -83,7 +83,7 @@ export function AppToolkitProvider({
 }
 ```
 
-支持部分适配器。你省略的组件会使用 Agent Native 的默认适配器。如果某个自定义组件在渲染时抛出异常，组件级错误边界会记录失败，并为该控件渲染默认组件；其余自定义系统仍保持启用。
+支持部分适配器。你省略的组件会使用 Agent-Native 的默认适配器。如果某个自定义组件在渲染时抛出异常，组件级错误边界会记录失败，并为该控件渲染默认组件；其余自定义系统仍保持启用。
 
 两个完整的 Chat 应用会针对真实设计系统验证这一契约：[Material UI 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 使用 Emotion、`ThemeProvider` 和 MUI 的叠加层堆栈；[Ant Design 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 使用 `ConfigProvider` 以及 Ant Design 的表单和叠加层原语。它们的 `app/design-system.tsx` 文件是主要的集成参考；上面的 Acme fixture 有意保持精简，用于单元测试。
 
@@ -91,7 +91,7 @@ export function AppToolkitProvider({
 
 ## 构建时主题令牌
 
-`defineTheme` 接受标准 CSS 颜色，包括十六进制、`rgb()`、`hsl()` 和 OKLCH。Core Vite 插件会校验并将其规范化为 Agent Native 现有的语义变量。深色颜色逐令牌回退到浅色调色板；Agent Native 不会自动推导深色调色板。
+`defineTheme` 接受标准 CSS 颜色，包括十六进制、`rgb()`、`hsl()` 和 OKLCH。Core Vite 插件会校验并将其规范化为 Agent-Native 现有的语义变量。深色颜色逐令牌回退到浅色调色板；Agent-Native 不会自动推导深色调色板。
 
 将主题传给 Vite 插件：
 
@@ -200,7 +200,7 @@ import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance
 import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
 import { acmeComponents } from "@acme/agent-native-design-system";
 
-describe("Acme Agent Native adapter", () => {
+describe("Acme Agent-Native adapter", () => {
   it("conforms", async () => {
     await assertDesignSystemConformance({
       adapterName: "Acme",
@@ -223,9 +223,9 @@ describe("Acme Agent Native adapter", () => {
 
 ### MUI 风格的主题提供程序系统
 
-[Chat + Material UI 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 是主要的实作参考。它的单一 `app/design-system.tsx` 模块导出语义适配器、MUI 的浅色和深色 `createTheme` 值以及 `defineTheme` 令牌源。应用的 `AppToolkitProvider` 将 MUI `ThemeProvider` 保持在共享 Toolkit 界面之上，而 `vite.config.ts` 导入同一个 `theme` 值来生成构建时 CSS。这样 Emotion 样式、MUI portal 和 Agent Native 令牌都使用同一个事实来源。
+[Chat + Material UI 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 是主要的实作参考。它的单一 `app/design-system.tsx` 模块导出语义适配器、MUI 的浅色和深色 `createTheme` 值以及 `defineTheme` 令牌源。应用的 `AppToolkitProvider` 将 MUI `ThemeProvider` 保持在共享 Toolkit 界面之上，而 `vite.config.ts` 导入同一个 `theme` 值来生成构建时 CSS。这样 Emotion 样式、MUI portal 和 Agent-Native 令牌都使用同一个事实来源。
 
-让公司的主题提供程序位于 `AppToolkitProvider` 之上，并在包边界处适配语义 props。在适配器内部将 `intent`、`emphasis` 和 `size` 映射到系统自己的词汇，不要在 Agent Native 功能代码中映射。对于叠加层，将 `portalContainer` 转发到设计系统的 container 或 portal prop，并使用其焦点管理器实现 `initialFocusRef`/`restoreFocusRef`。
+让公司的主题提供程序位于 `AppToolkitProvider` 之上，并在包边界处适配语义 props。在适配器内部将 `intent`、`emphasis` 和 `size` 映射到系统自己的词汇，不要在 Agent-Native 功能代码中映射。对于叠加层，将 `portalContainer` 转发到设计系统的 container 或 portal prop，并使用其焦点管理器实现 `initialFocusRef`/`restoreFocusRef`。
 
 ```tsx
 export const ActionButton: DesignSystemComponents["ActionButton"] = ({

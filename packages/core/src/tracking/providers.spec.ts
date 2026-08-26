@@ -19,7 +19,7 @@ describe("tracking providers", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not register Agent Native Analytics without a public key", async () => {
+  it("does not register Agent-Native Analytics without a public key", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "");
     const { listTrackingProviders, registerBuiltinProviders } =
       await freshTrackingModules();
@@ -29,7 +29,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).not.toContain("agent-native-analytics");
   });
 
-  it("sends track events to Agent Native Analytics when configured", async () => {
+  it("sends track events to Agent-Native Analytics when configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
@@ -132,7 +132,7 @@ describe("tracking providers", () => {
     expect(properties).not.toHaveProperty("exceptionExtra");
   });
 
-  it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
+  it("falls back to the public Vite key for server-side Agent-Native Analytics", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_vite_test");
     const { listTrackingProviders, registerBuiltinProviders } =
       await freshTrackingModules();
@@ -142,7 +142,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).toContain("agent-native-analytics");
   });
 
-  it("flushes Agent Native Analytics events immediately in serverless runtimes", async () => {
+  it("flushes Agent-Native Analytics events immediately in serverless runtimes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
@@ -411,7 +411,7 @@ describe("tracking providers", () => {
     expect(flushed).toBe(true);
   });
 
-  it("does not register Agent Native Analytics for localhost app URLs", async () => {
+  it("does not register Agent-Native Analytics for localhost app URLs", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");
     const { listTrackingProviders, registerBuiltinProviders } =
@@ -422,7 +422,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).not.toContain("agent-native-analytics");
   });
 
-  it("allows an explicit localhost override for Agent Native Analytics", async () => {
+  it("allows an explicit localhost override for Agent-Native Analytics", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");

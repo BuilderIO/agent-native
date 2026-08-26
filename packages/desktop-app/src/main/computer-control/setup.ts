@@ -115,7 +115,7 @@ export async function runComputerSetupAction(
         ok: true,
         action,
         message:
-          "Opened Chrome Extensions and revealed the Agent Native extension folder.",
+          "Opened Chrome Extensions and revealed the Agent-Native extension folder.",
       };
     }
 
@@ -123,7 +123,7 @@ export async function runComputerSetupAction(
     return {
       ok: true,
       action,
-      message: "Restarting Agent Native.",
+      message: "Restarting Agent-Native.",
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

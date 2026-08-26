@@ -1197,7 +1197,7 @@ describe("agent-native skills", () => {
         { baseDir: root, runCommand: async () => 0 },
       ),
     ).rejects.toThrow(
-      "Refusing to replace symlinked Agent Native skill folder",
+      "Refusing to replace symlinked Agent-Native skill folder",
     );
 
     expect(fs.lstatSync(skillDir).isSymbolicLink()).toBe(true);
@@ -1731,7 +1731,7 @@ describe("agent-native skills", () => {
           ]),
           { baseDir: root, runCommand: async () => 0 },
         ),
-      ).rejects.toThrow(/Cannot write Agent Native skill folder .*visual-plan/);
+      ).rejects.toThrow(/Cannot write Agent-Native skill folder .*visual-plan/);
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
@@ -2062,7 +2062,7 @@ describe("agent-native skills", () => {
     }
   });
 
-  it("offers all Agent Native skills while defaulting the Plan skills", async () => {
+  it("offers all Agent-Native skills while defaulting the Plan skills", async () => {
     const root = tmpDir();
     let context:
       | { initialTargets: string[]; options: { value: string }[] }
@@ -2995,7 +2995,7 @@ describe("agent-native skills", () => {
         path.join(root, ".agents", "skills", "agent-native-docs", "SKILL.md"),
         "utf-8",
       ),
-    ).toContain("# Agent Native Docs");
+    ).toContain("# Agent-Native Docs");
     expect(fs.existsSync(path.join(root, "CLAUDE.md"))).toBe(true);
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
   });

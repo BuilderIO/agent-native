@@ -1,4 +1,4 @@
-name: Deploy Agent Native beta sites from GitHub
+name: Deploy Agent-Native beta sites from GitHub
 
 # GitHub Actions is the sole automatic beta publisher. It builds once and
 # uploads prebuilt artifacts to the independent Netlify beta sites; Netlify

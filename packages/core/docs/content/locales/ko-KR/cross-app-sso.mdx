@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **리디렉션 허용 목록.** 허브(Dispatch)는 토큰을 발행하기 전에 승인 엔드포인트에서 `redirect_uri`의 유효성을 검사합니다. 허용 목록은 `templates/dispatch/server/lib/identity-sso.ts`에서 구성됩니다:
 
-- **기본값:** 정확히 등록된 Agent Native 앱 ID/오리진 쌍과 localhost만 허용합니다(`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
+- **기본값:** 정확히 등록된 Agent-Native 앱 ID/오리진 쌍과 localhost만 허용합니다(`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **확장:** 쉼표로 구분된 추가 호스트 접미사 목록을 사용하여 Dispatch 배포에서 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 환경 변수를 설정합니다.
 
   ````배쉬

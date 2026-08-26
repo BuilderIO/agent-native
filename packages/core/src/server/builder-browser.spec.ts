@@ -561,7 +561,7 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
-    it("adds Agent Native signup attribution to cli-auth and callback URLs", () => {
+    it("adds Agent-Native signup attribution to cli-auth and callback URLs", () => {
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
         signBuilderCallbackState("alice@example.com"),

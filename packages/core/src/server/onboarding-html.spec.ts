@@ -31,7 +31,7 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(html).toContain('id="environment-badge"');
-    expect(html).toContain("You're on Agent Native Beta");
+    expect(html).toContain("You're on Agent-Native Beta");
     expect(html).toContain("Switch to production");
     expect(html).toContain('id="environment-hide-badge"');
     expect(html).toContain("switcher.hidden = true");

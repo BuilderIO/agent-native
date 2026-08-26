@@ -636,7 +636,7 @@ export async function run(
       // errors out as "fetch failed". Async+poll has its own short fetches
       // with their own budgets, so it works reliably across hosts. The
       // trade-off is that cross-app activity arrives at the poll cadence rather
-      // than token-by-token. Agent Native peers attach their current reasoning,
+      // than token-by-token. Agent-Native peers attach their current reasoning,
       // tool status, and response preview to each task checkpoint, and the
       // receiver's full response still surfaces below.
       //
