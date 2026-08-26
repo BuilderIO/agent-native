@@ -37,8 +37,10 @@ If Dispatch synced the vault into a different organization, set
 
 Connect providers in Dispatch or in Settings -> Integrations. Factory resolves
 Slack, GitHub, Sentry, Builder, and other supported provider credentials from
-the shared workspace vault. Provider deployment environment variables are not
-supported for Factory. To migrate an existing deployment, add the provider
+the shared workspace vault. Hosted Factory does not read provider keys from
+deployment environment variables. Local sqlite development (`pnpm dev`) may
+use `.env` `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` when no connection or
+vault row exists. To migrate an existing deployment, add the provider
 connection in the standard workspace integration surface, verify it, and then
 remove the old deployment variables. Factory never stores keys per factory. All
 apps that read shared `app_secrets` rows must use the same

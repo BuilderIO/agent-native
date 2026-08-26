@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resolveWorkspaceConnectionCredentialForApp: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
   select: vi.fn(),
+  isLocalDatabase: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
@@ -21,6 +22,9 @@ vi.mock("@agent-native/core/secrets", () => ({
 vi.mock("@agent-native/core/workspace-connections", () => ({
   resolveWorkspaceConnectionCredentialForApp:
     mocks.resolveWorkspaceConnectionCredentialForApp,
+}));
+vi.mock("@agent-native/core/db", () => ({
+  isLocalDatabase: mocks.isLocalDatabase,
 }));
 vi.mock("../db/index.js", () => ({
   getDb: () => ({ select: mocks.select }),
@@ -41,6 +45,7 @@ describe("resolveConnectorSecret", () => {
       value: undefined,
     });
     mocks.resolveOrgIdForEmail.mockResolvedValue("active-org");
+    mocks.isLocalDatabase.mockReturnValue(false);
     mocks.select.mockReturnValue({
       from: () => ({
         where: async () => [{ orgId: "active-org" }],
@@ -75,6 +80,8 @@ describe("resolveConnectorSecret", () => {
   });
 
   it("prefers an app-granted provider connection for known source keys", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-local-token");
     mocks.resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
       available: true,
       value: "connected-slack-token",
@@ -107,5 +114,16 @@ describe("resolveConnectorSecret", () => {
         orgId: "active-org",
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("reads provider keys from env on a local sqlite database", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("SLACK_BOT_TOKEN", " xoxb-local-token ");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBe("xoxb-local-token");
   });
 });

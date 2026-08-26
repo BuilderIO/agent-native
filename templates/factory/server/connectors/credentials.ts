@@ -1,4 +1,5 @@
 import { resolveCredential } from "@agent-native/core/credentials";
+import { isLocalDatabase } from "@agent-native/core/db";
 import { orgMembers, resolveOrgIdForEmail } from "@agent-native/core/org";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
@@ -149,10 +150,10 @@ export async function resolveConnectorSecret(
     }
   }
 
-  // Standard provider keys are org/workspace data, not deployment config.
-  // Generic app-owned keys may still use the deployment fallback below.
-  if (!VAULT_ONLY_KEYS.has(key)) {
-    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - deploy-level connector fallback for generic app-owned configuration
+  // Hosted Factory keeps Slack/GitHub/Sentry vault-only. Local sqlite may
+  // still read `.env` so `pnpm dev` can poll without a Dispatch connection.
+  if (!VAULT_ONLY_KEYS.has(key) || isLocalDatabase()) {
+    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - local sqlite and generic deploy-level connector fallback
     if (environmentSecret) return environmentSecret;
   }
 
