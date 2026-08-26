@@ -66,11 +66,46 @@ test("imports design.md guidance through Builder DSI", async ({ page }) => {
     .getByRole("button", { name: "Continue to generation", exact: true })
     .click();
 
-  await expect(page).toHaveURL(/\/design-systems$/);
+  await expect(page.getByRole("heading", { name: "Acme" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Open in Builder" }),
+  ).toHaveAttribute("href", /design-system-intelligence\/ds-design-md-e2e/);
   expect(capturedInput).toMatchObject({
     designMd:
       "# Acme Design System\n\nUse cobalt accents and compact controls.",
   });
+});
+
+test("imports a dropped design.md file", async ({ page }) => {
+  await page.goto("/design-systems/setup");
+  await page
+    .getByRole("button", { name: "Import design.md", exact: true })
+    .click();
+
+  await page
+    .locator("#design-system-design-md-source > button")
+    .evaluate((button) => {
+      const file = new File(
+        ["# Dropped Design System\n\nUse cobalt accents."],
+        "design.md",
+        { type: "text/markdown" },
+      );
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      button.dispatchEvent(
+        new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer,
+        }),
+      );
+    });
+
+  await expect(
+    page.locator("#design-system-design-md-source").getByText("design.md", {
+      exact: true,
+    }),
+  ).toBeVisible();
 });
 
 test("rejects design.md files larger than the inline Builder limit", async ({
