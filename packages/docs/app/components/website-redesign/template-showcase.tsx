@@ -12,6 +12,7 @@ import {
 } from "react";
 import { Link } from "react-router";
 
+import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
 interface ShowcaseApp {
@@ -264,19 +265,7 @@ export function TemplateShowcase() {
             {APPS.map((app) => (
               <Link key={app.slug} to={app.href} className="app-carousel-card">
                 <div className="app-carousel-card-image">
-                  <img
-                    src={app.image}
-                    alt={`${app.name} app screenshot`}
-                    crossOrigin="anonymous"
-                    loading="lazy"
-                    decoding="async"
-                    style={{
-                      maxWidth: "100%",
-                      maxHeight: "100%",
-                      objectFit: "contain",
-                      display: "block",
-                    }}
-                  />
+                  <ImgPlaceholder aspectRatio="320 / 256" label={app.name} />
                 </div>
                 <div className="app-carousel-card-body">
                   <h3
