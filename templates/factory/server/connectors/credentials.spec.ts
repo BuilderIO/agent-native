@@ -35,6 +35,8 @@ import { resolveConnectorSecret } from "./credentials.js";
 const HOSTED_RUNTIME_ENV_KEYS = [
   "NETLIFY",
   "NETLIFY_LOCAL",
+  "NETLIFY_DEV",
+  "CONTEXT",
   "SITE_ID",
   "VERCEL",
   "CF_PAGES",
@@ -44,6 +46,8 @@ const HOSTED_RUNTIME_ENV_KEYS = [
   "K_SERVICE",
   "RENDER",
   "FLY_APP_NAME",
+  "RAILWAY_ENVIRONMENT_ID",
+  "RAILWAY_SERVICE_ID",
   "AGENT_NATIVE_WORKSPACE",
   "VITE_AGENT_NATIVE_WORKSPACE",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -232,5 +236,58 @@ describe("resolveConnectorSecret", () => {
         orgId: "active-org",
       }),
     ).resolves.toBe("xoxb-netlify-dev-token");
+  });
+
+  it("reads provider keys from env when Netlify CLI sets NETLIFY_DEV", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SITE_ID", "00000000-0000-0000-0000-000000000000");
+    vi.stubEnv("NETLIFY_DEV", "true");
+    vi.stubEnv("SLACK_BOT_TOKEN", " xoxb-netlify-cli-token ");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBe("xoxb-netlify-cli-token");
+  });
+
+  it("reads provider keys from env when Netlify CONTEXT is dev", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SITE_ID", "00000000-0000-0000-0000-000000000000");
+    vi.stubEnv("CONTEXT", "dev");
+    vi.stubEnv("SLACK_BOT_TOKEN", " xoxb-netlify-context-dev-token ");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBe("xoxb-netlify-context-dev-token");
+  });
+
+  it("does not use provider env on Railway even with a file database", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("RAILWAY_ENVIRONMENT_ID", "railway-env-1");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-railway-file-db");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not use provider env when NODE_ENV is unset even with sqlite", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-unset-node-env");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
   });
 });

@@ -35,19 +35,30 @@ function isMissingTableError(err: unknown): boolean {
   );
 }
 
+function isExplicitLocalNodeEnv(): boolean {
+  return (
+    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
+  );
+}
+
+function isNetlifyCliLocalRuntime(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return true;
+  if (process.env.NETLIFY === "false") return true;
+  if (/^(1|true)$/i.test(process.env.NETLIFY_DEV ?? "")) return true;
+  return process.env.CONTEXT === "dev";
+}
+
 function isNetlifyHostedRuntime(): boolean {
-  if (process.env.NETLIFY_LOCAL === "true") return false;
-  if (process.env.NETLIFY === "false") return false;
+  if (isNetlifyCliLocalRuntime()) return false;
   if (/^(1|true)$/i.test(process.env.NETLIFY ?? "")) return true;
   // NETLIFY is a build-only variable. Deployed Functions document SITE_ID as
-  // the runtime host marker; netlify dev still uses SITE_ID but sets
-  // NETLIFY_LOCAL=true so local sqlite can keep the .env fallback.
+  // the runtime host marker. `netlify dev` also injects SITE_ID, so local
+  // sqlite keeps the .env fallback only when a CLI-local signal is present.
   return Boolean(process.env.SITE_ID); // guard:allow-env-credential — Netlify's read-only public site identifier is a runtime host marker, not a user credential.
 }
 
-function isProductionLikeRuntime(): boolean {
+function isHostedPlatformRuntime(): boolean {
   return (
-    process.env.NODE_ENV === "production" ||
     isNetlifyHostedRuntime() ||
     /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
     /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
@@ -57,7 +68,9 @@ function isProductionLikeRuntime(): boolean {
       process.env.FUNCTIONS_WORKER_RUNTIME ||
       process.env.K_SERVICE ||
       process.env.RENDER ||
-      process.env.FLY_APP_NAME,
+      process.env.FLY_APP_NAME ||
+      process.env.RAILWAY_ENVIRONMENT_ID || // guard:allow-env-credential — Railway runtime host marker, not a user credential
+      process.env.RAILWAY_SERVICE_ID, // guard:allow-env-credential — Railway runtime host marker, not a user credential
     )
   );
 }
@@ -77,11 +90,12 @@ function isHostedWorkspaceRuntime(): boolean {
 }
 
 function canUseLocalProviderEnvFallback(): boolean {
-  // A file: or unset DATABASE_URL is not local development. Hosted/production
-  // processes must stay vault-only even when the database URL looks local.
+  // Allowlist: sqlite `pnpm dev` / vitest. A file: URL on an unnamed hosted
+  // runtime is not local development, even when NODE_ENV is unset.
   return (
     isLocalDatabase() &&
-    !isProductionLikeRuntime() &&
+    isExplicitLocalNodeEnv() &&
+    !isHostedPlatformRuntime() &&
     !isHostedWorkspaceRuntime()
   );
 }
