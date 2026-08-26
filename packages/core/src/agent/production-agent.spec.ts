@@ -9734,6 +9734,73 @@ describe("runAgentLoop", () => {
     expect(bulkWrite).not.toHaveBeenCalled();
   });
 
+  it("requires a fresh approval when persistent approval is disabled", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          allowPersistentApproval: false,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval_required",
+        tool: "send-email",
+        allowPersistentApproval: false,
+      }),
+    );
+  });
+
+  it("honors persistent approval by default", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
     // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();

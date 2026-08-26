@@ -4058,6 +4058,7 @@ describe("SSE event processor tool id matching", () => {
             tool: "send-email",
             id: "approve-1",
             approvalKey: 'send-email:{"to":"a@b.com"}',
+            allowPersistentApproval: false,
             input: { to: "a@b.com" },
           },
           {
@@ -4079,6 +4080,7 @@ describe("SSE event processor tool id matching", () => {
     );
     expect(part?.approval).toEqual({
       approvalKey: 'send-email:{"to":"a@b.com"}',
+      allowPersistentApproval: false,
     });
   });
 

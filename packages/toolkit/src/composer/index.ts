@@ -81,6 +81,8 @@ export type {
   FileResult,
   SkillResult,
   MentionItem,
+  MentionItemMedia,
+  MentionReferenceInsert,
   Reference,
   SlashCommand,
 } from "./types.js";
