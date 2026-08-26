@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Recover Builder OAuth callbacks that omit state when there is one active pending connection.
+Preserve Builder OAuth state when Builder omits it from the callback query.

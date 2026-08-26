@@ -558,15 +558,13 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Query-param name carrying the signed CSRF state on the connect→callback
- * round-trip. Prefixed with `_an_` to avoid collisions if Builder ever
- * adds standard OAuth `state` support to cli-auth. Builder preserves
- * the path/query of `redirect_url` verbatim when redirecting back, so
- * we embed `_an_state=…` inside the redirect_url query string at
- * connect time and read it back on the callback.
+ * Query-param name carrying the signed CSRF state on the legacy
+ * connect→callback round-trip. Prefixed with `_an_` to avoid collisions if
+ * Builder ever adds standard OAuth `state` support to cli-auth.
  */
 export const BUILDER_STATE_PARAM = "_an_state";
 export const BUILDER_CONNECT_PARAM = "_an_connect";
+export const BUILDER_CONNECT_STATE_COOKIE = "an_builder_connect_state";
 export const BUILDER_CONNECT_OWNER_COOKIE = "an_builder_connect_owner";
 export const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 export const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
@@ -574,6 +572,54 @@ export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
   "agentNativeConnectSource";
 export const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
+
+const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
+
+function parseBuilderConnectStateCookie(
+  value: string | null | undefined,
+): string[] | null {
+  if (!value) return [];
+  const states = value.split(",");
+  if (
+    states.length > BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES ||
+    states.some((state) => !isSignedBuilderConnectState(state))
+  ) {
+    return null;
+  }
+  return [...new Set(states)];
+}
+
+export function appendBuilderConnectStateCookie(
+  value: string | null | undefined,
+  state: string,
+): string {
+  const states = parseBuilderConnectStateCookie(value) ?? [];
+  return [...states.filter((candidate) => candidate !== state), state]
+    .slice(-BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES)
+    .join(",");
+}
+
+export function removeBuilderConnectStateCookie(
+  value: string | null | undefined,
+  state: string,
+): string {
+  return (parseBuilderConnectStateCookie(value) ?? [])
+    .filter((candidate) => candidate !== state)
+    .join(",");
+}
+
+export function resolveBuilderConnectCallbackState(
+  queryState: string | null,
+  cookieState: string | null | undefined,
+): string | null {
+  const cookieStates = parseBuilderConnectStateCookie(cookieState);
+  if (cookieState && !cookieStates) return null;
+  if (queryState !== null) {
+    if (cookieStates?.length && !cookieStates.includes(queryState)) return null;
+    return queryState;
+  }
+  return cookieStates?.length === 1 ? cookieStates[0] : null;
+}
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 const BUILDER_SIGNUP_SOURCE = "agent-native";
@@ -1059,11 +1105,9 @@ function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
 
 /**
  * Build the Builder cli-auth URL for the connect popup. When a signed
- * `state` token is supplied it is embedded inside the `redirect_url`
- * query string so it survives Builder's redirect verbatim — Builder
- * preserves the redirect_url's existing query when appending p-key /
- * api-key / etc., so we don't depend on Builder echoing a top-level
- * `state` parameter (it doesn't).
+ * `state` token is supplied it is embedded inside the `redirect_url` query
+ * string. The connect route also stores it in an HttpOnly cookie because
+ * Builder may strip the callback query while appending its response params.
  *
  * Status responses can surface this URL directly; the legacy
  * `/_agent-native/builder/connect` trampoline still calls this helper for

@@ -8,6 +8,9 @@ import {
   getRequestURL,
   getRequestIP,
   readRawBody,
+  getCookie,
+  setCookie,
+  deleteCookie,
 } from "h3";
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
@@ -125,6 +128,7 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getSession, type AuthSession } from "./auth.js";
 import {
   BUILDER_CONNECT_PARAM,
+  BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_ENV_KEYS,
   BUILDER_OPENER_PARAM,
   BUILDER_RELAY_FLOW_HEADER,
@@ -132,6 +136,7 @@ import {
   BUILDER_RELAY_STATE_PARAM,
   BUILDER_RELAY_TIMESTAMP_HEADER,
   appendBuilderConnectToken,
+  appendBuilderConnectStateCookie,
   builderConnectTrackingProperties,
   createBuilderConnectState,
   createBuilderBrowserCallbackErrorPage,
@@ -145,7 +150,9 @@ import {
   normalizeBuilderAgentContext,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
+  resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
+  removeBuilderConnectStateCookie,
   runBuilderAgent,
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
@@ -157,9 +164,10 @@ import {
 import {
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
-  finishBuilderOAuthAuthorization,
+  exchangeBuilderOAuthAuthorization,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
+  saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
   type BuilderOAuthPendingFlow,
 } from "./builder-oauth.js";
@@ -2593,12 +2601,10 @@ export function createCoreRoutesPlugin(
       //      request with the navigation context. We allow `same-origin` or
       //      `none` (typed/bookmark/extension); cross-site / same-site without
       //      a valid connect token are rejected.
-      //   3. Pending row keyed by signed OAuth state — the callback
-      //      requires both a valid session and a one-time row that this
-      //      handler wrote during the same flow. Without the same-origin
-      //      gate or connect token above, an attacker could prime the row from
-      //      cross-site and then trick the victim into completing an
-      //      attacker-initiated authorization flow.
+      //   3. Pending row keyed by signed OAuth state plus a host-only cookie —
+      //      Builder can omit the callback query, but it cannot read or forge
+      //      the cookie. The callback still requires the matching session,
+      //      pending row, and a successful PKCE exchange before persistence.
       getH3App(nitroApp).use(
         `${P}/builder/connect`,
         defineEventHandler(async (event) => {
@@ -2770,6 +2776,21 @@ export function createCoreRoutesPlugin(
               tracking: connectTracking,
             });
             await purgeExpiredBuilderConnectPendingStates().catch(() => 0); // coercion-ok: connect already persisted the new pending row; purge of abandoned rows must not fail OAuth start
+            setCookie(
+              event,
+              BUILDER_CONNECT_STATE_COOKIE,
+              appendBuilderConnectStateCookie(
+                getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
+                state,
+              ),
+              {
+                httpOnly: true,
+                secure: callbackUrl.startsWith("https://"),
+                sameSite: "lax",
+                path: "/",
+                maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+              },
+            );
           } catch (err) {
             await trackBuilderLifecycle(
               event,
@@ -3174,7 +3195,14 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          let state = requestUrl.searchParams.get("state");
+          // Builder sometimes drops the top-level OAuth state. Recover it
+          // from the host-only cookie set by /builder/connect; the pending row
+          // and authenticated session still bind it to this account.
+          const queryState = requestUrl.searchParams.get("state");
+          const state = resolveBuilderConnectCallbackState(
+            queryState,
+            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
+          );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           const fail = async (
             status: number,
@@ -3271,17 +3299,6 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const consumed = await consumeBuilderConnectPendingState(state);
-          if (!consumed) {
-            return fail(
-              403,
-              "No active Builder connect flow found. Restart the connection from Settings.",
-              ownerEmail,
-              "callback_verification_failed",
-              tracking,
-            );
-          }
-
           const denied = requestUrl.searchParams.get("error");
           const code = requestUrl.searchParams.get("code");
           const iss = requestUrl.searchParams.get("iss") ?? undefined;
@@ -3297,14 +3314,15 @@ export function createCoreRoutesPlugin(
             );
           }
 
+          let credentials: Awaited<
+            ReturnType<typeof exchangeBuilderOAuthAuthorization>
+          >;
           try {
             const oauthFlow = JSON.parse(
               decryptSecretValue(encryptedOAuthFlow),
             ) as BuilderOAuthPendingFlow;
-            await finishBuilderOAuthAuthorization({
+            credentials = await exchangeBuilderOAuthAuthorization({
               ownerEmail,
-              orgId:
-                typeof consumed.orgId === "string" ? consumed.orgId : undefined,
               code,
               iss,
               pending: oauthFlow,
@@ -3317,6 +3335,53 @@ export function createCoreRoutesPlugin(
               "code_exchange_failed",
               tracking,
             );
+          }
+
+          // PKCE proves the callback belongs to this flow before its pending
+          // row is consumed. Persist first so a transient credential-store
+          // failure does not strand an otherwise valid pending flow.
+          try {
+            await saveBuilderOAuthCredentials({
+              ownerEmail,
+              orgId:
+                typeof pending.orgId === "string" ? pending.orgId : undefined,
+              credentials,
+            });
+          } catch {
+            return fail(
+              500,
+              "Builder credentials could not be saved. Restart the connection.",
+              ownerEmail,
+              "credential_write_failed",
+              tracking,
+            );
+          }
+
+          const consumed = await consumeBuilderConnectPendingState(state);
+          if (!consumed) {
+            return fail(
+              403,
+              "No active Builder connect flow found. Restart the connection from Settings.",
+              ownerEmail,
+              "callback_verification_failed",
+              tracking,
+            );
+          }
+
+          const remainingStates = removeBuilderConnectStateCookie(
+            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
+            state,
+          );
+          if (remainingStates) {
+            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remainingStates, {
+              httpOnly: true,
+              secure: expectedRedirectUri.startsWith("https://"),
+              sameSite: "lax",
+              path: "/",
+              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+            });
+          } else {
+            deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
           }
 
           try {
