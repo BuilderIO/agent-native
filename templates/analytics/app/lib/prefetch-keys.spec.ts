@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
   dashboardCacheScope,
   preserveScopedDashboardPlaceholder,
   sqlDashboardPrefetchKey,
@@ -60,6 +61,17 @@ describe("dashboard cache scope", () => {
         previous,
         previousQuery,
         aliceOtherOrg,
+      ),
+    ).toBeUndefined();
+
+    const loadingQuery = {
+      queryKey: ["sql-dashboards-sidebar", DASHBOARD_SESSION_LOADING_SCOPE, 1],
+    };
+    expect(
+      preserveScopedDashboardPlaceholder(
+        previous,
+        loadingQuery,
+        dashboardCacheScope(null),
       ),
     ).toBeUndefined();
   });

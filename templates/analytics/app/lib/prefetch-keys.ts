@@ -9,6 +9,8 @@ export type DashboardCacheSession = {
   orgId?: string | null;
 };
 
+export const DASHBOARD_SESSION_LOADING_SCOPE = "session-loading";
+
 /**
  * Dashboard payloads are access-scoped. Keep the principal and active org in
  * every client cache key so a session change cannot adopt another caller's

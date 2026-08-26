@@ -148,6 +148,7 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
   dashboardCacheScope,
   preserveScopedDashboardPlaceholder,
   sqlDashboardPrefetchKey,
@@ -1526,8 +1527,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
-  const { auth } = useAuth();
-  const dashboardScope = dashboardCacheScope(auth);
+  const { auth, isLoading: authLoading } = useAuth();
+  const dashboardScope = authLoading
+    ? DASHBOARD_SESSION_LOADING_SCOPE
+    : dashboardCacheScope(auth);
 
   const isAskRoute = location.pathname === "/ask";
   const activeDashboardId = useMemo(() => {
@@ -1713,6 +1716,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   } = useQuery({
     queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
+    enabled: !authLoading,
     staleTime: 30_000,
     placeholderData: (prev, previousQuery) =>
       preserveScopedDashboardPlaceholder(prev, previousQuery, dashboardScope),
