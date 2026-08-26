@@ -131,13 +131,10 @@ impl CallEvidence {
         }
         match mic {
             Some(true) => {
-                // A stream that appears after the previous one already lapsed
-                // is the next call, not a resumption of the old one. Without
-                // this boundary a call starting inside the previous call's
-                // `CALL_END` window inherits its suppression and never prompts.
-                if self.mic_since.is_none() && self.mic_last_true.is_some() {
-                    self.end_call(now);
-                }
+                // A stream returning inside `CALL_END` is the same call coming
+                // back, not the next one. `MIC_DROP_GRACE` having cleared
+                // `mic_since` only restarts the dwell; treating that as a new
+                // call would prompt a second time for one ordinary blip.
                 self.mic_last_true = Some(now);
                 self.mic_since.get_or_insert(now);
                 self.mic_silent_since = None;
@@ -176,6 +173,25 @@ impl CallEvidence {
         if self.front_since.is_some() {
             self.front_since = Some(now);
         }
+    }
+
+    /// Whether a stream has spoken for this platform at all in the current
+    /// call. While one has, the window is not evidence about anything.
+    fn mic_ever_spoke(&self) -> bool {
+        self.mic_last_true.is_some() || self.mic_since.is_some()
+    }
+
+    /// Whether the stream is still the authority on when this call ends. It is,
+    /// right up until an unreadable run outlives its grace — at which point we
+    /// genuinely do not know, and the coarse foreground signal is all that is
+    /// left. Holding "authoritative" through an unbounded unreadable stretch is
+    /// what would strand a platform: the flag that suppression hangs on has no
+    /// clock of its own, so nothing would ever release it.
+    fn mic_is_authoritative(&self, now: Instant) -> bool {
+        self.mic_ever_spoke()
+            && !self
+                .mic_unreadable_since
+                .is_some_and(|since| now.saturating_duration_since(since) >= MIC_UNREADABLE_GRACE)
     }
 
     fn mic_live(&self, now: Instant, mic: Option<bool>) -> bool {
@@ -451,13 +467,15 @@ async fn tick_macos(
         let mut g = state.inner.lock().map_err(|e| e.to_string())?;
         g.retain_live_cooldowns(now_ts);
 
-        let (call_state, call_ended, mic_live) = {
+        let (call_state, call_ended, mic_live, mic_authoritative, mic_ever_spoke) = {
             let evidence = g.evidence.entry(platform.to_string()).or_default();
             evidence.observe(now, mic, frontmost);
             (
                 evidence.classify(now, mic, frontmost),
                 evidence.take_call_ended(),
                 evidence.mic_live(now, mic),
+                evidence.mic_is_authoritative(now),
+                evidence.mic_ever_spoke(),
             )
         };
 
@@ -466,11 +484,24 @@ async fn tick_macos(
         if call_ended {
             g.end_call_session(platform);
         }
-        // No stream and not even in the foreground: whatever we prompted for is
-        // over. This is also the only session-end signal on a machine that
-        // cannot report input state.
-        if !mic_live && !frontmost {
-            g.end_foreground_session(platform);
+        // Who is allowed to say the session is over. While the stream is
+        // readable it is the only authority, and `call_ended` above is its
+        // verdict — the window must not pre-empt it, or a call backgrounded
+        // through an ordinary blip loses its suppression and prompts twice.
+        if !mic_live && !frontmost && !mic_authoritative {
+            if mic_ever_spoke {
+                // A stream spoke for this call and then became unreadable. Too
+                // little to declare the call over, but `session_notified` has
+                // no clock, so leaving it set on evidence we can no longer read
+                // would strand the platform. Drop it and let the prompt
+                // cooldown expire on its own rather than clearing it here.
+                g.session_notified.remove(platform);
+            } else {
+                // No stream ever spoke for this platform, so the foreground is
+                // the only signal there has ever been. This is the fallback
+                // path, and its whole session ends here.
+                g.end_foreground_session(platform);
+            }
         }
 
         if confirmed.is_none()
@@ -786,26 +817,87 @@ mod tests {
     }
 
     #[test]
-    fn a_new_stream_before_the_end_threshold_starts_a_new_call() {
-        // Leaving one call and joining the next inside `CALL_END` used to leave
-        // the first call's suppression in place, so the second never prompted.
+    fn a_stream_returning_inside_the_end_threshold_is_the_same_call() {
+        // `CALL_END` is what separates two calls. A stream returning inside it
+        // is one call blipping, so it must not report a boundary — that would
+        // release the suppression and prompt a second time for one call.
         let now = Instant::now();
         let mut evidence = CallEvidence::default();
         evidence.observe(ago(now, 40), Some(true), false);
         evidence.observe(ago(now, 20), Some(false), false);
         evidence.observe(ago(now, 12), Some(false), false);
+        evidence.observe(ago(now, 10), Some(true), false);
+
         assert!(
             !evidence.take_call_ended(),
-            "12s of silence is short of the end-of-call threshold"
+            "a 10s gap is a blip, not the end of the call"
         );
-
-        evidence.observe(ago(now, 10), Some(true), false);
         assert!(
-            evidence.take_call_ended(),
-            "a fresh stream after the last one lapsed is the next call"
+            evidence.mic_is_authoritative(now),
+            "a readable stream still decides when this call ends"
         );
-        assert_eq!(evidence.mic_since, Some(ago(now, 10)));
-        assert_eq!(evidence.classify(now, Some(true), false), CallState::Live);
+    }
+
+    #[test]
+    fn a_backgrounded_call_keeps_its_suppression_until_the_confirmed_end() {
+        // The window must not pre-empt the stream. `mic_live` goes false after
+        // 8s of silence, but the call is not over until 30s — releasing
+        // suppression in between lets one call prompt twice.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 60), Some(true), false);
+        evidence.observe(ago(now, 12), Some(false), false);
+
+        assert!(!evidence.mic_live(now, Some(false)));
+        assert!(
+            evidence.mic_is_authoritative(now),
+            "a readable silence run is the stream's business, not the window's"
+        );
+        assert!(!evidence.take_call_ended());
+    }
+
+    #[test]
+    fn an_unreadable_background_call_gives_up_only_the_clockless_suppression() {
+        // Past the unreadable grace we genuinely do not know. The prompt
+        // cooldown expires on its own, so it can stay; `session_notified`
+        // cannot, so it must go or the platform is stranded for good.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 300), Some(true), false);
+        evidence.observe(ago(now, 200), None, false);
+        evidence.observe(now, None, false);
+
+        assert!(evidence.mic_ever_spoke());
+        assert!(
+            !evidence.mic_is_authoritative(now),
+            "an unreadable run past its grace is no longer an authority"
+        );
+        assert!(!evidence.take_call_ended());
+
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_prompted("zoom", 1_000);
+        state.session_notified.remove("zoom");
+        assert!(
+            state.is_suppressed("zoom", 1_000 + COOLDOWN_SECS - 1),
+            "the cooldown still guards against a duplicate prompt"
+        );
+        assert!(
+            !state.is_suppressed("zoom", 1_000 + COOLDOWN_SECS),
+            "and it expires, so the platform is never stranded"
+        );
+    }
+
+    #[test]
+    fn a_platform_with_no_stream_evidence_is_the_only_one_the_window_ends() {
+        let now = Instant::now();
+        let mut fallback = CallEvidence::default();
+        fallback.observe(ago(now, 30), None, true);
+        fallback.observe(now, None, true);
+        assert!(
+            !fallback.mic_ever_spoke(),
+            "macOS 13 never records a stream, so the window is all there is"
+        );
+        assert!(!fallback.mic_is_authoritative(now));
     }
 
     #[test]
@@ -907,10 +999,17 @@ mod tests {
     }
 }
 
+/// Stop tracking calls entirely: the feature is off, or a meeting is already
+/// being transcribed. The per-call suppression goes with the evidence, because
+/// evidence is the only thing that releases it — dropping one and keeping the
+/// other leaves a platform suppressed with nothing left that could ever clear
+/// it. A dismissal keeps its own clock and expires on its own, so it stays.
 fn reset_evidence(app: &AppHandle) {
     if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
         if let Ok(mut g) = state.inner.lock() {
             g.evidence.clear();
+            g.session_notified.clear();
+            g.prompt_cooldown_until.clear();
         }
     }
 }
