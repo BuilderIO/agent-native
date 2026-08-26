@@ -144,7 +144,8 @@ export interface AtmosphereSettings {
   centerX: number;
   centerY: number;
   lightPitch: number;
-  lightYawOffset: number;
+  lightYawStart: number;
+  lightYawEnd: number;
   lightSpeed: number;
   rayleighR: number;
   rayleighG: number;
@@ -170,7 +171,8 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   centerX: 0.95,
   centerY: 0.5,
   lightPitch: 8,
-  lightYawOffset: -70,
+  lightYawStart: -70,
+  lightYawEnd: 110,
   lightSpeed: 0.22,
   rayleighR: 3.8,
   rayleighG: 13.5,
@@ -199,7 +201,8 @@ export const ATMOSPHERE_FIELD_CONFIG: Record<
   centerX: { kind: "range", min: 0, max: 1, step: 0.01 },
   centerY: { kind: "range", min: -0.5, max: 1.5, step: 0.01 },
   lightPitch: { kind: "range", min: -90, max: 90, step: 1 },
-  lightYawOffset: { kind: "range", min: -180, max: 180, step: 1 },
+  lightYawStart: { kind: "range", min: -180, max: 180, step: 1 },
+  lightYawEnd: { kind: "range", min: -180, max: 180, step: 1 },
   lightSpeed: { kind: "range", min: -2, max: 2, step: 0.02 },
   rayleighR: { kind: "range", min: 0, max: 50, step: 0.1 },
   rayleighG: { kind: "range", min: 0, max: 50, step: 0.1 },

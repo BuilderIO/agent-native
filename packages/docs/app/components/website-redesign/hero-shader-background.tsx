@@ -1240,8 +1240,10 @@ uniform float uEyeDistance;
 uniform float uCenterX;
 uniform float uCenterY;
 uniform float uLightPitch;
-uniform float uLightYawOffset;
+uniform float uLightYawStart;
+uniform float uLightYawEnd;
 uniform float uLightSpeed;
+uniform vec3 uBgColor;
 uniform vec3 uRayleighColor;
 uniform float uRayleighHeight;
 uniform float uMieStrength;
@@ -1376,14 +1378,20 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
   vec3 eye = vec3(0.0, 0.0, uEyeDistance);
 
+  // Sine-eased ping-pong between the two keyframe angles instead of an
+  // ever-increasing angle -- this settles into a finite back-and-forth
+  // sweep (with natural ease in/out at each end) rather than an infinite
+  // orbit, and the two endpoints are directly tunable via uLightYawStart /
+  // uLightYawEnd.
   float lightPitchRad = radians(uLightPitch);
-  float lightYawRad = radians(uLightYawOffset) + iTime * uLightSpeed;
+  float lightProgress = sin(iTime * uLightSpeed) * 0.5 + 0.5;
+  float lightYawRad = radians(mix(uLightYawStart, uLightYawEnd, lightProgress));
   vec3 l = normalize(rot3xy(vec2(lightPitchRad, lightYawRad)) * vec3(0.0, 0.0, 1.0));
 
   float R = uPlanetRadius + uAtmosphereThickness;
   vec2 e = ray_vs_sphere(eye, dir, R);
   if (e.x > e.y) {
-    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    fragColor = vec4(uBgColor, 1.0);
     return;
   }
 
@@ -1413,7 +1421,8 @@ function AtmosphereShaderBackground({
   centerX,
   centerY,
   lightPitch,
-  lightYawOffset,
+  lightYawStart,
+  lightYawEnd,
   lightSpeed,
   rayleighR,
   rayleighG,
@@ -1447,7 +1456,8 @@ function AtmosphereShaderBackground({
     centerX,
     centerY,
     lightPitch,
-    lightYawOffset,
+    lightYawStart,
+    lightYawEnd,
     lightSpeed,
     rayleighR,
     rayleighG,
@@ -1472,8 +1482,9 @@ function AtmosphereShaderBackground({
       centerX,
       centerY,
       lightPitch,
-      lightYawOffset,
-      lightSpeed,
+    lightYawStart,
+    lightYawEnd,
+    lightSpeed,
       rayleighR,
       rayleighG,
       rayleighB,
@@ -1496,7 +1507,8 @@ function AtmosphereShaderBackground({
     centerX,
     centerY,
     lightPitch,
-    lightYawOffset,
+    lightYawStart,
+    lightYawEnd,
     lightSpeed,
     rayleighR,
     rayleighG,
@@ -1588,7 +1600,9 @@ function AtmosphereShaderBackground({
     const uCenterX = gl.getUniformLocation(program, "uCenterX");
     const uCenterY = gl.getUniformLocation(program, "uCenterY");
     const uLightPitch = gl.getUniformLocation(program, "uLightPitch");
-    const uLightYawOffset = gl.getUniformLocation(program, "uLightYawOffset");
+    const uLightYawStart = gl.getUniformLocation(program, "uLightYawStart");
+    const uLightYawEnd = gl.getUniformLocation(program, "uLightYawEnd");
+    const uBgColor = gl.getUniformLocation(program, "uBgColor");
     const uLightSpeed = gl.getUniformLocation(program, "uLightSpeed");
     const uRayleighColor = gl.getUniformLocation(program, "uRayleighColor");
     const uRayleighHeight = gl.getUniformLocation(program, "uRayleighHeight");
@@ -1600,6 +1614,15 @@ function AtmosphereShaderBackground({
     const uGamma = gl.getUniformLocation(program, "uGamma");
     const uOutSteps = gl.getUniformLocation(program, "uOutSteps");
     const uInSteps = gl.getUniformLocation(program, "uInSteps");
+
+    function readBgColor(): [number, number, number] {
+      const raw = getComputedStyle(container)
+        .getPropertyValue("--b-bg-page")
+        .trim();
+      return hexToRgb01(raw || "#0a0a0a");
+    }
+
+    let bgColor = readBgColor();
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1622,7 +1645,9 @@ function AtmosphereShaderBackground({
       gl.uniform1f(uCenterX, settingsRef.current.centerX);
       gl.uniform1f(uCenterY, settingsRef.current.centerY);
       gl.uniform1f(uLightPitch, settingsRef.current.lightPitch);
-      gl.uniform1f(uLightYawOffset, settingsRef.current.lightYawOffset);
+      gl.uniform1f(uLightYawStart, settingsRef.current.lightYawStart);
+      gl.uniform1f(uLightYawEnd, settingsRef.current.lightYawEnd);
+      gl.uniform3f(uBgColor, bgColor[0], bgColor[1], bgColor[2]);
       gl.uniform1f(uLightSpeed, settingsRef.current.lightSpeed);
       gl.uniform3f(
         uRayleighColor,
@@ -1660,6 +1685,15 @@ function AtmosphereShaderBackground({
 
     resize();
     window.addEventListener("resize", resize);
+
+    const themeObserver = new MutationObserver(() => {
+      bgColor = readBgColor();
+      if (reducedMotion) draw(20);
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
 
     // Tracks hero visibility so the RAF loop can stop entirely once scrolled
     // past instead of waking every frame just to no-op.
@@ -1740,6 +1774,7 @@ function AtmosphereShaderBackground({
           handleReducedMotionChange,
         );
       }
+      themeObserver.disconnect();
       visibilityObserver.disconnect();
       window.removeEventListener("resize", resize);
       gl.deleteProgram(program);
