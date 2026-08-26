@@ -218,6 +218,105 @@ describe("update-slide", () => {
     );
   });
 
+  it("sets presenter-only speaker notes without touching the slide HTML", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      notes: "Open with the retention number, then pause.",
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(true);
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].notes).toBe(
+      "Open with the retention number, then pause.",
+    );
+    expect(deck.slides[0].content).toBe("<div>Old</div>");
+  });
+
+  it("applies speaker notes alongside a content edit", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: "<div>New</div>",
+      notes: "Land the summary in two sentences.",
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].content).toBe("<div>New</div>");
+    expect(deck.slides[0].notes).toBe("Land the summary in two sentences.");
+  });
+
+  it("clears speaker notes when passed an empty string", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>Old</div>", notes: "Stale" }],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      notes: "",
+    })) as Record<string, unknown>;
+
+    expect(result.applied).toBe(true);
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].notes).toBe("");
+  });
+
+  it("keeps click-reveal animations on a notes-only edit", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Old</div>",
+          animations: [
+            { id: "reveal", elementIndex: 0, elementPath: [0], type: "fade" },
+          ],
+        },
+      ],
+    });
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      notes: "Presenter cue only.",
+    });
+
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].animations).toHaveLength(1);
+  });
+
+  it("does not persist a notes edit that matches the stored notes", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>Old</div>", notes: "Same" }],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      notes: "Same",
+    })) as Record<string, unknown>;
+
+    expect(result.applied).toBe(false);
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("still requires one of edits, find, fullContent, or notes", async () => {
+    await expect(
+      action.run({ deckId: "deck-1", slideId: "slide-1" }),
+    ).rejects.toThrow(
+      "One of --edits, --find, --fullContent, or --notes is required",
+    );
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
   it("applies a surgical find/replace edit", async () => {
     const result = (await action.run({
       deckId: "deck-1",

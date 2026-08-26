@@ -97,7 +97,7 @@ function storedCreativeContext(value: unknown): {
 
 export default defineAction({
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default.",
+    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Pass `notes` to set the slide's presenter-only speaker notes; notes may be sent alone or alongside a content edit, and they never belong in the slide HTML. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -113,6 +113,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Full HTML to replace entire slide content"),
+    notes: z
+      .string()
+      .optional()
+      .describe(
+        "Presenter-only speaker notes for this slide. Replaces the existing notes; pass an empty string to clear them. Keep this text out of the slide HTML.",
+      ),
     edits: z
       .array(
         z.union([
@@ -204,6 +210,7 @@ export default defineAction({
       find,
       replace,
       fullContent,
+      notes,
       edits,
       baseContentHash,
       format,
@@ -212,8 +219,15 @@ export default defineAction({
       contextModeOverride,
       reuseLabels,
     } = args;
-    if (!edits && find === undefined && fullContent === undefined) {
-      throw new Error("One of --edits, --find, or --fullContent is required");
+    if (
+      !edits &&
+      find === undefined &&
+      fullContent === undefined &&
+      notes === undefined
+    ) {
+      throw new Error(
+        "One of --edits, --find, --fullContent, or --notes is required",
+      );
     }
     if (find !== undefined && find.length === 0) {
       throw new Error("find must not be empty for legacy search/replace");
@@ -295,7 +309,8 @@ export default defineAction({
       // never reverts an in-progress human edit, and (for the Yjs-backed inline
       // editor) applied through the editor's real content pipeline so new block
       // structure renders and merges with concurrent typing via the Yjs CRDT.
-      let applied = false;
+      let contentApplied = false;
+      let notesApplied = false;
       let notFound = false;
       // Per-edit outcomes for the `edits` batch (e.g. "insert-after:0" means
       // that edit's marker matched nothing and it silently no-opped). Stays
@@ -313,7 +328,7 @@ export default defineAction({
           preserveSource,
         });
         slide.content = nextContent;
-        applied = nextContent !== previousContent;
+        contentApplied = nextContent !== previousContent;
       } else if (edits) {
         const sourceContent = format
           ? await formatSlideHtml(previousContent)
@@ -331,9 +346,9 @@ export default defineAction({
           preserveSource,
         });
         slide.content = nextContent;
-        applied = patched.changed;
+        contentApplied = patched.changed;
         editResults = patched.applied;
-        if (!applied) slide.content = previousContent;
+        if (!contentApplied) slide.content = previousContent;
       } else if (find !== undefined) {
         const idx = previousContent.indexOf(find);
         if (idx === -1) {
@@ -350,16 +365,24 @@ export default defineAction({
             preserveSource,
           });
           slide.content = nextContent;
-          applied = nextContent !== previousContent;
+          contentApplied = nextContent !== previousContent;
         }
       }
+
+      // Speaker notes live beside the slide HTML, so a notes-only change is a
+      // real edit with no layout consequence.
+      if (notes !== undefined && String(slide.notes ?? "") !== notes) {
+        slide.notes = notes;
+        notesApplied = true;
+      }
+      const applied = contentApplied || notesApplied;
 
       // Animation targets are paths into the persisted HTML. A content edit
       // can keep every path valid while changing which visual element lives at
       // that path, so preserving the old list would reveal the wrong content.
       // patch-deck is the explicit escape hatch when content and animations
       // are intentionally revised together.
-      if (applied && Array.isArray(slide.animations)) {
+      if (contentApplied && Array.isArray(slide.animations)) {
         delete slide.animations;
       }
 
@@ -466,6 +489,7 @@ export default defineAction({
         });
         return {
           applied,
+          contentApplied,
           notFound,
           editResults,
           slide,
@@ -479,6 +503,7 @@ export default defineAction({
 
       return {
         applied,
+        contentApplied,
         notFound,
         editResults,
         slide,
@@ -528,18 +553,22 @@ export default defineAction({
     notifyClients(deckId, { slideId, actor: "agent" });
 
     console.log(
-      `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
+      `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : find !== undefined ? `find="${find.slice(0, 40)}"` : fullContent !== undefined ? "fullContent" : "notes"}${notes !== undefined ? " +notes" : ""} applied=${applied}`,
     );
 
     // Wait briefly for the editor to re-render and measure. If the patched
     // slide still overflows, surface the new measurement so the agent can
     // tighten further. Timeout = no editor open / nothing to measure.
-    const fit = await awaitLayoutFitCheck(
-      slideId,
-      fitSince,
-      4000,
-      hashSlideContent(rmw.slide?.content ?? ""),
-    );
+    // A notes-only edit leaves the rendered slide untouched, so there is no
+    // new layout to measure and nothing to wait for.
+    const fit = rmw.contentApplied
+      ? await awaitLayoutFitCheck(
+          slideId,
+          fitSince,
+          4000,
+          hashSlideContent(rmw.slide?.content ?? ""),
+        )
+      : null;
 
     const base = {
       ok: true,
@@ -558,7 +587,7 @@ export default defineAction({
         : {}),
     };
 
-    if (fit.status === "overflows") {
+    if (fit?.status === "overflows") {
       return {
         ...base,
         layoutOverflow: {

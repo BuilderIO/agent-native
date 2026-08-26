@@ -90,6 +90,20 @@ To edit a slide's content:
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
 
+## Speaker Notes
+
+Speaker notes are presenter-only text on the slide's `notes` field, never part
+of the slide HTML. Set them with `update-slide` using `notes`, either alone or
+in the same call as a content edit; pass an empty string to clear them. A
+notes-only edit leaves the rendered slide, its animations, and its fit
+measurement untouched. `patch-deck` with a `patch-slide` operation and
+`fields.notes` is the equivalent path when notes change together with other
+slide fields in one batch.
+
+When a request asked for speaker notes, verify with `get-deck` that `notes` is
+populated on each slide. Leaving them empty is a failed request, not a
+stylistic choice.
+
 ## Skipping a Slide
 
 Set a slide's `skipped: true` via a `patch-deck` `patch-slide` operation to

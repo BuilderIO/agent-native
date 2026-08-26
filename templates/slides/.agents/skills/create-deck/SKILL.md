@@ -25,9 +25,12 @@ Context, reference deck, or source material that the app already provides.
 5. Navigate to the new deck.
 6. Call `add-slide` once per slide in slide order, waiting for each result.
 
-When speaker notes are requested, put presenter-only text in each slide's
-`notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
-Preserve existing notes when editing or importing a source deck.
+When speaker notes are requested, or the outline you were asked for implies
+presenter narration, put presenter-only text in each slide's `notes` field on
+`create-deck` or `add-slide`; keep it out of the slide HTML. Preserve existing
+notes when editing or importing a source deck. Before reporting the deck done,
+confirm with `get-deck` that `notes` is populated - shipping empty notes for a
+request that asked for them is a failed request, not a stylistic choice.
 
 When the UI has already created the empty deck, keep its id and rename it before
 adding the first slide. Call `patch-deck` with a `patch-deck-fields` operation

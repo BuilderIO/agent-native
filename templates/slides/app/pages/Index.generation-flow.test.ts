@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  buildSourceDeckContext,
+  buildSourceModeInstructions,
+} from "../lib/deck-generation-instructions";
+
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
   "utf8",
@@ -12,6 +17,15 @@ const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
 );
+
+// The generation instruction lists are shared with the first-deck onboarding
+// flow, so assert them against the one builder both callers use rather than
+// against this file's inline source.
+const newDeckInstructions = buildSourceModeInstructions({
+  deckId: "deck-1",
+  hasImportedSourceDeck: false,
+});
+const sourceDeckContext = buildSourceDeckContext(4);
 
 describe("new deck generation flow", () => {
   it("opens the generating editor before persistence and dynamic questions", () => {
@@ -54,14 +68,16 @@ describe("new deck generation flow", () => {
   });
 
   it("requires a generated title before the first slide", () => {
-    const titleInstructionIndex = flow.indexOf(
+    const titleInstructionIndex = newDeckInstructions.indexOf(
       "After reading any requested or attached reference material, but before adding the first slide",
     );
-    const titlePatchIndex = flow.indexOf('"op": "patch-deck-fields"');
-    const addSlideInstructionIndex = flow.indexOf(
+    const titlePatchIndex = newDeckInstructions.indexOf(
+      '"op": "patch-deck-fields"',
+    );
+    const addSlideInstructionIndex = newDeckInstructions.indexOf(
       "Add slides ONE AT A TIME using the `add-slide` action",
     );
-    const sparseTitleInstructionIndex = flow.indexOf(
+    const sparseTitleInstructionIndex = newDeckInstructions.indexOf(
       "Include only `title` in `fields`; omit all other optional fields.",
     );
 
@@ -69,17 +85,19 @@ describe("new deck generation flow", () => {
     expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
     expect(sparseTitleInstructionIndex).toBeGreaterThan(titlePatchIndex);
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
-    expect(flow).toContain(
-      "Never use the deck id, run id, file id, or another opaque alphanumeric token as the title",
+    expect(newDeckInstructions).toContain(
+      "Never use the deck id, run id, file id, uploaded filename, or another opaque alphanumeric token as the title",
     );
   });
 
   it("keeps presentation generation multi-slide and persisted", () => {
-    expect(flow).toContain(
+    expect(newDeckInstructions).toContain(
       "infer a coherent multi-slide outline from the scope",
     );
-    expect(flow).toContain("Do not call the legacy generate-slides-ai action");
-    expect(flow).toContain(
+    expect(newDeckInstructions).toContain(
+      "Do not call the legacy generate-slides-ai action",
+    );
+    expect(newDeckInstructions).toContain(
       "Treat each successful add-slide result as confirmation",
     );
   });
@@ -97,7 +115,7 @@ describe("new deck generation flow", () => {
   });
 
   it("keeps ordinary attachments as reference material for a new deck", () => {
-    expect(flow).toContain(
+    expect(newDeckInstructions).toContain(
       "attached reference files must not seed it with imported slides",
     );
     expect(source).toContain(
@@ -105,10 +123,7 @@ describe("new deck generation flow", () => {
     );
     expect(flow).toContain("isSourceImprovementRequest");
     expect(flow).toContain("importUploadedDeckIntoDeck");
-    expect(flow).toContain("Source-preserving improvement mode");
-    expect(flow).toContain(
-      "attached reference files must not seed it with imported slides",
-    );
+    expect(sourceDeckContext).toContain("Source-preserving improvement mode");
   });
 
   it("routes both prompt submit and prompt skip into the reference step", () => {
