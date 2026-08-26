@@ -83,7 +83,7 @@ function variantColor(variant: ButtonVariant) {
 function variantClasses(variant: ButtonVariant) {
   switch (variant) {
     case "cta":
-      return "bg-[var(--b-text-primary)] border-[var(--b-text-primary)] hover:bg-[var(--c-neutral-100)] hover:border-[var(--c-neutral-100)]";
+      return "bg-[var(--b-text-primary)] border-[var(--b-text-primary)] hover:bg-[var(--b-action-cta-hover)] hover:border-[var(--b-action-cta-hover)]";
     case "primary":
     case "primary-icon":
       return "bg-[var(--b-action-primary-bg)] border-[var(--b-action-primary-bg)] hover:bg-[var(--b-action-primary-hover)] hover:border-[var(--b-action-primary-hover)] hover:shadow-[0_0_16px_var(--b-action-primary-effect)]";
@@ -106,8 +106,8 @@ function forcedHoverStyle(
   switch (variant) {
     case "cta":
       return {
-        background: "var(--c-neutral-100)",
-        borderColor: "var(--c-neutral-100)",
+        background: "var(--b-action-cta-hover)",
+        borderColor: "var(--b-action-cta-hover)",
       };
     case "primary":
     case "primary-icon":

@@ -67,10 +67,23 @@
   --b-action-primary-text: #0a0a0a;
   --b-action-primary-border: #00dff6;
   --b-action-primary-effect: #01c8f166;
-  --b-action-secondary-bg: transparent;
-  --b-action-secondary-hover: #1a1a1a;
+  /* Page background rather than transparent so the hero's shader canvas
+     doesn't show through the button. Resolves per-theme via --b-bg-page, and
+     since that matches --b-bg-surface in both themes this is visually
+     identical anywhere else a secondary button sits. */
+  --b-action-secondary-bg: var(--b-bg-page);
+  /* One step up from the page background, which is exactly what
+     --b-bg-prominent already is in both themes (#1a1a1a dark, #f0efeb light).
+     The literal dark value this used to hold had no light-mode override, so a
+     light-mode secondary button hovered to near-black under near-black text. */
+  --b-action-secondary-hover: var(--b-bg-prominent);
   --b-action-secondary-text: #faf9f5;
   --b-action-secondary-border: #5e5e5e;
+  /* The cta variant fills with --b-text-primary, so its hover has to move in
+     the opposite direction per theme: dimmer than near-white in dark, lifted
+     off near-black in light. A single palette value can't do that, which is
+     why the light block overrides this. */
+  --b-action-cta-hover: #e0e0d7;
   --b-action-tab-bg: #0a0a0a;
   --b-action-tab-bg-active: #00161b;
   --b-action-tab-bg-hover: #0f0f0f;
@@ -185,6 +198,7 @@
   --b-action-primary-text: #ffffff;
   --b-action-primary-border: #00677f;
   --b-action-secondary-text: #0a0a0a;
+  --b-action-cta-hover: #2e2e2e;
   --b-action-tab-bg: #faf9f5;
   --b-action-tab-bg-active: #e5f8fa;
   --b-action-tab-bg-hover: #f0efeb;
