@@ -173,6 +173,11 @@ export function isSigningOut(): boolean {
 export function beginSignOut(): void {
   signingOut = true;
   publishSessionIdentity(null);
+  invalidateSessionCache();
+}
+
+/** Notify other browsing contexts after the server has confirmed revocation. */
+export function completeSignOut(): void {
   notifyParentAuthState("unauthenticated");
   notifySessionInvalidated();
 }

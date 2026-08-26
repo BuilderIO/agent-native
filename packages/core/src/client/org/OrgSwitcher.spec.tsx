@@ -9,6 +9,7 @@ import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   beginSignOut: vi.fn(),
+  completeSignOut: vi.fn(),
   notifySessionInvalidated: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("./hooks.js", () => {
 
 vi.mock("../use-session.js", () => ({
   beginSignOut: mocks.beginSignOut,
+  completeSignOut: mocks.completeSignOut,
   notifySessionInvalidated: mocks.notifySessionInvalidated,
   useSession: mocks.useSession,
 }));
@@ -71,9 +73,7 @@ describe("OrgSwitcher", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
     mocks.beginSignOut.mockReset();
-    mocks.beginSignOut.mockImplementation(() => {
-      mocks.notifySessionInvalidated();
-    });
+    mocks.completeSignOut.mockReset();
     mocks.notifySessionInvalidated.mockReset();
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();
@@ -321,7 +321,8 @@ describe("OrgSwitcher", () => {
         signal: expect.any(AbortSignal),
       });
       expect(mocks.beginSignOut).toHaveBeenCalledOnce();
-      expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
+      expect(mocks.completeSignOut).not.toHaveBeenCalled();
+      expect(mocks.notifySessionInvalidated).not.toHaveBeenCalled();
       expect(reload).toHaveBeenCalledOnce();
       expect(replace).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(

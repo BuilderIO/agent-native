@@ -115,14 +115,14 @@ describe("signOut", () => {
 
       const pending = signOut();
       await Promise.resolve();
-      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(setItem).not.toHaveBeenCalled();
 
       settleRevoke!(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
       );
       await pending;
 
-      expect(setItem).toHaveBeenCalledTimes(2);
+      expect(setItem).toHaveBeenCalledTimes(1);
     } finally {
       if (originalLocalStorage) {
         Object.defineProperty(window, "localStorage", originalLocalStorage);
@@ -155,7 +155,7 @@ describe("signOut", () => {
 
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
-    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(setItem).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
     if (originalLocalStorage) {
       Object.defineProperty(window, "localStorage", originalLocalStorage);
@@ -197,7 +197,7 @@ describe("signOut", () => {
     expect(signal?.aborted).toBe(true);
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
-    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(setItem).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(
       "Unable to complete the sign-out request",
       expect.anything(),

@@ -416,8 +416,9 @@ describe("useSession", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("notifies a trusted embedding host when signing out", async () => {
-    const { beginSignOut: begin } = await freshSessionModule();
+  it("notifies a trusted embedding host only after sign-out succeeds", async () => {
+    const { beginSignOut: begin, completeSignOut: complete } =
+      await freshSessionModule();
     const postMessage = vi.fn();
     const parentWindow = { postMessage };
     const parentDescriptor = Object.getOwnPropertyDescriptor(window, "parent");
@@ -435,9 +436,13 @@ describe("useSession", () => {
         source: parentWindow as Window,
       }),
     );
+    postMessage.mockClear();
 
     try {
       begin();
+      expect(postMessage).not.toHaveBeenCalled();
+
+      complete();
 
       expect(postMessage).toHaveBeenLastCalledWith(
         {
