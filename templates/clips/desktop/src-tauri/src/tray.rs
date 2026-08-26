@@ -67,6 +67,31 @@ static TRAY_RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 /// and the dead-man loop below clears the status item — a stale menu-bar
 /// timer is structurally impossible, not just handled per code path.
 static TRAY_LAST_WRITE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Icon image last applied to the status item: unset, app logo, or stop
+/// square. Tracked separately from `TRAY_RECORDING` because it records what
+/// the status item actually accepted, not what was requested.
+const TRAY_ICON_MODE_UNSET: i8 = -1;
+static TRAY_ICON_MODE: std::sync::atomic::AtomicI8 =
+    std::sync::atomic::AtomicI8::new(TRAY_ICON_MODE_UNSET);
+
+fn tray_icon_mode(stored: i8) -> Option<bool> {
+    if stored == TRAY_ICON_MODE_UNSET {
+        None
+    } else {
+        Some(stored != 0)
+    }
+}
+
+/// Whether the status item's icon image has to be re-uploaded.
+///
+/// `set_icon` replaces the NSStatusItem's image, and the pill refreshes the
+/// title four times a second to tick the timer. Re-uploading the same image at
+/// that cadence makes the menu-bar icon visibly flash, so the image is written
+/// only on the first write and on an actual mode flip. The title still goes
+/// out every call — it is the part that genuinely changes.
+fn tray_icon_needs_write(previous: Option<bool>, next: bool) -> bool {
+    previous != Some(next)
+}
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -85,14 +110,26 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
     let Some(tray) = app.tray_by_id("main") else {
         return;
     };
-    if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
-        let icon = if active {
-            stop_square_icon(base.width(), base.height())
-        } else {
-            base
-        };
-        let _ = tray.set_icon(Some(icon));
-        let _ = tray.set_icon_as_template(true);
+    let applied_icon_mode =
+        tray_icon_mode(TRAY_ICON_MODE.load(std::sync::atomic::Ordering::SeqCst));
+    if tray_icon_needs_write(applied_icon_mode, active) {
+        if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
+            let icon = if active {
+                stop_square_icon(base.width(), base.height())
+            } else {
+                base
+            };
+            // Recorded only once the status item accepts the image: a failed
+            // write must stay pending so the next call retries it, not look
+            // like the mode is already on screen.
+            match tray.set_icon(Some(icon)) {
+                Ok(()) => {
+                    let _ = tray.set_icon_as_template(true);
+                    TRAY_ICON_MODE.store(i8::from(active), std::sync::atomic::Ordering::SeqCst);
+                }
+                Err(err) => eprintln!("[clips-tray] status item icon update failed: {err}"),
+            }
+        }
     }
     // ALWAYS Some(...): tray-icon's macOS set_title is a silent no-op for
     // None (its Some-only branch never clears the NSStatusItem text), so a
@@ -495,4 +532,36 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tray_icon_mode, tray_icon_needs_write, TRAY_ICON_MODE_UNSET};
+
+    #[test]
+    fn writes_the_icon_on_the_first_call() {
+        assert!(tray_icon_needs_write(None, false));
+        assert!(tray_icon_needs_write(None, true));
+    }
+
+    #[test]
+    fn skips_the_icon_when_the_mode_is_unchanged() {
+        // The pill re-invokes the status update four times a second to tick
+        // the timer; re-uploading the same image at that rate is the flash.
+        assert!(!tray_icon_needs_write(Some(true), true));
+        assert!(!tray_icon_needs_write(Some(false), false));
+    }
+
+    #[test]
+    fn writes_the_icon_on_a_mode_flip_in_either_direction() {
+        assert!(tray_icon_needs_write(Some(false), true));
+        assert!(tray_icon_needs_write(Some(true), false));
+    }
+
+    #[test]
+    fn reads_an_unset_mode_as_never_written() {
+        assert_eq!(tray_icon_mode(TRAY_ICON_MODE_UNSET), None);
+        assert_eq!(tray_icon_mode(0), Some(false));
+        assert_eq!(tray_icon_mode(1), Some(true));
+    }
 }
