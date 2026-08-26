@@ -106,6 +106,7 @@ export function BuiltInFeatures() {
             fontSize: "var(--b-t-paragraph-1)",
             lineHeight: 1.4,
             color: "var(--b-text-secondary)",
+            textWrap: "pretty",
           }}
         >
           Everything users and AI agents need to work together, already wired
