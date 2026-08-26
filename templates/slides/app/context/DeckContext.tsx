@@ -1896,8 +1896,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const resetDeckBaseline = useCallback(
     (nextDecks: Deck[], createSeqAtRequest: number) => {
-      const reconciledDecks = nextDecks.map(
-        reconcileServerDeckWithDeleteTombstones,
+      const reconciledDecks = nextDecks.map((deck) =>
+        deck.previewSlide
+          ? deck
+          : reconcileServerDeckWithDeleteTombstones(deck),
       );
       const nextIds = new Set(reconciledDecks.map((d) => d.id));
       setDecks((prev) => {
