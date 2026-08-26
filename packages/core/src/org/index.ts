@@ -25,6 +25,7 @@ export {
   getOrgDomain,
   getOrgA2ASecret,
   getA2ASecretByDomain,
+  isSoleOrgDomain,
   resolveOrgByDomain,
   resolveOrgIdForEmail,
   createOrganization,
