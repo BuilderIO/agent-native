@@ -7774,6 +7774,9 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     heartbeatWhileUnclaimed,
     BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   );
+  // Close the gap before the first interval tick when the row is already near
+  // the unclaimed-reaper cutoff.
+  heartbeatWhileUnclaimed();
   try {
     await record(
       opts.runId,

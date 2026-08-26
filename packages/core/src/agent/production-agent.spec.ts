@@ -11488,6 +11488,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
 
     expect(d.insertRun).not.toHaveBeenCalled();
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claimed",
@@ -11608,6 +11609,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
       { dispatchMode: "background" },
     );
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "insert",
       "claim",
@@ -11616,7 +11618,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
     ]);
   });
 
-  it("records duplicate deliveries and does not heartbeat or execute the turn", async () => {
+  it("records duplicate deliveries and does not execute the turn", async () => {
     const d = deps(false);
 
     await expect(
@@ -11629,8 +11631,9 @@ describe("claimBackgroundWorkerRunEarly", () => {
       }),
     ).resolves.toEqual({ claimed: false, skipped: "already-claimed" });
 
-    expect(d.updateRunHeartbeat).not.toHaveBeenCalled();
+    expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-dupe");
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claim_lost",
