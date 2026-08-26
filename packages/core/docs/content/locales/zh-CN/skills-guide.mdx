@@ -377,7 +377,7 @@ claude plugin install agent-native-assets@agent-native-apps
 Vercel Labs `skills` 适配器是便携式 `skills/<name>/SKILL.md` 捆绑包
 适用于 `npx skills@latest add ...`，但原始 `skills` CLI 仅安装说明。
 它不运行存储库定义的安装后脚本或注册 MCP 连接器。
-将 Agent Native CLI 保留为本地代理的默认文档路径，因为它
+将 Agent-Native CLI 保留为本地代理的默认文档路径，因为它
 还注册 MCP 连接器。 `BuilderIO/agent-native`是真正的GitHub
 Vercel/open Skills CLI 的存储库源； `skills.sh` 是一个发现，并且
 排行榜目录，而不是npm风格的包命名空间。
@@ -406,10 +406,10 @@ npx @agent-native/core@latest skills update visual-plan
 
 `skills update` 扫描已知的 Codex/Claude 项目和用户技能文件夹，进行比较
 将文件夹哈希复制到最新的捆绑技能，并重写旧文件夹
-地点。新复制的 Agent Native skills 包括 `agent-native-skill.json`
+地点。新复制的 Agent-Native skills 包括 `agent-native-skill.json`
 标记，以便将来的状态输出可以识别源和哈希值。
 
-生成的 Agent Native 应用程序和工作区还包括框架提供的
+生成的 Agent-Native 应用程序和工作区还包括框架提供的
 `.agents/skills` 下的 skills（或 `packages/shared/.agents/skills` 中的
 工作区）。使用以下命令从当前/最新的 CLI 刷新那些支架 skills：
 

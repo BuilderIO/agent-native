@@ -2,7 +2,7 @@
   "name": "@agent-native/desktop-app",
   "version": "0.1.150",
   "private": true,
-  "description": "Agent Native desktop app",
+  "description": "Agent-Native desktop app",
   "homepage": "https://agent-native.com",
   "bugs": {
     "url": "https://github.com/BuilderIO/agent-native/issues"
@@ -66,5 +66,5 @@
     "vite": "catalog:",
     "vitest": "^4.1.10"
   },
-  "productName": "Agent Native"
+  "productName": "Agent-Native"
 }

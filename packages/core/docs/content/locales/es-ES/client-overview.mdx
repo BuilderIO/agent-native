@@ -9,7 +9,7 @@ description: "Los directorios app/ y public/: dónde se construye la visualizaci
 
 La única diferencia arquitectónica respecto a un frontend típico: esta capa no tiene su propio backend-for-frontend. Lee y escribe datos a través de las mismas acciones que llama el agente, así que cualquier cosa que se conecte aquí es automáticamente algo que el agente también puede hacer.
 
-<Diagram id="doc-block-client-overview-1" title="Frontend tradicional frente a Agent Native" summary="Un frontend tradicional llama a su propia capa de API, a la que solo él puede acceder. En Agent Native, app/ y el agente llaman ambos a las mismas acciones, por lo que toda capacidad creada aquí queda disponible para el agente sin coste adicional.">
+<Diagram id="doc-block-client-overview-1" title="Frontend tradicional frente a Agent-Native" summary="Un frontend tradicional llama a su propia capa de API, a la que solo él puede acceder. En Agent-Native, app/ y el agente llaman ambos a las mismas acciones, por lo que toda capacidad creada aquí queda disponible para el agente sin coste adicional.">
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ La única diferencia arquitectónica respecto a un frontend típico: esta capa n
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (frontend de React)</div>
       <div class="diagram-node">Agente</div>

@@ -62,7 +62,7 @@ Read the relevant skill before deeper work:
   Destinations for concrete thread, change-history, and delivery investigations;
   Dispatch does not invent a separate issue tracker when those framework
   surfaces contain the operational evidence.
-- Thread Debug accepts the copied request/run ID from an Agent Native chat
+- Thread Debug accepts the copied request/run ID from an Agent-Native chat
   response as well as a chat thread ID; use the exact source that owns the run.
   Hosted production sources appear only when Dispatch has their
   <APP>_DATABASE_URL connection variables (or an equivalent

@@ -5,6 +5,8 @@ description: "Host many agent-native apps in one monorepo with shared auth, RBAC
 
 # Multi-App Workspaces
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 <Callout tone="info">
 
 **Developer page.** This page is for developers scaffolding or deploying a multi-app repo. It covers the **deployment shape** — one monorepo, many apps, shared auth and a unified deploy. For the agent customization layer (Agent Resources: `AGENTS.md`, memory, skills, custom agents) see [Agent Resources](/docs/agent-resources); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
@@ -138,7 +140,7 @@ That's it. The new app has the same login and workspace instructions as every ot
 
 ## What you override where {#layering}
 
-Agent-native apps inside a workspace resolve cross-cutting behavior from three places, in this order:
+Agent-Native apps inside a workspace resolve cross-cutting behavior from three places, in this order:
 
 1. **App local** — files inside `apps/<name>/` (highest priority)
 2. **Workspace shared** — files inside `packages/shared/` (the shared mid-layer)

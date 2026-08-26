@@ -35,9 +35,9 @@ Agent-Native 應用程式分為兩種形式：範本具有完整的瀏覽器 UI�
 
 ## 社群模板 {#community-templates}
 
-CLI 選擇器中按名稱提供的模板是**第一方模板**：Agent Native 會隨框架一起
+CLI 選擇器中按名稱提供的模板是**第一方模板**：Agent-Native 會隨框架一起
 維護、測試、記錄和發佈它們。**社群模板**由其儲存庫擁有者負責維護和版本
-管理。它可以使用相同的框架能力，但進入社群清單並不表示 Agent Native 對其
+管理。它可以使用相同的框架能力，但進入社群清單並不表示 Agent-Native 對其
 背書或承諾提供支援。
 
 執行 `create`，選擇**社群模板**，然後貼上公開 GitHub 儲存庫的簡單 URL：
@@ -46,8 +46,8 @@ CLI 選擇器中按名稱提供的模板是**第一方模板**：Agent Native �
 https://github.com/owner/repo
 ```
 
-如果儲存庫根目錄是單一 Agent Native 應用程式，CLI 會直接安裝，不再顯示
-其他選擇器。如果儲存庫是 Agent Native 工作區，CLI 會發現 `apps/*` 的有效
+如果儲存庫根目錄是單一 Agent-Native 應用程式，CLI 會直接安裝，不再顯示
+其他選擇器。如果儲存庫是 Agent-Native 工作區，CLI 會發現 `apps/*` 的有效
 直接子項，排除 `dispatch`，並詢問要安裝哪個應用程式。
 
 非空的 `agent-native.workspaceCore` 標記會使儲存庫被視為工作區，即使根
@@ -121,7 +121,7 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 [Creating Templates](/docs/creating-templates)。
 
 > **安裝相依項目或執行社群程式碼之前，請先進行審查。** 社群模板從第三方
-> 儲存庫下載；Agent Native 不會對其進行 sandbox、稽核或維護。CLI 只下載
+> 儲存庫下載；Agent-Native 不會對其進行 sandbox、稽核或維護。CLI 只下載
 > 原始碼，不會安裝相依項目或執行模板指令碼。請檢查原始碼、授權、相依項目
 > 和 package install scripts，並優先使用已固定且可信的 ref。
 

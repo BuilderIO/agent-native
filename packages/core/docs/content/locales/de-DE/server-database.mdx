@@ -343,7 +343,7 @@ Das vollständige Modell finden Sie unter [Security — Data Scoping](/docs/secu
 
 ## SQL-gestützte Synchronisierung {#sync}
 
-Agent-native verlässt sich nicht auf Dateisystem-Watcher oder klebrigen In-Memory-Zustand. Wenn eine Action in die Datenbank schreibt, erhöht sich eine Sync-Version. Der Client-Hook `useDbSync()` pollt `/_agent-native/poll` und invalidiert React-Query-Caches, sobald er eine höhere Version sieht.
+Agent-Native verlässt sich nicht auf Dateisystem-Watcher oder klebrigen In-Memory-Zustand. Wenn eine Action in die Datenbank schreibt, erhöht sich eine Sync-Version. Der Client-Hook `useDbSync()` pollt `/_agent-native/poll` und invalidiert React-Query-Caches, sobald er eine höhere Version sieht.
 
 Das funktioniert über serverlose und Multi-Instanz-Deployments hinweg, weil die Datenbank der Koordinationspunkt ist. Wenn Sie benutzerdefinierte Mutationen außerhalb von Actions schreiben, verwenden Sie Framework-Helfer oder lösen Sie die passende Sync-Invalidierung aus, damit offene UIs sich aktualisieren.
 

@@ -1206,7 +1206,7 @@ describe("remote integration plugin routes", () => {
       orgId: "org-1",
       payload: expect.objectContaining({
         title: "Remote run completed",
-        body: "Open Agent Native to review the result.",
+        body: "Open Agent-Native to review the result.",
         commandId: "cmd-1",
         kind: "append-followup",
         status: "completed",

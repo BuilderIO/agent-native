@@ -119,7 +119,7 @@ time from the command menu (Cmd+K → "What's new").
 ### Improved
 
 - Creating an app from a curated template now uses clearer, more direct language.
-- Thread Debug can open a run directly from the copied request ID in an Agent Native chat.
+- Thread Debug can open a run directly from the copied request ID in an Agent-Native chat.
 
 ## 2026-07-26
 

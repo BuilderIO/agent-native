@@ -87,7 +87,7 @@ El directorio `server/` es la capa de infraestructura de una aplicación nativa 
 
 En una aplicación web tradicional, el servidor es donde vive la mayor parte de la lógica. Las reglas de negocio, el acceso a datos y la presentación ocurren todos dentro de los manejadores de ruta. Las aplicaciones nativas del agente funcionan de otra forma. La lógica vive en las actions, que el agente y la UI comparten como socios en igualdad de condiciones. El trabajo del servidor es la coordinación: ejecutar migraciones de la base de datos, configurar la autenticación, montar el bucle del agente y gestionar el conjunto reducido de asuntos HTTP que las actions no pueden expresar por sí solas.
 
-<Diagram id="doc-block-server-overview-2" title="Servidor tradicional frente a Agent Native">
+<Diagram id="doc-block-server-overview-2" title="Servidor tradicional frente a Agent-Native">
 
 ```html
 <div class="diagram-cmp">
@@ -109,7 +109,7 @@ En una aplicación web tradicional, el servidor es donde vive la mayor parte de 
   </div>
   <div class="cmp-vs diagram-muted">vs</div>
   <div class="cmp-col">
-    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-label diagram-muted">Agent-Native</div>
     <div class="cmp-callers">
       <div class="diagram-node">Navegador / UI</div>
       <div class="diagram-node">Agente</div>
@@ -215,7 +215,7 @@ La API subyacente de solicitud/respuesta es [H3](https://h3.unjs.io). Cuando vea
 
 ## Recurrir primero a las Actions {#actions-first}
 
-La arquitectura de Agent Native es distinta. Cada vez que piense en una nueva función para su aplicación, considere primero si puede ser una action. Por ejemplo, si tanto la UI como el agente necesitan hacer algo, defina una action en lugar de una ruta de API personalizada. Las actions se convierten automáticamente en:
+La arquitectura de Agent-Native es distinta. Cada vez que piense en una nueva función para su aplicación, considere primero si puede ser una action. Por ejemplo, si tanto la UI como el agente necesitan hacer algo, defina una action en lugar de una ruta de API personalizada. Las actions se convierten automáticamente en:
 
 - Herramientas del agente.
 - Hooks de frontend tipados.

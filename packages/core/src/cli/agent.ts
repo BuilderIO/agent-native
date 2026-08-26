@@ -313,7 +313,7 @@ export async function createHeadlessBuiltinActions(): Promise<
       readOnly: true,
       tool: {
         description:
-          "Search version-matched Agent Native docs and readable Core, Toolkit, and first-party template source together. Use this first when a docs answer may require implementation evidence; supports substring, glob, SQL-like, and safe regex modes.",
+          "Search version-matched Agent-Native docs and readable Core, Toolkit, and first-party template source together. Use this first when a docs answer may require implementation evidence; supports substring, glob, SQL-like, and safe regex modes.",
         parameters: {
           type: "object",
           properties: {
@@ -360,7 +360,7 @@ export async function createHeadlessBuiltinActions(): Promise<
       readOnly: true,
       tool: {
         description:
-          "Search and read version-matched Agent Native framework documentation bundled in @agent-native/core, plus bundled AGENTS.md and codebase skills. Use --list to see pages, --query to search, and --slug to read a page.",
+          "Search and read version-matched Agent-Native framework documentation bundled in @agent-native/core, plus bundled AGENTS.md and codebase skills. Use --list to see pages, --query to search, and --slug to read a page.",
         parameters: {
           type: "object",
           properties: {

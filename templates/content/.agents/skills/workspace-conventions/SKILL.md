@@ -1,7 +1,7 @@
 ---
 name: workspace-conventions
 description: >-
-  Shared conventions for a multi-app Agent Native workspace: finding
+  Shared conventions for a multi-app Agent-Native workspace: finding
   version-matched framework docs and source, shared vs app-owned code, file and
   blob storage, env and secrets, agent scratch files, and Dispatch Resources.
   Use when working across workspace apps, storing files or credentials, or

@@ -181,7 +181,7 @@ describe("dashboard catalog", () => {
     expect(entry?.panelCount).toBe(38);
 
     const config = cloneDashboardConfig(entry!);
-    expect(config.name).toBe("Agent Native Templates (First-party)");
+    expect(config.name).toBe("Agent-Native Templates (First-party)");
     expect(config.panels).toHaveLength(42);
     expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(42);
     expect(

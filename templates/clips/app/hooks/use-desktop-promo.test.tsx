@@ -48,7 +48,7 @@ describe("useDesktopPromo", () => {
 
   it("does not flash the desktop CTA inside Electron", () => {
     vi.stubGlobal("navigator", {
-      userAgent: "Agent Native Electron",
+      userAgent: "Agent-Native Electron",
     });
     renderProbe();
 

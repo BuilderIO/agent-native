@@ -1965,7 +1965,7 @@ export default defineAction({
       });
       pptx.layout = "AGENT_NATIVE";
     }
-    pptx.author = "Agent Native Slides";
+    pptx.author = "Agent-Native Slides";
     pptx.title = row.title;
     // The font scheme is the one half of the theme pptxgenjs does expose;
     // without it a themed deck re-imports as Calibri Light / Calibri.
