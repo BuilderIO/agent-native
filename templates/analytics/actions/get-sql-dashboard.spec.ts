@@ -125,7 +125,7 @@ describe("get-sql-dashboard seed fallback", () => {
       id: FIRST_PARTY_DASHBOARD_ID,
       kind: "sql",
       config: {
-        name: "Agent Native Templates (First-party)",
+        name: "Agent-Native Templates (First-party)",
         panels: [
           {
             id: "new-vs-recurring-users",

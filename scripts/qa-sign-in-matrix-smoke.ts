@@ -22,7 +22,7 @@
  * marker-only, so `/chatapp/login` was not recognised as an auth entry path
  * and case 3 was a live infinite bounce.
  *
- * The request-level half of the matrix — Builder desktop proxy, Agent Native
+ * The request-level half of the matrix — Builder desktop proxy, Agent-Native
  * Desktop deep link, mobile WebView, MCP opaque-origin embed, identity-SSO
  * hop, `/_agent-native/open`, MCP authorize, CDN-cached shell — lives in
  * packages/core/src/server/sign-in-matrix.spec.ts. Those surfaces complete

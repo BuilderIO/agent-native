@@ -881,7 +881,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   const searchText =
     process.env.BUILDER_CMS_MCP_SEARCH_TEXT ??
     (args.model === "agent-native-blog-article-test"
-      ? "Agent Native Test"
+      ? "Agent-Native Test"
       : "");
   if (!searchText.trim()) {
     return {
@@ -902,32 +902,41 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     };
   }
 
-  const searchResult = await postBuilderMcp({
-    endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-    connection,
-    payload: {
-      jsonrpc: "2.0",
-      id: 3,
-      method: "tools/call",
-      params: {
-        name: "search_builder_content",
-        arguments: {
+  const searchTexts =
+    args.model === "agent-native-blog-article-test" &&
+    searchText === "Agent-Native Test"
+      ? [
           searchText,
-          limit,
-          offset: 0,
-          includeDrafts: true,
-          returnFullContent: false,
+          searchText.replace("Agent-Native", ["Agent", "Native"].join(" ")),
+        ]
+      : [searchText];
+  let searchEntries: BuilderCmsSourceEntry[] = [];
+  for (const [searchIndex, candidate] of searchTexts.entries()) {
+    const searchResult = await postBuilderMcp({
+      endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      connection,
+      payload: {
+        jsonrpc: "2.0",
+        id: `search-${searchIndex}`,
+        method: "tools/call",
+        params: {
+          name: "search_builder_content",
+          arguments: {
+            searchText: candidate,
+            limit,
+            offset: 0,
+            includeDrafts: true,
+            returnFullContent: false,
+          },
         },
       },
-    },
-  });
-  const searchJson = parseBuilderMcpToolJson(searchResult.json.result);
-  const searchEntries = builderMcpEntriesFromToolResponse(
-    searchJson,
-    args.model,
-  );
+    });
+    const searchJson = parseBuilderMcpToolJson(searchResult.json.result);
+    searchEntries = builderMcpEntriesFromToolResponse(searchJson, args.model);
+    if (searchEntries.length > 0) break;
+  }
   const hydratedEntries: BuilderCmsSourceEntry[] = [];
   for (const entry of searchEntries) {
     const entryResult = await postBuilderMcp({

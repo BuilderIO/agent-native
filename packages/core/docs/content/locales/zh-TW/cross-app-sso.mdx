@@ -260,7 +260,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **重新導向允許清單。** 集線器（調度）在發出權杖之前驗證授權端點上的 `redirect_uri`。允許名單在`templates/dispatch/server/lib/identity-sso.ts`中設定：
 
-- **預設值：** 僅允許精確註冊的 Agent Native 應用程式 ID/來源組合和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
+- **預設值：** 僅允許精確註冊的 Agent-Native 應用程式 ID/來源組合和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
 - **擴充功能它：**在 Dispatch 部署上設定 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 環境變數，並使用逗號分隔的其他主機後綴清單：
 
   ```bash

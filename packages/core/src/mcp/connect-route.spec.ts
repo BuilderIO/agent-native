@@ -178,7 +178,7 @@ describe("handleMcpConnect", () => {
       const body = await res.text();
       expect(res.status).toBe(200);
       expect(body).not.toContain("Connect an external agent");
-      expect(body).not.toContain(">Agent Native<");
+      expect(body).not.toContain(">Agent-Native<");
       expect(body).not.toContain("app-pill");
       expect(body).not.toContain('connectionsStateEl.textContent = "None"');
       expect(body).toContain(

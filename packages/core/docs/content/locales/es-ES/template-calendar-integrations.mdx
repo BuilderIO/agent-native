@@ -20,7 +20,7 @@ localmente.
 ### Mismo espacio de trabajo: automático
 
 Si Calendario y Dispatch se generaron o se añadieron juntos en un mismo
-espacio de trabajo de Agent Native (mediante `create` o `add-app`) y se
+espacio de trabajo de Agent-Native (mediante `create` o `add-app`) y se
 desplegaron como una sola unidad, ya comparten un `.env`, un `A2A_SECRET` y
 un registro de espacio de trabajo. Tanto el descubrimiento como las
 llamadas A2A autenticadas simplemente funcionan, sin nada que configurar,
@@ -30,7 +30,7 @@ construido sobre Calendario.
 
 ### Despliegues separados: un paso manual
 
-Si Calendario y Dispatch son dos proyectos de Agent Native creados de
+Si Calendario y Dispatch son dos proyectos de Agent-Native creados de
 forma independiente, no comparten un secreto y todavía no pueden llamarse
 entre sí. Conectarlos requiere un paso manual en cada lado: añade un
 recurso `remote-agents/<id>.json` con un secreto compartido, desde

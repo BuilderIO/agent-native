@@ -14,7 +14,7 @@ workspace core or the app that needs it; do not copy it into every app.
 
 ## Framework Docs Lookup
 
-Version-matched Agent Native docs ship with `@agent-native/core` in
+Version-matched Agent-Native docs ship with `@agent-native/core` in
 `node_modules/@agent-native/core/docs`. A source-only corpus of first-party
 template patterns ships in `node_modules/@agent-native/core/corpus`.
 

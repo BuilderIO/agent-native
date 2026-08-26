@@ -1,11 +1,11 @@
 ---
 title: "أنظمة التصميم المخصصة"
-description: "استخدم نظام تصميم React الخاص بشركتك عبر تطبيقات Agent Native وتجارب Toolkit المشتركة من دون استبدال سلوك Agent Native."
+description: "استخدم نظام تصميم React الخاص بشركتك عبر تطبيقات Agent-Native وتجارب Toolkit المشتركة من دون استبدال سلوك Agent-Native."
 ---
 
 # أنظمة التصميم المخصصة
 
-يمكن لـ Agent Native عرض الشاشات التي يملكها التطبيق وتجارب Toolkit المشتركة باستخدام مكونات React الخاصة بشركتك. سجّل محولًا صريحًا ومحدد الأنواع مرة واحدة؛ وتواصل وحدات التحكم بالميزات نفسها امتلاك الإجراءات والحالة ومتطلبات إمكانية الوصول والسلوك الظاهر للوكيل.
+يمكن لـ Agent-Native عرض الشاشات التي يملكها التطبيق وتجارب Toolkit المشتركة باستخدام مكونات React الخاصة بشركتك. سجّل محولًا صريحًا ومحدد الأنواع مرة واحدة؛ وتواصل وحدات التحكم بالميزات نفسها امتلاك الإجراءات والحالة ومتطلبات إمكانية الوصول والسلوك الظاهر للوكيل.
 
 لا يتطلب عقد المحول Tailwind أو shadcn أو Radix أو `className` أو أي بيئة تشغيل تنسيق بعينها. يمكن للمكوّن استخدام موفر سمات أو CSS-in-JS أو CSS Modules أو React Aria أو CSS العادي. إن `className` و`style` خطافان اختياريان للتشغيل البيني، وليسا متطلبات للتنسيق.
 
@@ -24,7 +24,7 @@ description: "استخدم نظام تصميم React الخاص بشركتك ع�
 
 ## تسجيل محول
 
-محولات العملاء حزم npm عادية. استورد أحدها صراحةً في `app/design-system.ts`؛ لا يفحص Agent Native التبعيات، ولا يكتشف مكتبة تلقائيًا، ولا يحمّل مكونات من JSON.
+محولات العملاء حزم npm عادية. استورد أحدها صراحةً في `app/design-system.ts`؛ لا يفحص Agent-Native التبعيات، ولا يكتشف مكتبة تلقائيًا، ولا يحمّل مكونات من JSON.
 
 احتفظ بسمة وقت البناء في وحدة قليلة التبعيات حتى لا يضطر Vite إلى تقييم حزمة React الخاصة بالعميل أثناء تحميل إعداداته:
 
@@ -83,7 +83,7 @@ export function AppToolkitProvider({
 }
 ```
 
-المحولات الجزئية مدعومة. أي مكوّن تحذفه يستخدم محول Agent Native الافتراضي. إذا طرح مكوّن مخصص خطأً أثناء العرض، فسيسجل حدّ خطأ لكل مكوّن الفشل ويعرض المكوّن الافتراضي لذلك العنصر؛ وتبقى بقية النظام المخصص نشطة.
+المحولات الجزئية مدعومة. أي مكوّن تحذفه يستخدم محول Agent-Native الافتراضي. إذا طرح مكوّن مخصص خطأً أثناء العرض، فسيسجل حدّ خطأ لكل مكوّن الفشل ويعرض المكوّن الافتراضي لذلك العنصر؛ وتبقى بقية النظام المخصص نشطة.
 
 يحافظ تطبيقان كاملان للدردشة على صحة هذا العقد أمام أنظمة تصميم حقيقية: [مثال Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) يستخدم Emotion و`ThemeProvider` ومكدس تراكبات MUI، بينما [مثال Ant Design](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) يستخدم `ConfigProvider` وبدائيات النماذج والتراكبات في Ant Design. ملفات `app/design-system.tsx` فيهما هي مراجع الدمج الأساسية؛ أما مثال Acme أعلاه فمقصود أن يبقى صغيرًا ويُستخدم لاختبارات الوحدة.
 
@@ -91,7 +91,7 @@ export function AppToolkitProvider({
 
 ## رموز السمات في وقت البناء
 
-تقبل `defineTheme` ألوان CSS القياسية، بما في ذلك hex و`rgb()` و`hsl()` وOKLCH. يتحقق مكون Vite الإضافي في Core منها ويطبّعها إلى المتغيرات الدلالية الموجودة في Agent Native. تعود الألوان الداكنة رمزًا رمزًا إلى اللوحة الفاتحة؛ ولا يشتق Agent Native لوحة داكنة تلقائيًا.
+تقبل `defineTheme` ألوان CSS القياسية، بما في ذلك hex و`rgb()` و`hsl()` وOKLCH. يتحقق مكون Vite الإضافي في Core منها ويطبّعها إلى المتغيرات الدلالية الموجودة في Agent-Native. تعود الألوان الداكنة رمزًا رمزًا إلى اللوحة الفاتحة؛ ولا يشتق Agent-Native لوحة داكنة تلقائيًا.
 
 مرّر السمة إلى مكون Vite الإضافي:
 
@@ -200,7 +200,7 @@ import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance
 import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
 import { acmeComponents } from "@acme/agent-native-design-system";
 
-describe("Acme Agent Native adapter", () => {
+describe("Acme Agent-Native adapter", () => {
   it("conforms", async () => {
     await assertDesignSystemConformance({
       adapterName: "Acme",
@@ -223,9 +223,9 @@ describe("Acme Agent Native adapter", () => {
 
 ### أنظمة موفر السمات بنمط MUI
 
-إن [مثال Chat + Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) هو المرجع العملي الأساسي. تصدّر وحدة `app/design-system.tsx` الوحيدة فيها المحول الدلالي وقيم `createTheme` الفاتحة والداكنة في MUI ومصدر رموز `defineTheme`. يبقي `AppToolkitProvider` في التطبيق موفر `ThemeProvider` الخاص بـMUI فوق أسطح Toolkit المشتركة، بينما يستورد `vite.config.ts` قيمة `theme` نفسها لتوليد CSS وقت البناء. يحافظ ذلك على أنماط Emotion وبوابات MUI ورموز Agent Native من مصدر حقيقة واحد.
+إن [مثال Chat + Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) هو المرجع العملي الأساسي. تصدّر وحدة `app/design-system.tsx` الوحيدة فيها المحول الدلالي وقيم `createTheme` الفاتحة والداكنة في MUI ومصدر رموز `defineTheme`. يبقي `AppToolkitProvider` في التطبيق موفر `ThemeProvider` الخاص بـMUI فوق أسطح Toolkit المشتركة، بينما يستورد `vite.config.ts` قيمة `theme` نفسها لتوليد CSS وقت البناء. يحافظ ذلك على أنماط Emotion وبوابات MUI ورموز Agent-Native من مصدر حقيقة واحد.
 
-أبقِ موفر سمات الشركة فوق `AppToolkitProvider`، وكيّف الخصائص الدلالية عند حدود الحزمة. اربط `intent` و`emphasis` و`size` بمفردات نظامك داخل المحول، لا داخل كود ميزات Agent Native. بالنسبة إلى التراكبات، مرّر `portalContainer` إلى حاوية نظام التصميم أو خاصية البوابة، ونفّذ `initialFocusRef`/`restoreFocusRef` باستخدام مدير التركيز فيه.
+أبقِ موفر سمات الشركة فوق `AppToolkitProvider`، وكيّف الخصائص الدلالية عند حدود الحزمة. اربط `intent` و`emphasis` و`size` بمفردات نظامك داخل المحول، لا داخل كود ميزات Agent-Native. بالنسبة إلى التراكبات، مرّر `portalContainer` إلى حاوية نظام التصميم أو خاصية البوابة، ونفّذ `initialFocusRef`/`restoreFocusRef` باستخدام مدير التركيز فيه.
 
 ```tsx
 export const ActionButton: DesignSystemComponents["ActionButton"] = ({

@@ -1,5 +1,5 @@
 appId: com.agentnative.desktop
-productName: Agent Native
+productName: Agent-Native
 
 directories:
   buildResources: build
@@ -24,7 +24,7 @@ extraResources:
     to: app-update.yml
 
 protocols:
-  - name: Agent Native
+  - name: Agent-Native
     schemes:
       - agentnative
 
@@ -39,9 +39,9 @@ mac:
   icon: build/icon.icns
   extendInfo:
     CFBundleIconName: agent-native
-    NSMicrophoneUsageDescription: Agent Native uses your microphone for dictation and realtime voice conversations.
-    NSCameraUsageDescription: Agent Native uses your camera for video capture in apps like Clips.
-    NSScreenCaptureUsageDescription: Agent Native records your screen when you start a recording in apps like Clips.
+    NSMicrophoneUsageDescription: Agent-Native uses your microphone for dictation and realtime voice conversations.
+    NSCameraUsageDescription: Agent-Native uses your camera for video capture in apps like Clips.
+    NSScreenCaptureUsageDescription: Agent-Native records your screen when you start a recording in apps like Clips.
   entitlements: entitlements.mac.plist
   entitlementsInherit: entitlements.mac.plist
   notarize: true

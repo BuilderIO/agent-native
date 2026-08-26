@@ -5,6 +5,8 @@ description: "Connect a portable SQL database to your agent-native app: schema h
 
 # Database
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. Live sync uses SSE with polling fallback, so changes appear in the other surface without a manual refresh.
 
 <Diagram id="doc-block-9mtx2f" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same SQL tables. There is no separate backend for each.">
@@ -354,7 +356,7 @@ See [Security — Data Scoping](/docs/security#data-scoping) and [Sharing](/docs
 
 ## SQL-Backed Sync {#sync}
 
-Agent-native does not rely on filesystem watchers or sticky in-memory state. When an action writes to the database, a sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches when it sees a higher version.
+Agent-Native does not rely on filesystem watchers or sticky in-memory state. When an action writes to the database, a sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches when it sees a higher version.
 
 This works across serverless and multi-instance deployments because the database is the coordination point. If you write custom mutations outside actions, use framework helpers or emit the appropriate sync invalidation so open UIs refresh.
 

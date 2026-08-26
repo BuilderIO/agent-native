@@ -277,7 +277,7 @@ connect token identifies the caller and organization; `publicAgent` only opts
 an action into the external protocol surface and does not grant record access.
 Actions still need `accessFilter`, `resolveAccess`, or `assertAccess` so private
 documents/dashboards, shares, organization boundaries, and roles are enforced.
-For Slack, verified DMs are linked to an existing Agent Native org member
+For Slack, verified DMs are linked to an existing Agent-Native org member
 before execution and run with that user's context; shared channels use a
 service principal, and guests/external members cannot borrow personal access.
 Managed Slack OAuth and the generated app manifest both request

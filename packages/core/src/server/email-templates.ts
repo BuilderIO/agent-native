@@ -39,17 +39,17 @@ function stripCrlf(s: string): string {
 }
 
 function resolveAppName(): string {
-  return stripCrlf(getAppConfig().app.name || "Agent Native");
+  return stripCrlf(getAppConfig().app.name || "Agent-Native");
 }
 
 /**
  * Recipient-facing brand for auth emails. Only a recognized first-party
  * template is presented as "Agent-Native <App>"; a custom deployment keeps its
- * own name so its users aren't told they signed up for an Agent Native app.
+ * own name so its users aren't told they signed up for an Agent-Native app.
  */
 function resolveBrand(slug: string | undefined): string {
   const appName = getAppConfig().app.name;
-  if (!appName) return "Agent Native";
+  if (!appName) return "Agent-Native";
   return slug ? `Agent-Native ${stripCrlf(appName)}` : stripCrlf(appName);
 }
 
@@ -117,14 +117,14 @@ export interface RenderVerifySignupEmailArgs {
  */
 const VERIFY_EMAIL_DESCRIPTIONS: Record<string, string> = {
   calendar:
-    "Agent-native Google Calendar replacement — manage events, sync, and public booking",
+    "Agent-Native Google Calendar replacement — manage events, sync, and public booking",
   content:
     "Open-source Obsidian/Notion replacement for MDX — edit local docs with agent assistance",
   slides:
-    "Agent-native Google Slides replacement — generate and edit React presentations",
+    "Agent-Native Google Slides replacement — generate and edit React presentations",
   analytics:
-    "Agent-native Amplitude/Mixpanel replacement — connect data sources, prompt for charts",
-  mail: "Agent-native Superhuman replacement — email client with keyboard shortcuts and AI triage",
+    "Agent-Native Amplitude/Mixpanel replacement — connect data sources, prompt for charts",
+  mail: "Agent-Native Superhuman replacement — email client with keyboard shortcuts and AI triage",
 };
 
 export function renderVerifySignupEmail(

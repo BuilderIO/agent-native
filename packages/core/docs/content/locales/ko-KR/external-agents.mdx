@@ -204,7 +204,7 @@ Claude 코드, Claude 코드 CLI, 커서, OpenCode 및 GitHub Copilot/VS 코드�
 
 스크립트 또는 일회성 설치에 대한 선택기를 건너뛰려면 `--client codex`(또는 `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`)를 사용하세요.
 
-자사 앱 skills는 지침과 호스팅된 MCP 커넥터를 Agent Native CLI와 함께 설치합니다.
+자사 앱 skills는 지침과 호스팅된 MCP 커넥터를 Agent-Native CLI와 함께 설치합니다.
 
 ```bash
 npx @agent-native/core@latest skills add assets              # alias: image-generation
@@ -417,7 +417,7 @@ Core `db-schema`와 `db-query`는 자동 외부 읽기로 공개되지 않습니
 
 `resolveExecutionContext`를 제공하는 앱은 이 기본 ID 확인 절차를 명시적으로 대체합니다. 해당 resolver는 principal을 반환하기 전에 검증되지 않은 호출자, 게스트, 외부 구성원, 연결되지 않은 workspace를 독립적으로 거부해야 합니다.
 
-검증된 Slack DM은 에이전트가 실행되기 전에 기존 Agent Native 조직 구성원과 연결되고 workspace/user ID 링크로 저장됩니다. 그 결과 생성된 사용자/조직 컨텍스트에는 해당 사용자의 리소스, 지침 및 skills가 로드됩니다. 기본적으로 프로필을 정상적으로 가져왔지만 이메일이 없거나 아직 조직 구성원이 아닌 workspace 구성원은 거부됩니다. 앱은 `allowAnonymousOrgScopedSlackDm: true`를 명시적으로 설정해 이러한 구성원을 조직 범위의 익명 service principal로 실행할 수 있습니다. 이는 공유 채널과 동일한 조직 전체 공개 수준이지만 사용자 비공개 데이터에는 절대 접근하지 않습니다. 에이전트에 표시되는 메모와 개인 액세스를 얻는 방법을 설명하는 일회성 Slack 안내가 함께 제공됩니다. 이 opt-in은 프로필 가져오기 실패, 검증되지 않은 호출자, 게스트, 외부(Slack Connect) 구성원 또는 조직에 연결되지 않은 workspace를 허용하지 않으며, 이들에게는 정중한 거절 응답을 보냅니다. Slack 공유 채널은 service principal을 사용하며 참여자의 개인 권한을 빌리지 않습니다. 관리형 OAuth와 생성된 Slack 앱 매니페스트는 모두 bot scope `users:read.email`을 요청합니다. 새로 추가된 scope를 부여하려면 기존 설치를 다시 연결/설치해야 하며, 이전 bot-token 설치는 Slack에서 scope를 수동으로 추가해야 합니다. 이 scope가 없으면 앱이 `allowAnonymousOrgScopedSlackDm`을 명시적으로 활성화하지 않는 한 DM은 거부됩니다.
+검증된 Slack DM은 에이전트가 실행되기 전에 기존 Agent-Native 조직 구성원과 연결되고 workspace/user ID 링크로 저장됩니다. 그 결과 생성된 사용자/조직 컨텍스트에는 해당 사용자의 리소스, 지침 및 skills가 로드됩니다. 기본적으로 프로필을 정상적으로 가져왔지만 이메일이 없거나 아직 조직 구성원이 아닌 workspace 구성원은 거부됩니다. 앱은 `allowAnonymousOrgScopedSlackDm: true`를 명시적으로 설정해 이러한 구성원을 조직 범위의 익명 service principal로 실행할 수 있습니다. 이는 공유 채널과 동일한 조직 전체 공개 수준이지만 사용자 비공개 데이터에는 절대 접근하지 않습니다. 에이전트에 표시되는 메모와 개인 액세스를 얻는 방법을 설명하는 일회성 Slack 안내가 함께 제공됩니다. 이 opt-in은 프로필 가져오기 실패, 검증되지 않은 호출자, 게스트, 외부(Slack Connect) 구성원 또는 조직에 연결되지 않은 workspace를 허용하지 않으며, 이들에게는 정중한 거절 응답을 보냅니다. Slack 공유 채널은 service principal을 사용하며 참여자의 개인 권한을 빌리지 않습니다. 관리형 OAuth와 생성된 Slack 앱 매니페스트는 모두 bot scope `users:read.email`을 요청합니다. 새로 추가된 scope를 부여하려면 기존 설치를 다시 연결/설치해야 하며, 이전 bot-token 설치는 Slack에서 scope를 수동으로 추가해야 합니다. 이 scope가 없으면 앱이 `allowAnonymousOrgScopedSlackDm`을 명시적으로 활성화하지 않는 한 DM은 거부됩니다.
 
 ### 전체 등급(명시적 선택만 해당) {#full-tier}
 

@@ -95,7 +95,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-30
 
@@ -270,7 +270,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
-- Local folder selection avoids unsafe embedded pickers, remembers picker attempts that never returned so they cannot cause a crash loop, and continues to support Agent Native Desktop and native folder access in Chrome, Edge, and other Chromium browsers.
+- Local folder selection avoids unsafe embedded pickers, remembers picker attempts that never returned so they cannot cause a crash loop, and continues to support Agent-Native Desktop and native folder access in Chrome, Edge, and other Chromium browsers.
 - Workspace database views now control sidebar workspace navigation, and local folders attach to the correct Files database.
 
 ## 2026-07-17

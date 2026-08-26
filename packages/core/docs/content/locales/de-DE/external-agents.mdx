@@ -206,7 +206,7 @@ Client, wenn der neue Server noch nicht sichtbar ist.
 
 Verwenden Sie `--client codex` (oder `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`), um die Auswahl für Skripts oder einmalige Installationen zu überspringen.
 
-Die Erstanbieter-App skills installiert die Anweisungen und den gehosteten MCP-Connector zusammen mit dem Agent Native CLI:
+Die Erstanbieter-App skills installiert die Anweisungen und den gehosteten MCP-Connector zusammen mit dem Agent-Native CLI:
 
 ```bash
 npx @agent-native/core@latest skills add assets              # alias: image-generation
@@ -488,7 +488,7 @@ Klicken Sie auf diesen Link und Mail wird mit dem wiederhergestellten Entwurf ge
 
 ### MCP Apps-Kompatibilität {#mcp-apps-compatibility}
 
-Agent-native Apps sprechen auch die offizielle MCP Apps-Erweiterung. Bei jeder Aktion
+Agent-Native Apps sprechen auch die offizielle MCP Apps-Erweiterung. Bei jeder Aktion
 deklariert `mcpApp`, der Server kündigt an
 `extensions["io.modelcontextprotocol/ui"]`, beinhaltet `_meta.ui.resourceUri` /
 `_meta["ui/resourceUri"]` in `tools/list` und bedient die HTML UI bis
