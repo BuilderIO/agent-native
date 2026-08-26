@@ -1,49 +1,72 @@
 ---
-title: "チャット テンプレート"
-description: "最小限のチャットファーストのエージェントネイティブ アプリ: 耐久性のあるチャット スレッド、actions、アプリケーションの状態、ライブ同期、認証、独自の UI を追加するための余地。"
+title: "チャット"
+description: "最小限のチャットファーストのエージェントネイティブ アプリ: 耐久性のあるチャットスレッド、action、アプリケーションの状態、ライブ同期、認証、そして独自の UI を追加する余地。"
 ---
 
-# チャット テンプレート
+# チャット
 
-チャットは、エージェントネイティブ アプリの基本的な開始点です。中央にチャット、左側にスレッド リスト、標準のアプリ ナビゲーション、認証、ライブ同期、actions、および 1 つのサンプル アクションを備えたクリーンな ChatGPT スタイルのシェルが提供されます。ドメイン テンプレートにコミットせずに構築できる実際のブラウザ アプリが必要な場合は、ここから始めてください。
+チャットは、最もプレーンなエージェントネイティブの出発点です。中央にチャット、スレッドリスト、認証、そして 1 つのサンプル action を備えた ChatGPT スタイルのシェルで、ドメイン固有の要素は何もありません。特定の業務向けの完成したプロダクトではなく、独自のエージェントと画面をその上に構築するための、実際にデプロイ可能なアプリを求める開発者向けです。
 
-ブラウザー UI を使用しない automation-first runtime が必要な場合は、[Automation-First Apps](/docs/pure-agent-apps) から始めてください。完成したドメイン プロダクトの形状が必要な場合は、[Calendar](/docs/template-calendar)、[Mail](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics)、または別のドメイン テンプレートから開始してください。
+完成したドメイン プロダクトの形が必要な場合は、[カレンダー](/docs/template-calendar)、[メール](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics)、または他のドメイン テンプレートから始めてください。ブラウザ UI がまだ本当に不要な場合は、[Automation-First Apps](/docs/pure-agent-apps) を参照してください。
 
-<WireframeBlock id="doc-block-12k6jf8">
+<Cards columns={1}>
+
+### [今すぐ試す →](https://chat.agent-native.com)
+
+実際に動作しているチャットをご覧ください。セットアップ不要で、エージェントとの本物の会話を始められます。
+
+</Cards>
+
+<WireframeBlock id="doc-block-chat1">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 高</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。action、コンポーネント、ページ、ジョブ、または独自のバックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 高</span><span class='wf-pill'>実行</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
 
-## 何が入っているのか {#whats-in-it}
+## 同梱内容 {#what-ships}
 
-- フレームワーク チャット サーフェスと耐久性のあるチャット スレッドを使用した、`/` 上の**フルページ チャット**。
-- **アプリのサイドバーのスレッド リスト**。これにより、ユーザーはチャットを作成、再度開く、名前変更、固定、アーカイブできるようになります。
-- **エージェント チャット プラグイン** は、エージェントの認証情報が設定されると、チャットが組み込みのアプリエージェント ループと通信するように事前設定されています。
-- **認証** (Better Auth 経由) — ログイン、サインアップ、セッション、組織。同じフローがローカルと本番環境で実行されます。開発中、電子メール検証はスキップされます。
-- **Actions ディレクトリ** 1 つの例 (`actions/hello.ts`) と標準の `view-screen` および `navigate` actions。
-- アプリケーションの状態、設定、セッション、リソース、チャット スレッド、実行履歴、その他の実行時状態に関する**フレームワークのコア テーブル**。
-- **ライブ同期** (`useDbSync`) はすでに接続されているため、エージェントが SQL に書き込むときに UI が自動更新されます。
-- **AGENTS.md** には、actions、ルート、skills、アプリケーションの状態を追加するためのチャットファースト ガイダンスが含まれます。
+<Comparison>
 
-## 何が含まれていないのか {#not-in-it}
+### :green: 含まれるもの
 
-- ドメイン テーブルやシード データはありません。
-- ダッシュボード、リスト、グラフ、フォーム、プロバイダーの統合はありません。
-- サンプル スタブ以外にドメイン固有の actions はありません。
+- フレームワークのチャット サーフェスと耐久性のあるチャットスレッドを使った、
+  `/` 上のフルページチャット
+- チャットの作成、再開、名前変更、固定、アーカイブができる、アプリ サイドバーの
+  スレッドリスト
+- チャット プラグイン用に事前設定された、組み込みのアプリエージェント ループ
+- Better Auth による認証: ログイン、サインアップ、セッション、組織
+- 1 つの例 (`actions/hello.ts`) と標準の `view-screen` および `navigate`
+  action を含む actions ディレクトリ
+- チャットスレッド、アプリケーションの状態、設定、セッション、リソース、実行
+  履歴のためのフレームワークのコアテーブル。加えて、開くかどうかにかかわらず
+  マウントされる Database 管理ページと Observability ダッシュボード
+- エージェントが SQL に書き込むと UI が更新されるように、すでに接続されている
+  ライブ同期 (`useDbSync`)
+- ユーザーが後でチャット内に構築する、サンドボックス化されたミニアプリのために、
+  既定でマウントされている拡張機能ルート
+- action、ルート、skill、アプリケーションの状態を追加するための、
+  チャットファーストのガイダンスを含む AGENTS.md
 
-それがポイントです。 Chat は、汎用のふりをしたドメイン製品ではなく、独自のエージェント用の薄くて便利なデフォルト シェルです。
+### :red: 含まれないもの
 
-<Diagram id="doc-block-1u9gn9x" title={"Chat シェルに同梱されるもの"} summary={"フレームワークの標準ランタイム (アクション、耐久性のあるスレッド、ライブ同期、認証) 上の薄いチャット サーフェス。独自の UI を追加する余地があります。"}>
+- ドメインテーブルやシードデータ
+- ダッシュボード、リスト、グラフ、フォーム、プロバイダー統合
+- サンプルのスタブを超えるドメイン固有の action
+
+</Comparison>
+
+それがポイントです。チャットは、汎用のふりをしたドメイン プロダクトではなく、独自のエージェントのための薄くて便利なデフォルト シェルです。
+
+<Diagram id="doc-block-chat2" title="Chat シェルに同梱されるもの" summary={"フレームワークの標準ランタイム — action、耐久性のあるスレッド、ライブ同期、認証 — の上に構築された薄いチャット サーフェス。独自の UI を追加する余地があります。"}>
 
 ```html
 <div class="diagram-chat">
   <div class="diagram-col left">
     <div class="diagram-node">
-      スレッド一覧<br /><small class="diagram-muted"
+      スレッドリスト<br /><small class="diagram-muted"
         >作成 · 再開 · 固定 · アーカイブ</small
       >
     </div>
@@ -103,33 +126,52 @@ description: "最小限のチャットファーストのエージェントネイ
 
 ## いつ選択するか {#when-to-pick}
 
-- **ユーザーがすぐに会話できる基本的なアプリが必要です**。その後、actions および UI で拡張できます。
-- **最初のブラウザー サーフェイスとしてチャットを必要とするヘッドレス アプリ**があります。
-- **Agent-Native の actions、状態、認証、展開の形状を維持しながら、独自のエージェント バックエンドを使い慣れたチャット UI** に接続したいと考えています。
-- **ドメイン テンプレートと一致しないカスタム内部ツール** のプロトタイプを作成しています。
+- **ユーザーがすぐに話しかけられる基本的なアプリが欲しい**。その後 action と
+  UI で拡張していきます。
+- **Agent-Native の既定のオンランプが欲しい**: まずチャット、その後 action、
+  ネイティブな結果、そしてアプリ ページへと進みます。
+- **使い慣れたチャット UI に独自のエージェント バックエンドを組み込みたい**。
+  一方で、Agent-Native の action、状態、認証、デプロイの形は維持したい。
+- **ドメイン テンプレートに当てはまらないカスタムの社内ツール**を
+  プロトタイピングしている。
 
-## 足場 {#scaffolding}
+## 使い始める {#get-started}
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
-cd my-chat-app
-pnpm install
-pnpm dev
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
 ```
 
-または、UI なしで開始し、後でチャット サーフェスを追加します。
+インストール、初回起動、LLM への接続については
+[チャット: 開発者ガイド](/docs/template-chat-developers#quick-start) を
+参照してください。ブラウザ UI を一切使わないオートメーション優先の作業には、
+代わりに `--headless` でスキャフォールドしてください。
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-そこから、チャット テンプレートの `/` ルートとサイドバー スレッド リストをアプリにコピーするか、チャット アプリをスキャフォールディングして actions をヘッドレス エージェントから `actions/` ディレクトリに移動します。重要な不変条件は変わりません。actions はチャット、UI、HTTP、MCP、A2A、CLI の共有サーフェスです。
+チャットやアプリ ページがまだ役に立たない、スケジュールされたジョブ、キュー、
+CLI ループ、外部エージェント ワークフローに使ってください。重要な不変条件は
+変わりません。action は チャット、UI、HTTP、MCP、A2A、CLI の共有サーフェスです。
+このパスの詳細については [Automation-First Apps](/docs/pure-agent-apps) を
+参照してください。
 
 ## 次は何ですか
 
-- [**チャットでの最初の機能追加**](/docs/template-chat-first-edits) — 注釈付きのスターター チャット ルートと、実際の機能を追加する完全なウォークスルー
-- [**Getting Started**](/docs) — ヘッドレス、チャット、ドメイン テンプレートから選択します
-- [**Agent Surfaces**](/docs/agent-surfaces) — ヘッドレス、チャット、埋め込み、フルアプリのパターン
-- [**Actions**](/docs/actions-overview) — アクション システム チャットと UI の両方を呼び出します
-- [**Native チャット UI**](/docs/native-chat-ui) — チャット サーフェス プリミティブとランタイム オプション
-- [**Automation-First Apps**](/docs/pure-agent-apps) — ブラウザー UI のない automations、queues、scripts、external agent workflows
+- [**チャットで最初の機能を追加する**](/docs/template-chat-first-edits) —
+  注釈付きのスターター チャット ルートと、実際の機能を追加する完全な
+  ウォークスルー
+- [**チャット: 開発者ガイド**](/docs/template-chat-developers) —
+  クイックスタート、action、コアテーブル、認証、そして既定で同梱される管理ページ
+- [**はじめに**](/docs/getting-started) — action からインライン結果、アプリ
+  ページへと進む、チャットファーストのパスを構築します
+- [**テンプレート**](/docs/cloneable-saas) — Cloneable SaaS モデルと、代わりに
+  始められるすべてのドメイン テンプレート
+- [**エージェント サーフェス**](/docs/agent-surfaces) — チャット、インライン
+  UI、アプリ ページ、埋め込み、オートメーション、外部エージェントのパターン
+- [**Actions**](/docs/actions-overview) — チャットと UI の両方が呼び出す
+  action システム
+- [**Native チャット UI**](/docs/native-chat-ui) — チャット サーフェスの
+  プリミティブとランタイム オプション
+- [**Automation-First Apps**](/docs/pure-agent-apps) — ジョブ、キュー、
+  スクリプト、外部エージェント向けの、ブラウザを使わないワークフロー
