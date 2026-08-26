@@ -157,7 +157,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   function downloadSrt() {
-    const srt = toSrt(displaySegments);
+    const srt = toSrt(segments.length > 0 ? segments : displaySegments);
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
