@@ -295,6 +295,10 @@ describe("managed MCP OAuth clients", () => {
       });
       expect(resolveMcpOAuthScope(new URL(origin), "org")).toBeNull();
     }
+    expect(resolveSecretPairMock).toHaveBeenLastCalledWith(
+      ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+      { allowUserScope: false },
+    );
   });
 
   it("does not resolve a managed client for an unrelated MCP server", async () => {
