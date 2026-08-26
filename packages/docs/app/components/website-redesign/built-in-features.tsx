@@ -108,8 +108,15 @@ export function BuiltInFeatures() {
       <GridInner>
         <div
           style={{
-            border: "1px solid var(--b-border-subtle)",
-            borderTop: "none",
+            // A real `border-left`/`border-right` here would eat 2px out of
+            // the 1200px available to .pillars-grid below, so its 3 columns
+            // would divide 1198px into thirds instead of 1200px — landing
+            // ~1px off from the page-wide decorative grid's exact 1/3 marks,
+            // which are always computed against the full 1200px. An inset
+            // box-shadow draws the same line without consuming layout width.
+            boxShadow:
+              "inset 1px 0 0 var(--b-border-subtle), inset -1px 0 0 var(--b-border-subtle)",
+            borderBottom: "1px solid var(--b-border-subtle)",
           }}
         >
           {PILLAR_ROWS.map((row, rowIndex) => (
