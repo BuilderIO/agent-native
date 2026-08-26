@@ -1,5 +1,7 @@
 import { GridInner, PageSection } from "./page-grid";
 
+const GRID_CELLS = Array.from({ length: 9 });
+
 export function FeaturesActions() {
   return (
     <PageSection>
@@ -44,20 +46,61 @@ export function FeaturesActions() {
 
       <GridInner
         style={{
+          position: "relative",
           borderTop: "1px solid var(--b-border-default)",
           background: "var(--b-bg-surface)",
         }}
       >
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateRows: "repeat(3, 1fr)",
+          }}
+        >
+          {GRID_CELLS.map((_, i) => (
+            <div
+              key={i}
+              style={{
+                borderRight:
+                  i % 3 !== 2 ? "1px solid var(--b-border-subtle)" : undefined,
+                borderBottom:
+                  i < 6 ? "1px solid var(--b-border-subtle)" : undefined,
+              }}
+            />
+          ))}
+        </div>
+
         <img
-          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d0b04173f204f85a4f586b833478900"
+          className="theme-img-dark"
+          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe77f7df4d30242f19b5a06734894d77c"
           alt="One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI"
           crossOrigin="anonymous"
           loading="lazy"
           decoding="async"
           style={{
-            display: "block",
+            position: "relative",
             width: "100%",
             height: "auto",
+            borderLeft: "1px solid var(--b-border-subtle)",
+            borderRight: "1px solid var(--b-border-subtle)",
+          }}
+        />
+        <img
+          className="theme-img-light"
+          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F512a7d5f0f884608b0dce797c394b104"
+          alt="One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI"
+          crossOrigin="anonymous"
+          loading="lazy"
+          decoding="async"
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
             borderLeft: "1px solid var(--b-border-subtle)",
             borderRight: "1px solid var(--b-border-subtle)",
           }}

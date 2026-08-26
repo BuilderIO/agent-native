@@ -192,6 +192,22 @@
   --b-action-tab-text-hover: #0a0a0a;
 }
 
+.builder-brand-tokens .theme-img-dark {
+  display: block;
+}
+
+.builder-brand-tokens .theme-img-light {
+  display: none;
+}
+
+.light .builder-brand-tokens .theme-img-dark {
+  display: none;
+}
+
+.light .builder-brand-tokens .theme-img-light {
+  display: block;
+}
+
 .builder-brand-tokens .blue-gradient-text {
   background: var(--b-gradient-blue);
   -webkit-background-clip: text;
