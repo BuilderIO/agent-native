@@ -40,7 +40,7 @@ interface PillContext {
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
  * sizing the window when the user toggles the chevron.
  */
-export function RecordingPill() {
+export function MeetingPill() {
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);

@@ -4,6 +4,7 @@ import {
   canonicalizeNfm,
   collapseExactRepeatedNfm,
   docToNfm,
+  inspectNfmFidelity,
   nfmToDoc,
 } from "./nfm";
 
@@ -316,6 +317,117 @@ describe("nfm converter — structural parsing", () => {
     expect(table.content?.[0].content?.[0].type).toBe("tableHeader");
     expect(table.content?.[1].content?.[0].type).toBe("tableCell");
     expect(table.content?.[1].content?.[0].attrs?.color).toBe("red");
+  });
+
+  it("promotes a GFM pipe table without losing adjacent MDX or Mermaid", () => {
+    const source = L(
+      '<Aside type="note">',
+      "Critical rollout note.",
+      "</Aside>",
+      "",
+      "## Responsibilities",
+      "",
+      "| Component | Responsibility |",
+      "| --- | --- |",
+      "| Publish app | Composer and progress |",
+      "| Publish MCP | Authorization boundary |",
+      "",
+      "```mermaid",
+      "flowchart TD",
+      "  App --> Agent",
+      "  Agent --> MCP",
+      "```",
+      "",
+      "After diagram.",
+    );
+
+    const doc = nfmToDoc(source);
+    expect(doc.content.map((node) => node.type)).toEqual([
+      "localMdxComponent",
+      "heading",
+      "table",
+      "codeBlock",
+      "paragraph",
+    ]);
+    expect(doc.content[0].attrs?.__raw).toBe(
+      '<Aside type="note">\nCritical rollout note.\n</Aside>',
+    );
+    expect(doc.content[2].content?.map((row) => row.type)).toEqual([
+      "tableRow",
+      "tableRow",
+      "tableRow",
+    ]);
+    expect(doc.content[2].content?.[0].content?.[0].type).toBe("tableHeader");
+    expect(doc.content[2].content?.[1].content?.[0].type).toBe("tableCell");
+    expect(doc.content[3].attrs?.language).toBe("mermaid");
+
+    const normalized = docToNfm(doc);
+    expect(normalized).toContain('<Aside type="note">');
+    expect(normalized).toContain('<table header-row="true">');
+    expect(normalized).toContain("```mermaid\nflowchart TD");
+    expect(normalized.endsWith("After diagram.")).toBe(true);
+    expect(inspectNfmFidelity(source)).toEqual({
+      status: "transformed",
+      normalizedChanged: true,
+      conversions: [{ kind: "gfm-pipe-table-to-content-table", count: 1 }],
+      unresolved: [],
+    });
+  });
+
+  it("keeps escaped and code-span pipes inside their table cells", () => {
+    const doc = nfmToDoc(
+      "| Name | Example |\n| --- | --- |\n| A \\| B | `left | right` |",
+    );
+    const cells = doc.content[0].content?.[1].content;
+    expect(cells).toHaveLength(2);
+    expect(docToNfm(doc)).toContain("A \\| B");
+    expect(docToNfm(doc)).toContain("`left | right`");
+  });
+
+  it("reports aligned pipe tables as unresolved instead of dropping alignment", () => {
+    const source = "| Left | Right |\n| :--- | --- |\n| A | B |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("notionBlockAtom");
+    expect(docToNfm(doc)).toBe(source);
+    expect(inspectNfmFidelity(source)).toMatchObject({
+      status: "unresolved",
+      unresolved: [{ kind: "gfm-table-alignment-not-representable", count: 1 }],
+    });
+  });
+
+  it("does not partially promote a ragged pipe table", () => {
+    const source = "| A | B |\n| --- | --- |\n| only one |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("notionBlockAtom");
+    expect(docToNfm(doc)).toBe(source);
+    expect(inspectNfmFidelity(source)).toMatchObject({
+      status: "unresolved",
+      conversions: [],
+      unresolved: [
+        {
+          kind: "gfm-table-ragged-rows-preserved-as-raw-source",
+          count: 1,
+        },
+      ],
+    });
+  });
+
+  it("does not report pipe-table syntax inside fenced code as a conversion", () => {
+    const source = [
+      "```md",
+      "| A | B |",
+      "| --- | --- |",
+      "| one | two |",
+      "```",
+    ].join("\n");
+
+    expect(nfmToDoc(source).content[0].type).toBe("codeBlock");
+    expect(inspectNfmFidelity(source)).toEqual({
+      status: "preserved",
+      normalizedChanged: false,
+      conversions: [],
+      unresolved: [],
+    });
   });
 });
 
