@@ -22,7 +22,7 @@
  */
 import { agentNativePath } from "./api-path.js";
 import { buildSignInReturnHref } from "./require-session.js";
-import { beginSignOut } from "./use-session.js";
+import { beginSignOut, notifySessionInvalidated } from "./use-session.js";
 
 const LOGOUT_PATH = "/_agent-native/auth/logout";
 const LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
@@ -62,6 +62,9 @@ export async function signOut(options: SignOutOptions = {}): Promise<void> {
   } catch (error) {
     console.warn("Unable to complete the sign-out request", error);
   }
+  // The first notification protects this document. This second one makes
+  // other tabs revalidate after the server has finished revoking the session.
+  notifySessionInvalidated();
   // `replace`, not `assign`: the dead authenticated URL must not stay in
   // history, or Back lands on a shell with no session.
   window.location.replace(options.redirectTo ?? buildSignInReturnHref());

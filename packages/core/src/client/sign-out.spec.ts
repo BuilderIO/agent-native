@@ -92,6 +92,46 @@ describe("signOut", () => {
     expect(replace.mock.calls[0][0]).toContain("/sign-in?c=");
   });
 
+  it("notifies other tabs again after revocation settles", async () => {
+    const { signOut } = await loadSignOut();
+    const originalLocalStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const setItem = vi.fn();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: { setItem },
+    });
+    try {
+      let settleRevoke: ((response: Response) => void) | undefined;
+      const revoke = new Promise<Response>((resolve) => {
+        settleRevoke = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => revoke),
+      );
+
+      const pending = signOut();
+      await Promise.resolve();
+      expect(setItem).toHaveBeenCalledTimes(1);
+
+      settleRevoke!(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      await pending;
+
+      expect(setItem).toHaveBeenCalledTimes(2);
+    } finally {
+      if (originalLocalStorage) {
+        Object.defineProperty(window, "localStorage", originalLocalStorage);
+      } else {
+        delete (window as Window & { localStorage?: Storage }).localStorage;
+      }
+    }
+  });
+
   it("still leaves when the revoke request fails", async () => {
     const { signOut } = await loadSignOut();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
