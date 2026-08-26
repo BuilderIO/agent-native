@@ -181,10 +181,11 @@ function setupFetch(options?: {
       if (accessibleDeck) {
         if (deferNextGetDeck) {
           deferNextGetDeck = false;
+          const deferredDeck = accessibleDeck;
           return new Promise<Response>((resolve) => {
             resolveDeferredGetDeck = () =>
               resolve(
-                new Response(JSON.stringify(accessibleDeck), { status: 200 }),
+                new Response(JSON.stringify(deferredDeck), { status: 200 }),
               );
           });
         }
@@ -2036,6 +2037,128 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
     ).toEqual(["slide-1"]);
+    vi.useRealTimers();
+  });
+
+  it("does not let a stale baseline reload resurrect a deleted slide", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getFirstPatchSignal,
+      resolveDeferredPatch,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+
+    deferNextGetDeck();
+    const staleReload = result.current.reloadDecks();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(false);
+
+    setAccessibleDeck({ ...original, slides: [original.slides[0]!] });
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleReload;
+    });
+
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1"]);
+    vi.useRealTimers();
+  });
+
+  it("shows a deleted slide again after its save permanently fails", async () => {
+    window.history.pushState({}, "", "/deck/failed-delete-deck");
+    const original: Deck = {
+      id: "failed-delete-deck",
+      title: "Failed delete deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchFailures: { deckId: "failed-delete-deck", count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("failed-delete-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_250);
+    });
+    expect(getPatchAttempts("failed-delete-deck")).toBe(3);
+    expect(hasUncommittedDeckChanges("failed-delete-deck", new Set())).toBe(
+      true,
+    );
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    expect(
+      result.current
+        .getDeck("failed-delete-deck")
+        ?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
     vi.useRealTimers();
   });
 

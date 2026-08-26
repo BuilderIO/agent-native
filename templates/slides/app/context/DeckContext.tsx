@@ -1574,8 +1574,17 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (!tombstones?.size) return server;
 
       const serverSlideIds = new Set(server.slides.map((slide) => slide.id));
+      const failedDeleteSlideIds = new Set(
+        failedSaveDecks.has(server.id)
+          ? (pendingOpsQueue.get(server.id) ?? [])
+              .filter((op) => op.op === "delete-slide")
+              .map((op) => op.slideId)
+          : [],
+      );
       for (const slideId of tombstones) {
-        if (!serverSlideIds.has(slideId)) tombstones.delete(slideId);
+        if (failedDeleteSlideIds.has(slideId) || !serverSlideIds.has(slideId)) {
+          tombstones.delete(slideId);
+        }
       }
       if (tombstones.size === 0) {
         deletedSlideTombstonesRef.current.delete(server.id);
@@ -1887,7 +1896,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const resetDeckBaseline = useCallback(
     (nextDecks: Deck[], createSeqAtRequest: number) => {
-      const nextIds = new Set(nextDecks.map((d) => d.id));
+      const reconciledDecks = nextDecks.map(
+        reconcileServerDeckWithDeleteTombstones,
+      );
+      const nextIds = new Set(reconciledDecks.map((d) => d.id));
       setDecks((prev) => {
         // A wholesale replace still can't discard state the snapshot never saw:
         // a deck created here after the fetch started is missing from
@@ -1897,8 +1909,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             !nextIds.has(d.id) && isNewerThanSnapshot(d.id, createSeqAtRequest),
         );
         return preserved.length === 0
-          ? nextDecks
-          : [...nextDecks, ...preserved];
+          ? reconciledDecks
+          : [...reconciledDecks, ...preserved];
       });
       for (const id of nextIds) localCreateSeqByIdRef.current.delete(id);
       // A baseline reset (initial mount, route change, or access reload) starts a
@@ -1907,7 +1919,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // intact so a collaborator's edit doesn't wipe your local undo history.
       undoControllerRef.current?.clear();
     },
-    [isNewerThanSnapshot],
+    [isNewerThanSnapshot, reconcileServerDeckWithDeleteTombstones],
   );
 
   const reloadDecksWithStatus =
