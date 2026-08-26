@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { encryptSecretValue } from "../secrets/crypto.js";
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -2223,6 +2224,48 @@ describe("server/auth", () => {
         createMockEvent({
           path: "/_agent-native/google/callback",
           query: { code: "abc", state },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("location")).toBe(
+        `/3dot0-faq/_agent-native/mcp/servers/oauth/callback?code=abc&state=${state}`,
+      );
+    });
+
+    it("relays legacy UUID MCP callbacks from the encrypted flow cookie", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "test-mcp-cookie-key");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = crypto.randomUUID();
+      const encrypted = encryptSecretValue(
+        JSON.stringify({
+          state,
+          redirectUri:
+            "https://localhost/3dot0-faq/_agent-native/mcp/servers/oauth/callback",
+        }),
+      );
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "abc", state },
+          headers: {
+            cookie: `an_mcp_oauth_flow=${encodeURIComponent(encrypted)}`,
+          },
         }),
       );
 
