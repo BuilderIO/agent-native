@@ -39,6 +39,8 @@ export interface NotifyClientsOptions {
   /** Per-user scope for access-aware events whose resource may be gone. */
   owner?: string;
   orgId?: string;
+  /** Public-resource scope for events whose resource may be gone. */
+  visibility?: "public";
 }
 
 /**
@@ -76,6 +78,7 @@ export function notifyClients(
     resourceId: deckId,
     ...(options.owner ? { owner: options.owner } : {}),
     ...(options.orgId ? { orgId: options.orgId } : {}),
+    ...(options.visibility ? { visibility: options.visibility } : {}),
     ...payload,
   });
   if (process.env.DEBUG_SLIDES_SSE) {

@@ -872,7 +872,9 @@ export default defineAction({
       ];
       const hasMixedStructuralOperation = operations.some(
         (operation) =>
-          operation.op === "delete-slide" || operation.op === "reorder-slides",
+          operation.op === "delete-slide" ||
+          operation.op === "reorder-slides" ||
+          operation.op === "patch-deck-fields",
       );
       if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
         notifyClients(deckId, {

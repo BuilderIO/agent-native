@@ -122,4 +122,21 @@ describe("deleteDeck", () => {
       orgId: "org-1",
     });
   });
+
+  it("broadcasts a public deletion tombstone to public viewers", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: {
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        visibility: "public",
+      },
+    });
+
+    await deleteDeck.run({ id: "deck-1" });
+
+    expect(mocks.notifyClients).toHaveBeenCalledWith("deck-1", {
+      type: "deck-deleted",
+      visibility: "public",
+    });
+  });
 });

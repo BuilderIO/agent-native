@@ -56,4 +56,21 @@ describe("notifyClients", () => {
       deckId: "deck-1",
     });
   });
+
+  it("preserves public scope for deletion tombstones", () => {
+    notifyClients("deck-1", {
+      type: "deck-deleted",
+      visibility: "public",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "deck",
+      type: "deck-deleted",
+      key: "deck-1",
+      resourceType: "deck",
+      resourceId: "deck-1",
+      visibility: "public",
+      deckId: "deck-1",
+    });
+  });
 });
