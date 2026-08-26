@@ -86,11 +86,11 @@ describe("builderFileUploadProvider", () => {
     });
   });
 
-  it("throws when no private key resolves", async () => {
+  it("throws when no Builder credential resolves", async () => {
     resolveBuilderPrivateKeyMock.mockResolvedValue(null);
     await expect(
       builderFileUploadProvider.upload({ data: new Uint8Array([1]) }),
-    ).rejects.toThrow(/BUILDER_PRIVATE_KEY is not set/);
+    ).rejects.toThrow(/Builder\.io is not connected/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

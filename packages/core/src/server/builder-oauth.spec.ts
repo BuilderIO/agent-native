@@ -97,7 +97,7 @@ beforeEach(() => {
 });
 
 describe("Builder hosted user OAuth", () => {
-  it("uses the exact fixed Builder contract and one least-privilege scope", () => {
+  it("uses the exact fixed Builder contract and least-privilege scopes", () => {
     expect({
       issuer: BUILDER_OAUTH_ISSUER,
       resource: BUILDER_OAUTH_RESOURCE,
@@ -105,10 +105,12 @@ describe("Builder hosted user OAuth", () => {
     }).toEqual({
       issuer: "https://mcp.builder.io",
       resource: "https://api.builder.io",
-      scopes: ["builder:ai:invoke"],
+      // Uploads need the asset scope: Builder's /api/v1/upload/* endpoints
+      // enforce it, so without it a connected user cannot store a file.
+      scopes: ["builder:ai:invoke", "builder:assets:write"],
     });
     expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toMatch(
-      /offline_access|project|design|browser|agent|assets/,
+      /offline_access|project|design|browser|agent/,
     );
   });
 
@@ -139,7 +141,7 @@ describe("Builder hosted user OAuth", () => {
       serverUrl: BUILDER_OAUTH_RESOURCE,
       redirectUrl: "https://app.example.com/_agent-native/builder/callback",
       state: "<STATE_EXAMPLE>",
-      scope: BUILDER_OAUTH_SCOPE,
+      scope: BUILDER_OAUTH_SCOPES.join(" "),
       resourceMetadataUrl:
         "https://mcp.builder.io/.well-known/oauth-protected-resource/api",
     });
