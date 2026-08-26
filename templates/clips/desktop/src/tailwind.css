@@ -307,6 +307,10 @@
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-card-badge-bg: #e9f4ea;
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
+  --pill-card-badge-warn: #a9701a;
+  /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
+  --pill-card-badge-warn-bg: #f8efdd;
+  /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-on-chrome: #ffffff;
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-soft: rgba(255, 255, 255, 0.15);

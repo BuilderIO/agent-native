@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCompletion } from "./pill-completion";
+import { completionCardState, resolveCompletion } from "./pill-completion";
 
 describe("resolveCompletion", () => {
   it("reports a hosted upload as uploaded with its link", () => {
@@ -55,5 +55,54 @@ describe("resolveCompletion", () => {
       resolveCompletion(null, { recordingId: "rec-1", ok: true }),
     ).not.toBeNull();
     expect(resolveCompletion("rec-1", { ok: true })).not.toBeNull();
+  });
+});
+
+describe("completionCardState", () => {
+  const noLink = { hasLink: false, savedLocally: false };
+
+  it("does not claim a save while the stop is still running", () => {
+    // The card is on screen from the click, before the export returned.
+    expect(completionCardState("finishing", noLink)).toEqual({
+      title: "Finishing up",
+      detail: "",
+      tone: "pending",
+    });
+    expect(completionCardState("uploading", noLink)).toEqual({
+      title: "Uploading",
+      detail: "",
+      tone: "pending",
+    });
+  });
+
+  it("leads with the failure rather than burying it in the sub-line", () => {
+    expect(completionCardState("failed", noLink)).toEqual({
+      title: "Upload paused",
+      detail: "",
+      tone: "warn",
+    });
+    expect(
+      completionCardState("failed", { hasLink: true, savedLocally: true }),
+    ).toEqual({
+      title: "Upload paused",
+      detail: "saved on this device",
+      tone: "warn",
+    });
+  });
+
+  it("says where a linkless success went", () => {
+    expect(
+      completionCardState("uploaded", { hasLink: false, savedLocally: true }),
+    ).toEqual({
+      title: "Recording saved",
+      detail: "saved on this device",
+      tone: "ok",
+    });
+  });
+
+  it("leaves the detail to the link row when there is a link", () => {
+    expect(
+      completionCardState("uploaded", { hasLink: true, savedLocally: false }),
+    ).toEqual({ title: "Recording saved", detail: "", tone: "ok" });
   });
 });

@@ -55,3 +55,48 @@ export function resolveCompletion(
     viewUrl: payload.viewUrl ?? null,
   };
 }
+
+export type PillCardTone = "pending" | "ok" | "warn";
+
+export type PillCardState = {
+  title: string;
+  /** Sub-line detail, appended after the take's duration. Empty when the
+   * title already says everything there is to say. */
+  detail: string;
+  tone: PillCardTone;
+};
+
+/**
+ * The completion card's headline and tone.
+ *
+ * The card goes up the instant Stop is pressed, before the export or upload
+ * has returned anything, so the headline tracks `stage` rather than asserting
+ * success. A stop that fails must not leave a green check and "Recording
+ * saved" on screen with only a small caption disagreeing — the headline is
+ * what a glance and a screen reader both take away.
+ */
+export function completionCardState(
+  stage: PillDoneStage,
+  session: { hasLink: boolean; savedLocally: boolean },
+): PillCardState {
+  switch (stage) {
+    case "uploaded":
+      return {
+        title: "Recording saved",
+        // With a link the row below already shows it; without one the file on
+        // disk is the only place the take exists, so say where it went.
+        detail: session.hasLink ? "" : "saved on this device",
+        tone: "ok",
+      };
+    case "failed":
+      return {
+        title: "Upload paused",
+        detail: session.savedLocally ? "saved on this device" : "",
+        tone: "warn",
+      };
+    case "uploading":
+      return { title: "Uploading", detail: "", tone: "pending" };
+    case "finishing":
+      return { title: "Finishing up", detail: "", tone: "pending" };
+  }
+}

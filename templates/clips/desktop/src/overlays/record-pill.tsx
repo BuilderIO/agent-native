@@ -1,7 +1,9 @@
 import {
+  IconAlertTriangle,
   IconCheck,
   IconCopy,
   IconLink,
+  IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconRefresh,
@@ -18,7 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { flushSync } from "react-dom";
 
-import { resolveCompletion } from "../lib/pill-completion";
+import { completionCardState, resolveCompletion } from "../lib/pill-completion";
 import type {
   NativeUploadFinished,
   PillDoneStage as DoneStage,
@@ -567,7 +569,6 @@ export function RecordingPill() {
     // the done-mode effect refits to the exact card rect one frame later.
     resizeWindowTo(340, 180);
     setMode("done");
-    setAnnouncement("Recording saved");
     if (demoMode) {
       setTimeout(() => {
         handleUploadFinished({
@@ -658,12 +659,16 @@ export function RecordingPill() {
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
+    const registrations: Array<Promise<() => void>> = [];
     let stopped = false;
     const track = (p: Promise<() => void>) => {
-      p.then((u) => {
-        if (stopped) u();
-        else unlistens.push(u);
-      }).catch(() => {});
+      registrations.push(
+        p.then((u) => {
+          if (stopped) u();
+          else unlistens.push(u);
+          return u;
+        }),
+      );
     };
     track(
       safeListen<{ paused: boolean; elapsedMs: number }>(
@@ -769,7 +774,20 @@ export function RecordingPill() {
         },
       ),
     );
-    void safeEmit("clips:toolbar-ready", {});
+    // The handshake goes out only once our own listeners exist. The recorder
+    // answers `toolbar-ready` immediately, and `listen()` is asynchronous, so
+    // emitting first can drop the reply — costing the pill its enable and its
+    // session identity until some later event happens to arrive.
+    void Promise.allSettled(registrations).then((results) => {
+      const failures = results.flatMap((r) =>
+        r.status === "rejected" ? [r.reason] : [],
+      );
+      if (failures.length > 0) {
+        console.error("[record-pill] listener registration failed:", failures);
+      }
+      if (stopped) return;
+      void safeEmit("clips:toolbar-ready", {});
+    });
     return () => {
       stopped = true;
       unlistens.forEach((u) => {
@@ -1004,18 +1022,23 @@ export function RecordingPill() {
   const timerText = formatTimer(elapsed);
   const shownBarHeights = meterFlat ? [4, 4, 4, 4, 4] : barHeights;
 
-  const doneCaption =
-    doneStage === "uploaded"
-      ? viewUrl
-        ? "uploaded"
-        : "saved on this device"
-      : doneStage === "failed"
-        ? savedLocally
-          ? "upload paused, saved on this device"
-          : "upload paused"
-        : doneStage === "uploading"
-          ? "uploading"
-          : "finishing up";
+  const card = completionCardState(doneStage, {
+    hasLink: Boolean(viewUrl),
+    savedLocally,
+  });
+  const cardBadgeClass =
+    card.tone === "ok"
+      ? "bg-[var(--pill-card-badge-bg)] text-[var(--pill-card-badge)]"
+      : card.tone === "warn"
+        ? "bg-[var(--pill-card-badge-warn-bg)] text-[var(--pill-card-badge-warn)]"
+        : "bg-[var(--pill-card-well)] text-[var(--pill-card-ink-2)]";
+  // Announce what the card actually says, when it says it. Stop announced
+  // "Recording saved" the moment it was clicked, before the export or upload
+  // had returned anything to say that about.
+  const cardTitle = mode === "done" ? card.title : null;
+  useEffect(() => {
+    if (cardTitle) setAnnouncement(cardTitle);
+  }, [cardTitle]);
 
   return (
     <div
@@ -1031,15 +1054,29 @@ export function RecordingPill() {
           className={`w-[340px] flex-none rounded-[14px] border-[0.5px] border-[var(--pill-card-border)] bg-[var(--pill-card-surface)] p-4 ${reducedRef.current ? "" : "record-pill-card-in"}`}
         >
           <div className="mb-3 flex items-center gap-2.5">
-            <span className="flex size-8 flex-none items-center justify-center rounded-full bg-[var(--pill-card-badge-bg)] text-[var(--pill-card-badge)]">
-              <IconCheck size={16} stroke={2.4} aria-hidden />
+            <span
+              className={`flex size-8 flex-none items-center justify-center rounded-full ${cardBadgeClass}`}
+            >
+              {card.tone === "ok" ? (
+                <IconCheck size={16} stroke={2.4} aria-hidden />
+              ) : card.tone === "warn" ? (
+                <IconAlertTriangle size={16} stroke={2.2} aria-hidden />
+              ) : (
+                <IconLoader2
+                  size={16}
+                  stroke={2.2}
+                  aria-hidden
+                  className={reducedRef.current ? "" : "animate-spin"}
+                />
+              )}
             </span>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-[var(--pill-card-ink)]">
-                Recording saved
+                {card.title}
               </div>
               <div className="text-xs text-[var(--pill-card-ink-2)]">
-                {formatDurationCopy(doneDurationMs)} · {doneCaption}
+                {formatDurationCopy(doneDurationMs)}
+                {card.detail ? ` · ${card.detail}` : ""}
               </div>
             </div>
             <button

@@ -1317,14 +1317,18 @@ export function App({
     setDesktopAuthContext(serverUrl, loadDesktopAuthToken(serverUrl));
   }, [serverUrl]);
 
+  // The server `videoStorageStatus` is an answer about. Every probe captures
+  // the server it started against and drops its result if this has moved on,
+  // so an in-flight probe can never land another server's answer on the
+  // current one.
+  const videoStorageServerRef = useRef(serverUrl);
   // Switching servers makes the current answer meaningless: the probe below
   // deliberately never downgrades "configured" to "checking", so without this
   // the old server's success would keep Start enabled against the new one
   // until its first probe lands. Re-seed from the new origin's own cache.
-  const probedServerRef = useRef(serverUrl);
   useEffect(() => {
-    if (probedServerRef.current === serverUrl) return;
-    probedServerRef.current = serverUrl;
+    if (videoStorageServerRef.current === serverUrl) return;
+    videoStorageServerRef.current = serverUrl;
     setVideoStorageStatus(
       loadBool(videoStorageConfiguredKey(serverUrl), false)
         ? "configured"
@@ -1342,7 +1346,12 @@ export function App({
     // from the last-known-good cache or the mount-time warmup probe, and
     // downgrading "configured" to "checking" would re-disable Start for the
     // probe's whole round-trip. A definitive probe result below still wins.
-    const probe = await hasConfiguredVideoStorage(serverUrl);
+    const probedServer = serverUrl;
+    const probe = await hasConfiguredVideoStorage(probedServer);
+    // The selection moved on while this was in flight: this answer is about a
+    // server the UI is no longer pointed at, and "configured over there" is
+    // not evidence about the server Start would record to.
+    if (videoStorageServerRef.current !== probedServer) return false;
     if (probe === "unknown") {
       // The check couldn't be completed (offline/unreachable). Never downgrade
       // an already-connected user to "missing" on an indeterminate result;
@@ -1368,8 +1377,11 @@ export function App({
   // anon UI has no Start button, so a wrong enable can't leak. The authed
   // refresh above re-probes and last-write-wins.
   useEffect(() => {
-    void hasConfiguredVideoStorage(serverUrl).then((probe) => {
-      if (probe === "configured") setVideoStorageStatus("configured");
+    const probedServer = serverUrl;
+    void hasConfiguredVideoStorage(probedServer).then((probe) => {
+      if (probe !== "configured") return;
+      if (videoStorageServerRef.current !== probedServer) return;
+      setVideoStorageStatus("configured");
     });
   }, [serverUrl]);
 
