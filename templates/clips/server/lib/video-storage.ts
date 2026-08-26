@@ -1,6 +1,6 @@
 import { listFileUploadProviders } from "@agent-native/core/file-upload";
 import {
-  resolveHasBuilderPrivateKey,
+  hasBuilderApiCredentialCustody,
   runWithRequestContext,
 } from "@agent-native/core/server";
 
@@ -51,7 +51,7 @@ export async function hasRequestVideoStorage(
     }
 
     try {
-      return await resolveHasBuilderPrivateKey();
+      return await hasBuilderApiCredentialCustody();
     } catch {
       return false;
     }

@@ -330,8 +330,10 @@ function isOpaqueOriginFrame(win: Window): boolean {
 function stripTokenFromUrl(win: Window): void {
   // Keep the token in the URL for opaque-origin frames — see
   // isOpaqueOriginFrame. Stripping it there breaks re-auth on any document
-  // reload. Referrer-Policy is set to no-referrer on embed responses, so the
-  // retained token does not leak via the Referer header.
+  // reload. Embed responses now use Referrer-Policy: same-origin, but that
+  // never leaks the retained token here: an opaque origin never equals any
+  // other origin (including its own), so "same-origin" requests from this
+  // document never qualify and no Referer is sent at all.
   if (isOpaqueOriginFrame(win)) return;
   try {
     const url = currentUrl(win);

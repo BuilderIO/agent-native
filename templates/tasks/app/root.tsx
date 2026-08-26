@@ -150,7 +150,6 @@ function AppContent() {
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
-      <Toaster position="bottom-left" />
       <AppLayout>
         <Outlet />
       </AppLayout>
@@ -161,7 +160,11 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+    <AppProviders
+      queryClient={queryClient}
+      toaster={<Toaster position="bottom-left" />}
+      i18n={{ catalog: i18nCatalog }}
+    >
       <AppToolkitProvider>
         <DbSyncSetup />
         <AppContent />

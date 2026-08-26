@@ -262,7 +262,9 @@ function LinkTab({
               ? err.message
               : action === "invite"
                 ? t("clipsFinalRaw.inviteFailed")
-                : t("clipsFinalRaw.removePersonFailed"),
+                : action === "permission"
+                  ? t("clipsFinalRaw.permissionUpdateFailed")
+                  : t("clipsFinalRaw.removePersonFailed"),
           )
         }
       />
