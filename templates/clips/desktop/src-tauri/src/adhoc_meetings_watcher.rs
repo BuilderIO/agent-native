@@ -221,7 +221,14 @@ impl CallEvidence {
         if mic == Some(true) {
             return true;
         }
-        if self.mic_last_true.is_none() {
+        // Only an established stream earns a grace period. A stream seen on one
+        // tick and gone on the next is a device probe or a notification sound;
+        // bridging that gap would let `mic_since` age past `MIC_DWELL` while
+        // nothing was running and confirm a call that never happened.
+        let (Some(since), Some(last)) = (self.mic_since, self.mic_last_true) else {
+            return false;
+        };
+        if last.saturating_duration_since(since) < MIC_DWELL {
             return false;
         }
         if self
@@ -558,11 +565,17 @@ async fn tick_macos(
             g.session_notified.remove(platform);
         }
 
-        if confirmed.is_none()
-            && call_state == CallState::Live
-            && !g.is_suppressed(platform, now_ts)
-        {
-            confirmed = Some((platform, fallback));
+        if call_state == CallState::Live && !g.is_suppressed(platform, now_ts) {
+            if confirmed.is_none() {
+                confirmed = Some((platform, fallback));
+            } else {
+                // One poll prompts for one call. A second platform holding a
+                // stream at the same moment would otherwise be untouched here
+                // and confirm on the very next tick, so a single moment of
+                // overlap becomes a second meeting two seconds later. Mark it
+                // handled; its own call end releases it again.
+                g.session_notified.insert(platform.to_string(), true);
+            }
         }
     }
 
@@ -582,9 +595,14 @@ async fn tick_macos(
             // call eligible on every later tick, and the moment the guard
             // expires the same call prompts again — the double-prompt this
             // guard exists to prevent, three minutes late.
+            //
+            // Recorded exactly like a prompt, cooldown included. The flag alone
+            // is released by the window changing, which on a machine with no
+            // readable stream is just the user checking Slack — so without the
+            // cooldown the guard lasts only until they come back.
             if let Some(adhoc) = app.try_state::<AdhocMeetingsWatcherState>() {
                 if let Ok(mut g) = adhoc.inner.lock() {
-                    g.session_notified.insert(platform.to_string(), true);
+                    g.note_prompted(platform, now_ts);
                 }
             }
             return Ok(());
@@ -745,6 +763,41 @@ mod tests {
             evidence.classify(now, Some(true), false),
             CallState::Pending
         );
+    }
+
+    #[test]
+    fn a_single_live_sample_is_not_a_call() {
+        // A notification sound or a device probe holds the input for one tick.
+        // The drop grace used to bridge it while `mic_since` kept ageing, so at
+        // t=6 the dwell looked satisfied and a meeting was created for a stream
+        // that ran for two seconds.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 6), Some(true), false);
+        evidence.observe(ago(now, 4), Some(false), false);
+        evidence.observe(ago(now, 2), Some(false), false);
+        evidence.observe(now, Some(false), false);
+
+        assert!(!evidence.mic_live(now, Some(false)));
+        assert_eq!(
+            evidence.classify(now, Some(false), false),
+            CallState::Idle,
+            "one live sample never becomes a confirmed call"
+        );
+    }
+
+    #[test]
+    fn an_established_stream_still_gets_its_drop_grace() {
+        // The counterpart: once a stream has run long enough to be confirmed, a
+        // short gap must not drop it back out.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 20), Some(true), false);
+        evidence.observe(ago(now, 14), Some(true), false);
+        evidence.observe(now, Some(false), false);
+
+        assert!(evidence.mic_live(now, Some(false)));
+        assert_eq!(evidence.classify(now, Some(false), false), CallState::Live);
     }
 
     #[test]
