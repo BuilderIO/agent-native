@@ -39,15 +39,24 @@ async function getAction(
   return page.evaluate(
     async ({ name, data, headers }) => {
       const query = new URLSearchParams(data);
-      const response = await fetch(
-        `/_agent-native/actions/${name}?${query.toString()}`,
-        { headers },
-      );
-      return {
-        ok: response.ok,
-        status: response.status,
-        result: (await response.json().catch(() => ({}))) as ActionResult,
-      };
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const response = await fetch(
+            `/_agent-native/actions/${name}?${query.toString()}`,
+            { headers },
+          );
+          const value = {
+            ok: response.ok,
+            status: response.status,
+            result: (await response.json().catch(() => ({}))) as ActionResult,
+          };
+          if (response.status < 500 || attempt === 4) return value;
+        } catch {
+          if (attempt === 4) throw new Error(`${name} read-back failed`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new Error(`${name} read-back exhausted retries`);
     },
     { name, data, headers: ACTION_HEADERS },
   );
