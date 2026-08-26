@@ -134,14 +134,14 @@ jobs:
               })).data;
             }
 
-            async function hasRemoteTag(tag) {
+            async function hasRemoteTag(tag, expectedSha) {
               try {
-                await github.rest.git.getRef({
+                const response = await github.rest.git.getRef({
                   owner,
                   repo,
                   ref: `tags/${tag}`,
                 });
-                return true;
+                return response.data.object.sha === expectedSha;
               } catch (error) {
                 if (error.status === 404) return false;
                 throw error;
@@ -266,9 +266,9 @@ jobs:
                     "Stable npm publication",
                     Math.max(60_000, deadline - Date.now()),
                   );
-                  if (!(await hasRemoteTag(packageTag))) {
+                  if (!(await hasRemoteTag(packageTag, mergeSha))) {
                     throw new Error(
-                      `Stable npm publication completed without remote tag ${packageTag}: ${run.html_url}`,
+                      `Stable npm publication completed without remote tag ${packageTag} pointing to ${mergeSha}: ${run.html_url}`,
                     );
                   }
                   return completed;
