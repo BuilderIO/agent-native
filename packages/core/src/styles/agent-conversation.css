@@ -124,6 +124,14 @@
   padding-inline-start: 20px;
 }
 
+.agent-conversation-markdown ul {
+  list-style-type: disc;
+}
+
+.agent-conversation-markdown ol {
+  list-style-type: decimal;
+}
+
 .agent-conversation-markdown li {
   margin: 3px 0;
   padding-inline-start: 2px;
