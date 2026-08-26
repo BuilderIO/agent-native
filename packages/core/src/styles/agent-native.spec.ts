@@ -12,10 +12,13 @@ describe("agent-native shell surface tokens", () => {
     );
 
     expect(css).toMatch(
-      /\.agent-conversation-markdown ul \{[^}]*list-style-type: disc;/s,
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\) \{[^}]*list-style-type: disc;/s,
     );
     expect(css).toMatch(
       /\.agent-conversation-markdown ol \{[^}]*list-style-type: decimal;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul\.contains-task-list \{[^}]*list-style-type: none;/s,
     );
   });
 
