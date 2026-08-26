@@ -76,12 +76,7 @@ export function InstallCommand() {
       <span aria-hidden="true" className="text-[var(--b-text-muted)]">
         &gt;
       </span>
-      {/* Every class here neutralizes the docs-wide `code {}` rule in
-          global.css, which would otherwise draw its own bordered #f5f5f5 chip
-          (#111 in dark) inside this button. None of them are redundant. */}
-      <code className="rounded-none border-none bg-transparent p-0 font-[family-name:inherit] text-[length:inherit] text-inherit">
-        {INSTALL_COMMAND}
-      </code>
+      <code>{INSTALL_COMMAND}</code>
     </button>
   );
 }

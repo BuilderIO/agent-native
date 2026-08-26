@@ -319,7 +319,13 @@ a:hover {
   text-decoration: none;
 }
 
-code {
+/* Docs-prose chrome, held off the redesign's token scope. These element rules
+   are unlayered, so they beat any Tailwind utility no matter its specificity —
+   inside `.builder-brand-tokens` that silently overrode the redesign's own
+   `bg-*`/`font-*`/`transition-*` classes. The exclusion is wrapped in
+   `:where()` so it contributes no specificity and docs pages keep resolving
+   these rules exactly as before. */
+code:where(:not(.builder-brand-tokens *)) {
   font-family: var(--font-mono);
   font-size: 0.875em;
   background: var(--code-bg);
@@ -354,10 +360,7 @@ hr {
   margin: 24px 0;
 }
 
-h1,
-h2,
-h3,
-h4 {
+:is(h1, h2, h3, h4):where(:not(.builder-brand-tokens *)) {
   color: var(--fg);
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -2553,9 +2556,11 @@ html.dark .shiki span {
   }
 }
 
-/* Transitions */
-button,
-a {
+/* Transitions. Excluded from the redesign scope for the same reason as the
+   `code` and heading rules above: unlayered, so it would override the
+   components' own `transition-*` utilities — including the primary button's
+   box-shadow glow, which this shorthand does not carry. */
+:is(button, a):where(:not(.builder-brand-tokens *)) {
   transition:
     color 150ms ease,
     background-color 150ms ease,
