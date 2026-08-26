@@ -979,8 +979,8 @@ pub async fn toolbar_save_position(app: AppHandle, x: i32, y: i32) -> Result<(),
     let Some(path) = toolbar_position_path(&app) else {
         return Ok(());
     };
-    let body = serde_json::to_vec(&serde_json::json!({ "x": x, "y": y }))
-        .map_err(|e| e.to_string())?;
+    let body =
+        serde_json::to_vec(&serde_json::json!({ "x": x, "y": y })).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, &body).is_err() {
         return Ok(());
