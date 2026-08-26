@@ -38,6 +38,7 @@ import {
   getOrgDomain,
   getOrgA2ASecret,
   getA2ASecretByDomain,
+  isSoleOrgDomain,
   resolveOrgByDomain,
 } from "./context.js";
 import { __resetProcessMemberOrgCacheForTests } from "./request-org-cache.js";
@@ -1089,6 +1090,19 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
   it("getA2ASecretByDomain returns null on DB error", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
     expect(await getA2ASecretByDomain("acme.com")).toBeNull();
+  });
+
+  it("recognizes a matching sole organization domain", async () => {
+    queueSelect([{ allowed_domain: "Acme.COM" }]);
+    expect(await isSoleOrgDomain("acme.com")).toBe(true);
+  });
+
+  it("rejects global-secret compatibility when multiple organizations exist", async () => {
+    queueSelect([
+      { allowed_domain: "acme.com" },
+      { allowed_domain: "other.example" },
+    ]);
+    expect(await isSoleOrgDomain("acme.com")).toBe(false);
   });
 
   it("resolveOrgByDomain returns {orgId, orgName} and lowercases the lookup", async () => {
