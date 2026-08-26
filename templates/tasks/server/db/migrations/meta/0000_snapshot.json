@@ -62,11 +62,7 @@
       "indexes": {
         "idx_custom_field_values_unique_task_field": {
           "name": "idx_custom_field_values_unique_task_field",
-          "columns": [
-            "owner_email",
-            "task_id",
-            "field_id"
-          ],
+          "columns": ["owner_email", "task_id", "field_id"],
           "isUnique": true
         }
       },
