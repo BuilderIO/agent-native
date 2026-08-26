@@ -32,12 +32,37 @@ vi.mock("../db/index.js", () => ({
 
 import { resolveConnectorSecret } from "./credentials.js";
 
+const HOSTED_RUNTIME_ENV_KEYS = [
+  "NETLIFY",
+  "VERCEL",
+  "CF_PAGES",
+  "AWS_LAMBDA_FUNCTION_NAME",
+  "AWS_EXECUTION_ENV",
+  "FUNCTIONS_WORKER_RUNTIME",
+  "K_SERVICE",
+  "RENDER",
+  "AGENT_NATIVE_WORKSPACE",
+  "VITE_AGENT_NATIVE_WORKSPACE",
+  "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "FUSION_ENVIRONMENT",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+] as const;
+
+function stubCleanLocalRuntimeEnv() {
+  for (const key of HOSTED_RUNTIME_ENV_KEYS) {
+    vi.stubEnv(key, "");
+  }
+}
+
 describe("resolveConnectorSecret", () => {
   const userEmail = "owner@example.com";
 
   beforeEach(() => {
     vi.resetAllMocks();
     vi.unstubAllEnvs();
+    stubCleanLocalRuntimeEnv();
     mocks.readAppSecret.mockResolvedValue(null);
     mocks.resolveCredential.mockResolvedValue(undefined);
     mocks.resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
