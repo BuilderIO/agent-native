@@ -567,7 +567,15 @@ class AISDKEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
-      if (!credentialFailureRecorded) {
+      // Clearing the marker asserts "this credential demonstrably works", so
+      // only a turn that actually completed may do it. A turn that ended in
+      // error proves nothing about the credential, and this ran on every one:
+      // a single unrelated 500 re-admitted a credential a 401 had just pinned,
+      // so the next person's first prompt spent itself rediscovering the same
+      // rejection. `credentialFailureRecorded` only covers the 401 path.
+      const stoppedWithError =
+        bufferedStop?.type === "stop" && bufferedStop.reason === "error";
+      if (!credentialFailureRecorded && !stoppedWithError) {
         await clearProviderCredentialAuthFailure({
           key: PROVIDER_ENV_VARS[this.provider][0],
           value: this.apiKey,
