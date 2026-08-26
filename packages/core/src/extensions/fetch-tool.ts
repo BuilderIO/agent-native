@@ -16,6 +16,7 @@ import {
   collectSecretValues,
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
   normalizeExtensionProxyMethod,
+  readResponseBytesWithLimit,
   readResponseTextWithLimit,
   redactSecrets,
   redactString,
@@ -39,7 +40,20 @@ const VISION_IMAGE_CONTENT_TYPES = new Set([
   "image/webp",
 ]);
 const CREDENTIAL_NAME_RE =
-  /(?:^|[-_])(access[-_]?token|api[-_]?key|auth(?:orization)?|credential|expires?|key[-_]?pair[-_]?id|password|passwd|policy|secret|session|signature|sig|token|jwt|assertion)(?:$|[-_])/i;
+  /(?:^|[-_])(access[-_]?token|api[-_]?key|auth(?:orization)?|credential|expires?|key[-_]?pair[-_]?id|key|password|passwd|policy|secret|session|signature|sig|token|jwt|assertion)(?:$|[-_])/i;
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined")
+    return Buffer.from(bytes).toString("base64");
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, Math.min(i + chunkSize, bytes.length)),
+    );
+  }
+  return btoa(binary);
+}
 
 function hasCredentialBearingImageRequest(
   url: string,
@@ -52,6 +66,7 @@ function hasCredentialBearingImageRequest(
     return true;
   }
   if (parsedUrl.username || parsedUrl.password) return true;
+  if (parsedUrl.hash) return true;
   if (
     Object.keys(headers).some((name) =>
       CREDENTIAL_NAME_RE.test(name.replace(/([a-z])([A-Z])/g, "$1-$2")),
@@ -397,11 +412,18 @@ export function createFetchToolEntry(
             method === "GET" &&
             response.ok &&
             VISION_IMAGE_CONTENT_TYPES.has(contentType.toLowerCase()) &&
-            resolvedUrl.startsWith("https://") &&
-            allUsedKeys.length === 0 &&
-            !hasCredentialBearingImageRequest(resolvedUrl, headers)
+            resolvedUrl.startsWith("https://")
           ) {
-            if (response.body) await response.body.cancel().catch(() => {});
+            const imageBody = await readResponseBytesWithLimit(
+              response,
+              MAX_EXTENSION_PROXY_RESPONSE_SIZE,
+            );
+            const hasCredentials =
+              allUsedKeys.length > 0 ||
+              hasCredentialBearingImageRequest(resolvedUrl, headers);
+            if (imageBody.truncated) {
+              return `HTTP ${response.status} ${response.statusText}\n\nContent-Type: ${contentType}\n\nImage response too large to attach (${imageBody.size} bytes, max ${MAX_EXTENSION_PROXY_RESPONSE_SIZE}).`;
+            }
             console.log(
               "[fetch-tool] " +
                 method +
@@ -417,8 +439,13 @@ export function createFetchToolEntry(
               status: response.status,
               statusText: response.statusText,
               contentType,
-              url: resolvedUrl,
-              _agentImages: [{ url: resolvedUrl }],
+              ...(hasCredentials ? {} : { url: resolvedUrl }),
+              _agentImages: [
+                {
+                  data: uint8ArrayToBase64(imageBody.bytes),
+                  mediaType: contentType.toLowerCase(),
+                },
+              ],
             };
           }
 

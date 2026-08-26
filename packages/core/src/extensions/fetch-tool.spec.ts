@@ -90,7 +90,7 @@ describe("createFetchToolEntry", () => {
       statusText: "OK",
       contentType: "image/jpeg",
       url: "https://93.184.216.34/frame.jpg",
-      _agentImages: [{ url: "https://93.184.216.34/frame.jpg" }],
+      _agentImages: [{ data: "anBlZyBieXRlcw==", mediaType: "image/jpeg" }],
     });
   });
 
@@ -112,6 +112,25 @@ describe("createFetchToolEntry", () => {
         url: "https://93.184.216.34/frame.jpg?X-Amz-Signature=example-signature",
       },
     },
+    {
+      name: "a bare key query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?key=example-key",
+      },
+    },
+    {
+      name: "a compact credential header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ "X-RapidAPI-Key": "example-key" }),
+      },
+    },
+    {
+      name: "a credential-bearing URL fragment",
+      args: {
+        url: "https://93.184.216.34/frame.jpg#access_token=example-token",
+      },
+    },
   ])("does not attach image responses with $name", async ({ args }) => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("jpeg bytes", {
@@ -123,8 +142,13 @@ describe("createFetchToolEntry", () => {
 
     const result = await createFetchToolEntry()["web-request"].run(args);
 
-    expect(typeof result).toBe("string");
-    expect(result).toContain("HTTP 200 OK");
+    expect(result).toMatchObject({
+      status: 200,
+      statusText: "OK",
+      contentType: "image/jpeg",
+      _agentImages: [{ data: "anBlZyBieXRlcw==", mediaType: "image/jpeg" }],
+    });
+    expect(result).not.toHaveProperty("url");
   });
 
   it("blocks redirects to private/internal addresses", async () => {
