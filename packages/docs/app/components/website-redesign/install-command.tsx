@@ -1,18 +1,12 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { IconCheck, IconCopy } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { IconCopy } from "@tabler/icons-react";
+
+import { useSnackbar } from "./ds/snackbar";
 
 const INSTALL_COMMAND = "npx @agent-native/core@latest create my-app";
 
 export function InstallCommand() {
-  const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
+  const showSnackbar = useSnackbar();
 
   async function handleCopy() {
     try {
@@ -23,10 +17,8 @@ export function InstallCommand() {
       // rather than falsely claiming it worked
       return;
     }
-    setCopied(true);
     trackEvent("copy install command", { command: INSTALL_COMMAND });
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setCopied(false), 2000);
+    showSnackbar("COPIED");
   }
 
   return (
@@ -62,7 +54,7 @@ export function InstallCommand() {
           gap: "var(--spacing-2)",
           padding: "9px var(--spacing-3)",
           borderRadius: "calc(var(--b-radius) - 1px)",
-          background: "var(--b-bg-prominent)",
+          background: "var(--b-bg-inset)",
           transition: "background 0.2s ease",
         }}
       >
@@ -82,36 +74,15 @@ export function InstallCommand() {
         >
           {INSTALL_COMMAND}
         </code>
-        {copied ? (
-          <span
-            aria-hidden="true"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              marginLeft: "var(--spacing-1)",
-              fontWeight: 600,
-              letterSpacing: "0.02em",
-              color: "var(--b-text-primary)",
-            }}
-          >
-            <IconCheck size={14} stroke={1.75} />
-            COPIED
-          </span>
-        ) : (
-          <IconCopy
-            size={14}
-            stroke={1.75}
-            aria-hidden="true"
-            style={{
-              marginLeft: "var(--spacing-1)",
-              color: "var(--b-text-muted)",
-            }}
-          />
-        )}
-      </span>
-      <span aria-live="polite" className="sr-only">
-        {copied ? "Copied!" : ""}
+        <IconCopy
+          size={14}
+          stroke={1.75}
+          aria-hidden="true"
+          style={{
+            marginLeft: "var(--spacing-1)",
+            color: "var(--b-text-muted)",
+          }}
+        />
       </span>
     </button>
   );

@@ -46,6 +46,10 @@
   --b-bg-prominent: #1a1a1a;
   --b-bg-translucent: #0a0a0ae6;
   --b-bg-alternative: #00161b;
+  /* Recessed surface for terminal/code chrome. Every other --b-bg-* step
+     lifts away from the page background; this one is the only one that sits
+     below it, so a command line reads as cut into the page. */
+  --b-bg-inset: #000000;
 
   /* Semantic tokens: text */
   --b-text-primary: #faf9f5;
@@ -182,6 +186,7 @@
   --b-bg-prominent: #f0efeb;
   --b-bg-translucent: #faf9f5e6;
   --b-bg-alternative: #e5f8fa;
+  --b-bg-inset: #e0e0d7;
 
   --b-text-primary: #0a0a0a;
   --b-text-secondary: #3d3d3d;
