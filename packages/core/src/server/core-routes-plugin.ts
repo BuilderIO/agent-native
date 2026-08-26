@@ -3878,11 +3878,12 @@ export function createCoreRoutesPlugin(
             const active = await getActiveFileUploadProviderForRequest();
             let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
             try {
-              const { resolveBuilderPrivateKey } =
-                await import("./credential-provider.js");
-              builderConfigured = await resolveBuilderPrivateKey().then(
-                (k) => !!k,
-              );
+              // Must match what provider selection asks, or this reports
+              // storage as unconfigured for an OAuth-only connection whose
+              // uploads actually work.
+              const { hasBuilderApiCredentialCustody } =
+                await import("./builder-api-auth.js");
+              builderConfigured = await hasBuilderApiCredentialCustody();
             } catch {
               // fall back to env check above
             }

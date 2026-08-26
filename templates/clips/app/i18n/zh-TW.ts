@@ -951,8 +951,6 @@ const messages = {
     editComment: "編輯評論",
     commentButton: "留言",
     composerPlaceholder: "新增留言…",
-    mentionSomeone: "提及某人",
-    addEmoji: "新增表情符號",
   },
   shareMeeting: {
     pageTitle: "會議筆記 · Clips",
@@ -1472,6 +1470,7 @@ const messages = {
     invite: "邀請",
     inviteFailed: "無法邀請此人",
     removePersonFailed: "無法移除此人",
+    permissionUpdateFailed: "無法更新權限",
     passwordProtectedDescription: "此影片受密碼保護。請輸入密碼觀看。",
     password: "密碼",
     unlock: "解鎖",

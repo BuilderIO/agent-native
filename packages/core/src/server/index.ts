@@ -134,6 +134,7 @@ export {
   type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
+  type MentionItemMedia,
   type MentionProviderItem,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
@@ -569,6 +570,11 @@ export {
   resolveSecret,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
+export {
+  hasBuilderApiCredentialCustody,
+  resolveBuilderApiAuthorization,
+} from "./builder-api-auth.js";
+export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,

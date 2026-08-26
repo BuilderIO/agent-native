@@ -12,11 +12,9 @@ import {
 import type { FileUploadProvider } from "./types.js";
 
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
-const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
-  resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
 }));
 
 function makeProvider(
@@ -133,12 +131,12 @@ describe("file-upload registry", () => {
     });
 
     it("resolves a request-scoped Builder connection", async () => {
-      resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
+      resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-secret");
 
       await expect(getActiveFileUploadProviderForRequest()).resolves.toBe(
         builderFileUploadProvider,
       );
-      expect(resolveHasBuilderPrivateKeyMock).toHaveBeenCalled();
+      expect(resolveBuilderPrivateKeyMock).toHaveBeenCalled();
     });
   });
 

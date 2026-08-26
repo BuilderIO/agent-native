@@ -91,12 +91,12 @@ export default createAgentChatPlugin({
 उपलब्ध modes हैं:
 
 - `off`। डिफ़ॉल्ट। Production में कोई code-execution tools register नहीं होते।
-- `sandboxed`। `run-code` register करता है, एक isolated Node.js JavaScript runner एक scrubbed environment, एक fresh temp directory, output/time limits, और `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, और `workspaceRead` / `workspaceWrite` द्वारा उपयोग किए जाने वाले Resources-backed workspace file bridge जैसे allowlisted registered tools के लिए एक localhost bridge के साथ।
+- `sandboxed`। `run-code` register करता है, एक hardened QuickJS evaluator जिसमें memory, stack, source, result और output limits हैं, और allowlisted registered tools तक host functions bridge हैं, जैसे `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, और `workspaceRead` / `workspaceWrite` द्वारा उपयोग किया जाने वाला Resources-backed workspace file bridge। Guest code में Node modules, filesystem, environment variables, network, timers या imports उपलब्ध नहीं हैं।
 - `trusted`। `run-code` के साथ-साथ पूरी coding tool registry (`bash`, `read`, `edit`, `write`) register करता है। इसे केवल single-tenant या operator-controlled deployments के लिए उपयोग करें जहां host तक पूरी shell access जान-बूझकर दी गई हो।
 
 बिना कोई code change किए किसी विशेष deployment के लिए plugin option override करने के लिए `AGENT_PROD_CODE_EXECUTION=sandboxed` या `AGENT_PROD_CODE_EXECUTION=trusted` सेट करें। `AGENT_PROD_CODE_EXECUTION=off` plugin option के enable होने पर भी code execution को बंद कर देता है।
 
-`run-code` sandbox process-level isolation है, कोई OS container नहीं। यह child process environment से app secrets हटा देता है और उपलब्ध होने पर Node permission model उपयोग करता है, लेकिन outbound network को Node खुद block नहीं करता। Authenticated calls को tool द्वारा expose किए गए bridge helpers से होकर जाना चाहिए।
+Production `run-code` evaluator child Node process के बजाय hardened QuickJS उपयोग करता है। यह OS container नहीं है: host functions trusted capabilities रहती हैं और authentication तथा authorization लागू करती हैं, जबकि evaluator guest code resources और bridge calls को सीमित करता है।
 
 ## आगे क्या है
 

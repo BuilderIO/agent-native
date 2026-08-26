@@ -17,7 +17,12 @@ import { resolveOrgIdForEmail } from "../org/context.js";
 export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
-export const BUILDER_OAUTH_SCOPES = [BUILDER_OAUTH_SCOPE] as const;
+/** Enforced by Builder's `/api/v1/upload/*` endpoints; without it, no uploads. */
+export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
+export const BUILDER_OAUTH_SCOPES = [
+  BUILDER_OAUTH_SCOPE,
+  BUILDER_ASSETS_WRITE_SCOPE,
+] as const;
 
 // Folded with the owner so each owner gets their own (provider, account_id)
 // row; a bare shared key would let only the first connector hold a grant.
@@ -59,11 +64,16 @@ function normalizeOwnerEmail(ownerEmail: string): string {
 
 // Read paths use this: a caller with no org simply has no Builder session, so
 // engine detection and status checks get null instead of an exception.
-async function resolveOwnerOptions(ownerEmail: string) {
+//
+// An explicit orgId wins over the user's active org. The grant is org-scoped,
+// so work that carries its own organization — a recording finalizing after the
+// user switched active org, a background run — must authorize against that org
+// rather than whichever one the user happens to be looking at now.
+async function resolveOwnerOptions(ownerEmail: string, orgId?: string | null) {
   const email = normalizeOwnerEmail(ownerEmail);
-  const orgId = await resolveOrgIdForEmail(email);
-  if (!orgId) return null;
-  return orgOwnerOptions(orgId);
+  const resolvedOrgId = orgId?.trim() || (await resolveOrgIdForEmail(email));
+  if (!resolvedOrgId) return null;
+  return orgOwnerOptions(resolvedOrgId);
 }
 
 // Write paths use this: storing a Builder credential without an org is a broken
@@ -92,9 +102,29 @@ function builderOAuthKey(orgId: string): string {
   return `${BUILDER_OAUTH_KEY}:o:${digest}`;
 }
 
+/**
+ * RFC 6749 §5.1 lets a token response omit `scope` when the grant matches what
+ * was requested. Record what this flow asked for, so a stored credential always
+ * states its own scopes: inferring them later cannot tell a new two-scope grant
+ * from a pre-change AI-only one, and either guess is wrong for the other.
+ */
+function withRecordedScopes(
+  credentials: McpOAuthCredentialBundle,
+): McpOAuthCredentialBundle {
+  if (typeof credentials.tokens.scope === "string") return credentials;
+  return {
+    ...credentials,
+    tokens: { ...credentials.tokens, scope: BUILDER_OAUTH_SCOPES.join(" ") },
+  };
+}
+
+// Builder's token endpoint always sets `scope`, and `withRecordedScopes` backs
+// that up for anything this flow stores, so an absent claim can only be a grant
+// predating both. Those were AI-only and must not be credited with an upload
+// scope the user never consented to.
 function scopesFrom(credentials: McpOAuthCredentialBundle): string[] {
   const declared = credentials.tokens.scope;
-  if (typeof declared !== "string") return [...BUILDER_OAUTH_SCOPES];
+  if (typeof declared !== "string") return [BUILDER_OAUTH_SCOPE];
   return declared.split(/\s+/).filter(Boolean);
 }
 
@@ -143,7 +173,7 @@ export async function startBuilderOAuthAuthorization(input: {
     serverUrl: BUILDER_OAUTH_RESOURCE,
     redirectUrl: input.redirectUri,
     state: input.state,
-    scope: BUILDER_OAUTH_SCOPE,
+    scope: BUILDER_OAUTH_SCOPES.join(" "),
     resourceMetadataUrl: BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA,
   });
   return {
@@ -187,7 +217,7 @@ export async function finishBuilderOAuthAuthorization(input: {
     ...(input.orgId
       ? orgOwnerOptions(input.orgId)
       : await ownerOptions(input.ownerEmail)),
-    credentials: result.credentials,
+    credentials: withRecordedScopes(result.credentials),
   });
 }
 
@@ -201,8 +231,9 @@ export async function markBuilderOAuthReconnectRequired(
 
 export async function getBuilderOAuthSession(
   ownerEmail: string,
+  orgId?: string | null,
 ): Promise<BuilderOAuthSession | null> {
-  const options = await resolveOwnerOptions(ownerEmail);
+  const options = await resolveOwnerOptions(ownerEmail, orgId);
   if (!options) return null;
   // Delegates refresh single-flight and reconnect latching to the shared
   // credential lifecycle; a null token covers missing, expired-unrefreshable,
@@ -220,8 +251,9 @@ export async function getBuilderOAuthSession(
 
 export async function hasBuilderOAuthSession(
   ownerEmail: string,
+  orgId?: string | null,
 ): Promise<boolean> {
-  const options = await resolveOwnerOptions(ownerEmail);
+  const options = await resolveOwnerOptions(ownerEmail, orgId);
   if (!options) return false;
   const stored = await getOAuthTokens(
     "mcp",

@@ -843,6 +843,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-web-surfaces",
       },
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
+      { id: "webmcp", labelKey: "webMcp", slug: "webmcp" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
       { id: "progress", labelKey: "progress", slug: "progress" },

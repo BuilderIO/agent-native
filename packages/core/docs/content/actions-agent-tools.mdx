@@ -87,12 +87,12 @@ export default createAgentChatPlugin({
 The available modes are:
 
 - `off`. The default. No code-execution tools are registered in production.
-- `sandboxed`. Registers `run-code`, an isolated Node.js JavaScript runner with a scrubbed environment, a fresh temp directory, output/time limits, and a localhost bridge to allowlisted registered tools such as `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, and the Resources-backed workspace file bridge used by `workspaceRead` / `workspaceWrite`.
+- `sandboxed`. Registers `run-code`, a hardened QuickJS evaluator with top-level await/return, bounded memory/stack/source/result/output limits, and host functions that bridge to allowlisted registered tools such as `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, and the Resources-backed workspace file bridge used by `workspaceRead` / `workspaceWrite`. Node modules, filesystem, environment variables, network, timers, and imports are unavailable to guest code.
 - `trusted`. Registers `run-code` plus the full coding tool registry (`bash`, `read`, `edit`, `write`). Use this only for single-tenant or operator-controlled deployments where full shell access to the host is intentional.
 
 Set `AGENT_PROD_CODE_EXECUTION=sandboxed` or `AGENT_PROD_CODE_EXECUTION=trusted` to override the plugin option for a specific deployment without a code change. `AGENT_PROD_CODE_EXECUTION=off` forces code execution off even when the plugin option enables it.
 
-The `run-code` sandbox is process-level isolation, not an OS container. It strips app secrets from the child process environment and uses the Node permission model when available, but outbound network is not blocked by Node itself. Authenticated calls should go through the bridge helpers the tool exposes.
+The production `run-code` evaluator uses hardened QuickJS rather than a Node child process. It is not an OS container: host functions remain trusted capabilities and enforce authentication and authorization, while the evaluator bounds guest resources and bridge calls.
 
 ## What's next
 

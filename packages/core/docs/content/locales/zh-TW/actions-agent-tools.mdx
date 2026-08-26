@@ -84,12 +84,12 @@ export default createAgentChatPlugin({
 可用的模式有：
 
 - `off`。預設值。正式環境中不會註冊任何程式碼執行工具。
-- `sandboxed`。註冊 `run-code`，這是一個隔離的 Node.js JavaScript 執行器，具有經過清理的環境、全新的暫存目錄、輸出/時間限制，以及一個通往允許清單中已註冊工具的 localhost 橋接，例如 `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request`，以及 `workspaceRead` / `workspaceWrite` 所使用、以 Resources 為後盾的工作區檔案橋接。
+- `sandboxed`。註冊 `run-code`，這是一個強化的 QuickJS 評估器，具有限制的記憶體、堆疊、原始碼、結果與輸出，並透過主機函式連接到允許清單中的已註冊工具，例如 `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request`，以及 `workspaceRead` / `workspaceWrite` 所使用、以 Resources 為後盾的工作區檔案橋接。來賓程式碼無法使用 Node 模組、檔案系統、環境變數、網路、計時器或 imports。
 - `trusted`。註冊 `run-code`，加上完整的編碼工具註冊表（`bash`、`read`、`edit`、`write`）。只在單租戶或由操作者控管、刻意允許對主機完整 shell 存取的部署中使用它。
 
 設定 `AGENT_PROD_CODE_EXECUTION=sandboxed` 或 `AGENT_PROD_CODE_EXECUTION=trusted`，可以在不變更程式碼的情況下，針對特定部署覆寫外掛程式選項。即使外掛程式選項啟用了程式碼執行，`AGENT_PROD_CODE_EXECUTION=off` 仍會強制將它關閉。
 
-`run-code` 沙盒是行程層級的隔離，而不是作業系統容器。它會從子行程環境中剝除應用程式密鑰，並在可用時使用 Node 的權限模型，但傳出的網路連線並不會被 Node 本身封鎖。已驗證的呼叫應該透過該工具公開的橋接輔助函式進行。
+正式環境的 `run-code` 評估器使用強化的 QuickJS，而不是 Node 子行程。它不是作業系統容器：主機函式仍是受信任的能力並負責驗證與授權，而評估器會限制來賓程式碼資源與橋接呼叫。
 
 ## 接下來呢
 

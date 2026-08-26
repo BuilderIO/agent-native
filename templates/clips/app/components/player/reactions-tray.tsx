@@ -23,6 +23,7 @@ export interface ReactionsTrayProps {
   onReact: ReactionHandler;
   reactions?: Pick<ReactionSummary, "emoji">[];
   disabled?: boolean;
+  className?: string;
 }
 
 interface Float {
@@ -37,6 +38,7 @@ export function ReactionsTray({
   onReact,
   reactions,
   disabled,
+  className,
 }: ReactionsTrayProps) {
   const [floats, setFloats] = useState<Float[]>([]);
   const [savingEmoji, setSavingEmoji] = useState<string | null>(null);
@@ -92,7 +94,12 @@ export function ReactionsTray({
   }
 
   return (
-    <div className="relative flex w-fit max-w-full items-center gap-0.5 rounded-full border border-border bg-card px-1.5 py-1 shadow-sm sm:gap-1 sm:px-2">
+    <div
+      className={cn(
+        "relative flex w-fit max-w-full items-center gap-0.5 rounded-full border border-border bg-card px-1.5 py-1 shadow-sm sm:gap-1 sm:px-2",
+        className,
+      )}
+    >
       {REACTION_EMOJIS.map((emoji) => (
         <Tooltip key={emoji}>
           <TooltipTrigger asChild>
