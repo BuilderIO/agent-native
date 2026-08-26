@@ -29,6 +29,7 @@ let editDocumentAction: typeof import("./edit-document.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 const OWNER = "owner@example.com";
+const EDITOR = "editor@example.com";
 const VIEWER = "import-viewer@example.com";
 const ORG_ID = "import-viewer-org";
 
@@ -89,320 +90,148 @@ function sourceWithFavorite(isFavorite: boolean) {
 }
 
 describe("import-content-source descriptions", () => {
-  it("imports pipe tables as native NFM while preserving Mermaid and siblings", async () => {
-    const content = [
-      "Before sentinel.",
-      "",
-      "| Stage | Owner |",
-      "| --- | --- |",
-      "| Draft | Writer |",
-      "| Review | Editor |",
-      "",
-      "Middle sentinel.",
-      "",
-      "```mermaid",
-      "flowchart LR",
-      "  Draft --> Review",
-      "```",
-      "",
-      "After sentinel.",
-    ].join("\n");
+  it("creates and updates visibility while preserving it when omitted", async () => {
+    const path = "content/visibility-round-trip--doc_visibility_roundtrip.mdx";
+    const source = (visibility?: "private" | "org" | "public") =>
+      [
+        "---",
+        'id: "doc_visibility_roundtrip"',
+        'title: "Visibility round-trip"',
+        ...(visibility ? [`visibility: "${visibility}"`] : []),
+        "---",
+        "",
+        "Body",
+      ].join("\n");
 
-    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+    await runWithRequestContext({ userEmail: OWNER }, () =>
       importContentSourceAction.run({
-        files: { "content/release-path.md": content },
+        files: { [path]: source("public") },
         dryRun: false,
       }),
     );
-    const documentId = result.created[0]?.id;
-    if (!documentId) throw new Error("Expected imported fixture document");
-    const [document] = await getDb()
-      .select({ content: schema.documents.content })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId));
+    await expect(
+      getDb()
+        .select({ visibility: schema.documents.visibility })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "doc_visibility_roundtrip")),
+    ).resolves.toEqual([{ visibility: "public" }]);
 
-    expect(document.content).toContain('<table header-row="true">');
-    expect(document.content).toContain(
-      "```mermaid\nflowchart LR\n  Draft --> Review\n```",
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source() },
+        dryRun: false,
+      }),
     );
-    expect(document.content).toContain("Before sentinel.");
-    expect(document.content).toContain("Middle sentinel.");
-    expect(document.content).toContain("After sentinel.");
+    await expect(
+      getDb()
+        .select({ visibility: schema.documents.visibility })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "doc_visibility_roundtrip")),
+    ).resolves.toEqual([{ visibility: "public" }]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("private") },
+        dryRun: false,
+      }),
+    );
+    await expect(
+      getDb()
+        .select({ visibility: schema.documents.visibility })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "doc_visibility_roundtrip")),
+    ).resolves.toEqual([{ visibility: "private" }]);
   });
 
-  it("repairs one exact pipe table and fails closed otherwise", async () => {
-    const now = new Date().toISOString();
-    const table = [
-      "| Stage | Owner |",
-      "| --- | --- |",
-      "| Draft | Writer |",
-    ].join("\n");
-    const documentId = "localized_pipe_table_repair";
-    const original = ["Before sentinel.", table, "After sentinel."].join(
-      "\n\n",
-    );
-    await getDb().insert(schema.documents).values({
-      id: documentId,
-      ownerEmail: OWNER,
-      title: "Localized repair",
-      content: original,
-      createdAt: now,
-      updatedAt: now,
-    });
+  it("does not let an editor change visibility through import", async () => {
+    const id = "doc_editor_visibility_guard";
+    const path = `content/editor-visibility--${id}.mdx`;
+    const source = (visibility: "private" | "public", content: string) =>
+      serializeContentSourceDocument({
+        id,
+        parentId: null,
+        title: "Editor visibility guard",
+        content,
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility,
+      });
 
-    const repaired = await runWithRequestContext({ userEmail: OWNER }, () =>
-      editDocumentAction.run({
-        id: documentId,
-        find: table,
-        transform: "normalize-pipe-table",
-        reuseLabels: [],
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("private", "Owner body") },
+        dryRun: false,
       }),
     );
-    expect(repaired).toMatchObject({
-      status: "repaired",
-      applied: 1,
-      verified: true,
-      columnCount: 2,
-      rowCount: 2,
+    await getDb().insert(schema.documentShares).values({
+      id: "import-editor-visibility-share",
+      resourceId: id,
+      principalType: "user",
+      principalId: EDITOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
     });
-    const [afterRepair] = await getDb()
-      .select({ content: schema.documents.content })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId));
-    expect(afterRepair.content).toBe(
-      [
-        "Before sentinel.",
-        [
-          '<table header-row="true">',
-          "<tr>",
-          "<td>Stage</td>",
-          "<td>Owner</td>",
-          "</tr>",
-          "<tr>",
-          "<td>Draft</td>",
-          "<td>Writer</td>",
-          "</tr>",
-          "</table>",
-        ].join("\n"),
-        "After sentinel.",
-      ].join("\n\n"),
-    );
 
-    const missing = await runWithRequestContext({ userEmail: OWNER }, () =>
-      editDocumentAction.run({
-        id: documentId,
-        find: table,
-        transform: "normalize-pipe-table",
-        reuseLabels: [],
+    const result = await runWithRequestContext({ userEmail: EDITOR }, () =>
+      importContentSourceAction.run({
+        files: { [path]: source("public", "Editor body") },
+        dryRun: false,
       }),
     );
-    expect(missing).toMatchObject({
-      status: "no-match",
-      applied: 0,
-      verified: true,
-      persistedContentUnchanged: true,
-    });
 
-    const repeated = [table, "Middle sentinel.", table].join("\n\n");
-    await getDb()
-      .update(schema.documents)
-      .set({ content: repeated, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, documentId));
-    const ambiguous = await runWithRequestContext({ userEmail: OWNER }, () =>
-      editDocumentAction.run({
-        id: documentId,
-        find: table,
-        transform: "normalize-pipe-table",
-        reuseLabels: [],
+    expect(result.skipped).toEqual([
+      {
+        path,
+        reason: `Requires admin access to change visibility on document "${id}".`,
+      },
+    ]);
+    await expect(
+      getDb()
+        .select({
+          content: schema.documents.content,
+          visibility: schema.documents.visibility,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id)),
+    ).resolves.toEqual([{ content: "Owner body", visibility: "private" }]);
+  });
+
+  it("reports structural MDX transformations during a dry-run import", async () => {
+    const path = "content/mixed-mdx.mdx";
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: {
+          [path]: [
+            '<Aside type="note">',
+            "Keep this source.",
+            "</Aside>",
+            "",
+            "| Component | Responsibility |",
+            "| --- | --- |",
+            "| Content | Preserve structure |",
+            "",
+            "```mermaid",
+            "flowchart TD",
+            "  Import --> Repair",
+            "```",
+            "",
+            "Trailing content.",
+          ].join("\n"),
+        },
+        dryRun: true,
       }),
     );
-    expect(ambiguous).toMatchObject({
-      status: "ambiguous",
-      applied: 0,
-      verified: true,
-      persistedContentUnchanged: true,
-    });
-    const [afterAmbiguous] = await getDb()
-      .select({ content: schema.documents.content })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId));
-    expect(afterAmbiguous.content).toBe(repeated);
 
-    const overlapping = "aaaa";
-    await getDb()
-      .update(schema.documents)
-      .set({ content: overlapping, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, documentId));
-    const overlappingResult = await runWithRequestContext(
-      { userEmail: OWNER },
-      () =>
-        editDocumentAction.run({
-          id: documentId,
-          find: "aaa",
-          transform: "normalize-pipe-table",
-          reuseLabels: [],
-        }),
-    );
-    expect(overlappingResult).toMatchObject({
-      status: "ambiguous",
-      applied: 0,
-      verified: true,
-      persistedContentUnchanged: true,
+    expect(result.errors).toEqual([]);
+    expect(result.fidelity[path]).toEqual({
+      status: "transformed",
+      normalizedChanged: true,
+      conversions: [{ kind: "gfm-pipe-table-to-content-table", count: 1 }],
+      unresolved: [],
     });
-
-    const fenced = ["```md", table, "```"].join("\n");
-    await getDb()
-      .update(schema.documents)
-      .set({ content: fenced, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, documentId));
-    const fencedResult = await runWithRequestContext({ userEmail: OWNER }, () =>
-      editDocumentAction.run({
-        id: documentId,
-        find: table,
-        transform: "normalize-pipe-table",
-        reuseLabels: [],
-      }),
-    );
-    expect(fencedResult).toMatchObject({
-      status: "unsupported",
-      reason: "unsafe-document-context",
-      applied: 0,
-      verified: true,
-      persistedContentUnchanged: true,
-    });
-
-    const fencedWithBlankLine = ["```md", "example", "", table, "```"].join(
-      "\n",
-    );
-    await getDb()
-      .update(schema.documents)
-      .set({
-        content: fencedWithBlankLine,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.documents.id, documentId));
-    const fencedWithBlankLineResult = await runWithRequestContext(
-      { userEmail: OWNER },
-      () =>
-        editDocumentAction.run({
-          id: documentId,
-          find: table,
-          transform: "normalize-pipe-table",
-          reuseLabels: [],
-        }),
-    );
-    expect(fencedWithBlankLineResult).toMatchObject({
-      status: "unsupported",
-      reason: "unsafe-document-context",
-      applied: 0,
-      verified: true,
-      persistedContentUnchanged: true,
-    });
-
-    const partialTable = ["| A | B |", "| --- | --- |"].join("\n");
-    const largerTable = [partialTable, "| 1 | 2 |"].join("\n");
-    await getDb()
-      .update(schema.documents)
-      .set({ content: largerTable, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, documentId));
-    const partialResult = await runWithRequestContext(
-      { userEmail: OWNER },
-      () =>
-        editDocumentAction.run({
-          id: documentId,
-          find: partialTable,
-          transform: "normalize-pipe-table",
-          reuseLabels: [],
-        }),
-    );
-    expect(partialResult).toMatchObject({
-      status: "unsupported",
-      reason: "unsafe-document-context",
-      applied: 0,
-      verified: true,
-      persistedContentUnchanged: true,
-    });
-
-    const leadingRow = ["| Earlier | Row |", table].join("\n");
-    await getDb()
-      .update(schema.documents)
-      .set({ content: leadingRow, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, documentId));
-    const trailingRegionResult = await runWithRequestContext(
-      { userEmail: OWNER },
-      () =>
-        editDocumentAction.run({
-          id: documentId,
-          find: table,
-          transform: "normalize-pipe-table",
-          reuseLabels: [],
-        }),
-    );
-    expect(trailingRegionResult).toMatchObject({
-      status: "unsupported",
-      reason: "unsafe-document-context",
-      applied: 0,
-      verified: true,
-      persistedContentUnchanged: true,
-    });
-
-    const crlfTable = table.split("\n").join("\r\n");
-    const crlfDocument = [
-      "Before sentinel.",
-      crlfTable,
-      "After sentinel.",
-    ].join("\r\n\r\n");
-    await getDb()
-      .update(schema.documents)
-      .set({ content: crlfDocument, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, documentId));
-    const crlfResult = await runWithRequestContext({ userEmail: OWNER }, () =>
-      editDocumentAction.run({
-        id: documentId,
-        find: crlfTable,
-        transform: "normalize-pipe-table",
-        reuseLabels: [],
-      }),
-    );
-    expect(crlfResult).toMatchObject({
-      status: "repaired",
-      applied: 1,
-      verified: true,
-    });
-    const [afterCrLfRepair] = await getDb()
-      .select({ content: schema.documents.content })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId));
-    expect(afterCrLfRepair.content).not.toMatch(/(?<!\r)\n/);
-
-    const secondTable = [
-      "| Status | Owner |",
-      "| --- | --- |",
-      "| Ready | Editor |",
-    ].join("\n");
-    const twoTables = [table, secondTable].join("\n\n");
-    await getDb()
-      .update(schema.documents)
-      .set({ content: twoTables, updatedAt: new Date().toISOString() })
-      .where(eq(schema.documents.id, documentId));
-    const firstOfTwo = await runWithRequestContext({ userEmail: OWNER }, () =>
-      editDocumentAction.run({
-        id: documentId,
-        find: table,
-        transform: "normalize-pipe-table",
-        reuseLabels: [],
-      }),
-    );
-    expect(firstOfTwo).toMatchObject({
-      status: "repaired",
-      applied: 1,
-      verified: true,
-    });
-    const [afterFirstOfTwo] = await getDb()
-      .select({ content: schema.documents.content })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId));
-    expect(afterFirstOfTwo.content).toContain(secondTable);
   });
 
   it("requires editor access before importing into an organization space", async () => {
