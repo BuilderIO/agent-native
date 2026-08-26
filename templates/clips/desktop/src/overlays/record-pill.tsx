@@ -20,7 +20,11 @@ import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { flushSync } from "react-dom";
 
-import { completionCardState, resolveCompletion } from "../lib/pill-completion";
+import {
+  completionCardState,
+  isCompletionForSession,
+  resolveCompletion,
+} from "../lib/pill-completion";
 import type {
   NativeUploadFinished,
   PillDoneStage as DoneStage,
@@ -741,24 +745,28 @@ export function RecordingPill() {
       }),
     );
     track(
-      safeListen<{ stage?: string; progress?: number | null }>(
-        "clips:native-upload-progress",
-        (payload) => {
-          if (modeRef.current !== "done") return;
-          // A local-only take never uploads, so any native upload progress
-          // reaching this card belongs to some other recording.
-          if (sessionRef.current.localOnly) return;
-          if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
-          stallTimerRef.current = setTimeout(() => {
-            setDoneStage((s) => (s === "uploaded" ? s : "failed"));
-          }, 120_000);
-          if (payload?.stage && payload.stage !== "opening") {
-            setDoneStage((s) =>
-              s === "uploaded" || s === "failed" ? s : "uploading",
-            );
-          }
-        },
-      ),
+      safeListen<{
+        recordingId?: string;
+        stage?: string;
+        progress?: number | null;
+      }>("clips:native-upload-progress", (payload) => {
+        if (modeRef.current !== "done") return;
+        // A local-only take never uploads, so any native upload progress
+        // reaching this card belongs to some other recording.
+        if (sessionRef.current.localOnly) return;
+        if (!isCompletionForSession(sessionRef.current.recordingId, payload)) {
+          return;
+        }
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+        stallTimerRef.current = setTimeout(() => {
+          setDoneStage((s) => (s === "uploaded" ? s : "failed"));
+        }, 120_000);
+        if (payload?.stage && payload.stage !== "opening") {
+          setDoneStage((s) =>
+            s === "uploaded" || s === "failed" ? s : "uploading",
+          );
+        }
+      }),
     );
     track(
       safeListen<NativeUploadFinished>(

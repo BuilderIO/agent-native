@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { completionCardState, resolveCompletion } from "./pill-completion";
+import {
+  completionCardState,
+  isCompletionForSession,
+  resolveCompletion,
+} from "./pill-completion";
 
 describe("resolveCompletion", () => {
   it("reports a hosted upload as uploaded with its link", () => {
@@ -55,6 +59,25 @@ describe("resolveCompletion", () => {
       resolveCompletion(null, { recordingId: "rec-1", ok: true }),
     ).not.toBeNull();
     expect(resolveCompletion("rec-1", { ok: true })).not.toBeNull();
+  });
+});
+
+describe("isCompletionForSession", () => {
+  it("governs progress events on the same rule as completions", () => {
+    // The pill's window is reused across takes, so an earlier upload's
+    // progress must not move a newer take's card or refresh its timeout.
+    expect(isCompletionForSession("rec-2", { recordingId: "rec-1" })).toBe(
+      false,
+    );
+    expect(isCompletionForSession("rec-2", { recordingId: "rec-2" })).toBe(
+      true,
+    );
+  });
+
+  it("takes an event when either side is unidentified", () => {
+    expect(isCompletionForSession(null, { recordingId: "rec-1" })).toBe(true);
+    expect(isCompletionForSession("rec-1", {})).toBe(true);
+    expect(isCompletionForSession(undefined, {})).toBe(true);
   });
 });
 

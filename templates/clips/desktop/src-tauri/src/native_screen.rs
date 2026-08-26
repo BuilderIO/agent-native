@@ -933,8 +933,14 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
     stop
 }
 
+/// `recording_id` names the take this progress belongs to. The recording pill
+/// reuses one window across takes, so an untagged progress event from an
+/// earlier upload would move a newer take's completion card and refresh its
+/// stall timeout. Required rather than optional so the compiler, not review,
+/// is what catches a new emit site that forgets it.
 fn emit_native_upload_progress(
     app: &AppHandle,
+    recording_id: &str,
     stage: &str,
     message: impl Into<String>,
     detail: Option<String>,
@@ -943,6 +949,7 @@ fn emit_native_upload_progress(
     let _ = app.emit(
         "clips:native-upload-progress",
         serde_json::json!({
+            "recordingId": recording_id,
             "stage": stage,
             "message": message.into(),
             "detail": detail,
@@ -1813,7 +1820,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
     let upload_mode = NativeUploadMode::from_option(upload_mode);
-    emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
+    emit_native_upload_progress(
+        &app,
+        &recording_id,
+        "finalizing",
+        "Optimizing clip",
+        None,
+        None,
+    );
     // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
     // atom is written (or has definitively failed). Signal the UI so it can tear
     // down the separate live-transcription SCStream (system_audio.rs) now,
@@ -1866,7 +1880,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 Ok(()) => merge_err.clone(),
             });
             write_saved_recording_metadata(&app, &saved)?;
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{merge_err}. The raw clip segments were saved locally and can be retried from the Clips menu."
             );
@@ -1906,7 +1920,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         if stop_err.starts_with(CAPTURE_FINALIZE_INCOMPLETE_PREFIX) {
             saved.last_error = Some(stop_err.clone());
             write_saved_recording_metadata(&app, &saved)?;
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
             );
@@ -1941,7 +1955,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                     );
                 }
                 write_saved_recording_metadata(&app, &saved)?;
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let suffix = if saved.corrupt {
                     "The local file is incomplete and cannot be recovered. Discard it from the Clips menu and record again."
                 } else {
@@ -1979,7 +2000,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         );
         eprintln!("[clips-tray] recording missing moov after Ok stop outcome (likely finalize timeout) — saving as retryable, skipping upload");
         write_saved_recording_metadata(&app, &saved)?;
-        emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+        emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
         let error =
             "Recorded MP4 is missing playback metadata. Please retry the recording.".to_string();
         emit_native_upload_finished(
@@ -1993,7 +2014,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         return Err(error);
     }
     write_saved_recording_metadata(&app, &saved)?;
-    emit_native_upload_progress(&app, "preparing", "Optimizing clip", None, None);
+    emit_native_upload_progress(
+        &app,
+        &recording_id,
+        "preparing",
+        "Optimizing clip",
+        None,
+        None,
+    );
 
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -2027,7 +2055,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.last_error = Some(error.clone());
                 saved.retry_count = saved.retry_count.saturating_add(1);
                 let _ = write_saved_recording_metadata(&app, &saved);
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let error = format!(
                     "{error} The clip was saved locally and can be retried from the Clips menu."
                 );
@@ -2051,7 +2086,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.last_error = Some(error.clone());
                 saved.retry_count = saved.retry_count.saturating_add(1);
                 let _ = write_saved_recording_metadata(&app, &saved);
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let error = format!(
                     "{error} The clip was saved locally and can be retried from the Clips menu."
                 );
@@ -2069,7 +2111,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         eprintln!(
             "[live-upload] stop: signalling finalize for {recording_id} (measured_duration_ms={verified_duration_ms})"
         );
-        emit_native_upload_progress(&app, "uploading", "Uploading clip", None, None);
+        emit_native_upload_progress(
+            &app,
+            &recording_id,
+            "uploading",
+            "Uploading clip",
+            None,
+            None,
+        );
         live.ctrl
             .duration_ms
             .store(verified_duration_ms as u64, Ordering::SeqCst);
@@ -2105,7 +2154,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.last_error = Some(err.clone());
                 saved.retry_count = saved.retry_count.saturating_add(1);
                 let _ = write_saved_recording_metadata(&app, &saved);
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let error = format!(
                     "{err}. The clip was saved locally and can be retried from the Clips menu."
                 );
@@ -2147,7 +2203,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             saved.last_error = Some(err.clone());
             saved.retry_count = saved.retry_count.saturating_add(1);
             let _ = write_saved_recording_metadata(&app, &saved);
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{err}. The clip was saved locally and can be retried from the Clips menu."
             );
@@ -2194,7 +2250,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.corrupt = true;
             }
             let _ = write_saved_recording_metadata(&app, &saved);
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{err}. The clip was saved locally and can be retried from the Clips menu."
             );
@@ -3915,7 +3971,7 @@ pub async fn native_fullscreen_recording_retry_upload(
     cookie: Option<String>,
 ) -> Result<NativeFullscreenUploadResult, String> {
     if take_native_upload_retry_cancelled(&recording_id) {
-        emit_native_upload_progress(&app, "paused", "Retry cancelled", None, None);
+        emit_native_upload_progress(&app, &recording_id, "paused", "Retry cancelled", None, None);
         return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
     }
     let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
@@ -4002,6 +4058,7 @@ pub async fn native_fullscreen_recording_retry_upload(
             NativeRetryUploadPlan::Resume(resume) => {
                 emit_native_upload_progress(
                     &app,
+                    &recording_id,
                     "uploading",
                     "Resuming upload",
                     None,
@@ -4020,6 +4077,7 @@ pub async fn native_fullscreen_recording_retry_upload(
             } => {
                 emit_native_upload_progress(
                     &app,
+                    &recording_id,
                     "uploading",
                     "Restarting upload",
                     None,
@@ -4162,14 +4220,21 @@ pub async fn native_fullscreen_recording_retry_upload(
         Err(err) => {
             clear_native_upload_retry_cancelled(&recording_id);
             if err == NATIVE_UPLOAD_RETRY_CANCELLED {
-                emit_native_upload_progress(&app, "paused", "Retry cancelled", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "paused",
+                    "Retry cancelled",
+                    None,
+                    None,
+                );
                 return Err(err);
             }
             if is_moov_corrupt_error(&err) {
                 saved.corrupt = true;
             }
             persist_saved_recording_error(&app, &mut saved, &err);
-            emit_native_upload_progress(&app, "failed", "Retry paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Retry paused", None, None);
             let suffix = if saved.corrupt {
                 "The file is corrupted and cannot be recovered."
             } else {
@@ -5627,6 +5692,7 @@ pub(crate) async fn upload_finalized_native_artifact(
 ) -> Result<NativeFullscreenUploadResult, String> {
     let prepared = prepare_recording_file(
         app,
+        &recording_id,
         &artifact.path,
         artifact.mime_type,
         artifact.width,
@@ -5694,6 +5760,7 @@ fn prepare_saved_recording_file(
         .to_path_buf();
     let prepared = prepare_recording_file(
         app,
+        &saved.recording_id,
         &source_path,
         &saved.mime_type,
         saved.width,
@@ -5850,6 +5917,7 @@ async fn upload_prepared_recording_file(
         .unwrap_or(0);
     emit_native_upload_progress(
         app,
+        &recording_id,
         "uploading",
         if streaming_resume.is_some() {
             "Resuming upload"
@@ -5918,6 +5986,7 @@ async fn upload_prepared_recording_file(
             }?;
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "uploading",
                 "Uploading clip",
                 None,
@@ -5933,6 +6002,7 @@ async fn upload_prepared_recording_file(
 
         emit_native_upload_progress(
             app,
+            &recording_id,
             "processing",
             "Uploading clip",
             None,
@@ -6004,6 +6074,7 @@ async fn upload_prepared_recording_file(
             }?;
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "uploading",
                 "Uploading clip",
                 None,
@@ -6013,6 +6084,7 @@ async fn upload_prepared_recording_file(
 
         emit_native_upload_progress(
             app,
+            &recording_id,
             "processing",
             "Uploading clip",
             None,
@@ -6047,7 +6119,14 @@ async fn upload_prepared_recording_file(
         }?;
     }
 
-    emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));
+    emit_native_upload_progress(
+        app,
+        &recording_id,
+        "opening",
+        "Uploading clip",
+        None,
+        Some(1.0),
+    );
     Ok(NativeFullscreenUploadResult {
         recording_id,
         duration_ms: verified_local_duration_ms,
@@ -6110,6 +6189,7 @@ async fn get_native_retry_upload_plan(
                     if tokio::time::Instant::now() + delay <= deadline {
                         emit_native_upload_progress(
                             app,
+                            &recording_id,
                             "uploading",
                             "Waiting for prior retry",
                             None,
@@ -7395,6 +7475,9 @@ fn verify_prepared_audio_signal(
 
 fn prepare_recording_file(
     app: &AppHandle,
+    // Only so the compression progress this emits can name its take; the
+    // preparation itself is per-file and knows nothing about the recording.
+    recording_id: &str,
     path: &Path,
     mime_type: &str,
     width: Option<u32>,
@@ -7446,7 +7529,14 @@ fn prepare_recording_file(
             );
         }
     }
-    emit_native_upload_progress(app, "preparing", "Optimizing clip", None, None);
+    emit_native_upload_progress(
+        app,
+        recording_id,
+        "preparing",
+        "Optimizing clip",
+        None,
+        None,
+    );
 
     let original = PreparedRecordingFile {
         path: path.to_path_buf(),
@@ -7546,6 +7636,7 @@ fn prepare_recording_file(
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "compressing",
                 "Optimizing clip",
                 None,
@@ -7646,6 +7737,7 @@ fn prepare_recording_file(
                     }
                     emit_native_upload_progress(
                         app,
+                        &recording_id,
                         "compressing",
                         "Optimizing clip",
                         None,
@@ -7681,6 +7773,7 @@ fn prepare_recording_file(
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "compressing",
                 "Optimizing clip",
                 None,
@@ -7767,6 +7860,7 @@ fn prepare_recording_file(
                     }
                     emit_native_upload_progress(
                         app,
+                        &recording_id,
                         "compressing",
                         "Optimizing clip",
                         None,

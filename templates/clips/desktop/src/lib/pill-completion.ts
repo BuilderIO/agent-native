@@ -28,23 +28,32 @@ export type PillCompletion = {
  * The completion state the card should show, or `null` when the payload
  * belongs to a different recording than the one on screen and must be ignored.
  *
- * `sessionRecordingId` is the id the recorder announced for the session that
- * owns this card. When both sides name an id and they differ, the payload is a
- * late completion from an earlier take — taking it would repaint the current
- * card with the old clip's link and status. When either side has no id there is
- * nothing to compare (a local-only session has no server recording, and a pill
- * that mounted after the session event never learned one), so the payload is
- * taken, which is the contract the pill has always had.
+ * Identity is checked through `isCompletionForSession`: a late completion from
+ * an earlier take would otherwise repaint the current card with the old clip's
+ * link and status.
  */
+/**
+ * Whether an upload event belongs to the take the card is showing.
+ *
+ * Shared by the completion and progress paths so one rule governs both. When
+ * both sides name an id and they differ, the event is a leftover from an
+ * earlier take — this window is reused, so that happens. When either side has
+ * no id there is nothing to compare and the event is taken, which is the
+ * contract the pill has always had.
+ */
+export function isCompletionForSession(
+  sessionRecordingId: string | null | undefined,
+  payload: { recordingId?: string },
+): boolean {
+  if (!sessionRecordingId || !payload.recordingId) return true;
+  return payload.recordingId === sessionRecordingId;
+}
+
 export function resolveCompletion(
   sessionRecordingId: string | null | undefined,
   payload: NativeUploadFinished,
 ): PillCompletion | null {
-  if (
-    sessionRecordingId &&
-    payload.recordingId &&
-    payload.recordingId !== sessionRecordingId
-  ) {
+  if (!isCompletionForSession(sessionRecordingId, payload)) {
     return null;
   }
   return {

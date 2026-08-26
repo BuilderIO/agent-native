@@ -495,6 +495,7 @@ async function fetchWithAbortTimeout(
 
 async function hasConfiguredVideoStorage(
   serverUrl: string,
+  account: string | null,
 ): Promise<VideoStorageProbe> {
   const base = serverUrl.replace(/\/+$/, "");
 
@@ -544,9 +545,10 @@ async function hasConfiguredVideoStorage(
   }
   // Last-known-good cache: seeds the next launch's Start button so it isn't
   // held behind this round-trip. Only "configured" is ever cached —
-  // "missing"/"unknown" must always re-probe.
-  if (probe === "configured") {
-    saveBool(videoStorageConfiguredKey(serverUrl), true);
+  // "missing"/"unknown" must always re-probe — and only when we know whose
+  // answer it is, so an unauthenticated probe never writes one.
+  if (probe === "configured" && account) {
+    saveBool(videoStorageConfiguredKey(serverUrl, account), true);
   }
   return probe;
 }
@@ -555,12 +557,13 @@ function authTokenStorageKey(serverUrl: string): string {
   return `${AUTH_TOKEN_KEY}:${originForServer(serverUrl)}`;
 }
 
-// Whether video storage is configured is a fact about one server, so the
-// last-known-good seed is stored per origin. A single shared key would let a
-// configured server's success enable Start against a different, unconfigured
-// one for the whole of that server's first probe.
-function videoStorageConfiguredKey(serverUrl: string): string {
-  return `${VIDEO_STORAGE_CONFIGURED_KEY}:${originForServer(serverUrl)}`;
+// Whether video storage is configured is a fact about one account on one
+// server: both status endpoints answer as the authenticated user. A key any
+// coarser lets one answer enable Start for a server or an account it was never
+// about — including after a sign-out. `account` is null before the session
+// probe settles, which is not an identity, so nothing is cached or seeded then.
+function videoStorageConfiguredKey(serverUrl: string, account: string): string {
+  return `${VIDEO_STORAGE_CONFIGURED_KEY}:${originForServer(serverUrl)}:${account}`;
 }
 
 function loadDesktopAuthToken(serverUrl: string): string {
@@ -1250,14 +1253,11 @@ export function App({
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
   // Seeded from the last-known-good cache so a machine that ever probed
-  // "configured" gets an enabled Start button instantly; the probes below
-  // still run and correct a since-deconfigured server within seconds.
+  // Starts at "checking" and is seeded from the cache only once the signed-in
+  // account is known — the cached answer belongs to one account on one server,
+  // and the seed effect below is what applies it.
   const [videoStorageStatus, setVideoStorageStatus] =
-    useState<VideoStorageStatus>(() =>
-      loadBool(videoStorageConfiguredKey(serverUrl), false)
-        ? "configured"
-        : "checking",
-    );
+    useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const [signInPending, setSignInPending] = useState<
     "google" | "magic-link" | null
@@ -1317,24 +1317,26 @@ export function App({
     setDesktopAuthContext(serverUrl, loadDesktopAuthToken(serverUrl));
   }, [serverUrl]);
 
-  // The server `videoStorageStatus` is an answer about. Every probe captures
-  // the server it started against and drops its result if this has moved on,
-  // so an in-flight probe can never land another server's answer on the
-  // current one.
-  const videoStorageServerRef = useRef(serverUrl);
-  // Switching servers makes the current answer meaningless: the probe below
-  // deliberately never downgrades "configured" to "checking", so without this
-  // the old server's success would keep Start enabled against the new one
-  // until its first probe lands. Re-seed from the new origin's own cache.
+  // Who and where `videoStorageStatus` is an answer about. Every probe captures
+  // this and drops its result if it has since moved on, so an in-flight probe
+  // can never land one account-and-server's answer on another's.
+  const videoStorageIdentity = `${originForServer(serverUrl)}|${signedInAs ?? ""}`;
+  const videoStorageIdentityRef = useRef(videoStorageIdentity);
+  // A change of server or account makes the current answer meaningless, and the
+  // probe below deliberately never downgrades "configured" to "checking", so
+  // without this the previous answer would keep Start enabled against the new
+  // identity until its first probe lands. Re-seed from that identity's own
+  // cache — which is also what applies the cache at launch, once the session
+  // probe has said who is signed in.
   useEffect(() => {
-    if (videoStorageServerRef.current === serverUrl) return;
-    videoStorageServerRef.current = serverUrl;
+    videoStorageIdentityRef.current = videoStorageIdentity;
     setVideoStorageStatus(
-      loadBool(videoStorageConfiguredKey(serverUrl), false)
+      signedInAs &&
+        loadBool(videoStorageConfiguredKey(serverUrl, signedInAs), false)
         ? "configured"
         : "checking",
     );
-  }, [serverUrl]);
+  }, [videoStorageIdentity, serverUrl, signedInAs]);
 
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed" || localRecordingMode !== "off") {
@@ -1346,12 +1348,12 @@ export function App({
     // from the last-known-good cache or the mount-time warmup probe, and
     // downgrading "configured" to "checking" would re-disable Start for the
     // probe's whole round-trip. A definitive probe result below still wins.
-    const probedServer = serverUrl;
-    const probe = await hasConfiguredVideoStorage(probedServer);
-    // The selection moved on while this was in flight: this answer is about a
-    // server the UI is no longer pointed at, and "configured over there" is
-    // not evidence about the server Start would record to.
-    if (videoStorageServerRef.current !== probedServer) return false;
+    const probedIdentity = videoStorageIdentity;
+    const probe = await hasConfiguredVideoStorage(serverUrl, signedInAs);
+    // The server or the account moved on while this was in flight: this answer
+    // is about an identity the UI is no longer using, and "configured over
+    // there" is not evidence about what Start would record to now.
+    if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (probe === "unknown") {
       // The check couldn't be completed (offline/unreachable). Never downgrade
       // an already-connected user to "missing" on an indeterminate result;
@@ -1365,25 +1367,24 @@ export function App({
     }
     setVideoStorageStatus(probe);
     return probe === "configured";
-  }, [authStatus, localRecordingMode, serverUrl]);
+  }, [
+    authStatus,
+    localRecordingMode,
+    serverUrl,
+    signedInAs,
+    videoStorageIdentity,
+  ]);
 
   useEffect(() => {
     void refreshVideoStorageStatus();
   }, [refreshVideoStorageStatus]);
 
-  // Warm the storage probe at mount, in parallel with checkAuth, instead of
-  // serializing it behind the session check. Both are cookie-authenticated:
-  // an anon session settles "unknown" (never a definitive answer), and the
-  // anon UI has no Start button, so a wrong enable can't leak. The authed
-  // refresh above re-probes and last-write-wins.
-  useEffect(() => {
-    const probedServer = serverUrl;
-    void hasConfiguredVideoStorage(probedServer).then((probe) => {
-      if (probe !== "configured") return;
-      if (videoStorageServerRef.current !== probedServer) return;
-      setVideoStorageStatus("configured");
-    });
-  }, [serverUrl]);
+  // There is deliberately no mount-time warmup probe here any more. One used to
+  // run in parallel with checkAuth to overlap the round-trips, but a probe
+  // started before the session settles cannot say which account its answer
+  // belongs to, and applying it anyway is exactly how one account inherited
+  // another's "configured". A returning user is covered by the account-scoped
+  // cache seed above at no round-trip cost; a first launch pays one probe.
 
   useEffect(() => {
     if (
@@ -2746,6 +2747,12 @@ export function App({
   // failed). Stop and cancel are terminal transitions on the recorder a
   // restart is already tearing down, so they must not run against it.
   const restartInFlightRef = useRef(false);
+  // The take the recorder last announced, tracked from the same
+  // `clips:recorder-session` event the pill uses for its identity. A stop that
+  // throws has no result to name, so this is the only way its failure event can
+  // say which take it belongs to instead of being applied to whichever card
+  // happens to be open.
+  const sessionRecordingIdRef = useRef<string | null>(null);
   const recordingInFlight = isRecording || recordingFlowActive;
   useLayoutEffect(() => {
     recordingFlowGateRef.current = recordingInFlight;
@@ -3844,6 +3851,14 @@ export function App({
       });
     };
     track(
+      listen<{ recordingId?: string | null }>(
+        "clips:recorder-session",
+        (event) => {
+          sessionRecordingIdRef.current = event.payload?.recordingId ?? null;
+        },
+      ),
+    );
+    track(
       listen("clips:recorder-stop", async () => {
         if (restartInFlightRef.current) return;
         // Detach the React Start/bubble gate immediately. The recorder keeps
@@ -3869,6 +3884,9 @@ export function App({
 
         let stopFailed = false;
         let stopResult: RecorderStopResult | null = null;
+        // Captured before the await: by the time a slow stop throws, a
+        // replacement take may already have announced itself.
+        const stoppingRecordingId = sessionRecordingIdRef.current;
         try {
           stopResult = await handle.stop();
           if (stopResult.localOnly) {
@@ -3902,6 +3920,7 @@ export function App({
           // correct the card.
           if (!stopResult) {
             emit("clips:native-upload-finished", {
+              recordingId: stoppingRecordingId ?? undefined,
               ok: false,
               error: err instanceof Error ? err.message : String(err),
             }).catch(() => {});
