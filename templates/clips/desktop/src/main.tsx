@@ -14,10 +14,10 @@ import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
 import { MonitorPicker } from "./overlays/monitor-picker";
 import { Preparing } from "./overlays/preparing";
-import { RecordingPill } from "./overlays/recording-pill";
+import { RecordingPill } from "./overlays/record-pill";
+import { MeetingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import { RegionRecordBorder } from "./overlays/region-record-border";
-import { Toolbar } from "./overlays/toolbar";
 
 // Imports styles.css itself, into a lower cascade layer — see tailwind.css.
 import "./tailwind.css";
@@ -49,7 +49,7 @@ function pickRoute(route: string): React.ReactElement {
     case "countdown":
       return <Countdown />;
     case "toolbar":
-      return <Toolbar />;
+      return <RecordingPill />;
     case "bubble":
       return <Bubble />;
     case "finalizing":
@@ -63,7 +63,7 @@ function pickRoute(route: string): React.ReactElement {
     case "flow-bar":
       return <FlowBar />;
     case "recording-pill":
-      return <RecordingPill />;
+      return <MeetingPill />;
     case "region-guides":
       return <RegionGuides />;
     case "region-guides-editor":
