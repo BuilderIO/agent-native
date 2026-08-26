@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Effects and transforms</title><style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#f4f4f5;font-family:Inter,Helvetica,Arial,sans-serif;color:#18181b}
+  .frame{position:relative;width:1000px;height:700px;overflow:hidden;background:
+    radial-gradient(ellipse 70% 55% at 78% 12%, rgba(99,102,241,.30), transparent 62%),
+    linear-gradient(200deg,#fafafa 0%,#e4e4e7 100%);padding:44px}
+  h1{margin:0 0 28px;font-size:34px;font-weight:800;letter-spacing:-.028em}
+  .stack{position:relative;height:300px}
+  .card{position:absolute;width:230px;height:290px;border-radius:16px;background:#fff;
+    box-shadow:0 18px 40px -12px rgba(24,24,27,.35);border:1px solid rgba(24,24,27,.08);padding:18px}
+  .c1{left:0;top:6px;transform:rotate(-8deg)}
+  .c2{left:210px;top:0;transform:rotate(-2.5deg)}
+  .c3{left:420px;top:10px;transform:rotate(5deg)}
+  .c4{left:630px;top:2px;transform:rotate(11deg)}
+  .chip{width:52px;height:14px;border-radius:999px;margin-bottom:12px}
+  .chip.a{background:#22d3ee}.chip.b{background:#f472b6}.chip.c{background:#facc15}.chip.d{background:#4ade80}
+  .card p{margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:-.01em}
+  .card small{display:block;font-size:11px;line-height:1.5;color:rgba(24,24,27,.62)}
+  .inner{margin-top:14px;height:96px;border-radius:10px;
+    background:linear-gradient(150deg,#e0e7ff,#c7d2fe);
+    box-shadow:inset 0 2px 10px rgba(30,27,75,.28)}
+  .row{display:flex;gap:20px;margin-top:34px;align-items:stretch}
+  .panel{flex:1;border-radius:14px;padding:18px;background:#18181b;color:#fafafa;
+    box-shadow:0 10px 22px -8px rgba(24,24,27,.5), 0 2px 0 0 rgba(255,255,255,.06) inset}
+  .panel h2{margin:0 0 8px;font-size:15px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+  .panel span{font-size:12px;line-height:1.6;color:rgba(250,250,250,.68)}
+  .clip{flex:1;border-radius:14px;overflow:hidden;position:relative;background:#fff;border:1px solid rgba(24,24,27,.1)}
+  .clip .bleed{position:absolute;left:-40px;top:-30px;width:320px;height:220px;border-radius:24px;
+    transform:rotate(-14deg);background:linear-gradient(120deg,#fb7185,#f97316);opacity:.9}
+  .clip .label{position:absolute;left:16px;bottom:14px;font-size:12px;font-weight:700;
+    letter-spacing:.14em;text-transform:uppercase;color:#18181b}
+  .fade{flex:1;border-radius:14px;border:1px dashed rgba(24,24,27,.32);
+    background:linear-gradient(90deg,rgba(99,102,241,.85),rgba(99,102,241,0));
+    display:flex;align-items:flex-end;padding:16px;font-size:12px;font-weight:700;color:#fff}
+</style></head><body>
+<main class="frame" data-agent-native-node-id="frame">
+  <h1>Rotation, shadows and clipping</h1>
+  <div class="stack">
+    <div class="card c1"><div class="chip a"></div><p>Interruptible</p><small>Rotated -8°, outer shadow, inset-shadow inner panel.</small><div class="inner"></div></div>
+    <div class="card c2"><div class="chip b"></div><p>Spring damped</p><small>Rotated -2.5°, overlapping the card to its left.</small><div class="inner"></div></div>
+    <div class="card c3"><div class="chip c"></div><p>Rubber banding</p><small>Rotated 5°, shadow must follow the rotated box.</small><div class="inner"></div></div>
+    <div class="card c4"><div class="chip d"></div><p>Optical centre</p><small>Rotated 11°, clipped by the frame's right edge.</small><div class="inner"></div></div>
+  </div>
+  <div class="row">
+    <div class="panel"><h2>Layered shadows</h2><span>An outer drop shadow with negative spread plus an inset highlight on the same element.</span></div>
+    <div class="clip"><div class="bleed"></div><span class="label">Overflow hidden</span></div>
+    <div class="fade">Gradient to transparent</div>
+  </div>
+</main></body></html>

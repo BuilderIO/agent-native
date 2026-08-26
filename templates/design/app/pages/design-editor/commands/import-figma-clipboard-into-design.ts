@@ -34,7 +34,14 @@ export async function runImportFigmaClipboardIntoDesign(
   }: ImportFigmaClipboardIntoDesignArgs,
   content: string,
 ) {
-  if (!id) return;
+  // A paste that lands before the editor has a design id must say so; a bare
+  // return here is indistinguishable from the paste never firing.
+  if (!id) {
+    toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+      description: "Open a design before pasting from Figma." /* i18n-ignore */,
+    });
+    return;
+  }
   if (!canEditDesign) {
     toast.error("Import requires editor access" /* i18n-ignore */);
     return;

@@ -667,6 +667,8 @@ const messages = {
       figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
       figmaPasteMatchGuidance:
         "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+      figmaPasteUnreadable:
+        "剪貼簿中沒有已複製的 Figma 圖層。請在 Figma 中選取畫框，按 Cmd+C 複製後再貼上，或從匯入面板匯入 Figma 連結。",
       figmaPasteRestLabel: "透過 Figma API 匯入",
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
       figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",

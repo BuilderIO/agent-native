@@ -1,0 +1,117 @@
+[
+  {
+    "id": "parity-stress",
+    "url": "https://www.figma.com/design/qi8LfxivK6QzV5ujdLLqR6/Untitled?node-id=4-3",
+    "stresses": "Everything at once: clipped/rotated gradients, a partial ring, wrapping auto-layout with an absolute child, an alpha mask over a diamond gradient, a dashed gradient line, a multi-stroke star, a rotated polygon, and an interaction-state strip."
+  },
+  {
+    "id": "autolayout",
+    "url": "https://www.figma.com/design/4HW2pnM03TFDIXxyym5Qcd/AN-Interop-Fixture-F3b?node-id=4-2",
+    "stresses": "Five levels of nested and wrapped auto-layout with mixed align/grow and a wrapped tag row."
+  },
+  {
+    "id": "typography",
+    "url": "https://www.figma.com/design/4HW2pnM03TFDIXxyym5Qcd/AN-Interop-Fixture-F3b?node-id=4-90",
+    "stresses": "Relative vs tight fixed line-height, underline, strikethrough, uppercase transform, single-line truncation, and multi-line auto-height reflow."
+  },
+  {
+    "id": "fills-effects",
+    "url": "https://www.figma.com/design/4HW2pnM03TFDIXxyym5Qcd/AN-Interop-Fixture-F3b?node-id=4-99",
+    "stresses": "Multi-fill stack, all four gradient types, inner plus drop shadow, layer blur, background blur, and a multiply blend over a backdrop."
+  },
+  {
+    "id": "shapes",
+    "url": "https://www.figma.com/design/4HW2pnM03TFDIXxyym5Qcd/AN-Interop-Fixture-F3b?node-id=4-42",
+    "stresses": "Per-corner radii, a rotated nested frame, inside/outside-dashed/center stroke alignment, a star, a polygon, and a clipping frame."
+  },
+  {
+    "id": "card-grid",
+    "url": "https://www.figma.com/design/4HW2pnM03TFDIXxyym5Qcd/AN-Interop-Fixture-F3b?node-id=4-53",
+    "stresses": "A real component instantiated six times with per-instance text and size overrides."
+  },
+  {
+    "id": "constraints",
+    "url": "https://www.figma.com/design/4HW2pnM03TFDIXxyym5Qcd/AN-Interop-Fixture-F3b?node-id=4-83",
+    "stresses": "An absolutely-positioned badge and a rotated corner ribbon overhanging an auto-layout card."
+  },
+  {
+    "id": "community-positivus-landing",
+    "url": "https://www.figma.com/design/DTnZipGOXCxDXnFLeg8V7d/Positivus-Landing-Page-Design?node-id=330-762",
+    "stresses": "A real 8,356px agency marketing page: 180 nested auto-layout frames, 94 vectors with boolean ops and 7 masks, 45 rotated nodes, and a non-clipping root frame that Figma exports 1px wider than its own absoluteBoundingBox."
+  },
+  {
+    "id": "community-untitled-ui-landing",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1647-376184",
+    "stresses": "The most-used community design system rendered as a real page: 296 component instances over 384 auto-layout frames, 12 gradient fills, two layer blurs, and 146 pixel-locked line heights."
+  },
+  {
+    "id": "community-dashstack-admin",
+    "url": "https://www.figma.com/design/kjEFxl9wYyKM6HdUonZ3YG/DashStack-Admin-Dashboard?node-id=0-2",
+    "stresses": "Data-dense admin dashboard laid out with zero auto-layout: 85 strokes, 38 shadows, 13 boolean ops and 12 masks of chart art, an icon webfont, 27 partial opacities — and an empty zero-geometry VECTOR inside an instance that Figma refuses to render, which currently aborts the whole import."
+  },
+  {
+    "id": "community-interior-ecommerce",
+    "url": "https://www.figma.com/design/nX0ByDcYY3CQkDIYd1gJCd/Interior-eCommerce-Website?node-id=117-336",
+    "stresses": "Photo-heavy storefront: 97 image fills behind 21 masks and 41 per-corner radii, built from plain groups rather than auto-layout, with uppercase and strikethrough sale-price text."
+  },
+  {
+    "id": "community-whitepace-saas",
+    "url": "https://www.figma.com/design/BKosHx3DEY52qQ1GGtrT03/Whitepace-SaaS-Landing-Page?node-id=9-6480",
+    "stresses": "Vector-heavy SaaS page whose node JSON alone is 7 MB: 511 vectors, 112 rotated nodes, 10 dashed strokes, and 14 absolutely-positioned children inside auto-layout."
+  },
+  {
+    "id": "community-landify-example",
+    "url": "https://www.figma.com/design/2cRRdAvm3gvyrPqtdN2p9h/Landify-Landing-Page-UI-Kit-v2?node-id=1973-6580",
+    "stresses": "UI-kit-built landing page: 79 component instances and 148 vectors nested inside 88 clipping frames, with 12 gradient fills and 18 partially transparent layers."
+  },
+  {
+    "id": "app-untitled-ui-dashboard",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1719-439380",
+    "stresses": "Full 1440x960 product dashboard — sidebar, metric cards, charts, table. Auto-layout in both directions and heavily nested: 199 HORIZONTAL / 97 VERTICAL / 76 NONE, 0 wrap, 10 levels deep, over 524 nodes with 244 component instances, 126 FILL-sized and 291 HUG-sized children."
+  },
+  {
+    "id": "app-untitled-ui-dashboard-tall",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1775-459047",
+    "stresses": "1440x1315 dashboard variant with a scrolled content column: 189 HORIZONTAL / 84 VERTICAL / 66 NONE auto-layout, 10 deep, 493 nodes, 246 instances, 106 FILL and 238 HUG children."
+  },
+  {
+    "id": "app-untitled-ui-settings",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1686-419068",
+    "stresses": "1440x2578 settings screen: tab bar, form rows, avatar upload, file list. The deepest auto-layout nesting in the corpus at 14 levels — 79 HORIZONTAL / 56 VERTICAL / 37 NONE with 1 WRAP row, 253 nodes, 97 FILL and 172 HUG children."
+  },
+  {
+    "id": "app-untitled-ui-settings-mobile",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1677-538204",
+    "stresses": "375x2366 mobile settings screen — the vertical-dominant counterpart to app-untitled-ui-settings, and the only case where VERTICAL outnumbers HORIZONTAL: 50 HORIZONTAL / 68 VERTICAL / 44 NONE, 13 deep, 253 nodes, 134 FILL children stretching to a 375px viewport."
+  },
+  {
+    "id": "app-untitled-ui-data-table",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=2219-471812",
+    "stresses": "1216x899 data table assembled from cell instances — the horizontal-dominant extreme: 283 HORIZONTAL / 29 VERTICAL / 55 NONE, 6 deep, 509 nodes of which 325 are instances, 105 FILL and 304 HUG children. Column widths come entirely from HUG/FILL resolution, so any sizing error shifts every column."
+  },
+  {
+    "id": "community-untitled-ui-pricing",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1624-430477",
+    "stresses": "1440x4538 pricing page: plan cards, a feature comparison matrix, FAQ and footer. Largest mixed-direction auto-layout tree here — 215 HORIZONTAL / 106 VERTICAL / 74 NONE, 9 deep, 594 nodes, 258 instances, 192 FILL and 444 HUG children, 126 text nodes."
+  },
+  {
+    "id": "community-untitled-ui-landing-mobile",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1659-455036",
+    "stresses": "375x8925 mobile marketing page — the tallest frame in the corpus relative to width (23.8:1). 161 HORIZONTAL / 125 VERTICAL / 71 NONE, 9 deep, 579 nodes, 192 instances, 221 FILL children, 82 vectors and 11 image fills."
+  },
+  {
+    "id": "community-untitled-ui-landing-alt",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1647-400879",
+    "stresses": "1440x6734 second desktop landing page, vector-heavy where the first is instance-heavy: 143 VECTOR nodes across 158 HORIZONTAL / 91 VERTICAL / 93 NONE auto-layout frames, 10 deep, 598 nodes, 142 FILL and 339 HUG children."
+  },
+  {
+    "id": "ds-untitled-ui-table-variants",
+    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1227-110587",
+    "stresses": "A real design-system variant matrix, not a screen: the 3350x3277 Table COMPONENT_SET with 16 variants. 5,385 nodes, 3,336 nested instances, 2,682 HORIZONTAL / 626 VERTICAL / 533 NONE auto-layout frames, 1,460 FILL and 2,860 HUG children."
+  },
+  {
+    "id": "community-landify-tablet",
+    "url": "https://www.figma.com/design/2cRRdAvm3gvyrPqtdN2p9h/Landify-Landing-Page-UI-Kit-v2?node-id=1973-6589",
+    "stresses": "768x5585 tablet breakpoint of the Landify example page — the same design as community-landify-example re-laid-out, so the two cases isolate breakpoint-driven layout drift. 32 HORIZONTAL / 50 VERTICAL / 56 NONE, 6 deep, 390 nodes, 151 vectors, 13 image fills, 93 FILL children."
+  }
+]

@@ -23,13 +23,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   hydrateImagesFromFig,
+  MAX_FIG_UPLOAD_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
 import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
-import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 
 interface FigmaHydrationDialogProps {
   open: boolean;
@@ -78,7 +78,7 @@ export function FigmaHydrationDialog({
           validationError === "too-large"
             ? "designEditor.import.errors.figFileTooLarge"
             : "designEditor.import.figmaHydrationInvalidFig",
-          { max: MAX_UPLOAD_MB },
+          { max: MAX_FIG_UPLOAD_MB },
         ),
       );
       return;

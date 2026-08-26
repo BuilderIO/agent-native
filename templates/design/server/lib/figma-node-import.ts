@@ -571,15 +571,20 @@ export async function resolveTargetNodeId(
 }
 
 /**
- * Fetches one or more nodes' full document JSON. Vector `geometry=paths` is
- * intentionally omitted: structural vectors already use rendered-image
- * fallback, while requesting every raw path frequently pushes ordinary frames
- * past the provider response limit. If a multi-selection is still too large,
- * retry it as smaller batches before failing a single oversized node.
+ * Fetches one or more nodes' full document JSON, including vector
+ * `geometry=paths` so `figma-node-to-html` can reconstruct real `<path>`
+ * geometry for vectors and boolean operations instead of rasterizing them.
+ *
+ * Raw path data is what pushes a node payload past the provider's 4 MB
+ * response limit, so oversize is handled in two steps before giving up: split
+ * a multi-selection into smaller batches (each still with geometry), then
+ * retry the same ids WITHOUT geometry, which degrades exactly to the
+ * rendered-PNG fallback rather than failing the import.
  */
 export async function fetchFigmaNodes(
   fileKey: string,
   nodeIds: string[],
+  withGeometry = true,
 ): Promise<Record<string, FigmaNode>> {
   if (nodeIds.length === 0) return {};
   let json: {
@@ -588,21 +593,26 @@ export async function fetchFigmaNodes(
   try {
     const envelope = await figmaGet(`/files/${fileKey}/nodes`, {
       ids: nodeIds.join(","),
+      ...(withGeometry ? { geometry: "paths" } : {}),
     });
     json = providerJson(envelope, "nodes") as typeof json;
   } catch (error) {
-    if (
-      nodeIds.length > 1 &&
-      /exceeded the safe 4 MB import limit/i.test(
-        error instanceof Error ? error.message : String(error),
-      )
-    ) {
+    const isOversize = /exceeded the safe 4 MB import limit/i.test(
+      error instanceof Error ? error.message : String(error),
+    );
+    if (isOversize && nodeIds.length > 1) {
       const midpoint = Math.ceil(nodeIds.length / 2);
       const [left, right] = await Promise.all([
-        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint)),
-        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint)),
+        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint), withGeometry),
+        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry),
       ]);
       return { ...left, ...right };
+    }
+    if (isOversize && withGeometry) {
+      console.warn(
+        `[figma-import] Node ${nodeIds.join(",")} exceeded the 4 MB limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
+      );
+      return fetchFigmaNodes(fileKey, nodeIds, false);
     }
     throw error;
   }

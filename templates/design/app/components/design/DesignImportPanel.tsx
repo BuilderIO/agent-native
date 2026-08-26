@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  MAX_FIG_UPLOAD_MB,
   uploadDesignFile,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
@@ -38,7 +39,6 @@ import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
-import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
@@ -310,7 +310,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       if (validationError === "too-large") {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description: t("designEditor.import.errors.figFileTooLarge", {
-            max: MAX_UPLOAD_MB,
+            max: MAX_FIG_UPLOAD_MB,
           }),
         });
         if (figFileInputRef.current) figFileInputRef.current.value = "";
@@ -571,7 +571,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
             <div className="space-y-2 p-2">
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {t("designEditor.import.figUploadDescription", {
-                  max: MAX_UPLOAD_MB,
+                  max: MAX_FIG_UPLOAD_MB,
                 })}
               </p>
               <input

@@ -808,6 +808,16 @@ function effectiveStrokePaints(node: FigNode, ctx: Ctx): Paint[] | undefined {
   return node.strokePaints;
 }
 
+/** Record one fidelity note against a node the renderer could not reproduce exactly. */
+function recordApproximation(node: FigNode, ctx: Ctx, note: string): void {
+  ctx.approximatedNodes.push({
+    nodeId: guidKey(node.guid),
+    nodeName: node.name,
+    nodeType: node.type,
+    notes: [note],
+  });
+}
+
 function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
   if (p.visible === false) return null;
   if (p.type === "SOLID") {
@@ -859,12 +869,11 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       return `conic-gradient(${stops})`;
     }
     if (p.type === "GRADIENT_DIAMOND") {
-      ctx.approximatedNodes.push({
-        nodeId: guidKey(node.guid),
-        nodeName: node.name,
-        nodeType: node.type,
-        notes: ["GRADIENT_DIAMOND approximated as radial-gradient"],
-      });
+      recordApproximation(
+        node,
+        ctx,
+        "GRADIENT_DIAMOND approximated as radial-gradient",
+      );
       return `radial-gradient(${stops})`;
     }
   }
@@ -1571,14 +1580,11 @@ function buildCss(
     if (bmResult) {
       css.mixBlendMode = bmResult.cssMode;
       if (bmResult.verdict === "approximated") {
-        ctx.approximatedNodes.push({
-          nodeId: guidKey(node.guid),
-          nodeName: node.name,
-          nodeType: node.type,
-          notes: [
-            `blend mode ${node.blendMode} approximated as ${bmResult.cssMode}`,
-          ],
-        });
+        recordApproximation(
+          node,
+          ctx,
+          `blend mode ${node.blendMode} approximated as ${bmResult.cssMode}`,
+        );
       }
     }
   }
@@ -1644,6 +1650,8 @@ interface Ctx {
   maxFrameOutputBytes: number;
   maxTotalOutputBytes: number;
   totalOutputBytes: number;
+  /** Monotonic id suffix for SVG <defs> entries; ids must be document-unique. */
+  svgDefSeq: number;
   /** Collect fidelity verdicts for approximated nodes. */
   approximatedNodes: Array<{
     nodeId: string;
@@ -1817,29 +1825,143 @@ function decodeVectorNetwork(bytes: Buffer | undefined): DecodedVectorNetwork {
 }
 
 /**
- * SVG paint attribute (fill / stroke) for the visible solid paint. Figma
- * composites a node's paint list bottom-to-top, so the LAST opaque solid is the
+ * SVG paint attribute (fill / stroke) for the visible paint. Figma composites
+ * a node's paint list bottom-to-top, so the LAST paint SVG can express is the
  * one actually seen — e.g. a stroke stacked `[cyan, pink]` renders pink. Pick
- * the topmost visible solid rather than the first.
+ * the topmost expressible paint rather than the first.
+ *
+ * Gradients become a paint server pushed onto `defs`; the returned `color` is
+ * then a `url(#id)` reference and the alpha rides on the stops, so there is no
+ * separate opacity to apply.
  */
 function paintToSvgFill(
   paints: Paint[] | undefined,
+  node: FigNode,
+  ctx: Ctx,
+  key: string,
+  defs: string[],
 ): { color: string; opacity?: number } | null {
-  let p: Paint | undefined;
-  for (const candidate of paints ?? []) {
-    if (candidate.visible !== false && candidate.type === "SOLID")
-      p = candidate;
+  const visible = (paints ?? []).filter((p) => p.visible !== false);
+  if (visible.length === 0) return null;
+  let paint: Paint | undefined;
+  for (const candidate of visible) {
+    if (candidate.type === "SOLID" || candidate.type?.startsWith("GRADIENT_"))
+      paint = candidate;
   }
-  if (!p || !p.color) return null;
-  const c = p.color;
-  const r = Math.round(c.r * 255);
-  const g = Math.round(c.g * 255);
-  const b = Math.round(c.b * 255);
-  const opacity = c.a * (p.opacity ?? 1);
+  if (!paint) {
+    // An IMAGE fill routes to the CSS `background-image` path before it ever
+    // gets here (see isVectorLike), so this is an image *stroke* or a paint
+    // type we do not know. Either way the layer loses its paint — say so
+    // rather than handing back a silent `fill="none"`.
+    recordApproximation(
+      node,
+      ctx,
+      `${visible[visible.length - 1]!.type ?? "unknown"} ${key} paint on a vector has no SVG equivalent; left unpainted`,
+    );
+    return null;
+  }
+  if (paint.type === "SOLID") return solidSvgFill(paint.color, paint.opacity);
+  return gradientSvgFill(paint, node, ctx, key, defs);
+}
+
+function solidSvgFill(
+  color: Color | undefined,
+  paintOpacity: number | undefined,
+): { color: string; opacity?: number } | null {
+  if (!color) return null;
+  const opacity = color.a * (paintOpacity ?? 1);
   return {
-    color: `rgb(${r}, ${g}, ${b})`,
+    // Alpha lives in the separate fill-opacity / stroke-opacity attribute.
+    color: colorToCss({ ...color, a: 1 })!,
     opacity: opacity < 0.999 ? Number(opacity.toFixed(3)) : undefined,
   };
+}
+
+/**
+ * Gradient paint → an SVG paint server pushed onto `defs`, referenced as
+ * `url(#id)`. Mirrors the REST importer's `paintToSvgFill`
+ * (packages/core/src/ingestion/figma-node-to-html.ts) so both import paths
+ * emit the same markup; the only difference is the geometry source, which is
+ * a node-to-gradient matrix here instead of REST handle positions.
+ */
+function gradientSvgFill(
+  paint: Paint,
+  node: FigNode,
+  ctx: Ctx,
+  key: string,
+  defs: string[],
+): { color: string; opacity?: number } | null {
+  const stops = paint.stops ?? [];
+  if (stops.length === 0) return null;
+  // Visible, approximate, and reported beats a vanished layer.
+  const firstStop = () => solidSvgFill(stops[0]!.color, paint.opacity);
+  const kind = paint.type!.slice("GRADIENT_".length) as
+    | "LINEAR"
+    | "RADIAL"
+    | "ANGULAR"
+    | "DIAMOND";
+  if (kind === "ANGULAR") {
+    recordApproximation(
+      node,
+      ctx,
+      "GRADIENT_ANGULAR on a vector has no SVG paint server (SVG has no conic gradient); painted as its first stop color",
+    );
+    return firstStop();
+  }
+  const box = node.size ? { width: node.size.x, height: node.size.y } : null;
+  const geometry =
+    paint.transform && box
+      ? gradientGeometryFromTransform(kind, paint.transform, box)
+      : null;
+  if (!geometry || !box) {
+    recordApproximation(
+      node,
+      ctx,
+      `${paint.type} on a vector had no usable gradient transform; painted as its first stop color`,
+    );
+    return firstStop();
+  }
+  const q = (n: number) => Number(n.toFixed(4));
+  const id = `fg-${guidKey(node.guid).replace(/[^a-z0-9]/gi, "")}-${key}-${ctx.svgDefSeq++}`;
+  const stopMarkup = stops
+    .map(
+      (s) =>
+        `<stop offset="${q(s.position)}" stop-color="${colorToCss({ ...s.color, a: 1 })}" stop-opacity="${q(s.color.a * (paint.opacity ?? 1))}" />`,
+    )
+    .join("");
+  if (kind === "LINEAR") {
+    // Handles are already normalized to the node's box, which is exactly SVG
+    // `objectBoundingBox` space — no angle derivation or stop remapping (the
+    // CSS path needs both only because a CSS gradient line spans the box
+    // diagonal rather than the handles).
+    const { start, end } = geometry.handles;
+    defs.push(
+      `<linearGradient id="${id}" x1="${q(start.x)}" y1="${q(start.y)}" x2="${q(end.x)}" y2="${q(end.y)}">${stopMarkup}</linearGradient>`,
+    );
+    return { color: `url(#${id})` };
+  }
+  if (geometry.rx <= 0 || geometry.ry <= 0) {
+    recordApproximation(
+      node,
+      ctx,
+      `${paint.type} on a vector collapsed to zero radius; painted as its first stop color`,
+    );
+    return firstStop();
+  }
+  // A unit circle transformed into the ellipse Figma's two radius handles
+  // describe — the SVG equivalent of the `radial-gradient(ellipse ...)`
+  // mapping the CSS path uses for non-vector nodes.
+  defs.push(
+    `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${q(geometry.center.x)} ${q(geometry.center.y)}) scale(${q(geometry.rx)} ${q(geometry.ry)})">${stopMarkup}</radialGradient>`,
+  );
+  recordApproximation(
+    node,
+    ctx,
+    kind === "DIAMOND"
+      ? "GRADIENT_DIAMOND on a vector approximated as an SVG <radialGradient>"
+      : "Vector radial gradient rendered as an axis-aligned ellipse; a rotated or skewed radial gradient needs a full gradient transform",
+  );
+  return { color: `url(#${id})` };
 }
 
 const VECTOR_LIKE_TYPES = new Set([
@@ -1884,14 +2006,30 @@ function emitSvgBody(
   node: FigNode,
   ctx: Ctx,
   indent: string,
-  lines: string[],
+  out: string[],
 ): void {
+  // Buffered so gradient <defs> can be written ahead of the paths that
+  // reference them, and skipped entirely when no path survives decoding.
+  const lines: string[] = [];
+  const defs: string[] = [];
   const w = node.size?.x ?? 0;
   const h = node.size?.y ?? 0;
   const fillRule =
     node.fillGeometry?.[0]?.windingRule === "ODD" ? "evenodd" : "nonzero";
-  const fillPaint = paintToSvgFill(effectiveFillPaints(node, ctx));
-  const strokePaint = paintToSvgFill(effectiveStrokePaints(node, ctx));
+  const fillPaint = paintToSvgFill(
+    effectiveFillPaints(node, ctx),
+    node,
+    ctx,
+    "fill",
+    defs,
+  );
+  const strokePaint = paintToSvgFill(
+    effectiveStrokePaints(node, ctx),
+    node,
+    ctx,
+    "stroke",
+    defs,
+  );
   const strokeWeight = node.strokeWeight ?? 0;
 
   let emittedFlat = false;
@@ -1990,6 +2128,10 @@ function emitSvgBody(
       if (scaled) lines.push(`${indent}  </g>`);
     }
   }
+
+  if (lines.length === 0) return;
+  if (defs.length > 0) out.push(`${indent}  <defs>${defs.join("")}</defs>`);
+  out.push(...lines);
 }
 
 function getChildren(node: FigNode, ctx: Ctx): FigNode[] {
@@ -2986,6 +3128,7 @@ export function renderHtmlTemplates(
       : undefined,
     fontUsage: new Set(),
     inliningStack: new Set(),
+    svgDefSeq: 0,
     approximatedNodes: [],
     renderedNodeCount: 0,
     maxRenderedNodes: options.maxRenderedNodes ?? DEFAULT_MAX_RENDERED_NODES,

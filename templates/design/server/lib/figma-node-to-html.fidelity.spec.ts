@@ -254,10 +254,16 @@ describe("rotation unit conversion (bug: REST rotation is radians, not degrees)"
     const { html } = mapFigmaNodeToHtml(root);
     const match = html.match(/rotate\((-?[\d.]+)deg\)/);
     expect(match).not.toBeNull();
-    // -15deg in Figma's convention negates to +15deg for CSS (see the
-    // module's Rotation caveat doc comment) -- NOT ~-0.26deg, which is what
-    // the un-converted radian value produced before this fix.
-    expect(Number(match![1])).toBeCloseTo(15, 1);
+    // The unit conversion is the point of this test, and it still holds: the
+    // radian value must become degrees, NOT the ~-0.26deg the un-converted
+    // value produced. The SIGN is not flipped, though — this assertion used to
+    // expect +15 and that was wrong. Figma's `rotation` is already the CSS
+    // angle: for a node reporting rotation -0.2967 rad (-17deg), its
+    // `relativeTransform` 2x2 is [[0.9563, 0.2924], [-0.2924, 0.9563]], and
+    // CSS `rotate(a)` in the same y-down space is
+    // [[cos a, -sin a], [sin a, cos a]], which solves to a = -17deg. Negating
+    // tilted every rotated node the wrong way by twice its angle.
+    expect(Number(match![1])).toBeCloseTo(-15, 1);
   });
 });
 

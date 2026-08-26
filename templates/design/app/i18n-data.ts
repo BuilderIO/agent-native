@@ -606,6 +606,8 @@ const enUS = {
         "Connect your Figma access token for exact node imports.",
       figmaPasteMatchGuidance:
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
+      figmaPasteUnreadable:
+        "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again — or import a Figma link from the Import panel.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
       figmaPasteLocalKiwiLabel:
@@ -12462,6 +12464,8 @@ const designImportOverrides = {
         figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
         figmaPasteMatchGuidance:
           "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+        figmaPasteUnreadable:
+          "剪貼簿中沒有已複製的 Figma 圖層。請在 Figma 中選取畫框，按 Cmd+C 複製後再貼上，或從匯入面板匯入 Figma 連結。",
         figmaPasteRestLabel: "透過 Figma API 匯入",
         figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
         figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
@@ -12526,6 +12530,8 @@ const designImportOverrides = {
         figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
         figmaPasteMatchGuidance:
           "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
+        figmaPasteUnreadable:
+          "剪贴板中没有复制的 Figma 图层。请在 Figma 中选中画框，按 Cmd+C 复制后再粘贴，或从导入面板导入 Figma 链接。",
         figmaPasteRestLabel: "通过 Figma API 导入",
         figmaPasteHtmlLabel: "从剪贴板预览导入",
         figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
@@ -12592,6 +12598,8 @@ const designImportOverrides = {
           "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
         figmaPasteMatchGuidance:
           "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
+        figmaPasteUnreadable:
+          "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o importa un enlace de Figma desde el panel Importar.",
         figmaPasteRestLabel: "Importado mediante la API de Figma",
         figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
         figmaPasteLocalKiwiLabel:
@@ -12661,6 +12669,8 @@ const designImportOverrides = {
           "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
         figmaPasteMatchGuidance:
           "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
+        figmaPasteUnreadable:
+          "Ce presse-papiers ne contient aucun calque Figma copié. Sélectionnez un cadre dans Figma, copiez-le avec Cmd+C puis recollez, ou importez un lien Figma depuis le panneau Importer.",
         figmaPasteRestLabel: "Importé via l'API Figma",
         figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
         figmaPasteLocalKiwiLabel:
@@ -12730,6 +12740,8 @@ const designImportOverrides = {
           "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
         figmaPasteMatchGuidance:
           "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
+        figmaPasteUnreadable:
+          "In dieser Zwischenablage sind keine kopierten Figma-Ebenen. Wähle in Figma einen Frame aus, kopiere ihn mit Cmd+C und füge ihn erneut ein – oder importiere einen Figma-Link über das Import-Panel.",
         figmaPasteRestLabel: "Über die Figma-API importiert",
         figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
         figmaPasteLocalKiwiLabel:
@@ -12798,6 +12810,8 @@ const designImportOverrides = {
           "正確なノードインポートのために Figma アクセストークンを接続してください。",
         figmaPasteMatchGuidance:
           "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
+        figmaPasteUnreadable:
+          "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、インポートパネルから Figma のリンクをインポートしてください。",
         figmaPasteRestLabel: "Figma API 経由でインポート",
         figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
         figmaPasteLocalKiwiLabel:
@@ -12867,6 +12881,8 @@ const designImportOverrides = {
           "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
         figmaPasteMatchGuidance:
           "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
+        figmaPasteUnreadable:
+          "클립보드에 복사된 Figma 레이어가 없습니다. Figma에서 프레임을 선택해 Cmd+C로 복사한 뒤 다시 붙여넣거나, 가져오기 패널에서 Figma 링크를 가져오세요.",
         figmaPasteRestLabel: "Figma API로 가져옴",
         figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
         figmaPasteLocalKiwiLabel: "토큰 없이 가져옴 — 기하학적 구조와 텍스트만",
@@ -12935,6 +12951,8 @@ const designImportOverrides = {
           "Conecte seu token de acesso do Figma para importações exatas de nós.",
         figmaPasteMatchGuidance:
           "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
+        figmaPasteUnreadable:
+          "Essa área de transferência não tem camadas do Figma copiadas. Selecione um frame no Figma, copie com Cmd+C e cole novamente, ou importe um link do Figma pelo painel Importar.",
         figmaPasteRestLabel: "Importado via API do Figma",
         figmaPasteHtmlLabel:
           "Importado da pré-visualização da área de transferência",
@@ -13005,6 +13023,8 @@ const designImportOverrides = {
           "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
         figmaPasteMatchGuidance:
           "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
+        figmaPasteUnreadable:
+          "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या Import पैनल से Figma लिंक आयात करें।",
         figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
         figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
         figmaPasteLocalKiwiLabel:
@@ -13073,6 +13093,8 @@ const designImportOverrides = {
           "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
         figmaPasteMatchGuidance:
           "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
+        figmaPasteUnreadable:
+          "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو استورد رابط Figma من لوحة الاستيراد.",
         figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
         figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
         figmaPasteLocalKiwiLabel:

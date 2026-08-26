@@ -19,7 +19,6 @@ import {
   buildFillLayersFromComputedStyle,
   buildLinearGradientDef,
   buildRadialGradientDef,
-  buildShadowFilterDef,
   embedRemoteImages,
   escapeXmlAttr,
   escapeXmlText,
@@ -283,10 +282,18 @@ describe("buildRadialGradientDef", () => {
     ]);
     expect(def).toBe(
       '<radialGradient id="rg-1" cx="0.5" cy="0.5" r="0.5">' +
-        '<stop offset="0%" stop-color="#fff"/>' +
-        '<stop offset="100%" stop-color="#000"/>' +
+        '<stop offset="0%" stop-color="rgb(255, 255, 255)"/>' +
+        '<stop offset="100%" stop-color="rgb(0, 0, 0)"/>' +
         "</radialGradient>",
     );
+  });
+
+  it("carries stop alpha in stop-opacity, which Figma reads and rgba() stop-color does not", () => {
+    const def = buildRadialGradientDef("rg-2", [
+      { offset: 0, color: "rgba(255, 0, 0, 0.25)" },
+      { offset: 1, color: "rgb(0, 0, 0)" },
+    ]);
+    expect(def).toContain('stop-color="rgb(255, 0, 0)" stop-opacity="0.25"');
   });
 });
 
@@ -421,50 +428,6 @@ describe("objectFitToPreserveAspectRatio", () => {
 // Shadow filters
 // ---------------------------------------------------------------------------
 
-describe("buildShadowFilterDef", () => {
-  it("emits a feDropShadow chain when every shadow has zero spread", () => {
-    const def = buildShadowFilterDef("shadow-1", [
-      {
-        offsetX: 0,
-        offsetY: 4,
-        blur: 12,
-        spread: 0,
-        color: "rgba(0, 0, 0, 0.25)",
-      },
-    ]);
-    expect(def).toContain("<feDropShadow");
-    expect(def).toContain('dx="0" dy="4" stdDeviation="6"');
-    expect(def).toContain('flood-color="rgb(0, 0, 0)"');
-    expect(def).toContain('flood-opacity="0.25"');
-    expect(def).not.toContain("feMorphology");
-  });
-
-  it("emits a decomposed feMorphology chain when spread is non-zero", () => {
-    const def = buildShadowFilterDef("shadow-2", [
-      { offsetX: 2, offsetY: 2, blur: 4, spread: 3, color: "rgb(0, 0, 0)" },
-    ]);
-    expect(def).toContain(
-      '<feMorphology in="SourceAlpha" operator="dilate" radius="3"',
-    );
-    expect(def).toContain("<feGaussianBlur");
-    expect(def).toContain("<feMerge>");
-  });
-
-  it("returns an empty string when every shadow is inset (caller's responsibility to report)", () => {
-    const def = buildShadowFilterDef("shadow-3", [
-      {
-        offsetX: 0,
-        offsetY: 2,
-        blur: 2,
-        spread: 0,
-        color: "#000",
-        inset: true,
-      },
-    ]);
-    expect(def).toBe("");
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Full node -> SVG document rendering
 // ---------------------------------------------------------------------------
@@ -486,10 +449,10 @@ describe("buildFigmaSvgDocument", () => {
     });
 
     expect(svg).toContain(
-      '<rect x="0" y="0" width="200" height="100" fill="#ffffff"/>',
+      '<rect x="0" y="0" width="200" height="100" fill="rgb(255, 255, 255)"/>',
     );
     expect(svg).toContain(
-      '<rect x="2" y="2" width="196" height="96" fill="none" stroke="#111111" stroke-width="4"/>',
+      '<rect x="2" y="2" width="196" height="96" fill="none" stroke="rgb(17, 17, 17)" stroke-width="4"/>',
     );
     expect(report.vectorized).toContain("Card");
     expect(report.rasterized).toHaveLength(0);
@@ -539,12 +502,13 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain("<linearGradient");
     expect(svg).toContain('<stop offset="0%" stop-color="rgb(255, 0, 0)"/>');
     expect(svg).toContain('<stop offset="100%" stop-color="rgb(0, 0, 255)"/>');
-    expect(svg).toContain('gradientTransform="rotate(45 0.5 0.5)"');
-    // Square box: no aspect-ratio approximation note for this fill.
+    // 135deg on a 300x300 box runs corner to corner, top-right to bottom-left.
+    expect(svg).toContain('gradientUnits="userSpaceOnUse"');
+    expect(svg).toContain('x1="0" y1="0" x2="300" y2="300"');
     expect(report.approximated).toHaveLength(0);
   });
 
-  it("flags a non-square element's gradient angle as approximated", () => {
+  it("maps a non-square element's gradient exactly instead of approximating it", () => {
     const root: FigmaSvgNode = {
       id: "root",
       name: "Banner",
@@ -561,8 +525,15 @@ describe("buildFigmaSvgDocument", () => {
         },
       ],
     };
-    const { report } = buildFigmaSvgDocument({ width: 400, height: 100, root });
-    expect(report.approximated.some((a) => a.node === "Banner")).toBe(true);
+    const { svg, report } = buildFigmaSvgDocument({
+      width: 400,
+      height: 100,
+      root,
+    });
+    // 90deg is left-to-right; user-space endpoints span the real 400px width,
+    // which an objectBoundingBox rotation could not express on a 4:1 box.
+    expect(svg).toContain('x1="0" y1="50" x2="400" y2="50"');
+    expect(report.approximated.some((a) => a.node === "Banner")).toBe(false);
   });
 
   it("stacks multiple background layers in reverse so the first CSS layer paints on top", () => {
@@ -576,8 +547,9 @@ describe("buildFigmaSvgDocument", () => {
       ],
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 100, root });
-    const blueIndex = svg.indexOf('fill="blue"');
-    const redIndex = svg.indexOf('fill="rgba(255,0,0,0.5)"');
+    const blueIndex = svg.indexOf('fill="rgb(0, 0, 255)"');
+    // Alpha moves to fill-opacity; SVG ignores the alpha channel of `fill`.
+    const redIndex = svg.indexOf('fill="rgb(255, 0, 0)" fill-opacity="0.5"');
     expect(blueIndex).toBeGreaterThan(-1);
     expect(redIndex).toBeGreaterThan(blueIndex); // painted later == on top
   });
@@ -611,8 +583,9 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain('<tspan x="10" y="48">World</tspan>');
     expect(svg).toContain('font-family="Inter"');
     expect(svg).toContain('font-weight="700"');
-    expect(svg).toContain('dominant-baseline="central"');
-    expect(report.vectorizedTextCaveat).toContain("outlined vector paths");
+    expect(svg).not.toContain("dominant-baseline");
+    expect(report.vectorizedTextCaveat).toContain("live, editable type");
+    expect(report.vectorizedTextCaveat).not.toContain("outlined vector paths");
   });
 
   it("clips a cover-fit image to its rounded rect and reports it as vectorized geometry", () => {
@@ -768,7 +741,7 @@ describe("buildFigmaSvgDocument", () => {
     });
     expect(svg).not.toContain('fill="none"');
     expect(svg).toContain(
-      '<rect x="0" y="0" width="400" height="300" fill="#ffffff"/>',
+      '<rect x="0" y="0" width="400" height="300" fill="rgb(255, 255, 255)"/>',
     );
     // Exactly one <rect> — the child's — no phantom shape for the wrapper.
     expect((svg.match(/<rect /g) || []).length).toBe(1);
@@ -776,7 +749,7 @@ describe("buildFigmaSvgDocument", () => {
     expect(report.vectorized).toContain("Wrapper");
   });
 
-  it("still emits a carrier shape for a box that has a shadow filter but no fill", () => {
+  it("paints a shadow-only box as its own geometry, not a fill-less carrier", () => {
     const root: FigmaSvgNode = {
       id: "root",
       name: "ShadowOnly",
@@ -793,8 +766,13 @@ describe("buildFigmaSvgDocument", () => {
       ],
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 50, root });
-    expect(svg).toContain('fill="none"');
+    // Figma's importer drops filter-based shadows, so the shadow is emitted as
+    // an offset, blurred, shadow-coloured shape of its own. A `fill="none"`
+    // carrier would arrive there as an invisible layer.
+    expect(svg).toContain('y="4"');
+    expect(svg).toContain('fill="rgb(0, 0, 0)" fill-opacity="0.3"');
     expect(svg).toContain("filter=");
+    expect(svg).not.toContain('fill="none"');
   });
 });
 

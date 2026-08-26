@@ -31,17 +31,20 @@
  * | Gradient fills (angle/position)              | exact (linear)/approximated (radial/angular/diamond) | derived from gradientHandlePositions, not a default angle |
  * | Multiple fills (layering)                    | exact         | reversed to match CSS background-image stacking |
  * | Image fills (scale modes)                    | exact (FILL/FIT/TILE/STRETCH-axis-aligned) / approximated (skewed imageTransform) | |
+ * | Per-paint opacity                            | exact         | folded into color/stop alpha; IMAGE paints become an overlay div (CSS background layers have no per-layer opacity) |
+ * | Per-paint blend mode                         | image fallback | a non-NORMAL paint blendMode escalates the whole node to a rendered PNG (see `needsImageFallback`) |
  * | Strokes (uniform, align)                     | exact         | CENTER via outline+negative offset, INSIDE via inset box-shadow, OUTSIDE via outline |
  * | Strokes (per-side weights)                   | approximated  | CSS has no per-side outline; falls back to per-side `border` (inside-only) |
  * | Corner radii (uniform + per-corner)          | exact         | |
  * | Effects: drop/inner shadow                   | exact         | |
- * | Effects: layer/background blur               | approximated  | Figma <-> CSS blur radius scale is not publicly specified as 1:1 |
+ * | Effects: layer/background blur               | approximated  | CSS blur() = 0.45x the Figma radius, fitted against Figma's own renders (see FIGMA_BLUR_RADIUS_TO_CSS_BLUR) |
  * | Opacity                                      | exact         | |
  * | Blend modes (CSS-supported)                   | exact         | |
  * | Blend modes (Figma-only: LINEAR_BURN/DODGE/LIGHTER/DARKER) | approximated | mapped to closest CSS equivalent |
  * | clipsContent                                  | exact        | overflow: hidden |
  * | Rotation                                      | approximated | pivots about the bounding-box center (see below) |
- * | Vector networks / boolean ops / unsupported types | image fallback | never approximated structurally |
+ * | Vectors / boolean ops WITH `fillGeometry` (geometry=paths) | exact | inline `<svg><path>`, real editable geometry |
+ * | Vectors / boolean ops / unsupported types WITHOUT geometry | image fallback | never approximated structurally |
  *
  * ### Rotation caveat
  * The REST API docs describe `rotation` as being in degrees, but the field
@@ -52,8 +55,17 @@
  * Figma does not expose the pre-rotation box directly. We reconstruct the
  * unrotated box by treating the AABB's center as invariant under rotation
  * (true for a shape rotated about its own center) and rotate the CSS element
- * about `transform-origin: center` by `-rotation` degrees (Figma's rotation
- * is clockwise-negative relative to CSS's clockwise-positive convention).
+ * about `transform-origin: center` by `rotation` degrees.
+ *
+ * The sign is NOT flipped: `relativeTransform`'s 2x2 block is exactly CSS's
+ * own `[[cos a, -sin a], [sin a, cos a]]` in the same y-down screen space.
+ * The `Rotated Radial` node in the `parity-stress` corpus frame reports
+ * `rotation: -0.2967` (= -17deg) with `relativeTransform`
+ * `[[0.9563, 0.2924, ...], [-0.2924, 0.9563, ...]]`, which solves to
+ * a = -17deg; `Masked Diamond Gradient` reports +9deg and solves to +9deg.
+ * Negating it (as this mapper did until the fidelity harness rendered that
+ * frame side by side) tilts every rotated node the wrong way by 2x the angle.
+ *
  * This is exact when Figma pivots rotation about the shape's center and only
  * approximated if Figma's internal pivot differs (rare in practice; visually
  * indistinguishable in the overwhelming majority of designs). A fully exact
@@ -65,6 +77,7 @@
 import {
   cssBlendMode,
   gradientAngleDegrees as gradientAngleDegreesMath,
+  gradientRayAngleDegreesFromHandles,
   remapLinearStopPosition as remapLinearStopPositionMath,
   resolveGradientHandles,
   vectorLength,
@@ -151,6 +164,18 @@ export interface FigmaTypeStyle {
   fills?: FigmaPaint[];
 }
 
+/**
+ * One flattened vector path as returned by
+ * `GET /v1/files/:key/nodes?...&geometry=paths`. `path` is SVG path data in
+ * the node's own coordinate space (origin = the node's `absoluteBoundingBox`
+ * top-left). `strokeGeometry` entries are the stroke *already outlined into a
+ * fillable region*, not a centerline to re-stroke.
+ */
+export interface FigmaVectorPath {
+  path?: string;
+  windingRule?: "NONZERO" | "EVENODD" | "NONE";
+}
+
 export interface FigmaIndividualStrokeWeights {
   top?: number;
   right?: number;
@@ -206,6 +231,8 @@ export interface FigmaNode {
   strokeAlign?: "INSIDE" | "OUTSIDE" | "CENTER";
   individualStrokeWeights?: FigmaIndividualStrokeWeights;
   strokeDashes?: number[];
+  fillGeometry?: FigmaVectorPath[];
+  strokeGeometry?: FigmaVectorPath[];
   cornerRadius?: number;
   rectangleCornerRadii?: [number, number, number, number];
   effects?: FigmaEffect[];
@@ -544,11 +571,17 @@ function paintToCssImage(
       const geometry = resolveGradientGeometry(paint);
       const cx = geometry ? round(geometry.start.x * 100, 2) : 50;
       const cy = geometry ? round(geometry.start.y * 100, 2) : 50;
-      const fromAngle = geometry ? gradientAngleDegrees(paint, box) : 0;
+      // A conic gradient's `from` angle aims at the end *handle* (a point), so
+      // it scales like a position -- not like the linear gradient's iso-line
+      // normal, which scales by the inverse. See the two angle helpers in
+      // figma-paint-math.
+      const fromAngle = geometry
+        ? gradientRayAngleDegreesFromHandles(geometry, box)
+        : 0;
       tracker.record(
         node,
         "approximated",
-        "Conic (angular) gradient start angle derived from gradientHandlePositions using the same angle formula as linear gradients; CSS conic-gradient() has no elliptical distortion so non-uniform boxes may render slightly differently than Figma.",
+        "Conic (angular) gradient start angle derived from the centre->end handle ray; CSS conic-gradient() sweeps at a uniform angular rate while Figma's sweeps in the node's normalized space, so a non-square box distorts the mid-sweep stop positions.",
       );
       return `conic-gradient(from ${round(fromAngle ?? 0, 2)}deg at ${cx}% ${cy}%, ${stops})`;
     }
@@ -587,7 +620,47 @@ interface BackgroundResult {
   backgroundSize?: string;
   backgroundPosition?: string;
   backgroundRepeat?: string;
+  /**
+   * Paint layers that cannot live in the CSS background stack (see
+   * `buildFills`), emitted as absolutely-positioned child divs which must be
+   * rendered *before* the node's real children so they stay beneath them.
+   */
+  overlayHtml?: string;
   color?: string; // for TEXT nodes, fill paints color the glyphs, not a background
+}
+
+/** One resolved paint layer, before routing to a background layer or an overlay div. */
+interface PaintLayer {
+  image: string;
+  size: string;
+  position: string;
+  repeat: string;
+}
+
+/**
+ * Render one paint layer as an absolutely-positioned child div. Used for
+ * layers CSS cannot express in the background stack -- today only per-paint
+ * `opacity` on an IMAGE paint, which has no `background-*` equivalent.
+ * `border-radius: inherit` reproduces the background stack's own clipping.
+ */
+function paintOverlayDiv(layer: PaintLayer, paint: FigmaPaint): string {
+  // IMAGE is the only paint type whose opacity is still outstanding here:
+  // `colorToCss`/`gradientStopsCss` already fold a SOLID's or a gradient's
+  // opacity into its alpha channel, so re-applying it on the div would square
+  // it. Only an image URL has nowhere to carry it.
+  const opacity = paint.type === "IMAGE" ? (paint.opacity ?? 1) : 1;
+  const styles: Record<string, string | undefined> = {
+    position: "absolute",
+    inset: "0",
+    "border-radius": "inherit",
+    "background-image": layer.image,
+    "background-size": layer.size,
+    "background-position": layer.position,
+    "background-repeat": layer.repeat,
+    opacity: opacity !== 1 ? String(round(opacity, 4)) : undefined,
+    "pointer-events": "none",
+  };
+  return `<div data-figma-fill-layer="${escapeAttr(paint.type)}" style="${styleAttr(styles)}"></div>`;
 }
 
 function imageScaleModeCss(
@@ -662,34 +735,52 @@ function buildFills(
   const sizes: string[] = [];
   const positions: string[] = [];
   const repeats: string[] = [];
+  const overlays: string[] = [];
   let backgroundColor: string | undefined;
 
   // Reverse so the topmost Figma fill becomes the first (topmost) CSS layer.
   const ordered = [...visible].reverse();
+
+  // A CSS background layer has no per-layer opacity, so an IMAGE paint with
+  // `opacity` < 1 cannot be expressed in the background stack at all -- it
+  // becomes an overlay div. Overlay divs paint above the whole background
+  // stack, so every paint stacked *above* such an image has to move to an
+  // overlay too or it would sink underneath. `ordered` is top-down, so the
+  // overlay set is the prefix ending at the deepest opacity-carrying image.
+  let overlayThrough = -1;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const fill = ordered[index]!;
+    if (fill.type === "IMAGE" && (fill.opacity ?? 1) < 1) {
+      overlayThrough = index;
+      break;
+    }
+  }
+
   for (let index = 0; index < ordered.length; index += 1) {
     const fill = ordered[index]!;
+    const isOverlay = index <= overlayThrough;
     const isBottommost = index === ordered.length - 1;
 
+    let layer: PaintLayer | null = null;
     if (fill.type === "SOLID") {
       const color = colorToCss(fill.color, fill.opacity ?? 1);
       if (!color) continue;
-      if (isBottommost) {
+      if (isBottommost && !isOverlay) {
         // A bottom-most solid always paints beneath every background-image
         // layer, so it can always become plain backgroundColor regardless of
         // how many gradient/image layers are stacked above it.
         backgroundColor = color;
-      } else {
-        // Solid above other layers: express as a flat gradient so it stacks
-        // in the correct z-order alongside gradient/image layers.
-        images.push(`linear-gradient(${color}, ${color})`);
-        sizes.push("100% 100%");
-        positions.push("center");
-        repeats.push("no-repeat");
+        continue;
       }
-      continue;
-    }
-
-    if (fill.type === "IMAGE") {
+      // Solid above other layers: express as a flat gradient so it stacks
+      // in the correct z-order alongside gradient/image layers.
+      layer = {
+        image: `linear-gradient(${color}, ${color})`,
+        size: "100% 100%",
+        position: "center",
+        repeat: "no-repeat",
+      };
+    } else if (fill.type === "IMAGE") {
       const url = fill.imageRef
         ? options.imageFillUrls?.[fill.imageRef]
         : undefined;
@@ -702,20 +793,26 @@ function buildFills(
         continue;
       }
       const mode = imageScaleModeCss(fill, node, tracker);
-      images.push(`url("${url}")`);
-      sizes.push(mode.size);
-      positions.push(mode.position);
-      repeats.push(mode.repeat);
-      continue;
+      layer = { image: `url("${url}")`, ...mode };
+    } else {
+      const cssImage = paintToCssImage(fill, box, tracker, node);
+      if (!cssImage) continue;
+      layer = {
+        image: cssImage,
+        size: "100% 100%",
+        position: "center",
+        repeat: "no-repeat",
+      };
     }
 
-    const cssImage = paintToCssImage(fill, box, tracker, node);
-    if (cssImage) {
-      images.push(cssImage);
-      sizes.push("100% 100%");
-      positions.push("center");
-      repeats.push("no-repeat");
+    if (isOverlay) {
+      overlays.push(paintOverlayDiv(layer, fill));
+      continue;
     }
+    images.push(layer.image);
+    sizes.push(layer.size);
+    positions.push(layer.position);
+    repeats.push(layer.repeat);
   }
 
   const result: BackgroundResult = {};
@@ -725,6 +822,10 @@ function buildFills(
     result.backgroundSize = sizes.join(", ");
     result.backgroundPosition = positions.join(", ");
     result.backgroundRepeat = repeats.join(", ");
+  }
+  if (overlays.length > 0) {
+    // Collected top-down; DOM order paints bottom-to-top.
+    result.overlayHtml = overlays.reverse().join("\n");
   }
   return result;
 }
@@ -851,6 +952,29 @@ interface EffectResult {
   backdropFilter?: string;
 }
 
+/**
+ * Figma's LAYER_BLUR/BACKGROUND_BLUR `radius` is NOT a CSS `blur()` standard
+ * deviation, and mapping it 1:1 renders roughly twice as soft as Figma does.
+ *
+ * Measured, not guessed: the fidelity harness
+ * (`templates/design/scripts/figma-fidelity/run-import.ts`) renders the
+ * `fills-effects` corpus frame through this mapper and pixel-diffs it against
+ * Figma's own PNG render of the same node. Sweeping a scale factor over the
+ * two blurred nodes in that frame and keeping the per-node region diff:
+ *
+ *   LAYER_BLUR, radius 8   -> mean |delta| 4.73 at 2.4-2.9px, **3.15 at
+ *                             3.0-3.8px**, 4.74 at 4.0-4.5px, 5.58 at 5.0px
+ *   BACKGROUND_BLUR, r 12  -> mean |delta| 2.19 at 4.5px, 2.15 at 4.8-5.3px,
+ *                             **2.14 at 5.4-5.8px**, 2.21 at 6.0px
+ *
+ * Both minima sit at radius x ~0.45 (8 -> 3.4px, 12 -> 5.5px). Chromium
+ * quantises blur into integer box-blur passes, so the minima are plateaus
+ * rather than points; 0.45 is the centre of the band both radii agree on.
+ * Still recorded as `approximated`: this is a two-radius empirical fit against
+ * one renderer, not a published Figma constant.
+ */
+const FIGMA_BLUR_RADIUS_TO_CSS_BLUR = 0.45;
+
 function buildEffects(
   node: FigmaNode,
   isTextNode: boolean,
@@ -881,22 +1005,24 @@ function buildEffects(
         `${effect.type} rendered as ${isTextNode ? "text-shadow" : "box-shadow"}.`,
       );
     } else if (effect.type === "LAYER_BLUR") {
-      const radius = px(effect.radius ?? 0) ?? "0px";
+      const radius =
+        px((effect.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR) ?? "0px";
       filter = filter ? `${filter} blur(${radius})` : `blur(${radius})`;
       tracker.record(
         node,
         "approximated",
-        "LAYER_BLUR mapped 1:1 to CSS filter: blur(); Figma's blur radius-to-CSS-stdDeviation scale is not publicly documented, so the rendered softness may differ slightly.",
+        `LAYER_BLUR mapped to CSS filter: blur() at ${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}x the Figma radius (fitted against Figma's own renders; see FIGMA_BLUR_RADIUS_TO_CSS_BLUR).`,
       );
     } else if (effect.type === "BACKGROUND_BLUR") {
-      const radius = px(effect.radius ?? 0) ?? "0px";
+      const radius =
+        px((effect.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR) ?? "0px";
       backdropFilter = backdropFilter
         ? `${backdropFilter} blur(${radius})`
         : `blur(${radius})`;
       tracker.record(
         node,
         "approximated",
-        "BACKGROUND_BLUR mapped 1:1 to CSS backdrop-filter: blur(); same radius-scale caveat as LAYER_BLUR.",
+        `BACKGROUND_BLUR mapped to CSS backdrop-filter: blur() at ${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}x the Figma radius (same fit as LAYER_BLUR).`,
       );
     }
   }
@@ -1123,6 +1249,211 @@ function buildChildSizingStyles(
 }
 
 // ---------------------------------------------------------------------------
+// Vector geometry -> inline <svg>
+// ---------------------------------------------------------------------------
+
+/**
+ * Node types whose shape is only knowable from `fillGeometry`/`strokeGeometry`.
+ * RECTANGLE and full ELLIPSE are deliberately absent: a div with
+ * `border-radius` already reproduces them exactly and keeps auto-layout,
+ * children, and CSS effects working, which an `<svg>` wrapper would not.
+ */
+const VECTOR_GEOMETRY_TYPES = new Set([
+  "VECTOR",
+  "BOOLEAN_OPERATION",
+  "STAR",
+  "REGULAR_POLYGON",
+  "LINE",
+]);
+
+/** Paint types an SVG `fill` attribute can reproduce exactly-or-close. */
+const SVG_PAINT_TYPES = new Set([
+  "SOLID",
+  "GRADIENT_LINEAR",
+  "GRADIENT_RADIAL",
+]);
+
+/** A full-circle ELLIPSE keeps the cheaper `border-radius: 50%` div path. */
+function isFullCircleArc(node: FigmaNode): boolean {
+  if (!node.arcData) return true;
+  const start = node.arcData.startingAngle ?? 0;
+  const end = node.arcData.endingAngle ?? Math.PI * 2;
+  return (
+    Math.abs(Math.abs(end - start) - Math.PI * 2) < 1e-4 &&
+    Math.abs(node.arcData.innerRadius ?? 0) < 1e-4
+  );
+}
+
+function geometryPaths(node: FigmaNode): FigmaVectorPath[] {
+  return [...(node.fillGeometry ?? []), ...(node.strokeGeometry ?? [])].filter(
+    (entry) => Boolean(entry.path?.trim()),
+  );
+}
+
+/**
+ * True when this node carries real vector geometry (from
+ * `geometry=paths`) that this mapper can paint as an inline `<svg>` instead
+ * of a rendered PNG. IMAGE/VIDEO/EMOJI and conic/diamond gradient paints stay
+ * on the raster path: SVG has no conic gradient, and an image-filled vector
+ * needs a `<pattern>` whose crop/scale semantics are not the same as
+ * `background-size`, so guessing one would be a structural approximation this
+ * module does not make.
+ */
+function rendersVectorGeometry(
+  node: FigmaNode,
+  options: MapFigmaNodeOptions,
+): boolean {
+  if (options.forceImageFallbackNodeIds?.has(node.id)) return false;
+  const isArcEllipse = node.type === "ELLIPSE" && !isFullCircleArc(node);
+  if (!VECTOR_GEOMETRY_TYPES.has(node.type) && !isArcEllipse) return false;
+  const box = node.absoluteBoundingBox;
+  // A zero-extent box gives an unusable `viewBox` (nothing renders); those
+  // nodes keep the PNG fallback, which is sized from absoluteRenderBounds.
+  if (!box || box.width <= 0 || box.height <= 0) return false;
+  if (geometryPaths(node).length === 0) return false;
+  return [...(node.fills ?? []), ...(node.strokes ?? [])]
+    .filter((paint) => paint.visible !== false)
+    .every(
+      (paint) =>
+        SVG_PAINT_TYPES.has(paint.type) &&
+        (!paint.blendMode ||
+          paint.blendMode === "NORMAL" ||
+          paint.blendMode === "PASS_THROUGH"),
+    );
+}
+
+function svgId(nodeId: string, suffix: string): string {
+  return `fg-${nodeId.replace(/[^A-Za-z0-9_-]/g, "-")}-${suffix}`;
+}
+
+function svgGradientStops(paint: FigmaPaint): string {
+  return (paint.gradientStops ?? [])
+    .map((stop) => {
+      const color = stop.color ?? {};
+      // guard:allow-raw-color — SVG paint serializer: emits literal color values into the exported document, not app UI
+      const rgb = `rgb(${Math.round((color.r ?? 0) * 255)}, ${Math.round((color.g ?? 0) * 255)}, ${Math.round((color.b ?? 0) * 255)})`;
+      const alpha = round((color.a ?? 1) * (paint.opacity ?? 1), 4);
+      return `<stop offset="${round(stop.position ?? 0, 4)}" stop-color="${rgb}" stop-opacity="${alpha}" />`;
+    })
+    .join("");
+}
+
+/**
+ * Resolve one paint to an SVG `fill` value, pushing any `<defs>` it needs.
+ * Unlike the CSS path, Figma's `gradientHandlePositions` need no angle
+ * derivation or stop remapping here: they are already normalized to the
+ * node's box, which is exactly SVG `objectBoundingBox` space.
+ */
+function paintToSvgFill(
+  paint: FigmaPaint,
+  node: FigmaNode,
+  box: { width: number; height: number },
+  defsKey: string,
+  defs: string[],
+  tracker: FidelityTracker,
+): string | null {
+  if (paint.type === "SOLID") {
+    return colorToCss(paint.color, paint.opacity ?? 1);
+  }
+  const handles = resolveGradientHandles(paint.gradientHandlePositions);
+  if (!handles) {
+    tracker.record(
+      node,
+      "approximated",
+      `Vector ${paint.type} fill had no gradientHandlePositions; layer omitted.`,
+    );
+    return null;
+  }
+  const id = svgId(node.id, defsKey);
+  const stops = svgGradientStops(paint);
+  if (paint.type === "GRADIENT_LINEAR") {
+    defs.push(
+      `<linearGradient id="${id}" x1="${round(handles.start.x, 4)}" y1="${round(handles.start.y, 4)}" x2="${round(handles.end.x, 4)}" y2="${round(handles.end.y, 4)}">${stops}</linearGradient>`,
+    );
+    tracker.record(
+      node,
+      "exact",
+      "Vector linear gradient mapped to an SVG <linearGradient> using gradientHandlePositions directly.",
+    );
+    return `url(#${id})`;
+  }
+  const radiusX = vectorLength(handles.start, handles.end, box);
+  const radiusY = vectorLength(handles.start, handles.width, box);
+  if (radiusX <= 0 || radiusY <= 0) {
+    tracker.record(
+      node,
+      "approximated",
+      "Vector radial gradient collapsed to zero radius; layer omitted.",
+    );
+    return null;
+  }
+  // A unit circle transformed into the ellipse Figma's two radius handles
+  // describe -- the SVG equivalent of the CSS `radial-gradient(ellipse ...)`
+  // mapping used for non-vector nodes.
+  defs.push(
+    `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${round(handles.start.x * box.width, 2)} ${round(handles.start.y * box.height, 2)}) scale(${round(radiusX, 2)} ${round(radiusY, 2)})">${stops}</radialGradient>`,
+  );
+  tracker.record(
+    node,
+    "approximated",
+    "Vector radial gradient rendered as an axis-aligned ellipse sized from gradientHandlePositions; rotated/skewed radial gradients are not expressible without a full gradient transform.",
+  );
+  return `url(#${id})`;
+}
+
+/**
+ * Paint a node's flattened vector geometry as an inline `<svg>` sized to the
+ * node's own box. Returns null when nothing could be painted, so the caller
+ * can keep the node's failure visible instead of emitting an empty element.
+ */
+function buildVectorSvg(
+  node: FigmaNode,
+  box: { width: number; height: number },
+  tracker: FidelityTracker,
+): string | null {
+  const defs: string[] = [];
+  const paths: string[] = [];
+
+  const emit = (
+    geometry: FigmaVectorPath[] | undefined,
+    paints: FigmaPaint[] | undefined,
+    kind: "fill" | "stroke",
+  ) => {
+    const visible = (paints ?? []).filter((paint) => paint.visible !== false);
+    geometry?.forEach((entry, geometryIndex) => {
+      const d = entry.path?.trim();
+      if (!d) return;
+      const fillRule = entry.windingRule === "EVENODD" ? "evenodd" : "nonzero";
+      visible.forEach((paint, paintIndex) => {
+        const fill = paintToSvgFill(
+          paint,
+          node,
+          box,
+          `${kind}-${geometryIndex}-${paintIndex}`,
+          defs,
+          tracker,
+        );
+        if (!fill) return;
+        paths.push(
+          `<path d="${escapeAttr(d)}" fill="${escapeAttr(fill)}" fill-rule="${fillRule}" />`,
+        );
+      });
+    });
+  };
+
+  emit(node.fillGeometry, node.fills, "fill");
+  // `strokeGeometry` is the stroke already outlined into a region, so it is
+  // painted with `fill` (and the node's stroke paints), never re-stroked.
+  emit(node.strokeGeometry, node.strokes, "stroke");
+
+  if (paths.length === 0) return null;
+  const defsMarkup = defs.length > 0 ? `<defs>${defs.join("")}</defs>` : "";
+  // `overflow: visible` because an outlined stroke legitimately extends past
+  // the node's geometric bounding box.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 ${round(box.width, 2)} ${round(box.height, 2)}" fill="none" style="overflow: visible; display: block">${defsMarkup}${paths.join("")}</svg>`;
+}
+
+// ---------------------------------------------------------------------------
 // Node type classification
 // ---------------------------------------------------------------------------
 
@@ -1131,25 +1462,30 @@ function needsImageFallback(
   options: MapFigmaNodeOptions,
 ): boolean {
   if (options.forceImageFallbackNodeIds?.has(node.id)) return true;
-  if (UNSUPPORTED_STRUCTURAL_TYPES.has(node.type)) return true;
   // A Figma mask affects its following siblings, not just the mask node. CSS
   // cannot reproduce that sibling-range operation on an arbitrary DOM tree,
   // so render the smallest containing subtree rather than importing a visibly
   // wrong unmasked composition. A mask imported as the root is also rendered.
   if (node.isMask || node.children?.some((child) => child.isMask)) return true;
-  // A CSS div with an outline is not a Figma line. Partial/ring ellipses also
-  // need real path geometry, which this structural mapper intentionally does
-  // not request because geometry=paths makes ordinary REST payloads enormous.
-  if (node.type === "LINE") return true;
-  if (node.type === "ELLIPSE" && node.arcData) {
-    const start = node.arcData.startingAngle ?? 0;
-    const end = node.arcData.endingAngle ?? Math.PI * 2;
-    const span = Math.abs(end - start);
-    const isFullCircle =
-      Math.abs(span - Math.PI * 2) < 1e-4 &&
-      Math.abs(node.arcData.innerRadius ?? 0) < 1e-4;
-    if (!isFullCircle) return true;
+  if (
+    (node.effects ?? []).some(
+      (effect) =>
+        effect.visible !== false &&
+        effect.blendMode &&
+        effect.blendMode !== "NORMAL" &&
+        effect.blendMode !== "PASS_THROUGH",
+    )
+  ) {
+    return true;
   }
+  // Real path geometry beats a rendered PNG: it stays editable, scales, and
+  // is exact. Only reachable when the caller requested `geometry=paths`.
+  if (rendersVectorGeometry(node, options)) return false;
+  if (UNSUPPORTED_STRUCTURAL_TYPES.has(node.type)) return true;
+  // A CSS div with an outline is not a Figma line, and partial/ring ellipses
+  // need real path geometry — without it, both stay rendered PNGs.
+  if (node.type === "LINE") return true;
+  if (node.type === "ELLIPSE" && !isFullCircleArc(node)) return true;
   const visibleStrokes = (node.strokes ?? []).filter(
     (stroke) => stroke.visible !== false,
   );
@@ -1188,13 +1524,22 @@ function needsImageFallback(
       node.style,
       ...Object.values(node.styleOverrideTable ?? {}),
     ].filter((style): style is FigmaTypeStyle => Boolean(style));
+    // `paragraphSpacing` is the gap BETWEEN paragraphs and `listSpacing` the gap
+    // between list items — both are no-ops on a single-paragraph, non-list text
+    // node. Design systems set them on every text style regardless, so treating
+    // their mere presence as unsupported rasterized ordinary labels: on one real
+    // community landing page it turned 116 of 146 text nodes into PNGs, one of
+    // them the single word "Home". Only escalate when the property can actually
+    // affect this node's rendering.
+    const paragraphCount = (node.characters ?? "").split("\n").length;
+    const hasList = node.lineTypes?.some((type) => type !== "NONE") ?? false;
     const hasAdvancedTypography = styles.some(
       (style) =>
-        Math.abs(style.paragraphSpacing ?? 0) > 1e-6 ||
+        (paragraphCount > 1 && Math.abs(style.paragraphSpacing ?? 0) > 1e-6) ||
         Math.abs(style.paragraphIndent ?? 0) > 1e-6 ||
-        Math.abs(style.listSpacing ?? 0) > 1e-6 ||
+        (hasList && Math.abs(style.listSpacing ?? 0) > 1e-6) ||
         style.hangingPunctuation === true ||
-        style.hangingList === true ||
+        (hasList && style.hangingList === true) ||
         style.hyperlink !== undefined ||
         Object.values(style.opentypeFlags ?? {}).some((value) => value !== 0),
     );
@@ -1211,17 +1556,6 @@ function needsImageFallback(
     ) {
       return true;
     }
-  }
-  if (
-    (node.effects ?? []).some(
-      (effect) =>
-        effect.visible !== false &&
-        effect.blendMode &&
-        effect.blendMode !== "NORMAL" &&
-        effect.blendMode !== "PASS_THROUGH",
-    )
-  ) {
-    return true;
   }
   if (
     !SUPPORTED_CONTAINER_TYPES.has(node.type) &&
@@ -1281,6 +1615,9 @@ export function collectFallbackNodeIds(
       ids.push(current.id);
       return; // Don't recurse into a subtree that's rendered as one image.
     }
+    // A BOOLEAN_OPERATION's own geometry is already the flattened result, so
+    // its operand children are never rendered and need no images.
+    if (rendersVectorGeometry(current, options)) return;
     for (const child of current.children ?? []) visit(child);
   };
   visit(node);
@@ -1306,6 +1643,7 @@ export function collectImageFillRefs(
   const visit = (current: FigmaNode) => {
     if (current.visible === false || current.opacity === 0) return;
     if (needsImageFallback(current, options)) return;
+    if (rendersVectorGeometry(current, options)) return;
     visitPaints(current.fills);
     visitPaints(current.strokes);
     for (const child of current.children ?? []) visit(child);
@@ -1431,17 +1769,67 @@ function buildMixedTextHtml(
 // Main mapper
 // ---------------------------------------------------------------------------
 
+interface LocalBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /**
+   * True when the box came from `relativeTransform`/`size` and is already in
+   * the parent's own unrotated frame at the node's true pre-rotation size —
+   * i.e. the AABB un-rotation heuristic must NOT be applied on top of it.
+   */
+  exact: boolean;
+}
+
+/**
+ * A node's box in its PARENT's own (unrotated) coordinate frame, as CSS
+ * `left`/`top`/`width`/`height` for an element rotated about its center.
+ *
+ * `absoluteBoundingBox` is in absolute canvas space and is the AABB of the
+ * ALREADY-rotated shape, so subtracting the parent's AABB origin is wrong
+ * twice over for any node under a rotated ancestor: the offset is measured in
+ * rotated space, and the size is the inflated AABB. (Real case: `shapes` >
+ * "Rotated Nested Frame" > "Rotated Child", authored 60x30 at (20,20), came
+ * out 65.7x44.5 at (24.5,29.7) and drifted further as the parent's angle grew.)
+ *
+ * Figma also returns `relativeTransform` — whose translation is the node's
+ * local origin expressed in the parent's local frame — and `size`, the true
+ * pre-rotation size. Together they are exact, so they are preferred whenever
+ * present. The node's center is `M * (size/2)`, and CSS positions the
+ * unrotated box around that center because `transform-origin: center` rotates
+ * about it. `absoluteBoundingBox` remains the fallback for callers (and
+ * fixtures) that carry no transform.
+ */
 function frameRelativeBox(
   node: FigmaNode,
   parentBox: FigmaBoundingBox | null,
-): { left: number; top: number; width: number; height: number } {
+): LocalBox {
+  const transform = node.relativeTransform;
+  const size = node.size;
+  if (parentBox && transform && size && size.x > 0 && size.y > 0) {
+    const halfX = size.x / 2;
+    const halfY = size.y / 2;
+    const centerX =
+      transform[0][0] * halfX + transform[0][1] * halfY + transform[0][2];
+    const centerY =
+      transform[1][0] * halfX + transform[1][1] * halfY + transform[1][2];
+    return {
+      left: centerX - halfX,
+      top: centerY - halfY,
+      width: size.x,
+      height: size.y,
+      exact: true,
+    };
+  }
   const box = node.absoluteBoundingBox;
-  if (!box) return { left: 0, top: 0, width: 0, height: 0 };
+  if (!box) return { left: 0, top: 0, width: 0, height: 0, exact: false };
   return {
     left: box.x - (parentBox?.x ?? box.x),
     top: box.y - (parentBox?.y ?? box.y),
     width: box.width,
     height: box.height,
+    exact: false,
   };
 }
 
@@ -1538,12 +1926,14 @@ function buildNode(
     rotationDeg !== undefined && Math.abs(rotationDeg) > 0.001
       ? rotationDeg
       : undefined;
-  if (rotation !== undefined) {
-    // `box` (from absoluteBoundingBox) is the rotated shape's AABB; recover
-    // the true pre-rotation width/height/position so fills/effects/strokes
-    // below -- and the CSS `rotate()` applied later -- operate on the
-    // correct box instead of an oversized one. See `unrotateBox`.
-    box = unrotateBox(box, rotation);
+  if (rotation !== undefined && !box.exact) {
+    // `box` fell back to absoluteBoundingBox, which is the rotated shape's
+    // AABB; recover the true pre-rotation width/height/position so
+    // fills/effects/strokes below -- and the CSS `rotate()` applied later --
+    // operate on the correct box instead of an oversized one. When
+    // `frameRelativeBox` had `relativeTransform`/`size` it already returned
+    // the true box and this inversion would shrink it a second time.
+    box = { ...unrotateBox(box, rotation), exact: false };
   }
   const nameAttr = node.name
     ? ` data-agent-native-layer-name="${escapeAttr(node.name)}"`
@@ -1624,20 +2014,25 @@ function buildNode(
   }
 
   const isTextNode = node.type === "TEXT";
-  const isEllipse = node.type === "ELLIPSE";
   const box2 = { width: box.width, height: box.height };
+  // A vector node paints its fills/strokes inside the <svg> (against the real
+  // path, not the bounding box), so the wrapper div must not also paint them.
+  const isVector = rendersVectorGeometry(node, options);
+  const vectorSvg = isVector ? buildVectorSvg(node, box2, tracker) : null;
+  const isEllipse = node.type === "ELLIPSE" && !isVector;
 
-  const fills = buildFills(
-    node,
-    node.fills,
-    box2,
-    options,
-    tracker,
-    isTextNode,
-  );
-  const strokeResult = buildStrokes(node, tracker);
+  const fills = isVector
+    ? {}
+    : buildFills(node, node.fills, box2, options, tracker, isTextNode);
+  const strokeResult: StrokeResult = isVector
+    ? { styles: {} }
+    : buildStrokes(node, tracker);
   const effects = buildEffects(node, isTextNode, tracker);
-  const cornerRadius = isEllipse ? "50%" : buildCornerRadius(node);
+  const cornerRadius = isVector
+    ? undefined
+    : isEllipse
+      ? "50%"
+      : buildCornerRadius(node);
   const blendMode = buildBlendMode(node, tracker);
 
   const boxShadowParts = [...effects.boxShadowLayers];
@@ -1687,7 +2082,7 @@ function buildNode(
     "mix-blend-mode": blendMode,
     overflow: node.clipsContent ? "hidden" : undefined,
     transform:
-      rotation !== undefined ? `rotate(${round(-rotation, 3)}deg)` : undefined,
+      rotation !== undefined ? `rotate(${round(rotation, 3)}deg)` : undefined,
     "transform-origin": rotation !== undefined ? "center" : undefined,
     "min-width": px(node.minWidth ?? undefined),
     "max-width": px(node.maxWidth ?? undefined),
@@ -1717,10 +2112,20 @@ function buildNode(
     baseStyles["text-transform"] = textTransformCss(style.textCase);
     baseStyles["text-decoration"] = textDecorationCss(style.textDecoration);
     baseStyles["text-align"] = textAlignCss(style.textAlignHorizontal);
+    const spanStyles: Record<string, string | undefined> = {};
     if (style.textAutoResize === "TRUNCATE") {
       baseStyles["white-space"] = "nowrap";
       baseStyles.overflow = "hidden";
-      baseStyles["text-overflow"] = "ellipsis";
+      // `text-overflow` ellipsizes the inline content of a *block* container.
+      // The text lives in a <span> flex item (the flex column below is how
+      // textAlignVertical is reproduced), so putting it only on the wrapper
+      // clips the string with no ellipsis -- which reads as a normal, correct
+      // truncation and is exactly the kind of near-miss this mapper must not
+      // ship. The span is the block that has to carry it.
+      spanStyles.display = "block";
+      spanStyles.overflow = "hidden";
+      spanStyles["text-overflow"] = "ellipsis";
+      spanStyles["min-width"] = "0";
     } else {
       // Figma preserves explicit newlines and repeated spaces. Normal HTML
       // whitespace collapsing changes both wrapping and measured geometry.
@@ -1735,34 +2140,62 @@ function buildNode(
 
     const characters = node.characters ?? "";
     const textHtml = buildMixedTextHtml(node, characters, tracker);
-    return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}"><span>${textHtml}</span></div>`;
+    const spanAttr = styleAttr(spanStyles);
+    const spanOpen = spanAttr ? `<span style="${spanAttr}">` : "<span>";
+    return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}">${spanOpen}${textHtml}</span></div>`;
   }
 
-  tracker.record(
-    node,
-    "exact",
-    "Position, size, fills, strokes, and effects mapped 1:1.",
-  );
+  if (vectorSvg) {
+    tracker.record(
+      node,
+      "exact",
+      `Node type "${node.type}" reconstructed from its real fillGeometry/strokeGeometry as inline SVG paths instead of a rendered PNG.`,
+    );
+  } else if (isVector) {
+    // Vector geometry was present but nothing was paintable (no visible fills
+    // or strokes). Say so rather than leaving a blank box unexplained.
+    tracker.record(
+      node,
+      "approximated",
+      `Node type "${node.type}" has vector geometry but no visible fill or stroke paint; rendered as an empty box.`,
+    );
+  } else {
+    tracker.record(
+      node,
+      "exact",
+      "Position, size, fills, strokes, and effects mapped 1:1.",
+    );
+  }
 
   // hasAutoLayout guarantees node.layoutMode is "HORIZONTAL" or "VERTICAL"
   // (buildAutoLayoutStyles returns {} -- no `display` -- for "NONE"/"GRID").
   const childParentLayoutMode: "NONE" | "HORIZONTAL" | "VERTICAL" =
     hasAutoLayout ? (node.layoutMode as "HORIZONTAL" | "VERTICAL") : "NONE";
-  const childrenHtml = (node.children ?? [])
-    .map((child) =>
-      buildNode(
-        child,
-        node.absoluteBoundingBox ?? null,
-        childParentLayoutMode,
-        options,
-        tracker,
-        false,
-      ),
-    )
+  // A vector node's geometry is already the flattened result of its operands
+  // (BOOLEAN_OPERATION children), so its children are never rendered.
+  const childrenHtml = isVector
+    ? (vectorSvg ?? "")
+    : (node.children ?? [])
+        .map((child) =>
+          buildNode(
+            child,
+            node.absoluteBoundingBox ?? null,
+            childParentLayoutMode,
+            options,
+            tracker,
+            false,
+          ),
+        )
+        .filter(Boolean)
+        .join("\n");
+
+  // Fill overlays are part of the node's own paint stack, so they go first --
+  // beneath every real child, above the background stack.
+  const innerHtml = [fills.overlayHtml, childrenHtml]
     .filter(Boolean)
     .join("\n");
 
-  return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}">\n${childrenHtml}\n</div>`;
+  return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}">\n${innerHtml}\n</div>`;
 }
 
 /**

@@ -16,7 +16,10 @@
     "script": "agent-native script",
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
-    "e2e:ui": "playwright test --ui"
+    "e2e:ui": "playwright test --ui",
+    "figma-fidelity:export": "tsx scripts/figma-fidelity/run-export.ts",
+    "figma-fidelity:sheet": "tsx scripts/figma-fidelity/make-sheet.ts",
+    "figma-fidelity:import": "tsx scripts/figma-fidelity/run-import.ts"
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",

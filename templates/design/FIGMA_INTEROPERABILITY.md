@@ -23,7 +23,7 @@ product must report them instead of claiming success.
 | Figma clipboard to Design    | Uses private `figmeta.selectedNodeData` ids when present, then the same REST converter. With a token: full fidelity matching `import-figma-frame`. Without a token: local Kiwi binary decode — geometry, auto-layout, text, solid fills, and strokes are editable; image fills are stamped with `data-figma-image-ref="<sha1>"` placeholders and can be resolved retroactively two ways: token-free by uploading the original `.fig` (the paste dialog's "Fill images from .fig" / `hydrateFileIds` on the `.fig` upload route), which matches each placeholder hash to the `.fig`'s embedded image bytes; or with a token via `hydrate-figma-paste-images`. | Exact selection identity while Figma's private metadata shape remains compatible; node fidelity is mixed. No-token imports resolve images retroactively — from the `.fig` (no quota) or a connected token. | Real Chrome copy from single, multi, nested, and 100+ node selections; token-less copy followed by `.fig` hydration and by deferred token connect, verifying image resolution both ways. |
 | `.fig` upload                | Bounded best-effort decoding of known Kiwi/ZIP variants into editable HTML. Embedded images are moved to durable storage. Optionally accepts a Figma frame URL: when its `node-id` matches the decoded file, Design imports only that top-level frame (or its ancestor for a nested node); a mismatch imports all frames with a warning. No Figma REST API calls are made.                                                                                                                                                                                                                                                                                   | Experimental. The format is proprietary and has no compatibility guarantee.                                                                                                                                | Corpus of real files from multiple Figma versions; never only generated containers.                                                                                                      |
 | `.fig` upload + frame URL    | Accepts an optional Figma frame link. Normalizes the node-id and matches the decoded .fig GUID (`sessionID:localID`) to the matching top-level frame. Nested node IDs resolve to their top-level frame. On mismatch, all frames are imported. No Figma API quota is used.                                                                                                                                                                                                                                                                                                                                                                                    | Best-effort. The GUID mapping is reliable for frames in the same file but undocumented — test with real files before relying on it.                                                                        | Real .fig/frame-link pairs from Figma across file versions.                                                                                                                              |
-| Design to Figma clipboard    | Copies an SVG built from the live rendered DOM. Figma imports supported SVG primitives as editable layers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Visual/vector handoff, not a native semantic round trip. Auto layout, variables, components, prototypes, HTML state, and code identity are not recreated by SVG.                                           | Paste into real Figma and inspect layer types, text, images, effects, clipping, and bounds.                                                                                              |
+| Design to Figma clipboard    | Copies an SVG built from the live rendered DOM. Figma imports supported SVG primitives as editable layers, including live editable text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Visual/vector handoff, not a native semantic round trip. Auto layout, variables, components, prototypes, HTML state, and code identity are not recreated by SVG.                                           | Paste into real Figma and inspect layer types, text, images, effects, clipping, and bounds.                                                                                              |
 | Design SVG download          | Same conversion as clipboard, with a server-render fallback when a live DOM is unavailable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Same SVG limits; the export report lists approximations and omissions.                                                                                                                                     | Live and server paths, selected layer and whole screen.                                                                                                                                  |
 | Native Design to Figma write | Use Figma's official MCP `use_figma` write-to-canvas path when the connected client/account supports it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Native Figma structures, subject to Figma MCP beta limitations and permissions.                                                                                                                            | Full-seat/edit-permission account and a real destination file.                                                                                                                           |
 | `.fig` download              | Not supported. There is no documented public `.fig` authoring contract.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Unsupported.                                                                                                                                                                                               | Do not label SVG/ZIP as `.fig`.                                                                                                                                                          |
@@ -54,6 +54,109 @@ product must report them instead of claiming success.
 | Prototype interactions                                                     | Preserved as inert metadata.                                                                                                                         | Deliberately do not navigate the editor iframe. No executable prototype round trip yet.                                                                                                                                  |
 | Videos, emoji paints, FigJam-only and unknown node types                   | Rendered fallback when Figma can render the node.                                                                                                    | Visual fallback only.                                                                                                                                                                                                    |
 | Hidden or 0%-opacity subtrees                                              | Omitted without downloading their assets.                                                                                                            | Visually exact and avoids unnecessary work.                                                                                                                                                                              |
+
+## Measured Figma SVG import behaviour
+
+Figma's SVG importer was probed directly (file `K5hsbrwOsZfFkoPuTwk4l3`, via
+`figma.createNodeFromSvg`, reading the resulting nodes back through the Plugin
+API). These are measurements, not assumptions, and they bound what any
+SVG-based export can achieve.
+
+**Honoured.** Frame/group structure, path and rect geometry, per-corner radii,
+solid fills, `fill-opacity` / `stroke-opacity` / `stop-opacity`, linear and
+radial gradients with `userSpaceOnUse` geometry, `clipPath`, rotated groups,
+image `href`, font family, font size, and a coarse bold weight. Text arrives as
+**live editable `TEXT` nodes**, not outlined paths.
+
+**Shadows are not imported as effects — at all.** Every `feDropShadow` variant
+tested (default filter region, explicit region, `filterUnits="userSpaceOnUse"`,
+hex vs `rgb()` flood, with and without `flood-opacity`, two stacked drop
+shadows) produced a node with an empty `effects` array. Worse, a composed
+`feMorphology`/`feGaussianBlur`/`feOffset`/`feFlood` chain — the only way to
+express spread or inset in SVG — was mapped to a `LAYER_BLUR` that blurs the
+element itself, which is more damaging than losing the shadow.
+
+The one filter primitive Figma maps to something useful is a bare
+`feGaussianBlur`, which becomes a `LAYER_BLUR` on the filtered node. So the
+export emits **shadows as geometry, never as a filter on the shape**: a blurred,
+offset, spread-adjusted copy of the shape painted behind it for a drop shadow,
+and an inverted ring path clipped back to the shape for an inset shadow. Spread
+is applied to the geometry, so `feMorphology` is not needed. This renders
+identically in a browser and arrives in Figma as a blurred layer in the right
+place — verified visually for both drop and inset shadows.
+
+**Silently ignored.** Every one of these was tested and had no effect on the
+imported node:
+
+| SVG mechanism                              | Result in Figma                         |
+| ------------------------------------------ | --------------------------------------- |
+| `letter-spacing` attribute                 | dropped, node reports 0                 |
+| `letter-spacing` in a `style` attribute    | dropped                                 |
+| `textLength` + `lengthAdjust="spacing"`    | ignored, natural width                  |
+| multi-value `tspan x="0 45 90 …"`          | ignored, glyphs set solid               |
+| sibling `tspan`s each with their own `x`   | flattened into one run at the first `x` |
+| `word-spacing`                             | ignored                                 |
+| family-encoded weight (`"Inter Extra Bold"`) | resolves to `Inter Regular`           |
+| `font-weight` 800 or 900                   | both resolve to `Inter Bold`            |
+| `dominant-baseline`                        | ignored; `y` is read as the baseline    |
+
+Two consequences the export must live with, and reports rather than hides:
+
+1. **Tracking cannot survive as editable text.** The only construction Figma
+   places exactly is one `<text>` element per glyph, which would turn every
+   headline into one node per character. The export keeps editable text and
+   records the deviation in `vectorizedTextCaveat`.
+2. **Weights above 700 collapse to Bold.**
+
+Because `dominant-baseline` is ignored, the export emits the true alphabetic
+baseline in `y`. That is also SVG's default, so Chromium and Figma agree.
+
+## Import fidelity harness
+
+`pnpm figma-fidelity:import` is the mirror of the export harness. It reads a
+real Figma node through the REST API, runs the REAL `mapFigmaNodeToHtml`
+converter — the same pure function `import-figma-frame` uses, so a fix here is a
+fix in the product — renders the resulting HTML headless, and pixel-diffs it
+against Figma's own render of that node.
+
+It needs a Figma personal access token with `file_content:read` in
+`FIGMA_FIDELITY_TOKEN`. That is deliberately NOT the app's `FIGMA_ACCESS_TOKEN`
+vault key: this is a local QA entry point, and the app's credential keeps its
+single vault-backed resolver. Every REST response and reference render is cached
+under `.tmp/figma-fidelity/import-cache/`, because Figma allows only 10-20 Tier 1
+requests per minute and an uncached re-run would spend the budget re-fetching
+instead of on new cases.
+
+Cases live in `scripts/figma-fidelity/import-corpus.json` as
+`{"id", "url", "stresses"}`. Artifacts land in
+`.tmp/figma-fidelity/import/<case>/` as `figma.png` (the reference),
+`import.png` (ours), `diff.png`, `node.json` (the source data, so a bug can be
+traced to the exact paint or layout property) and `fidelity.json`.
+
+A null render or a missing reference is raised, never skipped: a case that
+quietly disappears from the table reads as progress.
+
+## Export fidelity harness
+
+`templates/design/scripts/figma-fidelity/` is the acceptance loop for the
+export path. `pnpm figma-fidelity:export` renders each case's stored HTML,
+runs the real `renderDesignToFigmaSvg`, renders the resulting SVG, and pixel
+diffs the two, writing `design.png` / `export.png` / `diff.png` plus a
+`compare.json` naming the worst-differing regions. `pnpm figma-fidelity:sheet
+<caseDir>` builds a labelled side-by-side. Cases live in
+`scripts/figma-fidelity/corpus/<id>/{screen.html,meta.json}`; the built-in
+design presets are included automatically.
+
+The harness's own noise floor is 0.0000% (the same HTML rendered twice), so any
+reported difference is real. Residual on the current corpus is dominated by
+HTML-vs-SVG glyph rasterization, which differs on edge pixels even when every
+glyph lands on the same subpixel; `text-rendering="geometricPrecision"` was
+measured and made it worse, so Chromium's default is kept. Every case currently
+reports zero omissions and zero approximations.
+
+Fixes this loop found are pinned in
+`server/lib/design-to-figma-svg.fidelity.spec.ts`, which carries the
+per-case before/after table.
 
 ## Figma REST rate limits
 

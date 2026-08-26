@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Typography specimen</title><style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#fffdf8;font-family:Inter,Helvetica,Arial,sans-serif;color:#1c1917}
+  .frame{position:relative;width:900px;height:1200px;overflow:hidden;background:#fffdf8;padding:56px}
+  .eyebrow{margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#b45309}
+  h1{margin:0 0 6px;font-size:66px;font-weight:800;line-height:.96;letter-spacing:-.045em}
+  .lede{margin:0 0 30px;font-size:19px;line-height:1.55;color:rgba(28,25,23,.7);max-width:600px}
+  .row{display:flex;gap:28px;border-top:1px solid rgba(28,25,23,.14);padding:18px 0}
+  .row .k{width:130px;flex:none;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(28,25,23,.5)}
+  .row .v{flex:1}
+  .w300{font-weight:300}.w400{font-weight:400}.w600{font-weight:600}.w800{font-weight:800}
+  .tight{letter-spacing:-.04em}.loose{letter-spacing:.16em}
+  .center{text-align:center}.right{text-align:right}
+  .lh-tight{line-height:1.05}.lh-loose{line-height:2}
+  .caps{text-transform:uppercase}.lower{text-transform:lowercase}.cap{text-transform:capitalize}
+  .s28{font-size:28px}.s20{font-size:20px}.s15{font-size:15px}.s13{font-size:13px}
+  .wrap{max-width:520px}
+  .quote{margin:26px 0 0;padding:20px 24px;border-left:4px solid #b45309;background:#fef7ec;
+    font-size:20px;line-height:1.5;font-style:italic}
+  .foot{margin-top:26px;display:flex;justify-content:space-between;border-top:1px solid rgba(28,25,23,.14);padding-top:16px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(28,25,23,.5)}
+</style></head><body>
+<main class="frame" data-agent-native-node-id="frame">
+  <p class="eyebrow">Type specimen</p>
+  <h1>Setting text that survives the trip</h1>
+  <p class="lede">Weight, tracking, case, leading and alignment all have to arrive intact — each row below isolates one of them.</p>
+
+  <div class="row"><div class="k">Weight 300</div><div class="v s28 w300">Handgloves quickly</div></div>
+  <div class="row"><div class="k">Weight 400</div><div class="v s28 w400">Handgloves quickly</div></div>
+  <div class="row"><div class="k">Weight 600</div><div class="v s28 w600">Handgloves quickly</div></div>
+  <div class="row"><div class="k">Weight 800</div><div class="v s28 w800">Handgloves quickly</div></div>
+  <div class="row"><div class="k">Tight track</div><div class="v s28 w600 tight">Handgloves quickly</div></div>
+  <div class="row"><div class="k">Loose track</div><div class="v s20 w600 loose">Handgloves quickly</div></div>
+  <div class="row"><div class="k">Uppercase</div><div class="v s20 w600 caps">Handgloves quickly</div></div>
+  <div class="row"><div class="k">Lowercase</div><div class="v s20 w600 lower">HANDGLOVES QUICKLY</div></div>
+  <div class="row"><div class="k">Capitalize</div><div class="v s20 w600 cap">handgloves quickly returned</div></div>
+  <div class="row"><div class="k">Centred</div><div class="v s15 center">Centred across the value column</div></div>
+  <div class="row"><div class="k">Right</div><div class="v s15 right">Right aligned in the value column</div></div>
+  <div class="row"><div class="k">Leading 1.05</div><div class="v s15 lh-tight wrap">A wrapped paragraph set very tight, so consecutive baselines sit close together and any leading error compounds down the block.</div></div>
+  <div class="row"><div class="k">Leading 2</div><div class="v s13 lh-loose wrap">A wrapped paragraph set very loose, where each line box is far taller than the glyphs it contains.</div></div>
+
+  <blockquote class="quote">Half-leading is where exported text usually drifts: the glyphs are right, the box is right, and the baseline is one ascent away.</blockquote>
+  <div class="foot"><span>Inter</span><span>Specimen 04</span></div>
+</main></body></html>

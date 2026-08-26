@@ -964,3 +964,171 @@ describe("Canvas offset normalization", () => {
     expect(html).not.toContain("left: -773");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Vector paints: gradients must become real SVG paint servers, and a paint
+// SVG cannot express must be reported instead of silently painted `none`.
+// ---------------------------------------------------------------------------
+describe("vector gradient fills", () => {
+  /** M0 0 L100 0 L100 100 Z in Figma's path-command blob format. */
+  function trianglePathBlob(): Buffer {
+    const buf = Buffer.alloc(1 + 8 + 1 + 8 + 1 + 8 + 1);
+    let o = 0;
+    const move = (op: number, x: number, y: number) => {
+      buf.writeUInt8(op, o);
+      buf.writeFloatLE(x, o + 1);
+      buf.writeFloatLE(y, o + 5);
+      o += 9;
+    };
+    move(1, 0, 0);
+    move(2, 100, 0);
+    move(2, 100, 100);
+    buf.writeUInt8(0, o);
+    return buf;
+  }
+
+  function vectorDoc(
+    paints: Array<Record<string, unknown>>,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      blobs: [{ bytes: trianglePathBlob() }],
+      nodeChanges: [
+        { guid: { sessionID: 1, localID: 1 }, type: "DOCUMENT", name: "Doc" },
+        {
+          guid: { sessionID: 1, localID: 2 },
+          parentIndex: { guid: { sessionID: 1, localID: 1 }, position: "a" },
+          type: "CANVAS",
+          name: "Page",
+        },
+        {
+          guid: { sessionID: 1, localID: 10 },
+          parentIndex: { guid: { sessionID: 1, localID: 2 }, position: "a" },
+          type: "FRAME",
+          name: "Frame",
+          size: { x: 400, y: 300 },
+          transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+        },
+        {
+          guid: { sessionID: 1, localID: 20 },
+          parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "a" },
+          type: "VECTOR",
+          name: "Logo",
+          size: { x: 100, y: 100 },
+          transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+          fillGeometry: [{ commandsBlob: 0 }],
+          fillPaints: paints,
+          ...extra,
+        },
+      ],
+    };
+  }
+
+  // Left-to-right gradient: the node-to-gradient matrix is the identity.
+  const linearPaint = {
+    type: "GRADIENT_LINEAR",
+    visible: true,
+    transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+    stops: [
+      { color: { r: 1, g: 0, b: 0, a: 1 }, position: 0 },
+      { color: { r: 0, g: 0, b: 1, a: 0.5 }, position: 1 },
+    ],
+  };
+
+  it("paints a gradient-filled vector with a <linearGradient>, not fill=none", () => {
+    const html = renderFrame(vectorDoc([linearPaint]));
+    const id = html.match(/<linearGradient id="([^"]+)"/)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`<defs>`);
+    expect(html).toMatch(
+      new RegExp(`<path d="M0 0 L100 0 L100 100 Z"[^>]*fill="url\\(#${id}\\)"`),
+    );
+    expect(html).not.toMatch(/<path d="M0 0[^>]*fill="none"/);
+    // Stop alpha rides on stop-opacity, colors on stop-color.
+    expect(html).toContain('stop-color="rgb(255, 0, 0)" stop-opacity="1"');
+    expect(html).toContain('stop-color="rgb(0, 0, 255)" stop-opacity="0.5"');
+    // Identity transform → handles span the box left to right.
+    expect(html).toContain('x1="0" y1="0.5" x2="1" y2="0.5"');
+  });
+
+  it("paints a radial-gradient vector with a <radialGradient> sized in user space", () => {
+    const html = renderFrame(
+      vectorDoc([{ ...linearPaint, type: "GRADIENT_RADIAL" }]),
+    );
+    expect(html).toContain('<radialGradient id="');
+    expect(html).toContain('gradientUnits="userSpaceOnUse"');
+    expect(html).toContain('gradientTransform="translate(50 50) scale(50 50)');
+    expect(html).toMatch(/fill="url\(#[^"]+\)"/);
+  });
+
+  it("still paints a solid-filled vector with a literal color", () => {
+    const html = renderFrame(
+      vectorDoc([
+        {
+          type: "SOLID",
+          visible: true,
+          color: { r: 0, g: 0.5, b: 1, a: 1 },
+        },
+      ]),
+    );
+    expect(html).toContain('fill="rgb(0, 128, 255)"');
+    expect(html).not.toContain("<linearGradient");
+    expect(html).not.toMatch(/<path d="M0 0[^>]*fill="none"/);
+  });
+
+  it("gives two instances of the same gradient vector distinct def ids", () => {
+    const doc = vectorDoc([linearPaint]) as {
+      nodeChanges: Array<Record<string, unknown>>;
+    };
+    doc.nodeChanges.push({
+      ...doc.nodeChanges[3]!,
+      guid: { sessionID: 1, localID: 21 },
+      parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "b" },
+    });
+    const html = renderFrame(doc as unknown as Record<string, unknown>);
+    const ids = [...html.matchAll(/<linearGradient id="([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("reports an angular gradient it cannot express instead of dropping it", () => {
+    const result = renderHtmlTemplates(
+      vectorDoc([{ ...linearPaint, type: "GRADIENT_ANGULAR" }]),
+    );
+    const html = result.frames[0]?.html ?? "";
+    // Reported...
+    expect(
+      result.approximatedNodes.flatMap((entry) => entry.notes).join(" "),
+    ).toContain("GRADIENT_ANGULAR");
+    expect(result.approximatedNodes[0]?.nodeName).toBe("Logo");
+    // ...and still visible, rather than fill="none".
+    expect(html).toContain('fill="rgb(255, 0, 0)"');
+    expect(html).not.toMatch(/<path d="M0 0[^>]*fill="none"/);
+  });
+
+  it("reports an image stroke on a vector rather than silently unpainting it", () => {
+    const result = renderHtmlTemplates(
+      vectorDoc([{ ...linearPaint }], {
+        strokeWeight: 2,
+        strokePaints: [
+          { type: "IMAGE", visible: true, image: { hash: "aabbccdd" } },
+        ],
+      }),
+    );
+    expect(
+      result.approximatedNodes.flatMap((entry) => entry.notes).join(" "),
+    ).toContain("IMAGE stroke paint on a vector has no SVG equivalent");
+  });
+
+  it("does not emit a gradient def when no geometry survives decoding", () => {
+    const doc = vectorDoc([linearPaint]) as {
+      blobs: unknown[];
+      nodeChanges: Array<Record<string, unknown>>;
+    };
+    doc.blobs = [{ bytes: Buffer.alloc(0) }];
+    const html = renderFrame(doc as unknown as Record<string, unknown>);
+    expect(html).not.toContain("<defs>");
+  });
+});
