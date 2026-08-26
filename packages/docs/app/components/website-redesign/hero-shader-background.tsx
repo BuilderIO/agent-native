@@ -1258,6 +1258,7 @@ uniform float uScreenBlend;
 uniform float uLightSaturation;
 uniform float uLightScreenAmount;
 uniform float uIntroDuration;
+uniform float uDitherAmount;
 
 const float PI = 3.14159265359;
 const float MAX = 10000.0;
@@ -1444,23 +1445,32 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     col = mix(col, screened, uLightScreenAmount);
   }
 
-  // Dither by +/- half a quantization step to break up 8-bit banding. This
-  // gradient is extremely shallow (a near-black falloff spread over hundreds
-  // of pixels), so consecutive pixels round to the same byte for long runs and
-  // the transitions show up as hard concentric contours. Alpha gets the same
+  // Dither to break up 8-bit banding. This gradient is extremely shallow (a
+  // near-black falloff spread over hundreds of pixels), so consecutive pixels
+  // round to the same byte for long runs and the transitions show up as hard
+  // concentric contours. Noise pushes pixels either side of each rounding
+  // boundary, turning the contour into a gradient. Alpha gets the same
   // treatment with a decorrelated offset -- it's derived from the same
   // brightness, so dithering only the color would leave the alpha steps
-  // banding on their own. Sub-LSB noise is invisible on its own but pushes
-  // pixels either side of each rounding boundary, turning the contour into a
-  // gradient. Animating on iTime keeps the noise from reading as fixed grain.
-  float noise = fract(
-    sin(dot(fragCoord + iTime, vec2(12.9898, 78.233))) * 43758.5453
-  );
-  float noiseAlpha = fract(
-    sin(dot(fragCoord + iTime, vec2(63.7264, 10.873))) * 32416.1873
-  );
-  col += (noise - 0.5) / 255.0;
-  alpha += (noiseAlpha - 0.5) / 255.0;
+  // banding on their own. Animating on iTime keeps it from reading as fixed
+  // grain.
+  //
+  // uDitherAmount is in quantization steps: 1.0 is the +/- half-LSB that
+  // exactly cancels banding while staying invisible, and larger values push
+  // past correction into deliberate visible grain.
+  if (uDitherAmount > 0.0) {
+    float noise = fract(
+      sin(dot(fragCoord + iTime, vec2(12.9898, 78.233))) * 43758.5453
+    );
+    float noiseAlpha = fract(
+      sin(dot(fragCoord + iTime, vec2(63.7264, 10.873))) * 32416.1873
+    );
+    float ditherStep = uDitherAmount / 255.0;
+    col += (noise - 0.5) * ditherStep;
+    // Scaled by alpha so grain fades out with the effect instead of
+    // speckling the fully transparent void around it.
+    alpha += (noiseAlpha - 0.5) * ditherStep * alpha;
+  }
 
   fragColor = vec4(clamp(col, 0.0, 1.0), clamp(alpha, 0.0, 1.0));
 }
@@ -1500,6 +1510,7 @@ function AtmosphereShaderBackground({
   lightSaturation,
   lightScreenAmount,
   introDuration,
+  ditherAmount,
   intensity,
   paused,
   frameRate = 30,
@@ -1542,6 +1553,7 @@ function AtmosphereShaderBackground({
     lightSaturation,
     lightScreenAmount,
     introDuration,
+    ditherAmount,
     paused,
   });
   useEffect(() => {
@@ -1571,6 +1583,7 @@ function AtmosphereShaderBackground({
       lightSaturation,
       lightScreenAmount,
       introDuration,
+      ditherAmount,
       paused,
     };
   }, [
@@ -1599,6 +1612,7 @@ function AtmosphereShaderBackground({
     lightSaturation,
     lightScreenAmount,
     introDuration,
+    ditherAmount,
     paused,
   ]);
 
@@ -1711,6 +1725,7 @@ function AtmosphereShaderBackground({
       "uLightScreenAmount",
     );
     const uIntroDuration = gl.getUniformLocation(program, "uIntroDuration");
+    const uDitherAmount = gl.getUniformLocation(program, "uDitherAmount");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1759,6 +1774,7 @@ function AtmosphereShaderBackground({
         settingsRef.current.lightScreenAmount,
       );
       gl.uniform1f(uIntroDuration, settingsRef.current.introDuration);
+      gl.uniform1f(uDitherAmount, settingsRef.current.ditherAmount);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 

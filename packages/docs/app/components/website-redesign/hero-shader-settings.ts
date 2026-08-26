@@ -162,6 +162,7 @@ export interface AtmosphereSettings {
   lightSaturation: number;
   lightScreenAmount: number;
   introDuration: number;
+  ditherAmount: number;
   intensity: number;
   paused: boolean;
 }
@@ -192,6 +193,7 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   lightSaturation: 4,
   lightScreenAmount: 0.7,
   introDuration: 2.4,
+  ditherAmount: 1,
   intensity: 0.9,
   paused: false,
 };
@@ -225,6 +227,7 @@ export const ATMOSPHERE_FIELD_CONFIG: Record<
   lightSaturation: { kind: "range", min: 0, max: 4, step: 0.05 },
   lightScreenAmount: { kind: "range", min: 0, max: 1, step: 0.05 },
   introDuration: { kind: "range", min: 0, max: 8, step: 0.1 },
+  ditherAmount: { kind: "range", min: 0, max: 48, step: 0.5 },
   intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
   paused: { kind: "boolean" },
 };

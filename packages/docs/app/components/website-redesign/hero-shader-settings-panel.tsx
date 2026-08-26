@@ -78,6 +78,7 @@ const FIELD_LABELS: Record<ShaderFieldKey, string> = {
   lightSaturation: "Light mode saturation",
   lightScreenAmount: "Light mode screen amount",
   introDuration: "Intro ignition (s)",
+  ditherAmount: "Dither / grain",
 };
 
 const CONSTELLATION_FIELD_ORDER: Array<keyof HeroShaderSettings> = [
@@ -144,6 +145,7 @@ const ATMOSPHERE_FIELD_ORDER: Array<keyof AtmosphereSettings> = [
   "lightSaturation",
   "lightScreenAmount",
   "introDuration",
+  "ditherAmount",
   "intensity",
   "paused",
 ];
