@@ -78,12 +78,11 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
               padding: "10px var(--spacing-4)",
               borderRadius: "var(--b-radius)",
               border: "1px solid var(--b-border-title-row)",
-              background: "var(--b-bg-prominent)",
+              background: "var(--b-bg-raised)",
               color: "var(--b-text-primary)",
               fontFamily: "var(--b-font-mono)",
               fontSize: "var(--b-t-label-1)",
               lineHeight: 1,
-              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
             }}
           >
             {message.icon}
