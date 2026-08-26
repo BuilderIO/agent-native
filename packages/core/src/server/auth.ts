@@ -2435,6 +2435,7 @@ function extractMcpOAuthCookieAppId(
     redirectUri = new URL(result.value.redirectUri);
     requestOrigin = new URL(getOrigin(event));
   } catch {
+    // coercion-ok: invalid OAuth URLs cannot safely derive an app id.
     return undefined;
   }
   if (
