@@ -111,7 +111,8 @@ function collabUsersEqual(a: CollabUser[], b: CollabUser[]): boolean {
     if (
       left.email !== right.email ||
       left.name !== right.name ||
-      left.color !== right.color
+      left.color !== right.color ||
+      left.avatarUrl !== right.avatarUrl
     ) {
       return false;
     }

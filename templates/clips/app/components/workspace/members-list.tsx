@@ -15,7 +15,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClipsAvatar } from "@/components/clips-avatar";
 
 export type MemberRole = "owner" | "admin" | "member";
 
@@ -152,11 +152,13 @@ export function MembersList({
                 <TableRow key={m.id}>
                   <TableCell>
                     <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-8 w-8 flex-shrink-0">
-                        <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                          {initials(m.email)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <ClipsAvatar
+                        email={m.email}
+                        alt={m.email}
+                        fallback={initials(m.email)}
+                        className="h-8 w-8 flex-shrink-0"
+                        fallbackClassName="text-xs bg-primary text-primary-foreground"
+                      />
                       <div className="min-w-0">
                         <div className="truncate font-medium flex items-center gap-1.5">
                           {m.email}

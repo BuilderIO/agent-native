@@ -15,6 +15,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { cn } from "@/lib/utils";
 
 import { SpaceDialogs } from "./space-dialogs";
@@ -104,13 +105,15 @@ export function SpaceCard({
                       .slice(0, 2)
                       .toUpperCase();
                     return (
-                      <div
+                      <ClipsAvatar
                         key={email}
+                        email={email}
+                        alt={email}
+                        fallback={initials}
+                        className="h-5 w-5 border border-background"
+                        fallbackClassName="bg-primary/15 text-[9px] font-medium text-primary"
                         title={email}
-                        className="flex h-5 w-5 items-center justify-center rounded-full border border-background bg-primary/15 text-[9px] font-medium text-primary"
-                      >
-                        {initials}
-                      </div>
+                      />
                     );
                   })}
                   {members.length > 5 && (
