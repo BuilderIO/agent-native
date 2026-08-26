@@ -24,11 +24,15 @@ import { getH3App } from "../server/framework-request-handler.js";
 import {
   getAppBasePath,
   getAppUrl,
+  encodeOAuthState,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
+import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
+  isGoogleWorkspaceMcpServer,
   startMcpOAuthAuthorization,
   type McpOAuthDiscoveryState,
   validateMcpOAuthCallbackIssuer,
@@ -47,6 +51,7 @@ const FLOW_TTL_SECONDS = 10 * 60;
 const FLOW_COOKIE_CHUNK_SIZE = 2_800;
 const FLOW_COOKIE_MAX_CHUNKS = 8;
 const CHUNKED_COOKIE_PREFIX = "__chunked__";
+const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
   serverOrigins: ReadonlyArray<string>;
@@ -240,16 +245,40 @@ async function handleMcpOAuthStart(
     };
   }
 
+  const useRootGoogleCallback =
+    isWorkspaceOAuthCallbackRelayEnabled() &&
+    isGoogleWorkspaceMcpServer(urlCheck.url!);
+  const workspaceAppId = useRootGoogleCallback
+    ? getWorkspaceOAuthAppId()
+    : undefined;
+  if (useRootGoogleCallback && !workspaceAppId) {
+    setResponseStatus(event, 400);
+    return { error: "Workspace MCP OAuth is missing its app callback id." };
+  }
   const redirectUri = resolveOAuthRedirectUri(
     event,
-    "/_agent-native/mcp/servers/oauth/callback",
+    useRootGoogleCallback
+      ? "/_agent-native/google/callback"
+      : "/_agent-native/mcp/servers/oauth/callback",
   );
   if (!redirectUri) {
     setResponseStatus(event, 400);
     return { error: "Invalid MCP OAuth redirect URI." };
   }
+  if (useRootGoogleCallback && !isRootGoogleCallback(redirectUri)) {
+    setResponseStatus(event, 400);
+    return {
+      error: "Google Workspace MCP OAuth must use the shared callback.",
+    };
+  }
 
-  const state = crypto.randomUUID();
+  const state = useRootGoogleCallback
+    ? encodeOAuthState({
+        redirectUri,
+        app: workspaceAppId,
+        provider: MCP_WORKSPACE_STATE_PROVIDER,
+      })
+    : crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
   const requestContext = {
     userEmail: session.email,
@@ -538,8 +567,38 @@ export function isValidMcpOAuthFlow(
     scopeMatches &&
     typeof flow.scopeId === "string" &&
     typeof flow.redirectUri === "string" &&
-    flow.redirectUri.includes("/_agent-native/mcp/servers/oauth/callback")
+    isMcpOAuthRedirectUri(flow.redirectUri)
   );
+}
+
+function getWorkspaceOAuthAppId(): string | undefined {
+  const appId = getAppBasePath().replace(/^\/+|\/+$/g, "");
+  return isValidWorkspaceAppIdFormat(appId) ? appId : undefined;
+}
+
+function isRootGoogleCallback(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.pathname === "/_agent-native/google/callback" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isMcpOAuthRedirectUri(value: string): boolean {
+  try {
+    const pathname = new URL(value).pathname;
+    return (
+      pathname.endsWith("/_agent-native/mcp/servers/oauth/callback") ||
+      pathname.endsWith("/_agent-native/google/callback")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isOrgAdmin(role: unknown): boolean {

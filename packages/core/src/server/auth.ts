@@ -2383,10 +2383,12 @@ function workspaceOAuthCallbackRelayResponse(
   const appId = extractOAuthStateAppId(state);
   const provider = extractOAuthStateProvider(state);
   const providerCallbackPath =
-    normalizedPath === "/_agent-native/google/callback" &&
-    isWorkspaceGoogleOAuthProvider(provider)
-      ? `/_agent-native/connections/oauth/${provider}/callback`
-      : normalizedPath;
+    normalizedPath === "/_agent-native/google/callback" && provider === "mcp"
+      ? "/_agent-native/mcp/servers/oauth/callback"
+      : normalizedPath === "/_agent-native/google/callback" &&
+          isWorkspaceGoogleOAuthProvider(provider)
+        ? `/_agent-native/connections/oauth/${provider}/callback`
+        : normalizedPath;
   if (
     !appId ||
     (appId === getOAuthStateAppId() &&
@@ -3412,9 +3414,8 @@ function isBuilderPreviewHost(host: string): boolean {
 }
 
 function isBuilderPreviewLocalDevEnabled(): boolean {
-  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
-    ?.trim()
-    .toLowerCase();
+  const value =
+    process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]?.trim().toLowerCase();
   return value === "1" || value === "true";
 }
 

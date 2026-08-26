@@ -205,6 +205,20 @@ describe("MCP OAuth callback flow validation", () => {
       ),
     ).toBe(false);
   });
+
+  it("accepts the shared Google callback for workspace MCP OAuth", () => {
+    expect(
+      isValidMcpOAuthFlow(
+        {
+          ...baseFlow,
+          redirectUri: "https://app.example.com/_agent-native/google/callback",
+        },
+        "alice@example.com",
+        undefined,
+        "<STATE>",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("managed MCP OAuth clients", () => {
