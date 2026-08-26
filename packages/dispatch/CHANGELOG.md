@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.31.25
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- 32b49a8: Keep Dispatch page scrolling inside the viewport and replace the global header with a sticky agent-chat control.
+- Release all public npm packages with a patch version bump.
+- 318819b: Give the Dispatch workspace embed handshake a cold-boot connect budget so opening an app whose server is still starting no longer fails as unreachable. `McpClientManager` now accepts a `connectTimeoutMs` option, and the embed session mint spends up to 90s per attempt within a 95s total budget instead of the 5s interactive default, matching the dev gateway's own readiness wait.
+- Updated dependencies [db91905]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.3
+
 ## 0.31.24
 
 ### Patch Changes
