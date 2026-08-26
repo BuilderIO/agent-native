@@ -34,6 +34,8 @@ import { resolveConnectorSecret } from "./credentials.js";
 
 const HOSTED_RUNTIME_ENV_KEYS = [
   "NETLIFY",
+  "NETLIFY_LOCAL",
+  "SITE_ID",
   "VERCEL",
   "CF_PAGES",
   "AWS_LAMBDA_FUNCTION_NAME",
@@ -203,5 +205,32 @@ describe("resolveConnectorSecret", () => {
         orgId: "active-org",
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("does not use provider env on Netlify SITE_ID even with a file database", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SITE_ID", "00000000-0000-0000-0000-000000000000");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-netlify-runtime-file-db");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("reads provider keys from env under netlify dev with SITE_ID", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SITE_ID", "00000000-0000-0000-0000-000000000000");
+    vi.stubEnv("NETLIFY_LOCAL", "true");
+    vi.stubEnv("SLACK_BOT_TOKEN", " xoxb-netlify-dev-token ");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBe("xoxb-netlify-dev-token");
   });
 });

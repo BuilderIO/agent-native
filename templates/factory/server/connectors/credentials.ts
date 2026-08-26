@@ -35,10 +35,20 @@ function isMissingTableError(err: unknown): boolean {
   );
 }
 
+function isNetlifyHostedRuntime(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.NETLIFY === "false") return false;
+  if (/^(1|true)$/i.test(process.env.NETLIFY ?? "")) return true;
+  // NETLIFY is a build-only variable. Deployed Functions document SITE_ID as
+  // the runtime host marker; netlify dev still uses SITE_ID but sets
+  // NETLIFY_LOCAL=true so local sqlite can keep the .env fallback.
+  return Boolean(process.env.SITE_ID); // guard:allow-env-credential — Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+}
+
 function isProductionLikeRuntime(): boolean {
   return (
     process.env.NODE_ENV === "production" ||
-    /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||
+    isNetlifyHostedRuntime() ||
     /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
     /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
     Boolean(
