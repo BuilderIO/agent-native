@@ -285,6 +285,44 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     });
   });
 
+  it("keeps session registration alive when WebMCP discovery fails", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("/_agent-native/browser-sessions");
+      const body = JSON.parse(String(init?.body));
+      expect(body).not.toHaveProperty("webmcpTools");
+      return jsonResponse({
+        ok: true,
+        session: {
+          sessionId: body.sessionId,
+          session: body.session,
+          actions: body.actions,
+          active: true,
+        },
+      });
+    });
+    const webmcp = {
+      supported: true,
+      listTools: vi.fn(async () => {
+        throw new Error("WebMCP temporarily unavailable");
+      }),
+      executeTool: vi.fn(async () => ""),
+      executeListedTool: vi.fn(async () => ""),
+    };
+
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "embedded-tab" },
+      getContext: () => ({ route: { name: "builder-editor" } }),
+      webmcp,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.refreshRegistration()).resolves.toMatchObject({
+      sessionId: "embedded-tab",
+      active: true,
+    });
+    expect(webmcp.listTools).toHaveBeenCalledOnce();
+  });
+
   it("claims a server request and executes a direct embedded action", async () => {
     const refresh = vi.fn(async () => ({ refreshed: true }));
     const action = vi.fn(async (_args, runtime) => {
