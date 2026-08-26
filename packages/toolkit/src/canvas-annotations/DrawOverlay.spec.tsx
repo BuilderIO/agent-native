@@ -142,4 +142,13 @@ describe("DrawOverlay clear undo", () => {
     await act(async () => send?.click());
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  it("keeps the toolbar on one row and below editor chrome", () => {
+    const toolbar = document.querySelector<HTMLElement>("[data-draw-toolbar]");
+    const overlay = container.querySelector<HTMLElement>("[data-draw-overlay]");
+
+    expect(toolbar?.className).toContain("flex-nowrap");
+    expect(toolbar?.className).toContain("overflow-x-auto");
+    expect(overlay?.className).toContain("z-[60]");
+  });
 });

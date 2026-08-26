@@ -3,4 +3,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Keep shared sidebar feedback controls clear of the environment badge.
+Keep shared feedback controls clear of the environment badge and editor chrome.
