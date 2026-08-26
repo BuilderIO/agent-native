@@ -33,7 +33,12 @@ interface ContentPart {
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
 }
 
 interface BuildAssistantMessageOptions {
@@ -238,6 +243,9 @@ export function buildAssistantMessage(
         part.approval = {
           approvalKey: event.approvalKey,
           ...(event.askId ? { askId: event.askId } : {}),
+          ...(event.allowPersistentApproval === false
+            ? { allowPersistentApproval: false }
+            : {}),
         };
       }
       continue;

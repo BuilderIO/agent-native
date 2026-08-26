@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.174.2
+
+### Patch Changes
+
+- bb282b1: Removed the FAQ docs page and folded its content into What Is Agent-Native and the docs pages each answer actually belonged to (deployment, environment variables, writing agent instructions, templates, key concepts, syncing template changes).
+- a9aa623: Reset Google sign-in state when an Electron OAuth popup closes and keep Nitro dev startup errors behind the recovery page until the server is ready.
+- Release all public npm packages with a patch version bump.
+- 615c5d5: Skip `git init` when `create` scaffolds into a directory that is already inside a git repository, instead of only when the target directory itself is one. Discovery is delegated to git, so symlinked paths, filesystem boundaries, and `GIT_CEILING_DIRECTORIES` behave exactly as they do everywhere else.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.13
+  - @agent-native/toolkit@0.16.16
+
+## 0.174.1
+
+### Patch Changes
+
+- 5e57bc6: fix fresh chats to use a configured provider instead of an unavailable deployment default
+- 7d90274: Preserve shared OAuth flow cookies across redirects.
+- 7d5cce0: Use the configured Google OAuth client for official Google Workspace MCP servers.
+- a63c4b3: Support Google Workspace MCP OAuth clients that use Google's fixed OAuth endpoints instead of MCP discovery.
+- Release all public npm packages with a patch version bump.
+- a026821: keep provider-auth recovery visible while an agent run is still active
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.12
+  - @agent-native/toolkit@0.16.15
+
 ## 0.174.0
 
 ### Minor Changes

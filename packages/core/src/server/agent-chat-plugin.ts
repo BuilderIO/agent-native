@@ -113,6 +113,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
   AgentChatEvent,
+  MentionItemMedia,
   MentionProvider,
 } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -177,6 +178,7 @@ import {
   startMcpConfigRefresh,
   getHubStatus,
   isHubServeEnabled,
+  type McpActionEntryOptions,
 } from "../mcp-client/index.js";
 import { declaredMcpToolNames } from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
@@ -724,6 +726,10 @@ export function createAgentChatPlugin(
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
       const backgroundMcpTools = options?.backgroundMcpTools ?? "requested";
+      const mcpActionEntryOptions: McpActionEntryOptions =
+        options?.resolveMcpActionEntry
+          ? { resolveActionEntry: options.resolveMcpActionEntry }
+          : {};
 
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
@@ -791,7 +797,9 @@ export function createAgentChatPlugin(
         await ensureMcpInitialized();
         const entries = mcpToolsToActionEntries(
           mcpManager,
-          backgroundMcpTools === "all" ? {} : { toolNames: requested },
+          backgroundMcpTools === "all"
+            ? mcpActionEntryOptions
+            : { ...mcpActionEntryOptions, toolNames: requested },
         );
         const missing = requested.filter((toolName) => !entries[toolName]);
         if (missing.length > 0) {
@@ -1419,6 +1427,8 @@ export function createAgentChatPlugin(
           resolvedProdCodeExec,
           Boolean(options?.resolveActionSurface),
         );
+      const productionEvaluator =
+        effectiveProdCodeExec === "off" ? "node" : "run";
       if (
         resolvedProdCodeExec === "trusted" &&
         effectiveProdCodeExec !== "trusted"
@@ -1441,14 +1451,20 @@ export function createAgentChatPlugin(
           // Supplier is evaluated at invocation time so runtime additions to
           // prodActions (e.g. MCP sync) are visible to the bridge.
           () => filterRuntimeActionsToSurface(prodRunCodeToolActions),
-          { bridgeTools: options?.codeExecution?.bridgeTools },
+          {
+            bridgeTools: options?.codeExecution?.bridgeTools,
+            evaluator: productionEvaluator,
+          },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
         await loadRunCodeToolEntries(
           // Lean prompt mode intentionally exposes a much smaller action
           // surface; keep sandbox appAction() calls scoped to that same surface.
           () => filterRuntimeActionsToSurface(leanRunCodeToolActions),
-          { bridgeTools: options?.codeExecution?.bridgeTools },
+          {
+            bridgeTools: options?.codeExecution?.bridgeTools,
+            evaluator: productionEvaluator,
+          },
         );
 
       // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
@@ -1485,6 +1501,7 @@ export function createAgentChatPlugin(
             () => filterRuntimeActionsToSurface(devRunCodeToolActions),
             {
               bridgeTools: options?.codeExecution?.bridgeTools,
+              evaluator: "node",
             },
           )
         : {};
@@ -3328,8 +3345,12 @@ export function createAgentChatPlugin(
       // through the settings UI). getEngineTools() in production-agent re-reads
       // the registry per request, so updates here propagate without restart.
       mcpManager.onChange(() => {
-        syncMcpActionEntries(mcpManager, mcpActionEntries);
-        syncMcpActionEntries(mcpManager, prodActions);
+        syncMcpActionEntries(
+          mcpManager,
+          mcpActionEntries,
+          mcpActionEntryOptions,
+        );
+        syncMcpActionEntries(mcpManager, prodActions, mcpActionEntryOptions);
       });
 
       // Always build the production handler (includes resource tools + call-agent + team tools)
@@ -3946,7 +3967,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // === prodActions so the prod listener already covers it.
         if (devActions !== prodActions && devActions !== leanActions) {
           mcpManager.onChange(() => {
-            syncMcpActionEntries(mcpManager, devActions);
+            syncMcpActionEntries(mcpManager, devActions, mcpActionEntryOptions);
           });
         }
         devHandler = createProductionAgentHandler({
@@ -4871,6 +4892,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             label: string;
             description?: string;
             icon?: string;
+            media?: MentionItemMedia;
             source: string;
             refType: string;
             refPath?: string;
@@ -5024,6 +5046,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                         label: item.label,
                         description: item.description,
                         icon: item.icon || provider.icon || "file",
+                        media: item.media,
                         source: key,
                         refType: item.refType,
                         refPath: item.refPath,

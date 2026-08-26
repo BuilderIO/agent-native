@@ -1,5 +1,21 @@
 # @agent-native/dispatch
 
+## 0.31.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.16
+
+## 0.31.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.15
+
 ## 0.31.19
 
 ### Patch Changes

@@ -4,6 +4,19 @@
 // runtime — an unrestricted id like `x" onfocus="alert(1)` would otherwise
 // stored-XSS every anonymous submitter of a published form.
 export const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const FIELD_TYPES = new Set([
+  "text",
+  "email",
+  "number",
+  "textarea",
+  "select",
+  "multiselect",
+  "checkbox",
+  "radio",
+  "date",
+  "rating",
+  "scale",
+]);
 const CONDITIONAL_OPERATORS = new Set(["equals", "not_equals", "contains"]);
 
 /**
@@ -49,6 +62,28 @@ export function normalizeFieldIds(fields: unknown): unknown {
   });
 }
 
+/**
+ * Keeps granular edits compatible with fields written before the current
+ * schema. The UI already renders unknown types as text and treats a missing
+ * required flag as false, so patch reads must make the same repair before the
+ * strict persistence check runs.
+ */
+export function normalizePersistedFields(fields: unknown): unknown {
+  if (!Array.isArray(fields)) return fields;
+  return fields.map((field) => {
+    if (field == null || typeof field !== "object" || Array.isArray(field)) {
+      return field;
+    }
+    const f = field as Record<string, unknown>;
+    return {
+      ...f,
+      type:
+        typeof f.type === "string" && FIELD_TYPES.has(f.type) ? f.type : "text",
+      required: f.required === undefined ? false : f.required,
+    };
+  });
+}
+
 export function assertValidFields(fields: unknown): void {
   if (!Array.isArray(fields)) {
     throw new Error("fields must be an array");
@@ -70,6 +105,18 @@ export function assertValidFields(fields: unknown): void {
       throw new Error(`duplicate field id "${id}" at position #${idx + 1}`);
     }
     seenIds.add(id);
+
+    if (typeof f.type !== "string" || !FIELD_TYPES.has(f.type)) {
+      throw new Error(
+        `field #${idx + 1} has an invalid type ${JSON.stringify(f.type)}`,
+      );
+    }
+    if (typeof f.label !== "string") {
+      throw new Error(`field #${idx + 1} label must be a string`);
+    }
+    if (typeof f.required !== "boolean") {
+      throw new Error(`field #${idx + 1} required must be a boolean`);
+    }
 
     const cond = f.conditional;
     if (cond !== undefined) {
