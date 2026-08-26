@@ -16,6 +16,7 @@ import {
 type EditArgs = {
   documentId: string;
   expectedContent: string;
+  expectedTitle: string;
   edits: DocumentTextEdit[];
 };
 
@@ -24,8 +25,10 @@ const actionName = (documentId: string) =>
 
 export function LinkedLocalDocumentAgentBridge({
   document,
+  onPersisted,
 }: {
   document: Document;
+  onPersisted(document: Document): void;
 }) {
   const documentRef = useRef(document);
   documentRef.current = document;
@@ -39,9 +42,10 @@ export function LinkedLocalDocumentAgentBridge({
         properties: {
           documentId: { type: "string" },
           expectedContent: { type: "string" },
+          expectedTitle: { type: "string" },
           edits: { type: "array" },
         },
-        required: ["documentId", "expectedContent", "edits"],
+        required: ["documentId", "expectedContent", "expectedTitle", "edits"],
       },
       async run(args) {
         const current = documentRef.current;
@@ -55,7 +59,10 @@ export function LinkedLocalDocumentAgentBridge({
             error: baseline.error,
           };
         }
-        if (baseline.document.content !== args.expectedContent) {
+        if (
+          baseline.document.content !== args.expectedContent ||
+          baseline.document.title !== args.expectedTitle
+        ) {
           return {
             status: "conflict",
             error: "The linked file changed after the agent loaded it.",
@@ -98,6 +105,7 @@ export function LinkedLocalDocumentAgentBridge({
               "The linked file read-back did not match the requested edit.",
           };
         }
+        onPersisted(readBack.document);
         return {
           status: "persisted",
           content: readBack.document.content,
@@ -123,7 +131,7 @@ export function LinkedLocalDocumentAgentBridge({
       actions: [action],
     });
     return () => bridge.stop();
-  }, [document.id]);
+  }, [document.id, onPersisted]);
 
   return null;
 }

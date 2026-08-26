@@ -250,7 +250,11 @@ Old body`;
     const write = vi.fn(async (next: string) => {
       physicalContent = next;
     });
+    const truncate = vi.fn(async (size: number) => {
+      physicalContent = physicalContent.slice(0, size);
+    });
     const close = vi.fn(async () => undefined);
+    const abort = vi.fn(async () => undefined);
     const fileHandle = {
       kind: "file" as const,
       name: "getting-started.mdx",
@@ -261,7 +265,7 @@ Old body`;
             lastModified: Date.parse("2026-06-12T02:00:00.000Z"),
           }) as File,
       ),
-      createWritable: vi.fn(async () => ({ write, close })),
+      createWritable: vi.fn(async () => ({ write, truncate, close, abort })),
     };
     const root = {
       kind: "directory" as const,
@@ -303,12 +307,125 @@ Old body`;
       },
     });
     expect(write).not.toHaveBeenCalled();
+    expect(truncate).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
     expect(physicalContent).toContain("Changed outside Content.");
     expect(fileHandle.createWritable).toHaveBeenCalledWith({
       keepExistingData: true,
       mode: "exclusive",
     });
+  });
+
+  it("truncates a browser file before committing shorter content", async () => {
+    let physicalContent = [
+      "---",
+      'title: "Getting Started"',
+      "---",
+      "",
+      "A deliberately long original browser body.",
+    ].join("\n");
+    const write = vi.fn(async (next: string) => {
+      physicalContent = next + physicalContent.slice(next.length);
+    });
+    const truncate = vi.fn(async (size: number) => {
+      physicalContent = physicalContent.slice(0, size);
+    });
+    const close = vi.fn(async () => undefined);
+    const abort = vi.fn(async () => undefined);
+    const fileHandle = {
+      kind: "file" as const,
+      name: "getting-started.mdx",
+      getFile: vi.fn(
+        async () =>
+          ({
+            text: async () => physicalContent,
+            lastModified: Date.parse("2026-06-12T02:00:00.000Z"),
+          }) as File,
+      ),
+      createWritable: vi.fn(async () => ({ write, truncate, close, abort })),
+    };
+    const root = {
+      kind: "directory" as const,
+      name: "content",
+      values: vi.fn(),
+      getDirectoryHandle: vi.fn(),
+      getFileHandle: vi.fn(async () => fileHandle),
+      queryPermission: vi.fn(async () => "granted" as const),
+      requestPermission: vi.fn(async () => "granted" as const),
+    };
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    rememberLinkedLocalSourceDirectory(root);
+    const baseline = await readDocumentFromLinkedLocalSource(document);
+    if (!baseline.ok) throw new Error(baseline.error);
+
+    const result = await writeDocumentToLinkedLocalSource(
+      { ...document, content: "Short." },
+      undefined,
+      { expectedRevision: baseline.revision },
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(truncate).toHaveBeenCalledWith(0);
+    expect(physicalContent).not.toContain("deliberately long original");
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("aborts the exclusive browser writer after a write failure", async () => {
+    const physicalContent = [
+      "---",
+      'title: "Getting Started"',
+      "---",
+      "",
+      "Original.",
+    ].join("\n");
+    const write = vi.fn(async () => {
+      throw new Error("synthetic write failure");
+    });
+    const truncate = vi.fn(async () => undefined);
+    const close = vi.fn(async () => undefined);
+    const abort = vi.fn(async () => undefined);
+    const fileHandle = {
+      kind: "file" as const,
+      name: "getting-started.mdx",
+      getFile: vi.fn(
+        async () =>
+          ({
+            text: async () => physicalContent,
+            lastModified: Date.parse("2026-06-12T02:00:00.000Z"),
+          }) as File,
+      ),
+      createWritable: vi.fn(async () => ({ write, truncate, close, abort })),
+    };
+    const root = {
+      kind: "directory" as const,
+      name: "content",
+      values: vi.fn(),
+      getDirectoryHandle: vi.fn(),
+      getFileHandle: vi.fn(async () => fileHandle),
+      queryPermission: vi.fn(async () => "granted" as const),
+      requestPermission: vi.fn(async () => "granted" as const),
+    };
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    rememberLinkedLocalSourceDirectory(root);
+    const baseline = await readDocumentFromLinkedLocalSource(document);
+    if (!baseline.ok) throw new Error(baseline.error);
+
+    await expect(
+      writeDocumentToLinkedLocalSource(
+        { ...document, content: "Replacement." },
+        undefined,
+        { expectedRevision: baseline.revision },
+      ),
+    ).rejects.toThrow("synthetic write failure");
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
   });
 
   it("returns a no-write conflict when another browser writer holds the file", async () => {

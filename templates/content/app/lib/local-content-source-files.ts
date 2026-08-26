@@ -15,7 +15,9 @@ import type {
 type PermissionState = "granted" | "denied" | "prompt";
 type LocalWritable = {
   write(data: string): Promise<void>;
+  truncate?(size: number): Promise<void>;
   close(): Promise<void>;
+  abort?(reason?: unknown): Promise<void>;
 };
 type LocalFileHandle = {
   kind: "file";
@@ -343,14 +345,23 @@ async function writeBrowserFile(
     }
     throw error;
   }
-  const current = await file.getFile();
-  const currentRevision = await browserFileRevision(await current.text());
-  if (currentRevision !== expectedRevision) {
+  try {
+    const current = await file.getFile();
+    const currentRevision = await browserFileRevision(await current.text());
+    if (currentRevision !== expectedRevision) {
+      await writable.close();
+      return { ok: false as const, actualRevision: currentRevision };
+    }
+    if (!writable.truncate) {
+      throw new Error("The browser cannot safely replace this local file.");
+    }
+    await writable.truncate(0);
+    await writable.write(content);
     await writable.close();
-    return { ok: false as const, actualRevision: currentRevision };
+  } catch (error) {
+    await writable.abort?.(error).catch(() => undefined);
+    throw error;
   }
-  await writable.write(content);
-  await writable.close();
   return {
     ok: true as const,
     revision: await browserFileRevision(content),

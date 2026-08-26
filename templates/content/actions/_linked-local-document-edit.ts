@@ -50,6 +50,7 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
   ownerEmail: string;
   documentId: string;
   expectedContent: string;
+  expectedTitle: string;
   expectedResultContent: string;
   edits: DocumentTextEdit[];
 }): Promise<LinkedLocalEditReceipt> {
@@ -83,6 +84,7 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
         args: {
           documentId: args.documentId,
           expectedContent: args.expectedContent,
+          expectedTitle: args.expectedTitle,
           edits: args.edits,
         },
         timeoutMs: 30_000,

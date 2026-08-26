@@ -1255,6 +1255,30 @@ function DocumentEditorBody({
     };
   }, [document.id, document.source, isLinkedLocalSourceDocument]);
 
+  const handleLinkedLocalAgentPersistence = useCallback(
+    (persisted: Document) => {
+      localTitleRef.current = persisted.title;
+      localContentRef.current = persisted.content;
+      setLocalTitle(persisted.title);
+      setLocalContent(persisted.content);
+      setLocalContentUpdatedAt(persisted.updatedAt ?? new Date().toISOString());
+      lastSavedTitleRef.current = {
+        title: persisted.title,
+        updatedAt: persisted.updatedAt ?? null,
+      };
+      lastSavedContentRef.current = {
+        content: persisted.content,
+        updatedAt: persisted.updatedAt ?? null,
+      };
+      setLocalFileSyncRevision((revision) => revision + 1);
+      setLocalSourceConflict(null);
+      queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+        mergeDocumentIntoDocumentCache(old, persisted),
+      );
+    },
+    [documentId, queryClient],
+  );
+
   const saveDocumentImmediately = useCallback(
     async (
       title: string,
@@ -2013,7 +2037,10 @@ function DocumentEditorBody({
       ctx={blockRenderContext}
     >
       {isLinkedLocalSourceDocument ? (
-        <LinkedLocalDocumentAgentBridge document={document} />
+        <LinkedLocalDocumentAgentBridge
+          document={document}
+          onPersisted={handleLinkedLocalAgentPersistence}
+        />
       ) : null}
       <div
         className="relative flex min-h-0 min-w-0 flex-1"

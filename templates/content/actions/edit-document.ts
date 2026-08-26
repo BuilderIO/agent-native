@@ -224,7 +224,9 @@ export default defineAction({
     const isLinkedLocalSource =
       existing.sourceMode === "local-files" &&
       existing.sourceKind !== "folder" &&
-      Boolean(existing.sourcePath);
+      Boolean(existing.sourcePath) &&
+      !id.startsWith("local-file:") &&
+      !id.startsWith("local-folder:");
     if (isLinkedLocalSource) {
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) {
@@ -241,6 +243,7 @@ export default defineAction({
         ownerEmail,
         documentId: id,
         expectedContent: existing.content ?? "",
+        expectedTitle: existing.title,
         expectedResultContent: applied.content,
         edits,
       });

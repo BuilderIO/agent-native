@@ -16,6 +16,7 @@ const args = {
   ownerEmail: "alice@example.com",
   documentId: "doc-1",
   expectedContent: "# Original",
+  expectedTitle: "Original",
   expectedResultContent: "# Updated",
   edits: [{ find: "Original", replace: "Updated" }],
 };
