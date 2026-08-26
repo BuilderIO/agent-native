@@ -158,7 +158,7 @@
     --fg: #ededed;
     --fg-secondary: #a0a0a0;
     --bg: #0a0a0a;
-  --bg-secondary: #1a1a1a;
+    --bg-secondary: #1a1a1a;
     --docs-border: #1f1f1f;
     --docs-accent: #52a8ff;
     --docs-accent-light: rgba(82, 168, 255, 0.1);
