@@ -990,8 +990,6 @@ const messages = {
     editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
-    mentionSomeone: "Mention someone",
-    addEmoji: "Add emoji",
   },
   shareMeeting: {
     pageTitle: "Meeting notes · Clips",
@@ -1528,6 +1526,7 @@ const messages = {
     invite: "Invite",
     inviteFailed: "Couldn't invite person",
     removePersonFailed: "Couldn't remove person",
+    permissionUpdateFailed: "Couldn't update permission",
     passwordProtectedDescription:
       "This video is protected. Enter the password to watch.",
     password: "Password",
