@@ -3883,13 +3883,17 @@ export function App({
         } catch (err) {
           stopFailed = true;
           setRecError(err instanceof Error ? err.message : String(err));
-          // The pill is showing this take's card. A stop that threw is not a
-          // completion, and for a local-only take no later event corrects it,
-          // so say so instead of leaving the card asserting success.
-          emit("clips:native-upload-finished", {
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }).catch(() => {});
+          // Only when the stop itself threw. Past that point the upload
+          // pipeline owns the completion event and a copy-link failure is not
+          // an upload failure — but a stop that never produced a result is
+          // not a completion, and a local-only take has no other publisher to
+          // correct the card.
+          if (!stopResult) {
+            emit("clips:native-upload-finished", {
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            }).catch(() => {});
+          }
           await loadPendingUploads();
         } finally {
           recordingStopFinalizingRef.current = false;
