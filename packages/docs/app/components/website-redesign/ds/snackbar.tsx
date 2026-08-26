@@ -82,8 +82,6 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
               color: "var(--b-text-primary)",
               fontFamily: "var(--b-font-mono)",
               fontSize: "var(--b-t-label-1)",
-              fontWeight: 600,
-              letterSpacing: "0.02em",
               lineHeight: 1,
               boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
             }}

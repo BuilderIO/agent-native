@@ -1,5 +1,4 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { IconCopy } from "@tabler/icons-react";
 
 import { useSnackbar } from "./ds/snackbar";
 
@@ -34,7 +33,7 @@ export function InstallCommand() {
       return;
     }
     trackEvent("copy install command", { command: INSTALL_COMMAND });
-    showSnackbar("COPIED");
+    showSnackbar("Copied");
   }
 
   return (
@@ -73,15 +72,6 @@ export function InstallCommand() {
       >
         {INSTALL_COMMAND}
       </code>
-      <IconCopy
-        size={14}
-        stroke={1.75}
-        aria-hidden="true"
-        style={{
-          marginLeft: "var(--spacing-1)",
-          color: "var(--b-text-muted)",
-        }}
-      />
     </button>
   );
 }
