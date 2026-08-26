@@ -259,7 +259,7 @@ export const getDb = createGetDb(schema);
 새 앱 스키마 변경에는 `pnpm db:generate`를 사용해 검토 가능한 SQL을
 생성하세요. 이 명령은 `server/db/migrations/<id_name>.sql`을 만들고,
 `runDrizzleMigrations`가 Node.js 및 Node 기반 serverless 런타임에서 이 파일들을
-공유 Agent Native 러너에 로드합니다. 운영 변경의 책임은 계속 릴리스 단계에
+공유 Agent-Native 러너에 로드합니다. 운영 변경의 책임은 계속 릴리스 단계에
 있습니다. 방언별 SQL, D1 동작, backfill 및 지연된 JavaScript 단계에는
 `runMigrations()`를 계속 사용하세요.
 
