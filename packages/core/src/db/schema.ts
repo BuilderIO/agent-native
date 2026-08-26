@@ -39,11 +39,19 @@ import {
 
 import { getDialect } from "./client.js";
 
+const drizzleKitDialect = (
+  globalThis as typeof globalThis & {
+    __agentNativeDrizzleKitDialect?: "postgresql" | "sqlite" | "turso";
+  }
+).__agentNativeDrizzleKitDialect;
+
 // No caching — getDialect() handles its own caching once env is available.
 // On CF Workers, this runs at import time before env bindings are set, so
 // caching here would lock in the wrong dialect.
 function pg(): boolean {
-  return getDialect() === "postgres";
+  return drizzleKitDialect
+    ? drizzleKitDialect === "postgresql"
+    : getDialect() === "postgres";
 }
 
 /**

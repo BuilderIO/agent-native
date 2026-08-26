@@ -6,6 +6,7 @@ export {
 } from "./agent-chat.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export { extractOAuthStateAppId } from "./oauth-state.js";
+export { isGoogleProfileImageUrl } from "./google-profile-image.js";
 export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,

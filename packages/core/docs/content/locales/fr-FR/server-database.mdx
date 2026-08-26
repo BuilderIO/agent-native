@@ -256,6 +256,23 @@ de leur numéro de version.
   migrations lors de l'étape de release.
 </Callout>
 
+### Générer de nouvelles migrations d'application avec Drizzle Kit {#drizzle-migrations}
+
+Pour les nouvelles modifications du schéma de l'application, utilisez
+`pnpm db:generate` afin de créer du SQL révisable. Cela crée
+`server/db/migrations/<id_name>.sql`, que `runDrizzleMigrations` charge
+dans le runner Agent Native partagé sur Node.js et les runtimes serverless basés
+sur Node. L'étape de release reste responsable des modifications de production.
+Conservez `runMigrations()` pour le SQL propre au dialecte, D1, les backfills et
+les étapes JavaScript différées.
+
+Le chargeur basé sur le système de fichiers n'est pas disponible dans Cloudflare
+Workers/Pages ni dans les autres runtimes edge sans système de fichiers, y compris
+D1. Utilisez-y `runMigrations()` avec des entrées SQL intégrées au bundle du
+worker. Un dossier de sortie Drizzle possède une seule base de métadonnées propre
+au dialecte : générez pour le dialecte de déploiement principal et ne réutilisez
+pas le même dossier en alternant SQLite et PostgreSQL.
+
 <Callout tone="risk">
   N'exécutez jamais `drizzle-kit push` sur une base de données de production.
   Les schémas de modèle définissent uniquement les tables spécifiques à
@@ -265,7 +282,7 @@ de leur numéro de version.
   provoquant une perte de données immédiate.
 </Callout>
 
-`drizzle.config.ts` à la racine de chaque application configure drizzle-kit pour l'inspection du schéma en développement local :
+`drizzle.config.ts` à la racine de chaque application configure drizzle-kit pour l'inspection du schéma en développement local. Si un dossier de migrations sert plusieurs backends, indiquez explicitement le dialecte de déploiement principal, par exemple `createDrizzleConfig({ dialect: "postgresql" })` :
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
