@@ -269,7 +269,7 @@ export function TemplateShowcase() {
                     aspectRatio="320 / 256"
                     label=""
                     rounded={false}
-                    background="#000"
+                    background="var(--b-bg-raised)"
                     bordered={false}
                   />
                 </div>
