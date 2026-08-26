@@ -25,7 +25,11 @@ import {
   upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant,
 } from "../workspace-connections/store.js";
-import { getSession, safeReturnPath } from "./auth.js";
+import {
+  getSession,
+  redirectWithStagedCookies,
+  safeReturnPath,
+} from "./auth.js";
 import { resolveSecret } from "./credential-provider.js";
 import {
   decodeOAuthState,
@@ -243,6 +247,7 @@ export async function handleWorkspaceProviderOAuthStart(
         redirectUri,
         state,
         challenge,
+        loginHint: session.email,
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -252,7 +257,7 @@ export async function handleWorkspaceProviderOAuthStart(
             }
           : {}),
       });
-      return Response.redirect(authorizationUrl, 302);
+      return redirectWithStagedCookies(event, authorizationUrl);
     },
   );
 }
@@ -432,7 +437,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       const returnPath =
         state.returnUrl ??
         `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
-      return Response.redirect(getAppUrl(event, returnPath), 302);
+      return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
     },
   );
 }
@@ -444,6 +449,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   state: string;
   challenge: string;
   authorizationUrl?: string;
+  loginHint?: string;
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
@@ -468,7 +474,8 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   if (isGoogleWorkspaceOAuthProvider(input.provider.id)) {
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("include_granted_scopes", "true");
-    url.searchParams.set("prompt", "consent");
+    url.searchParams.set("prompt", "consent select_account");
+    if (input.loginHint) url.searchParams.set("login_hint", input.loginHint);
   }
   if (input.provider.oauth.scopes.length) {
     url.searchParams.set("scope", input.provider.oauth.scopes.join(" "));

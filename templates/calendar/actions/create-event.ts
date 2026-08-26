@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { emit } from "@agent-native/core/event-bus";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";

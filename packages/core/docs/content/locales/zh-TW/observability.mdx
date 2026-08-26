@@ -159,11 +159,14 @@ export default function ObservabilityPage() {
 透過設定 `evalSampleRate` 啟用基於取樣 LLM 的評估：
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -255,17 +258,21 @@ PUT /_agent-native/observability/experiments/:id
 
 ## 設定 {#config}
 
-所有設定都儲存在 `observability-config` 金鑰中：
+透過 `defineAppConfig()` 在伺服器外掛程式中設定。每個欄位還有一個部署環境變數別名——請參閱宣告式設定參考。
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -300,26 +307,13 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 ## 匯出到外部平台 {#export}
 
-將跟蹤傳送到 Langfuse、Datadog、Grafana 或任何 OTel 相容後端：
+透過在您自己的應用程式中註冊 OpenTelemetry 提供者，將跟蹤傳送到 Langfuse、Datadog、Grafana 或任何 OTel 相容後端——請參閱下面的 [OpenTelemetry 範圍](#otel)。
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-此框架發出與 OpenTelemetry GenAI 規範相容的 `gen_ai.*` 語義約定範圍。
+核心有意不提供任何匯出器，也不保存匯出端點或權杖，因此後端憑證存在於您的提供者接線（以及保險庫）中，而絕不在框架設定中。
 
 ## OpenTelemetry 跨度 {#otel}
 
-與上面的 `exporters` 設定（將內部跟蹤傳送到 OTLP 端點）不同，代理迴圈還可以為每次執行、模型呼叫和工具呼叫發出**即時 OpenTelemetry 範圍**，因此已經執行 OTel 收集器的主機可以看到代理活動以及其分布式跟蹤的其餘部分。
+代理迴圈為每次執行、模型呼叫和工具呼叫發出**即時 OpenTelemetry 範圍**，因此已經執行 OTel 收集器的主機可以看到代理活動以及其分散式跟蹤的其餘部分。
 
 該層是**可選且預設情況下無操作**：
 

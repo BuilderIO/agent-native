@@ -358,6 +358,8 @@ graph LR
 
 에이전트가 데이터를 변경하면, UI는 수동 새로고침 없이 이를 반영해야 합니다. `useDbSync()`가 이를 자동으로 처리합니다. 동일 프로세스 쓰기는 `/_agent-native/events`를 통해 스트리밍되며, `/_agent-native/poll`은 크로스 프로세스 및 서버리스 폴백으로 남아 있습니다. 에이전트가 데이터베이스(애플리케이션 상태, 설정, 또는 도메인 데이터)에 쓰면, 버전 카운터가 증가하고 클라이언트는 관련된 React Query 캐시를 무효화합니다.
 
+SSE를 WebSockets 대신 일반적인 경우에 사용하는 이유는, 동일 프로세스 쓰기가 평범한 HTTP만으로 브라우저까지 즉시 도달하는 경로를 제공하는 동시에, 서버리스와 엣지처럼 지속적인 소켓을 사용할 수 없는 배포 환경을 포함한 모든 환경에서 작동하는 폴백으로 버전 카운터 폴링이 남아 있기 때문입니다.
+
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
 import { useDbSync } from "@agent-native/core/client/hooks";

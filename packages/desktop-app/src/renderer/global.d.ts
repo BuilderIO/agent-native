@@ -780,6 +780,13 @@ type DesktopAppCreationSettings = {
   appsRoot: string;
 };
 
+/** `settings` always reflects the current on-disk value, so a rejected update still snaps the UI back to something real. */
+type DesktopAppCreationSettingsUpdateResult = {
+  ok: boolean;
+  settings: DesktopAppCreationSettings;
+  error?: string;
+};
+
 type DesktopCreateAppRequest = {
   prompt: string;
   appsRoot?: string;
@@ -1092,7 +1099,7 @@ interface ElectronAPI {
     getCreationSettings(): Promise<DesktopAppCreationSettings>;
     updateCreationSettings(
       settings: Partial<DesktopAppCreationSettings>,
-    ): Promise<DesktopAppCreationSettings>;
+    ): Promise<DesktopAppCreationSettingsUpdateResult>;
     createFromPrompt(
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult>;

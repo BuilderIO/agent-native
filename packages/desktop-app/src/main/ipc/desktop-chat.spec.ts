@@ -10,7 +10,10 @@ vi.mock("../app-store", () => ({
   loadApps: vi.fn(() => []),
 }));
 
-import { resolveTargetUrl } from "./desktop-chat.js";
+import {
+  resolveTargetUrl,
+  shouldForwardRequestHeader,
+} from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
   it("rejects dot-segment traversal after URL normalization", () => {
@@ -37,5 +40,23 @@ describe("desktop chat relay target URLs", () => {
     ).toBe(
       "https://mail.example.com/app/_agent-native/agent-chat?surface=desktop",
     );
+  });
+
+  it("does not forward Electron-restricted browser headers", () => {
+    expect(shouldForwardRequestHeader("content-length", "42")).toBe(false);
+    expect(shouldForwardRequestHeader("cookie2", "legacy")).toBe(false);
+    expect(shouldForwardRequestHeader("transfer-encoding", "chunked")).toBe(
+      false,
+    );
+    expect(
+      shouldForwardRequestHeader("x-agent-native-surface", "desktop"),
+    ).toBe(true);
+    expect(
+      shouldForwardRequestHeader(
+        "x-internal",
+        "secret",
+        new Set(["connection", "x-internal"]),
+      ),
+    ).toBe(false);
   });
 });

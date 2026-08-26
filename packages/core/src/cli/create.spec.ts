@@ -14,6 +14,7 @@ import {
   _communityTemplateTrustMessage,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _discoverEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
   _parseCommunityTemplateSelection,
@@ -210,7 +211,7 @@ describe("createApp", { timeout: 30000 }, () => {
     );
     // Imports from the bare package root, which is server-safe so a headless
     // app loads it without React / @tanstack/react-query installed.
-    expect(hello).toContain('from "@agent-native/core"');
+    expect(hello).toContain('from "@agent-native/core/action"');
     expect(hello).toContain("defineAction");
     expect(hello).toContain('http: { method: "GET" }');
     expect(hello).toContain("readOnly: true");
@@ -1205,5 +1206,97 @@ describe("community workspace template sources", () => {
         sourceIdentity: { appName: "mail", appTitle: "Mail" },
       }),
     ).toThrow("imports its source shared package");
+  });
+});
+
+describe("findEnclosingRepo", () => {
+  function makeTree(): { root: string; nested: string } {
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "enclosing-repo-")),
+    );
+    const nested = path.join(root, "a", "b", "c");
+    fs.mkdirSync(nested, { recursive: true });
+    return { root, nested };
+  }
+
+  function initRepo(dir: string): void {
+    execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "pipe" });
+  }
+
+  it("finds a repo above the target", () => {
+    const { root, nested } = makeTree();
+    initRepo(root);
+
+    expect(_discoverEnclosingRepo(nested)).toEqual({ state: "inside", root });
+  });
+
+  it("finds the target itself when it is the repo", () => {
+    const { nested } = makeTree();
+    initRepo(nested);
+
+    expect(_discoverEnclosingRepo(nested)).toEqual({
+      state: "inside",
+      root: nested,
+    });
+  });
+
+  it("returns undefined when nothing above the target is a repo", () => {
+    const { nested } = makeTree();
+
+    expect(_discoverEnclosingRepo(nested).state).toBe("outside");
+  });
+
+  it("follows a symlinked path to the real repository", () => {
+    const { root, nested } = makeTree();
+    initRepo(root);
+    const link = path.join(fs.realpathSync(os.tmpdir()), `link-${Date.now()}`);
+    fs.symlinkSync(nested, link, "dir");
+
+    try {
+      expect(_discoverEnclosingRepo(link)).toEqual({ state: "inside", root });
+    } finally {
+      fs.unlinkSync(link);
+    }
+  });
+
+  it("ignores an inherited GIT_DIR pointing at an unrelated repo", () => {
+    const { nested } = makeTree();
+    const unrelated = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "unrelated-repo-")),
+    );
+    initRepo(unrelated);
+
+    process.env.GIT_DIR = path.join(unrelated, ".git");
+    try {
+      expect(_discoverEnclosingRepo(nested).state).toBe("outside");
+    } finally {
+      delete process.env.GIT_DIR;
+    }
+  });
+
+  it("reports unknown, not outside, when discovery fails", () => {
+    const { root, nested } = makeTree();
+    // A corrupt gitfile makes git refuse the checkout with a fatal that is not
+    // "not a git repository" — the same shape as dubious ownership.
+    fs.writeFileSync(path.join(root, ".git"), "garbage");
+
+    const discovery = _discoverEnclosingRepo(nested);
+
+    expect(discovery.state).toBe("unknown");
+    expect("reason" in discovery ? discovery.reason : "").toMatch(
+      /invalid gitfile/i,
+    );
+  });
+
+  it("stops where GIT_CEILING_DIRECTORIES says git should", () => {
+    const { root, nested } = makeTree();
+    initRepo(root);
+
+    process.env.GIT_CEILING_DIRECTORIES = path.join(root, "a");
+    try {
+      expect(_discoverEnclosingRepo(nested).state).toBe("outside");
+    } finally {
+      delete process.env.GIT_CEILING_DIRECTORIES;
+    }
   });
 });

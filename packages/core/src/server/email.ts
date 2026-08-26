@@ -10,12 +10,12 @@
  * so the reset-password flow still works end-to-end for local development.
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
 import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
-import { getAppSlug } from "./app-name.js";
 import { resolveSecret } from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 import { getRequestOrgId } from "./request-context.js";
@@ -341,7 +341,7 @@ async function deliverEmail(
     const orgId = args.orgId ?? getRequestOrgId();
     const categories = [
       args.templateId,
-      args.app ?? getAppSlug(),
+      args.app ?? getAppConfig().app.slug,
       args.templateId && orgId
         ? getScopedEmailProviderCategory(args.templateId, orgId)
         : undefined,
@@ -411,7 +411,7 @@ async function sendEmailWithSignal(
   } catch (error) {
     await recordEmailSend({
       templateId: args.templateId,
-      app: args.app ?? getAppSlug() ?? "unknown",
+      app: args.app ?? getAppConfig().app.slug ?? "unknown",
       orgId: args.orgId ?? getRequestOrgId(),
       recipient: args.to,
       sender: outcome?.from ?? args.from ?? "unknown",
@@ -424,7 +424,7 @@ async function sendEmailWithSignal(
   }
   await recordEmailSend({
     templateId: args.templateId,
-    app: args.app ?? getAppSlug() ?? "unknown",
+    app: args.app ?? getAppConfig().app.slug ?? "unknown",
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
     sender: outcome.from,

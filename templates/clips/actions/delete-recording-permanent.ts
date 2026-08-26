@@ -5,7 +5,7 @@
  *   pnpm action delete-recording-permanent --id=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   writeAppState,
   deleteAppState,

@@ -75,15 +75,28 @@ this skill:
    resolved. The recap must distinguish approval under the internal exception
    from a clean merge state.
 
+When an exception requires independent review, it means a separate,
+attributable, non-dismissed `APPROVED` PR review from a different verified
+current BuilderIO member, submitted against the current PR head and remaining
+that reviewer’s latest non-dismissed review, with no active, non-dismissed
+`CHANGES_REQUESTED` review from any reviewer.
+Self-review, author-stated validation, bot-only review, a
+`COMMENTED`/`CHANGES_REQUESTED` review, an unverified reviewer, or
+unverifiable review state does not satisfy it; without that evidence, do not
+use the exception.
+
 ## Owner exceptions
 
 The verified owner exceptions are:
 
  - Alice (`3mdistal`) - Content
  - Nick (`NKoech123`) - Slides
+ - Shomix (`shomix`) - Clips, only when the PR is specific to the Clips
+   app
  - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
    app
  - Sid (`sidmohanty11`) - Design
+ - Manu (`manucorporat`) - any app or framework area
 
 For a verified PR authored by Alice and limited to Content app or template
 behavior, including supporting shared framework or Desktop plumbing required
@@ -100,11 +113,33 @@ Factory app paths and Factory-owned actions, instructions, locales, or tests.
 Shared framework changes that materially affect other apps, Slack ingestion,
 core runtime, or deployment remain on the standard gate.
 
-For a verified PR authored by Sid, or by Enzo when the PR is Factory-specific,
-auto-approve by default, including that owner's UX changes, refactors, failed
-or pending checks, and ordinary unresolved human or bot feedback. The owner
-exception overrides the normal UX-owner, narrow-refactor, check, and
-review-resolution gates.
+For a verified PR authored by Shomix (`shomix`) and limited to Clips app or
+template behavior, including supporting shared framework or Desktop plumbing
+required by that Clips feature, auto-approve by default. This includes that
+owner's UX changes, refactors, failed or pending checks, and ordinary unresolved
+human or bot feedback. The owner exception overrides the normal UX-owner,
+narrow-refactor, check, and review-resolution gates.
+
+For a verified PR authored by Sid, or by Enzo (`enzoames`) when the PR is
+Factory-specific, auto-approve by default, including that owner's UX changes,
+refactors, failed or pending checks, and ordinary unresolved human or bot
+feedback. The owner exception overrides the normal UX-owner, narrow-refactor,
+check, and review-resolution gates.
+
+For a verified PR authored by Manu (`manucorporat`), auto-approve by default
+regardless of app scope, UX implications, refactors, failed or pending checks,
+or ordinary unresolved human or bot feedback. This exception does not waive the
+ultra-scary safety gate or the external-author prohibition. Changes to review or
+approval policy, agent safety instructions, membership verification, or
+CI/deployment security controls require independent review and are not eligible
+for this exception.
+
+For a verified PR authored by `shawnmcclelland`, auto-approve by default
+regardless of app scope, UX implications, refactors, failed or pending checks,
+or ordinary unresolved human or bot feedback. This exception does not waive the
+ultra-scary safety gate, the external-author prohibition, or the independent
+review requirement for changes to review or approval policy, agent safety
+instructions, membership verification, or CI/deployment security controls.
 
 For a verified PR authored by `kapunahelewong` or Wes (`bwreid`), auto-approve
 by default when the PR is docs-only. Docs-only means documentation content,
@@ -151,7 +186,7 @@ loading states, accessibility behavior, and user-facing defaults.
 The current app-owner map is:
 
  - Alice (`3mdistal`) - Content
- - Milos - Clips
+ - Shomix (`shomix`) - Clips
  - Nick (`NKoech123`) - Slides
  - Nicholas - Analytics
  - Enzo (`enzoames`) - Factory

@@ -1,7 +1,7 @@
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import type { ChartConfiguration, ChartType } from "chart.js";
 import type { ChartJSNodeCanvas as ChartJSNodeCanvasType } from "chartjs-node-canvas";
 import { z } from "zod";

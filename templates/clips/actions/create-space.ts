@@ -5,7 +5,7 @@
  *   pnpm action create-space --name="Engineering" --color="#18181B" --iconEmoji="⚙️"
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 

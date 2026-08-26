@@ -66,9 +66,11 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
     return builderFileUploadProvider;
   }
   try {
-    const { resolveHasBuilderPrivateKey } =
-      await import("../server/credential-provider.js");
-    if (await resolveHasBuilderPrivateKey()) {
+    // Either Builder credential kind counts. Checking only the private key
+    // reported every OAuth-only connection as having no upload provider.
+    const { hasBuilderApiCredentialCustody } =
+      await import("../server/builder-api-auth.js");
+    if (await hasBuilderApiCredentialCustody()) {
       return builderFileUploadProvider;
     }
   } catch {
@@ -109,21 +111,22 @@ export async function uploadFile(
   // via runWithRequestContext — actions always have one via action-routes.ts).
   // Two separate try-catch blocks ensure a real upload failure is never
   // silently swallowed as a "no credentials" case.
-  let builderKey: string | null = null;
+  let hasBuilderCredential = false;
   try {
-    const { resolveBuilderPrivateKey } =
-      await import("../server/credential-provider.js");
-    builderKey = await resolveBuilderPrivateKey();
+    const { hasBuilderApiCredentialCustody } =
+      await import("../server/builder-api-auth.js");
+    hasBuilderCredential = await hasBuilderApiCredentialCustody();
   } catch (err) {
-    // DB unavailable or credential store not ready — can't resolve key.
-    // Return an unavailable-provider state below; never fall back to SQL.
+    // DB unavailable or credential store not ready — can't resolve a
+    // credential. Return an unavailable-provider state below; never fall back
+    // to SQL.
     console.warn(
       "[agent-native] Builder credential check failed:",
       err instanceof Error ? err.message : String(err),
     );
   }
 
-  if (builderKey) {
+  if (hasBuilderCredential) {
     // Credentials confirmed — attempt the upload. Real errors (network,
     // API, rate-limit) propagate to the caller; do NOT catch them here.
     return await builderFileUploadProvider.upload(input);

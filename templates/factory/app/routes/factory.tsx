@@ -752,7 +752,12 @@ export default function FactoryRoute() {
         ) : activeTab === "rules" ? (
           <RulesView factoryId={factoryId} t={t} />
         ) : activeTab === "settings" ? (
-          <FactorySettingsView key={factoryId} factoryId={factoryId} />
+          <FactorySettingsView
+            key={factoryId}
+            factoryId={factoryId}
+            factoryName={graphData?.factory.name ?? graph.name}
+            onDeleted={goToFactoryList}
+          />
         ) : activeTab === "automations" ? (
           <AutomationsView key={factoryId} factoryId={factoryId} t={t} />
         ) : activeTab === "audit" ? (

@@ -15,7 +15,7 @@
  * the durable autosave/persist path for edited timelines.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,

@@ -26,4 +26,17 @@ describe("Forms agent public form links", () => {
       "Do not invent SQL or query another app's database",
     );
   });
+
+  it("repairs rejected field payloads instead of stopping at the diagnosis", () => {
+    expect(FORMS_SYSTEM_PROMPT).toContain(
+      "complete object with id, type, label, and required",
+    );
+    expect(FORMS_SYSTEM_PROMPT).toContain("never send shorthand strings");
+    expect(FORMS_SYSTEM_PROMPT).toContain(
+      "correct the arguments and retry in the same turn",
+    );
+    expect(FORMS_SYSTEM_PROMPT).toContain(
+      "repair that draft instead of explaining the fix and stopping",
+    );
+  });
 });

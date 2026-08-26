@@ -32,6 +32,7 @@ export {
 } from "../use-session.js";
 export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  actionErrorMessage,
   callAction,
   tryCallActionKeepalive,
   useActionQuery,

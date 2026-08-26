@@ -25,7 +25,6 @@ import {
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
-import { getAppName } from "./app-name.js";
 import {
   addSignupAttributionHeader,
   signupAttributionContextFromCookieHeader,
@@ -149,7 +148,7 @@ function resolveAppId(event: H3Event): string {
   const app = getAppConfig().app;
   const configured = app.id ?? app.workspaceId;
   if (configured) return configured;
-  const name = getAppName();
+  const name = getAppConfig().app.name;
   if (name && name !== "app") return name;
   try {
     return new URL(getOrigin(event)).hostname.split(".")[0] || "app";

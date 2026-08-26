@@ -13,7 +13,7 @@
  * See DESIGN-STUDIO-PLAN.md §6.5 + §7 (Review surface).
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";

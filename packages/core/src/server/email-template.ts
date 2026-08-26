@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 /**
  * Reusable dark-themed HTML email template.
  *
@@ -17,8 +18,6 @@
  *     footer: "If you weren't expecting this, ignore this email.",
  *   });
  */
-
-import { getAppName } from "./app-name.js";
 
 export const AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID = "agent-native-logo";
 
@@ -115,7 +114,8 @@ function sanitizeLogoUrl(input: string | undefined): string | undefined {
 export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const preheader = args.preheader || "";
   const brand = sanitizeHexColor(args.brandColor);
-  const brandName = args.brandName?.trim() || getAppName() || "Agent Native";
+  const brandName =
+    args.brandName?.trim() || getAppConfig().app.name || "Agent Native";
   const logoSrc =
     sanitizeLogoUrl(args.brandLogoUrl) ??
     `cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`;

@@ -126,6 +126,7 @@ beforeEach(() => {
       return true;
     },
   );
+  ssrfSafeFetchMock.mockReset();
   ssrfSafeFetchMock.mockImplementation((url: string, init?: RequestInit) =>
     fetch(url, init),
   );
@@ -133,6 +134,86 @@ beforeEach(() => {
 });
 
 describe("MCP OAuth client", () => {
+  it("starts Google Workspace OAuth without MCP discovery", async () => {
+    const result = await startMcpOAuthAuthorization({
+      serverUrl: "https://workspacemcp.googleapis.com/mcp/v1",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+      clientInformation: {
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      },
+    });
+    const authorizationUrl = result.authorizationUrl;
+
+    expect(authMock).not.toHaveBeenCalled();
+    expect(authorizationUrl.origin).toBe("https://accounts.google.com");
+    expect(authorizationUrl.pathname).toBe("/o/oauth2/v2/auth");
+    expect(authorizationUrl.searchParams.get("client_id")).toBe(
+      "google-client-id",
+    );
+    expect(authorizationUrl.searchParams.get("state")).toBe("<STATE>");
+    expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(authorizationUrl.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/drive.readonly",
+    );
+    expect(result.discoveryState).toMatchObject({
+      authorizationServerUrl: "https://accounts.google.com",
+      authorizationServerMetadata: {
+        token_endpoint: "https://oauth2.googleapis.com/token",
+      },
+      resourceMetadata: {
+        resource: "https://workspacemcp.googleapis.com/mcp/v1",
+      },
+    });
+  });
+
+  it("exchanges Google Workspace OAuth codes at Google's token endpoint", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: "<ACCESS_TOKEN>",
+          refresh_token: "<REFRESH_TOKEN>",
+          token_type: "Bearer",
+          expires_in: 3_600,
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await finishMcpOAuthAuthorization({
+      serverUrl: "https://drivemcp.googleapis.com/mcp/v1",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+      codeVerifier: "<CODE_VERIFIER>",
+      clientInformation: {
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      },
+      authorizationCode: "<AUTHORIZATION_CODE>",
+    });
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://oauth2.googleapis.com/token",
+      expect.objectContaining({ method: "POST" }),
+      expect.anything(),
+    );
+    const request = ssrfSafeFetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = request.body as URLSearchParams;
+    expect(body.get("client_id")).toBe("google-client-id");
+    expect(body.get("client_secret")).toBe("google-client-secret");
+    expect(body.get("code_verifier")).toBe("<CODE_VERIFIER>");
+    expect(result.credentials.tokens).toMatchObject({
+      access_token: "<ACCESS_TOKEN>",
+      refresh_token: "<REFRESH_TOKEN>",
+      issuer: "https://accounts.google.com",
+    });
+  });
+
   it("starts a standard MCP authorization flow and preserves PKCE state", async () => {
     authMock.mockImplementationOnce(
       async (provider: McpOAuthClientProvider) => {

@@ -291,6 +291,21 @@ describe("action discovery", () => {
     expect(registry["send-email-named"].needsApproval).toBe(gate);
   });
 
+  it("preserves a per-call-only approval policy through discovery", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "send-email": {
+        default: {
+          tool: { description: "Send email", parameters: {} },
+          needsApproval: true,
+          allowPersistentApproval: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["send-email"].allowPersistentApproval).toBe(false);
+  });
+
   it("threads the http config through named and default static entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-get": {

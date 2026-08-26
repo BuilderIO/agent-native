@@ -1968,6 +1968,7 @@ const deDE = {
     externalAgents: "Externe Agents (Host verbinden)",
     externalAgentsCatalog: "Katalog externer Agents",
     mcpApps: "MCP Apps (Inline-UIs)",
+    webMcp: "WebMCP (Browser-Tools)",
     crossAppSso: "Cross-App-SSO",
     notifications: "Benachrichtigungen",
     automationConnectors: "Workflow-Connectors",

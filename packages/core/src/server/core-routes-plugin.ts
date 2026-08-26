@@ -122,7 +122,6 @@ import {
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
 import {
   BUILDER_CONNECT_PARAM,
@@ -165,6 +164,10 @@ import {
   type BuilderOAuthPendingFlow,
 } from "./builder-oauth.js";
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
+import {
+  resolveCoreRoutesMcpOptions,
+  type CoreRoutesMcpOptions,
+} from "./core-routes/mcp-connect-options.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -1352,20 +1355,24 @@ export interface CoreRoutesPluginOptions {
   /** Disable the /_agent-native/embed/start iframe session launcher. */
   disableEmbedRoute?: boolean;
   /**
-   * Disable the /mcp/connect routes (browser Connect page + CLI device-code
-   * flow that mints per-user, revocable MCP tokens) and the standard remote-MCP
-   * OAuth endpoints under /mcp/oauth. The legacy /_agent-native/mcp aliases
-   * are disabled at the same time.
-   * Enabled by default — the routes are session-gated where they approve user
-   * access; token endpoints are protected by single-use codes / refresh
-   * tokens.
+   * Everything about this app's MCP connect surface — whether the Connect page
+   * and OAuth endpoints are mounted, and the server id clients key it by.
+   * See `CoreRoutesMcpOptions`.
+   *
+   * Replaces the top-level `disableMcpConnect`, `mcpConnectServerName`,
+   * `mcpConnectAppId`, and `mcpConnectAppName`, which stay accepted for one
+   * minor. Setting both forms to disagreeing values throws at plugin init
+   * rather than silently picking one.
    */
+  mcp?: CoreRoutesMcpOptions;
+
+  /** @deprecated Use `mcp.connect: false`. */
   disableMcpConnect?: boolean;
-  /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
-  mcpConnectAppId?: string;
-  /** Explicit MCP server id for copyable config/device-flow grants. */
+  /** @deprecated Use `mcp.serverName`. */
   mcpConnectServerName?: string;
-  /** Human app name shown on the MCP connect page. */
+  /** @deprecated Set `app.id` in `defineAppConfig()`. */
+  mcpConnectAppId?: string;
+  /** @deprecated Set `app.name` in `defineAppConfig()`. */
   mcpConnectAppName?: string;
   /** Per-template override mapping deep-link params → client SPA path.
    *  See `createOpenRouteHandler`. */
@@ -3871,11 +3878,12 @@ export function createCoreRoutesPlugin(
             const active = await getActiveFileUploadProviderForRequest();
             let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
             try {
-              const { resolveBuilderPrivateKey } =
-                await import("./credential-provider.js");
-              builderConfigured = await resolveBuilderPrivateKey().then(
-                (k) => !!k,
-              );
+              // Must match what provider selection asks, or this reports
+              // storage as unconfigured for an OAuth-only connection whose
+              // uploads actually work.
+              const { hasBuilderApiCredentialCustody } =
+                await import("./builder-api-auth.js");
+              builderConfigured = await hasBuilderApiCredentialCustody();
             } catch {
               // fall back to env check above
             }
@@ -4250,7 +4258,8 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      if (!options.disableMcpConnect) {
+      const mcpConnect = resolveCoreRoutesMcpOptions(options);
+      if (mcpConnect.connect) {
         getH3App(nitroApp).use(
           "/.well-known/oauth-protected-resource",
           defineEventHandler((event: H3Event) =>
@@ -4275,8 +4284,8 @@ export function createCoreRoutesPlugin(
             defineEventHandler(async (event: H3Event) => {
               const subpath = event.url?.pathname || "";
               return handleMcpOAuth(event, subpath, {
-                appId: options.mcpConnectAppId,
-                appName: options.mcpConnectAppName ?? getAppName(),
+                appId: mcpConnect.appId,
+                appName: mcpConnect.appName,
               });
             }),
           );
@@ -4292,9 +4301,9 @@ export function createCoreRoutesPlugin(
         // The auth guard bypasses ONLY the page + device/start + device/poll
         // (see createAuthGuardFn in auth.ts).
         const mcpConnectOpts = {
-          appId: options.mcpConnectAppId,
-          appName: options.mcpConnectAppName ?? getAppName(),
-          serverName: options.mcpConnectServerName,
+          appId: mcpConnect.appId,
+          appName: mcpConnect.appName,
+          serverName: mcpConnect.serverName,
         };
         for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
           getH3App(nitroApp).use(
