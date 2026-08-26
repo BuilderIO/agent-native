@@ -36,27 +36,7 @@ interface Logo extends LogoEntry {
 // entry's `render` with the actual svg/img once the asset is provided.
 function LogoPlaceholder({ label }: { label: string }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minWidth: 56,
-        minHeight: 56,
-        maxWidth: "100%",
-        maxHeight: "100%",
-        boxSizing: "border-box",
-        border: "1px dashed var(--b-border-default)",
-        borderRadius: "var(--b-radius-sm)",
-        padding: "var(--spacing-1)",
-        textAlign: "center",
-        fontFamily: "var(--b-font-mono)",
-        fontSize: "var(--b-t-label-3)",
-        lineHeight: 1.2,
-        color: "var(--b-text-secondary)",
-        overflow: "hidden",
-      }}
-    >
+    <div className="box-border flex max-h-full min-h-14 max-w-full min-w-14 items-center justify-center overflow-hidden rounded-[var(--b-radius-sm)] border border-dashed border-[var(--b-border-default)] p-[var(--spacing-1)] text-center font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-3)] leading-[1.2] text-[var(--b-text-secondary)]">
       {label}
     </div>
   );
@@ -296,43 +276,17 @@ const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
 export function WorksWithStack() {
   return (
     <PageSection>
-      <GridInner
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--spacing-6)",
-          padding: "var(--spacing-40) var(--spacing-8) var(--spacing-20)",
-        }}
-      >
-        <h2
-          style={{
-            margin: 0,
-            fontFamily: "var(--b-font-sans)",
-            fontSize: "var(--b-t-heading-2)",
-            fontWeight: 500,
-            lineHeight: 1.05,
-            letterSpacing: "-0.02em",
-            color: "var(--b-text-primary)",
-          }}
-        >
+      <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+        <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
           Works with your stack
         </h2>
-        <p
-          style={{
-            margin: 0,
-            maxWidth: 633,
-            fontFamily: "var(--b-font-sans)",
-            fontSize: "var(--b-t-paragraph-1)",
-            lineHeight: 1.4,
-            color: "var(--b-text-secondary)",
-          }}
-        >
+        <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
           Bring your LLM, database, tools, and infrastructure, Agent Native is
           open source TypeScript, so your application stays yours.
         </p>
       </GridInner>
 
-      <GridInner style={{ background: "var(--b-bg-page)" }}>
+      <GridInner className="bg-[var(--b-bg-page)]">
         <div className="logos-grid">
           {LOGOS.map((logo) => (
             <div

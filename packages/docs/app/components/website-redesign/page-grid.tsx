@@ -5,11 +5,10 @@ import {
   type ReactNode,
 } from "react";
 
-// Defined once in global.css so the gridlines, the header, and every page
-// body measure the same, and aliased into Tailwind's theme as the `site`
-// container so it can be spelled `max-w-site`. Keep it a var() rather than a
-// number here: a second copy of the value is a second thing to forget.
-export const SITE_MAX_WIDTH = "var(--site-max-width)";
+// The one content measure — `--site-max-width` in global.css, aliased into
+// Tailwind's theme as the `site` container, so every consumer spells it
+// `max-w-site` and the gridlines, the header, and each page body cannot drift.
+//
 // Tailwind cannot build a class from a runtime value, so the `grid-cols-3`
 // utilities below spell this number out. Changing it means changing those too.
 export const GRID_COLUMNS = 3;

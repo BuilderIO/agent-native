@@ -11,13 +11,12 @@ export function Logo({
 }) {
   return (
     <svg
-      className="redesign-logo"
+      className="redesign-logo block"
       width={width}
       height={height}
       viewBox="0 0 188 22"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      style={{ display: "block" }}
     >
       <path
         d="M8.02637 21.5H0L4.93164 12.8994L12.3262 0L19.7744 12.8994H12.958L8.02637 21.5Z"

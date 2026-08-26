@@ -77,155 +77,70 @@ const PILLAR_ROWS: Pillar[][] = [
 export function BuiltInFeatures() {
   return (
     <PageSection>
-      <GridInner
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--spacing-6)",
-          padding: "var(--spacing-40) var(--spacing-8) var(--spacing-20)",
-          borderTop: "1px solid var(--b-border-default)",
-        }}
-      >
-        <h2
-          style={{
-            margin: 0,
-            fontFamily: "var(--b-font-sans)",
-            fontSize: "var(--b-t-heading-2)",
-            fontWeight: 500,
-            lineHeight: 1.05,
-            letterSpacing: "-0.02em",
-            color: "var(--b-text-primary)",
-          }}
-        >
+      <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+        <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
           Built into every Agent-Native app
         </h2>
-        <p
-          style={{
-            margin: 0,
-            maxWidth: 633,
-            fontFamily: "var(--b-font-sans)",
-            fontSize: "var(--b-t-paragraph-1)",
-            lineHeight: 1.4,
-            color: "var(--b-text-secondary)",
-            textWrap: "pretty",
-          }}
-        >
+        <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-pretty text-[var(--b-text-secondary)]">
           Everything users and AI agents need to work together, already wired
           into one application.
         </p>
       </GridInner>
 
       <GridInner>
-        <div
-          style={{
-            border: "1px solid var(--b-border-subtle)",
-            borderTop: "none",
-          }}
-        >
+        <div className="border-x border-b border-solid border-[var(--b-border-subtle)]">
           {PILLAR_ROWS.map((row, rowIndex) => (
             <div
               key={row.map((pillar) => pillar.title).join("-")}
-              style={{ borderTop: "1px solid var(--b-border-subtle)" }}
+              className="border-t border-solid border-[var(--b-border-subtle)]"
             >
-              <div className="pillars-grid" style={{ display: "grid" }}>
+              <div className="pillars-grid grid">
                 {row.map((pillar) => (
                   <div
                     key={pillar.title}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      background: "var(--b-bg-page)",
-                    }}
+                    className="flex flex-col bg-[var(--b-bg-page)]"
                   >
                     {rowIndex === 0 &&
                       (pillar.darkImage && pillar.lightImage ? (
-                        <div
-                          className="pillar-media-spacing"
-                          style={{ position: "relative" }}
-                        >
+                        <div className="pillar-media-spacing relative">
                           <BuilderImage
-                            className="theme-img-dark"
+                            className="theme-img-dark relative block aspect-[104/75] w-full object-cover"
                             src={pillar.darkImage}
                             alt=""
                             crossOrigin="anonymous"
                             sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1400px) 33vw, 467px"
                             loading="lazy"
                             decoding="async"
-                            style={{
-                              position: "relative",
-                              width: "100%",
-                              aspectRatio: "104 / 75",
-                              objectFit: "cover",
-                              display: "block",
-                            }}
                           />
                           <BuilderImage
-                            className="theme-img-light"
+                            className="theme-img-light absolute inset-0 block h-full w-full object-cover"
                             src={pillar.lightImage}
                             alt=""
                             crossOrigin="anonymous"
                             sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1400px) 33vw, 467px"
                             loading="lazy"
                             decoding="async"
-                            style={{
-                              position: "absolute",
-                              inset: 0,
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              display: "block",
-                            }}
                           />
                         </div>
                       ) : pillar.image ? (
                         <BuilderImage
+                          className="block aspect-[104/75] w-full object-cover"
                           src={pillar.image}
                           alt=""
                           crossOrigin="anonymous"
                           sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1400px) 33vw, 467px"
                           loading="lazy"
                           decoding="async"
-                          style={{
-                            width: "100%",
-                            aspectRatio: "104 / 75",
-                            objectFit: "cover",
-                            display: "block",
-                          }}
                         />
                       ) : (
                         <ImgPlaceholder aspectRatio="104 / 75" label="" />
                       ))}
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "var(--spacing-2)",
-                        padding: "var(--spacing-8)",
-                      }}
-                    >
-                      <h3
-                        style={{
-                          margin: 0,
-                          fontFamily: "var(--b-font-sans)",
-                          fontSize: "var(--b-t-heading-6)",
-                          fontWeight: 500,
-                          lineHeight: 1.15,
-                          letterSpacing: "-0.02em",
-                          color: "var(--b-text-primary)",
-                        }}
-                      >
+                    <div className="flex flex-col gap-[var(--spacing-2)] p-[var(--spacing-8)]">
+                      <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-6)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                         {pillar.title}
                       </h3>
                       {pillar.description && (
-                        <p
-                          style={{
-                            margin: 0,
-                            fontFamily: "var(--b-font-sans)",
-                            fontSize: "var(--b-t-paragraph-2)",
-                            lineHeight: 1.4,
-                            color: "var(--b-text-secondary)",
-                          }}
-                        >
+                        <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
                           {pillar.description}
                         </p>
                       )}

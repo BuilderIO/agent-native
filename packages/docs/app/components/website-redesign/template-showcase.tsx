@@ -120,23 +120,11 @@ function CarouselIconButton({
   return (
     <button
       type="button"
-      className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
-      style={{
-        width: 40,
-        height: 40,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        borderWidth: 1,
-        borderStyle: "solid",
-        borderRadius: "var(--b-radius)",
-        background: "transparent",
-        color: "var(--b-text-primary)",
-        cursor: "pointer",
-        outline: "none",
-        transition: "background 0.15s, border-color 0.15s",
-      }}
+      className={[
+        "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none",
+        "transition-[background,border-color] duration-150 ease-[ease]",
+        "border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
+      ].join(" ")}
       {...rest}
     >
       {children}
@@ -171,56 +159,23 @@ export function TemplateShowcase() {
 
   return (
     <PageSection>
-      <GridInner
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--spacing-6)",
-          padding: "var(--spacing-40) var(--spacing-8) var(--spacing-20)",
-        }}
-      >
-        <h2
-          style={{
-            margin: 0,
-            fontFamily: "var(--b-font-sans)",
-            fontSize: "var(--b-t-heading-2)",
-            fontWeight: 500,
-            lineHeight: 1.05,
-            letterSpacing: "-0.02em",
-            color: "var(--b-text-primary)",
-          }}
-        >
+      <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+        <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
           What can you build with Agent-Native?
         </h2>
-        <p
-          style={{
-            margin: 0,
-            maxWidth: 633,
-            fontFamily: "var(--b-font-sans)",
-            fontSize: "var(--b-t-paragraph-1)",
-            lineHeight: 1.4,
-            color: "var(--b-text-secondary)",
-          }}
-        >
+        <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
           Start with chat, a focused internal tool, or a complete
           customer-facing product. Every app gives users a UI and agents the
           tools to do the same work.
         </p>
-        <div style={{ display: "flex" }}>
+        <div className="flex">
           <Button variant="secondary-icon" href="/apps">
             Browse apps
           </Button>
         </div>
       </GridInner>
 
-      <GridInner
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: "var(--spacing-2)",
-          padding: "0 var(--spacing-8) var(--spacing-4)",
-        }}
-      >
+      <GridInner className="flex justify-end gap-[var(--spacing-2)] px-[var(--spacing-8)] pb-[var(--spacing-4)]">
         <CarouselIconButton
           aria-label="Scroll apps left"
           onClick={() => scrollByPage(-1)}
@@ -255,35 +210,22 @@ export function TemplateShowcase() {
                           display) so loading="lazy" will still fetch whichever
                           one is currently hidden. */}
                       <BuilderImage
-                        className="theme-img-dark"
+                        className="theme-img-dark relative h-full w-full object-cover"
                         src={app.imageDark}
                         alt={`${app.name} app screenshot`}
                         sizes={CARD_IMAGE_SIZES}
                         crossOrigin="anonymous"
                         loading="lazy"
                         decoding="async"
-                        style={{
-                          position: "relative",
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
                       />
                       <BuilderImage
-                        className="theme-img-light"
+                        className="theme-img-light absolute inset-0 h-full w-full object-cover"
                         src={app.imageLight}
                         alt={`${app.name} app screenshot`}
                         sizes={CARD_IMAGE_SIZES}
                         crossOrigin="anonymous"
                         loading="lazy"
                         decoding="async"
-                        style={{
-                          position: "absolute",
-                          inset: 0,
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
                       />
                     </>
                   ) : (
@@ -297,28 +239,10 @@ export function TemplateShowcase() {
                   )}
                 </div>
                 <div className="app-carousel-card-body">
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontFamily: "var(--b-font-sans)",
-                      fontSize: "var(--b-t-heading-5)",
-                      fontWeight: 500,
-                      lineHeight: 1.15,
-                      letterSpacing: "-0.02em",
-                      color: "var(--b-text-primary)",
-                    }}
-                  >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                     {app.name}
                   </h3>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontFamily: "var(--b-font-sans)",
-                      fontSize: "var(--b-t-paragraph-2)",
-                      lineHeight: 1.4,
-                      color: "var(--b-text-secondary)",
-                    }}
-                  >
+                  <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
                     {app.description}
                   </p>
                   <span
@@ -334,39 +258,13 @@ export function TemplateShowcase() {
                 children of its own, and nesting those inside an anchor is
                 invalid. It still lives in the track so the arrows reach it. */}
             <div className="app-carousel-cta-card">
-              <h3
-                style={{
-                  margin: 0,
-                  fontFamily: "var(--b-font-sans)",
-                  fontSize: "var(--b-t-heading-5)",
-                  fontWeight: 500,
-                  lineHeight: 1.15,
-                  letterSpacing: "-0.02em",
-                  color: "var(--b-text-primary)",
-                }}
-              >
+              <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                 Build from scratch
               </h3>
-              <p
-                style={{
-                  margin: 0,
-                  fontFamily: "var(--b-font-sans)",
-                  fontSize: "var(--b-t-paragraph-2)",
-                  lineHeight: 1.4,
-                  color: "var(--b-text-secondary)",
-                }}
-              >
+              <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
                 Use the framework guide or build online with Builder.io.
               </p>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--spacing-2)",
-                  width: "100%",
-                  marginTop: "var(--spacing-2)",
-                }}
-              >
+              <div className="mt-[var(--spacing-2)] flex w-full flex-col gap-[var(--spacing-2)]">
                 <BuildOnlinePopover
                   location="homepage_rail"
                   trigger={

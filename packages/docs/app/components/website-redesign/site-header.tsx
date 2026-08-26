@@ -17,7 +17,6 @@ import { Kbd } from "./ds/kbd";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
-import { SITE_MAX_WIDTH } from "./page-grid";
 
 // Pulls in the docs search index, so it stays out of the initial header chunk.
 const SearchModal = lazy(() =>
@@ -86,35 +85,11 @@ function SearchTrigger({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="border-[var(--b-action-secondary-border-dim)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
-      style={{
-        height: 40,
-        width: 320,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "var(--spacing-2)",
-        flexShrink: 0,
-        padding: "0 var(--spacing-3)",
-        borderWidth: 1,
-        borderStyle: "solid",
-        borderRadius: "var(--b-radius)",
-        background: "transparent",
-        fontFamily: "var(--b-font-mono)",
-        fontSize: "var(--b-t-label-1)",
-        color: "var(--b-text-secondary)",
-        cursor: "pointer",
-        outline: "none",
-        transition: "background 0.15s, border-color 0.15s",
-      }}
+      // The 320px width is fixed on purpose: with `justify-between` it is what
+      // opens the gap between the label and the ⌘K hint.
+      className="inline-flex h-10 w-[320px] shrink-0 cursor-pointer items-center justify-between gap-[var(--spacing-2)] rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border-dim)] bg-transparent px-[var(--spacing-3)] py-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] text-[var(--b-text-secondary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
     >
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "var(--spacing-2)",
-        }}
-      >
+      <span className="inline-flex items-center gap-[var(--spacing-2)]">
         <IconSearch size={16} stroke={1.75} />
         <span className="hidden sm:inline">{label}</span>
       </span>
@@ -174,44 +149,18 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
 
   return (
     <header
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-        width: "100%",
-        height: 64,
-        paddingInline: "var(--spacing-10)",
-        background: "var(--b-bg-translucent)",
-        backdropFilter: "blur(12px)",
-        borderBottom: "1px solid var(--b-border-default)",
-      }}
-      // The --b-* variables live on this class, so the header carries its own
-      // scope: it renders on docs routes too, and a wrapper element around it
-      // would break `position: sticky` by boxing it into 64px.
-      className="builder-brand-tokens"
+      // The --b-* variables live on the builder-brand-tokens class, so the
+      // header carries its own scope: it renders on docs routes too, and a
+      // wrapper element around it would break `position: sticky` by boxing it
+      // into 64px.
+      className="builder-brand-tokens sticky top-0 z-50 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]"
     >
-      <div
-        style={{
-          maxWidth: SITE_MAX_WIDTH,
-          width: "100%",
-          height: "100%",
-          margin: "0 auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--spacing-8)",
-          }}
-        >
+      <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
+        <div className="flex items-center gap-[var(--spacing-8)]">
           <Link
             to={localizedPath("/")}
             aria-label="Agent-Native"
-            style={{ display: "flex", color: "var(--b-text-primary)" }}
+            className="flex text-[var(--b-text-primary)]"
           >
             <Logo />
           </Link>
@@ -249,12 +198,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               onClick={() => setMobileOpen((open) => !open)}
               aria-label={t("header.toggleNavigation")}
               aria-expanded={mobileOpen}
-              className="flex h-10 w-10 items-center justify-center text-[var(--b-text-primary)]"
-              style={{
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-              }}
+              className="flex h-10 w-10 cursor-pointer items-center justify-center border-none bg-transparent text-[var(--b-text-primary)]"
             >
               {mobileOpen ? <IconX size={20} /> : <IconMenu2 size={20} />}
             </button>
@@ -263,22 +207,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
       </div>
 
       {mobileOpen && (
-        <div
-          className="lg:hidden"
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            borderTop: "1px solid var(--b-border-default)",
-            background: "var(--b-bg-translucent)",
-            backdropFilter: "blur(12px)",
-            padding: "var(--spacing-4) var(--spacing-10)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--spacing-3)",
-          }}
-        >
+        <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] py-[var(--spacing-4)] backdrop-blur-[12px] lg:hidden">
           {navLinks.map((link) => (
             <NavLink
               key={link.label}
@@ -289,14 +218,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               {link.label}
             </NavLink>
           ))}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--spacing-3)",
-              marginTop: "var(--spacing-2)",
-            }}
-          >
+          <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
             <GithubStarsButton starCount={starCount} />
             <LanguagePicker />
             <ThemeIconButton />

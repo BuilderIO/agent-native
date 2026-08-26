@@ -117,9 +117,8 @@ const SNIPPET_TABS = [
   },
 ];
 
-function borderTopStyle() {
-  return { borderTop: "1px solid var(--b-border-subtle)" };
-}
+const sectionTopBorder =
+  "border-t border-solid border-[var(--b-border-subtle)]";
 
 export default function WebsiteRedesignHomepage() {
   const [activeTab, setActiveTab] = useState(0);
@@ -129,37 +128,14 @@ export default function WebsiteRedesignHomepage() {
   const [selectValue, setSelectValue] = useState("first");
 
   return (
-    <div className="builder-brand-tokens" style={{ minHeight: "100vh" }}>
+    <div className="builder-brand-tokens min-h-screen">
       <PageSection>
-        <GridInner
-          style={{
-            padding: "var(--spacing-30) var(--spacing-10) var(--spacing-20)",
-          }}
-        >
+        <GridInner className="px-[var(--spacing-10)] pt-[var(--spacing-30)] pb-[var(--spacing-20)]">
           <Eyebrow>Internal Preview</Eyebrow>
-          <h1
-            style={{
-              margin: "var(--spacing-3) 0 0",
-              fontFamily: "var(--b-font-sans)",
-              fontSize: "var(--b-t-heading-1)",
-              fontWeight: 500,
-              lineHeight: 1.1,
-              letterSpacing: "-0.02em",
-              color: "var(--b-text-primary)",
-            }}
-          >
+          <h1 className="m-0 mt-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-1)] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]">
             This is the redesign route
           </h1>
-          <p
-            style={{
-              marginTop: "var(--spacing-4)",
-              maxWidth: 640,
-              fontFamily: "var(--b-font-sans)",
-              fontSize: "var(--b-t-paragraph-1)",
-              color: "var(--b-text-secondary)",
-              lineHeight: 1.4,
-            }}
-          >
+          <p className="mt-[var(--spacing-4)] max-w-[640px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
             A hidden, SEO-excluded route for building new marketing pages
             against the Builder design system, scoped to this page tree only.
           </p>
@@ -169,82 +145,40 @@ export default function WebsiteRedesignHomepage() {
       {/* Color tokens */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] py-[var(--spacing-16)]`}
         >
           <SectionHeader eyebrow="Tokens" heading="Color primitives" />
-          <div
-            style={{
-              marginTop: "var(--spacing-8)",
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-              gap: "var(--spacing-4)",
-            }}
-          >
+          <div className="mt-[var(--spacing-8)] grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-[var(--spacing-4)]">
             {RAW_COLORS.map(([name, hex]) => (
               <div key={name}>
                 <div
                   title={hex}
-                  style={{
-                    height: 64,
-                    borderRadius: "var(--b-radius)",
-                    border: "1px solid var(--b-border-default)",
-                    background: `var(${name})`,
-                  }}
+                  className="h-16 rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)]"
+                  style={{ background: `var(${name})` }}
                 />
-                <p
-                  style={{
-                    margin: "var(--spacing-1) 0 0",
-                    fontFamily: "var(--b-font-mono)",
-                    fontSize: "var(--b-t-label-2)",
-                    color: "var(--b-text-secondary)",
-                  }}
-                >
+                <p className="m-0 mt-[var(--spacing-1)] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
                   {name}
                 </p>
               </div>
             ))}
           </div>
 
-          <div style={{ marginTop: "var(--spacing-10)" }}>
+          <div className="mt-[var(--spacing-10)]">
             <SectionHeader eyebrow="Tokens" heading="Semantic tokens" />
-            <div
-              style={{
-                marginTop: "var(--spacing-6)",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-                gap: "var(--spacing-4)",
-              }}
-            >
+            <div className="mt-[var(--spacing-6)] grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-[var(--spacing-4)]">
               {SEMANTIC_COLORS.map(([name, kind]) => (
                 <div key={name}>
                   <div
+                    className="flex h-12 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-label-1)]"
                     style={{
-                      height: 48,
-                      borderRadius: "var(--b-radius)",
-                      border: "1px solid var(--b-border-default)",
                       background:
                         kind === "text" ? "var(--b-bg-raised)" : `var(${name})`,
                       color: kind === "text" ? `var(${name})` : undefined,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontFamily: "var(--b-font-sans)",
-                      fontSize: "var(--b-t-label-1)",
                     }}
                   >
                     {kind === "text" ? "Aa" : ""}
                   </div>
-                  <p
-                    style={{
-                      margin: "var(--spacing-1) 0 0",
-                      fontFamily: "var(--b-font-mono)",
-                      fontSize: "var(--b-t-label-2)",
-                      color: "var(--b-text-secondary)",
-                    }}
-                  >
+                  <p className="m-0 mt-[var(--spacing-1)] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
                     {name}
                   </p>
                 </div>
@@ -257,48 +191,21 @@ export default function WebsiteRedesignHomepage() {
       {/* Typography */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] py-[var(--spacing-16)]`}
         >
           <SectionHeader eyebrow="Tokens" heading="Typography scale" />
-          <div
-            style={{
-              marginTop: "var(--spacing-8)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--spacing-4)",
-            }}
-          >
+          <div className="mt-[var(--spacing-8)] flex flex-col gap-[var(--spacing-4)]">
             {TYPE_SCALE.map(([name, label]) => (
               <div
                 key={name}
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: "var(--spacing-4)",
-                  borderBottom: "1px solid var(--b-border-subtle)",
-                  paddingBottom: "var(--spacing-3)",
-                }}
+                className="flex items-baseline gap-[var(--spacing-4)] border-b border-solid border-[var(--b-border-subtle)] pb-[var(--spacing-3)]"
               >
-                <span
-                  style={{
-                    width: 220,
-                    flexShrink: 0,
-                    fontFamily: "var(--b-font-mono)",
-                    fontSize: "var(--b-t-label-2)",
-                    color: "var(--b-text-secondary)",
-                  }}
-                >
+                <span className="w-[220px] shrink-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
                   {name}
                 </span>
                 <span
-                  style={{
-                    fontFamily: "var(--b-font-sans)",
-                    fontSize: `var(${name})`,
-                    color: "var(--b-text-primary)",
-                  }}
+                  className="font-[family-name:var(--b-font-sans)] text-[var(--b-text-primary)]"
+                  style={{ fontSize: `var(${name})` }}
                 >
                   {label}
                 </span>
@@ -311,47 +218,21 @@ export default function WebsiteRedesignHomepage() {
       {/* Spacing */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] py-[var(--spacing-16)]`}
         >
           <SectionHeader eyebrow="Tokens" heading="Spacing scale" />
-          <div
-            style={{
-              marginTop: "var(--spacing-8)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--spacing-2)",
-            }}
-          >
+          <div className="mt-[var(--spacing-8)] flex flex-col gap-[var(--spacing-2)]">
             {SPACING_SCALE.map((name) => (
               <div
                 key={name}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--spacing-4)",
-                }}
+                className="flex items-center gap-[var(--spacing-4)]"
               >
-                <span
-                  style={{
-                    width: 120,
-                    flexShrink: 0,
-                    fontFamily: "var(--b-font-mono)",
-                    fontSize: "var(--b-t-label-2)",
-                    color: "var(--b-text-secondary)",
-                  }}
-                >
+                <span className="w-[120px] shrink-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]">
                   {name}
                 </span>
                 <span
-                  style={{
-                    height: 12,
-                    width: `var(${name})`,
-                    background: "var(--b-action-primary-bg)",
-                    borderRadius: "var(--b-radius-sm)",
-                  }}
+                  className="h-3 rounded-[var(--b-radius-sm)] bg-[var(--b-action-primary-bg)]"
+                  style={{ width: `var(${name})` }}
                 />
               </div>
             ))}
@@ -362,33 +243,12 @@ export default function WebsiteRedesignHomepage() {
       {/* Gradient */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] py-[var(--spacing-16)]`}
         >
           <SectionHeader eyebrow="Tokens" heading="Gradient" />
-          <div
-            style={{
-              marginTop: "var(--spacing-6)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--spacing-4)",
-            }}
-          >
-            <div
-              className="blue-gradient"
-              style={{ height: 64, borderRadius: "var(--b-radius)" }}
-            />
-            <p
-              className="blue-gradient-text"
-              style={{
-                margin: 0,
-                fontFamily: "var(--b-font-sans)",
-                fontSize: "var(--b-t-heading-3)",
-                fontWeight: 500,
-              }}
-            >
+          <div className="mt-[var(--spacing-6)] flex flex-col gap-[var(--spacing-4)]">
+            <div className="blue-gradient h-16 rounded-[var(--b-radius)]" />
+            <p className="blue-gradient-text m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-3)] font-medium">
               Gradient text example
             </p>
           </div>
@@ -398,20 +258,10 @@ export default function WebsiteRedesignHomepage() {
       {/* Buttons */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] py-[var(--spacing-16)]`}
         >
           <SectionHeader eyebrow="Components" heading="Buttons" />
-          <div
-            style={{
-              marginTop: "var(--spacing-6)",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "var(--spacing-4)",
-            }}
-          >
+          <div className="mt-[var(--spacing-6)] flex flex-wrap gap-[var(--spacing-4)]">
             <Button variant="cta">Get started</Button>
             <Button variant="primary">Primary</Button>
             <Button variant="primary-alt">Primary alt</Button>
@@ -425,22 +275,11 @@ export default function WebsiteRedesignHomepage() {
       {/* Form atoms */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] py-[var(--spacing-16)]`}
         >
           <SectionHeader eyebrow="Components" heading="Form atoms" />
-          <GridCols
-            style={{ marginTop: "var(--spacing-6)", gap: "var(--spacing-6)" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--spacing-4)",
-              }}
-            >
+          <GridCols className="mt-[var(--spacing-6)] gap-[var(--spacing-6)]">
+            <div className="flex flex-col gap-[var(--spacing-4)]">
               <Input placeholder="Type here..." />
               <FormSelect
                 label="Plan"
@@ -453,13 +292,7 @@ export default function WebsiteRedesignHomepage() {
                 ]}
               />
             </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--spacing-3)",
-              }}
-            >
+            <div className="flex flex-col gap-[var(--spacing-3)]">
               <Checkbox
                 label="Enable feature"
                 checked={checked}
@@ -477,36 +310,18 @@ export default function WebsiteRedesignHomepage() {
                 checked={radioValue === "b"}
                 onChange={() => setRadioValue("b")}
               />
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--spacing-2)",
-                }}
-              >
+              <div className="flex items-center gap-[var(--spacing-2)]">
                 <Toggle
                   checked={toggled}
                   onChange={setToggled}
                   label="Toggle example"
                 />
-                <span
-                  style={{
-                    fontFamily: "var(--b-font-sans)",
-                    fontSize: "var(--b-t-paragraph-2)",
-                    color: "var(--b-text-secondary)",
-                  }}
-                >
+                <span className="font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)]">
                   Toggle
                 </span>
               </div>
             </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--spacing-3)",
-              }}
-            >
+            <div className="flex flex-col gap-[var(--spacing-3)]">
               <Select
                 value={selectValue}
                 onChange={setSelectValue}
@@ -524,19 +339,10 @@ export default function WebsiteRedesignHomepage() {
       {/* Tabs + CodeBlock */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] py-[var(--spacing-16)]`}
         >
           <SectionHeader eyebrow="Components" heading="Tabs + code block" />
-          <div
-            style={{
-              marginTop: "var(--spacing-6)",
-              display: "flex",
-              gap: "var(--spacing-2)",
-            }}
-          >
+          <div className="mt-[var(--spacing-6)] flex gap-[var(--spacing-2)]">
             {SNIPPET_TABS.map((tab, i) => (
               <TabItem
                 key={tab.label}
@@ -547,7 +353,7 @@ export default function WebsiteRedesignHomepage() {
               </TabItem>
             ))}
           </div>
-          <div style={{ marginTop: "var(--spacing-4)" }}>
+          <div className="mt-[var(--spacing-4)]">
             <CodeBlock
               tabs={SNIPPET_TABS}
               activeTab={activeTab}
@@ -560,21 +366,10 @@ export default function WebsiteRedesignHomepage() {
       {/* Misc atoms */}
       <PageSection>
         <GridInner
-          style={{
-            ...borderTopStyle(),
-            padding: "var(--spacing-16) var(--spacing-10) var(--spacing-30)",
-          }}
+          className={`${sectionTopBorder} px-[var(--spacing-10)] pt-[var(--spacing-16)] pb-[var(--spacing-30)]`}
         >
           <SectionHeader eyebrow="Components" heading="Misc atoms" />
-          <div
-            style={{
-              marginTop: "var(--spacing-6)",
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "center",
-              gap: "var(--spacing-6)",
-            }}
-          >
+          <div className="mt-[var(--spacing-6)] flex flex-wrap items-center gap-[var(--spacing-6)]">
             <Tooltip content="Helpful hint">
               <Button variant="secondary">Hover me</Button>
             </Tooltip>
@@ -587,14 +382,7 @@ export default function WebsiteRedesignHomepage() {
             <Cursor label="Guest" />
             <ColumnDivider />
           </div>
-          <div
-            style={{
-              marginTop: "var(--spacing-8)",
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-              gap: "var(--spacing-4)",
-            }}
-          >
+          <div className="mt-[var(--spacing-8)] grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-[var(--spacing-4)]">
             <FeatureCard
               icon={
                 <IconBox>

@@ -340,6 +340,8 @@ export function HeroShaderBackground({
       const w = container.clientWidth;
       const h = container.clientHeight;
       dpr = Math.min(window.devicePixelRatio, 1.5);
+      // Drawing-buffer sizing, not styling: the buffer is in device pixels and
+      // the CSS box is in layout pixels, so neither has a Tailwind equivalent.
       canvas.width = w * dpr;
       canvas.height = h * dpr;
       canvas.style.width = w + "px";
@@ -479,17 +481,9 @@ export function HeroShaderBackground({
     <div
       ref={containerRef}
       aria-hidden="true"
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: -1,
-        opacity: "var(--b-hero-shader-opacity)",
-      }}
+      className="absolute inset-0 z-[-1] opacity-[var(--b-hero-shader-opacity)]"
     >
-      <canvas
-        ref={canvasRef}
-        style={{ display: "block", width: "100%", height: "100%" }}
-      />
+      <canvas ref={canvasRef} className="block h-full w-full" />
     </div>
   );
 }

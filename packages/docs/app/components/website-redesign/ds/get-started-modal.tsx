@@ -34,28 +34,8 @@ function shouldOpenInNewTab(event: MouseEvent) {
 
 function Option({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: "var(--spacing-3)",
-        padding: "var(--spacing-4)",
-        border: "1px solid var(--b-border-default)",
-        borderRadius: "var(--b-radius)",
-        background: "var(--b-bg-raised)",
-      }}
-    >
-      <p
-        className="m-0 uppercase"
-        style={{
-          color: "var(--b-text-secondary)",
-          fontFamily: "var(--b-font-mono)",
-          fontSize: 12,
-          fontWeight: 600,
-          letterSpacing: "0.02em",
-        }}
-      >
+    <div className="flex flex-col items-start gap-[var(--spacing-3)] rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-[var(--spacing-4)]">
+      <p className="m-0 font-[family-name:var(--b-font-mono)] text-[12px] font-semibold tracking-[0.02em] text-[var(--b-text-secondary)] uppercase">
         {label}
       </p>
       {children}
@@ -99,48 +79,15 @@ export function GetStartedCta({
           // The token variables are scoped to .builder-brand-tokens and this
           // content is portalled to <body>, outside that wrapper, so the scope
           // has to come along or every --b-* below resolves to nothing.
-          className="builder-brand-tokens"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--spacing-5)",
-            padding: "var(--spacing-6)",
-            border: "1px solid var(--b-border-default)",
-            borderRadius: "var(--b-radius)",
-            background: "var(--b-bg-surface)",
-          }}
+          className="builder-brand-tokens flex flex-col gap-[var(--spacing-5)] rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-surface)] p-[var(--spacing-6)]"
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "var(--spacing-4)",
-            }}
-          >
-            <DialogTitle
-              style={{
-                margin: 0,
-                fontFamily: "var(--b-font-sans)",
-                fontSize: "var(--b-t-heading-5)",
-                fontWeight: 500,
-                letterSpacing: "-0.02em",
-                color: "var(--b-text-primary)",
-              }}
-            >
+          <div className="flex items-center justify-between gap-[var(--spacing-4)]">
+            <DialogTitle className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium tracking-[-0.02em] text-[var(--b-text-primary)]">
               Get started
             </DialogTitle>
             <DialogClose
               aria-label="Close"
-              className="hover:text-[var(--b-text-primary)]"
-              style={{
-                display: "inline-flex",
-                background: "transparent",
-                border: "none",
-                color: "var(--b-text-secondary)",
-                cursor: "pointer",
-                transition: "color 0.15s",
-              }}
+              className="inline-flex cursor-pointer border-none bg-transparent text-[var(--b-text-secondary)] transition-[color] duration-150 ease-[ease] hover:text-[var(--b-text-primary)]"
             >
               <IconX size={18} stroke={1.5} />
             </DialogClose>

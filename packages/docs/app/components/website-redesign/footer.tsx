@@ -76,31 +76,19 @@ const SOCIAL_LINKS: Array<{
   },
 ];
 
-const linkStyle = {
-  color: "var(--b-text-secondary)",
-  fontFamily: "var(--b-font-sans)",
-  fontSize: "var(--b-t-paragraph-2)",
-  textDecoration: "none",
-} as const;
-
-const linkClassName = "hover:text-[var(--b-text-primary)]";
+const linkClassName =
+  "font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)] no-underline hover:text-[var(--b-text-primary)]";
 
 function FooterNavLink({ label, href, external }: FooterLink) {
   if (external) {
     return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        style={linkStyle}
-        className={linkClassName}
-      >
+      <a href={href} target="_blank" rel="noreferrer" className={linkClassName}>
         {label}
       </a>
     );
   }
   return (
-    <Link to={href} style={linkStyle} className={linkClassName}>
+    <Link to={href} className={linkClassName}>
       {label}
     </Link>
   );
@@ -111,87 +99,33 @@ export function Footer() {
     <PageSection
       as="footer"
       showGrid={false}
-      style={{ borderTop: "1px solid var(--b-border-default)" }}
+      className="border-t border-solid border-[var(--b-border-default)]"
     >
-      <div style={{ borderBottom: "1px solid var(--b-border-default)" }}>
-        <GridInner
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "flex-start",
-            gap: "var(--spacing-12)",
-            padding: "var(--spacing-16) var(--spacing-20)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-start",
-              gap: "var(--spacing-4)",
-              width: 320,
-              flex: "1 1 240px",
-            }}
-          >
+      <div className="border-b border-solid border-[var(--b-border-default)]">
+        <GridInner className="flex flex-wrap items-start gap-[var(--spacing-12)] px-[var(--spacing-20)] py-[var(--spacing-16)]">
+          <div className="flex w-[320px] flex-[1_1_240px] flex-col items-start gap-[var(--spacing-4)]">
             <Link
               to="/website-redesign/homepage"
               aria-label="Agent-Native"
-              style={{ display: "flex", color: "var(--b-text-primary)" }}
+              className="flex text-[var(--b-text-primary)]"
             >
               <Logo />
             </Link>
-            <p
-              style={{
-                margin: 0,
-                color: "var(--b-text-secondary)",
-                fontFamily: "var(--b-font-sans)",
-                fontSize: "var(--b-t-paragraph-2)",
-              }}
-            >
+            <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)]">
               The agentic application framework.
             </p>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "flex-start",
-              gap: "var(--spacing-8)",
-              flex: "3 1 480px",
-            }}
-          >
+          <div className="flex flex-[3_1_480px] flex-wrap items-start gap-[var(--spacing-8)]">
             {COLUMNS.map((column) => (
               <div
                 key={column.title}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-start",
-                  gap: "var(--spacing-4)",
-                  flex: "1 1 120px",
-                }}
+                className="flex flex-[1_1_120px] flex-col items-start gap-[var(--spacing-4)]"
               >
-                <p
-                  className="m-0 uppercase"
-                  style={{
-                    color: "var(--b-text-secondary)",
-                    fontFamily: "var(--b-font-mono)",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    letterSpacing: "0.02em",
-                  }}
-                >
+                <p className="m-0 font-[family-name:var(--b-font-mono)] text-[12px] font-semibold tracking-[0.02em] text-[var(--b-text-secondary)] uppercase">
                   {column.title}
                 </p>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-start",
-                    gap: "var(--spacing-3)",
-                  }}
-                >
+                <div className="flex flex-col items-start gap-[var(--spacing-3)]">
                   {column.links.map((link) => (
                     <FooterNavLink key={link.label} {...link} />
                   ))}
@@ -202,17 +136,8 @@ export function Footer() {
         </GridInner>
       </div>
 
-      <GridInner
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "var(--spacing-6)",
-          padding: "var(--spacing-6) var(--spacing-20)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <GridInner className="flex flex-wrap items-center justify-between gap-[var(--spacing-6)] px-[var(--spacing-20)] py-[var(--spacing-6)]">
+        <div className="flex items-center gap-4">
           {SOCIAL_LINKS.map((social) => (
             <a
               key={social.label}
@@ -220,47 +145,22 @@ export function Footer() {
               target="_blank"
               rel="noreferrer"
               aria-label={social.label}
-              style={{ color: "var(--b-text-primary)", display: "flex" }}
-              className="opacity-80 hover:opacity-100"
+              className="flex text-[var(--b-text-primary)] opacity-80 hover:opacity-100"
             >
               {social.icon}
             </a>
           ))}
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--spacing-6)",
-          }}
-        >
-          <span
-            style={{
-              color: "var(--b-text-primary)",
-              fontFamily: "var(--b-font-mono)",
-              fontSize: "var(--b-t-label-2)",
-              fontWeight: 500,
-              letterSpacing: "0.04em",
-            }}
-          >
+        <div className="flex items-center gap-[var(--spacing-6)]">
+          <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
             © 2026 AGENT-NATIVE
           </span>
           <div
             aria-hidden
-            style={{
-              width: 1,
-              height: 13,
-              background: "var(--b-border-default)",
-            }}
+            className="h-[13px] w-px bg-[var(--b-border-default)]"
           />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--spacing-2)",
-            }}
-          >
+          <div className="flex items-center gap-[var(--spacing-2)]">
             <LanguagePicker openUpward />
             <ThemeIconButton />
           </div>
