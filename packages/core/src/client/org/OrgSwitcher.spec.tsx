@@ -9,6 +9,7 @@ import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   beginSignOut: vi.fn(),
+  notifySessionInvalidated: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
   useDemoModeStatus: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("./hooks.js", () => {
 
 vi.mock("../use-session.js", () => ({
   beginSignOut: mocks.beginSignOut,
+  notifySessionInvalidated: mocks.notifySessionInvalidated,
   useSession: mocks.useSession,
 }));
 
@@ -69,6 +71,7 @@ describe("OrgSwitcher", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
     mocks.beginSignOut.mockReset();
+    mocks.notifySessionInvalidated.mockReset();
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();
     mocks.navigate.mockReset();
@@ -314,6 +317,7 @@ describe("OrgSwitcher", () => {
         credentials: "include",
       });
       expect(mocks.beginSignOut).toHaveBeenCalledOnce();
+      expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
       expect(replace).toHaveBeenCalledWith(
         expect.stringContaining("/sign-in?c="),
       );
