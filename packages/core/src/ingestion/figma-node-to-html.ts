@@ -1184,12 +1184,19 @@ function buildAutoLayoutStyles(
     "align-items": counterAxisAlign(node.counterAxisAlignItems),
   };
   if (node.layoutWrap === "WRAP") styles["flex-wrap"] = "wrap";
-  if (typeof node.itemSpacing === "number" && node.itemSpacing !== 0) {
+  // Figma allows a NEGATIVE itemSpacing, which overlaps auto-layout children.
+  // CSS `gap` rejects a negative length outright, so emitting one drops the
+  // whole declaration and silently falls back to 0 — Positivus' contact block
+  // spaces its children by -367px, and losing that overflowed the row and made
+  // flex shrink both children (1240px -> 825px, 691px -> 415px), throwing the
+  // illustration out of its card. The overlap is reproduced with a negative
+  // margin on every child after the first instead; see `buildChildSizingStyles`.
+  if (typeof node.itemSpacing === "number" && node.itemSpacing > 0) {
     styles[isHorizontal ? "column-gap" : "row-gap"] = px(node.itemSpacing);
   }
   if (
     typeof node.counterAxisSpacing === "number" &&
-    node.counterAxisSpacing !== 0
+    node.counterAxisSpacing > 0
   ) {
     styles[isHorizontal ? "row-gap" : "column-gap"] = px(
       node.counterAxisSpacing,
@@ -1219,10 +1226,26 @@ function buildAutoLayoutStyles(
 function buildChildSizingStyles(
   node: FigmaNode,
   parentLayoutMode: "NONE" | "HORIZONTAL" | "VERTICAL",
+  parentItemSpacing = 0,
+  isFirstChild = true,
 ): Record<string, string | undefined> {
   if (parentLayoutMode === "NONE") return {};
   const parentIsHorizontal = parentLayoutMode === "HORIZONTAL";
   const styles: Record<string, string | undefined> = {};
+  // Figma never shrinks an auto-layout child below its own size: a FIXED or
+  // HUG child keeps that size and the parent overflows. A CSS flex item
+  // shrinks by default, so an overflowing row silently redistributed the
+  // deficit across children and every one of them came out the wrong width.
+  // Only FILL is elastic, and it sets its own flex properties below.
+  const mainAxisSizing = parentIsHorizontal
+    ? node.layoutSizingHorizontal
+    : node.layoutSizingVertical;
+  if (mainAxisSizing !== "FILL") styles["flex-shrink"] = "0";
+  // Reproduce a negative itemSpacing as an overlap, since `gap` cannot.
+  if (parentItemSpacing < 0 && !isFirstChild) {
+    styles[parentIsHorizontal ? "margin-left" : "margin-top"] =
+      px(parentItemSpacing);
+  }
   if (node.layoutSizingHorizontal === "FILL") {
     if (parentIsHorizontal) {
       styles["flex-grow"] = "1";
@@ -1906,6 +1929,9 @@ function buildNode(
   options: MapFigmaNodeOptions,
   tracker: FidelityTracker,
   isRoot: boolean,
+  /** The parent's `itemSpacing`; only a negative value reaches the child, as an overlap. */
+  parentItemSpacing = 0,
+  isFirstChild = true,
 ): string {
   const parentHasAutoLayout = parentLayoutMode !== "NONE";
   if (node.visible === false || node.opacity === 0) return "";
@@ -2047,7 +2073,12 @@ function buildNode(
   }
 
   const autoLayoutStyles = buildAutoLayoutStyles(node);
-  const childSizingStyles = buildChildSizingStyles(node, parentLayoutMode);
+  const childSizingStyles = buildChildSizingStyles(
+    node,
+    parentLayoutMode,
+    parentItemSpacing,
+    isFirstChild,
+  );
   const hasAutoLayout = Boolean(autoLayoutStyles.display);
   // A node is positioned relative to its parent's free canvas (absolute,
   // left/top from absoluteBoundingBox) unless its *parent* is an auto-layout
@@ -2176,7 +2207,7 @@ function buildNode(
   const childrenHtml = isVector
     ? (vectorSvg ?? "")
     : (node.children ?? [])
-        .map((child) =>
+        .map((child, index) =>
           buildNode(
             child,
             node.absoluteBoundingBox ?? null,
@@ -2184,6 +2215,8 @@ function buildNode(
             options,
             tracker,
             false,
+            hasAutoLayout ? (node.itemSpacing ?? 0) : 0,
+            index === 0,
           ),
         )
         .filter(Boolean)

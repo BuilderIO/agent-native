@@ -84,11 +84,12 @@ function rateLimitWaitMs(response: Response, attempt: number): number {
       throw new Error(
         `Figma rate limit is not a burst: it asked for ${Math.round(retryAfter / 3600)}h ` +
           `(until ${resetsAt}), so waiting would stall this run for days.\n` +
-          `This budget is PER FILE and depends on that file's plan, not on the token: ` +
-          `a file in a paid team gets 10-20 Tier 1 requests a minute, while a file in ` +
-          `Drafts (where a duplicated Community file lands) gets only a handful per month ` +
-          `and stays exhausted. A second token on the same account will NOT help. ` +
-          `Move the file into a paid team project, or use a case whose file is already there.`,
+          `Measured 2026-08-26: this budget is per ACCOUNT, not per file. Every file key ` +
+          `returns 429 with the same, monotonically decreasing reset — including a file ` +
+          `duplicated into a paid team seconds earlier. Duplicating, moving to a team ` +
+          `project, or issuing a second token on the same account does NOT help; only a ` +
+          `different account or the reset does.\n` +
+          `Until then, run with --offline to replay cases from the cache.`,
       );
     }
     return waitMs;

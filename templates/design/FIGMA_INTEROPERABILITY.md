@@ -286,12 +286,20 @@ per-case before/after table.
   `X-Figma-Plan-Tier`, `X-Figma-Rate-Limit-Type`, and
   `X-Figma-Upgrade-Link` metadata.
 - Figma does not expose a requests-remaining counter.
-- **The budget is per FILE and follows that file's plan, not the token's owner.**
-  Measured 2026-08-26 with one token: two files in a Professional team answered
-  200 while six Community files duplicated into the same account's Drafts all
-  answered 429 with an identical ~110h `Retry-After`. A second token on the same
-  account does not help. A duplicated Community file is effectively untestable
-  until it is moved into a paid team project.
+- **The budget is per ACCOUNT, not per file.** An earlier note here claimed the
+  opposite — that a file's own plan set its budget, and that moving a Community
+  file into a paid team project would restore it. That was inferred from the
+  order requests happened to fail in, and it is wrong. Re-measured 2026-08-26 by
+  duplicating a Community file into the paid team and immediately querying the
+  NEW key: it answered 429 with the same `Retry-After` as every other key,
+  counting down in lockstep (390 999 / 390 998 / 390 997 seconds across three
+  different files). Duplicating, moving to a team project, and issuing a second
+  token on the same account all leave the wall exactly where it was. Only a
+  different account, or the reset, clears it.
+- Because the quota is account-wide, an exhausted account blocks every REST
+  case at once. `--offline` replays from the cache so converter work is never
+  gated on it, and the clipboard/`.fig` harnesses need no quota at all — which
+  is why those are where the corpus should grow.
 - Render cost scales with the number of ids in an `/images` request, so a
   21-id batch is charged as 21. Batch small and pace; retrying after the fact is
   not enough.

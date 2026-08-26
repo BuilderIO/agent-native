@@ -558,19 +558,36 @@ function applyOverrideLayers(
   // same master keeps the path the same length.
   const nodeKey = guidKey(node.overrideKey ?? node.guid);
   if (!nodeKey) return node;
+  // Collect every layer that targets this node, outermost first.
+  const matches: OverrideEntry[] = [];
   for (const layer of layers) {
     const prefix = instancePath.slice(layer.startIndex);
     const relKey =
       prefix.length > 0 ? `${prefix.join("/")}/${nodeKey}` : nodeKey;
     const entry = layer.map.get(relKey);
-    if (!entry) continue;
-    if (entry.visible === false) return null;
-    // Shallow-merge every field present on the override (except the
-    // routing fields and `overriddenSymbolID`, which goes into symbolData).
-    // This applies layout overrides like `size`, `textAutoResize`,
+    if (entry) matches.push(entry);
+  }
+  if (matches.length === 0) return node;
+
+  // Figma resolves a descendant against the OUTERMOST instance that overrides
+  // it: that entry is the edit someone made on the instance they actually
+  // placed, while a nested instance's entry belongs to the component it came
+  // from. Merging outer-to-inner lets the component's own value win and
+  // silently undo the edit — Untitled UI's header rendered "Resources /
+  // Resources" because the outer instance said "Products" and the inner
+  // `Buttons/Button` said "Resources" one layer later.
+  //
+  // So merge INNER-first and let outer values land last. A field the outer
+  // entry never mentions still falls through to the inner one, which is what
+  // keeps layout overrides like `size` working across nesting.
+  const merged: FigNode = { ...node };
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const entry = matches[i]!;
+    // Shallow-merge every field present on the override (except the routing
+    // fields and `overriddenSymbolID`, which goes into symbolData). This
+    // applies layout overrides like `size`, `textAutoResize`,
     // `stackChildAlignSelf`, `stackCounterSizing`, `textAlignVertical`,
     // styling fields, etc., in addition to text/visibility.
-    const merged: FigNode = { ...node };
     for (const [field, value] of Object.entries(entry)) {
       if (field === "guidPath" || field === "overriddenSymbolID") continue;
       if (value === undefined) continue;
@@ -582,9 +599,9 @@ function applyOverrideLayers(
         symbolID: entry.overriddenSymbolID,
       };
     }
-    node = merged;
   }
-  return node;
+  if (merged.visible === false) return null;
+  return merged;
 }
 
 function sanitizeFilename(name: string | undefined, fallback: string): string {
