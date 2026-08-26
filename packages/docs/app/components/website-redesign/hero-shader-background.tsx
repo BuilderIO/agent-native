@@ -1243,7 +1243,6 @@ uniform float uLightPitch;
 uniform float uLightYawStart;
 uniform float uLightYawEnd;
 uniform float uLightSpeed;
-uniform vec3 uBgColor;
 uniform vec3 uRayleighColor;
 uniform float uRayleighHeight;
 uniform float uMieStrength;
@@ -1391,7 +1390,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float R = uPlanetRadius + uAtmosphereThickness;
   vec2 e = ray_vs_sphere(eye, dir, R);
   if (e.x > e.y) {
-    fragColor = vec4(uBgColor, 1.0);
+    // Fully transparent instead of a flat fill color -- the real page
+    // background (whatever it is) shows straight through with zero risk
+    // of a token-color mismatch, and there's no hard geometric edge since
+    // the alpha below fades with the scattering brightness itself.
+    fragColor = vec4(0.0, 0.0, 0.0, 0.0);
     return;
   }
 
@@ -1399,9 +1402,13 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   e.y = min(e.y, f.x);
 
   vec3 I = in_scatter(eye, dir, e, l);
-  vec3 col = pow(max(I, vec3(0.0)), vec3(1.0 / uGamma));
+  vec3 col = clamp(pow(max(I, vec3(0.0)), vec3(1.0 / uGamma)), 0.0, 1.0);
 
-  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+  // Alpha tracks the scattering brightness itself, so the glow fades
+  // smoothly to fully transparent at the sphere's silhouette instead of
+  // cutting to a flat opaque disc against the void.
+  float alpha = clamp(max(max(col.r, col.g), col.b) * 1.6, 0.0, 1.0);
+  fragColor = vec4(col, alpha);
 }
 
 void main() {
@@ -1532,8 +1539,12 @@ function AtmosphereShaderBackground({
     const canvas: HTMLCanvasElement = canvasRaw;
     const container: HTMLElement = containerRaw;
 
+    // alpha: true (unlike the other two shaders) -- void/background pixels
+    // are rendered fully transparent below, so the real page background
+    // shows straight through with no risk of a token-color mismatch or a
+    // hard geometric edge at the sphere's silhouette.
     const glRaw = canvas.getContext("webgl", {
-      alpha: false,
+      alpha: true,
       antialias: false,
       preserveDrawingBuffer: false,
     });
@@ -1602,7 +1613,6 @@ function AtmosphereShaderBackground({
     const uLightPitch = gl.getUniformLocation(program, "uLightPitch");
     const uLightYawStart = gl.getUniformLocation(program, "uLightYawStart");
     const uLightYawEnd = gl.getUniformLocation(program, "uLightYawEnd");
-    const uBgColor = gl.getUniformLocation(program, "uBgColor");
     const uLightSpeed = gl.getUniformLocation(program, "uLightSpeed");
     const uRayleighColor = gl.getUniformLocation(program, "uRayleighColor");
     const uRayleighHeight = gl.getUniformLocation(program, "uRayleighHeight");
@@ -1614,15 +1624,6 @@ function AtmosphereShaderBackground({
     const uGamma = gl.getUniformLocation(program, "uGamma");
     const uOutSteps = gl.getUniformLocation(program, "uOutSteps");
     const uInSteps = gl.getUniformLocation(program, "uInSteps");
-
-    function readBgColor(): [number, number, number] {
-      const raw = getComputedStyle(container)
-        .getPropertyValue("--b-bg-page")
-        .trim();
-      return hexToRgb01(raw || "#0a0a0a");
-    }
-
-    let bgColor = readBgColor();
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1647,7 +1648,6 @@ function AtmosphereShaderBackground({
       gl.uniform1f(uLightPitch, settingsRef.current.lightPitch);
       gl.uniform1f(uLightYawStart, settingsRef.current.lightYawStart);
       gl.uniform1f(uLightYawEnd, settingsRef.current.lightYawEnd);
-      gl.uniform3f(uBgColor, bgColor[0], bgColor[1], bgColor[2]);
       gl.uniform1f(uLightSpeed, settingsRef.current.lightSpeed);
       gl.uniform3f(
         uRayleighColor,
@@ -1685,15 +1685,6 @@ function AtmosphereShaderBackground({
 
     resize();
     window.addEventListener("resize", resize);
-
-    const themeObserver = new MutationObserver(() => {
-      bgColor = readBgColor();
-      if (reducedMotion) draw(20);
-    });
-    themeObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "data-theme"],
-    });
 
     // Tracks hero visibility so the RAF loop can stop entirely once scrolled
     // past instead of waking every frame just to no-op.
@@ -1774,7 +1765,6 @@ function AtmosphereShaderBackground({
           handleReducedMotionChange,
         );
       }
-      themeObserver.disconnect();
       visibilityObserver.disconnect();
       window.removeEventListener("resize", resize);
       gl.deleteProgram(program);
