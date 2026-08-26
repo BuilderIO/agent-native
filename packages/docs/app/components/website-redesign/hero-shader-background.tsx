@@ -1542,8 +1542,17 @@ function AtmosphereShaderBackground({
     // are rendered fully transparent below, so the real page background
     // shows straight through with no risk of a token-color mismatch or a
     // hard geometric edge at the sphere's silhouette.
+    //
+    // premultipliedAlpha: false because the fragment shader outputs
+    // straight (unpremultiplied) color -- `vec4(col, alpha)`, not
+    // `vec4(col * alpha, alpha)`. WebGL's default of `true` tells the
+    // browser to treat the RGB as already alpha-multiplied when
+    // compositing the canvas onto the page; since ours isn't, that
+    // mismatch was double-darkening every semi-transparent pixel, which is
+    // why `screen` blend mode still looked dark instead of brightening-only.
     const glRaw = canvas.getContext("webgl", {
       alpha: true,
+      premultipliedAlpha: false,
       antialias: false,
       preserveDrawingBuffer: false,
     });
@@ -1811,14 +1820,23 @@ function AtmosphereShaderBackground({
         position: "absolute",
         inset: 0,
         zIndex: -1,
-        opacity: intensity,
         overflow: "hidden",
       }}
     >
       {/* Rendered into a width/height-swapped buffer (see resize() above)
           then rotated 90deg clockwise here -- centering + rotating a
           swapped-dimension box lands it back on the container's exact
-          footprint with no stretching or cropping. */}
+          footprint with no stretching or cropping.
+
+          `opacity` lives on this canvas itself rather than the wrapper div:
+          an *ancestor* with opacity < 1 forces an isolated blending group,
+          so this element's `mix-blend-mode: screen` (set in applyBlendMode
+          above) would only ever see a transparent backdrop instead of the
+          real page background -- silently degrading into plain alpha-over
+          compositing, which is why light mode still looked like it was
+          darkening instead of only brightening. Same-element opacity +
+          blend-mode doesn't have that problem: the blend resolves against
+          the true backdrop first, then the result fades by `opacity`. */}
       <canvas
         ref={canvasRef}
         style={{
@@ -1827,6 +1845,7 @@ function AtmosphereShaderBackground({
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%) rotate(90deg)",
+          opacity: intensity,
         }}
       />
     </div>
