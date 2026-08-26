@@ -583,6 +583,31 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(calls.some((sql) => /priority BIGINT/i.test(sql))).toBe(false);
   });
 
+  it("does not record dialect-specific SQL that has no SQLite entry", async () => {
+    vi.mocked(isPostgres).mockReturnValue(false);
+    const exec = makeNamedExec({ version: 8, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 9,
+          name: "0009_postgres_only.sql",
+          sql: { postgres: "ALTER TABLE tasks ADD COLUMN priority integer" },
+          dialectSpecific: true,
+        },
+      ],
+      { table: "generated_sqlite_migrations" },
+    );
+    await plugin(null);
+
+    expect(exec.insertedNames).not.toContain("0009_postgres_only.sql");
+    const calls = exec.execute.mock.calls.map((c) =>
+      typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
+    );
+    expect(calls.some((sql) => /ALTER TABLE tasks/i.test(sql))).toBe(false);
+  });
+
   it("uses the pooled exec for a pending run-only migration", async () => {
     vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeNamedExec({ version: 131, appliedNames: [] });

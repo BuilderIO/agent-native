@@ -538,6 +538,12 @@ export function runMigrations(
             ].filter((s): s is NonNullable<typeof s> => s != null);
 
             if (raw == null) {
+              if (m.dialectSpecific) {
+                console.info(
+                  `[db] Skipping dialect-specific migration ${m.name ? `"${m.name}" ` : ""}v${m.version} on D1; generate a SQLite-compatible entry for this runtime`,
+                );
+                continue;
+              }
               // Dialect-gated migration with no SQL for this dialect; still
               // record it so we don't retry forever. Keep the name + legacy
               // version rows atomic: if an isolate is interrupted between
@@ -790,6 +796,12 @@ export function runMigrations(
           }
 
           if (raw == null) {
+            if (m.dialectSpecific) {
+              console.info(
+                `[db] Skipping dialect-specific migration ${label} on SQLite; generate a SQLite-compatible entry for this runtime`,
+              );
+              continue;
+            }
             // Dialect-gated migration with no SQL for this dialect; still mark
             // as applied so we don't retry forever.
             for (const stmt of recordSql) await exec.execute(stmt);
