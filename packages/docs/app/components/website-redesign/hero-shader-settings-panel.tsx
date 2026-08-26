@@ -40,8 +40,8 @@ const FIELD_LABELS: Record<ShaderFieldKey, string> = {
   seed: "Seed",
   vignette: "Vignette",
   paused: "Pause animation",
-  ribbonCount: "Ribbon count",
-  density: "Dot density",
+  waveCount: "Wave count",
+  waveScale: "Wave scale",
   flowAngle: "Flow angle",
   warp: "Warp",
   speed: "Speed",
@@ -52,7 +52,7 @@ const FIELD_LABELS: Record<ShaderFieldKey, string> = {
   spread: "Focus spread",
   contrast: "Contrast",
   brightness: "Brightness",
-  dotScale: "Dot scale",
+  posterizeLevels: "Posterize levels",
   planetRadius: "Planet radius",
   atmosphereThickness: "Atmosphere thickness",
   fov: "Field of view",
@@ -85,7 +85,6 @@ const FIELD_LABELS: Record<ShaderFieldKey, string> = {
   ditherAmount: "Grain strength (noise)",
   ditherScale: "Pattern size (px)",
   ditherSpeed: "Pattern speed (fps)",
-  posterizeLevels: "Posterize levels (ordered)",
 };
 
 const CONSTELLATION_FIELD_ORDER: Array<keyof HeroShaderSettings> = [
@@ -106,8 +105,8 @@ const CONSTELLATION_FIELD_ORDER: Array<keyof HeroShaderSettings> = [
 ];
 
 const RIBBON_FIELD_ORDER: Array<keyof RibbonFieldSettings> = [
-  "ribbonCount",
-  "density",
+  "waveCount",
+  "waveScale",
   "flowAngle",
   "warp",
   "speed",
@@ -116,10 +115,10 @@ const RIBBON_FIELD_ORDER: Array<keyof RibbonFieldSettings> = [
   "focusX",
   "focusY",
   "spread",
+  "posterizeLevels",
   "contrast",
   "glow",
   "brightness",
-  "dotScale",
   "vignette",
   "seed",
   "intensity",

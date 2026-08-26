@@ -71,8 +71,8 @@ export const HERO_SHADER_FIELD_CONFIG: Record<
 export type HeroShaderVariant = "constellation" | "ribbon-field" | "atmosphere";
 
 export interface RibbonFieldSettings {
-  ribbonCount: number;
-  density: number;
+  waveCount: number;
+  waveScale: number;
   flowAngle: number;
   warp: number;
   speed: number;
@@ -81,10 +81,10 @@ export interface RibbonFieldSettings {
   focusX: number;
   focusY: number;
   spread: number;
+  posterizeLevels: number;
   contrast: number;
   glow: number;
   brightness: number;
-  dotScale: number;
   intensity: number;
   seed: number;
   vignette: number;
@@ -92,23 +92,23 @@ export interface RibbonFieldSettings {
 }
 
 export const DEFAULT_RIBBON_FIELD_SETTINGS: RibbonFieldSettings = {
-  ribbonCount: 2,
-  density: 7.5,
+  waveCount: 3,
+  waveScale: 2.2,
   flowAngle: 21,
-  warp: 0.8,
-  speed: 0.8,
+  warp: 0.45,
+  speed: 0.35,
   pointerAmount: 0.45,
   smoothing: 0.09,
   focusX: 0,
-  focusY: -0.55,
-  spread: 0.55,
-  contrast: 0.75,
-  glow: 1,
-  brightness: 3,
-  dotScale: 0.45,
-  intensity: 0.35,
+  focusY: -0.35,
+  spread: 0.9,
+  posterizeLevels: 7,
+  contrast: 0.6,
+  glow: 0.5,
+  brightness: 1.6,
+  intensity: 0.8,
   seed: 56,
-  vignette: 0.9,
+  vignette: 0.6,
   paused: false,
 };
 
@@ -116,8 +116,8 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   keyof RibbonFieldSettings,
   HeroShaderFieldConfig
 > = {
-  ribbonCount: { kind: "range", min: 1, max: 4, step: 1 },
-  density: { kind: "number", min: 0.1, max: 50, step: 0.1 },
+  waveCount: { kind: "range", min: 1, max: 5, step: 1 },
+  waveScale: { kind: "number", min: 0.1, max: 20, step: 0.1 },
   flowAngle: { kind: "range", min: -180, max: 180, step: 1 },
   warp: { kind: "range", min: 0, max: 1, step: 0.05 },
   speed: { kind: "range", min: 0, max: 3, step: 0.1 },
@@ -125,11 +125,11 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   smoothing: { kind: "range", min: 0.005, max: 0.15, step: 0.005 },
   focusX: { kind: "range", min: -1, max: 1, step: 0.05 },
   focusY: { kind: "range", min: -1, max: 1, step: 0.05 },
-  spread: { kind: "range", min: 0.2, max: 2, step: 0.05 },
+  spread: { kind: "range", min: 0.2, max: 3, step: 0.05 },
+  posterizeLevels: { kind: "range", min: 2, max: 16, step: 1 },
   contrast: { kind: "range", min: 0, max: 1, step: 0.05 },
   glow: { kind: "range", min: 0, max: 1, step: 0.05 },
   brightness: { kind: "range", min: 0, max: 3, step: 0.1 },
-  dotScale: { kind: "range", min: 0.1, max: 2, step: 0.05 },
   intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
   seed: { kind: "range", min: 0, max: 100, step: 1 },
   vignette: { kind: "range", min: 0, max: 2, step: 0.1 },
@@ -268,7 +268,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 interface StoredHeroShaderState {
   variant: HeroShaderVariant;
   constellation: HeroShaderSettings;
-  ribbonField: RibbonFieldSettings;
+  // Persisted as `ribbonWaves`, not `ribbonField`. The Ribbon Field shader was
+  // rewritten from a halftone dot matrix to posterized waves, and the shared
+  // parameter names (focus, spread, contrast, glow) changed meaning in the
+  // process -- values tuned for the old shader render the new one invisible.
+  // A new key means those stale blobs are simply not read, so everyone lands
+  // on the current defaults instead of a broken-looking field.
+  ribbonWaves: RibbonFieldSettings;
   atmosphere: AtmosphereSettings;
 }
 
@@ -276,7 +282,7 @@ function readStoredHeroShaderState(): StoredHeroShaderState {
   const fallback: StoredHeroShaderState = {
     variant: "constellation",
     constellation: DEFAULT_HERO_SHADER_SETTINGS,
-    ribbonField: DEFAULT_RIBBON_FIELD_SETTINGS,
+    ribbonWaves: DEFAULT_RIBBON_FIELD_SETTINGS,
     atmosphere: DEFAULT_ATMOSPHERE_SETTINGS,
   };
   if (typeof window === "undefined") return fallback;
@@ -293,7 +299,7 @@ function readStoredHeroShaderState(): StoredHeroShaderState {
       return {
         variant: "constellation",
         constellation: { ...DEFAULT_HERO_SHADER_SETTINGS, ...parsed },
-        ribbonField: DEFAULT_RIBBON_FIELD_SETTINGS,
+        ribbonWaves: DEFAULT_RIBBON_FIELD_SETTINGS,
         atmosphere: DEFAULT_ATMOSPHERE_SETTINGS,
       };
     }
@@ -310,9 +316,9 @@ function readStoredHeroShaderState(): StoredHeroShaderState {
         ...DEFAULT_HERO_SHADER_SETTINGS,
         ...(isRecord(parsed.constellation) ? parsed.constellation : {}),
       },
-      ribbonField: {
+      ribbonWaves: {
         ...DEFAULT_RIBBON_FIELD_SETTINGS,
-        ...(isRecord(parsed.ribbonField) ? parsed.ribbonField : {}),
+        ...(isRecord(parsed.ribbonWaves) ? parsed.ribbonWaves : {}),
       },
       atmosphere: {
         ...DEFAULT_ATMOSPHERE_SETTINGS,
@@ -337,7 +343,7 @@ export function useHeroShaderSettings() {
   const [constellation, setConstellation] = useState<HeroShaderSettings>(
     DEFAULT_HERO_SHADER_SETTINGS,
   );
-  const [ribbonField, setRibbonField] = useState<RibbonFieldSettings>(
+  const [ribbonWaves, setRibbonWaves] = useState<RibbonFieldSettings>(
     DEFAULT_RIBBON_FIELD_SETTINGS,
   );
   const [atmosphere, setAtmosphere] = useState<AtmosphereSettings>(
@@ -350,16 +356,16 @@ export function useHeroShaderSettings() {
   const stateRef = useRef<StoredHeroShaderState>({
     variant,
     constellation,
-    ribbonField,
+    ribbonWaves,
     atmosphere,
   });
-  stateRef.current = { variant, constellation, ribbonField, atmosphere };
+  stateRef.current = { variant, constellation, ribbonWaves, atmosphere };
 
   useEffect(() => {
     const stored = readStoredHeroShaderState();
     setVariantState(stored.variant);
     setConstellation(stored.constellation);
-    setRibbonField(stored.ribbonField);
+    setRibbonWaves(stored.ribbonWaves);
     setAtmosphere(stored.atmosphere);
   }, []);
 
@@ -393,18 +399,18 @@ export function useHeroShaderSettings() {
       key: K,
       value: RibbonFieldSettings[K],
     ) => {
-      const next = { ...stateRef.current.ribbonField, [key]: value };
-      setRibbonField(next);
-      writeStoredHeroShaderState({ ...stateRef.current, ribbonField: next });
+      const next = { ...stateRef.current.ribbonWaves, [key]: value };
+      setRibbonWaves(next);
+      writeStoredHeroShaderState({ ...stateRef.current, ribbonWaves: next });
     },
     [],
   );
 
   const resetRibbonFieldSettings = useCallback(() => {
-    setRibbonField(DEFAULT_RIBBON_FIELD_SETTINGS);
+    setRibbonWaves(DEFAULT_RIBBON_FIELD_SETTINGS);
     writeStoredHeroShaderState({
       ...stateRef.current,
-      ribbonField: DEFAULT_RIBBON_FIELD_SETTINGS,
+      ribbonWaves: DEFAULT_RIBBON_FIELD_SETTINGS,
     });
   }, []);
 
@@ -433,7 +439,7 @@ export function useHeroShaderSettings() {
       resetSettings: resetConstellationSettings,
     },
     ribbonField: {
-      settings: ribbonField,
+      settings: ribbonWaves,
       updateSetting: updateRibbonFieldSetting,
       resetSettings: resetRibbonFieldSettings,
     },

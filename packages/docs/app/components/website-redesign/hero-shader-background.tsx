@@ -649,20 +649,21 @@ function ConstellationShaderBackground({
 
 const ribbonVertexShader = vertexShader;
 
-// Original implementation (not a port): flowing sine "ribbons" are
-// domain-warped with the same N21 hash noise used above, biased toward
-// `focusX`/`focusY` by a radial falloff mask, then resolved through a
-// halftone dot-matrix grid so the whole field reads as an animated dot
-// pattern rather than smooth bands. Strictly two-color (bg/fg, both read
-// from brand tokens) so it is greyscale by construction in both themes.
+// Original implementation (not a port): gentle travelling waves of light,
+// domain-warped with the same N21 hash noise used above, attenuated by a
+// radial falloff around `focusX`/`focusY` and then posterized into discrete
+// bands. The falloff is applied *before* quantizing, which is what makes the
+// band contours ring outward from the bright focus instead of merely striping
+// along the flow direction. Strictly two-color (bg/fg, both read from brand
+// tokens) so it is greyscale by construction in both themes.
 const ribbonFragmentShader = `
 precision highp float;
 
 uniform float iTime;
 uniform vec2 iResolution;
 uniform vec3 uPointer;
-uniform float uRibbonCount;
-uniform float uDensity;
+uniform float uWaveCount;
+uniform float uWaveScale;
 uniform float uFlowAngle;
 uniform float uWarp;
 uniform float uSpeed;
@@ -673,7 +674,7 @@ uniform float uSpread;
 uniform float uContrast;
 uniform float uGlow;
 uniform float uBrightness;
-uniform float uDotScale;
+uniform float uPosterizeLevels;
 uniform float uSeed;
 uniform float uVignette;
 uniform vec3 uFgColor;
@@ -699,30 +700,42 @@ float valueNoise(vec2 p) {
   return mix(a, b, u.x) + (c - a) * u.y * (1. - u.x) + (d - b) * u.x * u.y;
 }
 
-float ribbonField(vec2 p, float t) {
+// Smooth travelling wave field in [0,1]. Deliberately continuous -- all the
+// banding comes from posterizing this afterwards, so the wave itself stays
+// a clean gradient that the quantizer can carve into even steps.
+float waveField(vec2 p, float t) {
   float angle = radians(uFlowAngle);
   vec2 dir = vec2(cos(angle), sin(angle));
   vec2 perp = vec2(-dir.y, dir.x);
 
-  vec2 warpUv = p * 1.3 + vec2(t * 0.05, t * 0.03);
+  // Domain-warping the coordinate (rather than adding noise to the result)
+  // bends the wavefronts themselves, so the bands undulate organically
+  // instead of staying parallel rulings with noise laid over them.
+  vec2 warpUv = p * 1.1 + vec2(t * 0.06, t * 0.04);
   float n1 = valueNoise(warpUv);
   float n2 = valueNoise(warpUv + 5.2);
-  vec2 warped = p + (vec2(n1, n2) - 0.5) * uWarp * 1.2;
+  vec2 warped = p + (vec2(n1, n2) - 0.5) * uWarp;
 
   float along = dot(warped, dir);
   float across = dot(warped, perp);
 
+  // Summed sines at incommensurate frequencies and drift rates. Each octave
+  // is cross-modulated by the perpendicular axis so wavefronts curve along
+  // their length, and amplitude falls off per octave so the first wave sets
+  // the broad shape while later ones only add fine detail.
   float field = 0.;
-  for (float i = 0.; i < 4.; i += 1.) {
-    if (i >= uRibbonCount) break;
-    float phase = i * 2.399963;
-    float bandFreq = 2.4 + i * 0.6;
-    float band = sin(along * bandFreq + t * (0.6 + i * 0.15) + phase);
-    float bandWidth = 0.35 + 0.1 * sin(t * 0.2 + i);
-    float offset = band * 0.4 - i * 0.18 + 0.27;
-    field += S(bandWidth, 0., abs(across - offset) - 0.05);
+  float weight = 0.;
+  for (float i = 0.; i < 5.; i += 1.) {
+    if (i >= uWaveCount) break;
+    float amp = 1. / (1. + i * 0.8);
+    float freq = uWaveScale * (1. + i * 0.55);
+    float drift = t * (1. + i * 0.23) + i * 2.399963;
+    float cross = sin(across * freq * 0.45 - drift * 0.7);
+    field += amp * sin(along * freq + drift + cross * 1.3);
+    weight += amp;
   }
-  return clamp(field, 0., 1.);
+
+  return clamp(field / max(weight, 0.001) * 0.5 + 0.5, 0., 1.);
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
@@ -731,69 +744,61 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 focus = vec2(uFocusX, uFocusY);
   float t = iTime * uSpeed;
 
-  float cellSize = 0.045 / max(uDensity, 0.05);
-  vec2 cell = floor(uv / cellSize);
-  vec2 cellUv = fract(uv / cellSize) - 0.5;
-  vec2 cellCenter = (cell + 0.5) * cellSize;
+  // Pointer drags the sampling position, falling off with distance, so the
+  // wavefronts bend locally toward the cursor rather than the whole field
+  // sliding as one.
+  vec2 pointerDelta = pointerUv - uv;
+  float pull = 1. - S(0.05, 1.6, length(pointerDelta));
+  pull = pull * pull * (3. - 2. * pull);
+  vec2 samplePos = uv + pointerDelta * pull * 0.35 * uPointerAmount * uPointer.z;
 
-  vec2 cellPointerDelta = pointerUv - cellCenter;
-  float cellPull = 1. - S(0.05, 1.6, length(cellPointerDelta));
-  cellPull = cellPull * cellPull * (3. - 2. * cellPull);
-  vec2 cellSamplePos =
-    cellCenter + cellPointerDelta * cellPull * 0.4 * uPointerAmount * uPointer.z;
-  float cellField = ribbonField(cellSamplePos, t);
-  float cellDistFromFocus = length(cellCenter - focus) / max(uSpread, 0.001);
-  float cellMask = 1. - S(0., 1.4, cellDistFromFocus);
-  cellField *= cellMask;
+  float field = waveField(samplePos, t);
 
-  float jitter = (N21(cell) - 0.5) * 0.25 * (sin(t * 2. + N21(cell) * 10.) * 0.5 + 0.5);
-  // Contrast-boost the raw field so peak signal reliably reaches full
-  // brightness (dotMask/radius maxed) instead of asymptotically approaching
-  // it -- ribbonField's summed smoothsteps rarely hit 1.0 on their own.
-  float value = S(0.12, 0.62, clamp(cellField * 1.25 + jitter, 0., 1.));
+  // Radial falloff from the focus point, applied *before* posterizing. That
+  // ordering is what produces concentric band contours: the quantizer sees a
+  // signal that already decays outward, so the level boundaries land on rings
+  // around the focus rather than only tracking the wave direction.
+  float distFromFocus = length(uv - focus) / max(uSpread, 0.001);
+  float falloff = exp(-1.6 * distFromFocus * distFromFocus);
+  field *= falloff;
 
-  // Soft radial "hot core" centered on the focus point, independent of the
-  // ribbon banding above. Screen-blended (1 - (1-a)(1-b), never clips/
-  // flattens like addition would) so the field reliably reads as a bright
-  // core fading out to darker edges -- the reference "light blend mode"
-  // look -- instead of a uniformly-lit band regardless of distance from
-  // focus.
-  float core = exp(-2.2 * cellDistFromFocus * cellDistFromFocus);
-  value = 1. - (1. - value) * (1. - core * core);
+  // Contrast shapes the tonal distribution before quantizing, which decides
+  // how the levels get spent -- pushing the exponent below 1 widens the
+  // bright bands, above 1 crushes them toward the focus.
+  field = pow(clamp(field, 0., 1.), mix(2.6, 0.5, uContrast));
 
-  float radius = mix(0.05, 0.44, value) * uDotScale;
-  float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.04);
-  float dotShape = 1. - S(radius - edge, radius + edge, length(cellUv));
+  // Keep an unposterized copy so the glow can sit underneath as a smooth
+  // wash; without it the bands read as flat paper cutouts.
+  float smoothField = field;
 
-  float glowRadius = radius + uGlow * 0.2;
-  float glowTerm = (1. - S(radius, glowRadius, length(cellUv))) * uGlow * value;
+  // Posterize into discrete bands of light. The 0.5 bias rounds to nearest
+  // rather than flooring, which keeps the band centers aligned with the
+  // wave peaks instead of shifting every band down by half a step.
+  float levels = max(uPosterizeLevels, 2.) - 1.;
+  field = floor(field * levels + 0.5) / levels;
 
-  float dotMask = clamp(dotShape + glowTerm * 0.5, 0., 1.);
-  dotMask *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
-  dotMask *= S(0., 20., min(iTime, 5.0));
+  // Screen-blend the soft wash so it can only lift the bands, never darken
+  // them, preserving the quantized steps while filling the gaps between.
+  float glowTerm = smoothField * uGlow;
+  float value = 1. - (1. - field) * (1. - clamp(glowTerm, 0., 1.));
 
-  // uBrightness extrapolates each cell's color away from uBgColor along the
-  // existing fg/bg contrast direction, scaled by that cell's own field
-  // value -- so cells already reading as brighter (higher value) pop
-  // further than dim ones as the slider increases, instead of every "on"
-  // dot reading as the same flat uFgColor shade. At uBrightness == 1 (the
-  // pre-brightness-slider baseline) this is a no-op. Extrapolating away
-  // from bg (rather than mixing toward literal white) keeps it correct in
-  // both themes: in dark mode fg is lighter than bg so it pushes toward
-  // white, in light mode fg is darker than bg so it pushes toward black.
-  float boost = uBrightness - 1.0;
-  vec3 dotColor = clamp(uFgColor + (uFgColor - uBgColor) * value * boost, 0., 1.);
+  value *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
+  // Fade up over the first couple of seconds. The smoothstep bounds have to
+  // match the input range or the fade never completes -- the previous
+  // S(0., 20., min(iTime, 5.)) topped out at 0.156, permanently pinning the
+  // whole field to ~16% brightness.
+  value *= S(0., 2.5, iTime);
 
-  // Screen-blend a white halo scaled by the hot-core term and uGlow on top
-  // of the boosted dot color -- this is what actually pushes the core
-  // toward a bright near-white "light source" instead of just the token
-  // grey, independent of uBrightness so the center-glow look holds even at
-  // its default value.
-  float hotGlow = core * core * cellMask * clamp(uGlow, 0., 3.) * 0.9;
-  dotColor = 1. - (1. - dotColor) * (1. - clamp(hotGlow, 0., 1.));
+  // Extrapolating away from bg along the fg/bg contrast direction (rather
+  // than mixing toward literal white) keeps brightness correct in both
+  // themes: in dark mode fg is lighter than bg so it pushes toward white, in
+  // light mode fg is darker so it pushes toward black. Scaling by value
+  // means already-bright bands pull further than dim ones, which is what
+  // creates the bright-center/dim-edge separation.
+  vec3 lit = mix(uBgColor, uFgColor, clamp(value, 0., 1.));
+  lit += (uFgColor - uBgColor) * value * value * (uBrightness - 1.);
 
-  vec3 col = mix(uBgColor, dotColor, clamp(dotMask, 0., 1.));
-  fragColor = vec4(col, 1.);
+  fragColor = vec4(clamp(lit, 0., 1.), 1.);
 }
 
 void main() {
@@ -806,8 +811,8 @@ interface RibbonFieldShaderBackgroundProps extends RibbonFieldSettings {
 }
 
 function RibbonFieldShaderBackground({
-  ribbonCount,
-  density,
+  waveCount,
+  waveScale,
   flowAngle,
   warp,
   speed,
@@ -819,7 +824,7 @@ function RibbonFieldShaderBackground({
   contrast,
   glow,
   brightness,
-  dotScale,
+  posterizeLevels,
   intensity,
   seed,
   vignette,
@@ -835,8 +840,8 @@ function RibbonFieldShaderBackground({
   } | null>(null);
 
   const settingsRef = useRef({
-    ribbonCount,
-    density,
+    waveCount,
+    waveScale,
     flowAngle,
     warp,
     speed,
@@ -848,15 +853,15 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    dotScale,
+    posterizeLevels,
     seed,
     vignette,
     paused,
   });
   useEffect(() => {
     settingsRef.current = {
-      ribbonCount,
-      density,
+      waveCount,
+      waveScale,
       flowAngle,
       warp,
       speed,
@@ -868,14 +873,14 @@ function RibbonFieldShaderBackground({
       contrast,
       glow,
       brightness,
-      dotScale,
+      posterizeLevels,
       seed,
       vignette,
       paused,
     };
   }, [
-    ribbonCount,
-    density,
+    waveCount,
+    waveScale,
     flowAngle,
     warp,
     speed,
@@ -887,7 +892,7 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    dotScale,
+    posterizeLevels,
     seed,
     vignette,
     paused,
@@ -959,8 +964,8 @@ function RibbonFieldShaderBackground({
     const uTime = gl.getUniformLocation(program, "iTime");
     const uRes = gl.getUniformLocation(program, "iResolution");
     const uPointer = gl.getUniformLocation(program, "uPointer");
-    const uRibbonCount = gl.getUniformLocation(program, "uRibbonCount");
-    const uDensity = gl.getUniformLocation(program, "uDensity");
+    const uWaveCount = gl.getUniformLocation(program, "uWaveCount");
+    const uWaveScale = gl.getUniformLocation(program, "uWaveScale");
     const uFlowAngle = gl.getUniformLocation(program, "uFlowAngle");
     const uWarp = gl.getUniformLocation(program, "uWarp");
     const uSpeed = gl.getUniformLocation(program, "uSpeed");
@@ -971,7 +976,7 @@ function RibbonFieldShaderBackground({
     const uContrast = gl.getUniformLocation(program, "uContrast");
     const uGlow = gl.getUniformLocation(program, "uGlow");
     const uBrightness = gl.getUniformLocation(program, "uBrightness");
-    const uDotScale = gl.getUniformLocation(program, "uDotScale");
+    const uPosterizeLevels = gl.getUniformLocation(program, "uPosterizeLevels");
     const uSeed = gl.getUniformLocation(program, "uSeed");
     const uVignette = gl.getUniformLocation(program, "uVignette");
     const uFgColor = gl.getUniformLocation(program, "uFgColor");
@@ -1032,8 +1037,8 @@ function RibbonFieldShaderBackground({
       gl.uniform1f(uTime, timeSeconds);
       gl.uniform2f(uRes, canvas.width, canvas.height);
       gl.uniform3f(uPointer, pointerX, pointerY, pointerStrength);
-      gl.uniform1f(uRibbonCount, settingsRef.current.ribbonCount);
-      gl.uniform1f(uDensity, settingsRef.current.density);
+      gl.uniform1f(uWaveCount, settingsRef.current.waveCount);
+      gl.uniform1f(uWaveScale, settingsRef.current.waveScale);
       gl.uniform1f(uFlowAngle, settingsRef.current.flowAngle);
       gl.uniform1f(uWarp, settingsRef.current.warp);
       gl.uniform1f(uSpeed, settingsRef.current.speed);
@@ -1044,7 +1049,7 @@ function RibbonFieldShaderBackground({
       gl.uniform1f(uContrast, settingsRef.current.contrast);
       gl.uniform1f(uGlow, settingsRef.current.glow);
       gl.uniform1f(uBrightness, settingsRef.current.brightness);
-      gl.uniform1f(uDotScale, settingsRef.current.dotScale);
+      gl.uniform1f(uPosterizeLevels, settingsRef.current.posterizeLevels);
       gl.uniform1f(uSeed, settingsRef.current.seed);
       gl.uniform1f(uVignette, settingsRef.current.vignette);
       gl.uniform3f(uFgColor, fgColor[0], fgColor[1], fgColor[2]);
