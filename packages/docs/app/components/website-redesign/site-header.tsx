@@ -87,8 +87,10 @@ function SearchTrigger({
       className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
       style={{
         height: 40,
+        width: 360,
         display: "inline-flex",
         alignItems: "center",
+        justifyContent: "space-between",
         gap: "var(--spacing-2)",
         flexShrink: 0,
         padding: "0 var(--spacing-3)",
@@ -104,8 +106,16 @@ function SearchTrigger({
         transition: "background 0.15s, border-color 0.15s",
       }}
     >
-      <IconSearch size={16} stroke={1.75} />
-      <span className="hidden sm:inline">{label}</span>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "var(--spacing-2)",
+        }}
+      >
+        <IconSearch size={16} stroke={1.75} />
+        <span className="hidden sm:inline">{label}</span>
+      </span>
       <span className="hidden sm:inline">
         <Kbd>⌘K</Kbd>
       </span>
