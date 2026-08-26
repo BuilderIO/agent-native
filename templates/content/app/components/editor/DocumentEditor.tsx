@@ -737,6 +737,13 @@ function DocumentEditorBody({
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const getLinkedLocalEditorSnapshot = useCallback(
+    () => ({
+      title: localTitleRef.current,
+      content: localContentRef.current,
+    }),
+    [],
+  );
   const localSourceWriteErrorShownRef = useRef(false);
   const documentUpdatedAtRef = useRef<string | null>(
     document.updatedAt ?? null,
@@ -2040,6 +2047,7 @@ function DocumentEditorBody({
       {isLinkedLocalSourceDocument ? (
         <LinkedLocalDocumentAgentBridge
           document={document}
+          getEditorSnapshot={getLinkedLocalEditorSnapshot}
           onPersisted={handleLinkedLocalAgentPersistence}
         />
       ) : null}

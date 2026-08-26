@@ -26,6 +26,14 @@ type LinkedLocalEditReceipt =
       revision?: string;
     }
   | {
+      status: "source-persisted/readback-pending";
+      content: string;
+      title: string;
+      path: string;
+      runtime: "browser" | "desktop";
+      revision?: string;
+    }
+  | {
       status: "conflict" | "unavailable" | "failed";
       error: string;
     };
@@ -35,7 +43,8 @@ function isReceipt(value: unknown): value is LinkedLocalEditReceipt {
   const receipt = value as Record<string, unknown>;
   if (
     receipt.status === "persisted" ||
-    receipt.status === "source-persisted/history-pending"
+    receipt.status === "source-persisted/history-pending" ||
+    receipt.status === "source-persisted/readback-pending"
   ) {
     return (
       typeof receipt.content === "string" &&
@@ -114,7 +123,8 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
     }
     if (
       (result.status === "persisted" ||
-        result.status === "source-persisted/history-pending") &&
+        result.status === "source-persisted/history-pending" ||
+        result.status === "source-persisted/readback-pending") &&
       result.content !== args.expectedResultContent
     ) {
       return {

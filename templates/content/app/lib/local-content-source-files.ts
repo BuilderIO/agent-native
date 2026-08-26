@@ -476,6 +476,7 @@ function documentFromSourceContent(input: {
       position: parsed.position ?? input.base.position,
       isFavorite: parsed.isFavorite ?? false,
       hideFromSearch: parsed.hideFromSearch ?? false,
+      visibility: parsed.visibility ?? input.base.visibility,
       updatedAt: input.updatedAt,
       source: input.source,
     },

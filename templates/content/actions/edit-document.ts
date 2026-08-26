@@ -132,7 +132,11 @@ export default defineAction({
     }
 
     let linkedLocalPersistence:
-      | { status: "persisted"; path: string; runtime: "browser" | "desktop" }
+      | {
+          status: "persisted" | "source-persisted/readback-pending";
+          path: string;
+          runtime: "browser" | "desktop";
+        }
       | undefined;
 
     const previousGeneration =
@@ -267,7 +271,10 @@ export default defineAction({
             "The local file changed, but Content history still needs reconciliation.",
         };
       }
-      if (receipt.status !== "persisted") {
+      if (
+        receipt.status !== "persisted" &&
+        receipt.status !== "source-persisted/readback-pending"
+      ) {
         return {
           applied: 0,
           total: edits.length,

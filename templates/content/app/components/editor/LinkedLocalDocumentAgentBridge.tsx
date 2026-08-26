@@ -28,9 +28,11 @@ const actionName = (documentId: string) =>
 
 export function LinkedLocalDocumentAgentBridge({
   document,
+  getEditorSnapshot,
   onPersisted,
 }: {
   document: Document;
+  getEditorSnapshot(): { title: string; content: string };
   onPersisted(document: Document, revision?: DesktopContentFileRevision): void;
 }) {
   const documentRef = useRef(document);
@@ -63,6 +65,20 @@ export function LinkedLocalDocumentAgentBridge({
         const current = documentRef.current;
         if (args.documentId !== current.id) {
           return { status: "conflict", error: "The open document changed." };
+        }
+        const editorMatchesExpected = () => {
+          const editor = getEditorSnapshot();
+          return (
+            editor.content === args.expectedContent &&
+            editor.title === args.expectedTitle
+          );
+        };
+        if (!editorMatchesExpected()) {
+          return {
+            status: "conflict",
+            error:
+              "Save the pending editor changes before retrying the agent edit.",
+          };
         }
         const baseline = await readDocumentFromLinkedLocalSource(current);
         if (!baseline.ok) {
@@ -100,6 +116,13 @@ export function LinkedLocalDocumentAgentBridge({
           };
         }
         const next = { ...baseline.document, content: applied.content };
+        if (!editorMatchesExpected()) {
+          return {
+            status: "conflict",
+            error:
+              "The editor changed while the agent edit was being prepared.",
+          };
+        }
         const written = await writeDocumentToLinkedLocalSource(
           next,
           current.source,
@@ -118,7 +141,7 @@ export function LinkedLocalDocumentAgentBridge({
         const readBack = await readDocumentFromLinkedLocalSource(next);
         if (!readBack.ok) {
           return {
-            status: "source-persisted/history-pending",
+            status: "source-persisted/readback-pending",
             content: next.content,
             title: next.title,
             path: written.path,
@@ -159,7 +182,7 @@ export function LinkedLocalDocumentAgentBridge({
       actions: [action],
     });
     return () => bridge.stop();
-  }, [document.id, onPersisted]);
+  }, [document.id, getEditorSnapshot, onPersisted]);
 
   return null;
 }

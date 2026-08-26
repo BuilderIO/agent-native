@@ -118,4 +118,26 @@ describe("editLinkedLocalDocumentThroughBrowser", () => {
       editLinkedLocalDocumentThroughBrowser(args),
     ).resolves.toMatchObject({ status: "conflict" });
   });
+
+  it("accepts a matching read-back-pending receipt for SQL reconciliation", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "source-persisted/readback-pending",
+      content: "# Updated",
+      title: "Updated",
+      path: "fixture.mdx",
+      runtime: "browser",
+      revision: "sha256:updated",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({
+      status: "source-persisted/readback-pending",
+      content: "# Updated",
+    });
+  });
 });
