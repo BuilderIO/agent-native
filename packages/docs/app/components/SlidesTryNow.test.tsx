@@ -24,7 +24,9 @@ describe("SlidesTryNow", () => {
       </AgentNativeI18nProvider>,
     );
 
-    const promptBox = screen.getByRole("textbox", { name: "Your prompt" });
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
     promptBox.textContent = "A quarterly review deck for board members";
 
     const submitLink = screen.getByRole("link", { name: "Generate my deck" });
@@ -49,17 +51,22 @@ describe("SlidesTryNow", () => {
       </AgentNativeI18nProvider>,
     );
 
-    const prompt = screen.getByRole("textbox", { name: "Your prompt" });
+    const prompt = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
     const labelId = prompt.getAttribute("aria-labelledby");
 
     expect(labelId).toBe("slides-try-now-prompt-label");
     expect(document.getElementById(labelId || "")?.textContent).toBe(
-      "Your prompt",
+      "Presentation generation prompt",
+    );
+    expect(prompt.getAttribute("data-placeholder")).toBe(
+      "Replace this prompt: Create an on-brand deck for [audience] to [purpose] using the pasted data or notes below: [paste data or notes].",
     );
     expect(prompt.getAttribute("contenteditable")).toBe("true");
   });
 
-  it("renders tooltip next to Your prompt", () => {
+  it("renders tooltip next to the presentation generation prompt", () => {
     render(
       <AgentNativeI18nProvider
         catalog={docsI18nCatalog}

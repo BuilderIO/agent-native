@@ -1414,12 +1414,13 @@ const enUS = {
         q3VibeWarm: "Warm and human",
         q3VibeTechnical: "Technical and data-dense",
         answerAction: "Add to prompt",
-        composerLabel: "Your prompt",
+        composerLabel: "Presentation generation prompt",
         composerPlaceholder:
           "Describe the deck you want, or answer the questions above.",
         promptTip: "Prompt tip",
         promptPlaceholder:
-          "Be specific. Say who it is for, paste your notes, or reference a website design...",
+          "Replace this prompt: Create an on-brand deck for [audience] to [purpose] using the pasted data or notes below: [paste data or notes].",
+        sectionHeading: "Build an on-brand deck from your data instantly:",
         submit: "Generate my deck",
         readyHint: "Your prompt is ready — send it to the agent.",
         promptDeck: "Create {{deck}}.",

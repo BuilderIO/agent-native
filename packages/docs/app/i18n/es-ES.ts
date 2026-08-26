@@ -1427,12 +1427,14 @@ const esES = {
         q3VibeWarm: "Cálido y humano",
         q3VibeTechnical: "Técnico y con muchos datos",
         answerAction: "Añadir al prompt",
-        composerLabel: "Tu prompt",
+        composerLabel: "Prompt de generación de presentaciones",
         composerPlaceholder:
           "Describe la presentación que quieres, o responde a las preguntas de arriba.",
         promptTip: "Consejo para el prompt",
         promptPlaceholder:
-          "Sea específico. Diga para quién es, pegue sus notas o haga referencia a un diseño de sitio web...",
+          "Reemplaza este prompt: Crea una presentación acorde con la marca para [audiencia] con el fin de [propósito] usando los datos o notas pegados a continuación: [pega aquí los datos o notas].",
+        sectionHeading:
+          "Crea al instante una presentación acorde con tu marca a partir de tus datos:",
         submit: "Generar mi presentación",
         readyHint: "Tu prompt está listo: envíalo al agente.",
         promptDeck: "Crea {{deck}}.",

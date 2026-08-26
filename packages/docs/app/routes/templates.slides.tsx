@@ -4,6 +4,7 @@ import { IconCheck } from "@tabler/icons-react";
 import { BuilderImage } from "../components/builder-image";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
+import { SlidesTryNow } from "../components/SlidesTryNow";
 import {
   TemplateCapabilityGrid,
   TemplateComparisonTable,
@@ -179,6 +180,32 @@ export default function SlidesTemplate() {
           />
         }
       />
+
+      <section
+        id="try-with-ai"
+        className="scroll-mt-24 border-t border-[var(--docs-border)]"
+      >
+        <div
+          aria-hidden="true"
+          className="hidden h-20 border-x border-[var(--docs-border)] lg:grid lg:grid-cols-3"
+        >
+          <div />
+          <div className="border-x border-[var(--docs-border)]" />
+          <div />
+        </div>
+
+        <div className="flex flex-col border-y border-[var(--docs-border)] lg:flex-row lg:items-stretch lg:border-x">
+          <div className="flex items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
+            <h2 className="max-w-[320px] font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[var(--fg)]">
+              {t("templateLanding.slides.tryNow.sectionHeading")}
+            </h2>
+          </div>
+
+          <div className="flex flex-1 items-center gap-6 px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:px-8 lg:py-8">
+            <SlidesTryNow />
+          </div>
+        </div>
+      </section>
 
       <SectionDivider />
 

@@ -1431,12 +1431,14 @@ const deDE = {
         q3VibeWarm: "Warm und menschlich",
         q3VibeTechnical: "Technisch und datenreich",
         answerAction: "Zum Prompt hinzufügen",
-        composerLabel: "Ihr Prompt",
+        composerLabel: "Prompt zur Präsentationserstellung",
         composerPlaceholder:
           "Beschreiben Sie die gewünschte Präsentation oder beantworten Sie die Fragen oben.",
         promptTip: "Prompt-Tipp",
         promptPlaceholder:
-          "Seien Sie konkret. Sagen Sie, für wen es ist, fügen Sie Ihre Notizen ein oder verweisen Sie auf ein Website-Design...",
+          "Ersetzen Sie diesen Prompt: Erstellen Sie für [Zielgruppe] eine markengerechte Präsentation mit dem Ziel [Zweck] aus den unten eingefügten Daten oder Notizen: [Daten oder Notizen hier einfügen].",
+        sectionHeading:
+          "Erstellen Sie sofort eine markengerechte Präsentation aus Ihren Daten:",
         submit: "Meine Präsentation generieren",
         readyHint: "Ihr Prompt ist fertig — senden Sie ihn an den Agenten.",
         promptDeck: "Erstelle {{deck}}.",
