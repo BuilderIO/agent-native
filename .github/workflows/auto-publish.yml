@@ -289,14 +289,29 @@ jobs:
 
       # A stable merge can race with another PR's pending changeset. Keep
       # those changesets out of validation and publication so this merge
-      # publishes its already-versioned packages; the files remain in the
-      # checkout for the next release train.
+      # publishes its already-versioned packages. Public-package changesets
+      # are consumed after that publication because the all-package release
+      # already includes their source changes.
       - name: Hold pending changesets for stable publication
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
           hold="$RUNNER_TEMP/agent-native-pending-changesets"
           mkdir -p "$hold"
+          pnpm changeset status --output "$hold/status.json"
+          jq -r '
+            .changesets[]
+            | select(any(.releases[]?.name;
+                . == "@agent-native/core" or
+                . == "@agent-native/creative-context" or
+                . == "@agent-native/dispatch" or
+                . == "@agent-native/pinpoint" or
+                . == "@agent-native/recap-cli" or
+                . == "@agent-native/scheduling" or
+                . == "@agent-native/skills" or
+                . == "@agent-native/toolkit"))
+            | .id + ".md"
+          ' "$hold/status.json" > "$hold/eligible.txt"
           shopt -s nullglob
           for file in .changeset/*.md; do
             if [[ "$file" == ".changeset/README.md" ]]; then
@@ -345,14 +360,67 @@ jobs:
           # name itself; existing packages still publish through OIDC/provenance.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Consume concurrent public-package changesets
+        id: consume-stable-changesets
+        if: ${{ github.event_name == 'push' && steps.changesets.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          eligible="$hold/eligible.txt"
+
+          if [ ! -s "$eligible" ]; then
+            echo "No concurrent public-package changesets to consume."
+            exit 0
+          fi
+
+          shopt -s nullglob
+          for file in "$hold"/*.md; do
+            if ! grep -Fqx "$(basename "$file")" "$eligible"; then
+              mv "$file" .changeset/
+            fi
+          done
+
+          git config user.name "builder-io-integration[bot]"
+          git config user.email "builder-io-integration[bot]@users.noreply.github.com"
+          git add -u .changeset
+          if git diff --cached --quiet; then
+            echo "Concurrent changesets were already consumed."
+            exit 0
+          fi
+          git commit -m "chore: consume stable release changesets [skip ci]"
+
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "Consumed concurrent changesets on main."
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              git fetch origin main --quiet
+              if git merge-base --is-ancestor HEAD origin/main; then
+                echo "Concurrent changesets were consumed by another main update."
+                exit 0
+              fi
+              git rebase origin/main
+              sleep $((attempt * 2))
+            fi
+          done
+
+          echo "::error::Unable to consume concurrent changesets after five attempts."
+          exit 1
+
       - name: Restore pending changesets
         if: ${{ always() && github.event_name == 'push' }}
         run: |
           set -euo pipefail
           hold="$RUNNER_TEMP/agent-native-pending-changesets"
           if [ -d "$hold" ]; then
+            eligible="$hold/eligible.txt"
             shopt -s nullglob
             for file in "$hold"/*.md; do
+              if [ "${{ steps.consume-stable-changesets.outcome }}" = "success" ] &&
+                grep -Fqx "$(basename "$file")" "$eligible"; then
+                continue
+              fi
               mv "$file" .changeset/
             done
           fi

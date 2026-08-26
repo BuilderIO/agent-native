@@ -114,7 +114,7 @@ describe("npm package release workflow", () => {
     assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
   });
 
-  it("publishes stable versions before concurrent changesets are versioned", () => {
+  it("consumes concurrent public changesets after stable publication", () => {
     const release = jobs.release as Workflow;
     const releaseSteps = release.steps as Workflow[];
     const hold = releaseSteps.find(
@@ -123,7 +123,14 @@ describe("npm package release workflow", () => {
     assert(hold);
     assert.match(String(hold.if), /github\.event_name == 'push'/);
     assert.match(JSON.stringify(hold), /RUNNER_TEMP/);
+    assert.match(String(hold.run), /changeset status --output/);
     assert.match(JSON.stringify(hold), /README\.md/);
+    for (const packageName of NPM_PUBLISH_PACKAGE_NAMES) {
+      assert.match(
+        String(hold.run),
+        new RegExp(packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      );
+    }
 
     const changesets = releaseSteps.find(
       (step) => step.name === "Create stable Release PR or publish to npm",
@@ -136,20 +143,33 @@ describe("npm package release workflow", () => {
     );
     assert.equal(options["version-script"], undefined);
 
+    const consume = releaseSteps.find(
+      (step) => step.name === "Consume concurrent public-package changesets",
+    );
+    assert(consume);
+    assert.match(String(consume.if), /github\.event_name == 'push'/);
+    assert.match(String(consume.if), /steps\.changesets\.outcome == 'success'/);
+    assert.match(String(consume.run), /git push origin HEAD:main/);
+    assert.match(String(consume.run), /\[skip ci\]/);
+
     const restore = releaseSteps.find(
       (step) => step.name === "Restore pending changesets",
     );
     assert(restore);
     assert.match(String(restore.if), /always\(\)/);
+    assert.match(String(restore.run), /consume-stable-changesets\.outcome/);
 
     const validateIndex = releaseSteps.findIndex(
       (step) => step.name === "Validate changesets",
     );
     const holdIndex = releaseSteps.indexOf(hold);
     const changesetsIndex = releaseSteps.indexOf(changesets);
+    const consumeIndex = releaseSteps.indexOf(consume);
     const restoreIndex = releaseSteps.indexOf(restore);
     assert(holdIndex < validateIndex);
     assert(holdIndex < changesetsIndex);
+    assert(changesetsIndex < consumeIndex);
+    assert(consumeIndex < restoreIndex);
     assert(changesetsIndex < restoreIndex);
   });
 });
