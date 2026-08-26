@@ -24,6 +24,7 @@ import { clearActiveRun, getActiveRun } from "./active-run-state.js";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
+  agentToolApprovalHydrationTarget,
   assistantMessageRunId,
   assistantChatAutoscrollStatusKey,
   assistantUiMessageListStructureKey,
@@ -55,6 +56,34 @@ import {
 } from "./AssistantChat.js";
 
 describe("tool approval resolution", () => {
+  it("waits to hydrate a new thread until an approval card exists", () => {
+    expect(agentToolApprovalHydrationTarget("thread-1", [])).toBeNull();
+    expect(
+      agentToolApprovalHydrationTarget("thread-1", [
+        {
+          content: [{ type: "text", text: "New chat" }],
+        },
+      ]),
+    ).toBeNull();
+
+    expect(
+      agentToolApprovalHydrationTarget("thread-1", [
+        {
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              approval: {
+                approvalKey: 'send-email:{"to":"recipient@example.com"}',
+                askId: "ask-1",
+              },
+            },
+          ],
+        },
+      ]),
+    ).toEqual({ threadId: "thread-1", revision: '["ask-1"]' });
+  });
+
   it.each([
     { localScope: "old-thread", local: "approved" as const },
     { localScope: "thread-2", local: "approved" as const },

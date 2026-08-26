@@ -2445,6 +2445,40 @@ export function resolveApprovalResolution(input: {
   return local ?? persisted;
 }
 
+export function agentToolApprovalHydrationTarget(
+  threadId: string | null | undefined,
+  messages: readonly { content?: readonly unknown[] }[],
+): { threadId: string; revision: string } | null {
+  if (!threadId) return null;
+  const approvals: string[] = [];
+  for (const message of messages) {
+    for (const part of message.content ?? []) {
+      if (!part || typeof part !== "object") continue;
+      const toolCall = part as {
+        type?: unknown;
+        toolCallId?: unknown;
+        approval?: { approvalKey?: unknown; askId?: unknown } | null;
+      };
+      if (
+        toolCall.type !== "tool-call" ||
+        typeof toolCall.approval?.approvalKey !== "string" ||
+        toolCall.approval.approvalKey.length === 0
+      ) {
+        continue;
+      }
+      approvals.push(
+        typeof toolCall.approval.askId === "string" &&
+          toolCall.approval.askId.length > 0
+          ? toolCall.approval.askId
+          : `${typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : ""}\u0000${toolCall.approval.approvalKey}`,
+      );
+    }
+  }
+  return approvals.length > 0
+    ? { threadId, revision: JSON.stringify(approvals) }
+    : null;
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -5861,6 +5895,13 @@ const AssistantChatInner = forwardRef<
 
   const approvalResolutionScope = threadId ?? tabId ?? "default";
   const approvalPersistenceScope = `${apiUrl}\u0000${approvalResolutionScope}`;
+  const approvalHydrationTarget = agentToolApprovalHydrationTarget(
+    threadId,
+    messages,
+  );
+  const approvalHydrationThreadId = approvalHydrationTarget?.threadId ?? null;
+  const approvalHydrationRevision = approvalHydrationTarget?.revision ?? null;
+  const approvalHydrationScope = `${approvalPersistenceScope}\u0000${approvalHydrationRevision ?? ""}`;
   const defaultApprovalApiUrl = agentNativePath("/_agent-native/agent-chat");
   const [approvalResolutionState, setApprovalResolutionState] = useState<{
     scope: string;
@@ -5875,23 +5916,27 @@ const AssistantChatInner = forwardRef<
     status: "loading" | "ready" | "error";
     resolutions: Record<string, ApprovalResolution>;
   }>(() => ({
-    scope: approvalPersistenceScope,
-    status: threadId ? "loading" : "ready",
+    scope: approvalHydrationScope,
+    status: approvalHydrationThreadId ? "loading" : "ready",
     resolutions: {},
   }));
   useEffect(() => {
     const controller = new AbortController();
     setPersistedApprovals({
-      scope: approvalPersistenceScope,
-      status: threadId ? "loading" : "ready",
+      scope: approvalHydrationScope,
+      status: approvalHydrationThreadId ? "loading" : "ready",
       resolutions: {},
     });
-    if (!threadId) return () => controller.abort();
-    void loadAgentToolApprovalResolutions(apiUrl, threadId, controller.signal)
+    if (!approvalHydrationThreadId) return () => controller.abort();
+    void loadAgentToolApprovalResolutions(
+      apiUrl,
+      approvalHydrationThreadId,
+      controller.signal,
+    )
       .then((resolutions) => {
         if (!controller.signal.aborted) {
           setPersistedApprovals({
-            scope: approvalPersistenceScope,
+            scope: approvalHydrationScope,
             status: "ready",
             resolutions,
           });
@@ -5904,7 +5949,7 @@ const AssistantChatInner = forwardRef<
           error instanceof AgentToolApprovalRequestError &&
           error.status === 404;
         setPersistedApprovals({
-          scope: approvalPersistenceScope,
+          scope: approvalHydrationScope,
           status: unsupportedCustomRoute ? "ready" : "error",
           resolutions: {},
         });
@@ -5912,13 +5957,14 @@ const AssistantChatInner = forwardRef<
     return () => controller.abort();
   }, [
     apiUrl,
+    approvalHydrationScope,
+    approvalHydrationThreadId,
     approvalHydrationRetry,
-    approvalPersistenceScope,
     defaultApprovalApiUrl,
-    threadId,
   ]);
-  const approvalHydrationStatus =
-    persistedApprovals.scope === approvalPersistenceScope
+  const approvalHydrationStatus = !approvalHydrationThreadId
+    ? "ready"
+    : persistedApprovals.scope === approvalHydrationScope
       ? persistedApprovals.status
       : "loading";
   const getApprovalResolution = useCallback(
@@ -5930,14 +5976,14 @@ const AssistantChatInner = forwardRef<
         local: approvalResolutionState,
         persisted: {
           scope:
-            persistedApprovals.scope === approvalPersistenceScope
+            persistedApprovals.scope === approvalHydrationScope
               ? approvalResolutionScope
               : "",
           resolutions: persistedApprovals.resolutions,
         },
       }),
     [
-      approvalPersistenceScope,
+      approvalHydrationScope,
       approvalResolutionScope,
       approvalResolutionState,
       persistedApprovals,
