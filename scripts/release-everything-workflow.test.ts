@@ -10,6 +10,7 @@ const workflow = parse(
   readFileSync(".github/workflows/release-everything.yml", "utf8"),
 ) as Workflow;
 const trigger = workflow.on as Workflow;
+const schedules = trigger.schedule as Workflow[];
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
 const job = (workflow.jobs as Workflow)["release-everything"] as Workflow;
@@ -20,8 +21,15 @@ const coordinator = steps.find(
 ) as Workflow;
 
 describe("release everything workflow", () => {
-  it("is a manually triggered, patch-default stable release button", () => {
+  it("runs a DST-aware Monday-Thursday noon Pacific patch release", () => {
     assert.equal(workflow.name, "🚀 Release everything");
+    assert.deepEqual(schedules, [
+      { cron: "0 12 * * 1-4", timezone: "America/Los_Angeles" },
+    ]);
+    assert.match(
+      String((job.env as Workflow).RELEASE_TYPE),
+      /inputs\.releaseType \|\| 'patch'/,
+    );
     assert.deepEqual(inputs.releaseType, {
       description: "Stable npm release bump",
       required: true,
@@ -48,6 +56,15 @@ describe("release everything workflow", () => {
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
     assert.match(source, /channel: "production"/);
+    assert.match(
+      source,
+      /const workflowRef = `@agent-native\/core@\$\{coreVersion\}`/,
+    );
+    assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
+    assert.match(source, /getReleaseByTag/);
+    assert.match(source, /hasCompleteClipsRelease/);
+    assert.match(source, /Clips_\$\{version\}_universal\.dmg/);
+    assert.match(source, /clipsAlreadyPublished/);
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);

@@ -194,6 +194,18 @@ const messages = {
     automationsTab: "Automations",
     agentsTab: "Agents",
     factorySettings: "Settings",
+    dangerZone: "Danger Zone",
+    deleteFactory: "Delete factory",
+    deleteFactoryDescription:
+      "Permanently remove this factory, its map, queue, rules, activity, settings, polling, and automations. This action is irreversible.",
+    deleteFactoryTitle: "Delete {{name}}?",
+    deleteFactoryWarning:
+      "Work already running in GitHub, Slack, or Builder will not be cancelled.",
+    deleteFactoryConfirmation: "Type {{name}} to confirm",
+    deleteFactoryCancel: "Cancel",
+    deleteFactoryConfirm: "Delete factory",
+    factoryDeleted: "Factory deleted.",
+    factoryDeleteFailed: "Could not delete the factory.",
     agenticAppsTitle: "Agentic apps",
     agenticAppsEmpty: "No agentic apps in this workspace yet.",
     createApp: "Create app",

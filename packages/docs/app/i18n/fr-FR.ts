@@ -1968,6 +1968,7 @@ const frFR = {
     externalAgents: "Agents externes (connecter un hôte)",
     externalAgentsCatalog: "Catalogue d'agents externes",
     mcpApps: "MCP Apps (UI intégrées)",
+    webMcp: "WebMCP (outils du navigateur)",
     crossAppSso: "SSO entre apps",
     notifications: "Alertes",
     automationConnectors: "Connecteurs de workflow",

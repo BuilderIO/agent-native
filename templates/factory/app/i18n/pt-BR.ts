@@ -199,6 +199,18 @@ const messages = {
     automationsTab: "Automações",
     agentsTab: "Agentes",
     factorySettings: "Configurações",
+    dangerZone: "Zona de perigo",
+    deleteFactory: "Excluir fábrica",
+    deleteFactoryDescription:
+      "Remove permanentemente esta fábrica, seu mapa, fila, regras, atividades, configurações, pesquisas e automações. Esta ação é irreversível.",
+    deleteFactoryTitle: "Excluir {{name}}?",
+    deleteFactoryWarning:
+      "O trabalho que já estiver em execução no GitHub, Slack ou Builder não será cancelado.",
+    deleteFactoryConfirmation: "Digite {{name}} para confirmar",
+    deleteFactoryCancel: "Cancelar",
+    deleteFactoryConfirm: "Excluir fábrica",
+    factoryDeleted: "Fábrica excluída.",
+    factoryDeleteFailed: "Não foi possível excluir a fábrica.",
     agenticAppsTitle: "Apps agentivos",
     agenticAppsEmpty: "Ainda não há apps agentivos neste workspace.",
     createApp: "Criar app",

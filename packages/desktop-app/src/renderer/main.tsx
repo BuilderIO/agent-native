@@ -1,9 +1,11 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
 import App from "./App.js";
 import QuickPromptOverlay from "./components/QuickPromptOverlay.js";
+import { RendererErrorBoundary } from "./components/RendererErrorBoundary.js";
 import { initRendererTheme } from "./lib/theme.js";
 import { initializeDesktopRendererSentry } from "./sentry.js";
 
@@ -47,6 +49,23 @@ const quickPromptSurface = isQuickPromptSurface ? (
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isQuickPromptSurface ? quickPromptSurface : <App />}
+    <RendererErrorBoundary>
+      {/*
+        The shell renders core client components directly rather than inside a
+        webview, so they call useTranslation() here. Without a provider
+        react-i18next hands back a fresh `t` on every render, which cascades
+        through useT() into the composer's memoized adapters and re-fires
+        effects keyed on them in a loop. Copy is unchanged either way — useT()
+        falls back to the same English table when a key is missing.
+      */}
+      {/*
+        persistPreference reads and writes the locale through origin-relative
+        endpoints. The shell is served from file://, so those can only ever
+        fail here — there is no hosted origin behind this window to persist to.
+      */}
+      <AgentNativeI18nProvider persistPreference={false}>
+        {isQuickPromptSurface ? quickPromptSurface : <App />}
+      </AgentNativeI18nProvider>
+    </RendererErrorBoundary>
   </React.StrictMode>,
 );

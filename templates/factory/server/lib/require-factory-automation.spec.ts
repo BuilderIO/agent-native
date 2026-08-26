@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const listAutomationDefinitionsMock = vi.hoisted(() => vi.fn());
+const getDbMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/triggers", () => ({
   listAutomationDefinitions: listAutomationDefinitionsMock,
+}));
+
+vi.mock("../db/index.js", () => ({
+  getDb: getDbMock,
 }));
 
 import { requireFactoryAutomation } from "./require-factory-automation.js";
@@ -37,11 +42,26 @@ const governedContext = {
   },
 };
 
+function factoryLookupDb(found: boolean) {
+  return {
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi
+            .fn()
+            .mockResolvedValue(found ? [{ id: "enzo-test-factory-3" }] : []),
+        })),
+      })),
+    })),
+  };
+}
+
 describe("requireFactoryAutomation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.WORKSPACE_OWNER_EMAIL = "deploy-owner@example.com";
     listAutomationDefinitionsMock.mockResolvedValue([nestedDefinition()]);
+    getDbMock.mockReturnValue(factoryLookupDb(true));
   });
 
   it("accepts a nested Factory Slack job created by a teammate", async () => {
@@ -98,5 +118,53 @@ describe("requireFactoryAutomation", () => {
     ).rejects.toThrow(
       "The action was not invoked by a governed Factory automation.",
     );
+  });
+
+  it("rejects a governed job after the Factory has been deleted", async () => {
+    getDbMock.mockReturnValue(factoryLookupDb(false));
+
+    await expect(
+      requireFactoryAutomation(
+        governedContext,
+        { userEmail: teammateEmail, orgId: "org-1" },
+        "sourcePolling",
+        "enzo-test-factory-3",
+      ),
+    ).rejects.toThrow("Factory not found.");
+  });
+
+  it("accepts the virtual default Factory when no definition row exists", async () => {
+    getDbMock.mockReturnValue(factoryLookupDb(false));
+    listAutomationDefinitionsMock.mockResolvedValue([
+      {
+        name: "factory-slack-feedback",
+        resource: {
+          id: "resource-default",
+          path: "jobs/factory-slack-feedback.md",
+          content: "---\ndomain: factory\n---\n",
+        },
+        meta: {
+          domain: "factory",
+          orgId: "org-1",
+          runAs: "creator",
+          createdBy: teammateEmail,
+        },
+      },
+    ]);
+
+    await expect(
+      requireFactoryAutomation(
+        {
+          caller: "automation",
+          automation: {
+            triggerId: "resource-default",
+            triggerName: "factory-slack-feedback",
+          },
+        },
+        { userEmail: teammateEmail, orgId: "org-1" },
+        "sourcePolling",
+        "product-feedback",
+      ),
+    ).resolves.toBeUndefined();
   });
 });

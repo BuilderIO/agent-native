@@ -17,6 +17,7 @@ import {
   type AgentNativeHostContextGetter,
   type AgentNativeHostSession,
 } from "./host-bridge.js";
+import type { AgentNativeWebMcpClient } from "./webmcp.js";
 
 export interface AgentNativeFrameProps extends Omit<
   IframeHTMLAttributes<HTMLIFrameElement>,
@@ -37,6 +38,8 @@ export interface AgentNativeFrameProps extends Omit<
   commands?: AgentNativeHostCommandHandlers;
   /** Live browser-session actions the iframe sidecar can discover and call. */
   actions?: AgentNativeClientActions;
+  /** WebMCP tools the iframe sidecar may discover and call in the host page. */
+  webmcp?: AgentNativeWebMcpClient;
   /** Optional auth payload sent to the trusted iframe sidecar. */
   auth?: AgentNativeHostAuth;
   onBridgeEvent?: (event: AgentNativeHostBridgeEvent) => void;
@@ -77,6 +80,7 @@ export const AgentNativeFrame = forwardRef<
     getContext,
     commands,
     actions,
+    webmcp,
     auth,
     onBridgeEvent,
     onBridgeReady,
@@ -104,6 +108,7 @@ export const AgentNativeFrame = forwardRef<
       getContext,
       commands,
       actions,
+      webmcp,
       auth,
       onEvent: onBridgeEvent,
       targetWindow: iframeRef.current?.contentWindow ?? null,
@@ -123,6 +128,7 @@ export const AgentNativeFrame = forwardRef<
     onBridgeReady,
     resolvedOrigin,
     session,
+    webmcp,
   ]);
 
   return (

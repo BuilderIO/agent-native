@@ -7,7 +7,9 @@ import { triageConfig, triageItems } from "../server/db/schema.js";
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   factoryIdSchema,
+  factoryStillPresent,
   readTriageConfigRow,
+  requireExistingFactory,
   triageConfigUpdateRowId,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
@@ -159,9 +161,19 @@ export default defineAction({
             and(
               eq(triageConfig.id, configRowId),
               eq(triageConfig.orgId, orgId),
+              factoryStillPresent(
+                tx as unknown as ReturnType<typeof getDb>,
+                orgId,
+                factoryId,
+              ),
             ),
           );
       }
+      await requireExistingFactory(
+        tx as unknown as ReturnType<typeof getDb>,
+        orgId,
+        factoryId,
+      );
     });
 
     if (result.envelopes.length === 0) {

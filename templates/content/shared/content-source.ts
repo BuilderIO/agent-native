@@ -37,6 +37,7 @@ export interface ParsedContentSourceFile {
   position?: number;
   isFavorite?: boolean;
   hideFromSearch?: boolean;
+  visibility?: "private" | "org" | "public";
   errors?: string[];
 }
 
@@ -192,6 +193,18 @@ export function parseContentSourceFile(
   const rawTitle = typeof metadata.title === "string" ? metadata.title : "";
   const title = rawTitle.trim() || titleFromPath(filePath) || "Untitled";
   const rawPosition = metadata.position;
+  let visibility: "private" | "org" | "public" | undefined;
+  if (hasOwn(metadata, "visibility")) {
+    if (
+      metadata.visibility === "private" ||
+      metadata.visibility === "org" ||
+      metadata.visibility === "public"
+    ) {
+      visibility = metadata.visibility;
+    } else {
+      errors.push("Invalid visibility frontmatter.");
+    }
+  }
 
   return {
     path: filePath,
@@ -220,6 +233,7 @@ export function parseContentSourceFile(
       typeof metadata.hideFromSearch === "boolean"
         ? metadata.hideFromSearch
         : undefined,
+    visibility,
     errors: errors.length > 0 ? errors : undefined,
   };
 }

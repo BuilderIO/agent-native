@@ -731,12 +731,14 @@ export function mountActionRoutes(
 
               // Only echo the raw message for known-safe cases:
               //  - validation errors (deterministic, parameter-shape only)
-              //  - action contract errors (explicitly safe on every transport)
-              //  - explicit user-facing errors (AgentActionStopError / fail())
+              //  - action contract errors, which `fail()` also raises
+              //    (explicitly safe on every transport)
+              //  - AgentActionStopError (an explicit user-facing stop)
               //  - errors with an explicit statusCode < 500 (client errors)
-              // For uncategorized 500s, return a generic message and keep the
-              // real detail server-side only — it can contain DB/driver/
-              // upstream text we must not leak to HTTP callers.
+              // A bare `throw new Error(...)` is deliberately absent: it is
+              // indistinguishable from a driver or upstream blowup, so it stays
+              // a generic 500 and the real detail — which can contain DB/
+              // driver/upstream text — never leaves the server.
               const isUserFacing =
                 isValidationError ||
                 isActionContractError(err) ||

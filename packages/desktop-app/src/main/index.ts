@@ -531,6 +531,19 @@ function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   }
 }
 
+// Windows/Linux: a cold start (the app was not already running) delivers the
+// deep link as a plain argv entry instead of firing 'open-url' (macOS-only)
+// or 'second-instance' (only reached by an already-running primary
+// instance), so nothing else observes it before the window loads. Queue it
+// into pendingDeepLink the same way the macOS open-url cold-start path below
+// does, for app.whenReady() to drain into handleDeepLink().
+function capturePendingDeepLinkFromArgv(argv: string[]): void {
+  const deepLink = argv.find(isDeepLinkArg);
+  if (deepLink) {
+    pendingDeepLink = deepLink;
+  }
+}
+
 if (IS_DEV) {
   // electron-vite kills the main process and relaunches it on every rebuild
   // (e.g. when the concurrent `@agent-native/core` tsc --watch under
@@ -539,6 +552,7 @@ if (IS_DEV) {
   // and app.quit() — leaving the killed instance's dead Dock tile behind.
   // Skip the lock in dev; keep the deep-link handler for parity.
   app.on("second-instance", handleSecondInstance);
+  capturePendingDeepLinkFromArgv(process.argv);
   // Quit immediately when electron-vite SIGTERMs us so the old process and its
   // Dock tile vanish at once, before the relaunched instance paints its window.
   const exitNow = () => app.exit(0);
@@ -550,6 +564,7 @@ if (IS_DEV) {
     app.quit();
   } else {
     app.on("second-instance", handleSecondInstance);
+    capturePendingDeepLinkFromArgv(process.argv);
   }
 }
 

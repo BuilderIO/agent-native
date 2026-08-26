@@ -98,12 +98,14 @@ import {
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
+import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
+import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
 import {
   classifyLocalSourceRead,
   localSourceRevisionForQueuedEdit,
@@ -636,6 +638,18 @@ function DocumentEditorBody({
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+  const [databaseExportContext, setDatabaseExportContext] =
+    useState<DatabaseExportContext | null>(null);
+  const databaseExportContextFingerprintRef = useRef("null");
+  const handleDatabaseExportContextChange = useCallback(
+    (context: DatabaseExportContext | null) => {
+      const fingerprint = JSON.stringify(context);
+      if (databaseExportContextFingerprintRef.current === fingerprint) return;
+      databaseExportContextFingerprintRef.current = fingerprint;
+      setDatabaseExportContext(context);
+    },
+    [],
+  );
   const [newDocumentTypeChosen, setNewDocumentTypeChosen] = useState(false);
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
@@ -736,6 +750,13 @@ function DocumentEditorBody({
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const getLinkedLocalEditorSnapshot = useCallback(
+    () => ({
+      title: localTitleRef.current,
+      content: localContentRef.current,
+    }),
+    [],
+  );
   const localSourceWriteErrorShownRef = useRef(false);
   const documentUpdatedAtRef = useRef<string | null>(
     document.updatedAt ?? null,
@@ -1253,6 +1274,59 @@ function DocumentEditorBody({
       stop?.();
     };
   }, [document.id, document.source, isLinkedLocalSourceDocument]);
+
+  const handleLinkedLocalAgentPersistence = useCallback(
+    (persisted: Document, revision?: DesktopContentFileRevision) => {
+      localSourceRevisionRef.current = revision;
+      localTitleRef.current = persisted.title;
+      localContentRef.current = persisted.content;
+      setLocalTitle(persisted.title);
+      setLocalContent(persisted.content);
+      setLocalContentUpdatedAt(persisted.updatedAt ?? new Date().toISOString());
+      lastSavedTitleRef.current = {
+        title: persisted.title,
+        updatedAt: lastSavedTitleRef.current.updatedAt,
+      };
+      lastSavedContentRef.current = {
+        content: persisted.content,
+        updatedAt: lastSavedContentRef.current.updatedAt,
+      };
+      setLocalFileSyncRevision((revision) => revision + 1);
+      setLocalSourceConflict(null);
+      const sqlUpdatedAt = documentUpdatedAtRef.current;
+      queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+        mergeDocumentIntoDocumentCache(old, {
+          ...persisted,
+          updatedAt: sqlUpdatedAt ?? persisted.updatedAt,
+        }),
+      );
+    },
+    [documentId, queryClient],
+  );
+
+  useEffect(() => {
+    if (
+      !isLinkedLocalSourceDocument ||
+      document.title !== localTitleRef.current ||
+      document.content !== localContentRef.current ||
+      !document.updatedAt
+    ) {
+      return;
+    }
+    lastSavedTitleRef.current = {
+      title: document.title,
+      updatedAt: document.updatedAt,
+    };
+    lastSavedContentRef.current = {
+      content: document.content,
+      updatedAt: document.updatedAt,
+    };
+  }, [
+    document.content,
+    document.title,
+    document.updatedAt,
+    isLinkedLocalSourceDocument,
+  ]);
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -2011,6 +2085,13 @@ function DocumentEditorBody({
       registry={contentBlockRegistry}
       ctx={blockRenderContext}
     >
+      {isLinkedLocalSourceDocument && editorCanEdit ? (
+        <LinkedLocalDocumentAgentBridge
+          document={document}
+          getEditorSnapshot={getLinkedLocalEditorSnapshot}
+          onPersisted={handleLinkedLocalAgentPersistence}
+        />
+      ) : null}
       <div
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root
@@ -2029,6 +2110,7 @@ function DocumentEditorBody({
             documentId={documentId}
             documentTitle={exportTitle}
             documentContent={exportContent}
+            databaseExportContext={databaseExportContext}
             breadcrumbItems={toolbarBreadcrumbItems.map((item) =>
               item.id === documentId ? { ...item, title: exportTitle } : item,
             )}
@@ -2230,7 +2312,11 @@ function DocumentEditorBody({
                 </div>
                 {document.database ? (
                   <div className={documentEditorDatabaseRegionClassName()}>
-                    <DocumentDatabase document={document} canEdit={canEdit} />
+                    <DocumentDatabase
+                      document={document}
+                      canEdit={canEdit}
+                      onExportContextChange={handleDatabaseExportContextChange}
+                    />
                   </div>
                 ) : null}
 

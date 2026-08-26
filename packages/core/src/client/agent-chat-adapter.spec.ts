@@ -7904,6 +7904,84 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("replays a terminal snapshot even when the active flag has already cleared", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Started " },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-terminal-after-release",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: false,
+          runId: "run-terminal-after-release",
+          threadId: "thread-terminal-after-release",
+          turnId: requestTurnId,
+          status: "completed",
+          terminalReason: "done",
+          dispatchMode: "background-processing",
+        });
+      }
+      if (url.includes("/runs/run-terminal-after-release/events")) {
+        return backgroundSseResponse(
+          [{ type: "text", text: "finished" }, { type: "done" }],
+          "run-terminal-after-release",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-terminal-after-release",
+      threadId: "thread-terminal-after-release",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+    const last = results.at(-1) as any;
+
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.content.map((part: any) => part.text).join(" ")).toContain(
+      "finished",
+    );
+    expect(last.content.map((part: any) => part.text).join(" ")).not.toContain(
+      "no continuation appeared",
+    );
+  });
+
   it("never condemns a run because the /runs/active poll itself failed", async () => {
     // "The poll failed" is not "the run is gone". A 5xx from this route used
     // to coerce to active=false, fall into the no-active-run branch, and drive

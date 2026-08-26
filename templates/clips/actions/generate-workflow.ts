@@ -14,7 +14,7 @@
  *   pnpm action generate-workflow --recordingId=<id> --kind=pr
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
