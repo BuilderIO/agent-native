@@ -559,6 +559,22 @@ mod tests {
     }
 
     #[test]
+    fn ten_seconds_of_ticking_writes_the_icon_once() {
+        // The reported flash: the pill invokes the status update every 250ms
+        // to tick the timer, and every one of those used to re-upload the
+        // image. Ten seconds of recording is one icon write, not forty-one.
+        let mut applied: Option<bool> = None;
+        let mut writes = 0;
+        for _ in 0..41 {
+            if tray_icon_needs_write(applied, true) {
+                writes += 1;
+                applied = Some(true);
+            }
+        }
+        assert_eq!(writes, 1);
+    }
+
+    #[test]
     fn reads_an_unset_mode_as_never_written() {
         assert_eq!(tray_icon_mode(TRAY_ICON_MODE_UNSET), None);
         assert_eq!(tray_icon_mode(0), Some(false));
