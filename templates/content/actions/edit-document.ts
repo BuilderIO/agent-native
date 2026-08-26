@@ -21,10 +21,6 @@ import { getDb, schema } from "../server/db/index.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
-  canNormalizeMarkdownPipeTableRegion,
-  normalizeMarkdownPipeTable,
-} from "../shared/markdown-import.js";
-import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
@@ -33,18 +29,6 @@ import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-
 interface TextEdit {
   find: string;
   replace: string;
-}
-
-function countOverlappingOccurrences(content: string, find: string): number {
-  let count = 0;
-  let offset = 0;
-  while (offset <= content.length - find.length) {
-    const match = content.indexOf(find, offset);
-    if (match === -1) break;
-    count++;
-    offset = match + 1;
-  }
-  return count;
 }
 
 const reuseLabelSchema = z.object({
@@ -73,12 +57,6 @@ export default defineAction({
       .string()
       .optional()
       .describe("JSON array of {find, replace} objects (batch mode)"),
-    transform: z
-      .literal("normalize-pipe-table")
-      .optional()
-      .describe(
-        "Deterministically convert one unique exact Markdown pipe-table region into Content's native table form. Returns a typed no-change result when the region is missing, ambiguous, unsupported, or stale.",
-      ),
     contextPackId: z
       .string()
       .optional()
@@ -99,41 +77,6 @@ export default defineAction({
   run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
-    const access = await assertAccess("document", id, "editor");
-    const existing = access.resource;
-    const db = getDb();
-
-    const verifyUnchangedTransformResult = async <T extends object>(
-      result: T,
-    ) => {
-      const [persisted] = await db
-        .select({ content: schema.documents.content })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, id))
-        .limit(1);
-      if (!persisted) {
-        throw new Error(
-          "Pipe-table repair could not verify the persisted document body.",
-        );
-      }
-      if (persisted.content !== existing.content) {
-        return {
-          status: "stale" as const,
-          applied: 0,
-          total: 1,
-          verified: true,
-          persistedContentUnchanged: false,
-          results: [
-            "STALE: document changed during repair verification; no repair applied",
-          ],
-        };
-      }
-      return {
-        ...result,
-        verified: true,
-        persistedContentUnchanged: true,
-      };
-    };
 
     // Only publish AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
@@ -143,86 +86,7 @@ export default defineAction({
 
     let edits: TextEdit[];
 
-    let transformResult:
-      | {
-          status: "repaired";
-          columnCount: number;
-          rowCount: number;
-        }
-      | undefined;
-
-    if (args.transform) {
-      if (args.edits !== undefined || args.replace !== undefined) {
-        throw new Error(
-          "--transform cannot be combined with --edits or --replace",
-        );
-      }
-      if (!args.find) throw new Error("--find is required with --transform");
-      const existingContent = existing.content ?? "";
-      const matches = countOverlappingOccurrences(existingContent, args.find);
-      if (matches === 0) {
-        return verifyUnchangedTransformResult({
-          status: "no-match" as const,
-          applied: 0,
-          total: 1,
-          results: ["NOT FOUND: exact pipe-table region"],
-        });
-      }
-      if (matches > 1) {
-        return verifyUnchangedTransformResult({
-          status: "ambiguous" as const,
-          applied: 0,
-          total: 1,
-          results: [`AMBIGUOUS: exact region occurs ${matches} times`],
-        });
-      }
-      const normalized = normalizeMarkdownPipeTable(args.find);
-      if (normalized.status !== "normalized") {
-        return verifyUnchangedTransformResult({
-          status: "unsupported" as const,
-          reason: normalized.reason,
-          applied: 0,
-          total: 1,
-          results: [`UNSUPPORTED: ${normalized.reason}`],
-        });
-      }
-      const withoutCrLf = existingContent.split("\r\n").join("");
-      const hasMixedLineEndings =
-        existingContent.includes("\r\n") && withoutCrLf.includes("\n");
-      if (hasMixedLineEndings) {
-        return verifyUnchangedTransformResult({
-          status: "unsupported" as const,
-          reason: "mixed-line-endings",
-          applied: 0,
-          total: 1,
-          results: ["UNSUPPORTED: mixed-line-endings"],
-        });
-      }
-      const lineEnding = existingContent.includes("\r\n") ? "\r\n" : "\n";
-      const replacement = normalized.content.split("\n").join(lineEnding);
-      const matchIndex = existingContent.indexOf(args.find);
-      if (
-        !canNormalizeMarkdownPipeTableRegion(
-          existingContent,
-          matchIndex,
-          matchIndex + args.find.length,
-        )
-      ) {
-        return verifyUnchangedTransformResult({
-          status: "unsupported" as const,
-          reason: "unsafe-document-context",
-          applied: 0,
-          total: 1,
-          results: ["UNSUPPORTED: unsafe-document-context"],
-        });
-      }
-      edits = [{ find: args.find, replace: replacement }];
-      transformResult = {
-        status: "repaired",
-        columnCount: normalized.columnCount,
-        rowCount: normalized.rowCount,
-      };
-    } else if (args.edits) {
+    if (args.edits) {
       try {
         edits = JSON.parse(args.edits);
         if (!Array.isArray(edits))
@@ -244,6 +108,9 @@ export default defineAction({
         throw new Error("Each edit must have a non-empty 'find' field");
       if (edit.replace === undefined) edit.replace = "";
     }
+
+    const access = await assertAccess("document", id, "editor");
+    const existing = access.resource;
 
     // ─── Apply edits to the document markdown ───────────────────────────────
     //
@@ -441,6 +308,7 @@ export default defineAction({
 
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an
     // intentional external edit apart from a stale autosave echo.
+    const db = getDb();
     const now = new Date().toISOString();
     try {
       await db.transaction(async (tx: any) => {
@@ -514,35 +382,6 @@ export default defineAction({
       };
     }
 
-    if (stale) {
-      const [persisted] = await db
-        .select({ content: schema.documents.content })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, id))
-        .limit(1);
-      if (!persisted) {
-        throw new Error(
-          "Pipe-table repair could not verify the persisted document body.",
-        );
-      }
-      return {
-        status: "stale" as const,
-        applied: 0,
-        total: 1,
-        verified: true,
-        persistedContentUnchanged: persisted.content === existing.content,
-        results: ["STALE: document changed before repair; no changes applied"],
-      };
-    }
-
-    if (transformResult) {
-      if (persistedTransformContent !== content) {
-        throw new Error(
-          "Pipe-table repair could not verify the persisted document body.",
-        );
-      }
-    }
-
     // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
     // binds the TipTap Y.XmlFragment("default"), so a live editing session is
     // patched surgically through `searchAndReplace` (which also auto-publishes
@@ -580,8 +419,6 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
-      ...transformResult,
-      ...(transformResult ? { verified: true } : {}),
       applied: changeCount,
       total: edits.length,
       results,

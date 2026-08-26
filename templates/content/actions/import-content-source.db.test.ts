@@ -5,16 +5,9 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { serializeContentSourceDocument } from "../shared/content-source.js";
-
-vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/creative-context/server")
-  >()),
-  getGenerationCreativeContext: vi.fn(async () => null),
-}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -25,7 +18,6 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let importContentSourceAction: typeof import("./import-content-source.js").default;
-let editDocumentAction: typeof import("./edit-document.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 const OWNER = "owner@example.com";
@@ -40,7 +32,6 @@ beforeAll(async () => {
   schema = dbModule.schema;
   importContentSourceAction = (await import("./import-content-source.js"))
     .default;
-  editDocumentAction = (await import("./edit-document.js")).default;
   provisionContentSpaces = (await import("./_content-spaces.js"))
     .provisionContentSpaces;
   const plugin = (await import("../server/plugins/db.js")).default;

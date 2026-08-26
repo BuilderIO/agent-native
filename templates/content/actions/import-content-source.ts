@@ -217,13 +217,7 @@ export default defineAction({
       await resolveContentSpaceAccess(defaultSpaceId, "editor");
     }
     const parsed: ParsedContentSourceFile[] = entries.map(
-      ([filePath, source]) => {
-        const parsed = parseContentSourceFile(filePath, source);
-        return {
-          ...parsed,
-          content: normalizeImportedMarkdownStructures(parsed.content).content,
-        };
-      },
+      ([filePath, source]) => parseContentSourceFile(filePath, source),
     );
     const fidelityByPath = new Map(
       parsed.map((file) => [file.path, inspectNfmFidelity(file.content)]),
