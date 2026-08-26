@@ -1257,6 +1257,7 @@ uniform vec3 uPageColor;
 uniform float uScreenBlend;
 uniform float uLightSaturation;
 uniform float uLightScreenAmount;
+uniform float uIntroDuration;
 
 const float PI = 3.14159265359;
 const float MAX = 10000.0;
@@ -1404,7 +1405,17 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 f = ray_vs_sphere(eye, dir, uPlanetRadius);
   e.y = min(e.y, f.x);
 
-  vec3 I = in_scatter(eye, dir, e, l);
+  // Intro ignition: ramps the scattering brightness up from zero over the
+  // first uIntroDuration seconds, so the globe visibly lights up rather than
+  // popping in fully lit. Alpha below is derived from this same brightness,
+  // so the whole effect fades in from fully transparent for free.
+  // uIntroDuration of 0 disables it, and the reduced-motion static frame is
+  // drawn well past any duration, so it renders already-lit.
+  float intro = uIntroDuration <= 0.0
+    ? 1.0
+    : smoothstep(0.0, 1.0, clamp(iTime / uIntroDuration, 0.0, 1.0));
+
+  vec3 I = in_scatter(eye, dir, e, l) * intro;
   vec3 col = clamp(pow(max(I, vec3(0.0)), vec3(1.0 / uGamma)), 0.0, 1.0);
 
   // Alpha tracks the scattering brightness itself, so the glow fades
@@ -1470,6 +1481,7 @@ function AtmosphereShaderBackground({
   inScatterSteps,
   lightSaturation,
   lightScreenAmount,
+  introDuration,
   intensity,
   paused,
   frameRate = 30,
@@ -1511,6 +1523,7 @@ function AtmosphereShaderBackground({
     inScatterSteps,
     lightSaturation,
     lightScreenAmount,
+    introDuration,
     paused,
   });
   useEffect(() => {
@@ -1539,6 +1552,7 @@ function AtmosphereShaderBackground({
       inScatterSteps,
       lightSaturation,
       lightScreenAmount,
+      introDuration,
       paused,
     };
   }, [
@@ -1566,6 +1580,7 @@ function AtmosphereShaderBackground({
     inScatterSteps,
     lightSaturation,
     lightScreenAmount,
+    introDuration,
     paused,
   ]);
 
@@ -1677,6 +1692,7 @@ function AtmosphereShaderBackground({
       program,
       "uLightScreenAmount",
     );
+    const uIntroDuration = gl.getUniformLocation(program, "uIntroDuration");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1724,6 +1740,7 @@ function AtmosphereShaderBackground({
         uLightScreenAmount,
         settingsRef.current.lightScreenAmount,
       );
+      gl.uniform1f(uIntroDuration, settingsRef.current.introDuration);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 

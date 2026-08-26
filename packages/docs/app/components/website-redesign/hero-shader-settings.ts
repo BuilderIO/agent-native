@@ -161,6 +161,7 @@ export interface AtmosphereSettings {
   inScatterSteps: number;
   lightSaturation: number;
   lightScreenAmount: number;
+  introDuration: number;
   intensity: number;
   paused: boolean;
 }
@@ -172,10 +173,10 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   eyeDistance: 5.5,
   centerX: 0.95,
   centerY: 0.5,
-  lightPitch: 8,
-  lightYawStart: -70,
-  lightYawEnd: 110,
-  lightSpeed: 0.22,
+  lightPitch: 3,
+  lightYawStart: 50,
+  lightYawEnd: 124,
+  lightSpeed: 0.06,
   rayleighR: 3.8,
   rayleighG: 13.5,
   rayleighB: 33.1,
@@ -188,8 +189,9 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   gamma: 1.6,
   outScatterSteps: 8,
   inScatterSteps: 80,
-  lightSaturation: 1.8,
-  lightScreenAmount: 0.4,
+  lightSaturation: 4,
+  lightScreenAmount: 0.7,
+  introDuration: 2.4,
   intensity: 0.9,
   paused: false,
 };
@@ -222,6 +224,7 @@ export const ATMOSPHERE_FIELD_CONFIG: Record<
   inScatterSteps: { kind: "range", min: 8, max: 128, step: 4 },
   lightSaturation: { kind: "range", min: 0, max: 4, step: 0.05 },
   lightScreenAmount: { kind: "range", min: 0, max: 1, step: 0.05 },
+  introDuration: { kind: "range", min: 0, max: 8, step: 0.1 },
   intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
   paused: { kind: "boolean" },
 };
