@@ -94,6 +94,7 @@ import {
   MarkdownText,
   renderMarkdownToClipboardHtml,
   SmoothMarkdownText,
+  TextStreamingContext,
 } from "./markdown-renderer.js";
 import { getAssistantRunDurationMs } from "./repo-helpers.js";
 import {
@@ -1057,6 +1058,33 @@ export function messageTextFromContent(content: unknown): string {
     .join("\n");
 }
 
+export function displayableApprovalText(
+  text: string,
+  content: readonly unknown[],
+): string {
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const toolCall = part as {
+      type?: unknown;
+      toolName?: unknown;
+      approval?: { approvalKey?: unknown } | null;
+    };
+    if (
+      toolCall.type !== "tool-call" ||
+      typeof toolCall.toolName !== "string" ||
+      typeof toolCall.approval?.approvalKey !== "string" ||
+      toolCall.approval.approvalKey.length === 0
+    ) {
+      continue;
+    }
+    // Match the server's fallback transcript copy without removing it from
+    // persistence for hosts that do not render the structured approval card.
+    const waitingText = `Waiting for your approval to run ${toolCall.toolName}.`; // i18n-ignore -- protocol copy match, not new UI copy.
+    if (text.startsWith(waitingText)) return text.slice(waitingText.length);
+  }
+  return text;
+}
+
 export function isMissingFinalResponseWarningText(text: string): boolean {
   const normalized = text.trim();
   if (
@@ -1709,6 +1737,7 @@ export function AssistantMessage() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const threadRuntime = useThreadRuntime();
+  const textStreaming = React.useContext(TextStreamingContext);
   const chatRunning = React.useContext(ChatRunningContext);
   const activeRunId = React.useContext(ChatRunningRunIdContext);
   const activeTurnId = React.useContext(ChatRunningTurnIdContext);
@@ -2021,7 +2050,12 @@ export function AssistantMessage() {
                     </WorkedForSummary>
                   );
                 }
-                case "text":
+                case "text": {
+                  const displayText = displayableApprovalText(
+                    part.text,
+                    msgContent ?? [],
+                  );
+                  if (!displayText) return null;
                   if (
                     isUserStoppedRun &&
                     isMissingFinalResponseWarningText(part.text)
@@ -2047,7 +2081,18 @@ export function AssistantMessage() {
                       />
                     );
                   }
+                  if (displayText !== part.text) {
+                    return (
+                      <SmoothMarkdownText
+                        text={localizeKnownChatErrorText(displayText, t)}
+                        streaming={textStreaming && isLast}
+                        resetKey={msg.id}
+                        statusType={msg.status?.type ?? "complete"}
+                      />
+                    );
+                  }
                   return <MarkdownText />;
+                }
                 case "reasoning":
                   return <ReasoningMessagePart />;
                 case "tool-call":

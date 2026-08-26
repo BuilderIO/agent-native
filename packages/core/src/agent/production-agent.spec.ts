@@ -1531,6 +1531,17 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("resolveAgentApprovalThreadScope", () => {
+  it("returns absent when chat thread sharing is not registered", async () => {
+    await expect(
+      resolveAgentApprovalThreadScope(
+        "owner@example.com",
+        null,
+        "thread-1",
+        "editor",
+      ),
+    ).resolves.toBeNull();
+  });
+
   it("uses the persisted thread owner and org when the active org differs", async () => {
     const resolveAccess = vi.fn(
       async (

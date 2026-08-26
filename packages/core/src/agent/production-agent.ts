@@ -1404,6 +1404,10 @@ export async function resolveAgentApprovalThreadScope(
   role: "viewer" | "editor",
   resolveAccess?: AgentApprovalThreadAccessResolver,
 ) {
+  if (!resolveAccess) {
+    const { getShareableResource } = await import("../sharing/registry.js");
+    if (!getShareableResource("chat_thread")) return null;
+  }
   const accessResolver =
     resolveAccess ??
     (await import("../chat-threads/store.js")).resolveThreadAccessIdentity;
@@ -9626,7 +9630,7 @@ export function createProductionAgentHandler(
             activeApprovalOrgId,
             threadId,
             "editor",
-          ).catch(() => null)
+          )
         : null;
     const approvalOwnerEmail = persistedApprovalScope?.ownerEmail ?? ownerEmail;
     const approvalOrgId = persistedApprovalScope
