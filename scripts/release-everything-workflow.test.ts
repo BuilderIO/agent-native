@@ -56,6 +56,11 @@ describe("release everything workflow", () => {
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
     assert.match(source, /channel: "production"/);
+    assert.match(
+      source,
+      /const workflowRef = `@agent-native\/core@\$\{coreVersion\}`/,
+    );
+    assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
