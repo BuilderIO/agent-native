@@ -140,4 +140,35 @@ describe("editLinkedLocalDocumentThroughBrowser", () => {
       content: "# Updated",
     });
   });
+
+  it("accepts a complete divergent-source receipt for history reconciliation", async () => {
+    const name = linkedLocalDocumentEditActionName("doc-1");
+    mocks.listBrowserSessions.mockResolvedValue([
+      { sessionId: "exact", actions: [{ name }] },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "source-persisted/history-pending",
+      content: "# Concurrent source",
+      title: "Concurrent source",
+      description: "Changed on disk",
+      metadata: {
+        parentId: null,
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+      },
+      path: "fixture.mdx",
+      runtime: "browser",
+      revision: "sha256:concurrent",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser(args),
+    ).resolves.toMatchObject({
+      status: "source-persisted/history-pending",
+      content: "# Concurrent source",
+    });
+  });
 });

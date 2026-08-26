@@ -26,6 +26,17 @@ type EditArgs = {
 const actionName = (documentId: string) =>
   `content-edit-linked-document:${documentId}`;
 
+function managedDocumentMetadata(document: Document) {
+  return {
+    parentId: document.parentId,
+    icon: document.icon,
+    position: document.position,
+    isFavorite: document.isFavorite,
+    hideFromSearch: document.hideFromSearch,
+    visibility: document.visibility,
+  };
+}
+
 export function LinkedLocalDocumentAgentBridge({
   document,
   getEditorSnapshot,
@@ -39,6 +50,7 @@ export function LinkedLocalDocumentAgentBridge({
   documentRef.current = document;
 
   useEffect(() => {
+    let active = true;
     const action: AgentNativeClientAction<EditArgs> = {
       name: actionName(document.id),
       description: actionName(document.id),
@@ -81,6 +93,9 @@ export function LinkedLocalDocumentAgentBridge({
           };
         }
         const baseline = await readDocumentFromLinkedLocalSource(current);
+        if (!active || documentRef.current.id !== args.documentId) {
+          return { status: "conflict", error: "The open document changed." };
+        }
         if (!baseline.ok) {
           return {
             status: baseline.unavailable ? "unavailable" : "failed",
@@ -91,14 +106,8 @@ export function LinkedLocalDocumentAgentBridge({
           baseline.document.content !== args.expectedContent ||
           baseline.document.title !== args.expectedTitle ||
           (baseline.document.description ?? "") !== args.expectedDescription ||
-          JSON.stringify({
-            parentId: baseline.document.parentId,
-            icon: baseline.document.icon,
-            position: baseline.document.position,
-            isFavorite: baseline.document.isFavorite,
-            hideFromSearch: baseline.document.hideFromSearch,
-            visibility: baseline.document.visibility,
-          }) !== args.expectedMetadata
+          JSON.stringify(managedDocumentMetadata(baseline.document)) !==
+            args.expectedMetadata
         ) {
           return {
             status: "conflict",
@@ -123,6 +132,9 @@ export function LinkedLocalDocumentAgentBridge({
               "The editor changed while the agent edit was being prepared.",
           };
         }
+        if (!active || documentRef.current.id !== args.documentId) {
+          return { status: "conflict", error: "The open document changed." };
+        }
         const written = await writeDocumentToLinkedLocalSource(
           next,
           current.source,
@@ -139,6 +151,18 @@ export function LinkedLocalDocumentAgentBridge({
           };
         }
         const readBack = await readDocumentFromLinkedLocalSource(next);
+        if (!active || documentRef.current.id !== args.documentId) {
+          return {
+            status: "source-persisted/history-pending",
+            content: next.content,
+            title: next.title,
+            description: next.description ?? "",
+            metadata: managedDocumentMetadata(next),
+            path: written.path,
+            runtime: written.runtime,
+            revision: written.revision,
+          };
+        }
         if (!readBack.ok) {
           return {
             status: "source-persisted/readback-pending",
@@ -149,11 +173,41 @@ export function LinkedLocalDocumentAgentBridge({
             revision: written.revision,
           };
         }
-        if (readBack.document.content !== applied.content) {
+        const revisionMatches =
+          !written.revision ||
+          !readBack.revision ||
+          written.revision === readBack.revision;
+        const managedMetadataMatches =
+          JSON.stringify(managedDocumentMetadata(readBack.document)) ===
+          JSON.stringify(managedDocumentMetadata(next));
+        if (
+          !revisionMatches ||
+          readBack.document.content !== applied.content ||
+          !managedMetadataMatches ||
+          (readBack.document.description ?? "") !== (next.description ?? "") ||
+          readBack.document.title !== next.title
+        ) {
           return {
-            status: "failed",
-            error:
-              "The linked file read-back did not match the requested edit.",
+            status: "source-persisted/history-pending",
+            content: readBack.document.content,
+            title: readBack.document.title,
+            description: readBack.document.description ?? "",
+            metadata: managedDocumentMetadata(readBack.document),
+            path: readBack.path,
+            runtime: readBack.runtime,
+            revision: readBack.revision,
+          };
+        }
+        if (!editorMatchesExpected()) {
+          return {
+            status: "source-persisted/history-pending",
+            content: readBack.document.content,
+            title: readBack.document.title,
+            description: readBack.document.description ?? "",
+            metadata: managedDocumentMetadata(readBack.document),
+            path: readBack.path,
+            runtime: readBack.runtime,
+            revision: readBack.revision,
           };
         }
         onPersisted(readBack.document, readBack.revision);
@@ -181,7 +235,10 @@ export function LinkedLocalDocumentAgentBridge({
       }),
       actions: [action],
     });
-    return () => bridge.stop();
+    return () => {
+      active = false;
+      bridge.stop();
+    };
   }, [document.id, getEditorSnapshot, onPersisted]);
 
   return null;

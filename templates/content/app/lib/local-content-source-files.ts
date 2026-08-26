@@ -349,7 +349,9 @@ async function writeBrowserFile(
     const current = await file.getFile();
     const currentRevision = await browserFileRevision(await current.text());
     if (currentRevision !== expectedRevision) {
-      await writable.close();
+      await writable.abort?.(
+        new DOMException("The local file changed.", "AbortError"),
+      );
       return { ok: false as const, actualRevision: currentRevision };
     }
     if (!writable.truncate) {

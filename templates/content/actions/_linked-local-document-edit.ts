@@ -21,6 +21,15 @@ type LinkedLocalEditReceipt =
       status: "source-persisted/history-pending";
       content: string;
       title: string;
+      description: string;
+      metadata: {
+        parentId: string | null;
+        icon: string | null;
+        position: number;
+        isFavorite: boolean;
+        hideFromSearch: boolean;
+        visibility: "private" | "org" | "public";
+      };
       path: string;
       runtime: "browser" | "desktop";
       revision?: string;
@@ -46,7 +55,7 @@ function isReceipt(value: unknown): value is LinkedLocalEditReceipt {
     receipt.status === "source-persisted/history-pending" ||
     receipt.status === "source-persisted/readback-pending"
   ) {
-    return (
+    const hasPersistedFields =
       typeof receipt.content === "string" &&
       typeof receipt.title === "string" &&
       receipt.title.length > 0 &&
@@ -54,7 +63,21 @@ function isReceipt(value: unknown): value is LinkedLocalEditReceipt {
       receipt.path.length > 0 &&
       (receipt.runtime === "browser" || receipt.runtime === "desktop") &&
       (receipt.revision === undefined ||
-        (typeof receipt.revision === "string" && receipt.revision.length > 0))
+        (typeof receipt.revision === "string" && receipt.revision.length > 0));
+    if (!hasPersistedFields) return false;
+    if (receipt.status !== "source-persisted/history-pending") return true;
+    const metadata = receipt.metadata as Record<string, unknown> | undefined;
+    return (
+      typeof receipt.description === "string" &&
+      !!metadata &&
+      (metadata.parentId === null || typeof metadata.parentId === "string") &&
+      (metadata.icon === null || typeof metadata.icon === "string") &&
+      typeof metadata.position === "number" &&
+      typeof metadata.isFavorite === "boolean" &&
+      typeof metadata.hideFromSearch === "boolean" &&
+      (metadata.visibility === "private" ||
+        metadata.visibility === "org" ||
+        metadata.visibility === "public")
     );
   }
   return (
@@ -123,7 +146,6 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
     }
     if (
       (result.status === "persisted" ||
-        result.status === "source-persisted/history-pending" ||
         result.status === "source-persisted/readback-pending") &&
       result.content !== args.expectedResultContent
     ) {

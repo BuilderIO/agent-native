@@ -133,9 +133,25 @@ export default defineAction({
 
     let linkedLocalPersistence:
       | {
-          status: "persisted" | "source-persisted/readback-pending";
+          status:
+            | "persisted"
+            | "source-persisted/readback-pending"
+            | "source-persisted/history-pending";
           path: string;
           runtime: "browser" | "desktop";
+        }
+      | undefined;
+    let linkedLocalHistoryReconciliation = false;
+    let linkedLocalReconciliationDocument:
+      | {
+          title: string;
+          description: string;
+          parentId: string | null;
+          icon: string | null;
+          position: number;
+          isFavorite: boolean;
+          hideFromSearch: boolean;
+          visibility: "private" | "org" | "public";
         }
       | undefined;
 
@@ -261,18 +277,16 @@ export default defineAction({
         edits,
       });
       if (receipt.status === "source-persisted/history-pending") {
-        return {
-          applied: changeCount,
-          total: edits.length,
-          results,
-          persistence: receipt.status,
-          path: receipt.path,
-          error:
-            "The local file changed, but Content history still needs reconciliation.",
+        linkedLocalHistoryReconciliation = true;
+        linkedLocalReconciliationDocument = {
+          title: receipt.title,
+          description: receipt.description,
+          ...receipt.metadata,
         };
       }
       if (
         receipt.status !== "persisted" &&
+        receipt.status !== "source-persisted/history-pending" &&
         receipt.status !== "source-persisted/readback-pending"
       ) {
         return {
@@ -300,7 +314,11 @@ export default defineAction({
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
         const mirrored = await tx
           .update(schema.documents)
-          .set({ content, updatedAt: now })
+          .set({
+            content,
+            updatedAt: now,
+            ...(linkedLocalReconciliationDocument ?? {}),
+          })
           .where(
             and(
               eq(schema.documents.id, id),
@@ -348,6 +366,18 @@ export default defineAction({
           error instanceof Error
             ? error.message
             : "The local file changed, but Content history was not updated.",
+      };
+    }
+
+    if (linkedLocalHistoryReconciliation) {
+      return {
+        applied: 0,
+        total: edits.length,
+        results,
+        persistence: "source-persisted/history-reconciled",
+        path: linkedLocalPersistence?.path,
+        error:
+          "The source changed during verification. Content history was reconciled to the physical file, but the requested agent edit was not confirmed.",
       };
     }
 

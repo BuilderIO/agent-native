@@ -2044,7 +2044,7 @@ function DocumentEditorBody({
       registry={contentBlockRegistry}
       ctx={blockRenderContext}
     >
-      {isLinkedLocalSourceDocument ? (
+      {isLinkedLocalSourceDocument && editorCanEdit ? (
         <LinkedLocalDocumentAgentBridge
           document={document}
           getEditorSnapshot={getLinkedLocalEditorSnapshot}

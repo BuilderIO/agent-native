@@ -308,7 +308,8 @@ Old body`;
     });
     expect(write).not.toHaveBeenCalled();
     expect(truncate).not.toHaveBeenCalled();
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+    expect(abort).toHaveBeenCalledTimes(1);
     expect(physicalContent).toContain("Changed outside Content.");
     expect(fileHandle.createWritable).toHaveBeenCalledWith({
       keepExistingData: true,
