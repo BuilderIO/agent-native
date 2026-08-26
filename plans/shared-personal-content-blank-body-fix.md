@@ -1,8 +1,8 @@
 # Shared Personal Content blank-body repair
 
-Status: Shape complete; ready for `/work`  
-Task: `bc4a2441-2f92-4eaf-93b4-b29c3cc564fa` — Make shared Personal Content readable and editable  
-Shape ledger: `shape-bc4a2441-r1`  
+Status: Shape complete; ready for `/work`
+Task: `bc4a2441-2f92-4eaf-93b4-b29c3cc564fa` — Make shared Personal Content readable and editable
+Shape ledger: `shape-bc4a2441-r1`
 Frozen against: `BuilderIO/agent-native@84ab540e20387bd4a2bc160ebd73cb7db0215dfd` (`main`, 2026-08-26)
 
 ## Outcome
@@ -239,11 +239,11 @@ status: active
 
 ## Product handoff
 
-Product context: `content.access.page-database`, `content.workspace.multi-scope`, and `content.feature.find-your-place-again`  
-Workflow: share one Personal page by explicit role; recipient reads and edits only that page  
-Proof: current code-level causal reproduction and frozen automated/real-interface proof plan; no fix or acceptance evidence yet  
-Remaining gaps: Work must implement, exercise the isolated two-identity fixture, and obtain repository review  
-Product decisions: none; contract repair, not a new sharing promise  
+Product context: `content.access.page-database`, `content.workspace.multi-scope`, and `content.feature.find-your-place-again`
+Workflow: share one Personal page by explicit role; recipient reads and edits only that page
+Proof: current code-level causal reproduction and frozen automated/real-interface proof plan; no fix or acceptance evidence yet
+Remaining gaps: Work must implement, exercise the isolated two-identity fixture, and obtain repository review
+Product decisions: none; contract repair, not a new sharing promise
 Record updates: none required unless implementation discovers a contract change
 
 ## `/work` entry instruction
