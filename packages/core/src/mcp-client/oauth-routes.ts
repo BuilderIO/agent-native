@@ -18,7 +18,7 @@ import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
 import {
   CredentialStoreUnavailableError,
-  resolveSecretPair,
+  resolveSecretPairs,
 } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
@@ -372,19 +372,17 @@ export async function resolveManagedMcpOAuthClient(
   );
   if (!client) return undefined;
 
-  for (const [clientIdKey, clientSecretKey] of client.credentialPairs) {
-    const credentials = await resolveSecretPair(
-      [clientIdKey, clientSecretKey],
-      { allowUserScope: false },
-    );
-    if (credentials) {
-      const [clientId, clientSecret] = credentials;
-      return {
-        client_id: clientId,
-        client_secret: clientSecret,
-        token_endpoint_auth_method: "client_secret_post",
-      } as StoredOAuthClientInformation;
-    }
+  const credentials = await resolveSecretPairs(client.credentialPairs, {
+    allowUserScope: false,
+    preferWorkspaceScope: true,
+  });
+  if (credentials) {
+    const [clientId, clientSecret] = credentials;
+    return {
+      client_id: clientId,
+      client_secret: clientSecret,
+      token_endpoint_auth_method: "client_secret_post",
+    } as StoredOAuthClientInformation;
   }
   return undefined;
 }
