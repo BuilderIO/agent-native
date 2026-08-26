@@ -9,7 +9,7 @@ import {
 import type { KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -59,6 +59,7 @@ export interface SpeakerIdentity {
   key: string;
   label: string | null;
   initialsSource: AttendeeStackParticipant | string;
+  email?: string | null;
   isOwner: boolean;
   accentClass: string;
   /** The capture could not tell speakers apart, so this transcript names
@@ -291,6 +292,7 @@ export function resolveSpeaker(
     key,
     label,
     initialsSource: participant ?? label ?? (source === "mic" ? "Me" : "Them"),
+    email: participant?.email ?? (source === "mic" ? ownerEmail : null),
     isOwner: source === "mic",
     accentClass: accentForSpeaker(key, source === "mic"),
   };
@@ -641,21 +643,26 @@ export function TranscriptBubbles({
                 >
                   {!group.speaker.unattributed && (
                     <div className="flex h-6 items-center gap-2">
-                      <Avatar
+                      <ClipsAvatar
+                        email={group.speaker.email}
+                        alt={
+                          group.speaker.label ||
+                          (group.speaker.isOwner
+                            ? t("transcriptBubbles.me")
+                            : t("transcriptBubbles.them"))
+                        }
+                        fallback={attendeeInitials(
+                          group.speaker.initialsSource,
+                        )}
                         className={cn(
                           "size-6 shrink-0",
                           group.speaker.accentClass,
                         )}
-                      >
-                        <AvatarFallback
-                          className={cn(
-                            "text-[9px] font-semibold",
-                            group.speaker.accentClass,
-                          )}
-                        >
-                          {attendeeInitials(group.speaker.initialsSource)}
-                        </AvatarFallback>
-                      </Avatar>
+                        fallbackClassName={cn(
+                          "text-[9px] font-semibold",
+                          group.speaker.accentClass,
+                        )}
+                      />
                       <div className="flex min-h-6 items-center">
                         <span
                           className={cn(

@@ -1,4 +1,8 @@
-import { Avatar, AvatarFallback } from "@agent-native/toolkit/ui/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@agent-native/toolkit/ui/avatar";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
@@ -25,6 +29,7 @@ import type {
 } from "../../review/types.js";
 import { useFormatters } from "../i18n.js";
 import { InlineMarkdown } from "../markdown/index.js";
+import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
 import { ReviewCommentComposer } from "./ReviewCommentComposer.js";
 import { ReviewStatusBadge } from "./ReviewStatusBadge.js";
@@ -480,6 +485,7 @@ function CommentBubble({
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
 }) {
   const author = comment.authorName ?? comment.authorEmail ?? reviewerLabel;
+  const avatarUrl = useAvatarUrl(comment.authorEmail);
   const resolutionNote =
     comment.status === "resolved" ? getReviewResolutionNote(comment) : null;
   const bodyIsResolutionNote =
@@ -489,6 +495,7 @@ function CommentBubble({
   return (
     <div className="flex min-w-0 items-start gap-2.5">
       <Avatar className={compact ? "size-5" : "size-7"}>
+        {avatarUrl ? <AvatarImage src={avatarUrl} alt={author} /> : null}
         <AvatarFallback className="text-[10px] font-semibold text-muted-foreground">
           {authorInitials(author)}
         </AvatarFallback>
