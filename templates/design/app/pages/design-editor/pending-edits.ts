@@ -525,7 +525,15 @@ export function appendPendingVisualStyleUndoEntry(
     pendingVisualStyleEditKey(last.edit) ===
       pendingVisualStyleEditKey(entry.edit)
   ) {
-    last.edit = entry.edit;
+    last.edit = {
+      ...entry.edit,
+      styles: { ...last.edit.styles, ...entry.edit.styles },
+      originalStyles: {
+        ...entry.edit.originalStyles,
+        ...last.edit.originalStyles,
+      },
+    };
+    last.revertStyles = { ...entry.revertStyles, ...last.revertStyles };
     return;
   }
   stack.push(entry);

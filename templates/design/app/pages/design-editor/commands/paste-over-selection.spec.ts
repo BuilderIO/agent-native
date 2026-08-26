@@ -95,6 +95,27 @@ describe("resolvePasteOverPositions", () => {
     ).toEqual([{ x: 356, y: 236 }]);
   });
 
+  it("falls through to computed left/top when nested position is class-based", () => {
+    expect(
+      resolvePasteOverPositions(
+        [
+          {
+            html: `<div data-agent-native-node-id="child-1" class="absolute left-10 top-5"></div>`,
+            rootNodeId: "child-1",
+            sourceFileId: "home",
+          },
+        ],
+        selected({ left: "40px", top: "20px" }, undefined, "child-1"),
+        `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="frame-1" style="position:absolute;left:300px;top:200px;width:400px;height:400px">
+<div data-agent-native-node-id="child-1" class="absolute left-10 top-5"></div>
+</div>
+</body></html>`,
+      ),
+    ).toEqual([{ x: 56, y: 36 }]);
+  });
+
   it("returns null when neither the selection nor the copy has CSS position", () => {
     expect(
       resolvePasteOverPositions(

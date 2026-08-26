@@ -61,7 +61,9 @@ export function removeAbsolutePositioningFromNodeInHtml(
 
 /** Root-absolute authored left/top by walking positioned ancestors.
  * A node's own computed left/top is containing-block relative, which is
- * wrong once clones insert at the document root. */
+ * wrong once clones insert at the document root. Returns null when the
+ * subject has no inline left/top so callers can fall through to computed
+ * styles instead of treating a class-positioned 0,0 walk as resolved. */
 export function authoredDocumentPositionForNode(
   content: string,
   nodeAttrId: string,
@@ -73,11 +75,22 @@ export function authoredDocumentPositionForNode(
       `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
     );
     if (!element) return null;
+    if (!hasResolvableInlineOffset(element)) return null;
     return authoredElementPosition(element);
   } catch {
     // coercion-ok: unreadable HTML is "no authored position", same as a missing node.
     return null;
   }
+}
+
+function hasResolvableInlineOffset(element: Element): boolean {
+  const style = (element as HTMLElement).style;
+  const position = style.position;
+  if (position !== "absolute" && position !== "fixed") return false;
+  return (
+    Number.isFinite(parseFloat(style.left)) &&
+    Number.isFinite(parseFloat(style.top))
+  );
 }
 
 /** Persist the bridge's narrow fallback for a flow insertion whose authored

@@ -112,4 +112,22 @@ describe("board file is not generation output", () => {
       hasPendingGenerationOutput({ prompt: "login screen" }, [board, screen]),
     ).toBe(true);
   });
+
+  it("does not treat CSS/JSX/asset support files as a generated screen", () => {
+    const stylesheet = {
+      id: "file-css",
+      filename: "styles.css",
+      fileType: "css",
+      content: "body { margin: 0 }",
+      createdAt: "2026-07-10T12:00:00.000Z",
+      updatedAt: "2026-07-10T12:01:00.000Z",
+    };
+    expect(generationOutputFiles([board, stylesheet])).toEqual([]);
+    expect(
+      hasPendingGenerationOutput({ prompt: "login screen" }, [
+        board,
+        stylesheet,
+      ]),
+    ).toBe(false);
+  });
 });

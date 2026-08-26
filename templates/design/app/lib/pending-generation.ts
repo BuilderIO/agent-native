@@ -3,6 +3,7 @@ import { isBoardFile } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { normalizedDesignFileType } from "@/pages/design-editor/canvas-primitive-insert";
 
 // Pending generation state is a UI recovery aid, not a generation deadline.
 // Keep it long enough for thorough designs while still clearing abandoned runs.
@@ -27,14 +28,22 @@ export interface PendingGeneration {
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
 }
 
-function isGenerationOutputFile(file: { filename?: string }): boolean {
-  return !file.filename || !isBoardFile(file.filename);
+function isGenerationOutputFile(file: {
+  filename?: string;
+  fileType?: string;
+}): boolean {
+  if (file.filename && isBoardFile(file.filename)) return false;
+  return normalizedDesignFileType(file.fileType ?? "html") === "html";
 }
 
 /** Screens the user would notice as generated output. The reserved board
- * file is created on every design open and must not count as generation. */
+ * file is created on every design open and must not count as generation.
+ * CSS/JSX/asset support files match the overview screen list: not screens. */
 export function generationOutputFiles<
-  T extends { filename?: string } = { filename?: string },
+  T extends { filename?: string; fileType?: string } = {
+    filename?: string;
+    fileType?: string;
+  },
 >(files: readonly T[]): T[] {
   return files.filter(isGenerationOutputFile);
 }
@@ -44,6 +53,7 @@ export function hasPendingGenerationOutput(
   files: readonly {
     id: string;
     filename?: string;
+    fileType?: string;
     content: string;
     createdAt?: string | null;
     updatedAt?: string | null;

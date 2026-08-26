@@ -58,6 +58,24 @@ describe("appendPendingVisualStyleUndoEntry", () => {
     expect(stack[0]?.revertStyles).toEqual({ color: "red" });
   });
 
+  it("merges later properties into the same-target entry instead of replacing it", () => {
+    const stack: Array<{
+      edit: PendingVisualStyleEdit;
+      revertStyles: Record<string, string>;
+    }> = [];
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { color: "blue" }),
+      revertStyles: { color: "red" },
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { opacity: "0.5" }),
+      revertStyles: { opacity: "1" },
+    });
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.edit.styles).toEqual({ color: "blue", opacity: "0.5" });
+    expect(stack[0]?.revertStyles).toEqual({ color: "red", opacity: "1" });
+  });
+
   it("keeps distinct selectors as separate undo steps", () => {
     const stack: Array<{
       edit: PendingVisualStyleEdit;
