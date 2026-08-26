@@ -18,10 +18,6 @@ import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { flushSync } from "react-dom";
 
-// The window is sized to the pill exactly; elevation is the native NSWindow
-// shadow (see show_toolbar), so there is no transparent apron to eat clicks
-// or fight screen-edge docking.
-const OVERLAY_SHADOW_GUTTER = 0;
 const SEG_MS = 180;
 const HOVER_INTENT_MS = 150;
 // Within this distance of the right screen edge the pill anchors its RIGHT
