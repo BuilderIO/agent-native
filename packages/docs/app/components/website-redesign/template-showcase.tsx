@@ -305,13 +305,27 @@ export function TemplateShowcase() {
                 <BuildOnlinePopover
                   location="homepage_rail"
                   trigger={
-                    <Button variant="raised" icon={null} compact>
-                      BUILD ONLINE
+                    // Caps come from CSS, not the label: an all-caps string
+                    // becomes the accessible name and screen readers spell it
+                    // out letter by letter.
+                    <Button
+                      variant="raised"
+                      icon={null}
+                      compact
+                      className="uppercase"
+                    >
+                      Build online
                     </Button>
                   }
                 />
-                <Button variant="secondary" icon={null} compact href="/docs">
-                  READ THE DOCS
+                <Button
+                  variant="secondary"
+                  icon={null}
+                  compact
+                  href="/docs"
+                  className="uppercase"
+                >
+                  Read the docs
                 </Button>
               </div>
             </div>
