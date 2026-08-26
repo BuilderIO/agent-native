@@ -817,6 +817,32 @@ describe("agent discovery", () => {
     );
   });
 
+  it("rejects a malformed remote manifest instead of caching a partial strict directory", async () => {
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+      {
+        id: "valid",
+        owner: "__shared__",
+        path: "remote-agents/valid.json",
+        content: JSON.stringify({
+          id: "valid",
+          name: "Valid",
+          url: "https://valid.example.test",
+        }),
+      },
+      {
+        id: "malformed",
+        owner: "__shared__",
+        path: "remote-agents/malformed.json",
+        content: "{not-json",
+      },
+    ]);
+
+    await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
+      status: "unavailable",
+      reason: "remote-manifests",
+    });
+  });
+
   it("reports strict workspace metadata failure instead of returning a partial directory", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
@@ -832,6 +858,21 @@ describe("agent discovery", () => {
       await expect(discoverAgents("dispatch")).resolves.toEqual(
         expect.arrayContaining([expect.objectContaining({ id: "briefs" })]),
       );
+    });
+  });
+
+  it("rejects a malformed workspace app instead of caching a partial strict directory", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        { id: "briefs", name: "Briefs", path: "/briefs" },
+        { id: "missing-path", name: "Missing Path" },
+      ],
+    });
+
+    await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
+      status: "unavailable",
+      reason: "workspace-metadata",
     });
   });
 

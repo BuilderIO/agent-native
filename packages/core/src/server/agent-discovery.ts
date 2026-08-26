@@ -281,13 +281,13 @@ export function applyWorkspaceAppMetadataOverride<
  * restart). Reading only the env var would silently downgrade the behavior
  * in both cases.
  */
-export function loadWorkspaceAppsManifest():
-  | WorkspaceAppManifestEntry[]
-  | null {
+export function loadWorkspaceAppsManifest(
+  strict = false,
+): WorkspaceAppManifestEntry[] | null {
   return (
-    readWorkspaceAppsFromEnv() ??
-    readWorkspaceAppsFromManifestFile() ??
-    readWorkspaceAppsFromFilesystem()
+    readWorkspaceAppsFromEnv(strict) ??
+    readWorkspaceAppsFromManifestFile(strict) ??
+    readWorkspaceAppsFromFilesystem(strict)
   );
 }
 
@@ -461,12 +461,15 @@ export async function discoverOrgDirectoryAgents(
   if (workspaceAgents.status === "unavailable") {
     return workspaceAgents;
   }
-  await overlayRemoteAgentResources(
-    agentsById,
-    remoteResources.value,
-    selfAppId,
-    options,
+  const remoteOverlay = await readDirectorySource("remote-manifests", () =>
+    overlayRemoteAgentResources(
+      agentsById,
+      remoteResources.value,
+      selfAppId,
+      options,
+    ),
   );
+  if (remoteOverlay.status === "unavailable") return remoteOverlay;
   for (const agent of workspaceAgents.value) agentsById.set(agent.id, agent);
   return { status: "available", agents: Array.from(agentsById.values()) };
 }
@@ -522,12 +525,15 @@ async function overlayRemoteAgentResources(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): Promise<void> {
-  const { parseRemoteAgentManifest } = await import("../resources/metadata.js");
+  const { isRemoteAgentPath, parseRemoteAgentManifest } =
+    await import("../resources/metadata.js");
   for (const resource of resources) {
-    if (!resource.path.endsWith(".json")) continue;
+    if (!isRemoteAgentPath(resource.path)) continue;
     const manifest = parseRemoteAgentManifest(resource.content, resource.path);
-    if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
-      continue;
+    if (!manifest) {
+      throw new Error(`Invalid remote agent manifest: ${resource.path}`);
+    }
+    if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
     const manifestId = normalizeAgentId(manifest.id);
     let url = manifest.url;
     const builtin = agentsById.get(manifestId);
@@ -686,16 +692,20 @@ function titleCase(value: string): string {
 
 function parseWorkspaceAppsManifest(
   parsed: any,
+  strict = false,
 ): WorkspaceAppManifestEntry[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
     : Array.isArray(parsed)
       ? parsed
       : null;
-  if (!rawApps) return null;
+  if (!rawApps) {
+    if (strict) throw new Error("Invalid workspace apps manifest");
+    return null;
+  }
 
-  const apps = (rawApps as unknown[])
-    .map((entry): WorkspaceAppManifestEntry | null => {
+  const parsedApps = (rawApps as unknown[]).map(
+    (entry): WorkspaceAppManifestEntry | null => {
       if (!entry || typeof entry !== "object") return null;
       const e = entry as Record<string, unknown>;
       const rawId = typeof e.id === "string" ? e.id.trim() : "";
@@ -720,7 +730,12 @@ function parseWorkspaceAppsManifest(
         publicPaths: normalizeWorkspaceAppPathList(e.publicPaths),
         protectedPaths: normalizeWorkspaceAppPathList(e.protectedPaths),
       };
-    })
+    },
+  );
+  if (strict && parsedApps.some((app) => app === null)) {
+    throw new Error("Invalid workspace app manifest entry");
+  }
+  const apps = parsedApps
     .filter((app): app is WorkspaceAppManifestEntry => app !== null)
     .sort((a, b) => {
       if (a.id === "dispatch") return -1;
@@ -731,12 +746,15 @@ function parseWorkspaceAppsManifest(
   return apps.length ? apps : null;
 }
 
-function readWorkspaceAppsFromEnv(): WorkspaceAppManifestEntry[] | null {
+function readWorkspaceAppsFromEnv(
+  strict = false,
+): WorkspaceAppManifestEntry[] | null {
   const raw = process.env[WORKSPACE_APPS_ENV_KEY];
   if (!raw) return null;
   try {
-    return parseWorkspaceAppsManifest(JSON.parse(raw));
+    return parseWorkspaceAppsManifest(JSON.parse(raw), strict);
   } catch {
+    if (strict) throw new Error("Invalid workspace apps environment manifest");
     return null;
   }
 }
@@ -764,18 +782,20 @@ function workspaceAppsManifestCandidates(): string[] {
   return candidates;
 }
 
-function readWorkspaceAppsFromManifestFile():
-  | WorkspaceAppManifestEntry[]
-  | null {
+function readWorkspaceAppsFromManifestFile(
+  strict = false,
+): WorkspaceAppManifestEntry[] | null {
   for (const file of workspaceAppsManifestCandidates()) {
     if (!fs.existsSync(file)) continue;
-    const apps = parseWorkspaceAppsManifest(readJson(file));
+    const apps = parseWorkspaceAppsManifest(readJson(file), strict);
     if (apps) return apps;
   }
   return null;
 }
 
-function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
+function readWorkspaceAppsFromFilesystem(
+  strict = false,
+): WorkspaceAppManifestEntry[] | null {
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) return null;
   const appsDir = path.join(workspaceRoot, "apps");
@@ -787,7 +807,10 @@ function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
     .map((entry): WorkspaceAppManifestEntry | null => {
       const appDir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(appDir, "package.json"));
-      if (!pkg) return null;
+      if (!pkg) {
+        if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
+        return null;
+      }
       const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
       return {
         id: normalizeAgentId(entry.name),
@@ -846,7 +869,7 @@ async function discoverWorkspaceAgents(
   options?: { preferLocalUrls?: boolean },
   strictMetadata = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = loadWorkspaceAppsManifest();
+  const workspaceApps = loadWorkspaceAppsManifest(strictMetadata);
   if (!workspaceApps) return [];
 
   const metadataSettings =
