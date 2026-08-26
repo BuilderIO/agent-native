@@ -71,6 +71,9 @@ describe("OrgSwitcher", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
     mocks.beginSignOut.mockReset();
+    mocks.beginSignOut.mockImplementation(() => {
+      mocks.notifySessionInvalidated();
+    });
     mocks.notifySessionInvalidated.mockReset();
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();

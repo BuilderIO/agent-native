@@ -373,6 +373,43 @@ describe("useSession", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("notifies a trusted embedding host when signing out", async () => {
+    const { beginSignOut: begin } = await freshSessionModule();
+    const postMessage = vi.fn();
+    const parentWindow = { postMessage };
+    const parentDescriptor = Object.getOwnPropertyDescriptor(window, "parent");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "agentNative.frameOrigin",
+          origin: "https://host.example",
+        },
+        origin: "https://host.example",
+        source: parentWindow as Window,
+      }),
+    );
+
+    try {
+      begin();
+
+      expect(postMessage).toHaveBeenLastCalledWith(
+        {
+          type: "agentNative.authState",
+          data: { status: "unauthenticated" },
+        },
+        "https://host.example",
+      );
+    } finally {
+      if (parentDescriptor) {
+        Object.defineProperty(window, "parent", parentDescriptor);
+      }
+    }
+  });
+
   it("keeps signing-out terminal for the life of the document", async () => {
     const { beginSignOut: begin, useSession: useFreshSession } =
       await freshSessionModule();

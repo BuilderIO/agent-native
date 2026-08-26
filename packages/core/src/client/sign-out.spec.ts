@@ -135,6 +135,15 @@ describe("signOut", () => {
   it("reloads the current document when the revoke request fails", async () => {
     const { signOut } = await loadSignOut();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const originalLocalStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const setItem = vi.fn();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: { setItem },
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -146,13 +155,28 @@ describe("signOut", () => {
 
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
+    expect(setItem).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalled();
+    if (originalLocalStorage) {
+      Object.defineProperty(window, "localStorage", originalLocalStorage);
+    } else {
+      delete (window as Window & { localStorage?: Storage }).localStorage;
+    }
   });
 
   it("reloads the current document when the revoke request times out", async () => {
     const { signOut } = await loadSignOut();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.useFakeTimers();
+    const originalLocalStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const setItem = vi.fn();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: { setItem },
+    });
     let signal: AbortSignal | undefined;
     vi.stubGlobal(
       "fetch",
@@ -173,10 +197,16 @@ describe("signOut", () => {
     expect(signal?.aborted).toBe(true);
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
+    expect(setItem).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
       "Unable to complete the sign-out request",
       expect.anything(),
     );
+    if (originalLocalStorage) {
+      Object.defineProperty(window, "localStorage", originalLocalStorage);
+    } else {
+      delete (window as Window & { localStorage?: Storage }).localStorage;
+    }
   });
 
   it("shares one revoke and redirect across concurrent calls", async () => {

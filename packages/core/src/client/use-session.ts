@@ -172,6 +172,7 @@ export function isSigningOut(): boolean {
 export function beginSignOut(): void {
   signingOut = true;
   publishSessionIdentity(null);
+  notifyParentAuthState("unauthenticated");
   notifySessionInvalidated();
 }
 

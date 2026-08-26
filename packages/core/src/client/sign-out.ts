@@ -76,15 +76,16 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   } finally {
     clearTimeout(timeout);
   }
-  // The first notification protects this document. This second one makes
-  // other tabs revalidate after the server has finished revoking the session.
-  notifySessionInvalidated();
   if (!revoked) {
     // Do not send an unrevoked session through sign-in's continuation, which
     // can immediately authenticate it again.
     window.location.reload();
     return;
   }
+  // The first notification protects this document. This second one makes
+  // other tabs revalidate after the server has successfully revoked the
+  // session.
+  notifySessionInvalidated();
   // `replace`, not `assign`: the dead authenticated URL must not stay in
   // history, or Back lands on a shell with no session.
   window.location.replace(options.redirectTo ?? buildSignInReturnHref());
