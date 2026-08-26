@@ -77,8 +77,9 @@ this skill:
 
 When an exception requires independent review, it means a separate,
 attributable, non-dismissed `APPROVED` PR review from a different verified
-current BuilderIO member, submitted against the current PR head, with no
-active, non-dismissed `CHANGES_REQUESTED` review from any reviewer.
+current BuilderIO member, submitted against the current PR head and remaining
+that reviewer’s latest non-dismissed review, with no active, non-dismissed
+`CHANGES_REQUESTED` review from any reviewer.
 Self-review, author-stated validation, bot-only review, a
 `COMMENTED`/`CHANGES_REQUESTED` review, an unverified reviewer, or
 unverifiable review state does not satisfy it; without that evidence, do not
