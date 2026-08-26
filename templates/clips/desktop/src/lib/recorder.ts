@@ -2499,7 +2499,10 @@ function showFinalizingFeedback() {
  *
  * `recordingId` is also the pill's session identity: its window is reused
  * across a restart, so it needs this to tell its own completion event from a
- * previous take's late one.
+ * previous take's late one. It is sent for local-only takes too, where it is
+ * the export folder name — the same value the save command echoes back as
+ * `recordingId`, so the comparison holds on both sides. Only `serverUrl` is
+ * withheld for local, which is what keeps `viewUrl` null.
  */
 function emitRecorderSession(
   serverUrl: string | null,
@@ -3214,7 +3217,7 @@ async function tryStartRewindFullscreenRecording(
       emit("clips:toolbar-enabled", !stopped).catch(() => {});
       emitRecorderSession(
         localOnly ? null : params.serverUrl,
-        localOnly ? null : id,
+        id || null,
         localOnly,
       );
       emitState();
@@ -3225,7 +3228,7 @@ async function tryStartRewindFullscreenRecording(
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitRecorderSession(
     localOnly ? null : params.serverUrl,
-    localOnly ? null : id,
+    id || null,
     localOnly,
   );
   emitState();
@@ -3568,7 +3571,7 @@ async function startNativeFullscreenRecording(
     emit("clips:toolbar-enabled", true).catch(() => {});
     emitRecorderSession(
       localOnly ? null : params.serverUrl,
-      localOnly ? null : id,
+      id || null,
       localOnly,
     );
     emit("clips:recorder-state", {
@@ -4085,7 +4088,7 @@ async function startNativeFullscreenRecording(
       emit("clips:toolbar-enabled", !stopped).catch(() => {});
       emitRecorderSession(
         localOnly ? null : params.serverUrl,
-        localOnly ? null : id,
+        id || null,
         localOnly,
       );
       emitState();
@@ -4098,7 +4101,7 @@ async function startNativeFullscreenRecording(
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitRecorderSession(
     localOnly ? null : params.serverUrl,
-    localOnly ? null : id,
+    id || null,
     localOnly,
   );
   emitState();

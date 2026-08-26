@@ -40,6 +40,7 @@ type Seg = "mid" | "q" | "del" | "res" | "extras";
 type RecorderSession = {
   viewUrl?: string | null;
   recordingId?: string | null;
+  localOnly?: boolean;
 };
 
 const hasTauri = "__TAURI_INTERNALS__" in window;
@@ -110,7 +111,7 @@ function formatDurationCopy(ms: number): string {
  *
  *   receives → `clips:recorder-state` { paused, elapsedMs },
  *              `clips:toolbar-enabled`, `clips:toolbar-preparing`,
- *              `clips:recorder-session` { viewUrl, recordingId },
+ *              `clips:recorder-session` { viewUrl, recordingId, localOnly },
  *              `clips:native-upload-progress` / `-finished`,
  *              `voice:audio-level` { level, source }
  *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:restart`,
@@ -744,6 +745,9 @@ export function RecordingPill() {
         "clips:native-upload-progress",
         (payload) => {
           if (modeRef.current !== "done") return;
+          // A local-only take never uploads, so any native upload progress
+          // reaching this card belongs to some other recording.
+          if (sessionRef.current.localOnly) return;
           if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
           stallTimerRef.current = setTimeout(() => {
             setDoneStage((s) => (s === "uploaded" ? s : "failed"));

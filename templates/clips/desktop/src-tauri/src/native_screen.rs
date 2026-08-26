@@ -1010,7 +1010,11 @@ async fn wait_for_native_upload_retry_cancel(recording_id: &str) {
     }
 }
 
-fn reset_native_upload_completion_state() {
+/// Clear the take-once completion slot and the open-claim latch. Every path
+/// that starts a recording must call this: the slot has no expiry, and the
+/// pill drains it when a completion card opens, so a result left behind by an
+/// earlier take would surface on the next one's card.
+pub(crate) fn reset_native_upload_completion_state() {
     if let Ok(mut last) = last_native_upload_finished().lock() {
         *last = None;
     }
