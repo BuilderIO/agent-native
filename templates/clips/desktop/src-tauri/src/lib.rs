@@ -375,6 +375,10 @@ pub fn run() {
             // Granola-style adhoc Zoom/Teams detection — shares session
             // credentials with the calendar watcher above.
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
+            // Retire a stored notification payload once the frontend reports the
+            // meeting on screen, so a late-mounting overlay cannot hydrate a
+            // question that has already been answered.
+            notifications::watch_meeting_notification_acks(app.handle());
             // Server-controlled desktop capture feature flags — own poll
             // loop, reuses the calendar watcher's session credentials.
             remote_flags::spawn_watcher(app.handle().clone());
