@@ -327,7 +327,7 @@ describe("Realtime voice client transport", () => {
     );
   });
 
-  it("sends function calls to the authenticated Agent Native tool bridge", async () => {
+  it("sends function calls to the authenticated Agent-Native tool bridge", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
         callId: "call-1",

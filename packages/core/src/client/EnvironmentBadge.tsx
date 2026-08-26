@@ -191,8 +191,8 @@ function EnvironmentBadgeContent({
   const label = environment === "beta" ? "beta" : "prod";
   const title =
     environment === "beta"
-      ? "You're on Agent Native Beta"
-      : "You're on Agent Native Production";
+      ? "You're on Agent-Native Beta"
+      : "You're on Agent-Native Production";
 
   return (
     <Popover>

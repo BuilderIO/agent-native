@@ -62,6 +62,11 @@ import {
   stablePrefixCacheControl,
 } from "./prompt-cache.js";
 import {
+  createProviderToolNameMap,
+  toEngineToolName,
+  type ProviderToolNameMap,
+} from "./tool-name.js";
+import {
   createStreamedToolInputState,
   engineMessagesToBuilderGatewayAnthropic,
   engineToolsToAnthropic,
@@ -148,7 +153,7 @@ function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
  * `/app/organizations/Nicholas%20kipchumba%20Space/billing` which Builder's
  * router treats as unknown and silently bounces to `/app/projects`. The
  * Builder CLI-auth callback doesn't expose the org slug/id today, so we route
- * to the org-agnostic subscription page. Agent Native attribution lets Builder
+ * to the org-agnostic subscription page. Agent-Native attribution lets Builder
  * skip generic onboarding for new users who land there from an upgrade CTA.
  */
 async function buildUpgradeUrl(): Promise<string> {
@@ -250,7 +255,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    // The Builder gateway has an "auto" fallback mode, but Agent Native owns
+    // The Builder gateway has an "auto" fallback mode, but Agent-Native owns
     // model selection. Always send a concrete model so the gateway cannot
     // select an organization-level override or another fallback model.
     const requestedModel = opts.model.trim();
@@ -258,8 +263,12 @@ class BuilderEngine implements AgentEngine {
       requestedModel.length === 0 || requestedModel === "auto"
         ? BUILDER_DEFAULT_MODEL
         : requestedModel;
-    const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
-    const tools = engineToolsToAnthropic(opts.tools);
+    const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const messages = engineMessagesToBuilderGatewayAnthropic(
+      opts.messages,
+      toolNameMap,
+    );
+    const tools = engineToolsToAnthropic(opts.tools, toolNameMap);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
@@ -519,6 +528,7 @@ class BuilderEngine implements AgentEngine {
       }
 
       yield* parseJsonlStream(reader, model, {
+        toolNameMap,
         creditsLane,
         abortSignal: gatewayAbort.signal,
         didGatewayTimeout: gatewayAbort.didTimeout,
@@ -759,6 +769,7 @@ async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   model: string,
   captureContext: {
+    toolNameMap?: ProviderToolNameMap;
     abortSignal?: AbortSignal;
     didGatewayTimeout?: () => boolean;
     getGatewayTimeoutMs?: () => number;
@@ -880,7 +891,10 @@ async function* parseJsonlStream(
           const delta: EngineEvent = {
             type: "tool-input-delta",
             id: event.id,
-            name: event.name,
+            name:
+              typeof event.name === "string"
+                ? toEngineToolName(event.name, captureContext.toolNameMap)
+                : event.name,
             text:
               typeof event.argsTextDelta === "string"
                 ? event.argsTextDelta
@@ -902,7 +916,10 @@ async function* parseJsonlStream(
           const call = {
             type: "tool-call" as const,
             id: event.id,
-            name: event.name,
+            name:
+              typeof event.name === "string"
+                ? toEngineToolName(event.name, captureContext.toolNameMap)
+                : event.name,
             input: event.input,
           };
           parts.push(call);

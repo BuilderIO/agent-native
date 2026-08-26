@@ -95,7 +95,7 @@ Le panneau s'exécute dans l'un des deux modes d'outil :
   et accès à la base de données en plus des outils de l'application, afin que l'agent puisse modifier l'application
   propre source. Les demandes de code sont fermées : lorsqu'un message nécessite du code
   (`type: "code"`) et aucun cadre compatible avec le code n'est connecté, le panneau affiche un
-  boîte de dialogue expliquant que les modifications de code nécessitent Agent Native Desktop ou Builder ;
+  boîte de dialogue expliquant que les modifications de code nécessitent Agent-Native Desktop ou Builder ;
   Lorsqu'une trame est connectée, la requête est acheminée vers elle et un agent de code
   l'indicateur s'affiche pendant qu'il fonctionne (`useSendToAgentChat`). Pour le canonique
   liste des outils de codage et contrats UI partagés, voir
@@ -221,7 +221,7 @@ cd my-app
 pnpm dev
 ```
 
-Le cadre de développement local (le package privé `@agent-native/frame` dans le dépôt du framework) est un package d'outils internes qui n'est pas publié sur npm. Il charge le serveur de développement de l'application active dans une iframe et monte le panneau intégré à côté, en sélectionnant l'application via le paramètre de requête `app`. Le terminal CLI intégré nécessite Agent Native Desktop, qui fournit le code local et l'accès PTY aux besoins du terminal ; sans cela, le panneau affiche la surface de discussion et vous invite à ouvrir le bureau pour utiliser le CLI.
+Le cadre de développement local (le package privé `@agent-native/frame` dans le dépôt du framework) est un package d'outils internes qui n'est pas publié sur npm. Il charge le serveur de développement de l'application active dans une iframe et monte le panneau intégré à côté, en sélectionnant l'application via le paramètre de requête `app`. Le terminal CLI intégré nécessite Agent-Native Desktop, qui fournit le code local et l'accès PTY aux besoins du terminal ; sans cela, le panneau affiche la surface de discussion et vous invite à ouvrir le bureau pour utiliser le CLI.
 
 ## Remarques de compatibilité {#compatibility}
 

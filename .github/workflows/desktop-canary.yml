@@ -84,7 +84,7 @@ jobs:
             spctl --assess --type execute --verbose=4 "$APP_PATH"
             /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO" | grep -qx 'com.agentnative.desktop'
             /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO" | grep -Fqx "$VERSION"
-          done < <(find dist -type d -name 'Agent Native.app' -print0)
+          done < <(find dist -type d -name 'Agent-Native.app' -print0)
           test "$APP_COUNT" -eq 2
 
           {

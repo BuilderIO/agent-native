@@ -81,7 +81,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Analytics no longer stalls under bursts of event ingest — key bookkeeping writes no longer serialize the whole pipeline
 - Analytics tracking and chat startup no longer emit avoidable request errors
 - Dashboard panels now load custom API data programs reliably
-- Template activity charts now show only core Agent Native apps
+- Template activity charts now show only core Agent-Native apps
 
 ### Changed
 
@@ -419,8 +419,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
-- The Agent Native dashboard now shows explicit thumbs feedback trends and sentiment by model.
-- The Agent Native dashboard now shows optional inferred message sentiment overall, over time, and by main model.
+- The Agent-Native dashboard now shows explicit thumbs feedback trends and sentiment by model.
+- The Agent-Native dashboard now shows optional inferred message sentiment overall, over time, and by main model.
 
 ### Improved
 
@@ -570,7 +570,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Added an Agents page that brings monitoring, evals, experiments, feedback, and advanced database tools into one organized admin surface.
-- The Agent Native dashboard now shows model cost, token usage, latency, and error tracking.
+- The Agent-Native dashboard now shows model cost, token usage, latency, and error tracking.
 - Analytics admins can now connect other agent-native app databases from Agents and inspect or repair those target databases without exposing Analytics data to all users.
 
 ### Improved

@@ -16,7 +16,7 @@ describe("resolveFeedbackUrl", () => {
     expect(resolveFeedbackUrl(undefined, "example.com")).toBeNull();
   });
 
-  it("uses the Agent Native feedback form on first-party production hosts", () => {
+  it("uses the Agent-Native feedback form on first-party production hosts", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_FEEDBACK_URL", "");
     vi.stubGlobal("location", { hostname: "analytics.agent-native.com" });
 

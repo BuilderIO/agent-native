@@ -427,7 +427,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     id: "clips",
     label: "Clips",
     description:
-      "Agent-native Clips exports and recordings for transcript import and searchable meeting context.",
+      "Agent-Native Clips exports and recordings for transcript import and searchable meeting context.",
     credentialKeys: [],
     capabilities: ["search", "import", "meetings"],
     recommendedTemplateUses: ["brain", "clips"],

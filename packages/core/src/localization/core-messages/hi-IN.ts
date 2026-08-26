@@ -31,7 +31,7 @@ const messages: AgentChatTranslation = {
   "commands.mention": "फ़ाइलों, एजेंटों या संसाधनों का उल्लेख करें",
   "commands.new": "/clear के समान",
   "commands.plan": "केवल-पढ़ने योग्य योजना मोड पर जाएँ",
-  "aboutAgentNative.title": "Agent Native के बारे में",
+  "aboutAgentNative.title": "Agent-Native के बारे में",
   "aboutAgentNative.version": "संस्करण",
   "aboutAgentNative.environment": "पर्यावरण",
   "aboutAgentNative.build": "बिल्ड",
@@ -143,7 +143,7 @@ const messages: AgentChatTranslation = {
   "composer.plan": "योजना",
   "composer.planDescription": "पहले केवल-पढ़ने योग्य रिसर्च और स्वीकृति",
   "composer.planDesktopRequired":
-    "योजना मोड का उपयोग करने के लिए Agent Native Desktop खोलें।",
+    "योजना मोड का उपयोग करने के लिए Agent-Native Desktop खोलें।",
   "composer.previewAttachment": "{{name}} का प्रीव्यू देखें",
   "composer.reasoning": "तर्क",
   "composer.reasoningEffort.auto": "अपने-आप",

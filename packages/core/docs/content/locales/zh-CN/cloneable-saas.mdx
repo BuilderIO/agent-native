@@ -5,7 +5,7 @@ description: "从一个已经构建好 UI、数据库、身份验证和代理的
 
 # 应用
 
-Agent Native 应用有两种形态：模板（拥有完整的浏览器 UI）和自动化优先应用（没有浏览器 UI，例如 Slack 机器人、每夜报告或 webhook 响应器）。本文档介绍模板；另一种形态请参阅 [Automation-First Apps](/docs/pure-agent-apps)。
+Agent-Native 应用有两种形态：模板（拥有完整的浏览器 UI）和自动化优先应用（没有浏览器 UI，例如 Slack 机器人、每夜报告或 webhook 响应器）。本文档介绍模板；另一种形态请参阅 [Automation-First Apps](/docs/pure-agent-apps)。
 
 模板就是一个完整的 SaaS 产品：UI、数据库、身份验证和代理都已经构建好并连接完毕。选择一个模板，为其打造品牌，然后将其部署为您自己的产品，而不必从空白脚手架开始。这种模式称为可克隆的 SaaS（Cloneable SaaS）：您从一个成品开始，而不是从脚手架开始。
 
@@ -35,9 +35,9 @@ Agent Native 应用有两种形态：模板（拥有完整的浏览器 UI）和�
 
 ## 社区模板 {#community-templates}
 
-CLI 选择器中按名称提供的模板是**第一方模板**：Agent Native 会随框架一起
+CLI 选择器中按名称提供的模板是**第一方模板**：Agent-Native 会随框架一起
 维护、测试、记录和发布它们。**社区模板**由其仓库所有者负责维护和版本管理。
-它可以使用相同的框架能力，但进入社区列表并不表示 Agent Native 对其背书或
+它可以使用相同的框架能力，但进入社区列表并不表示 Agent-Native 对其背书或
 承诺提供支持。
 
 运行 `create`，选择**社区模板**，然后粘贴公开 GitHub 仓库的简单 URL：
@@ -46,8 +46,8 @@ CLI 选择器中按名称提供的模板是**第一方模板**：Agent Native �
 https://github.com/owner/repo
 ```
 
-如果仓库根目录是单个 Agent Native 应用，CLI 会直接安装，不再显示其他
-选择器。如果仓库是 Agent Native 工作区，CLI 会发现 `apps/*` 的有效直接
+如果仓库根目录是单个 Agent-Native 应用，CLI 会直接安装，不再显示其他
+选择器。如果仓库是 Agent-Native 工作区，CLI 会发现 `apps/*` 的有效直接
 子项，排除 `dispatch`，并询问要安装哪个应用。
 
 非空的 `agent-native.workspaceCore` 标记会使仓库被视为工作区，即使根
@@ -118,7 +118,7 @@ sync` 仍然只适用于第一方模板；更新社区模板时，请检查较�
 [Creating Templates](/docs/creating-templates)。
 
 > **安装依赖项或运行社区代码之前，请先进行审查。** 社区模板从第三方仓库
-> 下载；Agent Native 不会对其进行 sandbox、审计或维护。CLI 只下载源代码，
+> 下载；Agent-Native 不会对其进行 sandbox、审计或维护。CLI 只下载源代码，
 > 不会安装依赖项或运行模板脚本。请检查源代码、许可证、依赖项和 package
 > install scripts，并优先使用已固定且可信的 ref。
 
@@ -258,7 +258,7 @@ demo 负责。
 
 ## 尝试一下技巧 {#try-with-a-skill}
 
-您可以将 Agent Native 的能力添加到已经在使用的编码代理中，而无需搭建应用脚手架。请参阅 [Skills Guide](/docs/skills-guide#app-backed-skills)。
+您可以将 Agent-Native 的能力添加到已经在使用的编码代理中，而无需搭建应用脚手架。请参阅 [Skills Guide](/docs/skills-guide#app-backed-skills)。
 
 ## 在此基础上构建
 

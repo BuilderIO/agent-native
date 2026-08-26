@@ -109,7 +109,7 @@ export function toDesktopOpenUrl(urlOrPath: string): string {
 }
 
 /**
- * Wrap an Agent Native web URL in the VS Code extension URI so external agents
+ * Wrap an Agent-Native web URL in the VS Code extension URI so external agents
  * can hand users a link that opens the app inside a VS Code webview.
  */
 export function toVsCodeOpenUrl(urlOrPath: string): string {
