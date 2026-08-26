@@ -162,6 +162,9 @@ export interface AtmosphereSettings {
   lightSaturation: number;
   lightScreenAmount: number;
   introDuration: number;
+  warpAmount: number;
+  warpScale: number;
+  warpSpeed: number;
   ditherMode: "noise" | "ordered";
   ditherAmount: number;
   ditherScale: number;
@@ -197,6 +200,9 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   lightSaturation: 4,
   lightScreenAmount: 0.65,
   introDuration: 2.4,
+  warpAmount: 18,
+  warpScale: 1.2,
+  warpSpeed: 0.15,
   ditherMode: "ordered",
   ditherAmount: 5.5,
   ditherScale: 3,
@@ -235,6 +241,9 @@ export const ATMOSPHERE_FIELD_CONFIG: Record<
   lightSaturation: { kind: "range", min: 0, max: 4, step: 0.05 },
   lightScreenAmount: { kind: "range", min: 0, max: 1, step: 0.05 },
   introDuration: { kind: "range", min: 0, max: 8, step: 0.1 },
+  warpAmount: { kind: "range", min: 0, max: 150, step: 1 },
+  warpScale: { kind: "range", min: 0.1, max: 6, step: 0.1 },
+  warpSpeed: { kind: "range", min: 0, max: 2, step: 0.01 },
   ditherMode: {
     kind: "select",
     options: [

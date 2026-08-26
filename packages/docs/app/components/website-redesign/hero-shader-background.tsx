@@ -1258,6 +1258,9 @@ uniform float uScreenBlend;
 uniform float uLightSaturation;
 uniform float uLightScreenAmount;
 uniform float uIntroDuration;
+uniform float uWarpAmount;
+uniform float uWarpScale;
+uniform float uWarpSpeed;
 uniform float uDitherAmount;
 uniform float uDitherScale;
 uniform float uDitherSpeed;
@@ -1394,6 +1397,27 @@ mat3 rot3xy(vec2 angle) {
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 center = vec2(iResolution.x * uCenterX, iResolution.y * uCenterY);
   vec2 xy = fragCoord - center;
+
+  // Gentle continuous morph. Displacing the sampling coordinate before the
+  // ray direction is built warps the sphere itself (silhouette, atmosphere
+  // band and terminator all together) rather than smearing a finished image,
+  // so it reads as the globe breathing instead of a post-process wobble.
+  //
+  // Two sine pairs per axis at unrelated frequencies and drift rates: a
+  // single sine would visibly slosh back and forth, whereas summing
+  // incommensurate ones gives a long, non-repeating wander. Each axis is
+  // driven by the *other* axis' coordinate, which shears rather than merely
+  // translating. This runs off raw iTime, uncoupled from the one-shot light
+  // sweep, so the motion continues indefinitely after the intro settles.
+  if (uWarpAmount > 0.0) {
+    vec2 wp = fragCoord / iResolution.y * 6.2831 * uWarpScale;
+    float wt = iTime * uWarpSpeed;
+    vec2 warp = vec2(
+      sin(wp.y + wt) + 0.5 * sin(wp.y * 2.3 - wt * 1.3),
+      sin(wp.x * 0.9 - wt * 0.8) + 0.5 * sin(wp.x * 1.7 + wt * 1.1)
+    );
+    xy += warp * uWarpAmount;
+  }
 
   float cot_half_fov = tan(radians(90.0 - uFov * 0.5));
   float zdist = iResolution.y * 0.5 * cot_half_fov;
@@ -1558,6 +1582,9 @@ function AtmosphereShaderBackground({
   ditherScale,
   ditherSpeed,
   posterizeLevels,
+  warpAmount,
+  warpScale,
+  warpSpeed,
   intensity,
   paused,
   frameRate = 30,
@@ -1605,6 +1632,9 @@ function AtmosphereShaderBackground({
     ditherScale,
     ditherSpeed,
     posterizeLevels,
+    warpAmount,
+    warpScale,
+    warpSpeed,
     paused,
   });
   useEffect(() => {
@@ -1639,6 +1669,9 @@ function AtmosphereShaderBackground({
       ditherScale,
       ditherSpeed,
       posterizeLevels,
+      warpAmount,
+      warpScale,
+      warpSpeed,
       paused,
     };
   }, [
@@ -1672,6 +1705,9 @@ function AtmosphereShaderBackground({
     ditherScale,
     ditherSpeed,
     posterizeLevels,
+    warpAmount,
+    warpScale,
+    warpSpeed,
     paused,
   ]);
 
@@ -1784,6 +1820,9 @@ function AtmosphereShaderBackground({
       "uLightScreenAmount",
     );
     const uIntroDuration = gl.getUniformLocation(program, "uIntroDuration");
+    const uWarpAmount = gl.getUniformLocation(program, "uWarpAmount");
+    const uWarpScale = gl.getUniformLocation(program, "uWarpScale");
+    const uWarpSpeed = gl.getUniformLocation(program, "uWarpSpeed");
     const uDitherAmount = gl.getUniformLocation(program, "uDitherAmount");
     const uDitherScale = gl.getUniformLocation(program, "uDitherScale");
     const uDitherSpeed = gl.getUniformLocation(program, "uDitherSpeed");
@@ -1837,6 +1876,9 @@ function AtmosphereShaderBackground({
         settingsRef.current.lightScreenAmount,
       );
       gl.uniform1f(uIntroDuration, settingsRef.current.introDuration);
+      gl.uniform1f(uWarpAmount, settingsRef.current.warpAmount);
+      gl.uniform1f(uWarpScale, settingsRef.current.warpScale);
+      gl.uniform1f(uWarpSpeed, settingsRef.current.warpSpeed);
       gl.uniform1f(uDitherAmount, settingsRef.current.ditherAmount);
       gl.uniform1f(uDitherScale, settingsRef.current.ditherScale);
       gl.uniform1f(uDitherSpeed, settingsRef.current.ditherSpeed);
