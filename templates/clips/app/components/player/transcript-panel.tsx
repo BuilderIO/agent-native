@@ -112,14 +112,25 @@ export function getTranscriptSeekMs(
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery || segments.length === 0) return displaySegment.startMs;
 
-  return (
-    segments.find(
-      (segment) =>
-        segment.startMs >= displaySegment.startMs &&
-        segment.endMs <= displaySegment.endMs &&
-        segment.text.toLowerCase().includes(normalizedQuery),
-    )?.startMs ?? displaySegment.startMs
+  const displaySegments = segments.filter(
+    (segment) =>
+      segment.startMs >= displaySegment.startMs &&
+      segment.endMs <= displaySegment.endMs,
   );
+  const searchableText = displaySegments
+    .map((segment) => segment.text)
+    .join(" ")
+    .toLowerCase();
+  const matchIndex = searchableText.indexOf(normalizedQuery);
+  if (matchIndex < 0) return displaySegment.startMs;
+
+  let offset = 0;
+  for (const segment of displaySegments) {
+    if (matchIndex < offset + segment.text.length) return segment.startMs;
+    offset += segment.text.length + 1;
+  }
+
+  return displaySegment.startMs;
 }
 
 export function TranscriptPanel(props: TranscriptPanelProps) {

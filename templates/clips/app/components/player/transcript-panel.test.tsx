@@ -126,4 +126,14 @@ describe("mergeTranscriptSegmentsForDisplay", () => {
       getTranscriptSeekMs(displaySegment, "matching phrase", segments),
     ).toBe(2_000);
   });
+
+  it("seeks to the first cue when a search phrase spans cues", () => {
+    const segments = [
+      { startMs: 0, endMs: 2_000, text: "Please ship" },
+      { startMs: 2_000, endMs: 4_000, text: "this." },
+    ];
+    const [displaySegment] = mergeTranscriptSegmentsForDisplay(segments);
+
+    expect(getTranscriptSeekMs(displaySegment, "ship this", segments)).toBe(0);
+  });
 });
