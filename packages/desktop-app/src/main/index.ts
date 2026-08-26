@@ -330,6 +330,7 @@ initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
   appDataPath: app.getPath("appData"),
+  defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(
     app.commandLine.getSwitchValue("user-data-dir"),
     process.argv,
