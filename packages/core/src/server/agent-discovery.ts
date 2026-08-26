@@ -138,11 +138,29 @@ function cleanOptionalText(value: unknown): string | undefined {
 
 export function parseWorkspaceAppMetadataSettings(
   raw: unknown,
+  strict = false,
 ): WorkspaceAppMetadataSettings {
+  if (
+    strict &&
+    raw !== null &&
+    raw !== undefined &&
+    (typeof raw !== "object" || Array.isArray(raw))
+  ) {
+    throw new Error("Invalid workspace app metadata settings");
+  }
   const record =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
+  if (
+    strict &&
+    record.apps !== undefined &&
+    (record.apps === null ||
+      typeof record.apps !== "object" ||
+      Array.isArray(record.apps))
+  ) {
+    throw new Error("Invalid workspace app metadata apps map");
+  }
   const rawApps =
     record.apps &&
     typeof record.apps === "object" &&
@@ -155,8 +173,29 @@ export function parseWorkspaceAppMetadataSettings(
   for (const [rawId, value] of Object.entries(rawApps)) {
     const id = rawId.trim();
     const normalizedId = id ? normalizeAgentId(id) : "";
-    if (!normalizedId || !value || typeof value !== "object") continue;
+    if (
+      !normalizedId ||
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value)
+    ) {
+      if (strict) throw new Error("Invalid workspace app metadata entry");
+      continue;
+    }
     const item = value as Record<string, unknown>;
+    if (
+      strict &&
+      ((item.name !== undefined && typeof item.name !== "string") ||
+        (item.description !== undefined &&
+          typeof item.description !== "string") ||
+        (item.generated !== undefined && typeof item.generated !== "boolean") ||
+        (item.sourcePrompt !== undefined &&
+          typeof item.sourcePrompt !== "string") ||
+        (item.updatedAt !== undefined && typeof item.updatedAt !== "string") ||
+        (item.updatedBy !== undefined && typeof item.updatedBy !== "string"))
+    ) {
+      throw new Error("Invalid workspace app metadata fields");
+    }
     const override: WorkspaceAppMetadataOverride = {};
     const name = cleanOptionalText(item.name);
     const description = cleanOptionalText(item.description);
@@ -195,7 +234,7 @@ async function readWorkspaceAppMetadataSettingsInternal(
 
   try {
     const { getSetting } = await import("../settings/index.js");
-    return parseWorkspaceAppMetadataSettings(await getSetting(key));
+    return parseWorkspaceAppMetadataSettings(await getSetting(key), strict);
   } catch (error) {
     if (strict) throw error;
     return { apps: {} };
@@ -911,6 +950,9 @@ async function discoverWorkspaceAgents(
         options?.preferLocalUrls && builtin
           ? resolveAgentUrl(builtin, true)
           : workspaceAppUrl(withOverride, builtin?.url);
+      if (strictMetadata && (!url || !isAbsoluteHttpUrl(url))) {
+        throw new Error(`Invalid workspace app URL: ${withOverride.id}`);
+      }
       if (!url) return null;
       return {
         id: withOverride.id,

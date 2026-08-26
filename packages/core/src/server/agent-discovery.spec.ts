@@ -896,9 +896,46 @@ describe("agent discovery", () => {
       ],
     });
 
+    await runWithRequestContext({ orgId: "org-123" }, async () => {
+      await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
+        status: "unavailable",
+        reason: "workspace-metadata",
+      });
+    });
+  });
+
+  it("rejects a malformed explicit workspace URL on the strict directory path", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "briefs",
+          name: "Briefs",
+          path: "/briefs",
+          url: "not-an-absolute-url",
+        },
+      ],
+    });
+
     await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
       status: "unavailable",
       reason: "workspace-metadata",
+    });
+  });
+
+  it("rejects malformed workspace metadata on the strict directory path", async () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+    getSettingMock.mockResolvedValue({
+      apps: { briefs: { description: 42 } },
+    });
+
+    await runWithRequestContext({ orgId: "org-123" }, async () => {
+      await expect(discoverOrgDirectoryAgents("dispatch")).resolves.toEqual({
+        status: "unavailable",
+        reason: "workspace-metadata",
+      });
     });
   });
 
