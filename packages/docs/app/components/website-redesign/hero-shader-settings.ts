@@ -150,6 +150,7 @@ export interface AtmosphereSettings {
   atmosphereThickness: number;
   fov: number;
   eyeDistance: number;
+  scaleWidth: number;
   centerX: number;
   centerY: number;
   lightPitch: number;
@@ -188,6 +189,7 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   atmosphereThickness: 0.55,
   fov: 61,
   eyeDistance: 5.5,
+  scaleWidth: 1900,
   centerX: 0.95,
   centerY: 0.5,
   lightPitch: 3,
@@ -229,6 +231,7 @@ export const ATMOSPHERE_FIELD_CONFIG: Record<
   atmosphereThickness: { kind: "range", min: 0.05, max: 2, step: 0.05 },
   fov: { kind: "range", min: 15, max: 100, step: 1 },
   eyeDistance: { kind: "range", min: 1.2, max: 8, step: 0.1 },
+  scaleWidth: { kind: "range", min: 600, max: 3200, step: 20 },
   centerX: { kind: "range", min: 0, max: 1, step: 0.01 },
   centerY: { kind: "range", min: -0.5, max: 1.5, step: 0.01 },
   lightPitch: { kind: "range", min: -90, max: 90, step: 1 },

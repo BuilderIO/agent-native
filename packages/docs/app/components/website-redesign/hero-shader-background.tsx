@@ -6,7 +6,6 @@ import type {
   HeroShaderVariant,
   RibbonFieldSettings,
 } from "./hero-shader-settings";
-import { GRID_MAX_WIDTH } from "./page-grid";
 
 // Forked from @agent-native/core's StarfieldBackground (packages/core/src/client/StarfieldBackground.tsx)
 // so the hero can expose live-tunable uniforms (particle count, color, blink
@@ -855,7 +854,8 @@ function RibbonFieldShaderBackground({
   contrast,
   glow,
   brightness,
-  posterizeLevels,
+  dither,
+  ditherScale,
   dotDensity,
   dotScale,
   intensity,
@@ -886,7 +886,8 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    posterizeLevels,
+    dither,
+    ditherScale,
     dotDensity,
     dotScale,
     seed,
@@ -908,7 +909,8 @@ function RibbonFieldShaderBackground({
       contrast,
       glow,
       brightness,
-      posterizeLevels,
+      dither,
+      ditherScale,
       dotDensity,
       dotScale,
       seed,
@@ -929,7 +931,8 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    posterizeLevels,
+    dither,
+    ditherScale,
     dotDensity,
     dotScale,
     seed,
@@ -1625,6 +1628,7 @@ function AtmosphereShaderBackground({
   atmosphereThickness,
   fov,
   eyeDistance,
+  scaleWidth,
   centerX,
   centerY,
   lightPitch,
@@ -1675,6 +1679,7 @@ function AtmosphereShaderBackground({
     atmosphereThickness,
     fov,
     eyeDistance,
+    scaleWidth,
     centerX,
     centerY,
     lightPitch,
@@ -1712,6 +1717,7 @@ function AtmosphereShaderBackground({
       atmosphereThickness,
       fov,
       eyeDistance,
+      scaleWidth,
       centerX,
       centerY,
       lightPitch,
@@ -1748,6 +1754,7 @@ function AtmosphereShaderBackground({
     atmosphereThickness,
     fov,
     eyeDistance,
+    scaleWidth,
     centerX,
     centerY,
     lightPitch,
@@ -1906,12 +1913,23 @@ function AtmosphereShaderBackground({
     let reducedMotion = reducedMotionQuery?.matches ?? false;
 
     let dpr = 1;
-    let scaleRef = 1;
+    let containerWidth = 1;
 
     function draw(timeSeconds: number) {
       gl.uniform1f(uTime, timeSeconds);
       gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform1f(uScaleRef, scaleRef);
+      // Drives the projection scale instead of the canvas resolution. The
+      // 90deg rotation makes the container's *width* the canvas' height, so
+      // scaling off the raw resolution made the planet track viewport width
+      // and grow without bound. Capping at scaleWidth keeps the canvas
+      // full-bleed (the glow still bleeds past the content column) while
+      // pinning the sphere's size beyond that width; the min() against the
+      // real width means narrow viewports still scale down instead of
+      // rendering a planet bigger than the screen.
+      gl.uniform1f(
+        uScaleRef,
+        Math.min(containerWidth, settingsRef.current.scaleWidth) * dpr,
+      );
       gl.uniform1f(uPlanetRadius, settingsRef.current.planetRadius);
       gl.uniform1f(
         uAtmosphereThickness,
@@ -1975,13 +1993,7 @@ function AtmosphereShaderBackground({
       canvas.height = w * dpr;
       canvas.style.width = h + "px";
       canvas.style.height = w + "px";
-      // Drives the shader's projection scale instead of the canvas resolution.
-      // The 90deg rotation means the container's *width* becomes the canvas'
-      // height, so an uncapped scale made the planet track viewport width and
-      // outgrow the centered content column on wide screens. Clamping here
-      // keeps the canvas itself full-bleed (so the glow can still bleed past
-      // the column) while pinning the sphere's size once past GRID_MAX_WIDTH.
-      scaleRef = Math.min(w, GRID_MAX_WIDTH) * dpr;
+      containerWidth = w;
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
 
