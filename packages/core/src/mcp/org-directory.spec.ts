@@ -503,6 +503,38 @@ describe("fetchOrgApps", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  it("accepts Dispatch's description-backed capabilities field", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://cal.acme.com",
+                a2aUrl: "https://cal.acme.com/_agent-native/a2a",
+                capabilities: "Schedule and manage events",
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [
+        expect.objectContaining({
+          id: "calendar",
+          capabilities: ["Schedule and manage events"],
+        }),
+      ],
+    });
+  });
+
   it("caches a successful fetch (not re-fetched on every call)", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const fetchSpy = vi.fn(

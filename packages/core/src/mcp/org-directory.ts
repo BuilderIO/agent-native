@@ -110,6 +110,7 @@ function isAbsoluteHttpUrl(value: string): boolean {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
+    // coercion-ok: URL parse failure is the predicate's explicit false result.
     return false;
   }
 }
@@ -125,6 +126,7 @@ function normalizeApp(raw: unknown, strict = false): OrgApp | null {
     ((r.name !== undefined && typeof r.name !== "string") ||
       (r.a2aUrl !== undefined && typeof r.a2aUrl !== "string") ||
       (r.capabilities !== undefined &&
+        typeof r.capabilities !== "string" &&
         (!Array.isArray(r.capabilities) ||
           r.capabilities.some((item) => typeof item !== "string"))))
   ) {
@@ -136,9 +138,14 @@ function normalizeApp(raw: unknown, strict = false): OrgApp | null {
     return null;
   }
   const a2aUrl = isAbsoluteHttpUrl(explicitA2aUrl) ? explicitA2aUrl : url;
-  const capabilities = Array.isArray(r.capabilities)
-    ? r.capabilities.filter((c): c is string => typeof c === "string")
-    : undefined;
+  const capabilities =
+    typeof r.capabilities === "string"
+      ? r.capabilities.trim()
+        ? [r.capabilities.trim()]
+        : undefined
+      : Array.isArray(r.capabilities)
+        ? r.capabilities.filter((c): c is string => typeof c === "string")
+        : undefined;
   return {
     id,
     name,
