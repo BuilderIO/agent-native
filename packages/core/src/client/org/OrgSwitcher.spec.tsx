@@ -264,7 +264,7 @@ describe("OrgSwitcher", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
   });
 
-  it("invalidates mounted sessions and warns before returning to sign-in after a failed sign out", async () => {
+  it("reloads after a failed sign out without returning to sign-in", async () => {
     const originalLocation = window.location;
     const reload = vi.fn();
     const replace = vi.fn();
@@ -319,14 +319,12 @@ describe("OrgSwitcher", () => {
       });
       expect(mocks.beginSignOut).toHaveBeenCalledOnce();
       expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
-      expect(replace).toHaveBeenCalledWith(
-        expect.stringContaining("/sign-in?c="),
-      );
+      expect(reload).toHaveBeenCalledOnce();
+      expect(replace).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         "Sign-out request returned an error",
         503,
       );
-      expect(reload).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
       Object.defineProperty(window, "location", {

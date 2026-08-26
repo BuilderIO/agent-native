@@ -132,7 +132,7 @@ describe("signOut", () => {
     }
   });
 
-  it("still leaves when the revoke request fails", async () => {
+  it("reloads the current document when the revoke request fails", async () => {
     const { signOut } = await loadSignOut();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal(
@@ -144,11 +144,12 @@ describe("signOut", () => {
 
     await signOut();
 
-    expect(replace).toHaveBeenCalledTimes(1);
+    expect(window.location.reload).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
   });
 
-  it("does not strand the document when the revoke request hangs", async () => {
+  it("reloads the current document when the revoke request times out", async () => {
     const { signOut } = await loadSignOut();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.useFakeTimers();
@@ -170,7 +171,8 @@ describe("signOut", () => {
     await pending;
 
     expect(signal?.aborted).toBe(true);
-    expect(replace).toHaveBeenCalledTimes(1);
+    expect(window.location.reload).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(
       "Unable to complete the sign-out request",
       expect.anything(),

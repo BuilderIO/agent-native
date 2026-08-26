@@ -17,8 +17,9 @@
  *  2. Revoke the server session, and WAIT for it. Navigating first can abandon
  *     the request and leave the session live — the user would be silently
  *     signed back in on their next visit.
- *  3. Only then leave, with a full location change so the next document
- *     re-runs the server auth guard from scratch.
+ *  3. On success, leave with a full location change so the next document
+ *     re-runs the server auth guard from scratch. On failure, reload the
+ *     current document so it can re-read the still-authoritative session.
  */
 import { agentNativePath } from "./api-path.js";
 import { buildSignInReturnHref } from "./require-session.js";
@@ -37,7 +38,8 @@ export interface SignOutOptions {
 }
 
 /**
- * Sign the current user out and leave for the sign-in page.
+ * Sign the current user out and leave for the sign-in page when revocation
+ * succeeds. A failed revoke reloads the current document instead.
  *
  * Resolves only if the navigation did not take effect, so callers should treat
  * it as terminal and not render anything afterwards.
@@ -55,6 +57,7 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
     () => controller.abort(),
     SIGN_OUT_REQUEST_TIMEOUT_MS,
   );
+  let revoked = false;
   try {
     const response = await fetch(agentNativePath(LOGOUT_PATH), {
       method: "POST",
@@ -65,6 +68,8 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
       // Worth surfacing: the cookie may still be live server-side even though
       // this document has already given up its session.
       console.warn("Sign-out request returned an error", response.status);
+    } else {
+      revoked = true;
     }
   } catch (error) {
     console.warn("Unable to complete the sign-out request", error);
@@ -74,6 +79,12 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   // The first notification protects this document. This second one makes
   // other tabs revalidate after the server has finished revoking the session.
   notifySessionInvalidated();
+  if (!revoked) {
+    // Do not send an unrevoked session through sign-in's continuation, which
+    // can immediately authenticate it again.
+    window.location.reload();
+    return;
+  }
   // `replace`, not `assign`: the dead authenticated URL must not stay in
   // history, or Back lands on a shell with no session.
   window.location.replace(options.redirectTo ?? buildSignInReturnHref());
