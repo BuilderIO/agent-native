@@ -253,7 +253,7 @@ export const getDb = createGetDb(schema);
 对于新的应用 schema 变更，请使用 `pnpm db:generate` 生成可审查的 SQL。
 它会创建 `server/db/migrations/<id_name>.sql`，并由
 `runDrizzleMigrations` 在 Node.js 和基于 Node 的 serverless runtime 中将这些
-文件加载到共享的 Agent Native runner。生产变更仍由发布步骤负责。方言专用
+文件加载到共享的 Agent-Native runner。生产变更仍由发布步骤负责。方言专用
 SQL、D1 行为、数据回填和延迟 JavaScript 步骤继续使用 `runMigrations()`。
 
 基于文件系统的 loader 不适用于 Cloudflare Workers/Pages 或其他没有可部署

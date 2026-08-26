@@ -258,8 +258,8 @@ entradas; migrações nomeadas são rastreadas independentemente do número da v
 
 Para novas alterações no esquema do aplicativo, use `pnpm db:generate` para criar
 SQL revisável. Isso cria `server/db/migrations/<id_name>.sql`, e
-`runDrizzleMigrations` carrega esses arquivos no runner compartilhado do Agent
-Native em runtimes Node.js e serverless baseados em Node. A etapa de release
+`runDrizzleMigrations` carrega esses arquivos no runner compartilhado do
+Agent-Native em runtimes Node.js e serverless baseados em Node. A etapa de release
 continua responsável pelas alterações de produção. Mantenha `runMigrations()` para
 SQL específico do dialeto, comportamento do D1, backfills e etapas JavaScript
 adiadas.

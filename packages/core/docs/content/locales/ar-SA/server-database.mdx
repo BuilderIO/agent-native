@@ -258,7 +258,7 @@ export const getDb = createGetDb(schema);
 
 بالنسبة إلى تغييرات مخطط التطبيق الجديدة، استخدم `pnpm db:generate` لإنشاء SQL
 قابل للمراجعة. ينشئ ذلك `server/db/migrations/<id_name>.sql`، ويحمّل
-`runDrizzleMigrations` هذه الملفات إلى مشغّل Agent Native المشترك في بيئات Node.js
+`runDrizzleMigrations` هذه الملفات إلى مشغّل Agent-Native المشترك في بيئات Node.js
 وبيئات serverless المستندة إلى Node. تبقى خطوة الإصدار هي المسؤولة عن تغييرات
 الإنتاج. احتفظ بـ `runMigrations()` للحالات الخاصة باللهجات أو D1، وعمليات ملء
 البيانات، وخطوات JavaScript المؤجلة.
