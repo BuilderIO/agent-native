@@ -5,7 +5,7 @@ description: "Connect a portable SQL database to your agent-native app: schema h
 
 # Database
 
-<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+<!-- i18n-copy-ignore: Agent-Native is a proper name; this spelling repair is locale-invariant. -->
 
 Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. Live sync uses SSE with polling fallback, so changes appear in the other surface without a manual refresh.
 
@@ -259,7 +259,7 @@ pnpm db:generate
 
 This creates `server/db/migrations/<id_name>.sql`. Commit the generated file and
 review its SQL before shipping it. `runDrizzleMigrations`
-loads those files into the shared Agent Native runner on Node.js and Node-based
+loads those files into the shared Agent-Native runner on Node.js and Node-based
 serverless runtimes, so release authorization, dialect handling, and bookkeeping
 stay in one place:
 
