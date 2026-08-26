@@ -1377,13 +1377,12 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
   vec3 eye = vec3(0.0, 0.0, uEyeDistance);
 
-  // Sine-eased ping-pong between the two keyframe angles instead of an
-  // ever-increasing angle -- this settles into a finite back-and-forth
-  // sweep (with natural ease in/out at each end) rather than an infinite
-  // orbit, and the two endpoints are directly tunable via uLightYawStart /
-  // uLightYawEnd.
+  // Eases from uLightYawStart to uLightYawEnd exactly once and holds at the
+  // end -- clamp() stops lightProgress at 1 once iTime * uLightSpeed
+  // reaches it instead of it wrapping/reversing, and smoothstep just eases
+  // the approach/settle instead of a constant-speed linear sweep.
   float lightPitchRad = radians(uLightPitch);
-  float lightProgress = sin(iTime * uLightSpeed) * 0.5 + 0.5;
+  float lightProgress = smoothstep(0.0, 1.0, clamp(iTime * uLightSpeed, 0.0, 1.0));
   float lightYawRad = radians(mix(uLightYawStart, uLightYawEnd, lightProgress));
   vec3 l = normalize(rot3xy(vec2(lightPitchRad, lightYawRad)) * vec3(0.0, 0.0, 1.0));
 
