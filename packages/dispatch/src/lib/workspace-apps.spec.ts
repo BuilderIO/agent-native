@@ -87,6 +87,13 @@ describe("workspace app routes", () => {
     expect(
       isWorkspaceSsoApp({
         id: "mail",
+        path: "/",
+        url: "https://beta.mail.agent-native.com",
+      }),
+    ).toBe(true);
+    expect(
+      isWorkspaceSsoApp({
+        id: "mail",
         path: "/mail",
         url: "https://agent-workspace.builder.io/mail",
       }),

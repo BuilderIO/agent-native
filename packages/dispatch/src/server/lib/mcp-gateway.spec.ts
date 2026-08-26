@@ -1277,6 +1277,44 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
+  it("keeps canonical workspace SSO apps eligible on the beta lane", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: [],
+    });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://beta.analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "analytics",
+          path: "/overview",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      startUrl:
+        "https://beta.analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalled();
+  });
+
   it("uses a built-in home URL when discovery returns a deep agent link", async () => {
     mocks.getBuiltinAgents.mockReturnValue([
       {
