@@ -1079,14 +1079,16 @@ export async function findBuilderConnectPendingStateForOwner(
 
   const matches = rows.filter((row) => {
     const state = row.key.slice(BUILDER_CONNECT_PENDING_PREFIX.length);
+    const value = row.value;
+    if (!value || typeof value !== "object") return false;
     return (
       isSignedBuilderConnectState(state) &&
-      row.value.ownerEmail === ownerEmail &&
-      row.value.consumed !== true &&
-      typeof row.value.expiresAt === "number" &&
-      row.value.expiresAt > now &&
-      typeof row.value.encryptedOAuthFlow === "string" &&
-      typeof row.value.redirectUri === "string"
+      value.ownerEmail === ownerEmail &&
+      value.consumed !== true &&
+      typeof value.expiresAt === "number" &&
+      value.expiresAt > now &&
+      typeof value.encryptedOAuthFlow === "string" &&
+      typeof value.redirectUri === "string"
     );
   });
 
@@ -3258,7 +3260,7 @@ export function createCoreRoutesPlugin(
             if (lookup.status === "unavailable") {
               return fail(
                 503,
-                "Builder connect callback could not be verified. Try again.",
+                "Builder connect callback could not be verified. Restart the connection.",
                 session.email,
                 "pending_state_unavailable",
               );
