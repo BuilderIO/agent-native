@@ -8,7 +8,8 @@ void main() {
 `;
 
 // Gentle travelling waves of light, domain-warped with hash noise, attenuated
-// by a radial falloff around the focus point and resolved through a Ben-Day
+// by a radial falloff around the focus point (which drifts toward the pointer)
+// and resolved through a Ben-Day
 // halftone dot grid. The falloff is applied to the tone *before* dot radius is
 // derived, which is what makes the dot sizes ring outward from the bright
 // centre instead of merely striping along the flow direction. Strictly
@@ -30,11 +31,10 @@ const float WAVE_SCALE = 5.5;
 const float FLOW_ANGLE = 119.;
 const float WARP = 0.35;
 const float SPEED = 0.5;
-// Displacement peaks at roughly 0.48 * this, in uv units, where the whole
-// field spans about +/-0.9 -- so this is ~0.09 at its strongest. Much smaller
-// and the smoothed pointer lag is all you can see, which reads as the field
-// drifting on its own rather than answering the mouse.
-const float POINTER_AMOUNT = 0.18;
+// How far the bright centre travels toward the pointer: 0 pins it to FOCUS, 1
+// parks it exactly under the cursor. Short of 1 so the glow reads as drawn
+// toward the mouse rather than attached to it.
+const float FOCUS_FOLLOW = 0.65;
 const vec2 FOCUS = vec2(0., -0.05);
 const float SPREAD = 1.2;
 const float DOT_DENSITY = 131.;
@@ -117,24 +117,17 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 cellCenter = (cell + 0.5) * cellSize;
   vec2 cellUv = (uv - cellCenter) / cellSize;
 
-  // Pointer drags the pattern with it, falling off with distance, so the
-  // wavefronts bend locally around the cursor rather than the whole field
-  // sliding as one.
-  //
-  // The offset is *subtracted*: sampling the field from a point pulled toward
-  // the cursor shows the pattern that lives over there, which reads as the
-  // field sliding away from the mouse. Sampling from the far side is what
-  // makes the pattern travel the same direction the cursor does.
-  vec2 pointerDelta = pointerUv - cellCenter;
-  float pull = 1. - S(0.05, 1.6, length(pointerDelta));
-  pull = pull * pull * (3. - 2. * pull);
-  vec2 samplePos =
-    cellCenter - pointerDelta * pull * POINTER_AMOUNT * uPointer.z;
+  float tone = waveField(cellCenter, t);
 
-  float tone = waveField(samplePos, t);
-
-  // Radial falloff from the focus point.
-  float distFromFocus = length(cellCenter - FOCUS) / SPREAD;
+  // Radial falloff around the focus point, which is what puts a bright centre
+  // in the field at all. The focus leans toward the pointer rather than
+  // snapping to it, and uPointer.z eases 0 -> 1 on enter and back on leave, so
+  // the bright area drifts after the mouse and settles back to FOCUS when the
+  // mouse is gone. Moving the focus rather than warping each cell is what
+  // makes the interaction legible: the composition follows the cursor instead
+  // of the pattern smearing in one small neighbourhood.
+  vec2 focus = FOCUS + (pointerUv - FOCUS) * FOCUS_FOLLOW * uPointer.z;
+  float distFromFocus = length(cellCenter - focus) / SPREAD;
   tone *= exp(-1.6 * distFromFocus * distFromFocus);
   tone = pow(clamp(tone, 0., 1.), TONE_GAMMA);
 
@@ -177,7 +170,12 @@ void main() {
 }
 `;
 
-const POINTER_SMOOTHING = 0.09;
+// Per-frame approach fractions at the 30fps draw budget below, so ~0.12 is a
+// ~250ms settle. Deliberately slow: the lag is the "floating toward the mouse"
+// feel, and anything fast enough to keep up reads as the glow being pinned to
+// the cursor.
+const POINTER_POSITION_EASING = 0.12;
+const POINTER_STRENGTH_EASING = 0.08;
 
 // Module scope, not per-mount: the shader clock (and with it the intro fade)
 // has to survive a remount, otherwise anything that re-runs the setup effect --
@@ -319,10 +317,10 @@ export function HeroShaderBackground({
         pointerStrength = 0;
         return;
       }
-      pointerX += (targetX - pointerX) * POINTER_SMOOTHING * 6;
-      pointerY += (targetY - pointerY) * POINTER_SMOOTHING * 6;
+      pointerX += (targetX - pointerX) * POINTER_POSITION_EASING;
+      pointerY += (targetY - pointerY) * POINTER_POSITION_EASING;
       pointerStrength +=
-        (targetStrength - pointerStrength) * POINTER_SMOOTHING * 4;
+        (targetStrength - pointerStrength) * POINTER_STRENGTH_EASING;
       if (pointerStrength < 0.001 && targetStrength === 0) {
         pointerStrength = 0;
       }
