@@ -1059,10 +1059,7 @@ export function createAgentNativeHostBridge(
       );
       await assertWebMcpApproved(tool, message.args, context, requestId, event);
       emit({ type: "webmcp-tool", name, requestId, origin: event.origin });
-      const result = await options.webmcp.executeTool(
-        { name: tool.name, origin: tool.origin },
-        message.args,
-      );
+      const result = await options.webmcp.executeListedTool(tool, message.args);
       post({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
         ok: true,

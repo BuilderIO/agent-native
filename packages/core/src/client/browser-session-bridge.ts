@@ -1,6 +1,5 @@
 import type {
   AgentNativeBrowserSession,
-  AgentNativeBrowserSessionAction,
   AgentNativeBrowserSessionRecord,
   AgentNativeBrowserSessionRequest,
 } from "../browser-sessions/types.js";
@@ -324,21 +323,6 @@ async function resolveDirectActionManifest(
     .filter(Boolean) as AgentNativeActionManifestEntry[];
 }
 
-function toBrowserSessionWebMcpTool(
-  tool: AgentNativeWebMcpTool,
-): AgentNativeBrowserSessionAction {
-  return {
-    name: tool.name,
-    description: tool.description,
-    ...(tool.title ? { title: tool.title } : {}),
-    ...(tool.inputSchema ? { schema: tool.inputSchema } : {}),
-    ...(tool.origin ? { origin: tool.origin } : {}),
-    ...(tool.annotations ? { annotations: tool.annotations } : {}),
-    source: "webmcp",
-    availability: "browser-session",
-  };
-}
-
 async function resolveWebMcpTools(
   options: AgentNativeBrowserSessionBridgeOptions,
 ): Promise<AgentNativeWebMcpTool[]> {
@@ -570,9 +554,7 @@ export function createAgentNativeBrowserSessionBridge(
       sessionId: currentSessionId,
       context,
       actions,
-      ...(webmcpTools
-        ? { webmcpTools: webmcpTools.map(toBrowserSessionWebMcpTool) }
-        : {}),
+      ...(webmcpTools ? { webmcpTools } : {}),
       ttlMs: options.ttlMs,
     });
     return body.session as AgentNativeBrowserSessionRecord;

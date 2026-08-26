@@ -275,6 +275,7 @@ describe("createAgentNativeHostBridge", () => {
         },
       ]),
       executeTool: vi.fn(async () => '{"status":"shipped"}'),
+      executeListedTool: vi.fn(async () => '{"status":"shipped"}'),
     };
     const requestApproval = vi.fn(() => ({ approved: true }));
     const bridge = createAgentNativeHostBridge({
@@ -316,8 +317,11 @@ describe("createAgentNativeHostBridge", () => {
       }),
       expect.any(MessageEvent),
     );
-    expect(webmcp.executeTool).toHaveBeenCalledWith(
-      { name: "get-order", origin: "https://shop.example" },
+    expect(webmcp.executeListedTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "get-order",
+        origin: "https://shop.example",
+      }),
       { id: "order-1" },
     );
     expect(target.sent[1].message).toMatchObject({

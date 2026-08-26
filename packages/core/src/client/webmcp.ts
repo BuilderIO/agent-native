@@ -45,6 +45,11 @@ export interface AgentNativeWebMcpClient {
     input?: unknown,
     options?: AgentNativeWebMcpToolExecutionOptions,
   ): Promise<AgentNativeWebMcpToolResult>;
+  executeListedTool(
+    tool: AgentNativeWebMcpTool,
+    input?: unknown,
+    options?: AgentNativeWebMcpToolExecutionOptions,
+  ): Promise<AgentNativeWebMcpToolResult>;
   onToolChange?(listener: () => void): () => void;
 }
 
@@ -296,6 +301,7 @@ export function createAgentNativeWebMcpClient(
     maxManifestChars: options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
   };
   const nativeTools = new Map<string, NativeRegisteredTool>();
+  let listedNativeTools = new WeakMap<object, NativeRegisteredTool>();
 
   function requireModelContext(): NativeModelContext {
     if (!modelContext) throw new AgentNativeWebMcpUnsupportedError();
@@ -324,9 +330,21 @@ export function createAgentNativeWebMcpClient(
       "WebMCP tool manifest",
       limits.maxManifestChars,
     );
+    const seenKeys = new Set<string>();
+    normalizedTools.forEach((tool) => {
+      const key = toolKey(tool);
+      if (seenKeys.has(key)) {
+        throw new Error(
+          `WebMCP returned duplicate tool "${tool.name}" for origin "${tool.origin ?? ""}"`,
+        );
+      }
+      seenKeys.add(key);
+    });
+    listedNativeTools = new WeakMap();
     nativeTools.clear();
     normalizedTools.forEach((tool, index) => {
       nativeTools.set(toolKey(tool), result[index]);
+      listedNativeTools.set(tool, result[index]);
     });
     return normalizedTools;
   }
@@ -347,26 +365,17 @@ export function createAgentNativeWebMcpClient(
     return matches[0];
   }
 
-  async function executeTool(
-    tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
-    input: unknown = {},
-    executionOptions: AgentNativeWebMcpToolExecutionOptions = {},
+  async function executeNativeTool(
+    tool: Pick<AgentNativeWebMcpTool, "name">,
+    nativeTool: NativeRegisteredTool,
+    input: unknown,
+    executionOptions: AgentNativeWebMcpToolExecutionOptions,
   ): Promise<AgentNativeWebMcpToolResult> {
-    const context = requireModelContext();
-    if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
-      throw new Error("A WebMCP tool name is required");
-    }
     if (input === null || !isRecord(input)) {
       throw new Error(`WebMCP tool "${tool.name}" input must be an object`);
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
-
-    await listTools();
-    const nativeTool = findNativeTool(tool);
-    if (!nativeTool) {
-      throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
-    }
-    const result = await context.executeTool(
+    const result = await requireModelContext().executeTool(
       nativeTool,
       JSON.stringify(input),
       executionOptions,
@@ -378,10 +387,46 @@ export function createAgentNativeWebMcpClient(
     );
   }
 
+  async function executeTool(
+    tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
+    input: unknown = {},
+    executionOptions: AgentNativeWebMcpToolExecutionOptions = {},
+  ): Promise<AgentNativeWebMcpToolResult> {
+    requireModelContext();
+    if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
+      throw new Error("A WebMCP tool name is required");
+    }
+
+    await listTools();
+    const nativeTool = findNativeTool(tool);
+    if (!nativeTool) {
+      throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
+    }
+    return executeNativeTool(tool, nativeTool, input, executionOptions);
+  }
+
+  async function executeListedTool(
+    tool: AgentNativeWebMcpTool,
+    input: unknown = {},
+    executionOptions: AgentNativeWebMcpToolExecutionOptions = {},
+  ): Promise<AgentNativeWebMcpToolResult> {
+    if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
+      throw new Error("A WebMCP tool name is required");
+    }
+    const nativeTool = listedNativeTools.get(tool);
+    if (!nativeTool) {
+      throw new Error(
+        `WebMCP tool "${tool.name}" was not returned by the current live listing`,
+      );
+    }
+    return executeNativeTool(tool, nativeTool, input, executionOptions);
+  }
+
   const client: AgentNativeWebMcpClient = {
     supported: Boolean(modelContext),
     listTools,
     executeTool,
+    executeListedTool,
     ...(modelContext?.addEventListener
       ? {
           onToolChange(listener) {

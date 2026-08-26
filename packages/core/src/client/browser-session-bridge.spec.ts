@@ -383,7 +383,10 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       if (url === "/_agent-native/browser-sessions" && method === "POST") {
         const body = JSON.parse(String(init?.body));
         expect(body.webmcpTools).toEqual([
-          expect.objectContaining({ name: "get-order" }),
+          expect.objectContaining({
+            name: "get-order",
+            inputSchema: { type: "object" },
+          }),
         ]);
         return jsonResponse({
           ok: true,

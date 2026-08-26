@@ -110,6 +110,26 @@ describe("WebMCP client", () => {
     });
     expect(executeTool).toHaveBeenCalledWith(freshTool, "{}", {});
   });
+
+  it("rejects duplicate tool names from the same origin", async () => {
+    const tool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const client = createAgentNativeWebMcpClient({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [tool, { ...tool }]),
+        executeTool: vi.fn(async () => ""),
+      }),
+    });
+
+    await expect(client.listTools()).rejects.toThrow(
+      'WebMCP returned duplicate tool "get-order"',
+    );
+  });
 });
 
 describe("WebMCP registration", () => {
