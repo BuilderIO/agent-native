@@ -148,6 +148,35 @@ describe("signOut", () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it("does not strand the document when the revoke request hangs", async () => {
+    const { signOut } = await loadSignOut();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        signal = init?.signal;
+        return new Promise<Response>((_, reject) => {
+          signal?.addEventListener("abort", () => reject(signal?.reason), {
+            once: true,
+          });
+        });
+      }),
+    );
+
+    const pending = signOut();
+    await vi.runAllTimersAsync();
+    await pending;
+
+    expect(signal?.aborted).toBe(true);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      "Unable to complete the sign-out request",
+      expect.anything(),
+    );
+  });
+
   it("revokes every device when asked", async () => {
     const { signOut } = await loadSignOut();
     const fetchMock = vi.fn(

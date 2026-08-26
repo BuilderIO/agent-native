@@ -315,6 +315,7 @@ describe("OrgSwitcher", () => {
       expect(fetchMock).toHaveBeenCalledWith("/_agent-native/auth/logout", {
         method: "POST",
         credentials: "include",
+        signal: expect.any(AbortSignal),
       });
       expect(mocks.beginSignOut).toHaveBeenCalledOnce();
       expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();

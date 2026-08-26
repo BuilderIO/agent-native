@@ -26,6 +26,7 @@ import { beginSignOut, notifySessionInvalidated } from "./use-session.js";
 
 const LOGOUT_PATH = "/_agent-native/auth/logout";
 const LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
+const SIGN_OUT_REQUEST_TIMEOUT_MS = 15_000;
 
 export interface SignOutOptions {
   /**
@@ -49,10 +50,16 @@ export interface SignOutOptions {
 export async function signOut(options: SignOutOptions = {}): Promise<void> {
   beginSignOut();
   const path = options.allDevices ? LOGOUT_ALL_PATH : LOGOUT_PATH;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    SIGN_OUT_REQUEST_TIMEOUT_MS,
+  );
   try {
     const response = await fetch(agentNativePath(path), {
       method: "POST",
       credentials: "include",
+      signal: controller.signal,
     });
     if (!response.ok) {
       // Worth surfacing: the cookie may still be live server-side even though
@@ -61,6 +68,8 @@ export async function signOut(options: SignOutOptions = {}): Promise<void> {
     }
   } catch (error) {
     console.warn("Unable to complete the sign-out request", error);
+  } finally {
+    clearTimeout(timeout);
   }
   // The first notification protects this document. This second one makes
   // other tabs revalidate after the server has finished revoking the session.
