@@ -1930,9 +1930,9 @@ export default function SlideEditor({
       // resize and auto-fit again on the second click.
       setSelectedElementMeasurement(null);
       captureInlineEditDraft(slide.id);
-      // Mark the deck dirty immediately so SSE/poll refreshes do not replace
-      // the deck under an active contentEditable edit, even before the user
-      // types and triggers an onUpdateSlide flush.
+      // Mark the slide active immediately so SSE/poll refreshes do not replace
+      // the live DOM under an active contentEditable edit, even before the
+      // user types and triggers an onUpdateSlide flush.
       onInlineEditStart?.(slide.id);
       // Don't override the selection. The browser's native double-click
       // word-select (or single-click caret) is already on the element from the

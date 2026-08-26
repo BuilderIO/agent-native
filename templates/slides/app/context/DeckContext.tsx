@@ -1698,7 +1698,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
       const hasLocalEdits =
         pendingCreateIdsRef.current.has(currentOpenId) ||
-        hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current);
+        hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current) ||
+        (activeInlineEditSlides.get(currentOpenId)?.size ?? 0) > 0;
 
       if (hasLocalEdits && clientDeck) {
         // Content-preserving: only ADD server slides missing locally.

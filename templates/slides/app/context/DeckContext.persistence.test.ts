@@ -17,7 +17,9 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 import {
   DeckProvider,
+  clearSlideEditingActive,
   hasUncommittedDeckChanges,
+  markSlideEditingActive,
   mergeServerAddedSlides,
   useDecks,
   type Deck,
@@ -787,6 +789,63 @@ describe("DeckContext deck creation persistence", () => {
       );
     });
     expect(fullSaveCalls).toHaveLength(0);
+  });
+
+  it("protects an active inline draft after its autosave drains", async () => {
+    window.history.pushState({}, "", "/deck/inline-active-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const original = {
+      id: "inline-active-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    } satisfies Deck;
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    markSlideEditingActive("inline-active-deck", "slide-1");
+    try {
+      vi.useFakeTimers();
+      act(() => {
+        result.current.updateSlide(
+          "inline-active-deck",
+          "slide-1",
+          { content: "<div>Draft</div>" },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      setAccessibleDeck({
+        ...original,
+        slides: [{ ...original.slides[0], content: "<div>Agent</div>" }],
+      });
+      await act(async () => {
+        await result.current.refreshOpenDeck("inline-active-deck");
+      });
+
+      expect(
+        result.current.getDeck("inline-active-deck")?.slides[0]?.content,
+      ).toBe("<div>Original</div>");
+    } finally {
+      clearSlideEditingActive("inline-active-deck", "slide-1");
+    }
   });
 
   it("persists a duplicated slide after the optimistic insert", async () => {
