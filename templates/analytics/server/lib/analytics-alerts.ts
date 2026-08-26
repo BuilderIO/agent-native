@@ -607,7 +607,7 @@ function defaultAnalyticsAlertDefinitions(): DefaultAnalyticsAlertDefinition[] {
       idPrefix: DEFAULT_HTTP_5XX_ALERT_ID_PREFIX,
       name: "Hosted app HTTP 5xx spike",
       description:
-        "Default Agent Native alert for a spike in server responses with 5xx status codes.",
+        "Default Agent-Native alert for a spike in server responses with 5xx status codes.",
       eventName: "http.response",
       filters: [{ field: "properties.status_class", value: "5xx" }],
       threshold: envInt(
@@ -637,7 +637,7 @@ function defaultAnalyticsAlertDefinitions(): DefaultAnalyticsAlertDefinition[] {
       idPrefix: DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX,
       name: "Hosted agent chat stuck spike",
       description:
-        "Default Agent Native alert for a spike in agent chats detected as stuck.",
+        "Default Agent-Native alert for a spike in agent chats detected as stuck.",
       eventName: "agent_chat_stuck_detected",
       filters: [],
       threshold: envInt(

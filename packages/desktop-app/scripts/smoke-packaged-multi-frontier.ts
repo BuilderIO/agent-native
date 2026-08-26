@@ -5,7 +5,7 @@ import path from "node:path";
 
 const packagedApp = path.resolve(
   process.argv[2] ??
-    path.join(process.cwd(), "dist", "mac-arm64", "Agent Native.app"),
+    path.join(process.cwd(), "dist", "mac-arm64", "Agent-Native.app"),
 );
 if (!fs.existsSync(packagedApp)) {
   throw new Error(`Packaged app not found: ${packagedApp}`);
@@ -14,7 +14,7 @@ if (!fs.existsSync(packagedApp)) {
 const proofRoot = fs.mkdtempSync(
   path.join(os.tmpdir(), "agent-native-packaged-multi-frontier-proof-"),
 );
-const isolatedApp = path.join(proofRoot, "Agent Native.app");
+const isolatedApp = path.join(proofRoot, "Agent-Native.app");
 const storeRoot = path.join(proofRoot, "store");
 const fakeHome = path.join(proofRoot, "home");
 const fakeBin = path.join(proofRoot, "bin");
@@ -77,7 +77,7 @@ function runPackagedSmoke(): Promise<Record<string, unknown>> {
     isolatedApp,
     "Contents",
     "MacOS",
-    "Agent Native",
+    "Agent-Native",
   );
   const resources = path.join(isolatedApp, "Contents", "Resources");
   const entry = path.join(

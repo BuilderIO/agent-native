@@ -1944,7 +1944,7 @@ describe("database source helpers", () => {
           sourceFieldType: "list",
           propertyOptions: {
             options: [
-              { id: "agent-native", name: "Agent Native", color: "blue" },
+              { id: "agent-native", name: "Agent-Native", color: "blue" },
               { id: "builder-sync", name: "Builder Sync", color: "green" },
             ],
           },
@@ -1973,8 +1973,8 @@ describe("database source helpers", () => {
         }),
         expect.objectContaining({
           sourceFieldKey: "data.tags",
-          proposedValue: ["Agent Native", "Builder Sync"],
-          builderValueJson: JSON.stringify(["Agent Native", "Builder Sync"]),
+          proposedValue: ["Agent-Native", "Builder Sync"],
+          builderValueJson: JSON.stringify(["Agent-Native", "Builder Sync"]),
         }),
       ]),
     );

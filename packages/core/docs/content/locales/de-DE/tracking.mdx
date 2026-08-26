@@ -107,7 +107,7 @@ track(
 
 `source` ist entweder das `ctx` einer Action, direkt durchgereicht, oder ein Meta-Objekt `{ userId, anonymousId, sessionId }` für Aufrufer ohne `ctx`.
 
-Die Browser-Session muss der Aufrufer nicht selbst mitgeben: Sie stammt aus dem umgebenden Request-Kontext (`RequestContext.browserSessionId`, gesetzt aus dem Header `X-Agent-Native-Session-Id`, den Action-Client, Chat und das Browser-`track()` senden). Dieselbe Sitzung wird dadurch korreliert, egal ob die Oberfläche oder der Agent das Ereignis ausgelöst hat. Jeder Anbieter bildet sie auf sein eigenes Session-Feld ab: `$session_id` bei PostHog, wodurch das Ereignis mit dem Session Replay verknüpft wird; eine `session_id`-Eigenschaft bei Mixpanel und Amplitude; ein `sessionId` auf oberster Ebene bei Webhooks und Agent Native Analytics. Für Aufrufer ohne Browser (Cron, CLI, MCP, A2A) fehlt sie, und ein `sessionId` im Meta-Objekt überschreibt sie.
+Die Browser-Session muss der Aufrufer nicht selbst mitgeben: Sie stammt aus dem umgebenden Request-Kontext (`RequestContext.browserSessionId`, gesetzt aus dem Header `X-Agent-Native-Session-Id`, den Action-Client, Chat und das Browser-`track()` senden). Dieselbe Sitzung wird dadurch korreliert, egal ob die Oberfläche oder der Agent das Ereignis ausgelöst hat. Jeder Anbieter bildet sie auf sein eigenes Session-Feld ab: `$session_id` bei PostHog, wodurch das Ereignis mit dem Session Replay verknüpft wird; eine `session_id`-Eigenschaft bei Mixpanel und Amplitude; ein `sessionId` auf oberster Ebene bei Webhooks und Agent-Native Analytics. Für Aufrufer ohne Browser (Cron, CLI, MCP, A2A) fehlt sie, und ein `sessionId` im Meta-Objekt überschreibt sie.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -194,7 +194,7 @@ Hauptunterschiede zum [server `track()`](#track):
 - **Fire-and-forget.** Es blockiert niemals den UI, löst niemals Netzwerkfehler aus und verschluckt sie.
 - **Authentifiziert, nur Erstanbieter.** Die Route erfordert eine Sitzung und einen Same-Origin/CSRF-Marker (vom Helfer automatisch festgelegt), sodass sie nicht als offenes Analyse-Relay verwendet werden kann. `name` ist auf 200 Zeichen und `properties` auf ~16 KB begrenzt; Übergroße oder fehlerhafte Nutzlasten werden abgelehnt.
 
-Dies unterscheidet sich von der internen Browser-Telemetrie des Frameworks (`trackEvent()` / automatische Seitenaufrufe – siehe [Browser defaults](#browser-defaults) unten), die die eigene Produktanalyse von Agent Native unterstützt. Verwenden Sie `track()` für die eigenen Analyseereignisse Ihrer App, die Ihre konfigurierten Anbieter erreichen sollen.
+Dies unterscheidet sich von der internen Browser-Telemetrie des Frameworks (`trackEvent()` / automatische Seitenaufrufe – siehe [Browser defaults](#browser-defaults) unten), die die eigene Produktanalyse von Agent-Native unterstützt. Verwenden Sie `track()` für die eigenen Analyseereignisse Ihrer App, die Ihre konfigurierten Anbieter erreichen sollen.
 
 ## Session Replay {#session-replay}
 

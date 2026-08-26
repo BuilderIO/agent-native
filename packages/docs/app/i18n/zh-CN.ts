@@ -271,7 +271,7 @@ const zhCN = {
     },
     comparison: {
       titleLine1: "不必在 app 和 agent 之间二选一。",
-      titleAccent: "Agent-native apps 二者兼备。",
+      titleAccent: "Agent-Native apps 二者兼备。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
@@ -488,7 +488,7 @@ const zhCN = {
     design: {
       replaces: "替代或增强设计原型工具",
       description:
-        "Agent-native HTML 原型工作室。生成交互式 Alpine/Tailwind 设计，比较变体，实时微调控件，并导出结果。",
+        "Agent-Native HTML 原型工作室。生成交互式 Alpine/Tailwind 设计，比较变体，实时微调控件，并导出结果。",
     },
     content: {
       replaces: "替换或增强 Obsidian 为 MDX、Notion、Google Docs",
@@ -1215,7 +1215,7 @@ const zhCN = {
       s026: "可分享的链接",
       s027: "每个计划都有一个公共 URL。与团队成员共享以进行异步审阅、评论和批准。",
       s028: "桌面文件同步",
-      s029: "将托管计划从 Agent Native Desktop 镜像到本地 MDX 文件，无需克隆应用程序或运行 CLI。",
+      s029: "将托管计划从 Agent-Native Desktop 镜像到本地 MDX 文件，无需克隆应用程序或运行 CLI。",
       s030: "，因此审查位于代码旁边。",
       s031: "它是如何运作的",
       s032: "规划存在于共享应用程序中 - 您和代理都可以在功能的整个生命周期中读取和更新它。",
@@ -1249,7 +1249,7 @@ const zhCN = {
       s060: "查看所有模板",
       s061: "VS Code 交接",
       s062: "使用以下扩展在 VS Code 侧边面板中打开计划链接：",
-      s063: "Agent Native Plans 扩展",
+      s063: "Agent-Native Plans 扩展",
       s064: "线框图 — 带组件插槽的草图式 UI 模型",
       s065: "带注释的代码 — 带逐行注释的源文件",
       s066: "图表 — 流程图、序列图或架构图",
@@ -1276,7 +1276,7 @@ const zhCN = {
           "plan mode 是终端中的文字，只对一个人可见，批准后就会消失。Plans 是可视化的，包含线框图、图表和带注释的差异；它可共享、可持久保存，代理能在功能的整个生命周期中创建、读取和更新计划。",
         question5: "我可以在代码旁边查看计划吗？",
         answer5:
-          "可以。VS Code 扩展会在侧边面板打开计划，Agent Native Desktop 还会把托管计划镜像为本地 MDX 文件。",
+          "可以。VS Code 扩展会在侧边面板打开计划，Agent-Native Desktop 还会把托管计划镜像为本地 MDX 文件。",
         question6: "Plans 免费吗？",
         answer6:
           "免费、开源，并采用 MIT 许可证。Plans 提供托管的分享链接，你也可以把所有内容镜像到本地文件。",
@@ -1497,9 +1497,9 @@ const zhCN = {
     },
   },
   downloadPage: {
-    title: "下载 Agent Native",
+    title: "下载 Agent-Native",
     body: "所有 agent-native 应用都在一个桌面外壳中。内置生产应用，并提供用于本地开发的开发模式开关。",
-    openDesktop: "打开 Agent Native",
+    openDesktop: "打开 Agent-Native",
     downloadInstaller: "下载安装程序",
     downloadStarted: "下载已开始",
     downloadAgain: "没有成功？再次尝试下载",

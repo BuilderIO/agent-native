@@ -80,7 +80,7 @@ const COMMAND_FORCE_SETTLE_MS = 250;
 const APP_SERVER_INITIALIZE_PARAMS = {
   clientInfo: {
     name: "agent-native-desktop",
-    title: "Agent Native Desktop",
+    title: "Agent-Native Desktop",
     version: "1",
   },
   capabilities: {

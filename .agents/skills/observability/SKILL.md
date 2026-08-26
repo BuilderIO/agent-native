@@ -266,7 +266,7 @@ The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_
 ## Tracking Bridge
 
 Instrumented agent loops emit server-side tracking events for every run through
-`track()` from `@agent-native/core/tracking`, so configured PostHog, Agent Native
+`track()` from `@agent-native/core/tracking`, so configured PostHog, Agent-Native
 Analytics, Mixpanel, Amplitude, and webhook providers receive them through the
 same best-effort fan-out as other tracking events.
 
@@ -283,7 +283,7 @@ same best-effort fan-out as other tracking events.
 - Each event is stamped with when it happened, not when the run flushed. The
   whole tree is emitted in one burst at run end, so `track()` takes an
   `occurredAt` and the trace tree keeps a real timeline.
-- Agent Native Analytics shape: the same event lands in `analytics_events` with
+- Agent-Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
   `failed_tools`, and `status`. A content-free `tools` array includes at most

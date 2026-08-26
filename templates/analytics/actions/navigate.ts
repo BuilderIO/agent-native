@@ -61,7 +61,7 @@ export default defineAction({
       .min(1)
       .optional()
       .describe(
-        'Accessible SQL dashboard name to open when its id is unknown (for example, "Agent Native" or "Agent Native dashboard").',
+        'Accessible SQL dashboard name to open when its id is unknown (for example, "Agent-Native" or "Agent-Native dashboard").',
       ),
     analysisId: z
       .string()

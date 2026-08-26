@@ -495,7 +495,7 @@ const hiIN = {
     design: {
       replaces: "Design prototyping tools को बदलता या बढ़ाता है",
       description:
-        "Agent-native HTML प्रोटोटाइपिंग स्टूडियो। Interactive Alpine/Tailwind designs बनाएं, variants compare करें, live controls refine करें और result export करें।",
+        "Agent-Native HTML प्रोटोटाइपिंग स्टूडियो। Interactive Alpine/Tailwind designs बनाएं, variants compare करें, live controls refine करें और result export करें।",
     },
     content: {
       replaces:
@@ -1227,7 +1227,7 @@ const hiIN = {
           "Plan mode आपके terminal में text होता है, एक व्यक्ति को दिखता है और approve करते ही गायब हो जाता है। Plans visual हैं — wireframes, diagrams और annotated diffs — साथ ही shareable और persistent भी: agents feature के पूरे lifecycle में इन्हें बनाते, पढ़ते और update करते हैं।",
         question5: "क्या मैं plans को अपने code के साथ देख सकता हूँ?",
         answer5:
-          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
+          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent-Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
         question6: "क्या Plans मुफ़्त है?",
         answer6:
           "हाँ। मुफ़्त, open source और MIT licensed। Plans में hosted share links मिलते हैं, और आप सब कुछ स्थानीय files में mirror कर सकते हैं।",
@@ -1295,7 +1295,7 @@ const hiIN = {
       s060: "सभी टेम्पलेट देखें",
       s061: "VS Code हैंडऑफ",
       s062: "इससे VS Code साइड पैनल में प्लान लिंक खोलें:",
-      s063: "Agent Native Plans एक्सटेंशन",
+      s063: "Agent-Native Plans एक्सटेंशन",
       s064: "वायरफ्रेम — कंपोनेंट स्लॉट वाला स्केची UI मॉकअप",
       s065: "एनोटेटेड कोड — प्रति-लाइन नोट्स वाली स्रोत फ़ाइल",
       s066: "डायग्राम — फ़्लोचार्ट, सीक्वेंस या आर्किटेक्चर",
@@ -1512,9 +1512,9 @@ const hiIN = {
     },
   },
   downloadPage: {
-    title: "Agent Native डाउनलोड करें",
+    title: "Agent-Native डाउनलोड करें",
     body: "आपके सभी agent-native ऐप एक ही desktop shell में। Production apps built-in हैं, और local development के लिए dev mode toggle है।",
-    openDesktop: "Agent Native खोलें",
+    openDesktop: "Agent-Native खोलें",
     downloadInstaller: "Installer डाउनलोड करें",
     downloadStarted: "डाउनलोड शुरू हो गया",
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",

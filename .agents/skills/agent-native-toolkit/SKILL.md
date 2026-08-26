@@ -1,7 +1,7 @@
 ---
 name: agent-native-toolkit
 description: >-
-  Inventory and ownership rules for shared Agent Native workspace UI. Use
+  Inventory and ownership rules for shared Agent-Native workspace UI. Use
   before building app chrome, settings, navigation, sharing, collaboration,
   setup, history, comments, chat rails, agent UX, or repeated workspace behavior.
 scope: dev
