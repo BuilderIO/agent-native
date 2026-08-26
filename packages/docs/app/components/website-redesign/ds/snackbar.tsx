@@ -10,6 +10,13 @@ import {
 } from "react";
 
 const VISIBLE_MS = 2400;
+const TRANSITION_MS = 200;
+const TRANSITION =
+  "opacity " +
+  TRANSITION_MS +
+  "ms ease, transform " +
+  TRANSITION_MS +
+  "ms ease";
 
 interface SnackbarMessage {
   // Bumped per call so repeating the same text still restarts the timer and
@@ -33,25 +40,42 @@ export function useSnackbar(): ShowSnackbar {
 
 export function SnackbarProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<SnackbarMessage | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracked separately from `message` so the pill stays mounted through its
+  // exit transition instead of vanishing the moment the timer fires.
+  const [shown, setShown] = useState(false);
+  const timersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const frameRef = useRef(0);
   const nextIdRef = useRef(0);
 
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
+  const clearPending = useCallback(() => {
+    for (const timer of timersRef.current) clearTimeout(timer);
+    timersRef.current = [];
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    frameRef.current = 0;
   }, []);
 
-  const show = useCallback<ShowSnackbar>((text, icon) => {
-    nextIdRef.current += 1;
-    setMessage({
-      id: nextIdRef.current,
-      text,
-      icon: icon ?? <IconCheck size={14} stroke={1.75} aria-hidden="true" />,
-    });
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setMessage(null), VISIBLE_MS);
-  }, []);
+  useEffect(() => clearPending, [clearPending]);
+
+  const show = useCallback<ShowSnackbar>(
+    (text, icon) => {
+      clearPending();
+      nextIdRef.current += 1;
+      setMessage({
+        id: nextIdRef.current,
+        text,
+        icon: icon ?? <IconCheck size={14} stroke={1.75} aria-hidden="true" />,
+      });
+      // Mount in the offset state, then flip on the next frame so the browser
+      // has a "from" value to transition out of.
+      setShown(false);
+      frameRef.current = requestAnimationFrame(() => setShown(true));
+      timersRef.current.push(
+        setTimeout(() => setShown(false), VISIBLE_MS),
+        setTimeout(() => setMessage(null), VISIBLE_MS + TRANSITION_MS),
+      );
+    },
+    [clearPending],
+  );
 
   return (
     <SnackbarContext.Provider value={show}>
@@ -63,6 +87,8 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
           position: "fixed",
           bottom: "var(--spacing-6)",
           left: "50%",
+          // Centering lives on this wrapper so the pill's own transform is
+          // free to carry the enter/exit slide.
           transform: "translateX(-50%)",
           zIndex: 100,
           pointerEvents: "none",
@@ -83,6 +109,9 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
               fontFamily: "var(--b-font-mono)",
               fontSize: "var(--b-t-label-1)",
               lineHeight: 1,
+              opacity: shown ? 1 : 0,
+              transform: shown ? "translateY(0)" : "translateY(12px)",
+              transition: TRANSITION,
             }}
           >
             {message.icon}
