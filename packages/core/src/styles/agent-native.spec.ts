@@ -3,6 +3,25 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent-native shell surface tokens", () => {
+  it("restores standard markdown list markers", () => {
+    const css = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\) \{[^}]*list-style-type: disc;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ol:not\(\.contains-task-list\) \{[^}]*list-style-type: decimal;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul\.contains-task-list,\s*\.agent-conversation-markdown ol\.contains-task-list \{[^}]*list-style-type: none;/s,
+    );
+  });
+
   it("keeps the raised app surface on the semantic background color", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
