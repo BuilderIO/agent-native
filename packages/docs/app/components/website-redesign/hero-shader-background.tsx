@@ -750,6 +750,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // it -- ribbonField's summed smoothsteps rarely hit 1.0 on their own.
   float value = S(0.12, 0.62, clamp(cellField * 1.25 + jitter, 0., 1.));
 
+  // Soft radial "hot core" centered on the focus point, independent of the
+  // ribbon banding above. Screen-blended (1 - (1-a)(1-b), never clips/
+  // flattens like addition would) so the field reliably reads as a bright
+  // core fading out to darker edges -- the reference "light blend mode"
+  // look -- instead of a uniformly-lit band regardless of distance from
+  // focus.
+  float core = exp(-2.2 * cellDistFromFocus * cellDistFromFocus);
+  value = 1. - (1. - value) * (1. - core * core);
+
   float radius = mix(0.05, 0.44, value);
   float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.04);
   float dotShape = 1. - S(radius - edge, radius + edge, length(cellUv));
@@ -761,17 +770,25 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   dotMask *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
   dotMask *= S(0., 20., min(iTime, 5.0));
 
-  // uBrightness extrapolates the brightest cells (value above the 0.55
-  // threshold) further away from uBgColor along the existing fg/bg
-  // contrast direction, on top of the flat uFgColor every dot would
-  // otherwise render at -- so peak-signal dots can pop brighter/higher
-  // contrast than the rest of the field instead of every "on" dot reading
-  // as the same shade. Extrapolating away from bg (rather than mixing
-  // toward literal white) keeps this correct in both themes: in dark mode
-  // fg is lighter than bg so it pushes toward white, in light mode fg is
-  // darker than bg so it pushes toward black.
-  float hot = clamp((value - 0.55) * 2.5, 0., 1.) * clamp(uBrightness - 1.0, 0., 2.0);
-  vec3 dotColor = clamp(uFgColor + (uFgColor - uBgColor) * hot, 0., 1.);
+  // uBrightness extrapolates each cell's color away from uBgColor along the
+  // existing fg/bg contrast direction, scaled by that cell's own field
+  // value -- so cells already reading as brighter (higher value) pop
+  // further than dim ones as the slider increases, instead of every "on"
+  // dot reading as the same flat uFgColor shade. At uBrightness == 1 (the
+  // pre-brightness-slider baseline) this is a no-op. Extrapolating away
+  // from bg (rather than mixing toward literal white) keeps it correct in
+  // both themes: in dark mode fg is lighter than bg so it pushes toward
+  // white, in light mode fg is darker than bg so it pushes toward black.
+  float boost = uBrightness - 1.0;
+  vec3 dotColor = clamp(uFgColor + (uFgColor - uBgColor) * value * boost, 0., 1.);
+
+  // Screen-blend a white halo scaled by the hot-core term and uGlow on top
+  // of the boosted dot color -- this is what actually pushes the core
+  // toward a bright near-white "light source" instead of just the token
+  // grey, independent of uBrightness so the center-glow look holds even at
+  // its default value.
+  float hotGlow = core * core * cellMask * clamp(uGlow, 0., 3.) * 0.9;
+  dotColor = 1. - (1. - dotColor) * (1. - clamp(hotGlow, 0., 1.));
 
   vec3 col = mix(uBgColor, dotColor, clamp(dotMask, 0., 1.));
   fragColor = vec4(col, 1.);
