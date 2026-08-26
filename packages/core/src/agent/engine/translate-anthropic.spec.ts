@@ -3,6 +3,10 @@ import { describe, it, expect } from "vitest";
 
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 import {
+  createProviderToolNameMap,
+  PROVIDER_TOOL_NAME_MAX_LENGTH,
+} from "./tool-name.js";
+import {
   anthropicChunkToEngineEvents,
   createAnthropicChunkStreamState,
   engineToolsToAnthropic,
@@ -109,6 +113,30 @@ describe("engineToolsToAnthropic", () => {
     ).toBe(false);
     expect(inputSchema).toHaveProperty("oneOf");
     expect(inputSchema.properties).toHaveProperty("sql");
+  });
+
+  it("aliases oversized provider names while keeping engine names intact", () => {
+    const longName = `mcp__${"server_".repeat(8)}__get_meetings`;
+    const tools: EngineTool[] = [
+      {
+        name: longName,
+        description: "Get meetings",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ];
+    const toolNameMap = createProviderToolNameMap(tools);
+    const providerName = engineToolsToAnthropic(tools, toolNameMap)[0].name;
+
+    expect(providerName).not.toBe(longName);
+    expect(providerName.length).toBeLessThanOrEqual(
+      PROVIDER_TOOL_NAME_MAX_LENGTH,
+    );
+    expect(
+      anthropicContentToEngine(
+        [{ type: "tool_use", id: "tu-1", name: providerName, input: {} }],
+        toolNameMap,
+      ),
+    ).toEqual([{ type: "tool-call", id: "tu-1", name: longName, input: {} }]);
   });
 });
 
