@@ -44,6 +44,7 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
+import { useAvatarUrl } from "../client/use-avatar.js";
 import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
 import { REALTIME_CAP_NO_AWARENESS } from "../realtime-protocol.js";
 export {
@@ -540,19 +541,26 @@ class CollabDocConnection {
       prev &&
       prev.name === user.name &&
       prev.email === user.email &&
-      prev.color === user.color
+      prev.color === user.color &&
+      prev.avatarUrl === user.avatarUrl
     ) {
       return;
     }
+    const avatarUrl =
+      typeof user.avatarUrl === "string" && user.avatarUrl.trim()
+        ? user.avatarUrl
+        : undefined;
     this.lastSetUser = {
       name: user.name,
       email: user.email,
       color: user.color,
+      ...(avatarUrl ? { avatarUrl } : {}),
     };
     this.awareness.setLocalStateField("user", {
       name: user.name,
       email: user.email,
       color: user.color,
+      ...(avatarUrl ? { avatarUrl } : {}),
     });
     // Also publish this tab's visibility so peers can elect a VISIBLE client
     // to apply external snapshots (see isReconcileLeadClient) — a backgrounded
@@ -1180,6 +1188,13 @@ export function useCollaborativeDoc(
     requestSource,
     user,
   } = options;
+  const storedAvatarUrl = useAvatarUrl(user?.email);
+  const resolvedUser = useMemo(() => {
+    if (!user || !storedAvatarUrl || storedAvatarUrl === user.avatarUrl) {
+      return user;
+    }
+    return { ...user, avatarUrl: storedAvatarUrl };
+  }, [storedAvatarUrl, user]);
 
   // Bumped when the effect finds the memoized connection was disposed in the
   // render→effect gap (rare: a suspended transition outliving the linger
@@ -1239,9 +1254,9 @@ export function useCollaborativeDoc(
   // Publish local user identity for cursor labels (set once per tab; the
   // connection dedupes repeated identical identities across subscribers).
   useEffect(() => {
-    if (!conn || conn.detached || !user) return;
-    conn.setUser({ name: user.name, email: user.email, color: user.color });
-  }, [conn, user?.name, user?.email, user?.color]);
+    if (!conn || conn.detached || !resolvedUser) return;
+    conn.setUser(resolvedUser);
+  }, [conn, resolvedUser]);
 
   return {
     ydoc: conn ? conn.ydoc : null,

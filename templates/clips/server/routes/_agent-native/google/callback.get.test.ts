@@ -44,12 +44,25 @@ describe("persistGoogleProfileImage", () => {
   it("stores a non-empty Google profile image under the email avatar key", async () => {
     await persistGoogleProfileImage(
       "vishwas@example.com",
-      "https://example.com/avatar.jpg",
+      "https://lh3.googleusercontent.com/a/avatar.jpg",
     );
 
     expect(putSetting).toHaveBeenCalledWith("avatar:vishwas@example.com", {
-      image: "https://example.com/avatar.jpg",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
     });
+  });
+
+  it.each([
+    "",
+    "not-a-url",
+    "http://lh3.googleusercontent.com/avatar.jpg",
+    "data:image/png;base64,abc",
+    "javascript:alert(1)",
+    "https://googleusercontent.com.evil.example/avatar.jpg",
+  ])("ignores an unsafe Google profile image URL: %s", async (picture) => {
+    await persistGoogleProfileImage("vishwas@example.com", picture);
+
+    expect(putSetting).not.toHaveBeenCalled();
   });
 
   it("keeps sign-in non-fatal when avatar storage fails", async () => {
@@ -59,7 +72,7 @@ describe("persistGoogleProfileImage", () => {
     await expect(
       persistGoogleProfileImage(
         "logan@example.com",
-        "https://example.com/avatar.jpg",
+        "https://lh3.googleusercontent.com/a/avatar.jpg",
       ),
     ).resolves.toBeUndefined();
     expect(warning).toHaveBeenCalledWith(

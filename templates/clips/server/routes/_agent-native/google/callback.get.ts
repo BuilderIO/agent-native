@@ -11,6 +11,7 @@ import {
   type OAuthStatePayload,
 } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
+import { isGoogleProfileImageUrl } from "@agent-native/core/shared";
 import {
   defineEventHandler,
   getQuery,
@@ -31,11 +32,13 @@ export async function persistGoogleProfileImage(
   email: string,
   picture: unknown,
 ) {
-  if (typeof picture !== "string" || !picture.trim()) return;
+  if (!isGoogleProfileImageUrl(picture)) return;
 
-  await putSetting(`avatar:${email}`, { image: picture }).catch((error) => {
-    console.warn("[auth] failed to store Google profile image:", error);
-  });
+  await putSetting(`avatar:${email}`, { image: picture.trim() }).catch(
+    (error) => {
+      console.warn("[auth] failed to store Google profile image:", error);
+    },
+  );
 }
 
 async function handleGoogleSignInCallback(
