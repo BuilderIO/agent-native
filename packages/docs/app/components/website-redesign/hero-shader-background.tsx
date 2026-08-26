@@ -6,6 +6,7 @@ import type {
   HeroShaderVariant,
   RibbonFieldSettings,
 } from "./hero-shader-settings";
+import { GRID_MAX_WIDTH } from "./page-grid";
 
 // Forked from @agent-native/core's StarfieldBackground (packages/core/src/client/StarfieldBackground.tsx)
 // so the hero can expose live-tunable uniforms (particle count, color, blink
@@ -854,8 +855,7 @@ function RibbonFieldShaderBackground({
   contrast,
   glow,
   brightness,
-  dither,
-  ditherScale,
+  posterizeLevels,
   dotDensity,
   dotScale,
   intensity,
@@ -886,8 +886,7 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    dither,
-    ditherScale,
+    posterizeLevels,
     dotDensity,
     dotScale,
     seed,
@@ -909,8 +908,7 @@ function RibbonFieldShaderBackground({
       contrast,
       glow,
       brightness,
-      dither,
-      ditherScale,
+      posterizeLevels,
       dotDensity,
       dotScale,
       seed,
@@ -931,8 +929,7 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    dither,
-    ditherScale,
+    posterizeLevels,
     dotDensity,
     dotScale,
     seed,
@@ -1311,6 +1308,7 @@ uniform float uScreenBlend;
 uniform float uLightSaturation;
 uniform float uLightScreenAmount;
 uniform float uIntroDuration;
+uniform float uScaleRef;
 uniform float uWarpAmount;
 uniform float uWarpScale;
 uniform float uWarpSpeed;
@@ -1476,7 +1474,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float warpGate = smoothstep(warpStart, warpStart + 10.0, iTime);
 
   if (uWarpAmount > 0.0 && warpGate > 0.0) {
-    vec2 wp = fragCoord / iResolution.y * 6.2831 * uWarpScale;
+    vec2 wp = fragCoord / uScaleRef * 6.2831 * uWarpScale;
     float wt = iTime * uWarpSpeed;
     vec2 warp = vec2(
       sin(wp.y + wt) + 0.5 * sin(wp.y * 2.3 - wt * 1.3),
@@ -1485,8 +1483,13 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     xy += warp * uWarpAmount * warpGate;
   }
 
+  // uScaleRef rather than iResolution.y: the planet's on-screen size is
+  // proportional to zdist, so deriving it from the raw resolution made the
+  // sphere grow without bound on wide viewports. The reference is the canvas
+  // width clamped to the layout's max content width, so the effect stops
+  // scaling once the hero is wider than the centered column.
   float cot_half_fov = tan(radians(90.0 - uFov * 0.5));
-  float zdist = iResolution.y * 0.5 * cot_half_fov;
+  float zdist = uScaleRef * 0.5 * cot_half_fov;
   vec3 dir = normalize(vec3(xy, -zdist));
 
   vec3 eye = vec3(0.0, 0.0, uEyeDistance);
@@ -1878,6 +1881,7 @@ function AtmosphereShaderBackground({
     const uGamma = gl.getUniformLocation(program, "uGamma");
     const uOutSteps = gl.getUniformLocation(program, "uOutSteps");
     const uInSteps = gl.getUniformLocation(program, "uInSteps");
+    const uScaleRef = gl.getUniformLocation(program, "uScaleRef");
     const uPageColor = gl.getUniformLocation(program, "uPageColor");
     const uScreenBlend = gl.getUniformLocation(program, "uScreenBlend");
     const uLightSaturation = gl.getUniformLocation(program, "uLightSaturation");
@@ -1902,10 +1906,12 @@ function AtmosphereShaderBackground({
     let reducedMotion = reducedMotionQuery?.matches ?? false;
 
     let dpr = 1;
+    let scaleRef = 1;
 
     function draw(timeSeconds: number) {
       gl.uniform1f(uTime, timeSeconds);
       gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uScaleRef, scaleRef);
       gl.uniform1f(uPlanetRadius, settingsRef.current.planetRadius);
       gl.uniform1f(
         uAtmosphereThickness,
@@ -1969,6 +1975,13 @@ function AtmosphereShaderBackground({
       canvas.height = w * dpr;
       canvas.style.width = h + "px";
       canvas.style.height = w + "px";
+      // Drives the shader's projection scale instead of the canvas resolution.
+      // The 90deg rotation means the container's *width* becomes the canvas'
+      // height, so an uncapped scale made the planet track viewport width and
+      // outgrow the centered content column on wide screens. Clamping here
+      // keeps the canvas itself full-bleed (so the glow can still bleed past
+      // the column) while pinning the sphere's size once past GRID_MAX_WIDTH.
+      scaleRef = Math.min(w, GRID_MAX_WIDTH) * dpr;
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
 
