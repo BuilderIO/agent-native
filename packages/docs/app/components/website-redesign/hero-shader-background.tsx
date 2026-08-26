@@ -746,7 +746,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float jitter = (N21(cell) - 0.5) * 0.25 * (sin(t * 2. + N21(cell) * 10.) * 0.5 + 0.5);
   float value = clamp(cellField + jitter, 0., 1.);
 
-  float radius = mix(0.04, 0.46, value);
+  float radius = mix(0.03, 0.26, value);
   float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.05);
   float dotShape = 1. - S(radius - edge, radius + edge, length(cellUv));
 
