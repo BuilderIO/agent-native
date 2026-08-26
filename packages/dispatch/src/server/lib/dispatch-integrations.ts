@@ -184,7 +184,7 @@ function formatSlackLinkRequiredMessage(): string {
   const linkStep = identitiesUrl
     ? `Open ${identitiesUrl}, create a Slack link token, then send \`/link <token>\` in this DM.`
     : "Open Dispatch while signed in, create a Slack link token, then send `/link <token>` in this DM.";
-  return `Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. ${linkStep}`;
+  return `Agent-Native is ready, but this Slack account is not linked to an Agent-Native user yet. ${linkStep}`;
 }
 
 function formatSlackIdentityVerificationFailedMessage(): string {
@@ -574,7 +574,7 @@ export async function resolveDispatchExecutionContext(
       access,
     );
   }
-  if (!scope) throw new Error("Slack channel is not enabled for Agent Native");
+  if (!scope) throw new Error("Slack channel is not enabled for Agent-Native");
   const decision = evaluateIntegrationScopePolicy(scope, {
     // Slack channel turns only arrive here after an explicit current-message
     // mention; keep the generic thread_reply trigger for other adapters.

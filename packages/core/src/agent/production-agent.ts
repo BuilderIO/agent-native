@@ -2874,6 +2874,11 @@ async function applyObservationalMemoryToContext(
   }
 }
 
+type CachedReadOnlyToolResult = {
+  content: string;
+  images?: EngineToolResultPart["images"];
+};
+
 /**
  * Cross-chunk read-only result cache seed.
  *
@@ -2898,8 +2903,8 @@ async function applyObservationalMemoryToContext(
 function seedReadOnlyToolResultsFromJournal(
   journal: ToolCallJournal | null,
   actions: Record<string, ActionEntry>,
-): Map<string, string> {
-  const cache = new Map<string, string>();
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>();
   if (!journal) return cache;
   for (const entry of journal.completed) {
     const action = actions[entry.tool];
@@ -2920,7 +2925,7 @@ function seedReadOnlyToolResultsFromJournal(
     ) {
       continue;
     }
-    cache.set(toolCallCacheKey(entry.tool, entry.input), result);
+    cache.set(toolCallCacheKey(entry.tool, entry.input), { content: result });
   }
   return cache;
 }
@@ -2928,9 +2933,9 @@ function seedReadOnlyToolResultsFromJournal(
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
-  seed?: Map<string, string>,
-): Map<string, string> {
-  const cache = new Map<string, string>(seed);
+  seed?: Map<string, CachedReadOnlyToolResult>,
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>(seed);
   if (!isInternalContinuationTurn(messages)) return cache;
 
   // Scoped to the current turn only (same slice as
@@ -2974,7 +2979,10 @@ function seedReadOnlyToolResultsFromHistory(
       // cached — every call must execute fresh, seeded or not.
       if (!call.dedupe) continue;
       if (!isReusableReadOnlyToolResult(part)) continue;
-      cache.set(toolCallCacheKey(call.name, call.input), part.content);
+      cache.set(toolCallCacheKey(call.name, call.input), {
+        content: part.content,
+        ...(part.images?.length ? { images: part.images } : {}),
+      });
     }
   }
 
@@ -3073,6 +3081,16 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   if (part.isError) return false;
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
+  // The ledger persists only the note, not image bytes. Re-execute an image
+  // read when its payload is unavailable so a continuation can restore vision.
+  if (
+    !part.images?.length &&
+    /\[image(?:\s+#\d+|\s*:)[^\n\]]*\battached(?:\s+#\d+|:)[^\n\]]*\]/i.test(
+      part.content,
+    )
+  ) {
+    return false;
+  }
   return !(
     lower.startsWith("skipped duplicate read-only call to ") ||
     lower.startsWith("invalid action parameters for ") ||
@@ -3333,7 +3351,7 @@ export async function executeAgentToolCall(
   let streamCalls = 0;
   const engine: AgentEngine = {
     name: "agent-native:single-tool",
-    label: "Agent Native tool runtime",
+    label: "Agent-Native tool runtime",
     defaultModel: "agent-native:single-tool",
     supportedModels: ["agent-native:single-tool"],
     capabilities: {
@@ -3381,7 +3399,7 @@ export async function executeAgentToolCall(
     await runAgentLoop({
       engine,
       model: engine.defaultModel,
-      systemPrompt: "Execute the selected Agent Native tool call.",
+      systemPrompt: "Execute the selected Agent-Native tool call.",
       tools,
       availableTools: tools,
       messages: [
@@ -6361,8 +6379,11 @@ export async function runAgentLoop(opts: {
           actionEntry.readOnly === true && actionEntry.dedupe !== false
             ? toolCallCacheKey(toolCall.name, toolCall.input)
             : null;
-        if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-          const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+        const cachedResult = cacheKey
+          ? readOnlyToolResultCache.get(cacheKey)
+          : undefined;
+        if (cacheKey && cachedResult) {
+          const previousResult = cachedResult.content;
           // `contextMessages` (not `messages`) is what the model actually sees
           // this iteration — context-xray eviction/summarization and
           // observational-memory trimming can drop the earlier result from
@@ -6411,6 +6432,9 @@ export async function runAgentLoop(opts: {
             toolName: toolCall.name,
             toolInput: wireToolInput,
             content: result,
+            ...(cachedResult.images?.length
+              ? { images: cachedResult.images }
+              : {}),
           };
         }
 
@@ -6719,7 +6743,10 @@ export async function runAgentLoop(opts: {
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
-            readOnlyToolResultCache.set(cacheKey, result);
+            readOnlyToolResultCache.set(cacheKey, {
+              content: result,
+              ...(toolResultImages?.length ? { images: toolResultImages } : {}),
+            });
           } else if (actionEntry.readOnly !== true) {
             // A genuine write invalidates all cached reads. A dedupe:false
             // read-only tool also has a null cacheKey (see above) but must NOT

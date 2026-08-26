@@ -833,10 +833,10 @@ function remoteCommandPushPayload(
         : "Remote run updated";
   const body =
     status === "completed"
-      ? "Open Agent Native to review the result."
+      ? "Open Agent-Native to review the result."
       : status === "failed"
-        ? "Open Agent Native to review the failure."
-        : "Open Agent Native to review the latest status.";
+        ? "Open Agent-Native to review the failure."
+        : "Open Agent-Native to review the latest status.";
   return {
     title,
     body,
@@ -3084,7 +3084,7 @@ export function createIntegrationsPlugin(
                 installation.teamName || installation.enterpriseName || "Slack",
                 {
                   addAccount: true,
-                  appName: "Agent Native",
+                  appName: "Agent-Native",
                   returnUrl: state.returnUrl || "/messaging",
                 },
               );

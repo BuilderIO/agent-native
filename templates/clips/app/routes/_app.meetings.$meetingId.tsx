@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageHeader } from "@/components/library/page-header";
 import {
   AttendeeStack,
@@ -52,7 +53,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -258,12 +258,13 @@ function ActionItemsByPerson({
       {grouped.map(([who, list]) => (
         <div key={who} className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <Avatar className="h-5 w-5">
-              <AvatarImage alt={who} />
-              <AvatarFallback className="text-[9px]">
-                {attendeeInitials(who || t("meetingDetail.unassigned"))}
-              </AvatarFallback>
-            </Avatar>
+            <ClipsAvatar
+              email={who || null}
+              alt={who || t("meetingDetail.unassigned")}
+              fallback={attendeeInitials(who || t("meetingDetail.unassigned"))}
+              className="h-5 w-5"
+              fallbackClassName="text-[9px]"
+            />
             <span className="text-xs font-medium">
               {who || t("meetingDetail.unassigned")}
             </span>

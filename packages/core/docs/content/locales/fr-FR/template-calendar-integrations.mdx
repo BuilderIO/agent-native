@@ -19,7 +19,7 @@ configurés ensemble, pas du fait que l'un ou l'autre soit hébergé ou exécut�
 ### Même espace de travail : automatique
 
 Si Calendrier et Dispatch ont été générés ou ajoutés ensemble dans un seul espace de
-travail Agent Native (via `create` ou `add-app`) et déployés comme une seule unité, ils
+travail Agent-Native (via `create` ou `add-app`) et déployés comme une seule unité, ils
 partagent déjà un seul `.env`, un seul `A2A_SECRET`, et un seul registre d'espace de travail.
 La découverte et l'appel A2A authentifié fonctionnent tous les deux sans rien à
 configurer, que cet espace de travail s'exécute sur votre machine ou en production.
@@ -27,7 +27,7 @@ C'est la configuration attendue pour un véritable produit multi-apps construit 
 
 ### Déploiements séparés : une étape manuelle
 
-Si Calendrier et Dispatch sont deux projets Agent Native créés indépendamment,
+Si Calendrier et Dispatch sont deux projets Agent-Native créés indépendamment,
 ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux.
 Les connecter demande une étape manuelle de chaque côté : ajoutez une
 ressource `remote-agents/<id>.json` avec un secret partagé, depuis Paramètres →

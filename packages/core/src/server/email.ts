@@ -186,7 +186,7 @@ function defaultFromAddress(config: EmailTransportConfig): string {
       "EMAIL_FROM is required when using SendGrid — save it as a verified sender address.",
     );
   }
-  return "Agent Native <onboarding@resend.dev>";
+  return "Agent-Native <onboarding@resend.dev>";
 }
 
 /**

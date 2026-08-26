@@ -13,7 +13,7 @@ describe("fireInternalDispatch", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses the Agent Native dev port when retrying outside a request", () => {
+  it("uses the Agent-Native dev port when retrying outside a request", () => {
     const keys = [
       "DEPLOY_PRIME_URL",
       "DEPLOY_URL",

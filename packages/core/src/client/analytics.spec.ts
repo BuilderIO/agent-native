@@ -660,7 +660,7 @@ describe("browser analytics pageviews", () => {
     });
   });
 
-  it("keeps Agent Native Analytics quiet on localhost", async () => {
+  it("keeps Agent-Native Analytics quiet on localhost", async () => {
     installBrowser("http://localhost:3000/inbox");
     const { analyticsCalls } = installFetch();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");

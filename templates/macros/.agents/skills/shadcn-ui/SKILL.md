@@ -21,7 +21,7 @@ This skill keeps shadcn/ui work project-aware. Components are source files in th
 ## First Steps
 
 1. Work from the app root that owns `components.json`.
-2. In an Agent Native app, inspect `app/design-system.ts` and
+2. In an Agent-Native app, inspect `app/design-system.ts` and
    `ToolkitProvider` before choosing a primitive. A registered company design
    system takes precedence over the default shadcn adapter.
 3. Run `pnpm dlx shadcn@latest info --json` when you need current project context: framework, Tailwind version, aliases, icon library, installed components, and resolved paths.
@@ -29,7 +29,7 @@ This skill keeps shadcn/ui work project-aware. Components are source files in th
 5. Check `app/components/ui/` or the resolved `ui` path before importing a component.
 6. For unfamiliar components, run `pnpm dlx shadcn@latest docs <component>` and read the returned docs or examples before coding.
 
-## Agent Native Adapter Rule
+## Agent-Native Adapter Rule
 
 Pages, routes, and domain components import controls through the app's local UI
 adapter layer. Never import `@agent-native/toolkit/ui/*` directly in app product
@@ -102,7 +102,7 @@ shadcn's built-in component animations are the right level of polish — keep th
 
 ## Icons
 
-- Agent-native apps use `@tabler/icons-react`. Do not add `lucide-react` because a registry example used it.
+- Agent-Native apps use `@tabler/icons-react`. Do not add `lucide-react` because a registry example used it.
 - If registry code imports a different icon package, replace those imports with Tabler equivalents before finishing.
 - Let shadcn components size icons through their CSS. Avoid manual icon sizing inside buttons, menus, alerts, and sidebars unless the local component API requires it.
 

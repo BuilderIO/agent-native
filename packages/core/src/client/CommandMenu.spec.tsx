@@ -118,7 +118,7 @@ describe("CommandMenu docs group", () => {
     );
   });
 
-  it("offers the shared About Agent Native surface and matches version searches", () => {
+  it("offers the shared About Agent-Native surface and matches version searches", () => {
     act(() => {
       root.render(
         <CommandMenu
@@ -136,13 +136,13 @@ describe("CommandMenu docs group", () => {
       );
     });
 
-    expect(document.body.textContent).toContain("About Agent Native");
+    expect(document.body.textContent).toContain("About Agent-Native");
     search("version");
-    expect(document.body.textContent).toContain("About Agent Native");
+    expect(document.body.textContent).toContain("About Agent-Native");
     expect(document.body.textContent).not.toContain("Create a project");
   });
 
-  it("opens About Agent Native after closing the command menu", () => {
+  it("opens About Agent-Native after closing the command menu", () => {
     vi.useFakeTimers();
     try {
       const onOpenChange = vi.fn();
@@ -165,7 +165,7 @@ describe("CommandMenu docs group", () => {
 
       const aboutItem = [
         ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
-      ].find((item) => item.textContent?.includes("About Agent Native"));
+      ].find((item) => item.textContent?.includes("About Agent-Native"));
       expect(aboutItem).toBeTruthy();
 
       act(() => aboutItem?.click());

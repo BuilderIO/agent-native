@@ -210,7 +210,7 @@ describe("buildOrgAppsResponse", () => {
         {
           id: "mail",
           name: "Mail",
-          description: "Agent-native email",
+          description: "Agent-Native email",
           url: "https://mail.agent-native.com/",
         },
         {
@@ -233,7 +233,7 @@ describe("buildOrgAppsResponse", () => {
       name: "Mail",
       url: "https://mail.agent-native.com",
       a2aUrl: "https://mail.agent-native.com/_agent-native/a2a",
-      capabilities: "Agent-native email",
+      capabilities: "Agent-Native email",
     });
     const cal = res.apps.find((a) => a.id === "calendar")!;
     expect(cal.capabilities).toBeUndefined();

@@ -2,9 +2,9 @@
 
 ## Listing
 
-Name: Agent Native for Chrome
+Name: Agent-Native for Chrome
 
-Summary: Chat with the page you choose and let Agent Native work alongside you.
+Summary: Chat with the page you choose and let Agent-Native work alongside you.
 
 Category: Productivity
 
@@ -12,9 +12,9 @@ The Store item ID is intentionally unset until the first upload creates it.
 
 ## Single purpose
 
-Agent Native for Chrome places an Agent Native conversation beside the current
+Agent-Native for Chrome places an Agent-Native conversation beside the current
 webpage. Users can explicitly share bounded page context and, when connected,
-let Agent Native operate an assigned tab through an origin-scoped control
+let Agent-Native operate an assigned tab through an origin-scoped control
 session.
 
 ## Permission justification
@@ -23,12 +23,12 @@ session.
   an explicit extension gesture.
 - `optional_host_permissions`: request one exact site only when the user chooses
   **Use page**, or the exact paired relay origin when enabling browser tools.
-- `sidePanel`: keeps the Agent Native conversation beside the webpage.
+- `sidePanel`: keeps the Agent-Native conversation beside the webpage.
 - `storage`: remembers the Dispatch URL, scoped remote-device credential, and
   session-only pairing/page-handle state.
 - `debugger`: powers the reviewed origin-scoped control engine; Tier-0 capture
   never uses it.
-- `nativeMessaging`: connects the same engine to Agent Native Desktop.
+- `nativeMessaging`: connects the same engine to Agent-Native Desktop.
 - `alarms`: retries Desktop and wakes the direct relay fallback.
 - `tabs`: follows the selected page, revalidates an assigned control origin,
   and lets an approved control task open an inactive tab on that origin.

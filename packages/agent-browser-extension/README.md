@@ -1,6 +1,6 @@
-# Agent Native for Chrome
+# Agent-Native for Chrome
 
-Public Manifest V3 side panel for page-aware Agent Native chat and
+Public Manifest V3 side panel for page-aware Agent-Native chat and
 origin-scoped browser control.
 
 ## Product behavior

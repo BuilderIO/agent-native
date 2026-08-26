@@ -14,8 +14,8 @@ Ease Out
 401 · WWW-Authenticate
 A2A
 adapter.sendResponse
-Agent Native
-Agent-native
+Agent-Native
+Agent-Native
 Agent-Native App
 Agent-Native Config
 Agent-Native sidecar

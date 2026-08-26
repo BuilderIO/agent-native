@@ -1,5 +1,20 @@
 # @agent-native/skills
 
+## 0.2.712
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [20be465]
+- Updated dependencies [9426034]
+- Updated dependencies
+- Updated dependencies [db91905]
+- Updated dependencies [5ef18e1]
+- Updated dependencies [557e694]
+- Updated dependencies [318819b]
+  - @agent-native/core@0.175.4
+
 ## 0.2.711
 
 ### Patch Changes
