@@ -113,6 +113,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
   AgentChatEvent,
+  MentionItemMedia,
   MentionProvider,
 } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -4882,6 +4883,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             label: string;
             description?: string;
             icon?: string;
+            media?: MentionItemMedia;
             source: string;
             refType: string;
             refPath?: string;
@@ -5035,6 +5037,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                         label: item.label,
                         description: item.description,
                         icon: item.icon || provider.icon || "file",
+                        media: item.media,
                         source: key,
                         refType: item.refType,
                         refPath: item.refPath,
