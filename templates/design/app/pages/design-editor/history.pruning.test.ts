@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  contentHistoryEntryFromChanges,
   filterFileDeletionHistoryEntry,
+  partitionContentHistoryEntry,
   pruneGeometryHistoryEntryForDeletedFiles,
   remapFileDeletionHistoryEntryIds,
 } from "./history";
@@ -117,6 +119,40 @@ describe("file deletion history", () => {
   it("keeps only files whose delete mutation succeeded", () => {
     expect(filterFileDeletionHistoryEntry(entry, new Set(["old-b"]))).toEqual({
       files: [entry.files[1]],
+    });
+  });
+});
+
+describe("partitionContentHistoryEntry", () => {
+  const screenA = {
+    fileId: "screen-a",
+    before: "<main>A before</main>",
+    after: "<main>A after</main>",
+  };
+  const screenB = {
+    fileId: "screen-b",
+    before: "<main>B before</main>",
+    after: "<main>B after</main>",
+  };
+  const grouped = { changes: [screenA, screenB] };
+
+  it("keeps the unavailable side on the remainder instead of dropping it", () => {
+    expect(
+      partitionContentHistoryEntry(grouped, ["screen-a"], "screen-a"),
+    ).toEqual({
+      available: [screenA],
+      remainder: [screenB],
+    });
+    expect(contentHistoryEntryFromChanges([screenA])).toEqual(screenA);
+    expect(contentHistoryEntryFromChanges([screenB])).toEqual(screenB);
+  });
+
+  it("returns the whole group when every screen is available", () => {
+    expect(
+      partitionContentHistoryEntry(grouped, ["screen-a", "screen-b"]),
+    ).toEqual({
+      available: [screenA, screenB],
+      remainder: [],
     });
   });
 });

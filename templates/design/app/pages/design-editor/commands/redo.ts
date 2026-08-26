@@ -47,7 +47,8 @@ import {
   applyGeometryHistoryDiff,
   filterFileDeletionHistoryEntry,
   findLastContentHistoryChangeIndex,
-  getAvailableContentHistoryChanges,
+  partitionContentHistoryEntry,
+  contentHistoryEntryFromChanges,
   removeRecentUndoRedoOrderKinds,
 } from "@/pages/design-editor/history";
 import type {
@@ -772,7 +773,7 @@ export function runRedo({
       contentRedoSelectionStackRef.current[
         contentRedoSelectionStackRef.current.length - 1
       ];
-    const changes = getAvailableContentHistoryChanges(
+    const { available: changes, remainder } = partitionContentHistoryEntry(
       entry,
       files.map((file) => file.id),
       activeFile?.id,
@@ -785,9 +786,15 @@ export function runRedo({
     }
     contentRedoStackRef.current.pop();
     contentRedoSelectionStackRef.current.pop();
+    const remainderEntry = contentHistoryEntryFromChanges(remainder);
+    if (remainderEntry) {
+      contentRedoStackRef.current.push(remainderEntry);
+      contentRedoSelectionStackRef.current.push(entrySelection);
+    }
+    const appliedEntry = contentHistoryEntryFromChanges(changes)!;
     contentUndoStackRef.current = [
       ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
+      appliedEntry,
     ];
     contentUndoSelectionStackRef.current = [
       ...contentUndoSelectionStackRef.current.slice(

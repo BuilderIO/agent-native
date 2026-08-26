@@ -996,6 +996,7 @@ const messages = {
       auditRunFailed: "無法執行設計稽核",
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
+      saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       reactSourceAnchorsLoading:
         "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",

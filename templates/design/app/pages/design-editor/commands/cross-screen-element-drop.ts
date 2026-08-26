@@ -35,6 +35,34 @@ import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-e
 import { applyPortableStyleSnapshotToHtml } from "@/pages/design-editor/portable-style";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
 
+/** Empty generated screens strip absolute positioning, so a flow-insert
+ * into an empty body parks the node at 0,0. Drop at the pointer instead. */
+export function shouldAbsolutePlaceOnEmptyScreen({
+  destHtml,
+  targetLocalPoint,
+}: {
+  destHtml: string;
+  targetLocalPoint?: { x: number; y: number } | null;
+}): boolean {
+  if (!targetLocalPoint) return false;
+  if (typeof DOMParser === "undefined") return false;
+  // Live-app destinations store a URL, not HTML — do not treat that as empty.
+  if (!/<body[\s>]/i.test(destHtml)) return false;
+  const doc = new DOMParser().parseFromString(destHtml, "text/html");
+  return (doc.body?.children.length ?? 0) === 0;
+}
+
+function absoluteDropPoint(
+  targetLocalPoint: { x: number; y: number },
+  targetAnchorRect?: { left: number; top: number } | null,
+): { x: number; y: number } {
+  if (!targetAnchorRect) return targetLocalPoint;
+  return {
+    x: targetLocalPoint.x - targetAnchorRect.left,
+    y: targetLocalPoint.y - targetAnchorRect.top,
+  };
+}
+
 export interface CrossScreenElementDropArgs {
   applyFileContentUpdate: (
     fileId: string,
@@ -275,17 +303,19 @@ export function runCrossScreenElementDrop(
             subjectNodeId,
             styleSnapshot,
           );
+          const destHtml = getScreenContent(targetScreenId);
+          const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
+            destHtml,
+            targetLocalPoint,
+          });
           const positioned =
-            targetDropMode === "absolute-container" &&
             targetLocalPoint &&
-            targetAnchorRect
+            (placeAbsoluteOnEmptyScreen ||
+              (targetDropMode === "absolute-container" && targetAnchorRect))
               ? setAbsolutePositioningForNodeInHtml(
                   styled,
                   subjectNodeId,
-                  {
-                    x: targetLocalPoint.x - targetAnchorRect.left,
-                    y: targetLocalPoint.y - targetAnchorRect.top,
-                  },
+                  absoluteDropPoint(targetLocalPoint, targetAnchorRect),
                   sourcePointerOffset,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
@@ -498,31 +528,29 @@ export function runCrossScreenElementDrop(
     destNodeAttrId,
     liveDestIframe?.contentDocument ?? null,
   );
-  const nextDestContent = targetAnchorAttrId
-    ? targetDropMode === "absolute-container"
-      ? targetLocalPoint && targetAnchorRect
-        ? setAbsolutePositioningForNodeInHtml(
-            stylePreservedDest,
-            destNodeAttrId,
-            {
-              x: targetLocalPoint.x - targetAnchorRect.left,
-              y: targetLocalPoint.y - targetAnchorRect.top,
-            },
-            sourcePointerOffset,
-          )
-        : stylePreservedDest
-      : removeAbsolutePositioningFromNodeInHtml(
-          stylePreservedDest,
-          destNodeAttrId,
-        )
-    : targetLocalPoint
+  const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
+    destHtml: destContent,
+    targetLocalPoint,
+  });
+  const nextDestContent =
+    targetLocalPoint &&
+    (placeAbsoluteOnEmptyScreen ||
+      !targetAnchorAttrId ||
+      (targetDropMode === "absolute-container" && targetAnchorRect))
       ? setAbsolutePositioningForNodeInHtml(
           stylePreservedDest,
           destNodeAttrId,
-          targetLocalPoint,
+          placeAbsoluteOnEmptyScreen || !targetAnchorAttrId
+            ? targetLocalPoint
+            : absoluteDropPoint(targetLocalPoint, targetAnchorRect),
           sourcePointerOffset,
         )
-      : stylePreservedDest;
+      : targetAnchorAttrId && targetDropMode !== "absolute-container"
+        ? removeAbsolutePositioningFromNodeInHtml(
+            stylePreservedDest,
+            destNodeAttrId,
+          )
+        : stylePreservedDest;
 
   recordContentHistoryEntry({
     changes: [

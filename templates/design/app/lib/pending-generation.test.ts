@@ -2,6 +2,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it } from "vitest";
 
 import {
+  generationOutputFiles,
   hasPendingGenerationOutput,
   isPendingGenerationStale,
   PENDING_GENERATION_STALE_MS,
@@ -79,6 +80,36 @@ describe("template refinement output", () => {
       hasPendingGenerationOutput({ templateId: "template-1" }, [
         { ...copied, updatedAt: "2026-07-10T12:01:00.000Z" },
       ]),
+    ).toBe(true);
+  });
+});
+
+describe("board file is not generation output", () => {
+  const board = {
+    id: "board-1",
+    filename: "__board__.html",
+    content: "<body></body>",
+    createdAt: "2026-07-10T12:00:00.000Z",
+    updatedAt: "2026-07-10T12:00:00.000Z",
+  };
+
+  it("ignores the reserved board file when deciding that generation finished", () => {
+    expect(generationOutputFiles([board])).toEqual([]);
+    expect(
+      hasPendingGenerationOutput({ prompt: "login screen" }, [board]),
+    ).toBe(false);
+  });
+
+  it("still recognizes a real screen alongside the board file", () => {
+    const screen = {
+      id: "file-1",
+      filename: "index.html",
+      content: "<main>Login</main>",
+      createdAt: "2026-07-10T12:00:00.000Z",
+      updatedAt: "2026-07-10T12:01:00.000Z",
+    };
+    expect(
+      hasPendingGenerationOutput({ prompt: "login screen" }, [board, screen]),
     ).toBe(true);
   });
 });

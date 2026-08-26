@@ -1,5 +1,6 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { isBoardFile } from "@shared/board-file";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
@@ -61,8 +62,11 @@ export function runResumePendingGeneration({
     setHasPendingGeneration(false);
     return;
   }
-  const templateRefinement = Boolean(pending.templateId && files.length > 0);
-  if (files.length > 0 && !templateRefinement) return;
+  const screenFiles = files.filter((file) => !isBoardFile(file.filename));
+  const templateRefinement = Boolean(
+    pending.templateId && screenFiles.length > 0,
+  );
+  if (screenFiles.length > 0 && !templateRefinement) return;
 
   if (isPendingGenerationStale(pending)) {
     markGenerationStale();

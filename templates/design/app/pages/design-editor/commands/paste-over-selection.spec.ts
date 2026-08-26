@@ -1,0 +1,172 @@
+// @vitest-environment happy-dom
+
+import { describe, expect, it, vi } from "vitest";
+
+import type { ElementInfo } from "@/components/design/types";
+import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
+import type { DesignFile } from "@/pages/design-editor/types";
+
+const toastError = vi.fn();
+vi.mock("sonner", () => ({
+  toast: { error: (...args: unknown[]) => toastError(...args) },
+}));
+
+import {
+  resolvePasteOverPositions,
+  runPasteOverSelection,
+} from "./paste-over-selection";
+
+const RECT_HTML = `<div data-agent-native-node-id="rect-1" data-an-primitive="rectangle" data-agent-native-layer-name="Rectangle" style="position:absolute;left:40px;top:120px;width:200px;height:100px;background:rgb(255 0 0)"></div>`;
+
+const HOME_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="frame-1" data-an-primitive="frame" data-agent-native-layer-name="Frame" style="position:absolute;left:0px;top:0px;width:390px;height:844px">
+${RECT_HTML}
+</div>
+</body></html>`;
+
+function designFile(content: string): DesignFile {
+  return {
+    id: "home",
+    filename: "index.html",
+    fileType: "html",
+    content,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function selected(
+  styles: Record<string, string>,
+  boundingRect = { x: 900, y: 40, width: 200, height: 100 },
+): ElementInfo {
+  return {
+    tagName: "DIV",
+    classes: [],
+    computedStyles: styles,
+    boundingRect,
+  } as unknown as ElementInfo;
+}
+
+describe("resolvePasteOverPositions", () => {
+  const entries: CanvasLayerClipboardEntry[] = [
+    { html: RECT_HTML, rootNodeId: "rect-1", sourceFileId: "home" },
+  ];
+
+  it("uses authored CSS left/top, never the selection bounding box", () => {
+    expect(
+      resolvePasteOverPositions(
+        entries,
+        selected({ left: "40px", top: "120px" }),
+      ),
+    ).toEqual([{ x: 56, y: 136 }]);
+  });
+
+  it("offsets from the copied layer CSS when the selection has no position", () => {
+    expect(resolvePasteOverPositions(entries, selected({}))).toEqual([
+      { x: 56, y: 136 },
+    ]);
+  });
+
+  it("returns null when neither the selection nor the copy has CSS position", () => {
+    expect(
+      resolvePasteOverPositions(
+        [
+          {
+            html: "<div>plain</div>",
+            rootNodeId: "plain",
+            sourceFileId: "home",
+          },
+        ],
+        selected({}),
+      ),
+    ).toBeNull();
+  });
+});
+
+function pastedCopies(content: string) {
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  return Array.from(
+    doc.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
+  ).filter((element) =>
+    (element.getAttribute("data-agent-native-node-id") ?? "").startsWith(
+      "copy-",
+    ),
+  );
+}
+
+function pixels(value: string) {
+  return Number.parseFloat(value.replace("px", ""));
+}
+
+describe("runPasteOverSelection", () => {
+  it("pastes at CSS coordinates instead of the canvas bounding box", () => {
+    const writes: string[] = [];
+    const selections: string[][] = [];
+    runPasteOverSelection({
+      activeFile: designFile(HOME_HTML),
+      applyLocalContentUpdate: (nextContent) => {
+        writes.push(nextContent);
+      },
+      getCanvasClipboardEntries: () => [
+        { html: RECT_HTML, rootNodeId: "rect-1", sourceFileId: "home" },
+      ],
+      getFreshActiveContent: () => HOME_HTML,
+      handlePasteSelection: async () => {
+        throw new Error("should not fall through to paste");
+      },
+      selectedElement: selected({ left: "40px", top: "120px" }),
+      selectInsertedLayers: (_screenId, _content, rootNodeIds) => {
+        selections.push(rootNodeIds);
+      },
+      t: (key) => key,
+    });
+    expect(writes).toHaveLength(1);
+    const copies = pastedCopies(writes[0]!);
+    expect(copies).toHaveLength(1);
+    expect(pixels(copies[0]!.style.left)).toBe(56);
+    expect(pixels(copies[0]!.style.top)).toBe(136);
+    expect(selections).toHaveLength(1);
+  });
+
+  it("falls through to ordinary paste when no CSS position can be resolved", () => {
+    const handlePasteSelection = vi.fn(async () => {});
+    runPasteOverSelection({
+      activeFile: designFile(HOME_HTML),
+      applyLocalContentUpdate: () => {
+        throw new Error("should not write");
+      },
+      getCanvasClipboardEntries: () => [
+        { html: "<span>copy</span>", rootNodeId: "copy", sourceFileId: "home" },
+      ],
+      getFreshActiveContent: () => HOME_HTML,
+      handlePasteSelection,
+      selectedElement: selected({}),
+      selectInsertedLayers: () => {},
+      t: (key) => key,
+    });
+    expect(handlePasteSelection).toHaveBeenCalledOnce();
+  });
+
+  it("toasts when the insert fails", () => {
+    toastError.mockClear();
+    runPasteOverSelection({
+      activeFile: designFile(HOME_HTML),
+      applyLocalContentUpdate: () => {
+        throw new Error("should not write");
+      },
+      getCanvasClipboardEntries: () => [
+        { html: RECT_HTML, rootNodeId: "rect-1", sourceFileId: "home" },
+      ],
+      getFreshActiveContent: () => "http://localhost:5173/",
+      handlePasteSelection: async () => {},
+      selectedElement: selected({ left: "40px", top: "120px" }),
+      selectInsertedLayers: () => {},
+      t: (key) => key,
+    });
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.primitiveInsertFailed",
+      { duration: 4000 },
+    );
+  });
+});

@@ -173,12 +173,13 @@ export function runSaveFileContent(
         const failureKind = classifyDesignSaveFailure(error, navigator.onLine);
         if (failureKind === "offline") {
           warnChangesWillRetry();
-        } else if (
-          failureKind !== "intentional-abort" &&
-          failureKind !== "conflict"
-        ) {
-          // Conflicts already rebased above (acked-hash reset + get-design
-          // invalidation); a red toast for a routine rebase is just noise.
+        } else if (failureKind === "conflict") {
+          // Rebase still happens (acked-hash reset + get-design invalidation),
+          // but a silent 409 looks like the last edit saved.
+          toast.error(t("designEditor.toasts.saveConflict"), {
+            id: `design-save-conflict:${pending.id}`,
+          });
+        } else if (failureKind !== "intentional-abort") {
           toast.error(
             designSaveErrorMessage(error) ?? t("common.genericError"),
             { id: `design-save-error:${pending.id}` },

@@ -1,4 +1,5 @@
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { isBoardFile } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -26,22 +27,36 @@ export interface PendingGeneration {
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
 }
 
+function isGenerationOutputFile(file: { filename?: string }): boolean {
+  return !file.filename || !isBoardFile(file.filename);
+}
+
+/** Screens the user would notice as generated output. The reserved board
+ * file is created on every design open and must not count as generation. */
+export function generationOutputFiles<
+  T extends { filename?: string } = { filename?: string },
+>(files: readonly T[]): T[] {
+  return files.filter(isGenerationOutputFile);
+}
+
 export function hasPendingGenerationOutput(
   pending: PendingGeneration | null,
   files: readonly {
     id: string;
+    filename?: string;
     content: string;
     createdAt?: string | null;
     updatedAt?: string | null;
   }[],
 ): boolean {
-  if (!pending?.templateId) return files.length > 0;
+  const screenFiles = generationOutputFiles(files);
+  if (!pending?.templateId) return screenFiles.length > 0;
 
   if (pending.templateBaselineFiles?.length) {
     const baseline = new Map(
       pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
     );
-    return files.some(
+    return screenFiles.some(
       (file) =>
         !baseline.has(file.id) ||
         baseline.get(file.id) !== sourceContentHash(file.content),
@@ -51,7 +66,7 @@ export function hasPendingGenerationOutput(
   // Recovery for template refinements started before baseline hashes were
   // recorded. Freshly copied files have matching creation/update revisions;
   // only a later write is evidence that refinement produced output.
-  return files.some(
+  return screenFiles.some(
     (file) =>
       Boolean(file.createdAt && file.updatedAt) &&
       file.createdAt !== file.updatedAt,

@@ -1,6 +1,11 @@
+import { toast } from "sonner";
+
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { insertClonedHtmlLayers } from "@/pages/design-editor/clone-and-pen-edit";
+import {
+  extractLayerPosition,
+  insertClonedHtmlLayers,
+} from "@/pages/design-editor/clone-and-pen-edit";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -29,6 +34,32 @@ export interface PasteOverSelectionArgs {
     content: string,
     rootNodeIds: string[],
   ) => void;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}
+
+/** Paste-over must use authored CSS left/top, not the selection bounding box.
+ * boundingRect is iframe/canvas space; writing it as left/top parks the copy
+ * off the visible screen while Layers still shows the node. */
+export function resolvePasteOverPositions(
+  entries: CanvasLayerClipboardEntry[],
+  selectedElement: ElementInfo | null,
+): Array<{ x: number; y: number }> | null {
+  const selectedLeft = parseFloat(selectedElement?.computedStyles?.left ?? "");
+  const selectedTop = parseFloat(selectedElement?.computedStyles?.top ?? "");
+  if (Number.isFinite(selectedLeft) && Number.isFinite(selectedTop)) {
+    return entries.map((_, index) => ({
+      x: selectedLeft + (index + 1) * 16,
+      y: selectedTop + (index + 1) * 16,
+    }));
+  }
+  const sourcePositions = entries.map((entry) =>
+    extractLayerPosition(entry.html),
+  );
+  if (sourcePositions.some((position) => !position)) return null;
+  return sourcePositions.map((position, index) => ({
+    x: position!.x + 16,
+    y: position!.y + 16,
+  }));
 }
 
 export function runPasteOverSelection({
@@ -39,32 +70,32 @@ export function runPasteOverSelection({
   handlePasteSelection,
   selectedElement,
   selectInsertedLayers,
+  t,
 }: PasteOverSelectionArgs) {
   const entries = getCanvasClipboardEntries();
   if (!activeFile || entries.length === 0) return;
-  const baseContent = getFreshActiveContent();
-  if (selectedElement?.boundingRect) {
-    const { x, y } = selectedElement.boundingRect;
-    const result = insertClonedHtmlLayers(
-      baseContent,
-      entries.map((entry) => entry.html),
-      {
-        positions: entries.map((_, index) => ({
-          x: x + index * 16,
-          y: y + index * 16,
-        })),
-        styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
-        managedStyleSnapshots: entries.map(
-          (entry) => entry.managedStyleSnapshot,
-        ),
-      },
-    );
-    if (!result) return;
-    applyLocalContentUpdate(result.content, {
-      forcePreviewFullDocument: true,
-    });
-    selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
-  } else {
+  const positions = resolvePasteOverPositions(entries, selectedElement);
+  if (!positions) {
     void handlePasteSelection();
+    return;
   }
+  const result = insertClonedHtmlLayers(
+    getFreshActiveContent(),
+    entries.map((entry) => entry.html),
+    {
+      positions,
+      styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
+      managedStyleSnapshots: entries.map((entry) => entry.managedStyleSnapshot),
+    },
+  );
+  if (!result) {
+    toast.error(t("designEditor.toasts.primitiveInsertFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
+  applyLocalContentUpdate(result.content, {
+    forcePreviewFullDocument: true,
+  });
+  selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
 }

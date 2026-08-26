@@ -8,7 +8,6 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { runtimeMultiplicityForElementProvenance } from "@/pages/design-editor/editor-helpers";
-import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleEdit,
   PendingLiveNonStyleUndoEntry,
@@ -186,10 +185,11 @@ export function runRecordPendingLiveStructureEdit(
     }
     pendingVisualStyleRedoStackRef.current = [];
   }
+  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
+  // stay painted until Apply, so sharing that cap silently drops them from
+  // the Apply payload.
   pendingLiveNonStyleUndoStackRef.current = [
-    ...pendingLiveNonStyleUndoStackRef.current.slice(
-      -(MAX_DESIGN_UNDO_STACK - 1),
-    ),
+    ...pendingLiveNonStyleUndoStackRef.current,
     { kind: "structure", edit: nextEdit },
   ];
   const nextPending = mergePendingLiveNonStyleEdits(
