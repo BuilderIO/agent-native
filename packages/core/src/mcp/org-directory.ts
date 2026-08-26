@@ -105,22 +105,37 @@ export function resolveOrgDirectoryOrigin(
   }
 }
 
-function normalizeApp(raw: unknown): OrgApp | null {
-  if (!raw || typeof raw !== "object") return null;
+function isAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeApp(raw: unknown, strict = false): OrgApp | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   const id = typeof r.id === "string" ? r.id.trim().toLowerCase() : "";
   const url = typeof r.url === "string" ? r.url.trim() : "";
-  if (!id || !url) return null;
-  // Only accept absolute http(s) URLs from the directory.
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  } catch {
+  if (!id || !url || !isAbsoluteHttpUrl(url)) return null;
+  if (
+    strict &&
+    ((r.name !== undefined && typeof r.name !== "string") ||
+      (r.a2aUrl !== undefined && typeof r.a2aUrl !== "string") ||
+      (r.capabilities !== undefined &&
+        (!Array.isArray(r.capabilities) ||
+          r.capabilities.some((item) => typeof item !== "string"))))
+  ) {
     return null;
   }
   const name = typeof r.name === "string" && r.name.trim() ? r.name.trim() : id;
-  const a2aUrl =
-    typeof r.a2aUrl === "string" && r.a2aUrl.trim() ? r.a2aUrl.trim() : url;
+  const explicitA2aUrl = typeof r.a2aUrl === "string" ? r.a2aUrl.trim() : "";
+  if (strict && r.a2aUrl !== undefined && !isAbsoluteHttpUrl(explicitA2aUrl)) {
+    return null;
+  }
+  const a2aUrl = isAbsoluteHttpUrl(explicitA2aUrl) ? explicitA2aUrl : url;
   const capabilities = Array.isArray(r.capabilities)
     ? r.capabilities.filter((c): c is string => typeof c === "string")
     : undefined;
@@ -281,7 +296,9 @@ async function fetchOrgAppsResultInternal(
         const json = (await res.json()) as { apps?: unknown };
         if (!Array.isArray(json?.apps))
           return { status: "unavailable", reason: "invalid-response" };
-        const normalizedApps = json.apps.map(normalizeApp);
+        const normalizedApps = json.apps.map((app) =>
+          normalizeApp(app, strictValidation),
+        );
         if (strictValidation && normalizedApps.some((app) => app === null)) {
           return { status: "unavailable", reason: "invalid-response" };
         }

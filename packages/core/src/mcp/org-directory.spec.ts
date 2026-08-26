@@ -458,6 +458,51 @@ describe("fetchOrgApps", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  it("rejects and does not cache a malformed strict a2aUrl", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://cal.acme.com",
+                a2aUrl: "/relative-a2a",
+              },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://cal.acme.com",
+                a2aUrl: "https://cal.acme.com/_agent-native/a2a",
+              },
+            ],
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [expect.objectContaining({ id: "calendar" })],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("caches a successful fetch (not re-fetched on every call)", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const fetchSpy = vi.fn(
