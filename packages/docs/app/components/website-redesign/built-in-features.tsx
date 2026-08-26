@@ -24,8 +24,10 @@ const PILLAR_ROWS: Pillar[][] = [
       title: "Embedded agent chat",
       description:
         "Let users delegate work, ask questions, and review results without leaving the app.",
-      image:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F08e92cf529774b4e9f46f3ce41ed3509",
+      darkImage:
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3f97027653004b2da9ac0a7ddbe2e01b",
+      lightImage:
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc0482ad0057b455c8af11529a5a6941a",
     },
     {
       title: "Shared application state",
