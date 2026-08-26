@@ -34,7 +34,7 @@ import {
   IconLink,
   IconMessageCircle,
   IconRefresh,
-  IconStar,
+  IconPin,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1013,11 +1013,9 @@ export function DocumentToolbar({
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >
-                    <IconStar
-                      className={cn(
-                        "me-2 h-4 w-4",
-                        isFavorite && "fill-current",
-                      )}
+                    <IconPin
+                      className="me-2 h-4 w-4"
+                      strokeWidth={isFavorite ? 2.2 : 1.7}
                     />
                     {isFavorite
                       ? t("editor.toolbar.unpin")

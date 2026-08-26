@@ -10,6 +10,18 @@ const editorSource = readFileSync(
   new URL("./DocumentEditor.tsx", import.meta.url),
   "utf8",
 );
+const sidebarSource = readFileSync(
+  new URL("../sidebar/DocumentSidebar.tsx", import.meta.url),
+  "utf8",
+);
+const treeItemSource = readFileSync(
+  new URL("../sidebar/DocumentTreeItem.tsx", import.meta.url),
+  "utf8",
+);
+const databaseSidebarSource = readFileSync(
+  new URL("../editor/database/sidebar.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("page menu Pin/Unpin", () => {
   it("adds a Pin/Unpin item to the page menu near Copy page link and Info", () => {
@@ -31,6 +43,18 @@ describe("page menu Pin/Unpin", () => {
   it("swaps the label between Pin and Unpin based on the current pinned state", () => {
     expect(toolbarSource).toContain("editor.toolbar.unpin");
     expect(toolbarSource).toContain("editor.toolbar.pin");
+  });
+
+  it("uses a pin glyph for pinning in the page menu and sidebar", () => {
+    for (const source of [
+      toolbarSource,
+      sidebarSource,
+      treeItemSource,
+      databaseSidebarSource,
+    ]) {
+      expect(source).toContain("IconPin");
+      expect(source).not.toContain("IconStar");
+    }
   });
 
   it("only renders the item when a toggle handler is provided", () => {
