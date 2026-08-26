@@ -249,32 +249,44 @@ export function MeetingNotification() {
       }),
     );
 
+    const hideListener = listen<TranscriptionStatusPayload>(
+      "meetings:hide-notification",
+      (ev) => {
+        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        hideNotification();
+      },
+    );
+    trackListen(hideListener);
+    const errorListener = listen<TranscriptionStatusPayload>(
+      "meetings:transcription-error",
+      (ev) => {
+        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        setPending(false);
+        setError(ev.payload.error || "Could not start notes.");
+        scheduleAutoHide(15_000);
+      },
+    );
+    trackListen(errorListener);
+
     // Cold overlay boot: hydrate any payload stored before this webview
     // mounted (calendar or adhoc).
-    invoke<NotificationData | null>("take_pending_meeting_notification")
+    //
+    // Only once the hide and error listeners are actually registered. `take` is
+    // destructive, so hydrating first opens a window where the payload is no
+    // longer on the native side and this webview is not yet listening — a hide
+    // landing in it is lost by both, and the card it hydrates is one nothing can
+    // take back. The native side tombstones acknowledged meetings so the common
+    // case returns nothing at all; awaiting here covers the payload already in
+    // flight when the answer arrives.
+    Promise.all([hideListener, errorListener])
+      .then(() =>
+        invoke<NotificationData | null>("take_pending_meeting_notification"),
+      )
       .then((pending) => {
         if (stopped || !pending) return;
         showNotification(pending, { hydrated: true });
       })
       .catch(() => {});
-
-    trackListen(
-      listen<TranscriptionStatusPayload>("meetings:hide-notification", (ev) => {
-        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-        hideNotification();
-      }),
-    );
-    trackListen(
-      listen<TranscriptionStatusPayload>(
-        "meetings:transcription-error",
-        (ev) => {
-          if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-          setPending(false);
-          setError(ev.payload.error || "Could not start notes.");
-          scheduleAutoHide(15_000);
-        },
-      ),
-    );
 
     return () => {
       stopped = true;
