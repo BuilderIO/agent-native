@@ -443,9 +443,9 @@ export interface AgentChatPluginOptions {
    * Code-execution capability for the production agent.
    *
    * - `"off"` (default) — no code-execution tools in production.
-   * - `"sandboxed"` — registers the `run-code` tool (isolated Node.js sandbox
-   *   with a bridge to allowlisted registered tools). Safe for shared or
-   *   hosted deployments.
+   * - `"sandboxed"` — registers the `run-code` tool (hardened QuickJS
+   *   evaluator with a bridge to allowlisted registered tools). Safe for
+   *   shared or hosted deployments.
    * - `"trusted"` — registers both the full coding tool registry
    *   (bash / read / edit / write) and the `run-code` sandbox. Only use in
    *   single-tenant or operator-controlled deployments where full shell access

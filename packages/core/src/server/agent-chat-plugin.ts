@@ -1419,6 +1419,8 @@ export function createAgentChatPlugin(
           resolvedProdCodeExec,
           Boolean(options?.resolveActionSurface),
         );
+      const productionEvaluator =
+        effectiveProdCodeExec === "off" ? "node" : "run";
       if (
         resolvedProdCodeExec === "trusted" &&
         effectiveProdCodeExec !== "trusted"
@@ -1441,14 +1443,20 @@ export function createAgentChatPlugin(
           // Supplier is evaluated at invocation time so runtime additions to
           // prodActions (e.g. MCP sync) are visible to the bridge.
           () => filterRuntimeActionsToSurface(prodRunCodeToolActions),
-          { bridgeTools: options?.codeExecution?.bridgeTools },
+          {
+            bridgeTools: options?.codeExecution?.bridgeTools,
+            evaluator: productionEvaluator,
+          },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
         await loadRunCodeToolEntries(
           // Lean prompt mode intentionally exposes a much smaller action
           // surface; keep sandbox appAction() calls scoped to that same surface.
           () => filterRuntimeActionsToSurface(leanRunCodeToolActions),
-          { bridgeTools: options?.codeExecution?.bridgeTools },
+          {
+            bridgeTools: options?.codeExecution?.bridgeTools,
+            evaluator: productionEvaluator,
+          },
         );
 
       // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
@@ -1485,6 +1493,7 @@ export function createAgentChatPlugin(
             () => filterRuntimeActionsToSurface(devRunCodeToolActions),
             {
               bridgeTools: options?.codeExecution?.bridgeTools,
+              evaluator: "node",
             },
           )
         : {};
