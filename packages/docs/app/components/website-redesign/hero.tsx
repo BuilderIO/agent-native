@@ -51,7 +51,7 @@ export function Hero() {
               fontFamily: "var(--b-font-sans)",
               fontSize: "var(--b-t-paragraph-1)",
               lineHeight: 1.3,
-              color: "var(--b-text-secondary)",
+              color: "var(--b-text-primary)",
             }}
           >
             Build for AI agents without building a second product for users.
