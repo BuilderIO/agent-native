@@ -2,7 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { shouldAbsolutePlaceOnEmptyScreen } from "./cross-screen-element-drop";
+import {
+  absolutePlacePointForDrop,
+  shouldAbsolutePlaceOnEmptyScreen,
+} from "./cross-screen-element-drop";
 
 const EMPTY_SCREEN = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body></body></html>`;
@@ -47,5 +50,27 @@ describe("shouldAbsolutePlaceOnEmptyScreen", () => {
         targetLocalPoint: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("absolutePlacePointForDrop", () => {
+  it("uses the pointer on an empty screen even when a stale anchor rect is present", () => {
+    expect(
+      absolutePlacePointForDrop({
+        placeAbsoluteOnEmptyScreen: true,
+        targetAnchorRect: { left: 180, top: 240 },
+        targetLocalPoint: { x: 180, y: 240 },
+      }),
+    ).toEqual({ x: 180, y: 240 });
+  });
+
+  it("subtracts the anchor origin when placing into a positioned container", () => {
+    expect(
+      absolutePlacePointForDrop({
+        placeAbsoluteOnEmptyScreen: false,
+        targetAnchorRect: { left: 100, top: 50 },
+        targetLocalPoint: { x: 180, y: 240 },
+      }),
+    ).toEqual({ x: 80, y: 190 });
   });
 });

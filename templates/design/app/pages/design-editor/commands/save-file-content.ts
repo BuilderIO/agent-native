@@ -12,6 +12,7 @@ import { shouldClearLatestUnloadSave } from "@/pages/design-editor/editor-state"
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  isDesignSaveSuccessConflict,
 } from "@/pages/design-editor/save-failure";
 
 export interface SaveFileContentArgs {
@@ -145,6 +146,11 @@ export function runSaveFileContent(
           // that simply reconnecting will save this obsolete snapshot.
           queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
+          });
+        }
+        if (isDesignSaveSuccessConflict(persistedContentMatches)) {
+          toast.error(t("designEditor.toasts.saveConflict"), {
+            duration: 4000,
           });
         }
         if (

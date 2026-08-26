@@ -18,6 +18,15 @@ import {
 
 const RECT_HTML = `<div data-agent-native-node-id="rect-1" data-an-primitive="rectangle" data-agent-native-layer-name="Rectangle" style="position:absolute;left:40px;top:120px;width:200px;height:100px;background:rgb(255 0 0)"></div>`;
 
+const NESTED_CHILD_HTML = `<div data-agent-native-node-id="child-1" data-an-primitive="rectangle" style="position:absolute;left:40px;top:20px;width:80px;height:40px"></div>`;
+
+const NESTED_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="frame-1" data-an-primitive="frame" style="position:absolute;left:300px;top:200px;width:400px;height:400px">
+${NESTED_CHILD_HTML}
+</div>
+</body></html>`;
+
 const HOME_HTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
 <div data-agent-native-node-id="frame-1" data-an-primitive="frame" data-agent-native-layer-name="Frame" style="position:absolute;left:0px;top:0px;width:390px;height:844px">
@@ -39,12 +48,14 @@ function designFile(content: string): DesignFile {
 function selected(
   styles: Record<string, string>,
   boundingRect = { x: 900, y: 40, width: 200, height: 100 },
+  sourceId?: string,
 ): ElementInfo {
   return {
     tagName: "DIV",
     classes: [],
     computedStyles: styles,
     boundingRect,
+    ...(sourceId ? { sourceId } : {}),
   } as unknown as ElementInfo;
 }
 
@@ -66,6 +77,22 @@ describe("resolvePasteOverPositions", () => {
     expect(resolvePasteOverPositions(entries, selected({}))).toEqual([
       { x: 56, y: 136 },
     ]);
+  });
+
+  it("walks nested authored left/top to document-root coords", () => {
+    expect(
+      resolvePasteOverPositions(
+        [
+          {
+            html: NESTED_CHILD_HTML,
+            rootNodeId: "child-1",
+            sourceFileId: "home",
+          },
+        ],
+        selected({ left: "40px", top: "20px" }, undefined, "child-1"),
+        NESTED_HTML,
+      ),
+    ).toEqual([{ x: 356, y: 236 }]);
   });
 
   it("returns null when neither the selection nor the copy has CSS position", () => {
@@ -127,6 +154,39 @@ describe("runPasteOverSelection", () => {
     expect(pixels(copies[0]!.style.left)).toBe(56);
     expect(pixels(copies[0]!.style.top)).toBe(136);
     expect(selections).toHaveLength(1);
+  });
+
+  it("pastes a nested layer at document-root coords, not containing-block left/top", () => {
+    const writes: string[] = [];
+    runPasteOverSelection({
+      activeFile: designFile(NESTED_HTML),
+      applyLocalContentUpdate: (nextContent) => {
+        writes.push(nextContent);
+      },
+      getCanvasClipboardEntries: () => [
+        {
+          html: NESTED_CHILD_HTML,
+          rootNodeId: "child-1",
+          sourceFileId: "home",
+        },
+      ],
+      getFreshActiveContent: () => NESTED_HTML,
+      handlePasteSelection: async () => {
+        throw new Error("should not fall through to paste");
+      },
+      selectedElement: selected(
+        { left: "40px", top: "20px" },
+        undefined,
+        "child-1",
+      ),
+      selectInsertedLayers: () => {},
+      t: (key) => key,
+    });
+    expect(writes).toHaveLength(1);
+    const copies = pastedCopies(writes[0]!);
+    expect(copies).toHaveLength(1);
+    expect(pixels(copies[0]!.style.left)).toBe(356);
+    expect(pixels(copies[0]!.style.top)).toBe(236);
   });
 
   it("falls through to ordinary paste when no CSS position can be resolved", () => {

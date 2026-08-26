@@ -42,6 +42,7 @@ import {
   partitionContentHistoryEntry,
   contentHistoryEntryFromChanges,
   remapFileDeletionHistoryEntryIds,
+  restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleEdit,
@@ -306,9 +307,7 @@ export function runUndo({
     );
     pendingLiveNonStyleEditsRef.current = nextPending;
     pendingLiveNonStyleRedoStackRef.current = [
-      ...pendingLiveNonStyleRedoStackRef.current.slice(
-        -(MAX_DESIGN_UNDO_STACK - 1),
-      ),
+      ...pendingLiveNonStyleRedoStackRef.current,
       pendingNonStyleUndo,
     ];
     requestPendingLiveNonStyleRevert([
@@ -371,9 +370,7 @@ export function runUndo({
     );
     pendingVisualStyleEditsRef.current = nextPending;
     pendingVisualStyleRedoStackRef.current = [
-      ...pendingVisualStyleRedoStackRef.current.slice(
-        -(MAX_DESIGN_UNDO_STACK - 1),
-      ),
+      ...pendingVisualStyleRedoStackRef.current,
       pendingStyleUndo,
     ];
     requestPendingVisualStyleRevert([
@@ -626,6 +623,7 @@ export function runUndo({
     if (remainderEntry) {
       contentUndoStackRef.current.push(remainderEntry);
       contentUndoSelectionStackRef.current.push(entrySelection);
+      restoreFileContentHistoryOrderToken(historyOrderRef.current, true);
     }
     const appliedEntry = contentHistoryEntryFromChanges(changes)!;
     contentRedoStackRef.current = [

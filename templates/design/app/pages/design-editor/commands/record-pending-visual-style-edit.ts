@@ -19,7 +19,8 @@ import type {
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
-  mergePendingVisualStyleEdits,
+  appendPendingVisualStyleUndoEntry,
+  mergePendingVisualStyleEdit,
   originalStylesForPendingVisualEdit,
   pendingVisualStyleUndoRevertStyles,
   reactSourceAnchorForPendingEdit,
@@ -189,13 +190,14 @@ export function runRecordPendingVisualStyleEdit(
   );
   // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
   // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload.
-  pendingVisualStyleUndoStackRef.current = [
-    ...pendingVisualStyleUndoStackRef.current,
-    { edit: nextEdit, revertStyles },
-  ];
-  const nextPending = mergePendingVisualStyleEdits(
-    pendingVisualStyleUndoStackRef.current.map((entry) => entry.edit),
+  // the Apply payload. Consecutive ticks on the same target coalesce.
+  appendPendingVisualStyleUndoEntry(pendingVisualStyleUndoStackRef.current, {
+    edit: nextEdit,
+    revertStyles,
+  });
+  const nextPending = mergePendingVisualStyleEdit(
+    pendingVisualStyleEditsRef.current,
+    nextEdit,
   );
   pendingVisualStyleEditsRef.current = nextPending;
   setPendingVisualStyleEdits(nextPending);

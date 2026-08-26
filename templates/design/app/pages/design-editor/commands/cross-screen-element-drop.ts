@@ -63,6 +63,17 @@ function absoluteDropPoint(
   };
 }
 
+/** Empty-screen drops must keep pointer coords. A leftover hit-test rect
+ * would subtract the previous screen's origin and park the layer at 0,0. */
+export function absolutePlacePointForDrop(args: {
+  placeAbsoluteOnEmptyScreen: boolean;
+  targetAnchorRect?: { left: number; top: number } | null;
+  targetLocalPoint: { x: number; y: number };
+}): { x: number; y: number } {
+  if (args.placeAbsoluteOnEmptyScreen) return args.targetLocalPoint;
+  return absoluteDropPoint(args.targetLocalPoint, args.targetAnchorRect);
+}
+
 export interface CrossScreenElementDropArgs {
   applyFileContentUpdate: (
     fileId: string,
@@ -315,7 +326,11 @@ export function runCrossScreenElementDrop(
               ? setAbsolutePositioningForNodeInHtml(
                   styled,
                   subjectNodeId,
-                  absoluteDropPoint(targetLocalPoint, targetAnchorRect),
+                  absolutePlacePointForDrop({
+                    placeAbsoluteOnEmptyScreen,
+                    targetAnchorRect,
+                    targetLocalPoint,
+                  }),
                   sourcePointerOffset,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
@@ -542,7 +557,11 @@ export function runCrossScreenElementDrop(
           destNodeAttrId,
           placeAbsoluteOnEmptyScreen || !targetAnchorAttrId
             ? targetLocalPoint
-            : absoluteDropPoint(targetLocalPoint, targetAnchorRect),
+            : absolutePlacePointForDrop({
+                placeAbsoluteOnEmptyScreen,
+                targetAnchorRect,
+                targetLocalPoint,
+              }),
           sourcePointerOffset,
         )
       : targetAnchorAttrId && targetDropMode !== "absolute-container"

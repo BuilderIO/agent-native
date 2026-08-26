@@ -59,6 +59,27 @@ export function removeAbsolutePositioningFromNodeInHtml(
   }
 }
 
+/** Root-absolute authored left/top by walking positioned ancestors.
+ * A node's own computed left/top is containing-block relative, which is
+ * wrong once clones insert at the document root. */
+export function authoredDocumentPositionForNode(
+  content: string,
+  nodeAttrId: string,
+): { x: number; y: number } | null {
+  if (typeof window === "undefined" || !nodeAttrId) return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    );
+    if (!element) return null;
+    return authoredElementPosition(element);
+  } catch {
+    // coercion-ok: unreadable HTML is "no authored position", same as a missing node.
+    return null;
+  }
+}
+
 /** Persist the bridge's narrow fallback for a flow insertion whose authored
  * stylesheet still resolves the moved child to absolute/fixed after its
  * editable inline/utility positioning has been stripped. `!important` is

@@ -7,6 +7,7 @@ import {
   insertClonedHtmlLayers,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
+import { authoredDocumentPositionForNode } from "@/pages/design-editor/html-layer-positioning";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface PasteOverSelectionArgs {
@@ -37,20 +38,40 @@ export interface PasteOverSelectionArgs {
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
-/** Paste-over must use authored CSS left/top, not the selection bounding box.
- * boundingRect is iframe/canvas space; writing it as left/top parks the copy
- * off the visible screen while Layers still shows the node. */
+function offsetPasteOverPositions(
+  origin: { x: number; y: number },
+  count: number,
+): Array<{ x: number; y: number }> {
+  return Array.from({ length: count }, (_, index) => ({
+    x: origin.x + (index + 1) * 16,
+    y: origin.y + (index + 1) * 16,
+  }));
+}
+
+/** Paste-over must use document-root authored CSS, not the selection bounding
+ * box and not containing-block left/top. Clones insert at the document root. */
 export function resolvePasteOverPositions(
   entries: CanvasLayerClipboardEntry[],
   selectedElement: ElementInfo | null,
+  documentHtml?: string,
 ): Array<{ x: number; y: number }> | null {
+  const nodeId = selectedElement?.sourceId?.trim();
+  if (nodeId && documentHtml) {
+    const documentPosition = authoredDocumentPositionForNode(
+      documentHtml,
+      nodeId,
+    );
+    if (documentPosition) {
+      return offsetPasteOverPositions(documentPosition, entries.length);
+    }
+  }
   const selectedLeft = parseFloat(selectedElement?.computedStyles?.left ?? "");
   const selectedTop = parseFloat(selectedElement?.computedStyles?.top ?? "");
   if (Number.isFinite(selectedLeft) && Number.isFinite(selectedTop)) {
-    return entries.map((_, index) => ({
-      x: selectedLeft + (index + 1) * 16,
-      y: selectedTop + (index + 1) * 16,
-    }));
+    return offsetPasteOverPositions(
+      { x: selectedLeft, y: selectedTop },
+      entries.length,
+    );
   }
   const sourcePositions = entries.map((entry) =>
     extractLayerPosition(entry.html),
@@ -74,7 +95,11 @@ export function runPasteOverSelection({
 }: PasteOverSelectionArgs) {
   const entries = getCanvasClipboardEntries();
   if (!activeFile || entries.length === 0) return;
-  const positions = resolvePasteOverPositions(entries, selectedElement);
+  const positions = resolvePasteOverPositions(
+    entries,
+    selectedElement,
+    getFreshActiveContent(),
+  );
   if (!positions) {
     void handlePasteSelection();
     return;

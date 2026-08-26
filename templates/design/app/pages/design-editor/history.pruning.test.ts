@@ -6,6 +6,7 @@ import {
   partitionContentHistoryEntry,
   pruneGeometryHistoryEntryForDeletedFiles,
   remapFileDeletionHistoryEntryIds,
+  restoreFileContentHistoryOrderToken,
 } from "./history";
 
 describe("geometry history selection pruning", () => {
@@ -154,5 +155,23 @@ describe("partitionContentHistoryEntry", () => {
       available: [screenA, screenB],
       remainder: [],
     });
+  });
+
+  it("restores a file-content order token when a remainder stays on the stack", () => {
+    const historyOrder: Array<"geometry" | "file-content"> = [
+      "geometry",
+      "file-content",
+    ];
+    historyOrder.pop();
+    const { remainder } = partitionContentHistoryEntry(
+      grouped,
+      ["screen-a"],
+      "screen-a",
+    );
+    restoreFileContentHistoryOrderToken(
+      historyOrder,
+      Boolean(contentHistoryEntryFromChanges(remainder)),
+    );
+    expect(historyOrder).toEqual(["geometry", "file-content"]);
   });
 });

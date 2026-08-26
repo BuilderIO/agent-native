@@ -273,6 +273,15 @@ export function partitionContentHistoryEntry(
   return { available, remainder };
 }
 
+/** Partitioning pops the order token before applying the available side.
+ * Put `file-content` back so the remainder is still reachable on the next undo/redo. */
+export function restoreFileContentHistoryOrderToken<T extends string>(
+  order: T[],
+  remainderExists: boolean,
+): void {
+  if (remainderExists) order.push("file-content" as T);
+}
+
 export function findLastContentHistoryChangeIndex(
   stack: ContentHistoryChange[],
   fileId?: string | null,

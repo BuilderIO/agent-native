@@ -16,7 +16,8 @@ import type {
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
-  mergePendingLiveNonStyleEdits,
+  appendPendingLiveNonStyleUndoEntry,
+  mergePendingLiveNonStyleEdit,
   pendingLiveTextUndoRevertValue,
   reactSourceAnchorForPendingEdit,
 } from "@/pages/design-editor/pending-edits";
@@ -134,18 +135,16 @@ export function runRecordPendingLiveTextEdit(
   );
   // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
   // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload.
-  pendingLiveNonStyleUndoStackRef.current = [
-    ...pendingLiveNonStyleUndoStackRef.current,
-    {
-      kind: "text",
-      edit: nextEdit,
-      revertValue: revert.value,
-      revertHtml: revert.html,
-    },
-  ];
-  const nextPending = mergePendingLiveNonStyleEdits(
-    pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+  // the Apply payload. Consecutive keystrokes on the same node coalesce.
+  appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
+    kind: "text",
+    edit: nextEdit,
+    revertValue: revert.value,
+    revertHtml: revert.html,
+  });
+  const nextPending = mergePendingLiveNonStyleEdit(
+    pendingLiveNonStyleEditsRef.current,
+    nextEdit,
   );
   pendingLiveNonStyleEditsRef.current = nextPending;
   setPendingLiveNonStyleEdits(nextPending);

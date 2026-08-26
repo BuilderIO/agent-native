@@ -26,6 +26,15 @@ export function designSaveErrorMessage(error: unknown): string | null {
 }
 
 /**
+ * Collab conflicts often return 200 with `skippedStaleMirror` instead of throwing 409.
+ */
+export function isDesignSaveSuccessConflict(
+  persistedContentMatches: boolean,
+): boolean {
+  return !persistedContentMatches;
+}
+
+/**
  * Only true transport failures deserve the “save when reconnected” warning.
  * HMR/editor reload aborts, optimistic conflicts, IndexedDB/outbox failures,
  * and HTML-integrity rejections are not connectivity failures.
