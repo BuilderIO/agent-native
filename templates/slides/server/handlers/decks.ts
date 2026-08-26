@@ -69,6 +69,8 @@ export function notifyClients(
     source: "deck",
     type,
     key: deckId,
+    resourceType: "deck",
+    resourceId: deckId,
     ...payload,
   });
   if (process.env.DEBUG_SLIDES_SSE) {
