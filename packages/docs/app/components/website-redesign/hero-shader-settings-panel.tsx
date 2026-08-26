@@ -86,7 +86,7 @@ const FIELD_LABELS: Record<ShaderFieldKey, string> = {
   warpSpeed: "Warp speed",
   ditherMode: "Dither mode",
   ditherAmount: "Grain strength (noise)",
-  ditherScale: "Pattern size (px)",
+  ditherScale: "Dither scale (px)",
   ditherSpeed: "Pattern speed (fps)",
 };
 
@@ -119,6 +119,7 @@ const RIBBON_FIELD_ORDER: Array<keyof RibbonFieldSettings> = [
   "focusY",
   "spread",
   "dither",
+  "ditherScale",
   "dotDensity",
   "dotScale",
   "contrast",

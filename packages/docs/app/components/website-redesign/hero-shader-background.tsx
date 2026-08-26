@@ -675,6 +675,7 @@ uniform float uContrast;
 uniform float uGlow;
 uniform float uBrightness;
 uniform float uDither;
+uniform float uDitherScale;
 uniform float uDotDensity;
 uniform float uDotScale;
 uniform float uSeed;
@@ -799,7 +800,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // dot's own radius so faint small dots aren't dissolved entirely while
   // bright large ones still get texture.
   float dist = length(cellUv);
-  float grain = N21(floor(fragCoord)) - 0.5;
+  float grain = N21(floor(fragCoord / max(uDitherScale, 1.))) - 0.5;
   dist += grain * uDither * max(radius, 0.05) * 0.8;
 
   float dotMask = 1. - S(radius - edge, radius + edge, dist);
@@ -854,6 +855,7 @@ function RibbonFieldShaderBackground({
   glow,
   brightness,
   dither,
+  ditherScale,
   dotDensity,
   dotScale,
   intensity,
@@ -885,6 +887,7 @@ function RibbonFieldShaderBackground({
     glow,
     brightness,
     dither,
+    ditherScale,
     dotDensity,
     dotScale,
     seed,
@@ -907,6 +910,7 @@ function RibbonFieldShaderBackground({
       glow,
       brightness,
       dither,
+      ditherScale,
       dotDensity,
       dotScale,
       seed,
@@ -928,6 +932,7 @@ function RibbonFieldShaderBackground({
     glow,
     brightness,
     dither,
+    ditherScale,
     dotDensity,
     dotScale,
     seed,
@@ -1014,6 +1019,7 @@ function RibbonFieldShaderBackground({
     const uGlow = gl.getUniformLocation(program, "uGlow");
     const uBrightness = gl.getUniformLocation(program, "uBrightness");
     const uDither = gl.getUniformLocation(program, "uDither");
+    const uDitherScale = gl.getUniformLocation(program, "uDitherScale");
     const uDotDensity = gl.getUniformLocation(program, "uDotDensity");
     const uDotScale = gl.getUniformLocation(program, "uDotScale");
     const uSeed = gl.getUniformLocation(program, "uSeed");
@@ -1089,6 +1095,7 @@ function RibbonFieldShaderBackground({
       gl.uniform1f(uGlow, settingsRef.current.glow);
       gl.uniform1f(uBrightness, settingsRef.current.brightness);
       gl.uniform1f(uDither, settingsRef.current.dither);
+      gl.uniform1f(uDitherScale, settingsRef.current.ditherScale);
       gl.uniform1f(uDotDensity, settingsRef.current.dotDensity);
       gl.uniform1f(uDotScale, settingsRef.current.dotScale);
       gl.uniform1f(uSeed, settingsRef.current.seed);

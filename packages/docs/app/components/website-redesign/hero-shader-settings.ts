@@ -82,6 +82,7 @@ export interface RibbonFieldSettings {
   focusY: number;
   spread: number;
   dither: number;
+  ditherScale: number;
   dotDensity: number;
   dotScale: number;
   contrast: number;
@@ -105,6 +106,7 @@ export const DEFAULT_RIBBON_FIELD_SETTINGS: RibbonFieldSettings = {
   focusY: 0,
   spread: 1.5,
   dither: 0.35,
+  ditherScale: 1,
   dotDensity: 110,
   dotScale: 1.1,
   contrast: 0.5,
@@ -131,6 +133,7 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   focusY: { kind: "range", min: -1, max: 1, step: 0.05 },
   spread: { kind: "range", min: 0.2, max: 3, step: 0.05 },
   dither: { kind: "range", min: 0, max: 1.5, step: 0.05 },
+  ditherScale: { kind: "range", min: 1, max: 16, step: 1 },
   dotDensity: { kind: "number", min: 4, max: 400, step: 1 },
   dotScale: { kind: "range", min: 0.2, max: 2, step: 0.05 },
   contrast: { kind: "range", min: 0, max: 1, step: 0.05 },
