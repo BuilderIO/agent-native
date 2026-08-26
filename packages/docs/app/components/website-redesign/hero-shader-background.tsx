@@ -728,7 +728,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 focus = vec2(uFocusX, uFocusY);
   float t = iTime * uSpeed;
 
-  float cellSize = 0.08 / max(uDensity, 0.05);
+  float cellSize = 0.045 / max(uDensity, 0.05);
   vec2 cell = floor(uv / cellSize);
   vec2 cellUv = fract(uv / cellSize) - 0.5;
   vec2 cellCenter = (cell + 0.5) * cellSize;
@@ -746,14 +746,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float jitter = (N21(cell) - 0.5) * 0.25 * (sin(t * 2. + N21(cell) * 10.) * 0.5 + 0.5);
   float value = clamp(cellField + jitter, 0., 1.);
 
-  float radius = mix(0.015, 0.09, value);
-  float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.02);
+  float radius = mix(0.05, 0.44, value);
+  float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.04);
   float dotShape = 1. - S(radius - edge, radius + edge, length(cellUv));
 
-  float glowRadius = radius + uGlow * 0.08;
+  float glowRadius = radius + uGlow * 0.2;
   float glowTerm = (1. - S(radius, glowRadius, length(cellUv))) * uGlow * value;
 
-  float dotMask = clamp(dotShape + glowTerm * 0.35, 0., 1.);
+  float dotMask = clamp(dotShape + glowTerm * 0.5, 0., 1.);
   dotMask *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
   dotMask *= S(0., 20., min(iTime, 5.0));
 

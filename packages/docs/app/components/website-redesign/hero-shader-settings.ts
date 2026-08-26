@@ -101,7 +101,7 @@ export const DEFAULT_RIBBON_FIELD_SETTINGS: RibbonFieldSettings = {
   spread: 1,
   contrast: 0.5,
   glow: 0.3,
-  intensity: 0.3,
+  intensity: 0.7,
   seed: 0,
   vignette: 1.1,
   paused: false,
