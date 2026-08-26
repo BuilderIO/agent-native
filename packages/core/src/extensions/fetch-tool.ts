@@ -16,6 +16,7 @@ import {
   collectSecretValues,
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
   normalizeExtensionProxyMethod,
+  readResponseBytesWithLimit,
   readResponseTextWithLimit,
   redactSecrets,
   redactString,
@@ -32,6 +33,51 @@ import {
 } from "./web-content.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const VISION_IMAGE_CONTENT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+const CREDENTIAL_NAME_RE =
+  /(?:^|[-_])(access[-_]?token|api[-_]?key|auth(?:orization)?|credential|expires?|key[-_]?pair[-_]?id|key|password|passwd|policy|secret|session|signature|sig|token|jwt|assertion)(?:$|[-_])/i;
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined")
+    return Buffer.from(bytes).toString("base64");
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, Math.min(i + chunkSize, bytes.length)),
+    );
+  }
+  return btoa(binary);
+}
+
+function hasCredentialBearingImageRequest(
+  url: string,
+  headers: Record<string, string>,
+): boolean {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return true;
+  }
+  if (parsedUrl.username || parsedUrl.password) return true;
+  if (parsedUrl.hash) return true;
+  if (
+    Object.keys(headers).some((name) =>
+      CREDENTIAL_NAME_RE.test(name.replace(/([a-z])([A-Z])/g, "$1-$2")),
+    )
+  ) {
+    return true;
+  }
+  return [...parsedUrl.searchParams.keys()].some((name) =>
+    CREDENTIAL_NAME_RE.test(name.replace(/([a-z])([A-Z])/g, "$1-$2")),
+  );
+}
 
 /**
  * Headers that mimic a current Chrome on macOS so anti-bot middleware (Cloudflare,
@@ -142,7 +188,7 @@ export function createFetchToolEntry(
             responseMode: {
               type: "string",
               description:
-                "How to return the response. Default: auto (HTML pages become clean markdown; JSON/text stays raw). Use raw for exact bytes, markdown/text for extracted readable content, links for just links, metadata for page metadata, or matches with search.",
+                "How to return the response. Default: auto (HTML pages become clean markdown; JSON/text stays raw; successful public image responses are attached as vision context). Use raw for exact bytes, markdown/text for extracted readable content, links for just links, metadata for page metadata, or matches with search.",
               enum: [
                 "auto",
                 "raw",
@@ -349,11 +395,57 @@ export function createFetchToolEntry(
             }`;
           }
 
-          // Check if caller wants to save to workspace file (before truncation).
+          const contentType =
+            response.headers.get("content-type")?.split(";")[0].trim() ??
+            "text/plain";
+
+          // A fetched image is useful as model context, not as text decoded
+          // from arbitrary bytes. Pass bounded bytes through the well-known
+          // result-image field so vision providers never refetch this URL.
           const saveToFilePath =
             typeof (args as Record<string, unknown>).saveToFile === "string"
               ? ((args as Record<string, unknown>).saveToFile as string).trim()
               : "";
+          const hasCredentials =
+            allUsedKeys.length > 0 ||
+            hasCredentialBearingImageRequest(resolvedUrl, headers);
+          if (
+            !saveToFilePath &&
+            method === "GET" &&
+            response.ok &&
+            VISION_IMAGE_CONTENT_TYPES.has(contentType.toLowerCase()) &&
+            resolvedUrl.startsWith("https://") &&
+            !hasCredentials
+          ) {
+            const imageBody = await readResponseBytesWithLimit(
+              response,
+              MAX_EXTENSION_PROXY_RESPONSE_SIZE,
+            );
+            if (imageBody.truncated) {
+              return `HTTP ${response.status} ${response.statusText}\n\nContent-Type: ${contentType}\n\nImage response too large to attach (${imageBody.size} bytes, max ${MAX_EXTENSION_PROXY_RESPONSE_SIZE}).`;
+            }
+            console.log(
+              "[fetch-tool] " +
+                method +
+                " image → " +
+                response.status +
+                " (" +
+                elapsed +
+                "ms, vision image)",
+            );
+            return {
+              status: response.status,
+              statusText: response.statusText,
+              contentType,
+              url: resolvedUrl,
+              _agentImages: [
+                {
+                  data: uint8ArrayToBase64(imageBody.bytes),
+                  mediaType: contentType.toLowerCase(),
+                },
+              ],
+            };
+          }
 
           let body: string;
           try {
@@ -367,9 +459,6 @@ export function createFetchToolEntry(
             body = "(could not read response body)";
           }
           body = redactString(body, secretValues);
-          const contentType =
-            response.headers.get("content-type")?.split(";")[0].trim() ??
-            "text/plain";
           let displayBody: string;
           let processedMode = "raw";
           try {

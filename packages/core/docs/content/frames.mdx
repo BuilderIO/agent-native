@@ -95,7 +95,7 @@ The panel runs in one of two tool modes:
   and database access on top of the app tools, so the agent can change the app's
   own source. Code requests are gated: when a message requires code
   (`type: "code"`) and no code-capable frame is connected, the panel shows a
-  dialog explaining that code changes need Agent Native Desktop or Builder;
+  dialog explaining that code changes need Agent-Native Desktop or Builder;
   when a frame is connected, the request is routed to it and a code-agent
   indicator shows while it works (`useSendToAgentChat`). For the canonical
   coding-tool list and shared UI contracts, see
@@ -156,7 +156,7 @@ sidebar inside the iframe instead, so you can preview exactly what end users see
 
 ## Integrated terminal and CLI switching {#cli-terminal}
 
-This needs a code-capable frame connected — Agent Native Desktop, the local dev
+This needs a code-capable frame connected — Agent-Native Desktop, the local dev
 frame, or the Builder.io cloud frame. A plain scaffolded app running `pnpm dev`
 on its own shows the code-required dialog instead of a terminal; see
 [Running it](#running) below.
@@ -226,7 +226,7 @@ cd my-app
 pnpm dev
 ```
 
-The local dev frame (the private `@agent-native/frame` package in the framework repo) is an internal tooling package that is not published to npm. It loads the active app's dev server in an iframe and mounts the embedded panel beside it, selecting the app via the `app` query param. The integrated CLI terminal requires Agent Native Desktop, which provides the local code and PTY access the terminal needs; without it, the panel shows the chat surface and prompts you to open Desktop to use the CLI.
+The local dev frame (the private `@agent-native/frame` package in the framework repo) is an internal tooling package that is not published to npm. It loads the active app's dev server in an iframe and mounts the embedded panel beside it, selecting the app via the `app` query param. The integrated CLI terminal requires Agent-Native Desktop, which provides the local code and PTY access the terminal needs; without it, the panel shows the chat surface and prompts you to open Desktop to use the CLI.
 
 ## Compatibility notes {#compatibility}
 

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Browser E2E against the deployed Agent Native beta fleet.
+ * Browser E2E against the deployed Agent-Native beta fleet.
  *
  * This suite does not start a server. It drives the real beta deploys listed in
  * scripts/netlify-beta-sites.json to answer one question before a promotion:

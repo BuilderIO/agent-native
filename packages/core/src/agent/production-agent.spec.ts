@@ -11823,22 +11823,25 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
 describe("runAgentLoop tool-result images", () => {
   it("attaches _agentImages to the tool-result part, strips the field from the text, and persists only notes", async () => {
     const oversize = "A".repeat(2_000_001);
+    const imageData = "aW1hZ2U=";
+    const screenshotAction = vi.fn(async () => ({
+      ok: true,
+      page: "dashboard",
+      _agentImages: [
+        { url: "https://cdn.example.com/shot.png", label: "before" },
+        { data: imageData, mediaType: "image/jpeg", label: "data" },
+        { data: oversize, mediaType: "image/png", label: "too-big" },
+      ],
+    }));
     const actions: Record<string, ActionEntry> = {
       screenshot: {
         ...actionEntry({ description: "Take a screenshot", readOnly: true }),
-        run: async () => ({
-          ok: true,
-          page: "dashboard",
-          _agentImages: [
-            { url: "https://cdn.example.com/shot.png", label: "before" },
-            { data: oversize, mediaType: "image/png", label: "too-big" },
-          ],
-        }),
+        run: screenshotAction,
       },
     };
     const tools = actionsToEngineTools(actions);
     let streamCalls = 0;
-    let secondCallMessages: any[] = [];
+    let finalCallMessages: any[] = [];
 
     const engine: AgentEngine = {
       name: "test",
@@ -11869,7 +11872,22 @@ describe("runAgentLoop tool-result images", () => {
           yield { type: "stop", reason: "tool_use" };
           return;
         }
-        secondCallMessages = opts.messages as any[];
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "shot-2",
+                name: "screenshot",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        finalCallMessages = opts.messages as any[];
         yield {
           type: "assistant-content",
           parts: [{ type: "text" as const, text: "looks good" }],
@@ -11890,13 +11908,15 @@ describe("runAgentLoop tool-result images", () => {
       signal: new AbortController().signal,
     });
 
-    const toolResult = secondCallMessages
+    const toolResults = finalCallMessages
       .flatMap((m: any) => m.content ?? [])
-      .find((p: any) => p.type === "tool-result");
-    expect(toolResult).toBeDefined();
+      .filter((p: any) => p.type === "tool-result");
+    expect(toolResults).toHaveLength(2);
+    const toolResult = toolResults[0];
     // Valid image rides the part; the oversize one was dropped.
     expect(toolResult.images).toEqual([
       { url: "https://cdn.example.com/shot.png", label: "before" },
+      { data: imageData, mediaType: "image/jpeg", label: "data" },
     ]);
     // The field is stripped from the JSON the model reads…
     expect(toolResult.content).not.toContain("_agentImages");
@@ -11906,6 +11926,14 @@ describe("runAgentLoop tool-result images", () => {
     expect(toolResult.content).toContain("exceeds");
     // …and the base64 payload never reaches the text.
     expect(toolResult.content).not.toContain("A".repeat(100));
+
+    // A duplicate read returns the cached vision payload as well as its text
+    // pointer, so context eviction cannot silently remove the visual input.
+    expect(screenshotAction).toHaveBeenCalledOnce();
+    expect(toolResults[1].content).toContain(
+      "Skipped duplicate read-only call",
+    );
+    expect(toolResults[1].images).toEqual(toolResult.images);
 
     // The persisted tool_done event carries only the string result (with the
     // notes), never an images array.

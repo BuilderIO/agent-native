@@ -2648,7 +2648,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   });
 
   // The shared event is stamped when the operation BEGAN — Mixpanel, Amplitude,
-  // webhooks and Agent Native Analytics read it verbatim. PostHog's
+  // webhooks and Agent-Native Analytics read it verbatim. PostHog's
   // timestamp-is-end convention is applied in its own provider.
   it("stamps generations and spans at the moment they began", async () => {
     const clock = manualClock();

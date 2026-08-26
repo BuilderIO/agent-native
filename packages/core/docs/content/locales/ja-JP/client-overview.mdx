@@ -9,7 +9,7 @@ description: "app/ と public/ ディレクトリ: agent-native アプリの表�
 
 典型的なフロントエンドとのアーキテクチャ上の唯一の違いは、このレイヤーには独自のバックエンド フォー フロントエンドがないことです。エージェントが呼び出すのと同じアクションを通じてデータを読み書きするため、ここで構築されたものは自動的にエージェントも実行できる機能になります。
 
-<Diagram id="doc-block-client-overview-1" title="従来のフロントエンド vs. Agent Native" summary="従来のフロントエンドは、それ専用の API 層を呼び出します。Agent Native では、app/ とエージェントの両方が同じアクションを呼び出すため、ここで構築されるすべての機能が無料でエージェント呼び出し可能になります。">
+<Diagram id="doc-block-client-overview-1" title="従来のフロントエンド vs. Agent-Native" summary="従来のフロントエンドは、それ専用の API 層を呼び出します。Agent-Native では、app/ とエージェントの両方が同じアクションを呼び出すため、ここで構築されるすべての機能が無料でエージェント呼び出し可能になります。">
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ description: "app/ と public/ ディレクトリ: agent-native アプリの表�
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React フロントエンド)</div>
       <div class="diagram-node">エージェント</div>

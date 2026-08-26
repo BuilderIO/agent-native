@@ -377,7 +377,7 @@ flujo de configuración.
 El adaptador `skills` de Vercel Labs es un paquete `skills/<name>/SKILL.md` portátil
 para `npx skills@latest add ...`, pero el `skills` CLI sin formato solo instala instrucciones.
 No ejecuta scripts de postinstalación definidos por repositorio ni registra conectores MCP.
-Mantenga Agent Native CLI como ruta de documentos predeterminada para los agentes locales porque
+Mantenga Agent-Native CLI como ruta de documentos predeterminada para los agentes locales porque
 también registra el conector MCP. `BuilderIO/agent-native` es un auténtico GitHub
 fuente del repositorio para Vercel/open Skills CLI; `skills.sh` es un descubrimiento y
 directorio de clasificación, no un espacio de nombres de paquete estilo npm.
@@ -406,10 +406,10 @@ npx @agent-native/core@latest skills update visual-plan
 
 `skills update` escanea proyectos conocidos de Codex/Claude y carpetas de habilidades de usuario, compara
 la carpeta copiada se aplica a la habilidad incluida más reciente y reescribe las carpetas obsoletas en
-lugar. Agent Native skills recién copiado incluye un `agent-native-skill.json`
+lugar. Agent-Native skills recién copiado incluye un `agent-native-skill.json`
 marcador para que la salida de estado futura pueda identificar la fuente y el hash.
 
-Las aplicaciones y espacios de trabajo Agent Native generados también incluyen el marco proporcionado
+Las aplicaciones y espacios de trabajo Agent-Native generados también incluyen el marco proporcionado
 skills en `.agents/skills` (o `packages/shared/.agents/skills` en un
 espacio de trabajo). Actualice esos skills andamiados desde el CLI actual/más reciente con:
 

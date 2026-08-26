@@ -41,7 +41,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-29
 
@@ -177,7 +177,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
-- Anonymous feedback no longer shows internal Agent Native anonymous-owner emails as submitter addresses.
+- Anonymous feedback no longer shows internal Agent-Native anonymous-owner emails as submitter addresses.
 - Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
 
 ## 2026-06-26

@@ -102,7 +102,7 @@ const MAX_AUTOMATIC_WORKSPACE_EMBED_RETRIES = 2;
 // the main frame to /_agent-native/google/auth-url — a top-level navigation
 // handleShouldStartLoad intercepts and hands to the system browser. The SSO
 // button is hidden for the whole embedded document because the parent mobile
-// shell owns Agent Native sign-in; the CSS also covers client-side route changes.
+// shell owns Agent-Native sign-in; the CSS also covers client-side route changes.
 const FORCE_REDIRECT_AUTH_SCRIPT = `
   (function () {
     try {

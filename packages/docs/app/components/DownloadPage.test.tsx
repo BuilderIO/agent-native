@@ -16,7 +16,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     const messages: Record<string, string> = {
-      "downloadPage.title": "Download Agent Native",
+      "downloadPage.title": "Download Agent-Native",
       "downloadPage.body": "All your apps in one desktop shell.",
       "downloadPage.downloadInstaller": "Download installer",
       "downloadPage.downloadStarted": "Download started",
@@ -63,7 +63,7 @@ const nightlyManifest = {
   pub_date: "2026-08-20T00:00:00Z",
   assets: [
     {
-      name: "Agent Native Nightly-arm64.dmg",
+      name: "Agent-Native Nightly-arm64.dmg",
       url: "https://downloads.example.com/nightly.dmg",
       size: 123,
       kind: "mac-arm64",
@@ -109,7 +109,7 @@ describe("DownloadPage", () => {
     });
 
     expect(
-      screen.getByRole("heading", { name: "Download Agent Native" }),
+      screen.getByRole("heading", { name: "Download Agent-Native" }),
     ).toBeTruthy();
     expect(screen.queryByText(productionManifest.version)).toBeNull();
     expect(screen.queryByText(nightlyManifest.version)).toBeNull();
@@ -124,11 +124,11 @@ describe("DownloadPage", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Download Agent Native Nightly" }),
+      screen.getByRole("heading", { name: "Download Agent-Native Nightly" }),
     ).toBeTruthy();
     expect(
       screen
-        .getByRole("heading", { name: "Download Agent Native Nightly" })
+        .getByRole("heading", { name: "Download Agent-Native Nightly" })
         .querySelector("span")?.className,
     ).toContain("text-blue-600");
     await waitFor(() => {
@@ -147,7 +147,7 @@ describe("DownloadPage", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Download Agent Native" }),
+      screen.getByRole("heading", { name: "Download Agent-Native" }),
     ).toBeTruthy();
     await waitFor(() => {
       expect(

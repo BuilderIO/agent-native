@@ -1,6 +1,6 @@
 # Mobile Companion Parity
 
-This roadmap translates the strongest companion patterns from Wispr Flow, Granola, and Loom into Agent Native. It is intentionally capability-based: we copy useful jobs and system integrations, not another product's visual identity or proprietary implementation.
+This roadmap translates the strongest companion patterns from Wispr Flow, Granola, and Loom into Agent-Native. It is intentionally capability-based: we copy useful jobs and system integrations, not another product's visual identity or proprietary implementation.
 
 Status definitions:
 
