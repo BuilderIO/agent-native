@@ -443,17 +443,24 @@ export default function Index() {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
+          const matchesSearch =
+            !normalizedSearch ||
+            finalTitle.toLowerCase().includes(normalizedSearch.toLowerCase());
+          if (!matchesSearch) return old;
+
           const totalCount = (old.totalCount ?? old.count ?? 0) + 1;
+          const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
+          const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
           const nextDesigns =
-            page === 1 && !normalizedSearch
-              ? [newDesign, ...(old.designs ?? [])].slice(0, DESIGN_PAGE_SIZE)
+            page === 1
+              ? [newDesign, ...(old.designs ?? [])].slice(0, pageSize)
               : (old.designs ?? []);
           return {
             ...old,
             count: totalCount,
             totalCount,
-            totalPages: Math.ceil(totalCount / DESIGN_PAGE_SIZE),
-            hasMore: page * DESIGN_PAGE_SIZE < totalCount,
+            totalPages,
+            hasMore: page < totalPages,
             designs: nextDesigns,
           };
         },
@@ -740,12 +747,25 @@ export default function Index() {
     // Optimistic update
     queryClient.setQueryData(
       ["action", "list-designs", listDesignsParams],
-      (old: any) => ({
-        ...old,
-        count: Math.max((old?.count ?? old?.totalCount ?? 1) - 1, 0),
-        totalCount: Math.max((old?.totalCount ?? old?.count ?? 1) - 1, 0),
-        designs: (old?.designs ?? []).filter((d: Design) => d.id !== id),
-      }),
+      (old: any) => {
+        if (!old) return old;
+        const designs = old.designs ?? [];
+        if (!designs.some((design: Design) => design.id === id)) return old;
+        const totalCount = Math.max(
+          (old.totalCount ?? old.count ?? designs.length) - 1,
+          0,
+        );
+        const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
+        const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
+        return {
+          ...old,
+          count: totalCount,
+          totalCount,
+          totalPages,
+          hasMore: page < totalPages,
+          designs: designs.filter((design: Design) => design.id !== id),
+        };
+      },
     );
 
     setDeleteId(null);
@@ -767,22 +787,29 @@ export default function Index() {
 
     queryClient.setQueryData(
       ["action", "list-designs", listDesignsParams],
-      (old: any) => ({
-        ...old,
-        count: Math.max(
-          (old?.count ?? old?.totalCount ?? (old?.designs ?? []).length) -
-            ids.length,
+      (old: any) => {
+        if (!old) return old;
+        const designs = old.designs ?? [];
+        const nextDesigns = designs.filter(
+          (design: Design) => !idsToDelete.has(design.id),
+        );
+        const deletedCount = designs.length - nextDesigns.length;
+        if (deletedCount === 0) return old;
+        const totalCount = Math.max(
+          (old.totalCount ?? old.count ?? designs.length) - deletedCount,
           0,
-        ),
-        totalCount: Math.max(
-          (old?.totalCount ?? old?.count ?? (old?.designs ?? []).length) -
-            ids.length,
-          0,
-        ),
-        designs: (old?.designs ?? []).filter(
-          (d: Design) => !idsToDelete.has(d.id),
-        ),
-      }),
+        );
+        const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
+        const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
+        return {
+          ...old,
+          count: totalCount,
+          totalCount,
+          totalPages,
+          hasMore: page < totalPages,
+          designs: nextDesigns,
+        };
+      },
     );
 
     setBulkDeleteOpen(false);
