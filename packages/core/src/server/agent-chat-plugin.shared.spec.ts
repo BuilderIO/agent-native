@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { agentToolApprovalPolicyBindingForThread } from "../agent/production-agent.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
 import { CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
@@ -107,18 +108,28 @@ describe("approval thread scope", () => {
       sharedThread({ orgId: "thread-org" }),
     );
 
-    await expect(
-      resolveAgentApprovalThreadScope(
-        "editor@example.com",
-        "active-org",
-        "thread-1",
-        "editor",
-        resolveAccess,
-      ),
-    ).resolves.toEqual({
+    const scope = await resolveAgentApprovalThreadScope(
+      "editor@example.com",
+      "active-org",
+      "thread-1",
+      "editor",
+      resolveAccess,
+    );
+    expect(scope).toEqual({
       ownerEmail: "owner@example.com",
       orgId: "thread-org",
       threadId: "thread-1",
+    });
+    expect(
+      agentToolApprovalPolicyBindingForThread(
+        "editor@example.com",
+        scope!,
+        "send-email",
+      ),
+    ).toEqual({
+      ownerEmail: "editor@example.com",
+      orgId: "thread-org",
+      toolName: "send-email",
     });
     expect(resolveAccess).toHaveBeenCalledWith(
       "editor@example.com",

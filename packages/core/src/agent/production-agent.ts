@@ -203,7 +203,10 @@ import {
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
-import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
+import type {
+  AgentToolApprovalBinding,
+  AgentToolApprovalPolicyBinding,
+} from "./tool-approval-store.js";
 import {
   findCompletedJournalEntry,
   type ToolCallJournal,
@@ -1421,6 +1424,18 @@ export async function resolveAgentApprovalThreadScope(
         threadId: thread.id,
       }
     : null;
+}
+
+export function agentToolApprovalPolicyBindingForThread(
+  actorEmail: string,
+  threadScope: { orgId?: string | null },
+  toolName: string,
+): AgentToolApprovalPolicyBinding {
+  return {
+    ownerEmail: actorEmail,
+    orgId: threadScope.orgId ?? null,
+    toolName,
+  };
 }
 
 const MAX_RETRIES = 3;
@@ -9696,11 +9711,13 @@ export function createProductionAgentHandler(
       },
       isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
         if (!ownerEmail) return false;
-        return isAgentToolAlwaysAllowed({
-          ownerEmail,
-          orgId: getRequestOrgId() ?? null,
-          toolName: binding.toolName,
-        });
+        return isAgentToolAlwaysAllowed(
+          agentToolApprovalPolicyBindingForThread(
+            ownerEmail,
+            { orgId: approvalOrgId },
+            binding.toolName,
+          ),
+        );
       },
     };
     const approvedToolCallsForExecution = requestedApprovedToolCalls;

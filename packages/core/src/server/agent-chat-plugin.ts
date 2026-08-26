@@ -73,6 +73,7 @@ import type { EngineMessage } from "../agent/engine/types.js";
 import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
+  agentToolApprovalPolicyBindingForThread,
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
@@ -5322,11 +5323,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...approvalScope,
                   approvalId: body.approvalId,
                 },
-                policy: {
+                policy: agentToolApprovalPolicyBindingForThread(
                   ownerEmail,
-                  orgId,
-                  toolName: body.toolName,
-                },
+                  approvalScope,
+                  body.toolName,
+                ),
               });
             } else if (operation === "deny") {
               resolution = await denyAgentToolApproval({
