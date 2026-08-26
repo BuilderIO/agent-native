@@ -315,7 +315,7 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
     displayName: stringValue(raw.displayName) ?? id,
     description:
       stringValue(raw.description) ??
-      `Agent-native app-backed skill for ${id}.`,
+      `Agent-Native app-backed skill for ${id}.`,
     ...(stringValue(raw.version) ? { version: stringValue(raw.version) } : {}),
     hosted: {
       url: hostedUrl,

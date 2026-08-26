@@ -252,7 +252,7 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
 
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
-    expect(agents).toContain("This is a headless Agent Native app");
+    expect(agents).toContain("This is a headless Agent-Native app");
     expect(agents).toContain("This app is not stateless");
     expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");
@@ -636,12 +636,12 @@ describe("community template selections", () => {
       _assertSafeCommunityArchiveListing(
         "lrwxr-xr-x  0 user group 0 Jan  1 00:00 repo/secrets -> ../../secrets",
       ),
-    ).toThrow("may only contain Agent Native's canonical internal symlinks");
+    ).toThrow("may only contain Agent-Native's canonical internal symlinks");
     expect(() =>
       _assertSafeCommunityArchiveListing(
         "hrw-r--r--  0 user group 0 Jan  1 00:00 repo/copy link to repo/source",
       ),
-    ).toThrow("may only contain Agent Native's canonical internal symlinks");
+    ).toThrow("may only contain Agent-Native's canonical internal symlinks");
   });
 
   it.skipIf(process.platform === "win32")(
@@ -681,7 +681,7 @@ describe("community template selections", () => {
         stdio: "pipe",
       });
       expect(() => _validateCommunityArchive(archivePath)).toThrow(
-        "may only contain Agent Native's canonical internal symlinks",
+        "may only contain Agent-Native's canonical internal symlinks",
       );
     },
   );
@@ -691,7 +691,7 @@ describe("community template selections", () => {
       _communityTemplateTrustMessage(
         "community:acme/customer-portal#release/v2",
       ),
-    ).toContain("not reviewed or maintained by Agent Native");
+    ).toContain("not reviewed or maintained by Agent-Native");
     expect(
       _communityTemplateTrustMessage(
         "community:acme/customer-portal#release/v2",
@@ -700,7 +700,7 @@ describe("community template selections", () => {
     expect(_communityTemplateTrustMessage("chat")).toBeUndefined();
   });
 
-  it("requires an Agent Native package at the repository root", () => {
+  it("requires an Agent-Native package at the repository root", () => {
     const root = path.join(tmpDir, "community-template");
     fs.mkdirSync(root);
 

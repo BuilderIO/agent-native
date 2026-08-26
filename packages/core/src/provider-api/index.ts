@@ -756,7 +756,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "Clay is a GTM provider API capability, not a messaging channel.",
-      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent Native access does not require that plugin session.",
+      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent-Native access does not require that plugin session.",
       "Search results use a stateful forward-only iterator: repeat POST /search/filters-mode/{search_id}/run while has_more is true.",
       "The Tables API is query-only, requires an Enterprise plan, and needs a known table id; the Public API does not list, create, or update tables.",
       "Routine runs are asynchronous. Start a run, then poll the documented results endpoint or use a verified completion webhook.",

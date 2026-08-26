@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **रीडायरेक्ट अनुमति सूची।** हब (डिस्पैच) टोकन जारी करने से पहले अधिकृत एंडपॉइंट पर `redirect_uri` को मान्य करता है। अनुमति सूची `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **डिफ़ॉल्ट:** केवल सटीक पंजीकृत Agent Native ऐप ID/ओरिजिन जोड़े और लोकलहोस्ट (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`)।
+- **डिफ़ॉल्ट:** केवल सटीक पंजीकृत Agent-Native ऐप ID/ओरिजिन जोड़े और लोकलहोस्ट (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`)।
 - **इसे विस्तारित करना:** अतिरिक्त होस्ट प्रत्ययों की अल्पविराम से अलग की गई सूची के साथ डिस्पैच परिनियोजन पर `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` पर्यावरण चर सेट करें:
 
   ```बैश

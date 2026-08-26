@@ -25,7 +25,7 @@ const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
-const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
+const BUILDER_BROWSER_CLIENT_ID = "Agent-Native Browser";
 const DISPATCH_APP_CREATION_SETTINGS_KEY = "dispatch-app-creation-settings";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";

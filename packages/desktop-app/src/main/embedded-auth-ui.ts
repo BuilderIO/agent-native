@@ -1,5 +1,5 @@
 /**
- * Embedded app hosts own the Agent Native session. Hide the app-side SSO
+ * Embedded app hosts own the Agent-Native session. Hide the app-side SSO
  * affordance while leaving the app's ordinary sign-in and signup controls
  * available for the first login.
  */

@@ -35,9 +35,9 @@ Action 是您應用程式所做任何事情的唯一真實來源。用 `defineAc
 
 </Cards>
 
-大多數應用程式會在前端與資料庫之間建置一層獨立的 API，而這層只有瀏覽器能呼叫。想擁有相同能力的代理則需要一套自己的、獨立的整合，得再重新寫一次、再維護一次。Agent-native 應用程式省去了這種分裂。UI 和代理呼叫的是完全相同的 action，因此只需要撰寫一份實作，錯誤也只可能藏在一個地方。
+大多數應用程式會在前端與資料庫之間建置一層獨立的 API，而這層只有瀏覽器能呼叫。想擁有相同能力的代理則需要一套自己的、獨立的整合，得再重新寫一次、再維護一次。Agent-Native 應用程式省去了這種分裂。UI 和代理呼叫的是完全相同的 action，因此只需要撰寫一份實作，錯誤也只可能藏在一個地方。
 
-<Diagram id="doc-block-actions-overview-2" title="傳統前端 vs. Agent Native" summary="傳統前端呼叫自己的 API 層，只有它自己能存取。在 Agent Native 中，app/ 和代理都呼叫相同的 actions，因此這裡建置的每項功能都能免費供代理呼叫。">
+<Diagram id="doc-block-actions-overview-2" title="傳統前端 vs. Agent-Native" summary="傳統前端呼叫自己的 API 層，只有它自己能存取。在 Agent-Native 中，app/ 和代理都呼叫相同的 actions，因此這裡建置的每項功能都能免費供代理呼叫。">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Action 是您應用程式所做任何事情的唯一真實來源。用 `defineAc
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/（React 前端）</div>
       <div class="diagram-node">代理</div>

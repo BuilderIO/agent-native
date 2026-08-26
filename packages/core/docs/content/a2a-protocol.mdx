@@ -436,7 +436,7 @@ The target resolves the same way as `agentNative.invoke()`: by workspace app id,
 
 ## Delegated agent activity {#delegated-agent-activity}
 
-Agent Native peers may attach an optional `data` part with
+Agent-Native peers may attach an optional `data` part with
 `kind: "agent-native/agent-activity"` to task status messages. It carries a
 bounded snapshot of the user-visible reasoning summaries, tool names and
 completion states, elapsed time, and progressive response text. Calling apps
@@ -470,7 +470,7 @@ Tasks persist in the `a2a_tasks` SQL table and can be retrieved later via `tasks
 
 ## Security {#security}
 
-Set `A2A_SECRET` on every production app that calls or receives A2A traffic. Agent-native callers sign JWT bearer tokens with this secret so receivers can verify the caller identity before the agent loop starts.
+Set `A2A_SECRET` on every production app that calls or receives A2A traffic. Agent-Native callers sign JWT bearer tokens with this secret so receivers can verify the caller identity before the agent loop starts.
 
 For external peers that still use a shared static token, set `apiKeyEnv` in your config to the name of an environment variable containing the expected bearer token:
 

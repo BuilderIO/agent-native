@@ -93,7 +93,7 @@ El panel se ejecuta en uno de dos modos de herramienta:
   y acceso a la base de datos además de las herramientas de la aplicación, para que el agente pueda cambiar las funciones de la aplicación
   fuente propia. Las solicitudes de código están cerradas: cuando un mensaje requiere código
   (`type: "code"`) y no hay ningún marco con capacidad de código conectado, el panel muestra un
-  diálogo que explica que los cambios de código necesitan Agent Native Desktop o Builder;
+  diálogo que explica que los cambios de código necesitan Agent-Native Desktop o Builder;
   cuando se conecta una trama, la solicitud se dirige a ella y a un agente de código
   se muestra mientras funciona (`useSendToAgentChat`). Para lo canónico
   lista de herramientas de codificación y contratos UI compartidos, consulte
@@ -219,7 +219,7 @@ cd my-app
 pnpm dev
 ```
 
-El marco de desarrollo local (el paquete privado `@agent-native/frame` en el repositorio del marco) es un paquete de herramientas interno que no está publicado en npm. Carga el servidor de desarrollo de la aplicación activa en un iframe y monta el panel integrado junto a él, seleccionando la aplicación a través del parámetro de consulta `app`. El terminal CLI integrado requiere el escritorio Agent Native, que proporciona el código local y el acceso PTY que necesita el terminal; sin él, el panel muestra la superficie de chat y le solicita que abra el Escritorio para usar el CLI.
+El marco de desarrollo local (el paquete privado `@agent-native/frame` en el repositorio del marco) es un paquete de herramientas interno que no está publicado en npm. Carga el servidor de desarrollo de la aplicación activa en un iframe y monta el panel integrado junto a él, seleccionando la aplicación a través del parámetro de consulta `app`. El terminal CLI integrado requiere el escritorio Agent-Native, que proporciona el código local y el acceso PTY que necesita el terminal; sin él, el panel muestra la superficie de chat y le solicita que abra el Escritorio para usar el CLI.
 
 ## Notas de compatibilidad {#compatibility}
 
