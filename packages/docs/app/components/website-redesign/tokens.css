@@ -292,6 +292,10 @@
   justify-content: center;
 }
 
+.builder-brand-tokens .pillar-media-spacing {
+  margin-top: var(--spacing-8);
+}
+
 .builder-brand-tokens .template-showcase-arrow {
   border: 1px solid var(--b-action-secondary-border);
   color: var(--b-text-primary);
@@ -447,6 +451,10 @@
 
   .builder-brand-tokens .pillars-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .builder-brand-tokens .pillar-media-spacing {
+    margin-top: 0;
   }
 
   .builder-brand-tokens .logos-grid {

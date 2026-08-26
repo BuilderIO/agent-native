@@ -137,7 +137,10 @@ export function BuiltInFeatures() {
                   >
                     {rowIndex === 0 &&
                       (pillar.darkImage && pillar.lightImage ? (
-                        <div style={{ position: "relative" }}>
+                        <div
+                          className="pillar-media-spacing"
+                          style={{ position: "relative" }}
+                        >
                           <img
                             className="theme-img-dark"
                             src={pillar.darkImage}
