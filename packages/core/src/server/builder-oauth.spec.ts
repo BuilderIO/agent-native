@@ -376,6 +376,31 @@ describe("Builder hosted user OAuth", () => {
     ).rejects.toThrow("does not grant builder:assets:write");
   });
 
+  // A token response may omit `scope` when the grant matches the request
+  // (RFC 6749 §5.1). Assuming a narrower set there would tell the user to
+  // reconnect, hand them the identical grant, and loop forever.
+  it("assumes the requested scopes when the token response omits scope", async () => {
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    readMock.mockResolvedValue(
+      credentials({
+        tokens: {
+          access_token: "<ACCESS_TOKEN_EXAMPLE>",
+          issuer: BUILDER_OAUTH_ISSUER,
+        },
+      }),
+    );
+
+    await expect(getBuilderOAuthSession(ownerEmail)).resolves.toMatchObject({
+      scopes: [...BUILDER_OAUTH_SCOPES],
+    });
+    await expect(
+      resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: "builder:assets:write",
+      }),
+    ).resolves.toMatchObject({ ownerEmail });
+  });
+
   it("fails closed for a credential whose issuer or resource binding changed", async () => {
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(

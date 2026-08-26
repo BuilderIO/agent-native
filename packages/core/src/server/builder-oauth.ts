@@ -99,7 +99,7 @@ function builderOAuthKey(orgId: string): string {
 
 function scopesFrom(credentials: McpOAuthCredentialBundle): string[] {
   const declared = credentials.tokens.scope;
-  if (typeof declared !== "string") return [BUILDER_OAUTH_SCOPE];
+  if (typeof declared !== "string") return [...BUILDER_OAUTH_SCOPES];
   return declared.split(/\s+/).filter(Boolean);
 }
 
