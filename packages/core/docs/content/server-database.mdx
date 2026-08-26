@@ -259,7 +259,8 @@ pnpm db:generate
 
 This creates `server/db/migrations/<id_name>.sql`. Commit the generated file and
 review its SQL before shipping it. `runDrizzleMigrations`
-loads those files into the shared Agent Native runner on Node.js and Node-based
+<!-- i18n-copy-ignore: Agent-Native is the product name; hyphen-only brand fix. -->
+loads those files into the shared Agent-Native runner on Node.js and Node-based
 serverless runtimes, so release authorization, dialect handling, and bookkeeping
 stay in one place:
 

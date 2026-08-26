@@ -53,7 +53,8 @@ function offsetPasteOverPositions(
 
 /** Paste-over must use document-root CSS. Clones insert at the document
  * root, so containing-block computed left/top is composed with the nearest
- * inline-positioned ancestor. Never write iframe boundingRect as CSS. */
+ * inline-positioned ancestor unless the selection is `position:fixed`
+ * (viewport/root-relative). Never write iframe boundingRect as CSS. */
 export function resolvePasteOverPositions(
   entries: CanvasLayerClipboardEntry[],
   selectedElement: ElementInfo | null,
@@ -73,7 +74,10 @@ export function resolvePasteOverPositions(
   const selectedTop = parseFloat(selectedElement?.computedStyles?.top ?? "");
   const hasComputed =
     Number.isFinite(selectedLeft) && Number.isFinite(selectedTop);
-  if (nodeId && documentHtml && hasComputed) {
+  const isFixedSelection =
+    String(selectedElement?.computedStyles?.position ?? "").toLowerCase() ===
+    "fixed";
+  if (nodeId && documentHtml && hasComputed && !isFixedSelection) {
     const containingBlock = authoredContainingBlockPositionForNode(
       documentHtml,
       nodeId,

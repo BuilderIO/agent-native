@@ -51,10 +51,9 @@ export function generationOutputFiles<
 /** Fresh (non-template) generation must not restart once a real HTML screen
  * exists. CSS/JSX/board files are not screens, so a CSS-only file list still
  * resumes. Template refinements keep going even when screens already exist. */
-export function shouldSkipPendingGenerationResume(
-  pending: Pick<PendingGeneration, "templateId">,
-  files: readonly { filename?: string; fileType?: string }[],
-): boolean {
+export function shouldSkipPendingGenerationResume<
+  T extends { filename?: string; fileType?: string },
+>(pending: PendingGeneration, files: readonly T[]): boolean {
   return generationOutputFiles(files).length > 0 && !pending.templateId;
 }
 
