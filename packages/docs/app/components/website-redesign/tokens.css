@@ -192,20 +192,32 @@
   --b-action-tab-text-hover: #0a0a0a;
 }
 
+/* Both variants keep their layout box (opacity/visibility, not display)
+   so the hidden one still has real geometry — native `loading="lazy"`
+   decides whether to fetch an image based on its bounding rect, and an
+   element with `display: none` never has one, so it would never load
+   even after the theme toggle later made it the visible variant. */
 .builder-brand-tokens .theme-img-dark {
-  display: block;
+  opacity: 1;
+  visibility: visible;
 }
 
 .builder-brand-tokens .theme-img-light {
-  display: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .light .builder-brand-tokens .theme-img-dark {
-  display: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .light .builder-brand-tokens .theme-img-light {
-  display: block;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .builder-brand-tokens .blue-gradient-text {
