@@ -197,7 +197,14 @@ export function TemplateShowcase() {
           tools to do the same work.
         </p>
         <div className="flex">
-          <Button variant="secondary-icon" href="/apps" className="uppercase">
+          {/* `white` carries no `-icon` suffix, so the arrow the old
+              secondary-icon variant added by default has to be passed. */}
+          <Button
+            variant="white"
+            icon={IconArrowUpRight}
+            href="/apps"
+            className="uppercase"
+          >
             Browse apps
           </Button>
         </div>

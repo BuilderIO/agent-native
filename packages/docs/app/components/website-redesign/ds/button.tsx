@@ -1,14 +1,8 @@
-import {
-  IconArrowUpRight,
-  type Icon,
-  type IconProps,
-} from "@tabler/icons-react";
+import { IconArrowUpRight, type TablerIcon } from "@tabler/icons-react";
 import type {
   AnchorHTMLAttributes,
   ButtonHTMLAttributes,
-  ForwardRefExoticComponent,
   ReactNode,
-  RefAttributes,
 } from "react";
 import { Link } from "react-router";
 
@@ -21,8 +15,6 @@ export type ButtonVariant =
   | "secondary-icon"
   // Stays white in both themes; see --b-action-white-* in tokens.css.
   | "white";
-
-type TablerIcon = ForwardRefExoticComponent<IconProps & RefAttributes<Icon>>;
 
 interface CommonProps {
   variant?: ButtonVariant;
