@@ -89,7 +89,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
   {
     name: "github",
     label: "GitHub",
-    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7d3c6b5905c34adda2220492f16005de",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9e5ae6792dc448e298f89a70e52104e6",
     srcWidth: 552,
     srcHeight: 556,
     fill: true,
