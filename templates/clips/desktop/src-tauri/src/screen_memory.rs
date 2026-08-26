@@ -1130,22 +1130,81 @@ pub(crate) fn release_temporary_audio_consumer(
     };
     end_graph_lease(app, &consumer.graph_lease_id);
 
-    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
-    if !config.enabled || config.paused {
-        return Ok(());
-    }
-    let desired = effective_capture_mode(app, config.capture_mode);
-    let needs_restore = state
-        .inner
-        .lock()
-        .map_err(|error| error.to_string())?
-        .active
-        .as_ref()
-        .is_some_and(|active| active.capture_mode != desired);
-    if needs_restore {
-        rotate_segment_inner(app, &config)?;
+    // Restoring the configured capture mode is a full producer stop/start
+    // (the SCK source contract changed) that measures ~2s. Never charge that
+    // to the releasing caller — a clip cancel must return immediately — and
+    // give re-demand a grace window: a cancel-then-retake re-acquires the
+    // same audio sources within a couple of seconds, which turns the pending
+    // restore into a no-op instead of two stop/start cycles.
+    if capture_mode_restore_needed(app) {
+        schedule_capture_mode_restore(app.clone());
     }
     Ok(())
+}
+
+/// How long released audio demand may keep the producer in its upgraded mode
+/// before the configured capture mode is restored. Long enough that a rapid
+/// cancel→retake reattaches to the still-running audio producer for free;
+/// short enough that the microphone stops being captured promptly after the
+/// last consumer lets go.
+const CAPTURE_MODE_RESTORE_GRACE: Duration = Duration::from_secs(5);
+
+fn schedule_capture_mode_restore(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(CAPTURE_MODE_RESTORE_GRACE);
+        let state = app.state::<ScreenMemoryState>();
+        let _transition = match state.transition.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                record_error(&app, error.to_string());
+                return;
+            }
+        };
+        // Re-evaluate under the transition lock: new audio demand, a config
+        // change, or a producer stop during the grace all make this a no-op,
+        // so overlapping schedules can never double-reconfigure the producer.
+        if !capture_mode_restore_needed(&app) {
+            return;
+        }
+        let config =
+            normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
+        if let Err(error) = rotate_segment_inner(&app, &config) {
+            record_error(&app, error);
+        }
+    });
+}
+
+fn capture_mode_restore_needed(app: &AppHandle) -> bool {
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    let state = app.state::<ScreenMemoryState>();
+    let Ok(runtime) = state.inner.lock() else {
+        return false;
+    };
+    capture_mode_restore_decision(
+        config.enabled,
+        config.paused,
+        runtime.active.as_ref().map(|active| active.capture_mode),
+        config.capture_mode,
+        runtime.temporary_audio_consumers.len(),
+    )
+}
+
+/// True only while the producer is running in a capture mode the current
+/// demand (persisted config plus live temporary-audio consumers) no longer
+/// asks for. Disabled/paused configs are owned by `sync_from_config`'s stop
+/// path, and a stopped producer has nothing to restore.
+fn capture_mode_restore_decision(
+    enabled: bool,
+    paused: bool,
+    active_mode: Option<RewindCaptureMode>,
+    base_mode: RewindCaptureMode,
+    temporary_audio_consumers: usize,
+) -> bool {
+    if !enabled || paused {
+        return false;
+    }
+    let desired = effective_mode(base_mode, temporary_audio_consumers);
+    active_mode.is_some_and(|mode| mode != desired)
 }
 
 fn rollback_temporary_audio_consumer(app: &AppHandle, owner_id: &str) {
@@ -3779,6 +3838,67 @@ command = "keep"
         ));
         assert!(!temporary_audio_lease_available(
             true, false, true, false, false
+        ));
+    }
+
+    #[test]
+    fn deferred_capture_mode_restore_fires_only_for_a_stale_upgraded_producer() {
+        // The clip's audio demand is gone and the producer still runs
+        // upgraded: restore.
+        assert!(capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        // A retake (or a meeting) re-demanded audio during the grace window:
+        // the pending restore must become a no-op, not a downgrade under a
+        // live consumer.
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            1
+        ));
+        // Producer already back at (or configured for) the desired mode.
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::Visuals),
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::VisualsAudio,
+            0
+        ));
+        // Producer stopped during the grace window: nothing to restore.
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            None,
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        // Disabled/paused teardown is owned by sync_from_config's stop path.
+        assert!(!capture_mode_restore_decision(
+            false,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        assert!(!capture_mode_restore_decision(
+            true,
+            true,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            0
         ));
     }
 
