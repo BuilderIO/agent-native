@@ -42,6 +42,18 @@ describe("Markdown import normalization", () => {
     });
   });
 
+  it("treats an unmatched backtick as literal table text", () => {
+    const markdown = [
+      "| Label | Value |",
+      "| --- | --- |",
+      "| unmatched `tick | retained |",
+    ].join("\n");
+    const result = normalizeImportedMarkdownStructures(markdown);
+
+    expect(result.normalizedPipeTables).toBe(1);
+    expect(result.content).toContain("<td>unmatched `tick</td>");
+  });
+
   it("fails closed for inconsistent rows", () => {
     expect(
       normalizeMarkdownPipeTable(

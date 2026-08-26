@@ -27,6 +27,21 @@ function isEscaped(value: string, index: number): boolean {
   return backslashes % 2 === 1;
 }
 
+function hasMatchingBacktickRun(
+  value: string,
+  start: number,
+  expectedLength: number,
+): boolean {
+  for (let index = start; index < value.length; index++) {
+    if (value[index] !== "`" || isEscaped(value, index)) continue;
+    let end = index + 1;
+    while (value[end] === "`") end++;
+    if (end - index === expectedLength) return true;
+    index = end - 1;
+  }
+  return false;
+}
+
 function splitPipeRow(line: string): string[] | null {
   const value = line.trim();
   const separators: number[] = [];
@@ -37,7 +52,11 @@ function splitPipeRow(line: string): string[] | null {
       let end = index + 1;
       while (value[end] === "`") end++;
       const runLength = end - index;
-      if (codeFenceLength === 0) codeFenceLength = runLength;
+      if (
+        codeFenceLength === 0 &&
+        hasMatchingBacktickRun(value, end, runLength)
+      )
+        codeFenceLength = runLength;
       else if (runLength === codeFenceLength) codeFenceLength = 0;
       index = end - 1;
       continue;
