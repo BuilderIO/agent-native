@@ -33,7 +33,7 @@ decisions, feedback, agent runs, and provider audit records.
   MCP tools through the workspace grant boundary.
 - Never put provider keys in hosted deployment env or Factory bootstrap.
   Hosted Factory reads Slack/GitHub/Sentry from workspace connections or the
-  org vault. Local sqlite may read `.env` (`SLACK_BOT_TOKEN`) as a last resort.
+  org vault. Local sqlite may read `.env` Slack/GitHub/Sentry keys as a last resort.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state

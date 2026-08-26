@@ -46,7 +46,8 @@ function isProductionLikeRuntime(): boolean {
       process.env.AWS_EXECUTION_ENV ||
       process.env.FUNCTIONS_WORKER_RUNTIME ||
       process.env.K_SERVICE ||
-      process.env.RENDER,
+      process.env.RENDER ||
+      process.env.FLY_APP_NAME,
     )
   );
 }

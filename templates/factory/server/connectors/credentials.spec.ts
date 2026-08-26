@@ -41,6 +41,7 @@ const HOSTED_RUNTIME_ENV_KEYS = [
   "FUNCTIONS_WORKER_RUNTIME",
   "K_SERVICE",
   "RENDER",
+  "FLY_APP_NAME",
   "AGENT_NATIVE_WORKSPACE",
   "VITE_AGENT_NATIVE_WORKSPACE",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -183,6 +184,19 @@ describe("resolveConnectorSecret", () => {
     mocks.isLocalDatabase.mockReturnValue(true);
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-hosted-file-db");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not use provider env on Fly even with a file database", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("FLY_APP_NAME", "factory-prod");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-fly-file-db");
 
     await expect(
       resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
