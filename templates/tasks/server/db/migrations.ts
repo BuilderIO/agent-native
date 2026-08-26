@@ -102,7 +102,9 @@ ALTER TABLE tasks ALTER COLUMN promoted_to_task SET DEFAULT true`,
 export const runTasksMigrations = runMigrations(
   async () => [
     ...legacyTasksMigrations,
-    ...(await loadDrizzleMigrations(new URL("./migrations", import.meta.url))),
+    ...(await loadDrizzleMigrations(new URL("./migrations", import.meta.url), {
+      dialect: "postgresql",
+    })),
   ],
   { table: "tasks_migrations" },
 );

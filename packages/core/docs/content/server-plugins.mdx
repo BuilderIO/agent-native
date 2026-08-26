@@ -82,12 +82,21 @@ screen when context matters.`,
 
 If your app defines custom database tables, add `server/plugins/db.ts` to register schema migrations. For new app-owned tables and columns, prefer Drizzle Kit generated SQL with `runDrizzleMigrations`:
 
-```ts filename="server/plugins/db.ts"
+```ts filename="server/db/migrations.ts"
 import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
 export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
   table: "my_app_migrations",
+  dialect: "postgresql",
 });
+```
+
+Keep this loader module under `server/db/` and re-export it from
+`server/plugins/db.ts` so `./migrations` resolves correctly from source and
+from the emitted server bundle:
+
+```ts filename="server/plugins/db.ts"
+export { default } from "../db/migrations.js";
 ```
 
 This filesystem-backed helper is for Node.js and Node-based serverless

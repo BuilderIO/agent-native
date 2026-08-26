@@ -51,19 +51,21 @@ describe("loadDrizzleMigrations", () => {
     await mkdir(join(root, "meta"), { recursive: true });
     await writeFile(join(root, "meta", "_journal.json"), "{}", "utf8");
 
-    const migrations = await loadDrizzleMigrations(pathToFileURL(root));
+    const migrations = await loadDrizzleMigrations(pathToFileURL(root), {
+      dialect: "postgresql",
+    });
 
     expect(migrations).toEqual([
       {
         version: 1,
         name: "0000_initial.sql",
-        sql: "CREATE TABLE records (id TEXT PRIMARY KEY);",
+        sql: { postgres: "CREATE TABLE records (id TEXT PRIMARY KEY);" },
         dialectSpecific: true,
       },
       {
         version: 2,
         name: "0001_add_title.sql",
-        sql: "CREATE TABLE titles (id TEXT PRIMARY KEY);",
+        sql: { postgres: "CREATE TABLE titles (id TEXT PRIMARY KEY);" },
         dialectSpecific: true,
       },
     ]);
@@ -73,16 +75,38 @@ describe("loadDrizzleMigrations", () => {
     const root = await createTemporaryDirectory();
 
     await expect(
-      loadDrizzleMigrations(join(root, "server", "db", "migrations")),
+      loadDrizzleMigrations(join(root, "server", "db", "migrations"), {
+        dialect: "postgresql",
+      }),
     ).rejects.toThrow("Drizzle migrations folder");
+  });
+
+  it("gates generated SQL to the configured runtime dialect", async () => {
+    const root = await createTemporaryDirectory();
+    await createMigrationFile(
+      root,
+      "0000_initial.sql",
+      "CREATE TABLE records (id TEXT PRIMARY KEY);",
+    );
+
+    await expect(
+      loadDrizzleMigrations(root, { dialect: "sqlite" }),
+    ).resolves.toEqual([
+      {
+        version: 1,
+        name: "0000_initial.sql",
+        sql: { sqlite: "CREATE TABLE records (id TEXT PRIMARY KEY);" },
+        dialectSpecific: true,
+      },
+    ]);
   });
 
   it("fails clearly on filesystem-free runtimes", async () => {
     vi.stubGlobal("__cf_env", {});
 
-    await expect(loadDrizzleMigrations("/missing/migrations")).rejects.toThrow(
-      "loadDrizzleMigrations requires a Node.js filesystem",
-    );
+    await expect(
+      loadDrizzleMigrations("/missing/migrations", { dialect: "postgresql" }),
+    ).rejects.toThrow("loadDrizzleMigrations requires a Node.js filesystem");
   });
 
   it("ignores non-SQL metadata files", async () => {
@@ -91,16 +115,18 @@ describe("loadDrizzleMigrations", () => {
     await mkdir(join(root, "meta"), { recursive: true });
     await writeFile(join(root, "meta", "0000_snapshot.json"), "{}", "utf8");
 
-    await expect(loadDrizzleMigrations(root)).resolves.toEqual([]);
+    await expect(
+      loadDrizzleMigrations(root, { dialect: "postgresql" }),
+    ).resolves.toEqual([]);
   });
 
   it("fails when a migration file is empty", async () => {
     const root = await createTemporaryDirectory();
     await createMigrationFile(root, "0000_empty.sql", "\n");
 
-    await expect(loadDrizzleMigrations(root)).rejects.toThrow(
-      'Drizzle migration file "0000_empty.sql" has empty SQL',
-    );
+    await expect(
+      loadDrizzleMigrations(root, { dialect: "postgresql" }),
+    ).rejects.toThrow('Drizzle migration file "0000_empty.sql" has empty SQL');
   });
 
   it("does not mutate the generated SQL", async () => {
@@ -112,9 +138,11 @@ describe("loadDrizzleMigrations", () => {
     ].join("\n");
     await createMigrationFile(root, "0000_initial.sql", sql);
 
-    const migrations = await loadDrizzleMigrations(root);
+    const migrations = await loadDrizzleMigrations(root, {
+      dialect: "postgresql",
+    });
 
-    expect(migrations[0]?.sql).toBe(sql);
+    expect(migrations[0]?.sql).toEqual({ postgres: sql });
     expect(await readFile(join(root, "0000_initial.sql"), "utf8")).toBe(sql);
   });
 });

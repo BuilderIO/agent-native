@@ -261,12 +261,20 @@ loads those files into the shared Agent Native runner on Node.js and Node-based
 serverless runtimes, so release authorization, dialect handling, and bookkeeping
 stay in one place:
 
-```ts filename="server/plugins/db.ts"
+```ts filename="server/db/migrations.ts"
 import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
 export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
   table: "my_app_migrations",
+  dialect: "postgresql",
 });
+```
+
+Re-export that plugin from `server/plugins/db.ts` so the same `./migrations`
+path works from source and from the emitted server bundle:
+
+```ts filename="server/plugins/db.ts"
+export { default } from "../db/migrations.js";
 ```
 
 The filesystem-backed loader is not available in Cloudflare Workers/Pages or

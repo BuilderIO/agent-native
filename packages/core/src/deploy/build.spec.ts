@@ -1565,12 +1565,17 @@ describe("copyDrizzleMigrationAssets", () => {
             "./migrations",
             pathToFileURL(path.join(serverDir, "main.mjs")),
           ),
+          { dialect: "postgresql" },
         ),
       ).resolves.toMatchObject([
         {
           version: 1,
           name: "0001_add_priority.sql",
-          sql: "ALTER TABLE tasks ADD COLUMN priority INTEGER;\n--> statement-breakpoint",
+          sql: {
+            postgres:
+              "ALTER TABLE tasks ADD COLUMN priority INTEGER;\n--> statement-breakpoint",
+          },
+          dialectSpecific: true,
         },
       ]);
     } finally {

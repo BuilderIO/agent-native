@@ -6,6 +6,15 @@ import {
 } from "./migrations.js";
 
 export type DrizzleMigrationsFolder = string | URL;
+export type DrizzleMigrationDialect = "postgresql" | "sqlite" | "turso";
+
+export interface LoadDrizzleMigrationsOptions {
+  dialect: DrizzleMigrationDialect;
+}
+
+export interface RunDrizzleMigrationsOptions extends RunMigrationsOptions {
+  dialect: DrizzleMigrationDialect;
+}
 
 function isMissingPath(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
@@ -23,6 +32,7 @@ function isMissingPath(error: unknown): boolean {
  */
 export async function loadDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,
+  options: LoadDrizzleMigrationsOptions,
 ): Promise<Array<MigrationEntry>> {
   if (!isNodeRuntime()) {
     throw new Error(
@@ -80,7 +90,10 @@ export async function loadDrizzleMigrations(
     migrations.push({
       version: index + 1,
       name: file.name,
-      sql: trimmedSql,
+      sql:
+        options.dialect === "postgresql"
+          ? { postgres: trimmedSql }
+          : { sqlite: trimmedSql },
       dialectSpecific: true,
     });
   }
@@ -97,7 +110,11 @@ export async function loadDrizzleMigrations(
  */
 export function runDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,
-  options: RunMigrationsOptions,
+  options: RunDrizzleMigrationsOptions,
 ): ReturnType<typeof runMigrations> {
-  return runMigrations(() => loadDrizzleMigrations(migrationsFolder), options);
+  const { dialect, ...migrationOptions } = options;
+  return runMigrations(
+    () => loadDrizzleMigrations(migrationsFolder, { dialect }),
+    migrationOptions,
+  );
 }
