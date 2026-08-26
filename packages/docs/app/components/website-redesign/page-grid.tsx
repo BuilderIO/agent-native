@@ -9,14 +9,17 @@ import {
 export const GRID_MAX_WIDTH = 1200;
 export const GRID_COLUMNS = 3;
 
-// Real border-left/border-right on real boxes, not absolutely-positioned 1px
-// background divs — sibling elements elsewhere (e.g. the logos grid) draw
-// their own edges with `border`, and two independently-computed 1px
-// background lines don't reliably land on the same device pixel as a real
-// border does, which showed up as a doubled/fuzzed line at shared edges.
-// Using `border` here too means both are resolved through the same rounding
-// path, so they align.
+// The 1/3 and 2/3 lines are real `repeat(3, 1fr)` grid cells with a
+// `border-right` on the non-last ones — the same structure `.pillars-grid`
+// uses for its own column dividers below. A centered percentage-width
+// overlay box divides its available space with plain percentage math,
+// while a CSS Grid divides it via the browser's track-sizing algorithm;
+// those two techniques can round sub-pixel remainders differently even over
+// the same total width, which showed up as the lines not quite lining up
+// with the real feature grid's dividers beneath them. Using the same grid
+// technique in both places means they round the same way.
 function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
+  const columns = gridLines === "all" ? GRID_COLUMNS : 1;
   return (
     <div
       aria-hidden="true"
@@ -29,27 +32,24 @@ function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
         width: "100%",
         maxWidth: GRID_MAX_WIDTH,
         boxSizing: "border-box",
+        display: "grid",
+        gridTemplateColumns: `repeat(${columns}, 1fr)`,
         borderLeft: "1px solid var(--b-border-subtle)",
         borderRight: "1px solid var(--b-border-subtle)",
         pointerEvents: "none",
         zIndex: 0,
       }}
     >
-      {gridLines === "all" && (
+      {Array.from({ length: columns }, (_, i) => (
         <div
-          style={{
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: `${(1 / 3) * 100}%`,
-            boxSizing: "border-box",
-            borderLeft: "1px solid var(--b-border-subtle)",
-            borderRight: "1px solid var(--b-border-subtle)",
-          }}
+          key={i}
+          style={
+            i < columns - 1
+              ? { borderRight: "1px solid var(--b-border-subtle)" }
+              : undefined
+          }
         />
-      )}
+      ))}
     </div>
   );
 }
