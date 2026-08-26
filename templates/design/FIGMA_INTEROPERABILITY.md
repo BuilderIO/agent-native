@@ -168,6 +168,15 @@ per-case before/after table.
   `X-Figma-Plan-Tier`, `X-Figma-Rate-Limit-Type`, and
   `X-Figma-Upgrade-Link` metadata.
 - Figma does not expose a requests-remaining counter.
+- **The budget is per FILE and follows that file's plan, not the token's owner.**
+  Measured 2026-08-26 with one token: two files in a Professional team answered
+  200 while six Community files duplicated into the same account's Drafts all
+  answered 429 with an identical ~110h `Retry-After`. A second token on the same
+  account does not help. A duplicated Community file is effectively untestable
+  until it is moved into a paid team project.
+- Render cost scales with the number of ids in an `/images` request, so a
+  21-id batch is charged as 21. Batch small and pace; retrying after the fact is
+  not enough.
 - Clipboard paste and `.fig` upload are zero-quota local alternatives.
 
 ## Safety and scale limits

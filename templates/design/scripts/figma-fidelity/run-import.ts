@@ -53,6 +53,28 @@ const MAX_RATE_LIMIT_RETRIES = 6;
  */
 const MAX_RATE_LIMIT_WAIT_MS = 120_000;
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Figma allows 10-20 Tier 1 requests a minute. Retrying after the fact is not
+ * enough: firing a whole corpus as fast as the loop can go trips the limit on
+ * the first few cases, and Figma then answers with the ACCOUNT reset time
+ * rather than the burst window, which reads as "quota exhausted for days" when
+ * it is really "you asked too fast". Pace requests instead.
+ */
+const MIN_REQUEST_INTERVAL_MS = 5_000;
+/** A stalled request must not look like a slow one — the run wedged silently for 27 minutes. */
+const REQUEST_TIMEOUT_MS = 60_000;
+/** Render cost scales with id count, so keep each request small. */
+const FALLBACK_RENDER_BATCH = 5;
+
+let nextRequestAt = 0;
+async function paced<T>(run: () => Promise<T>): Promise<T> {
+  const wait = nextRequestAt - Date.now();
+  if (wait > 0) await sleep(wait);
+  nextRequestAt = Date.now() + MIN_REQUEST_INTERVAL_MS;
+  return run();
+}
+
 function rateLimitWaitMs(response: Response, attempt: number): number {
   const retryAfter = Number(response.headers.get("retry-after"));
   if (Number.isFinite(retryAfter) && retryAfter > 0) {
@@ -61,8 +83,12 @@ function rateLimitWaitMs(response: Response, attempt: number): number {
       const resetsAt = new Date(Date.now() + waitMs).toISOString();
       throw new Error(
         `Figma rate limit is not a burst: it asked for ${Math.round(retryAfter / 3600)}h ` +
-          `(until ${resetsAt}). That is an exhausted account quota, not pacing — ` +
-          `waiting would stall this run for days. Use a different token or resume after the reset.`,
+          `(until ${resetsAt}), so waiting would stall this run for days.\n` +
+          `This budget is PER FILE and depends on that file's plan, not on the token: ` +
+          `a file in a paid team gets 10-20 Tier 1 requests a minute, while a file in ` +
+          `Drafts (where a duplicated Community file lands) gets only a handful per month ` +
+          `and stays exhausted. A second token on the same account will NOT help. ` +
+          `Move the file into a paid team project, or use a case whose file is already there.`,
       );
     }
     return waitMs;
@@ -92,14 +118,15 @@ function cachePath(kind: string, key: string): string {
   return join(CACHE_DIR, `${kind}-${digest}`);
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function figmaJson<T>(path: string, attempt = 0): Promise<T> {
   const cached = cachePath("json", path);
   if (existsSync(cached)) return JSON.parse(readFileSync(cached, "utf8")) as T;
-  const response = await fetch(`https://api.figma.com/v1${path}`, {
-    headers: { "X-Figma-Token": token! },
-  });
+  const response = await paced(() =>
+    fetch(`https://api.figma.com/v1${path}`, {
+      headers: { "X-Figma-Token": token! },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }),
+  );
   // Figma allows only 10-20 Tier 1 requests a minute and answers 429 with a
   // `Retry-After` in seconds. Treating that as a case failure would report a
   // pacing problem as an import defect — which is exactly the kind of
@@ -138,7 +165,9 @@ async function figmaJson<T>(path: string, attempt = 0): Promise<T> {
 async function fetchBinary(url: string, attempt = 0): Promise<Buffer> {
   const cached = cachePath("bin", url);
   if (existsSync(cached)) return readFileSync(cached);
-  const response = await fetch(url);
+  const response = await paced(() =>
+    fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+  );
   if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
     await sleep(rateLimitWaitMs(response, attempt));
     return fetchBinary(url, attempt + 1);
@@ -172,6 +201,8 @@ interface CaseOutcome {
   meanDelta?: number;
   dimensionMismatch?: boolean;
   fidelity?: { exact: number; approximated: number; imageFallback: number };
+  /** Nodes Figma had nothing to draw for; omitted from the render, never silent. */
+  unrenderableNodes?: number;
   renderWarnings?: string[];
   error?: string;
 }
@@ -220,16 +251,23 @@ async function runCase(
   }
 
   const fallbackIds = collectFallbackNodeIds(node);
-  let fallbackImageUrls: Record<string, string> = {};
-  if (fallbackIds.length) {
+  const fallbackImageUrls: Record<string, string> = {};
+  const unrenderable: string[] = [];
+  // Figma's rate limit is COST-based and a render request is charged per id, so
+  // asking for 21 nodes at once trips it immediately and comes back quoting the
+  // ACCOUNT reset time. The product batches for the same reason; match it.
+  for (let i = 0; i < fallbackIds.length; i += FALLBACK_RENDER_BATCH) {
+    const batch = fallbackIds.slice(i, i + FALLBACK_RENDER_BATCH);
     const response = await figmaJson<ImagesResponse>(
-      `/images/${fileKey}?ids=${fallbackIds.map(encodeURIComponent).join(",")}&format=png&scale=2`,
+      `/images/${fileKey}?ids=${batch.map(encodeURIComponent).join(",")}&format=png&scale=2`,
     );
     for (const [id, url] of Object.entries(response.images)) {
-      // A null render is a real failure: the node would silently disappear.
-      if (!url)
-        throw new Error(`Figma returned no render for fallback node ${id}`);
-      fallbackImageUrls[id] = url;
+      // Figma returns null for a node with nothing to draw, and community files
+      // are full of empty placeholder vectors. That is a reportable omission,
+      // not a reason to fail the whole design — the product warns and omits
+      // too. Failing here made every instance-heavy file untestable.
+      if (url) fallbackImageUrls[id] = url;
+      else unrenderable.push(id);
     }
   }
 
@@ -288,6 +326,7 @@ async function runCase(
     dimensionMismatch: comparison.dimensionMismatch,
     fidelity: fidelity.summary,
     renderWarnings: rendered.warnings,
+    unrenderableNodes: unrenderable.length || undefined,
   };
 }
 
@@ -342,6 +381,8 @@ for (const outcome of outcomes) {
   if (outcome.dimensionMismatch) notes.push("SIZE MISMATCH");
   if (outcome.renderWarnings?.length)
     notes.push(`${outcome.renderWarnings.length} render warning(s)`);
+  if (outcome.unrenderableNodes)
+    notes.push(`${outcome.unrenderableNodes} node(s) Figma could not render`);
   console.log(
     `  ${outcome.id.padEnd(30)}  ${outcome.diffPercent!.toFixed(3).padStart(7)}  ` +
       `${outcome.meanDelta!.toFixed(2).padStart(7)}  ` +
