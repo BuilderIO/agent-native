@@ -7,7 +7,14 @@ import {
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import {
   Links,
   Meta,
@@ -205,6 +212,8 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
 }
 
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function SeoLinks() {
   const location = useLocation();
@@ -304,7 +313,7 @@ function ScrollManager() {
   const ref = useRef<HTMLSpanElement>(null);
   const isInitialEffectRef = useRef(true);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const isInitialEffect = isInitialEffectRef.current;
     isInitialEffectRef.current = false;
 

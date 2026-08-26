@@ -76,8 +76,10 @@ const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
 /// cursor is still nowhere near it.
 const PILL_H_LOGICAL: u32 = 60;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
-/// Bottom margin from the screen edge, logical px. Granola uses ~24.
-const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
+/// Bottom margin from the screen edge, logical px. 42 = the old 24px window
+/// margin + the removed 18px shadow gutter, so the default capsule keeps the
+/// exact on-screen spot it had before the native-shadow conversion.
+const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 42;
 
 /// Detached / "floating" mode dimensions — anchored top-right of the primary
 /// monitor when the user focuses another app. Smaller footprint so it
@@ -88,7 +90,6 @@ const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
 /// Gap between the visible capsule and the right screen edge, logical px.
 const PILL_RIGHT_MARGIN_LOGICAL: u32 = 28;
-const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -104,17 +105,11 @@ fn scale_factor(app: &AppHandle) -> f64 {
         .unwrap_or(2.0)
 }
 
-fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
-    (OVERLAY_SHADOW_GUTTER_LOGICAL * scale_factor(app).max(1.0)).round() as u32
-}
-
-/// Screen-edge margin for the *visible* capsule. The window is padded out with
-/// a transparent shadow gutter, so that gutter comes off the window margin —
-/// measured from the window frame the pill floats a whole gutter further from
-/// the edge than the constant says.
+/// Screen-edge margin for the visible capsule, physical px. The window is
+/// sized to the capsule exactly (native shadow, no transparent gutter), so
+/// the margin applies straight to the window frame.
 fn edge_margin_physical(app: &AppHandle, logical: u32) -> i32 {
-    let margin = (logical as f64 * scale_factor(app)) as i32;
-    (margin - overlay_shadow_gutter_physical(app) as i32).max(0)
+    (logical as f64 * scale_factor(app)) as i32
 }
 
 /// Persist the last-known pill position so the next `show` re-opens at the
@@ -259,7 +254,10 @@ fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     (x, y)
 }
 
-fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
+/// Window size (physical px). The window is sized to the visible capsule
+/// exactly — elevation is the native NSWindow shadow (see the builder's
+/// `shadow(true)`), so there is no transparent shadow gutter to add here.
+fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let scale = scale_factor(app);
     let detached = PILL_DETACHED.load(Ordering::Relaxed);
     // Detached mode ignores the `expanded` flag — the floating pill is a
@@ -282,12 +280,6 @@ fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let w = (w_log as f64 * scale) as u32;
     let h = (h_log as f64 * scale) as u32;
     (w, h)
-}
-
-fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
-    let (content_w, content_h) = pill_content_size_physical(app, expanded);
-    let gutter = overlay_shadow_gutter_physical(app);
-    (content_w + gutter * 2, content_h + gutter * 2)
 }
 
 /// Default top-right anchor (physical px) for detached mode.
@@ -441,7 +433,11 @@ pub async fn recording_pill_show(
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .shadow(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the capsule gets a
+        // correctly rounded OS shadow with the window sized to the capsule
+        // exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
         .visible(false)
         .focused(false)
         .accept_first_mouse(true)
@@ -472,9 +468,8 @@ pub async fn recording_pill_show(
 
 /// True when the global cursor sits inside the pill window's frame. Cursor and
 /// frame both come from Tauri (physical px, desktop top-left origin), so the
-/// test is a plain point-in-rect with no AppKit hop. The frame is inset by the
-/// transparent shadow gutter the renderer pads out, so the polled hover state
-/// matches the capsule the user actually sees.
+/// test is a plain point-in-rect with no AppKit hop. The window is sized to
+/// the capsule exactly, so the frame IS the capsule the user actually sees.
 fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     let (Ok(c), Ok(p), Ok(s)) = (
         window.cursor_position(),
@@ -483,12 +478,9 @@ fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     ) else {
         return false;
     };
-    let gutter = overlay_shadow_gutter_physical(window.app_handle()) as i32;
-    let left = p.x + gutter;
-    let top = p.y + gutter;
-    let right = p.x + s.width as i32 - gutter;
-    let bottom = p.y + s.height as i32 - gutter;
-    c.x >= left as f64 && c.x <= right as f64 && c.y >= top as f64 && c.y <= bottom as f64
+    let right = p.x + s.width as i32;
+    let bottom = p.y + s.height as i32;
+    c.x >= p.x as f64 && c.x <= right as f64 && c.y >= p.y as f64 && c.y <= bottom as f64
 }
 
 /// Start polling the cursor against the pill frame and emitting
