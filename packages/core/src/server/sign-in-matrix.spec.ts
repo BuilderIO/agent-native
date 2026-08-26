@@ -173,7 +173,7 @@ const SURFACES: Surface[] = [
   },
   {
     id: 6,
-    name: "Agent Native Desktop (agentnative:// deep-link completion)",
+    name: "Agent-Native Desktop (agentnative:// deep-link completion)",
     basePath: "",
     protectedPath: "/agent?tab=context",
     siblingPath: "/signup",
@@ -440,7 +440,7 @@ describe("sign-in matrix", () => {
       expect(isAgentNativeDesktop()).toBe(true);
       // Both desktop surfaces complete sign-in outside the web cookie jar, but
       // the continuation they carry is the same one every other surface uses.
-      // Agent Native Desktop reloads in place, so its resume is the route it
+      // Agent-Native Desktop reloads in place, so its resume is the route it
       // started on rather than the app root.
       const at = "/agent?tab=context";
       expect(

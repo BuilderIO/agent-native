@@ -1,6 +1,6 @@
-# Agent Native Content architecture
+# Agent-Native Content architecture
 
-Agent Native Content is one composable system in which documents, structured
+Agent-Native Content is one composable system in which documents, structured
 records, connected data, human collaboration, and agent work share stable
 objects and one Action surface. A person chooses the surface that fits the
 moment: a Page for writing, a Database for governed records, a View for a

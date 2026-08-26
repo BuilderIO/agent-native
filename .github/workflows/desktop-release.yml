@@ -36,7 +36,7 @@ env:
   AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
   EP_PRE_RELEASE: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' }}
   ELECTRON_APP_ID: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
-  ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent Native Nightly' || 'Agent Native' }}
+  ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent-Native Nightly' || 'Agent-Native' }}
   # Deterministic version for auto-triggered builds: base version from
   # package.json + run number ensures uniqueness without committing back.
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
@@ -103,16 +103,16 @@ jobs:
               --prerelease \
               --latest=false \
               --target "${{ github.sha }}" \
-              --title "Agent Native Nightly v${{ needs.resolve-version.outputs.version }}" \
-              --notes "Auto-updating Nightly build of the Agent Native desktop app." \
+              --title "Agent-Native Nightly v${{ needs.resolve-version.outputs.version }}" \
+              --notes "Auto-updating Nightly build of the Agent-Native desktop app." \
               -R "${{ github.repository }}"
           else
             gh release create "$TAG" \
               --draft \
               --latest=false \
               --target "${{ github.sha }}" \
-              --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
-              --notes "Stable release of the Agent Native desktop app." \
+              --title "Agent-Native v${{ needs.resolve-version.outputs.version }}" \
+              --notes "Stable release of the Agent-Native desktop app." \
               -R "${{ github.repository }}"
           fi
 
@@ -143,8 +143,8 @@ jobs:
           let builder = fs.readFileSync(builderPath, "utf8");
           builder = builder
             .replace(
-              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
-              "$1Agent Native Nightly$2",
+              /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
+              "$1Agent-Native Nightly$2",
             )
             .replace(
               /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
@@ -230,8 +230,8 @@ jobs:
           let builder = fs.readFileSync(builderPath, "utf8");
           builder = builder
             .replace(
-              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
-              "$1Agent Native Nightly$2",
+              /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
+              "$1Agent-Native Nightly$2",
             )
             .replace(
               /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
@@ -301,8 +301,8 @@ jobs:
           let builder = fs.readFileSync(builderPath, "utf8");
           builder = builder
             .replace(
-              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
-              "$1Agent Native Nightly$2",
+              /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
+              "$1Agent-Native Nightly$2",
             )
             .replace(
               /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
@@ -365,12 +365,12 @@ jobs:
               --draft=false \
               --prerelease \
               --latest=false \
-              --title "Agent Native Nightly v${{ needs.resolve-version.outputs.version }}" \
+              --title "Agent-Native Nightly v${{ needs.resolve-version.outputs.version }}" \
               -R "${{ github.repository }}"
           else
             gh release edit "$TAG" \
               --draft=false \
               --latest \
-              --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
+              --title "Agent-Native v${{ needs.resolve-version.outputs.version }}" \
               -R "${{ github.repository }}"
           fi

@@ -170,7 +170,7 @@ from `$ai_feedback`: inferred sentiment is a model classification, while
 feedback sentiment is an explicit user rating. For by-model reporting, group
 on `$ai_model` or `model`; use `classifier_model` only to audit classifier usage.
 
-Agent Native observability panels belong in the canonical Agent Native dashboard
+Agent-Native observability panels belong in the canonical Agent-Native dashboard
 (`agent-native-templates-first-party`), including generation metrics, explicit
 feedback sentiment, optional inferred message sentiment, and separate
 by-main-model breakdowns. Do not publish or install a separate observability

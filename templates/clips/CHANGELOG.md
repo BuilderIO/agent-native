@@ -198,7 +198,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Agent views now show the agent's name from the link it was given, and unidentified agents are labeled Unknown agent with their user-agent on hover.
 - Clip cards and the watch/share page header now show agent views next to human views without opening view details.
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-30
 
@@ -409,7 +409,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
-- Capture dictation, background meeting audio, and camera videos from the Agent Native iOS and Android app with automatic recovery and resumable Clips sync.
+- Capture dictation, background meeting audio, and camera videos from the Agent-Native iOS and Android app with automatic recovery and resumable Clips sync.
 - Choose which workspace receives new Clips recordings and desktop uploads
 - Create folders directly from the move menu
 
@@ -666,7 +666,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Meeting start alerts now include separate Start notes and Join buttons in the top-right overlay
 - Native desktop recordings now reduce steady microphone background noise during audio optimization.
 - Sharing public clips now stays focused on the normal link, with agent links tucked away for private clips only.
-- The Clips Desktop download page now uses the Agent Native app icon in its header.
+- The Clips Desktop download page now uses the Agent-Native app icon in its header.
 
 ### Fixed
 

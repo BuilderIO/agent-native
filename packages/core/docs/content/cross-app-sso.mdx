@@ -5,6 +5,8 @@ description: "Sign in once across every hosted agent-native app via identity fed
 
 # Cross-App SSO
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 Each hosted app at `*.agent-native.com` runs its own deployment with its **own separate user store**. `mail.agent-native.com` and `calendar.agent-native.com` do not share a database, a session table, or a cookie domain. So "sign in once, use every app" cannot be a shared cookie — it has to be **identity federation**, with [Dispatch](/docs/dispatch) acting as the identity authority for the workspace.
 
 The browser flow uses a short-lived authorization code with PKCE. Dispatch
@@ -349,7 +351,7 @@ The just-in-time link is a single decision keyed entirely on the verified email:
 
 ## Packaged Desktop workspace {#desktop-workspace}
 
-The signed Agent Native Desktop SSO Canary uses this same federation flow as the
+The signed Agent-Native Desktop SSO Canary uses this same federation flow as the
 ordinary sign-in front door for canonical first-party apps. A dedicated
 Electron partition holds the Dispatch authority session; each target app still
 mints its own local session, and Desktop transfers only that app's allowlisted
@@ -393,7 +395,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Redirect allowlist.** The hub (Dispatch) validates `redirect_uri` on the authorize endpoint before issuing a code. The allowlist is configured in `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Default:** exact registered Agent Native app ID, client ID, origin, and callback pairs (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
+- **Default:** exact registered Agent-Native app ID, client ID, origin, and callback pairs (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Custom workspace apps:** set `IDENTITY_SSO_APP_REGISTRY_JSON` on Dispatch with exact registrations. Every entry must include the app ID, client ID, exact HTTPS origin, fixed callback path, and `identity-sso` capability:
 
   ```bash

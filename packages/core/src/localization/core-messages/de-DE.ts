@@ -34,7 +34,7 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
-  "aboutAgentNative.title": "Über Agent Native",
+  "aboutAgentNative.title": "Über Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Umgebung",
   "aboutAgentNative.build": "Build",
@@ -315,7 +315,7 @@ const messages: AgentChatTranslation = {
   "composer.planDescription":
     "Zuerst schreibgeschützte Recherche und Genehmigung",
   "composer.planDesktopRequired":
-    "Öffne Agent Native Desktop, um den Planmodus zu verwenden.",
+    "Öffne Agent-Native Desktop, um den Planmodus zu verwenden.",
   "composer.previewAttachment": "Vorschau {{name}}",
   "composer.reasoning": "Denkaufwand",
   "composer.reasoningEffort.auto": "Auto",

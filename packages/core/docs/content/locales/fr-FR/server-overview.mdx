@@ -87,7 +87,7 @@ Le répertoire `server/` est la couche d'infrastructure d'une application native
 
 Dans une application web traditionnelle, c'est le serveur qui porte l'essentiel de la logique. Les règles métier, l'accès aux données et la présentation se déroulent tous à l'intérieur des gestionnaires de routes. Les applications natives d'agent fonctionnent différemment. La logique vit dans les actions, que l'agent et l'UI partagent à égalité. Le rôle du serveur se limite à la coordination : exécuter les migrations de base de données, configurer l'authentification, monter la boucle de l'agent, et gérer le petit ensemble de préoccupations HTTP que les actions ne peuvent pas exprimer par elles-mêmes.
 
-<Diagram id="doc-block-server-overview-2" title="Serveur traditionnel vs. Agent Native">
+<Diagram id="doc-block-server-overview-2" title="Serveur traditionnel vs. Agent-Native">
 
 ```html
 <div class="diagram-cmp">
@@ -109,7 +109,7 @@ Dans une application web traditionnelle, c'est le serveur qui porte l'essentiel 
   </div>
   <div class="cmp-vs diagram-muted">vs</div>
   <div class="cmp-col">
-    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-label diagram-muted">Agent-Native</div>
     <div class="cmp-callers">
       <div class="diagram-node">Navigateur / UI</div>
       <div class="diagram-node">Agent</div>
@@ -215,7 +215,7 @@ L'API de requête/réponse sous-jacente est [H3](https://h3.unjs.io). Lorsque vo
 
 ## Privilégier les actions en premier {#actions-first}
 
-L'architecture Agent Native est différente. Chaque fois que vous envisagez une nouvelle fonctionnalité pour votre application, demandez-vous d'abord si elle peut être une action. Par exemple, si l'UI et l'agent doivent tous deux effectuer une opération, définissez une action plutôt qu'une route d'API personnalisée. Les actions deviennent automatiquement :
+L'architecture Agent-Native est différente. Chaque fois que vous envisagez une nouvelle fonctionnalité pour votre application, demandez-vous d'abord si elle peut être une action. Par exemple, si l'UI et l'agent doivent tous deux effectuer une opération, définissez une action plutôt qu'une route d'API personnalisée. Les actions deviennent automatiquement :
 
 - Des outils pour l'agent.
 - Des hooks frontend typés.

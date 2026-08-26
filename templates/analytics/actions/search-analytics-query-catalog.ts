@@ -16,7 +16,7 @@ export default defineAction({
       .trim()
       .min(2)
       .describe(
-        "Focused metric/entity terms from the user's question, for example 'agent native signups' or 'HubSpot closed won revenue'",
+        "Focused metric/entity terms from the user's question, for example 'agent-native signups' or 'HubSpot closed won revenue'",
       ),
     limit: z
       .number()

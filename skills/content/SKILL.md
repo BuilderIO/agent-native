@@ -103,7 +103,7 @@ Content roots for `docs/`, `blog/`, `content/`, and `resources/`, plus a
 
 Local File Mode does not make the host language model local, and the hosted
 Content app cannot read private repo files by itself. File access requires a
-local Content app, Agent Native Desktop, or another trusted local bridge.
+local Content app, Agent-Native Desktop, or another trusted local bridge.
 
 ## MDX And Components
 

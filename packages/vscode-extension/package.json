@@ -45,32 +45,32 @@
     "commands": [
       {
         "command": "agentNative.openDefaultApp",
-        "title": "Open Agent Native",
-        "category": "Agent Native"
+        "title": "Open Agent-Native",
+        "category": "Agent-Native"
       },
       {
         "command": "agentNative.openUrl",
-        "title": "Open Agent Native URL",
-        "category": "Agent Native"
+        "title": "Open Agent-Native URL",
+        "category": "Agent-Native"
       },
       {
         "command": "agentNative.connectWorkspace",
-        "title": "Connect Workspace to Agent Native MCP",
-        "category": "Agent Native"
+        "title": "Connect Workspace to Agent-Native MCP",
+        "category": "Agent-Native"
       },
       {
         "command": "agentNative.openDesignCanvas",
         "title": "Open Design Canvas",
-        "category": "Agent Native"
+        "category": "Agent-Native"
       }
     ],
     "configuration": {
-      "title": "Agent Native",
+      "title": "Agent-Native",
       "properties": {
         "agentNative.defaultAppUrl": {
           "type": "string",
           "default": "https://plan.agent-native.com",
-          "description": "The Agent Native app URL opened by the Open Agent Native command."
+          "description": "The Agent-Native app URL opened by the Open Agent-Native command."
         }
       }
     }

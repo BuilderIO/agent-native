@@ -2446,7 +2446,7 @@ function buildWorkspaceAppPrompt(input: {
         ? `Dispatch will create workspace resource grants for the selected resources for appId "${appId}". After the app exists, sync workspace resources so the app receives both global and selected shared resources.`
         : "Do not grant any selected-only Dispatch workspace resources unless the user asks later.",
       "",
-      "Agent-native rules (these are the framework's contract — not optional):",
+      "Agent-Native rules (these are the framework's contract — not optional):",
       `- Persist ALL data in SQL via Drizzle. Add tables to apps/${appId}/server/db/schema.ts and migrations to apps/${appId}/server/plugins/db.ts. NEVER use localStorage, sessionStorage, IndexedDB, or in-memory state for anything the user expects to persist — agent and UI must read the same source of truth.`,
       `- Define every create/read/update/delete as an action in apps/${appId}/actions/ using defineAction. The agent calls these as tools and the frontend calls them via useActionQuery / useActionMutation. If you must raw-fetch framework action endpoints, use agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL. Don't add /api/* routes for CRUD.`,
       "- Build the UI from shadcn/ui components in app/components/ui/ (Button, Input, Dialog, Popover, Card, etc.) and Tailwind utilities. Don't author bespoke CSS classes in global.css unless you genuinely need a primitive that shadcn doesn't ship.",

@@ -1,4 +1,4 @@
-name: Monitor Agent Native site availability
+name: Monitor Agent-Native site availability
 
 # This is deliberately independent from app health and Netlify build status:
 # an edge outage can make both the app health endpoint and the dashboard
@@ -508,7 +508,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ISSUE_TITLE="Agent Native site availability failing"
+          ISSUE_TITLE="Agent-Native site availability failing"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
           GOOGLE_FAILING="$(grep -E '^(FAIL|INCONCLUSIVE)' /tmp/agent-native-google-credentials.log || true)"
@@ -539,7 +539,7 @@ jobs:
             jq -n \
               --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
               --arg dedup_key "agent-native-site-availability" \
-              --arg summary "Agent Native public site availability is failing" \
+              --arg summary "Agent-Native public site availability is failing" \
               --arg source "${{ github.repository }}" \
               --arg run_url "$RUN_URL" \
               --arg failing "$FAILING" \
@@ -578,7 +578,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ISSUE_TITLE="Agent Native site availability failing"
+          ISSUE_TITLE="Agent-Native site availability failing"
           pagerduty_status=0
           if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
             # shellcheck disable=SC2016
@@ -586,7 +586,7 @@ jobs:
               --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
               --arg dedup_key "agent-native-site-availability" \
               --arg source "${{ github.repository }}" \
-              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent Native public site availability recovered", source: $source}}' \
+              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent-Native public site availability recovered", source: $source}}' \
               | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
                   --header 'Content-Type: application/json' \
                   --data-binary @- \

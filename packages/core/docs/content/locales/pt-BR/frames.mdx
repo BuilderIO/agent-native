@@ -93,7 +93,7 @@ O painel é executado em um dos dois modos de ferramenta:
   e acesso ao banco de dados além das ferramentas do aplicativo, para que o agente possa alterar as configurações do aplicativo
   fonte própria. Solicitações de código são bloqueadas: quando uma mensagem requer código
   (`type: "code"`) e nenhum quadro com capacidade de código estiver conectado, o painel mostra um
-  caixa de diálogo explicando que alterações de código precisam de Agent Native Desktop ou Builder;
+  caixa de diálogo explicando que alterações de código precisam de Agent-Native Desktop ou Builder;
   quando um quadro é conectado, a solicitação é roteada para ele e para um agente de código
   indicador mostra enquanto funciona (`useSendToAgentChat`). Para o canônico
   lista de ferramentas de codificação e contratos UI compartilhados, consulte
@@ -219,7 +219,7 @@ cd my-app
 pnpm dev
 ```
 
-O quadro de desenvolvimento local (o pacote `@agent-native/frame` privado no repositório da estrutura) é um pacote de ferramentas interno que não é publicado no npm. Ele carrega o servidor de desenvolvimento do aplicativo ativo em um iframe e monta o painel incorporado ao lado dele, selecionando o aplicativo por meio do parâmetro de consulta `app`. O terminal CLI integrado requer o Agent Native Desktop, que fornece o código local e acesso PTY às necessidades do terminal; sem ele, o painel mostra a superfície de bate-papo e solicita que você abra a área de trabalho para usar o CLI.
+O quadro de desenvolvimento local (o pacote `@agent-native/frame` privado no repositório da estrutura) é um pacote de ferramentas interno que não é publicado no npm. Ele carrega o servidor de desenvolvimento do aplicativo ativo em um iframe e monta o painel incorporado ao lado dele, selecionando o aplicativo por meio do parâmetro de consulta `app`. O terminal CLI integrado requer o Agent-Native Desktop, que fornece o código local e acesso PTY às necessidades do terminal; sem ele, o painel mostra a superfície de bate-papo e solicita que você abra a área de trabalho para usar o CLI.
 
 ## Notas de compatibilidade {#compatibility}
 

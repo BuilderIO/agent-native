@@ -169,12 +169,12 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "dev-fusion-tanstack-compromise",
-    title: "Agent Native TanStack compromise review found no affected packages",
+    title: "Agent-Native TanStack compromise review found no affected packages",
     summary:
-      "Agent Native uses TanStack, but the TanStack compromise review concluded Agent Native did not use the affected packages; PR #673 added minimum package age and CI package pinning hardening.",
-    body: "The #dev-fusion Agent Native TanStack compromise review concluded that Agent Native does use TanStack, but it did not depend on the affected packages from the compromise. Follow-up hardening in PR #673 added minimum package age checks and CI package pinning so future installs are less exposed to dependency compromise windows.",
+      "Agent-Native uses TanStack, but the TanStack compromise review concluded Agent-Native did not use the affected packages; PR #673 added minimum package age and CI package pinning hardening.", // guard:allow-raw-color - #673 is a PR reference, not a color.
+    body: "The #dev-fusion Agent-Native TanStack compromise review concluded that Agent-Native does use TanStack, but it did not depend on the affected packages from the compromise. Follow-up hardening in PR #673 added minimum package age checks and CI package pinning so future installs are less exposed to dependency compromise windows.", // guard:allow-raw-color - #673 is a PR reference, not a color.
     quote:
-      "Agent Native uses TanStack but not the affected packages; PR #673 hardened installs with minimum package age and CI package pinning.",
+      "Agent-Native uses TanStack but not the affected packages; PR #673 hardened installs with minimum package age and CI package pinning.", // guard:allow-raw-color - #673 is a PR reference, not a color.
     captureTitle: "#dev-fusion TanStack compromise review",
     sourceUrl:
       "https://slack.example.com/archives/CDEVFUSION/p1778874000001000",
@@ -360,9 +360,9 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
   {
     id: "dev-fusion-tanstack-compromise",
     kind: "answer",
-    question: "Was Agent Native affected by the TanStack compromise?",
+    question: "Was Agent-Native affected by the TanStack compromise?",
     expectedTitle:
-      "Agent Native TanStack compromise review found no affected packages",
+      "Agent-Native TanStack compromise review found no affected packages",
     requiredTerms: [
       "uses TanStack",
       "not the affected packages",

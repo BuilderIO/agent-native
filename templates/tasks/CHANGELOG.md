@@ -18,7 +18,7 @@ All notable user-facing changes to this app are documented here.
 
 ### Improved
 
-- Clicking the Agent Native logo now toggles the app sidebar.
+- Clicking the Agent-Native logo now toggles the app sidebar.
 
 ## 2026-07-29
 
