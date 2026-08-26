@@ -171,16 +171,18 @@ export const hitTestBridgeScript: string = `"use strict";
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
       if (primitive) {
         if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-      } else if (isAutoLayoutElement(el) || !hasNonOverlayChild(el)) {
+      } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
         return false;
       }
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
-    function hasNonOverlayChild(el) {
+    function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
-        if (!isOverlayElement(kids[i])) return true;
+        if (isOverlayElement(kids[i])) continue;
+        var kidPosition = window.getComputedStyle(kids[i]).position;
+        if (kidPosition === "absolute" || kidPosition === "fixed") return true;
       }
       return false;
     }

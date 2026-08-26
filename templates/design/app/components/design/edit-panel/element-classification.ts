@@ -234,15 +234,16 @@ export function isParentGrid(element: ElementInfo): boolean {
   return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
 }
 
-/** `null` when the payload carries no parent direction: defaulting to
- *  horizontal inverts every main/cross-axis decision for the projection
- *  payloads that omit `parentLayout`. */
+/** What is unknowable is whether there IS a flex parent, not its direction: a
+ *  flex parent with no authored `flex-direction` is a row per CSS, and
+ *  `<div class="flex">` authors exactly that. */
 export function parentFlexDirection(
   element: ElementInfo,
 ): AutoLayoutSizingAxis | null {
   const direction = element.parentLayout?.flexDirection;
-  if (!direction) return null;
-  return direction.includes("column") ? "vertical" : "horizontal";
+  if (direction)
+    return direction.includes("column") ? "vertical" : "horizontal";
+  return isParentFlex(element) ? "horizontal" : null;
 }
 
 export function isTextElement(element: ElementInfo): boolean {

@@ -8214,20 +8214,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // other drawn shapes stay leaves, matching what
       // appendCanvasPrimitiveToHtml enforces on draw.
       if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-    } else if (isAutoLayoutElement(el) || !hasNonOverlayChild(el)) {
-      // Unmarked markup is inferred from layout: flex/grid genuinely has
-      // slots, and an empty container has none to infer from — the flow drop
-      // path owns that one and converts it to auto layout.
+    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
     }
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
-  function hasNonOverlayChild(el: Element): boolean {
+  function hasAbsolutePositionedChild(el: Element): boolean {
     var kids = el.children;
     for (var i = 0; i < kids.length; i += 1) {
-      if (!isOverlayElement(kids[i])) return true;
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
     }
     return false;
   }
@@ -14474,15 +14476,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // re-measures the element it changed. `fit-content` leaves the host holding
     // the keyword plus a pre-commit rect, i.e. no current width at all.
     if (e.data.type === "agent-native:measure-selection") {
+      // The host broadcasts to every frame, so a reply from the wrong screen
+      // or the wrong element is worse than no reply: it lands in the inspector
+      // as a confident number for something else. Stay silent unless this
+      // frame owns both the screen and the element.
+      var measureScreenId: string =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
       var measureSelector: string =
         typeof e.data.selector === "string" ? e.data.selector : "";
-      var measureTarget: Element | null = selectedEl;
+      var measureTarget: Element | null = null;
       if (measureSelector) {
         try {
-          measureTarget = document.querySelector(measureSelector) || selectedEl;
+          measureTarget = document.querySelector(measureSelector);
         } catch (_err) {
-          measureTarget = selectedEl;
+          measureTarget = null;
         }
+      } else {
+        measureTarget = selectedEl;
       }
       (window.parent as Window).postMessage(
         {
@@ -14491,6 +14502,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             typeof e.data.correlationId === "string"
               ? e.data.correlationId
               : "",
+          screenId: designCanvasScreenId,
           payload: measureTarget ? getElementInfo(measureTarget) : null,
         },
         "*",

@@ -11172,3 +11172,56 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
   // list; a key the bridge reports but the host omits reads back stale.
   expect([...AUTHORED_INLINE_STYLE_PROPERTIES]).toEqual(bridgeKeys);
 });
+
+// PR #3585 review: keying free-form on the CONTAINER's own position swept in
+// ordinary absolutely positioned cards and modals, whose children are in
+// normal flow and do have slots. Free-form is about how a container positions
+// its children.
+it(
+  "hit-test bridge keeps an absolute card with in-flow children on the flow path",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="card" data-agent-native-node-id="card" style="position:absolute;left:300px;top:180px;width:260px;background:#fff;padding:16px">
+          <h2 data-agent-native-node-id="t">Title</h2>
+          <p data-agent-native-node-id="p">Body copy</p>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            const rect = document
+              .querySelector("#card p")!
+              .getBoundingClientRect();
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "card-flow",
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { dropMode: string };
+
+      expect(reply.dropMode).toBe("flow-insert");
+    } finally {
+      await browser.close();
+    }
+  },
+);

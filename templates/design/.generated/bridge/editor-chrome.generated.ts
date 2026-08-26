@@ -5943,16 +5943,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
       if (primitive) {
         if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-      } else if (isAutoLayoutElement(el) || !hasNonOverlayChild(el)) {
+      } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
         return false;
       }
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
-    function hasNonOverlayChild(el) {
+    function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
-        if (!isOverlayElement(kids[i])) return true;
+        if (isOverlayElement(kids[i])) continue;
+        var kidPosition = window.getComputedStyle(kids[i]).position;
+        if (kidPosition === "absolute" || kidPosition === "fixed") return true;
       }
       return false;
     }
@@ -10161,19 +10163,24 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "agent-native:measure-selection") {
+        var measureScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
         var measureSelector = typeof e.data.selector === "string" ? e.data.selector : "";
-        var measureTarget = selectedEl;
+        var measureTarget = null;
         if (measureSelector) {
           try {
-            measureTarget = document.querySelector(measureSelector) || selectedEl;
+            measureTarget = document.querySelector(measureSelector);
           } catch (_err) {
-            measureTarget = selectedEl;
+            measureTarget = null;
           }
+        } else {
+          measureTarget = selectedEl;
         }
         window.parent.postMessage(
           {
             type: "agent-native:selection-measured",
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            screenId: designCanvasScreenId,
             payload: measureTarget ? getElementInfo(measureTarget) : null
           },
           "*"

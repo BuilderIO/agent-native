@@ -38,7 +38,7 @@ describe("requestSelectionMeasurement", () => {
   const rect = { x: 0, y: 0, width: 101, height: 20 };
 
   /** A frame that answers the correlated request with `payload`. */
-  function frame(payload: unknown): Window {
+  function frame(payload: unknown, screenId = "screen-1"): Window {
     const target = {
       postMessage: (message: { correlationId: string }) => {
         window.dispatchEvent(
@@ -46,6 +46,7 @@ describe("requestSelectionMeasurement", () => {
             data: {
               type: "agent-native:selection-measured",
               correlationId: message.correlationId,
+              screenId,
               payload,
             },
             source: target,
@@ -62,6 +63,7 @@ describe("requestSelectionMeasurement", () => {
         frame(null),
         frame({ tagName: "div", boundingRect: rect }),
       ],
+      screenId: "screen-1",
       selector: '[data-agent-native-node-id="a"]',
     });
     expect(measured?.boundingRect.width).toBe(101);
@@ -70,6 +72,7 @@ describe("requestSelectionMeasurement", () => {
   it("keeps waiting past a frame that does not have the element", async () => {
     const measured = await requestSelectionMeasurement({
       targetWindows: [frame(null), frame(null)],
+      screenId: "screen-1",
       timeoutMs: 30,
     });
     expect(measured).toBeNull();
@@ -79,6 +82,7 @@ describe("requestSelectionMeasurement", () => {
     const asked = frame(null);
     const promise = requestSelectionMeasurement({
       targetWindows: [asked],
+      screenId: "screen-1",
       timeoutMs: 40,
     });
     window.dispatchEvent(
@@ -86,6 +90,7 @@ describe("requestSelectionMeasurement", () => {
         data: {
           type: "agent-native:selection-measured",
           correlationId: "measure-anything",
+          screenId: "screen-1",
           payload: { tagName: "div", boundingRect: rect },
         },
         source: {} as Window,
@@ -99,8 +104,22 @@ describe("requestSelectionMeasurement", () => {
     expect(
       await requestSelectionMeasurement({
         targetWindows: [null, undefined],
+        screenId: "screen-1",
       }),
     ).toBeNull();
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it("ignores a positive match from a different screen", async () => {
+    // Breakpoint screens share node ids, so the same selector resolves in
+    // more than one frame.
+    const measured = await requestSelectionMeasurement({
+      targetWindows: [
+        frame({ tagName: "div", boundingRect: rect }, "screen-mobile"),
+      ],
+      screenId: "screen-desktop",
+      timeoutMs: 40,
+    });
+    expect(measured).toBeNull();
   });
 });

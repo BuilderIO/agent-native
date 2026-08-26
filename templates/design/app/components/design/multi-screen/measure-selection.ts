@@ -6,6 +6,9 @@ import type { ElementInfo } from "../types";
  */
 export function requestSelectionMeasurement(args: {
   targetWindows: (Window | null | undefined)[];
+  /** The screen that owns the element. Breakpoint screens share node ids, so
+   *  without this a positive match from the wrong screen wins the race. */
+  screenId: string;
   selector?: string;
   timeoutMs?: number;
 }): Promise<ElementInfo | null> {
@@ -24,6 +27,7 @@ export function requestSelectionMeasurement(args: {
         !event.data ||
         event.data.type !== "agent-native:selection-measured" ||
         event.data.correlationId !== correlationId ||
+        event.data.screenId !== args.screenId ||
         // Only a frame that was asked may answer.
         !targets.includes(event.source as Window)
       ) {
@@ -47,6 +51,7 @@ export function requestSelectionMeasurement(args: {
         {
           type: "agent-native:measure-selection",
           correlationId,
+          screenId: args.screenId,
           selector: args.selector,
         },
         "*",

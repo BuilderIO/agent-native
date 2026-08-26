@@ -15,6 +15,7 @@ import type { ClipboardContentMutationPublication } from "@/lib/clipboard-conten
 import {
   elementInfoFromCodeLayerNode,
   findCodeLayerSiblingOrder,
+  preferredCodeLayerSelector,
 } from "@/pages/design-editor/code-layer-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -61,6 +62,23 @@ export interface ChangeSelectedZIndexArgs {
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
 }
 
+/** Selector for the node's parent, so a negative z-index can be bounded to it. */
+function inFlowParentSelector(
+  content: string,
+  targetId: string,
+): string | undefined {
+  const projection = buildCodeLayerProjection(content);
+  const siblingOrder = findCodeLayerSiblingOrder(
+    buildCodeLayerTree(projection),
+    targetId,
+  );
+  if (!siblingOrder?.parentId) return undefined;
+  const parent = projection.nodes.find(
+    (node) => node.id === siblingOrder.parentId,
+  );
+  return parent ? preferredCodeLayerSelector(parent) : undefined;
+}
+
 export function runChangeSelectedZIndex(
   {
     activeFile,
@@ -80,14 +98,14 @@ export function runChangeSelectedZIndex(
   if (!selector) return;
   const currentSelectedElement = selectedElement;
 
-  const zIndexFallback = () => {
+  const zIndexFallback = (parentSelector?: string) => {
     const current = Number.parseInt(
       currentSelectedElement.computedStyles.zIndex || "0",
       10,
     );
     const base = Number.isFinite(current) ? current : 0;
-    // Back must go negative: a positioned element at `z-index: 0` still paints
-    // above its static in-flow siblings, so clamping at 0 sent it to the front.
+    // Back must go below the in-flow siblings, which only a negative index
+    // does — a positioned element at 0 still paints above them.
     const next =
       mode === "front"
         ? 999
@@ -96,12 +114,19 @@ export function runChangeSelectedZIndex(
           : mode === "forward"
             ? base + 1
             : base - 1;
+    // A negative index escapes to the nearest stacking-context ancestor and can
+    // land behind an opaque background, hiding the layer outright. Isolating
+    // the parent bounds it; with no parent, a weaker move is the safer one.
+    if (next < 0 && parentSelector) {
+      commitVisualStyles(parentSelector, { isolation: "isolate" });
+    }
+    const safeNext = next < 0 && !parentSelector ? 0 : next;
     commitVisualStyles(selector, {
       position:
         currentSelectedElement.computedStyles.position === "static"
           ? "relative"
           : currentSelectedElement.computedStyles.position || "relative",
-      zIndex: String(next),
+      zIndex: String(safeNext),
     });
   };
 
@@ -117,8 +142,12 @@ export function runChangeSelectedZIndex(
 
   const targetId =
     selectedLayerIdsState.length === 1 ? selectedLayerIdsState[0] : undefined;
-  if (!targetId || !activeFile || !outOfFlow) {
+  if (!targetId || !activeFile) {
     zIndexFallback();
+    return;
+  }
+  if (!outOfFlow) {
+    zIndexFallback(inFlowParentSelector(getFreshActiveContent(), targetId));
     return;
   }
   const owner = codeLayerOwnerByNodeIdRef.current.get(targetId);

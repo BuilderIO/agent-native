@@ -54,22 +54,25 @@ function harness(element: Partial<ElementInfo>, authoredId = "b") {
     selectedLayerIdsState: [targetId],
     setSelectedElement: vi.fn(),
   } as unknown as Parameters<typeof runChangeSelectedZIndex>[0];
-  return { args, applyLocalContentUpdate, commitVisualStyles };
+  /** The write aimed at the selection, ignoring any parent-scoped write. */
+  const targetStyles = () =>
+    commitVisualStyles.mock.calls.find(
+      ([sel]) => sel === selectedElement.selector,
+    )?.[1] as Record<string, string> | undefined;
+  return { args, applyLocalContentUpdate, commitVisualStyles, targetStyles };
 }
 
 describe("runChangeSelectedZIndex — a paint-order change must not move anything", () => {
   it.each(["forward", "backward", "front", "back"] as const)(
     "writes z-index instead of splicing markup for an in-flow element (%s)",
     (mode) => {
-      const { args, applyLocalContentUpdate, commitVisualStyles } = harness({
+      const { args, applyLocalContentUpdate, targetStyles } = harness({
         computedStyles: { position: "static", zIndex: "auto" },
       });
       runChangeSelectedZIndex(args, mode);
       expect(applyLocalContentUpdate).not.toHaveBeenCalled();
-      expect(commitVisualStyles).toHaveBeenCalledTimes(1);
-      const [, styles] = commitVisualStyles.mock.calls[0]!;
-      expect(styles.zIndex).toBeDefined();
-      expect(styles.position).toBe("relative");
+      expect(targetStyles()?.zIndex).toBeDefined();
+      expect(targetStyles()?.position).toBe("relative");
     },
   );
 
@@ -95,18 +98,52 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
   });
 
   it("sends to back below static siblings, not to z-index 0", () => {
+    const { args, targetStyles } = harness({
+      computedStyles: { position: "static", zIndex: "auto" },
+    });
+    runChangeSelectedZIndex(args, "back");
+    expect(targetStyles()?.zIndex).toBe("-1");
+  });
+
+  it("keeps stepping backward past zero", () => {
+    const { args, targetStyles } = harness({
+      computedStyles: { position: "relative", zIndex: "0" },
+    });
+    runChangeSelectedZIndex(args, "backward");
+    expect(targetStyles()?.zIndex).toBe("-1");
+  });
+});
+
+// PR #3585 review: a negative z-index escapes to the nearest stacking-context
+// ancestor, so an in-flow layer sent to back could vanish behind an opaque
+// parent background instead of moving behind its siblings.
+describe("runChangeSelectedZIndex — send to back must not hide the layer", () => {
+  it("isolates the parent so the negative index cannot escape", () => {
     const { args, commitVisualStyles } = harness({
       computedStyles: { position: "static", zIndex: "auto" },
     });
     runChangeSelectedZIndex(args, "back");
-    expect(commitVisualStyles.mock.calls[0]![1].zIndex).toBe("-1");
+    const written = commitVisualStyles.mock.calls.map(([sel, styles]) => [
+      sel,
+      styles,
+    ]);
+    const isolated = written.find(([, styles]) => styles.isolation);
+    expect(isolated?.[1]).toEqual({ isolation: "isolate" });
+    const target = written.find(([, styles]) => styles.zIndex);
+    expect(target?.[1].zIndex).toBe("-1");
+    // The parent must be isolated before the child goes negative.
+    expect(written.indexOf(isolated!)).toBeLessThan(written.indexOf(target!));
   });
 
-  it("keeps stepping backward past zero", () => {
-    const { args, commitVisualStyles } = harness({
-      computedStyles: { position: "relative", zIndex: "0" },
-    });
-    runChangeSelectedZIndex(args, "backward");
-    expect(commitVisualStyles.mock.calls[0]![1].zIndex).toBe("-1");
+  it("stays at 0 when there is no parent to isolate", () => {
+    const { args, commitVisualStyles, targetStyles } = harness(
+      { computedStyles: { position: "static", zIndex: "auto" } },
+      "wrap",
+    );
+    runChangeSelectedZIndex(args, "back");
+    expect(targetStyles()?.zIndex).toBe("0");
+    expect(commitVisualStyles.mock.calls.some(([, s]) => s.isolation)).toBe(
+      false,
+    );
   });
 });

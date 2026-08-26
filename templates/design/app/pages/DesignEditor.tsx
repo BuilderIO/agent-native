@@ -9404,24 +9404,37 @@ function DesignEditor() {
   // ── Style commit ───────────────────────────────────────────────────────────
   // Hug/Fill resolve to a px width only inside the iframe, so the inspector
   // has no current number until the bridge measures one. Reacting to the
-  // keyword rather than hooking each write path covers inspector commits,
+  // value rather than hooking each write path covers inspector commits,
   // agent edits and undo alike.
-  const selectedKeywordSize =
-    selectedElement &&
-    sizeNeedsMeasurement(selectedElement.computedStyles) &&
-    selectedElement.selector
-      ? selectedElement.selector
+  const measureTargetSelector =
+    selectedElement && sizeNeedsMeasurement(selectedElement.computedStyles)
+      ? // The canonical source selector cannot address a live/localhost
+        // document — that is a different node-id namespace.
+        (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
       : null;
+  const measureTargetScreenId = activeFile?.id ?? "";
+  // Keyed on the sizes themselves: switching an element between two keywords
+  // leaves the selector identical, and a failed measurement must retry.
+  const measureTargetKey = measureTargetSelector
+    ? [
+        measureTargetScreenId,
+        measureTargetSelector,
+        selectedElement?.computedStyles.width ?? "",
+        selectedElement?.computedStyles.height ?? "",
+      ].join("|")
+    : null;
   useEffect(() => {
-    if (!selectedKeywordSize) return;
+    if (!measureTargetSelector || !measureTargetKey) return;
     let cancelled = false;
     void requestSelectionMeasurement({
       targetWindows: designPreviewWindows(),
-      selector: selectedKeywordSize,
+      screenId: measureTargetScreenId,
+      selector: measureTargetSelector,
     }).then((measured) => {
       if (cancelled || !measured) return;
       setSelectedElement((prev) =>
-        prev && prev.selector === selectedKeywordSize
+        prev &&
+        (prev.runtimeSelector ?? prev.selector) === measureTargetSelector
           ? {
               ...prev,
               boundingRect: measured.boundingRect,
@@ -9434,7 +9447,8 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [selectedKeywordSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measureTargetKey]);
 
   const commitVisualStyles = useCallback(
     (

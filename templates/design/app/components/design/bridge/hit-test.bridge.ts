@@ -281,20 +281,22 @@
       // other drawn shapes stay leaves, matching what
       // appendCanvasPrimitiveToHtml enforces on draw.
       if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-    } else if (isAutoLayoutElement(el) || !hasNonOverlayChild(el)) {
-      // Unmarked markup is inferred from layout: flex/grid genuinely has
-      // slots, and an empty container has none to infer from — the flow drop
-      // path owns that one and converts it to auto layout.
+    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
     }
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
-  function hasNonOverlayChild(el: Element): boolean {
+  function hasAbsolutePositionedChild(el: Element): boolean {
     var kids = el.children;
     for (var i = 0; i < kids.length; i += 1) {
-      if (!isOverlayElement(kids[i])) return true;
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
     }
     return false;
   }

@@ -23,6 +23,7 @@ import {
   inferElementSizing,
   isContainerElement,
   measuredElementSize,
+  parentFlexDirection,
   isTextElement,
 } from "./element-classification";
 
@@ -366,13 +367,18 @@ describe("inferElementSizing — authored vs resolved size", () => {
     expect(inferElementSizing(element, "horizontal")).toBe("fixed");
   });
 
-  it("does not call an unknown parent direction the cross axis", () => {
-    // Projection payloads omit parentLayout. Defaulting the direction to
-    // horizontal made every vertical axis look like the cross axis, so an
-    // align-self:stretch child read as "fill" on height.
+  it("reads a stretch child of a row parent as filling the cross axis", () => {
+    // An undeclared flex direction is a row, so height IS the cross axis here.
     const element = makeElement({
       isFlexChild: true,
       parentDisplay: "flex",
+      computedStyles: { height: "120px", alignSelf: "stretch" },
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("fill");
+  });
+
+  it("does not invent a cross axis when no parent is flex at all", () => {
+    const element = makeElement({
       computedStyles: { height: "120px", alignSelf: "stretch" },
     });
     expect(inferElementSizing(element, "vertical")).toBe("fixed");
@@ -468,5 +474,52 @@ describe("measuredElementSize", () => {
       boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     });
     expect(measuredElementSize(element, "horizontal")).toBeNull();
+  });
+});
+
+// PR #3585 review: `<div class="flex">` is the most common row container there
+// is, and the projection reports no direction for it because CSS already
+// defaults to row. Treating that as unknown sent horizontal Fill down the
+// cross-axis path and wrote align-self:stretch instead of flex: 1 0 0.
+describe("parentFlexDirection — unknown parent vs unknown direction", () => {
+  it("defaults a flex parent with no authored direction to row", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { display: "flex" },
+    });
+    expect(parentFlexDirection(element)).toBe("horizontal");
+  });
+
+  it("still reports null when nothing says the parent is flex", () => {
+    expect(parentFlexDirection(makeElement({}))).toBeNull();
+  });
+
+  it("honours an authored column direction", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentLayout: { display: "flex", flexDirection: "column" },
+    });
+    expect(parentFlexDirection(element)).toBe("vertical");
+  });
+
+  it("fills the main axis of an undeclared row parent", () => {
+    const onStylesChange = vi.fn();
+    commitElementSizing(
+      makeElement({
+        isFlexChild: true,
+        parentDisplay: "flex",
+        parentLayout: { display: "flex" },
+        computedStyles: { width: "120px" },
+      }),
+      "horizontal",
+      "fill",
+      vi.fn(),
+      onStylesChange,
+    );
+    const patch = onStylesChange.mock.calls[0]?.[0] as Record<string, string>;
+    expect(patch.flexGrow).toBe("1");
+    expect(patch.flexBasis).toBe("0");
+    expect(patch.alignSelf).toBeUndefined();
   });
 });
