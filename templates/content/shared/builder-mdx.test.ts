@@ -2243,6 +2243,98 @@ describe("Builder MDX conversion", () => {
     expect(result.warnings[0]).toContain("moved existing semantic blocks");
   });
 
+  it("rejects ambiguous movement when same-kind editable nodes are also edited", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-same-kind-move-and-edit",
+      model: "blog-article",
+      data: {
+        title: "Article Same-kind Move and Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: { text: "<p>First unique paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-2",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second unique paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(
+        "First unique paragraph.\n\nSecond unique paragraph.",
+        "Second revised paragraph.\n\nFirst revised paragraph.",
+      ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved existing semantic blocks");
+  });
+
+  it("returns a validation warning for MDX-sensitive readable prose", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-mdx-sensitive-prose",
+      model: "blog-article",
+      data: {
+        title: "Article MDX-sensitive Prose",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: {
+                text: "<p>Values like &lt;5 and {draft} remain prose.</p>",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("cannot be parsed safely as MDX");
+  });
+
   it("blocks readable merge when a source component marker is moved", async () => {
     const article: BuilderContentEntry = {
       id: "article-marker-move",

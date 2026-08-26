@@ -150,30 +150,51 @@ export function stableJson(value: unknown): string {
   return `${JSON.stringify(sortJson(value), null, 2)}\n`;
 }
 
-function hasMovedUniqueSemanticUnit(
-  baselineUnits: string[],
-  currentUnits: string[],
+function hasAmbiguousSemanticUnitIdentity(
+  baselineUnits: Array<{ kind: string; markdown: string }>,
+  currentNodes: Array<{ kind: string; markdown: string }>,
 ): boolean {
-  const baselineIndexes = new Map<string, number>();
-  const baselineCounts = new Map<string, number>();
-  const currentCounts = new Map<string, number>();
+  const currentUnits = currentNodes.filter(
+    (unit) => !isReadableUnsupportedBuilderPlaceholder(unit.markdown),
+  );
+  const baselineIndexes = new Map<string, number[]>();
+  const currentIndexes = new Map<string, number[]>();
   for (const [index, unit] of baselineUnits.entries()) {
-    baselineIndexes.set(unit, index);
-    baselineCounts.set(unit, (baselineCounts.get(unit) ?? 0) + 1);
+    const key = `${unit.kind}\n${unit.markdown}`;
+    baselineIndexes.set(key, [...(baselineIndexes.get(key) ?? []), index]);
   }
-  for (const unit of currentUnits) {
-    currentCounts.set(unit, (currentCounts.get(unit) ?? 0) + 1);
+  for (const [index, unit] of currentUnits.entries()) {
+    const key = `${unit.kind}\n${unit.markdown}`;
+    currentIndexes.set(key, [...(currentIndexes.get(key) ?? []), index]);
   }
 
-  let previousBaselineIndex = -1;
-  for (const unit of currentUnits) {
-    if (baselineCounts.get(unit) !== 1 || currentCounts.get(unit) !== 1) {
+  for (const [key, indexes] of baselineIndexes) {
+    const nextIndexes = currentIndexes.get(key);
+    if (
+      indexes.length === 1 &&
+      nextIndexes?.length === 1 &&
+      indexes[0] !== nextIndexes[0]
+    ) {
+      return true;
+    }
+  }
+
+  let editableIndex = 0;
+  let previousKind: string | undefined;
+  let changedInRun = 0;
+  for (const current of currentNodes) {
+    if (isReadableUnsupportedBuilderPlaceholder(current.markdown)) {
+      previousKind = undefined;
+      changedInRun = 0;
       continue;
     }
-    const baselineIndex = baselineIndexes.get(unit);
-    if (baselineIndex === undefined) continue;
-    if (baselineIndex < previousBaselineIndex) return true;
-    previousBaselineIndex = baselineIndex;
+    const baseline = baselineUnits[editableIndex];
+    editableIndex += 1;
+    if (!baseline || baseline.kind !== current.kind) return true;
+    if (previousKind !== current.kind) changedInRun = 0;
+    if (baseline.markdown !== current.markdown) changedInRun += 1;
+    if (changedInRun > 1) return true;
+    previousKind = current.kind;
   }
   return false;
 }
@@ -1370,11 +1391,24 @@ async function readableSemanticUnits(markdown: string) {
   return (await readableSemanticNodes(markdown)).map((unit) => unit.markdown);
 }
 
+class ReadableSemanticParseError extends Error {}
+
 async function readableSemanticNodes(markdown: string) {
   const normalized = markdown.replace(/\r\n?/g, "\n");
-  const root = await parseMdxRoot(normalized);
+  let root: MdxNode;
+  try {
+    root = await parseMdxRoot(normalized);
+  } catch (error) {
+    throw new ReadableSemanticParseError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   return (root.children ?? [])
-    .map((node) => ({ node, markdown: nodeSlice(normalized, node) }))
+    .map((node) => ({
+      node,
+      kind: readableSemanticNodeKind(node),
+      markdown: nodeSlice(normalized, node),
+    }))
     .filter((unit) => unit.markdown);
 }
 
@@ -1540,7 +1574,7 @@ function countExpectedReadableSourceComponentMarkers(
   return count;
 }
 
-export async function builderReadableBodyToBuilderBlocks(args: {
+async function mergeReadableBodyToBuilderBlocks(args: {
   localContent: string;
   losslessContent: string;
   sidecars: Record<string, string>;
@@ -1590,14 +1624,15 @@ export async function builderReadableBodyToBuilderBlocks(args: {
   }
 
   const baselineUnitsBySegment = await Promise.all(
-    segments.map(async (segment) => readableSemanticUnits(segment.baseline)),
+    segments.map(async (segment) => readableSemanticNodes(segment.baseline)),
   );
   const baselineUnitCounts = baselineUnitsBySegment.map(
     (units) => units.length,
   );
   const baselineUnits = baselineUnitsBySegment.flat();
-  const currentUnits = (await readableSemanticUnits(args.localContent)).filter(
-    (unit) => !isReadableUnsupportedBuilderPlaceholder(unit),
+  const currentNodes = await readableSemanticNodes(args.localContent);
+  const currentUnits = currentNodes.filter(
+    (unit) => !isReadableUnsupportedBuilderPlaceholder(unit.markdown),
   );
   const expectedUnitCount = baselineUnitCounts.reduce(
     (sum, count) => sum + count,
@@ -1611,7 +1646,7 @@ export async function builderReadableBodyToBuilderBlocks(args: {
       ],
     };
   }
-  if (hasMovedUniqueSemanticUnit(baselineUnits, currentUnits)) {
+  if (hasAmbiguousSemanticUnitIdentity(baselineUnits, currentNodes)) {
     return {
       blocks: null,
       warnings: [
@@ -1626,6 +1661,7 @@ export async function builderReadableBodyToBuilderBlocks(args: {
     const count = baselineUnitCounts[index];
     const nextMarkdown = currentUnits
       .slice(offset, offset + count)
+      .map((unit) => unit.markdown)
       .join("\n\n");
     offset += count;
     if (segment.kind === "tab-label") {
@@ -1693,6 +1729,24 @@ export async function builderReadableBodyToBuilderBlocks(args: {
   }
 
   return { blocks: baselineBlocks, warnings: [] };
+}
+
+export async function builderReadableBodyToBuilderBlocks(args: {
+  localContent: string;
+  losslessContent: string;
+  sidecars: Record<string, string>;
+}): Promise<BuilderReadableBodyMergeResult> {
+  try {
+    return await mergeReadableBodyToBuilderBlocks(args);
+  } catch (error) {
+    if (!(error instanceof ReadableSemanticParseError)) throw error;
+    return {
+      blocks: null,
+      warnings: [
+        "Readable Builder body contains text that cannot be parsed safely as MDX; review in Builder before pushing.",
+      ],
+    };
+  }
 }
 
 export async function builderEntryToMdxBundle(
