@@ -27,7 +27,7 @@ const PILLAR_ROWS: Pillar[][] = [
       darkImage:
         "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3f97027653004b2da9ac0a7ddbe2e01b",
       lightImage:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc0482ad0057b455c8af11529a5a6941a",
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78ea47b65fa840b4b40a65c9ccc443f6",
     },
     {
       title: "Shared application state",
