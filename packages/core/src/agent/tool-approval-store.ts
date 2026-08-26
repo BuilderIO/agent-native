@@ -444,6 +444,20 @@ interface AgentToolApprovalThreadScope {
   threadId: string;
 }
 
+function agentToolApprovalThreadScopeWhere(
+  input: AgentToolApprovalThreadScope,
+): { sql: string; args: unknown[] } {
+  return input.orgId == null
+    ? {
+        sql: "owner_email = ? AND org_id IS NULL AND thread_id = ?",
+        args: [input.ownerEmail, input.threadId],
+      }
+    : {
+        sql: "owner_email = ? AND org_id = ? AND thread_id = ?",
+        args: [input.ownerEmail, input.orgId, input.threadId],
+      };
+}
+
 type StoredAgentToolApproval = {
   turn_id: string | null;
   tool_name: string;
@@ -672,18 +686,12 @@ export async function listAgentToolApprovalResolutions(
   input: AgentToolApprovalThreadScope,
 ): Promise<Record<string, AgentToolApprovalResolution>> {
   await ensureAgentToolApprovalTable();
+  const scope = agentToolApprovalThreadScopeWhere(input);
   const result = await getDbExec().execute({
     sql: `SELECT id, status, expires_at FROM agent_tool_approvals
-      WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-        AND thread_id = ?
+      WHERE ${scope.sql}
         AND status IN ('pending', 'approved', 'always_allowed', 'consumed', 'denied')`,
-    args: [
-      input.ownerEmail,
-      input.orgId ?? null,
-      input.orgId ?? null,
-      input.threadId,
-    ],
+    args: scope.args,
   });
   const resolutions: Record<string, AgentToolApprovalResolution> = {};
   const now = Date.now();
@@ -705,4 +713,16 @@ export async function listAgentToolApprovalResolutions(
     }
   }
   return resolutions;
+}
+
+export async function deleteAgentToolApprovalsForThread(
+  input: AgentToolApprovalThreadScope,
+): Promise<number> {
+  await ensureAgentToolApprovalTable();
+  const scope = agentToolApprovalThreadScopeWhere(input);
+  const result = await getDbExec().execute({
+    sql: `DELETE FROM agent_tool_approvals WHERE ${scope.sql}`,
+    args: scope.args,
+  });
+  return result.rowsAffected;
 }

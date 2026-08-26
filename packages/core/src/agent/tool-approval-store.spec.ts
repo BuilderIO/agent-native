@@ -473,6 +473,41 @@ describe("agent tool approval store", () => {
     });
   });
 
+  it.each([
+    {
+      orgId: "org-1",
+      orgPredicate: "org_id = ?",
+      expectedArgs: ["owner@example.com", "org-1", "thread-1"],
+    },
+    {
+      orgId: null,
+      orgPredicate: "org_id IS NULL",
+      expectedArgs: ["owner@example.com", "thread-1"],
+    },
+  ])(
+    "uses the full owner/org/thread index prefix when orgId is $orgId",
+    async ({ orgId, orgPredicate, expectedArgs }) => {
+      queueApprovalTableReady();
+      const { listAgentToolApprovalResolutions } =
+        await import("./tool-approval-store.js");
+
+      await listAgentToolApprovalResolutions({
+        ownerEmail: binding.ownerEmail,
+        orgId,
+        threadId: binding.threadId,
+      });
+
+      const query = dbMocks.execute.mock.calls[4]?.[0] as {
+        sql: string;
+        args: unknown[];
+      };
+      expect(query.sql).toContain(orgPredicate);
+      expect(query.sql).not.toContain("CAST(");
+      expect(query.sql).not.toContain(" OR org_id");
+      expect(query.args).toEqual(expectedArgs);
+    },
+  );
+
   it("propagates database failures instead of authorizing", async () => {
     dbMocks.execute
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })

@@ -5,6 +5,7 @@ import {
   normalizeThreadRepository,
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
+import { deleteAgentToolApprovalsForThread } from "../agent/tool-approval-store.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
@@ -1564,7 +1565,7 @@ export async function deleteThread(id: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `DELETE FROM chat_threads WHERE id = ?`,
+    sql: `DELETE FROM chat_threads WHERE id = ? RETURNING owner_email, org_id`,
     args: [id],
   });
   if (result.rowsAffected > 0) {
@@ -1574,6 +1575,21 @@ export async function deleteThread(id: string): Promise<boolean> {
         args: [id],
       })
       .catch(() => {});
+    const deleted = result.rows[0] as
+      | { owner_email?: unknown; org_id?: unknown }
+      | undefined;
+    if (typeof deleted?.owner_email === "string") {
+      await deleteAgentToolApprovalsForThread({
+        ownerEmail: deleted.owner_email,
+        orgId: typeof deleted.org_id === "string" ? deleted.org_id : null,
+        threadId: id,
+      }).catch((error) => {
+        console.warn(
+          `[chat-threads] Could not clean tool approvals for deleted thread ${id}`,
+          error,
+        );
+      });
+    }
     emitChatThreadChange(id);
     return true;
   }

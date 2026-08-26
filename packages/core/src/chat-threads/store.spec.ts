@@ -8,6 +8,7 @@ vi.mock("../db/client.js", () => ({
   getDialect: () => "sqlite",
   intType: () => "INTEGER",
   isPostgres: () => false,
+  retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
 }));
 
 vi.mock("./emitter.js", () => ({
@@ -17,6 +18,7 @@ vi.mock("./emitter.js", () => ({
 import {
   adoptThreadScopeIfUnscoped,
   createThreadShareLink,
+  deleteThread,
   forkThread,
   getThreadByShareToken,
   grantThreadUserShare,
@@ -80,6 +82,12 @@ describe("chat thread store", () => {
     role: string;
     created_by: string;
   }>;
+  let approvalRows: Array<{
+    id: string;
+    owner_email: string;
+    org_id: string | null;
+    thread_id: string;
+  }>;
 
   beforeEach(() => {
     row = {
@@ -91,11 +99,26 @@ describe("chat thread store", () => {
       message_count: 1,
       created_at: 1,
       updated_at: 1,
+      org_id: "org-1",
     };
     conflictOnce = null;
     conflictEveryThreadDataUpdate = false;
     transientThreadDataUpdateFailures = 0;
     shareRows = [];
+    approvalRows = [
+      {
+        id: "approval-thread-1",
+        owner_email: "user@example.com",
+        org_id: "org-1",
+        thread_id: "thread-1",
+      },
+      {
+        id: "approval-thread-2",
+        owner_email: "user@example.com",
+        org_id: "org-1",
+        thread_id: "thread-2",
+      },
+    ];
     executeMock.mockReset();
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
@@ -182,6 +205,34 @@ describe("chat thread store", () => {
         row = { ...row, archived_at: args[0] };
         return { rows: [], rowsAffected: 1 };
       }
+      if (/DELETE FROM chat_threads/i.test(sql)) {
+        if (!row || row.id !== args[0]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        const deleted = row;
+        row = null;
+        return { rows: [deleted], rowsAffected: 1 };
+      }
+      if (/DELETE FROM chat_thread_shares/i.test(sql)) {
+        shareRows = shareRows.filter((share) => share.resource_id !== args[0]);
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/DELETE FROM agent_tool_approvals/i.test(sql)) {
+        approvalRows = approvalRows.filter((approval) =>
+          /org_id IS NULL/i.test(sql)
+            ? !(
+                approval.owner_email === args[0] &&
+                approval.org_id === null &&
+                approval.thread_id === args[1]
+              )
+            : !(
+                approval.owner_email === args[0] &&
+                approval.org_id === args[1] &&
+                approval.thread_id === args[2]
+              ),
+        );
+        return { rows: [], rowsAffected: 1 };
+      }
       if (/SELECT id, role FROM chat_thread_shares/i.test(sql)) {
         return {
           rows: shareRows.filter(
@@ -229,6 +280,29 @@ describe("chat thread store", () => {
       }),
     ]);
   });
+
+  it.each(["org-1", null])(
+    "removes approval rows only after their owning thread is deleted (orgId: %s)",
+    async (orgId) => {
+      row!.org_id = orgId;
+      approvalRows[0]!.org_id = orgId;
+      shareRows.push({
+        id: "share-1",
+        resource_id: "thread-1",
+        principal_id: "editor@example.com",
+        role: "editor",
+        created_by: "user@example.com",
+      });
+
+      await expect(deleteThread("thread-1")).resolves.toBe(true);
+
+      expect(row).toBeNull();
+      expect(shareRows).toEqual([]);
+      expect(approvalRows.map((approval) => approval.id)).toEqual([
+        "approval-thread-2",
+      ]);
+    },
+  );
 
   it("is idempotent and never downgrades an existing stronger role", async () => {
     await grantThreadUserShare(
