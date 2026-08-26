@@ -17,7 +17,12 @@ import { resolveOrgIdForEmail } from "../org/context.js";
 export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
-export const BUILDER_OAUTH_SCOPES = [BUILDER_OAUTH_SCOPE] as const;
+/** Enforced by Builder's `/api/v1/upload/*` endpoints; without it, no uploads. */
+export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
+export const BUILDER_OAUTH_SCOPES = [
+  BUILDER_OAUTH_SCOPE,
+  BUILDER_ASSETS_WRITE_SCOPE,
+] as const;
 
 // Folded with the owner so each owner gets their own (provider, account_id)
 // row; a bare shared key would let only the first connector hold a grant.
@@ -94,7 +99,7 @@ function builderOAuthKey(orgId: string): string {
 
 function scopesFrom(credentials: McpOAuthCredentialBundle): string[] {
   const declared = credentials.tokens.scope;
-  if (typeof declared !== "string") return [...BUILDER_OAUTH_SCOPES];
+  if (typeof declared !== "string") return [BUILDER_OAUTH_SCOPE];
   return declared.split(/\s+/).filter(Boolean);
 }
 
@@ -143,7 +148,7 @@ export async function startBuilderOAuthAuthorization(input: {
     serverUrl: BUILDER_OAUTH_RESOURCE,
     redirectUrl: input.redirectUri,
     state: input.state,
-    scope: BUILDER_OAUTH_SCOPE,
+    scope: BUILDER_OAUTH_SCOPES.join(" "),
     resourceMetadataUrl: BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA,
   });
   return {
