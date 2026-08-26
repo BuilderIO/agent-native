@@ -146,9 +146,12 @@ export default function Root() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders
+        queryClient={queryClient}
+        toaster={<Toaster richColors position="bottom-left" />}
+        i18n={{ catalog: i18nCatalog }}
+      >
         <DbSyncSetup />
-        <Toaster richColors position="bottom-left" />
         <AssetsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
         <AppLayout>
           <Outlet />
