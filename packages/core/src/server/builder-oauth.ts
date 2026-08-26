@@ -187,13 +187,12 @@ export async function startBuilderOAuthAuthorization(input: {
   };
 }
 
-export async function finishBuilderOAuthAuthorization(input: {
+export async function exchangeBuilderOAuthAuthorization(input: {
   ownerEmail: string;
-  orgId?: string;
   code: string;
   iss?: string;
   pending: BuilderOAuthPendingFlow;
-}): Promise<void> {
+}): Promise<McpOAuthCredentialBundle> {
   validateMcpOAuthCallbackIssuer(
     input.pending.discoveryState as never,
     input.iss,
@@ -213,11 +212,34 @@ export async function finishBuilderOAuthAuthorization(input: {
       "Builder OAuth exchange returned credentials for another resource",
     );
   }
+  return withRecordedScopes(result.credentials);
+}
+
+export async function saveBuilderOAuthCredentials(input: {
+  ownerEmail: string;
+  orgId?: string;
+  credentials: McpOAuthCredentialBundle;
+}): Promise<void> {
   await saveMcpOAuthCredentials({
     ...(input.orgId
       ? orgOwnerOptions(input.orgId)
       : await ownerOptions(input.ownerEmail)),
-    credentials: withRecordedScopes(result.credentials),
+    credentials: input.credentials,
+  });
+}
+
+export async function finishBuilderOAuthAuthorization(input: {
+  ownerEmail: string;
+  orgId?: string;
+  code: string;
+  iss?: string;
+  pending: BuilderOAuthPendingFlow;
+}): Promise<void> {
+  const credentials = await exchangeBuilderOAuthAuthorization(input);
+  await saveBuilderOAuthCredentials({
+    ownerEmail: input.ownerEmail,
+    orgId: input.orgId,
+    credentials,
   });
 }
 

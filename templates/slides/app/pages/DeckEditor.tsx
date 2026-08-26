@@ -182,7 +182,9 @@ export default function DeckEditor() {
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
   const hasPendingDeckEdits =
     inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
-  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  // Inline drafts flush through SlideEditor keepalive handlers. The native
+  // prompt only needs to cover queued or in-flight writes now.
+  usePendingDeckUnloadGuard(id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>

@@ -382,7 +382,7 @@ const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
 const inFlightSaveControllers = new Map<string, AbortController>();
 const deckSaveGenerations = new Map<string, number>();
-const immediateFlushRequests = new Set<string>();
+const immediateFlushRequests = new Map<string, boolean>();
 const deckSaveRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
 const saveStateListeners = new Set<() => void>();
@@ -502,11 +502,64 @@ function deckPayload(deck: Deck): Record<string, unknown> {
  * the `save-deck` action is called first, then any trailing granular ops are
  * sent through `patch-deck`.
  */
+async function sendKeepaliveAction(
+  url: string,
+  method: "POST" | "PUT",
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Agent-Native-Frontend": "1",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+    keepalive: true,
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Action request failed with status ${response.status}`);
+  }
+}
+
 async function persistDeckOps(
   deckId: string,
   ops: GranularOp[],
   signal?: AbortSignal,
+  options?: { keepalive?: boolean },
 ) {
+  if (options?.keepalive) {
+    const actionsBase = agentNativePath("/_agent-native/actions");
+    if (ops[0].op === "full-replace") {
+      const deck = ops[0].deck;
+      await sendKeepaliveAction(
+        `${actionsBase}/save-deck`,
+        "PUT",
+        { deckId, deck: deckPayload(deck) },
+        signal,
+      );
+      const trailingOps = ops.slice(1) as PatchDeckOp[];
+      if (trailingOps.length > 0) {
+        await sendKeepaliveAction(
+          `${actionsBase}/patch-deck`,
+          "POST",
+          { deckId, operations: trailingOps },
+          signal,
+        );
+      }
+    } else {
+      await sendKeepaliveAction(
+        `${actionsBase}/patch-deck`,
+        "POST",
+        { deckId, operations: ops as PatchDeckOp[] },
+        signal,
+      );
+    }
+    return;
+  }
+
   if (ops[0].op === "full-replace") {
     // Legacy full-deck write — used by undo/redo and setDeckSlides.
     // `callAction` bounds it so a stalled save can't wedge `inFlightSaves`
@@ -547,14 +600,21 @@ async function persistDeckOps(
  * could otherwise complete out of order and let a stale drag overwrite a
  * newer resize.
  */
-function drainPendingDeckOps(deckId: string): Promise<void> {
+function drainPendingDeckOps(
+  deckId: string,
+  options?: { keepalive?: boolean },
+): Promise<void> {
   const timer = pendingSaves.get(deckId);
   if (timer) clearTimeout(timer);
   pendingSaves.delete(deckId);
 
   const active = inFlightSaveChains.get(deckId);
   if (active) {
-    immediateFlushRequests.add(deckId);
+    immediateFlushRequests.set(
+      deckId,
+      (immediateFlushRequests.get(deckId) ?? false) ||
+        options?.keepalive === true,
+    );
     notifySaveListeners();
     return active;
   }
@@ -574,7 +634,7 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
   inFlightOpSlides.set(deckId, ops);
   const isCurrentGeneration = () =>
     (deckSaveGenerations.get(deckId) ?? 0) === generation;
-  const next = persistDeckOps(deckId, ops, controller?.signal)
+  const next = persistDeckOps(deckId, ops, controller?.signal, options)
     .then(() => {
       if (!isCurrentGeneration()) return;
       deckSaveRetryAttempts.delete(deckId);
@@ -613,10 +673,15 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
         }
         inFlightSaves.delete(deckId);
         inFlightOpSlides.delete(deckId);
-        const flushImmediately = immediateFlushRequests.delete(deckId);
+        const requestedFlush = immediateFlushRequests.get(deckId);
+        const flushImmediately = requestedFlush !== undefined;
+        immediateFlushRequests.delete(deckId);
         notifySaveListeners();
         if (flushImmediately) {
-          void drainPendingDeckOps(deckId);
+          void drainPendingDeckOps(
+            deckId,
+            requestedFlush ? { keepalive: true } : undefined,
+          );
         }
       }
     });
@@ -704,71 +769,20 @@ function saveDeckToAPI(deck: Deck) {
 }
 
 /**
- * Synchronously flush every pending (debounced) deck op queue using
- * `fetch(..., { keepalive: true })` so in-flight edits survive a tab
+ * Flush every pending (debounced) deck op through the same per-deck queue used
+ * by normal saves, using keepalive transport so in-flight edits survive a tab
  * close / navigation. Called from a `pagehide` / `visibilitychange(hidden)`
- * handler — without it there is a ~500ms window (the debounce) where the
+ * handler - without it there is a ~500ms window (the debounce) where the
  * user's most recent edits are only in memory and are lost on tab close.
  *
  * keepalive requests are best-effort and capped (~64KB by the browser), which
  * is fine: granular ops are small, and if a full-replace payload is too large
  * to send keepalive the normal debounce/poll path still catches up on reopen.
  */
-function flushPendingSaves() {
-  const actionsBase = agentNativePath("/_agent-native/actions");
-  const actionUrl = `${actionsBase}/patch-deck`;
-  const saveDeckUrl = `${actionsBase}/save-deck`;
-  for (const [deckId, timer] of pendingSaves) {
-    clearTimeout(timer);
-    const ops = pendingOpsQueue.get(deckId);
-    pendingOpsQueue.delete(deckId);
-    if (!ops || ops.length === 0) continue;
-    try {
-      if (ops[0].op === "full-replace") {
-        const deck = ops[0].deck;
-        void fetch(saveDeckUrl, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Agent-Native-Frontend": "1",
-          },
-          body: JSON.stringify({ deckId, deck }),
-          keepalive: true,
-        });
-        const trailingOps = ops.slice(1) as PatchDeckOp[];
-        if (trailingOps.length === 0) continue;
-        void fetch(actionUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Agent-Native-Frontend": "1",
-          },
-          body: JSON.stringify({
-            deckId,
-            operations: trailingOps,
-          }),
-          keepalive: true,
-        });
-      } else {
-        void fetch(actionUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Agent-Native-Frontend": "1",
-          },
-          body: JSON.stringify({
-            deckId,
-            operations: ops as PatchDeckOp[],
-          }),
-          keepalive: true,
-        });
-      }
-    } catch {
-      // Best-effort — nothing more we can do as the page is unloading.
-    }
+export function flushPendingSaves() {
+  for (const deckId of [...pendingSaves.keys()]) {
+    void drainPendingDeckOps(deckId, { keepalive: true });
   }
-  pendingSaves.clear();
-  notifySaveListeners();
 }
 
 function discardPendingDeckOps(deckId: string) {
