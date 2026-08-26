@@ -167,6 +167,7 @@ export default function DeckEditor() {
   const deckAccessStatusQuery = useDeckAccessStatus(id);
   const requestDeckAccessMutation = useRequestDeckAccess();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   // The blank placeholder the agent was asked to fill in place. The rail must
   // light THAT row up as AI-active instead of appending a synthetic generating
@@ -178,8 +179,11 @@ export default function DeckEditor() {
   }, []);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
-  const hasPendingDeckEdits = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
-  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  const hasPendingDeckEdits =
+    inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
+  // Inline drafts flush through SlideEditor keepalive handlers. The native
+  // prompt only needs to cover queued or in-flight writes now.
+  usePendingDeckUnloadGuard(id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -1769,9 +1773,11 @@ export default function DeckEditor() {
               )
             }
             onInlineEditStart={(slideId) => {
+              setInlineEditActive(true);
               if (id) markSlideEditingActive(id, slideId);
             }}
             onInlineEditEnd={(slideId) => {
+              setInlineEditActive(false);
               if (id) clearSlideEditingActive(id, slideId);
             }}
             onGenerateImage={() => setImageGenOpen(true)}

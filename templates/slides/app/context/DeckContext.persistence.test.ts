@@ -18,6 +18,8 @@ vi.mock("@agent-native/core/client/org", () => ({
 import {
   DeckProvider,
   clearSlideEditingActive,
+  flushPendingSaves,
+  hasUnsavedDeckChanges,
   hasUncommittedDeckChanges,
   markSlideEditingActive,
   mergeServerAddedSlides,
@@ -270,6 +272,7 @@ describe("DeckContext deck creation persistence", () => {
 
   afterEach(() => {
     cleanup();
+    window.history.pushState({}, "", "/");
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -319,6 +322,143 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.decks).toEqual([accessible]);
+  });
+
+  it("keeps an unload flush behind the active save chain", async () => {
+    window.history.pushState({}, "", "/deck/flush-order-deck");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-order-deck",
+      title: "Flush order deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "flush-order-deck",
+        "slide-1",
+        { content: "<h1>First</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.updateSlide("flush-order-deck", "slide-1", {
+        content: "<h1>Latest</h1>",
+      });
+      flushPendingSaves();
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(1);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls[1]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls[1]?.[1])).toMatchObject({
+      deckId: "flush-order-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<h1>Latest</h1>" },
+        },
+      ],
+    });
+
+    await result.current.flushDeckSave("flush-order-deck");
+  });
+
+  it("requeues a failed keepalive flush for a normal retry", async () => {
+    window.history.pushState({}, "", "/deck/flush-retry-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchFailures: { deckId: "flush-retry-deck", count: 1 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-retry-deck",
+      title: "Flush retry deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide("flush-retry-deck", "slide-1", {
+        content: "<h1>Latest</h1>",
+      });
+      flushPendingSaves();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPatchAttempts("flush-retry-deck")).toBe(1);
+    expect(hasUnsavedDeckChanges("flush-retry-deck")).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPatchAttempts("flush-retry-deck")).toBe(2);
+    expect(hasUnsavedDeckChanges("flush-retry-deck")).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/_agent-native/actions/patch-deck") &&
+          init?.keepalive === true,
+      ),
+    ).toBe(true);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
