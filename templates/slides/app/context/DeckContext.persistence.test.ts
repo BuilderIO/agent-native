@@ -1777,7 +1777,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(deck.slides[1]?.content).toBe("<h1>Agent added slide</h1>");
   });
 
-  it("adopts a targeted agent edit while the deck is dirty without a pending write on that slide", async () => {
+  it("adopts a targeted agent edit while an unrelated local write is in flight", async () => {
     window.history.pushState({}, "", "/deck/targeted-dirty-deck");
     const initial: Deck = {
       id: "targeted-dirty-deck",
@@ -1791,9 +1791,16 @@ describe("DeckContext deck creation persistence", () => {
           notes: "",
           layout: "title",
         },
+        {
+          id: "slide-2",
+          content: "<h1>Second</h1>",
+          notes: "",
+          layout: "content",
+        },
       ],
     };
-    const { setAccessibleDeck } = setupFetch();
+    const { setAccessibleDeck, getFirstPatchSignal, resolveDeferredPatch } =
+      setupFetch({ deferredPatch: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -1802,8 +1809,18 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
     act(() => {
-      result.current.markDeckDirty(initial.id);
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { content: "<h1>Local pending</h1>" },
+        { persistence: "immediate" },
+      );
     });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
 
     setAccessibleDeck({
       ...initial,
@@ -1833,6 +1850,10 @@ describe("DeckContext deck creation persistence", () => {
         "<h1>After agent edit</h1>",
       ),
     );
+    expect(result.current.getDeck(initial.id)?.slides[1]?.content).toBe(
+      "<h1>Local pending</h1>",
+    );
+    resolveDeferredPatch();
   });
 
   describe("SSE reconnect and resync", () => {

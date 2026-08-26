@@ -870,8 +870,15 @@ export default defineAction({
           ),
         ),
       ];
-      if (updatedSlideIds.length === 1) {
-        notifyClients(deckId, { slideId: updatedSlideIds[0] });
+      const hasMixedStructuralOperation = operations.some(
+        (operation) =>
+          operation.op === "delete-slide" || operation.op === "reorder-slides",
+      );
+      if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
+        notifyClients(deckId, {
+          slideId: updatedSlideIds[0],
+          actor: isAgentCaller ? "agent" : "human",
+        });
       } else {
         notifyClients(deckId);
       }

@@ -1126,7 +1126,28 @@ describe("run() — layout fit re-check", () => {
 
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-1",
+      actor: "agent",
     });
+  });
+
+  it("does not target a mixed structural batch at one slide", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-2" },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
   it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {
