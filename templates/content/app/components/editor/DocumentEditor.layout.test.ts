@@ -996,4 +996,19 @@ describe("document editor layout", () => {
     expect(source).toContain('item.iconKind === "folder"');
     expect(source).toContain('menuItem.iconKind === "folder"');
   });
+
+  it("keeps filesystem time separate from the SQL save watermark", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      "const sqlUpdatedAt = documentUpdatedAtRef.current",
+    );
+    expect(source).toContain("updatedAt: sqlUpdatedAt ?? persisted.updatedAt");
+    expect(source).toContain("updatedAt: document.updatedAt");
+  });
 });
