@@ -372,6 +372,42 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(deleted).toContain("guided-questions:tab123");
   });
 
+  // The agent ids every question it asks `q1`, so an answer that travels as
+  // `q1: 7d` only means something while the turn that asked it survives
+  // history trimming alongside it. When it did not, the agent re-asked the
+  // same scope questions instead of proceeding. The submitted context must
+  // carry the question itself.
+  it("sends the question text and a settled marker with the answer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      refetchInterval: false,
+    });
+    expect(result.current().questions?.length).toBe(1);
+
+    await act(async () => {
+      result.current().handleSubmit({ q1: "7d" });
+      await Promise.resolve();
+    });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    const context = sendToAgentChatMock.mock.calls[0][0].context ?? "";
+    expect(context).toContain("Q: Which range?");
+    expect(context).toContain("A: 7d");
+    expect(context).not.toContain("q1: 7d");
+    expect(context.toLowerCase()).toContain("settled");
+  });
+
   // askUserQuestion() is the client-side twin of the agent's `ask-question`
   // tool: it writes a payload carrying a `clientResolveId`, and the mounted
   // hook resolves the caller's promise with the answer instead of forwarding

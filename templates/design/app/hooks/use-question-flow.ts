@@ -188,7 +188,10 @@ export function useQuestionFlow(
 
   const handleSubmit = useCallback(
     (answers: GuidedQuestionAnswers) => {
-      const formattedAnswers = formatGuidedAnswersForAgent(answers);
+      const formattedAnswers = formatGuidedAnswersForAgent(
+        answers,
+        flow.questions ?? undefined,
+      );
       const context = [
         "The user answered the pre-generation questions.",
         designId ? `Design ID: ${designId}` : "",
@@ -207,7 +210,7 @@ export function useQuestionFlow(
 
       void sendContinuation("Here are my answers — go ahead.", context);
     },
-    [designId, sendContinuation],
+    [designId, flow.questions, sendContinuation],
   );
 
   const handleSkip = useCallback(() => {

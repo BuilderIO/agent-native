@@ -161,14 +161,31 @@ export function normalizeGuidedAnswers(
   );
 }
 
+/**
+ * Answers travel to the model as one message, and history trimming decides
+ * independently whether the turn that asked survives alongside it. The agent's
+ * `ask-question` tool also ids every question it ever asks `q1`, so a bare
+ * `q1: Weekly` says nothing on its own and nothing distinguishes one answer
+ * message from the next. Restate the question next to its answer whenever the
+ * question is known, so the answer means the same thing no matter what else
+ * survives. Ids stay as the label when no question matches — app callers pass
+ * meaningful ones (`density`, `sections`).
+ */
 export function formatGuidedAnswersForAgent(
   answers: GuidedQuestionAnswers,
+  questions?: readonly GuidedQuestion[],
 ): string {
+  const questionTextById = new Map(
+    (questions ?? [])
+      .filter((question) => question.question?.trim())
+      .map((question) => [question.id, question.question.trim()] as const),
+  );
   return Object.entries(normalizeGuidedAnswers(answers))
     .filter(([, value]) => hasGuidedAnswer(value))
     .map(([id, value]) => {
-      if (Array.isArray(value)) return `${id}: ${value.join(", ")}`;
-      return `${id}: ${String(value)}`;
+      const answer = Array.isArray(value) ? value.join(", ") : String(value);
+      const question = questionTextById.get(id);
+      return question ? `Q: ${question}\nA: ${answer}` : `${id}: ${answer}`;
     })
     .join("\n");
 }
@@ -177,6 +194,7 @@ function defaultGuidedSubmitContext(formattedAnswers: string): string {
   return [
     "The user answered the guided questions.",
     "Use the selected option values below as authoritative. If an answer includes exact ids, file names, or action instructions, follow those exact details instead of inferring them.",
+    "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.",
     "",
     "Answers:",
     formattedAnswers,
@@ -1144,7 +1162,10 @@ export function useGuidedQuestionFlow({
         clear();
         return;
       }
-      const formattedAnswers = formatGuidedAnswersForAgent(answers);
+      const formattedAnswers = formatGuidedAnswersForAgent(
+        answers,
+        visiblePayload?.questions,
+      );
       const resolvedSubmitMessage =
         visiblePayload?.submitMessage ?? submitMessage;
       const context = [
