@@ -1132,3 +1132,91 @@ describe("vector gradient fills", () => {
     expect(html).not.toContain("<defs>");
   });
 });
+
+describe("auto line height", () => {
+  // Figma encodes AUTO as `{ value: 100, units: "PERCENT" }` and the REST API
+  // calls the same nodes `INTRINSIC_%`, resolving 60px Space Grotesk to
+  // 76.56px. Reading the 100 as a font-size percentage made every auto-height
+  // text box ~28% short and the error accumulated down the page.
+  it("maps AUTO line height to normal and keeps real percentages relative to font size", () => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 20, {
+        type: "TEXT",
+        name: "auto",
+        characters: "Auto",
+        fontSize: 60,
+        lineHeight: { value: 100, units: "PERCENT" },
+      }),
+      childNode(10, 21, {
+        type: "TEXT",
+        name: "explicit",
+        characters: "Explicit",
+        fontSize: 20,
+        lineHeight: { value: 150, units: "PERCENT" },
+      }),
+      childNode(10, 22, {
+        type: "TEXT",
+        name: "pixels",
+        characters: "Pixels",
+        fontSize: 20,
+        lineHeight: { value: 28, units: "PIXELS" },
+      }),
+    );
+    const html = renderFrame(doc);
+    expect(html).toContain("line-height: normal");
+    expect(html).not.toContain("line-height: 60px");
+    expect(html).toContain("line-height: 30px");
+    expect(html).toContain("line-height: 28px");
+  });
+});
+
+describe("masks", () => {
+  const maskDoc = (maskOverrides: Record<string, unknown>) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 30, {
+        type: "ROUNDED_RECTANGLE",
+        name: "Mask shape",
+        mask: true,
+        ...maskOverrides,
+      }),
+      childNode(10, 31, {
+        type: "ROUNDED_RECTANGLE",
+        name: "Masked content",
+        fillPaints: [
+          { type: "SOLID", visible: true, color: { r: 0, g: 0, b: 0, a: 1 } },
+        ],
+      }),
+    );
+    return doc;
+  };
+
+  it("clips the siblings painted after a filled mask and never paints the mask", () => {
+    const html = renderFrame(
+      maskDoc({
+        fillPaints: [
+          { type: "SOLID", visible: true, color: { r: 1, g: 1, b: 1, a: 1 } },
+        ],
+      }),
+    );
+    expect(html).toContain("<clipPath");
+    expect(html).toContain("clip-path:url(#figmask-1-30)");
+    expect(html).toContain("Masked content");
+    // The mask contributes alpha only; drawing it is what put a solid black
+    // rectangle over the Positivus contact form.
+    expect(html).not.toContain('layer-name="Mask shape"');
+  });
+
+  it("reports, rather than silently drops, a mask it cannot express", () => {
+    const doc = maskDoc({ size: undefined });
+    const result = renderHtmlTemplates(doc);
+    expect(
+      result.approximatedNodes.some((entry) =>
+        entry.notes.some((note) => note.includes("mask")),
+      ),
+    ).toBe(true);
+    // The run still renders — an unexpressible mask must not delete content.
+    expect(result.frames[0]?.html).toContain("Masked content");
+  });
+});

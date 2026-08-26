@@ -141,6 +141,8 @@ export interface FigNode {
   rectangleTopRightCornerRadius?: number;
   rectangleBottomLeftCornerRadius?: number;
   rectangleBottomRightCornerRadius?: number;
+  /** Kiwi's spelling of REST's `isMask`: this node clips its later siblings. */
+  mask?: boolean;
   fontSize?: number;
   fontName?: { family?: string; style?: string };
   letterSpacing?: { value: number; units?: string };
@@ -732,6 +734,32 @@ function lengthFromUnits(
 }
 
 /**
+ * Figma writes an AUTO line height as `{ value: 100, units: "PERCENT" }`, and
+ * that 100 is NOT a percentage of the font size — the REST API reports the same
+ * nodes as `lineHeightUnit: "INTRINSIC_%"` with `lineHeightPercentFontSize:
+ * null`, resolving 60px Space Grotesk to 76.56px rather than 60px. Treating it
+ * as `100% * fontSize` made every auto-height text box ~28% short, so cards
+ * shrank and the error accumulated down the page — 17px per row on the
+ * Positivus landing page. `normal` is the CSS spelling of the same rule: use
+ * the font's own metrics.
+ *
+ * The 100 sentinel is ambiguous with a line height a designer explicitly typed
+ * as 100%, which Figma encodes identically. Nothing in the kiwi payload
+ * separates them, and AUTO is overwhelmingly the common case.
+ *
+ * Any other percentage IS relative to the font size (REST: `FONT_SIZE_%`),
+ * which is exactly what a CSS percentage line-height means, so it falls
+ * through to the shared helper.
+ */
+function lineHeightCss(
+  v: { value: number; units?: string } | undefined,
+  fontSize?: number,
+): string | number | null {
+  if (v && v.units === "PERCENT" && v.value === 100) return "normal";
+  return lengthFromUnits(v, fontSize);
+}
+
+/**
  * Normalize a Figma image hash into a hex string. The kiwi decoder emits
  * the hash as a Uint8Array / number[]; the JSON-roundtripped form is
  * already a hex string.
@@ -806,6 +834,121 @@ function effectiveStrokePaints(node: FigNode, ctx: Ctx): Paint[] | undefined {
   if (style?.fillPaints?.length) return style.fillPaints;
   if (style?.strokePaints?.length) return style.strokePaints;
   return node.strokePaints;
+}
+
+/**
+ * Build the defs and the CSS property that reproduce a Figma mask node, in the
+ * PARENT's coordinate space.
+ *
+ * Figma masks the siblings painted after the mask node, and the mask node
+ * itself is never drawn — only its alpha is used. Ignoring that paints the
+ * masked content at full size, which is how a 1153x703 rounded rectangle ended
+ * up covering the Positivus contact form as a solid black box: the black
+ * rectangle is real, and in Figma it is only visible through a starburst.
+ *
+ * Two shapes of mask, because Figma has two:
+ *
+ *  - A mask that PAINTS A FILL becomes a `<clipPath>`. Hard-edged geometry we
+ *    already decode, and referencing an inline `<clipPath>` from an HTML
+ *    element has long, uniform support.
+ *  - A mask that only STROKES has no fill area at all. Filling its outline
+ *    instead turns a fan of hairlines into a solid blob — the Positivus
+ *    sunburst went from thin rays to a filled star that way. Those become an
+ *    SVG `<mask>` with `fill="none"` and the stroke painted white, which is
+ *    the one construct that can express a stroked alpha.
+ *
+ * Returns null when the mask has no geometry we can express, so the caller can
+ * leave the run unmasked and say so.
+ */
+function maskMarkup(
+  maskNode: FigNode,
+  parent: FigNode | null,
+  ctx: Ctx,
+  id: string,
+): { defs: string; css: string } | null {
+  const t = maskNode.transform;
+  // The mask's geometry is in its own local space; the run it clips lives in
+  // the parent's. The node's relativeTransform is exactly that change of basis.
+  const placement = t
+    ? ` transform="matrix(${num(t.m00)} ${num(t.m10)} ${num(t.m01)} ${num(t.m11)} ${num(t.m02)} ${num(t.m12)})"`
+    : "";
+  const svgOpen = `<svg width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">`;
+
+  const shapes: string[] = [];
+  for (const g of maskNode.fillGeometry ?? []) {
+    if (typeof g.commandsBlob !== "number") continue;
+    const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+    if (!d) continue;
+    const rule = g.windingRule === "ODD" ? ' clip-rule="evenodd"' : "";
+    shapes.push(`<path d="${escapeHtmlAttr(d)}"${rule}${placement} />`);
+  }
+
+  if (!shapes.length) {
+    // A mask drawn as an editable vector carries no flattened `fillGeometry`;
+    // its shape only exists in the vector network.
+    const networkBlob = maskNode.vectorData?.vectorNetworkBlob;
+    const d =
+      typeof networkBlob === "number"
+        ? decodeVectorNetwork(ctx.blobs[networkBlob]).d
+        : "";
+    const strokeOnly =
+      !(maskNode.fillPaints ?? []).some((p) => p.visible !== false) &&
+      (maskNode.strokePaints ?? []).some((p) => p.visible !== false);
+    const parentWidth = parent?.size?.x;
+    const parentHeight = parent?.size?.y;
+    if (d && strokeOnly && parentWidth && parentHeight) {
+      // A standalone SVG document as a `mask-image` data URI, NOT `mask:
+      // url(#id)` against an inline `<mask>`: Chrome ignores the fragment form
+      // on an HTML element, which drops the declaration and paints the masked
+      // run unmasked — measurably worse than no mask handling at all.
+      const weight = maskNode.strokeWeight ?? 1;
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${num(parentWidth)}" height="${num(parentHeight)}" ` +
+        `viewBox="0 0 ${num(parentWidth)} ${num(parentHeight)}">` +
+        // guard:allow-raw-color — in a mask image white IS the alpha channel ("keep this pixel"), not a themeable colour; a token would make the mask follow the viewer's theme and hide the content it reveals.
+        `<path d="${d}"${placement} fill="none" stroke="#fff" stroke-width="${num(weight)}" /></svg>`;
+      const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+      return {
+        defs: "",
+        css:
+          `mask-image:${url};mask-size:100% 100%;mask-repeat:no-repeat;` +
+          `-webkit-mask-image:${url};-webkit-mask-size:100% 100%;-webkit-mask-repeat:no-repeat`,
+      };
+    }
+    if (d) shapes.push(`<path d="${escapeHtmlAttr(d)}"${placement} />`);
+  }
+
+  if (!shapes.length) {
+    // Rectangles and frames mask without carrying any path geometry.
+    const w = maskNode.size?.x;
+    const h = maskNode.size?.y;
+    if (!w || !h) return null;
+    const r = maskNode.cornerRadius;
+    const rx = typeof r === "number" && r > 0 ? ` rx="${num(r)}"` : "";
+    shapes.push(
+      `<rect x="0" y="0" width="${num(w)}" height="${num(h)}"${rx}${placement} />`,
+    );
+  }
+  return {
+    defs:
+      `${svgOpen}<clipPath id="${escapeHtmlAttr(id)}" clipPathUnits="userSpaceOnUse">` +
+      `${shapes.join("")}</clipPath></svg>`,
+    css: `clip-path:url(#${id})`,
+  };
+}
+
+/**
+ * A mask shape only clips cleanly when it is fully opaque. Anything that makes
+ * its alpha vary across the shape produces a soft edge in Figma that a
+ * `clip-path` cannot reproduce.
+ */
+function maskHasSoftAlpha(maskNode: FigNode): boolean {
+  if (typeof maskNode.opacity === "number" && maskNode.opacity < 1) return true;
+  return (maskNode.fillPaints ?? []).some(
+    (paint) =>
+      paint.visible !== false &&
+      (paint.type !== "SOLID" || (paint.opacity ?? 1) < 1),
+  );
 }
 
 /** Record one fidelity note against a node the renderer could not reproduce exactly. */
@@ -1212,7 +1355,7 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
     out.fontStyle = "italic";
   }
   if (typeof fontSize === "number") out.fontSize = `${num(fontSize)}px`;
-  const lh = lengthFromUnits(lineHeight, fontSize);
+  const lh = lineHeightCss(lineHeight, fontSize);
   if (lh !== null && lh !== undefined) out.lineHeight = lh;
   const ls = lengthFromUnits(letterSpacing, fontSize);
   if (ls !== null && ls !== undefined) out.letterSpacing = ls;
@@ -2644,7 +2787,54 @@ function emitNode(
       ? !!(inlinedSymbol.stackMode && inlinedSymbol.stackMode !== "NONE")
       : !!isFlex;
     const childParentNode = inlinedSymbol ?? node;
+    // A Figma mask clips the siblings painted after it, up to the next mask,
+    // and is never drawn itself. `openMaskRun` tracks the wrapper holding the
+    // current run so it closes before the next mask opens one and before the
+    // parent's own closing tag.
+    let openMaskRun = false;
+    const closeMaskRun = () => {
+      if (!openMaskRun) return;
+      lines.push(`${indent}  </div>`);
+      openMaskRun = false;
+    };
     for (const child of children) {
+      if (child.mask) {
+        closeMaskRun();
+        const clipId = `figmask-${guidKey(child.guid).replace(":", "-")}`;
+        const clip = maskMarkup(child, childParentNode, ctx, clipId);
+        if (!clip) {
+          recordApproximation(
+            child,
+            ctx,
+            "mask has no geometry to clip with; masked siblings render unmasked",
+          );
+          continue;
+        }
+        if (childParentIsFlex) {
+          // The wrapper must be out of flow to keep the clip in the parent's
+          // coordinate space, and taking it out of flow inside an auto-layout
+          // parent would pull the run out of the stack it belongs to.
+          recordApproximation(
+            child,
+            ctx,
+            "mask inside an auto-layout parent; masked siblings render unmasked",
+          );
+          continue;
+        }
+        if (maskHasSoftAlpha(child)) {
+          recordApproximation(
+            child,
+            ctx,
+            "mask alpha is not uniform; clipped hard where Figma fades",
+          );
+        }
+        if (clip.defs) lines.push(`${indent}  ${clip.defs}`);
+        lines.push(
+          `${indent}  <div style="position:absolute;inset:0;${escapeHtmlAttr(clip.css)}">`,
+        );
+        openMaskRun = true;
+        continue;
+      }
       emitNode(
         child,
         childParentNode,
@@ -2658,6 +2848,7 @@ function emitNode(
         childVarModes,
       );
     }
+    closeMaskRun();
     lines.push(`${indent}</${tag}>`);
   } finally {
     if (symKeyForCycle) ctx.inliningStack.delete(symKeyForCycle);

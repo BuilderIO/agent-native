@@ -1,0 +1,14 @@
+[
+  {
+    "id": "paste-positivus-home",
+    "file": ".tmp/figma-fidelity/clipboard/positivus-330-762.html",
+    "reference": "community-positivus-landing",
+    "notes": "Real Figma copy of the Positivus Home frame (330:762, 1440x8356) \u2014 the same node the REST import case measures."
+  },
+  {
+    "id": "paste-untitledui-landing",
+    "file": ".tmp/figma-fidelity/clipboard/untitledui-1647-376184.html",
+    "reference": "community-untitled-ui-landing",
+    "notes": "Real Figma copy of the Untitled UI v2 Desktop landing frame (1647:376184, 1440x7060). Vertical auto-layout with Hug height throughout \u2014 the auto-layout counterpart to the absolutely-positioned Positivus case."
+  }
+]

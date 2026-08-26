@@ -98,8 +98,21 @@ function rateLimitWaitMs(response: Response, attempt: number): number {
 const CACHE_DIR = ".tmp/figma-fidelity/import-cache";
 const MANIFEST = "templates/design/scripts/figma-fidelity/import-corpus.json";
 
+/**
+ * Replay a case purely from what is already on disk — the cached REST responses
+ * and the saved reference render. Figma's Tier 1 budget is per file and a
+ * Community file duplicated into Drafts exhausts it for days, which would
+ * otherwise stop all converter iteration on exactly the complex real-world
+ * designs that matter most. Offline replay decouples fixing from fetching.
+ *
+ * It never silently falls back to the network, and never silently pretends a
+ * missing response is an empty one: an uncached request under `--offline` is an
+ * error naming what is missing.
+ */
+const offline = process.argv.includes("--offline");
+
 const token = process.env.FIGMA_FIDELITY_TOKEN?.trim();
-if (!token) {
+if (!offline && !token) {
   throw new Error(
     "FIGMA_FIDELITY_TOKEN is required (a Figma personal access token with " +
       "file_content:read). It is never printed or written to disk.",
@@ -121,6 +134,12 @@ function cachePath(kind: string, key: string): string {
 async function figmaJson<T>(path: string, attempt = 0): Promise<T> {
   const cached = cachePath("json", path);
   if (existsSync(cached)) return JSON.parse(readFileSync(cached, "utf8")) as T;
+  if (offline) {
+    throw new Error(
+      `--offline: no cached response for ${path}. Run this case online once to populate ` +
+        `.tmp/figma-fidelity/import-cache/, then replay offline.`,
+    );
+  }
   const response = await paced(() =>
     fetch(`https://api.figma.com/v1${path}`, {
       headers: { "X-Figma-Token": token! },
@@ -165,6 +184,11 @@ async function figmaJson<T>(path: string, attempt = 0): Promise<T> {
 async function fetchBinary(url: string, attempt = 0): Promise<Buffer> {
   const cached = cachePath("bin", url);
   if (existsSync(cached)) return readFileSync(cached);
+  if (offline) {
+    throw new Error(
+      `--offline: no cached asset for ${url.slice(0, 80)}. Run this case online once first.`,
+    );
+  }
   const response = await paced(() =>
     fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
   );
@@ -335,7 +359,7 @@ if (!existsSync(MANIFEST)) {
     `No import corpus at ${MANIFEST}. It is a JSON array of {"id","url"} entries pointing at Figma frame URLs.`,
   );
 }
-const filter = process.argv[2];
+const filter = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
 const cases = (
   JSON.parse(readFileSync(MANIFEST, "utf8")) as ImportCase[]
 ).filter((testCase) => !filter || testCase.id.includes(filter));

@@ -136,6 +136,124 @@ traced to the exact paint or layout property) and `fidelity.json`.
 A null render or a missing reference is raised, never skipped: a case that
 quietly disappears from the table reads as progress.
 
+`--offline` replays a case purely from the cache and the saved reference. It
+never falls back to the network and never treats a missing response as an empty
+one — an uncached request under `--offline` names exactly what is missing. This
+exists because Figma's Tier 1 budget is per FILE, so a Community file duplicated
+into Drafts stays exhausted for days and would otherwise stop all converter work
+on precisely the complex real-world designs that matter most.
+
+## `.fig` upload fidelity harness
+
+`pnpm figma-fidelity:fig` covers the second import route. The `.fig` path is a
+SECOND, independent converter (`fig-file-to-html.ts`) from the REST one
+(`figma-node-to-html.ts`); two walkers over the same design drift apart, and the
+drift is invisible until something measures both against one reference. Each
+frame gets two numbers:
+
+- `vsFigma` — against Figma's own PNG, reusing the reference the import harness
+  cached. The real fidelity number.
+- `vsRest` — against the REST importer's render of the same frame. Pure
+  cross-path drift, and it needs no Figma request at all, so it stays
+  measurable while the REST quota is exhausted.
+
+Frames line up across paths for free: a `.fig` GUID is `sessionID:localID`,
+exactly the shape of a REST node id.
+
+A partial decode (`decodeError`) fails the case rather than scoring a document
+that is quietly missing nodes. The harness raises the product's per-frame byte
+budget on purpose: it inlines images as base64 so a `setContent` page can
+resolve them, where the product carries short durable URLs, and measuring the
+product budget against inflated bytes would fail files the product imports fine.
+Those budgets have their own coverage in `fig-file-import.test.ts`.
+
+## Clipboard paste fidelity harness
+
+`pnpm figma-fidelity:paste` covers the third route. A clipboard payload shares
+the `.fig` walker but not its input: it is a kiwi buffer holding a node SUBTREE
+with no DOCUMENT/CANVAS above it, so it goes through `normalizeClipboardDocument`
+first, and it carries NO image bytes — only 20-byte hashes that
+`hydrate-figma-paste-images` resolves later once a token is connected.
+
+Read the number accordingly: every image fill renders as an `about:blank`
+placeholder, so a photography-heavy design scores a large diff by design. The
+table prints `noImg` beside the diff so the number stays interpretable instead
+of looking like a converter regression.
+
+Payloads are captured from a real Figma copy, never synthesized. To capture one,
+open the file in a browser, select the frame, install a capture hook, and use
+the canvas context menu's plain **Copy** — a synthetic `cmd+c` will not work
+because Figma ignores untrusted key events, and `Edit ▸ Copy as` only offers
+PNG/SVG/text, not the kiwi buffer:
+
+```js
+window.__cap = null;
+navigator.clipboard.write = new Proxy(navigator.clipboard.write.bind(navigator.clipboard), {
+  apply: async (t, _s, [items]) => {
+    for (const i of items)
+      if (i.types.includes("text/html")) window.__cap = await (await i.getType("text/html")).text();
+    return t(items);
+  },
+});
+```
+
+Then save `window.__cap` to `.tmp/figma-fidelity/clipboard/` and add a
+`{"id", "file", "reference"}` entry to `scripts/figma-fidelity/paste-corpus.json`.
+
+## Measured drift between the three import paths
+
+Numbers from the Positivus landing page (`330:762`, 1440x8356) and the Untitled
+UI v2 desktop landing page (`1647:376184`, 1440x7060, vertical auto-layout
+throughout), both measured against Figma's own render.
+
+| Fix | paste vs Figma | paste vs REST |
+| --- | --- | --- |
+| baseline | 23.53% | 21.67% |
+| AUTO line height | 19.11% | 14.19% |
+| masks (fill + stroke) | 14.12% | 7.51% |
+
+Two defects the three-way comparison found, both in the shared `.fig`/clipboard
+walker and both invisible to the REST path:
+
+- **AUTO line height read as a font-size percentage.** Figma encodes AUTO as
+  `{ value: 100, units: "PERCENT" }`, and the REST API calls those same nodes
+  `lineHeightUnit: "INTRINSIC_%"` with `lineHeightPercentFontSize: null` —
+  60px Space Grotesk resolves to 76.56px, not 60px. Every auto-height text box
+  came out ~28% short and the error accumulated down the page: 17px per card
+  row, 91px by the sixth. `line-height: normal` is the CSS spelling of the same
+  rule and reproduces Figma's value exactly.
+- **Masks not implemented at all.** The kiwi payload carries `mask: true` (the
+  REST `isMask`), and the walker ignored it, painting the masked content at full
+  size — a 1153x703 black rounded rectangle covering the Positivus contact form.
+  The REST path never hit this because it hands masked groups to Figma to
+  rasterize; the `.fig` path has no network, so it needs real CSS masking.
+
+Masks come in two shapes and need two constructs:
+
+- A mask that PAINTS A FILL becomes a `<clipPath>`.
+- A mask that only STROKES has no fill area. Filling its outline turns a fan of
+  hairlines into a solid blob — the Positivus sunburst became a filled star that
+  way. Those become a `mask-image` data URI whose path is `fill="none"` with the
+  stroke painted white.
+
+Use a `mask-image` data URI, NOT `mask: url(#id)` against an inline `<mask>`:
+Chrome ignores the fragment form on an HTML element, drops the declaration, and
+paints the run unmasked — measured at 17.69% versus 14.12%, i.e. worse than the
+filled-outline approximation it was meant to replace.
+
+A mask this walker cannot express (no geometry, or an auto-layout parent, where
+the out-of-flow wrapper would leave the stack it belongs to) is recorded in
+`approximatedNodes` and left unmasked. An unexpressible mask must never delete
+content.
+
+Two REST-path defects the same comparison surfaced, where the `.fig`/clipboard
+path is the CORRECT one:
+
+- Positivus `330:762`: the sunburst vector renders oversized and shifted right,
+  overflowing its card. Figma and the paste path both place it correctly.
+- Positivus service cards: the "Social Media Marketing" title highlight renders
+  green where Figma (and the paste path) render white.
+
 ## Export fidelity harness
 
 `templates/design/scripts/figma-fidelity/` is the acceptance loop for the

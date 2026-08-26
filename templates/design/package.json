@@ -19,7 +19,9 @@
     "e2e:ui": "playwright test --ui",
     "figma-fidelity:export": "tsx scripts/figma-fidelity/run-export.ts",
     "figma-fidelity:sheet": "tsx scripts/figma-fidelity/make-sheet.ts",
-    "figma-fidelity:import": "tsx scripts/figma-fidelity/run-import.ts"
+    "figma-fidelity:import": "tsx scripts/figma-fidelity/run-import.ts",
+    "figma-fidelity:fig": "tsx scripts/figma-fidelity/run-fig.ts",
+    "figma-fidelity:paste": "tsx scripts/figma-fidelity/run-paste.ts"
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",

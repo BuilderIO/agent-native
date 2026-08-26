@@ -1,0 +1,13 @@
+[
+  {
+    "id": "fig-scratch",
+    "file": "/Users/steve/Downloads/Scratch.fig",
+    "notes": "35MB real Figma file, under the 50MB decoder cap. Decode + render smoke coverage for the .fig walker."
+  },
+  {
+    "id": "fig-over-cap",
+    "file": "/Users/steve/Downloads/figma-test.fig",
+    "notes": "127MB. Expected to be refused by MAX_FIG_FILE_BYTES \u2014 the cap is a product limit, and this case pins that it is refused loudly rather than truncated.",
+    "expectRefusal": ".fig file is too large (max 50 MB)."
+  }
+]
