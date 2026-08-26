@@ -75,6 +75,11 @@ this skill:
    resolved. The recap must distinguish approval under the internal exception
    from a clean merge state.
 
+When an exception requires independent review, it means a separate,
+attributable PR review from a different verified current BuilderIO member.
+Self-review, author-stated validation, bot-only review, or an unverified
+reviewer does not satisfy it; without that evidence, do not use the exception.
+
 ## Owner exceptions
 
 The verified owner exceptions are:
