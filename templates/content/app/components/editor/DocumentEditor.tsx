@@ -1256,7 +1256,8 @@ function DocumentEditorBody({
   }, [document.id, document.source, isLinkedLocalSourceDocument]);
 
   const handleLinkedLocalAgentPersistence = useCallback(
-    (persisted: Document) => {
+    (persisted: Document, revision?: DesktopContentFileRevision) => {
+      localSourceRevisionRef.current = revision;
       localTitleRef.current = persisted.title;
       localContentRef.current = persisted.content;
       setLocalTitle(persisted.title);

@@ -8,6 +8,7 @@ import {
 } from "@shared/document-text-edits";
 import { useEffect, useRef } from "react";
 
+import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import {
   readDocumentFromLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
@@ -28,7 +29,7 @@ export function LinkedLocalDocumentAgentBridge({
   onPersisted,
 }: {
   document: Document;
-  onPersisted(document: Document): void;
+  onPersisted(document: Document, revision?: DesktopContentFileRevision): void;
 }) {
   const documentRef = useRef(document);
   documentRef.current = document;
@@ -105,7 +106,7 @@ export function LinkedLocalDocumentAgentBridge({
               "The linked file read-back did not match the requested edit.",
           };
         }
-        onPersisted(readBack.document);
+        onPersisted(readBack.document, readBack.revision);
         return {
           status: "persisted",
           content: readBack.document.content,

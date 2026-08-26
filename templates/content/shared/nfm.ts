@@ -2442,8 +2442,10 @@ function countGfmPipeTables(
   delimiterPredicate: (cells: string[]) => boolean,
 ): number {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  const fencedCodeLines = fencedCodeLineMask(lines);
   let count = 0;
   for (let i = 0; i + 1 < lines.length; i++) {
+    if (fencedCodeLines[i] || fencedCodeLines[i + 1]) continue;
     const indent = leadingTabs(lines[i]);
     if (leadingTabs(lines[i + 1]) !== indent) continue;
     const header = splitGfmPipeRow(lines[i].slice(indent));
@@ -2464,8 +2466,10 @@ function countGfmPipeTables(
 
 function countRaggedGfmPipeTables(source: string): number {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  const fencedCodeLines = fencedCodeLineMask(lines);
   let count = 0;
   for (let i = 0; i + 2 < lines.length; i++) {
+    if (fencedCodeLines[i] || fencedCodeLines[i + 1]) continue;
     const indent = leadingTabs(lines[i]);
     if (leadingTabs(lines[i + 1]) !== indent) continue;
     const header = splitGfmPipeRow(lines[i].slice(indent));
@@ -2480,6 +2484,7 @@ function countRaggedGfmPipeTables(source: string): number {
       continue;
     }
     for (let rowIndex = i + 2; rowIndex < lines.length; rowIndex++) {
+      if (fencedCodeLines[rowIndex]) break;
       if (
         lines[rowIndex].trim() === "" ||
         leadingTabs(lines[rowIndex]) !== indent
@@ -2496,6 +2501,29 @@ function countRaggedGfmPipeTables(source: string): number {
     i++;
   }
   return count;
+}
+
+function fencedCodeLineMask(lines: string[]): boolean[] {
+  const mask = lines.map(() => false);
+  let fence: { indent: number; length: number } | undefined;
+  for (let index = 0; index < lines.length; index++) {
+    const indent = leadingTabs(lines[index]);
+    const dedented = lines[index].slice(indent);
+    if (fence) {
+      mask[index] = true;
+      const close = dedented.match(/^(`{3,})\s*$/);
+      if (indent === fence.indent && close && close[1].length >= fence.length) {
+        fence = undefined;
+      }
+      continue;
+    }
+    const open = dedented.match(/^(`{3,})(.*)$/);
+    if (open) {
+      mask[index] = true;
+      fence = { indent, length: open[1].length };
+    }
+  }
+  return mask;
 }
 
 /**

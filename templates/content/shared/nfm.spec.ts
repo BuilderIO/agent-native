@@ -411,6 +411,24 @@ describe("nfm converter — structural parsing", () => {
       ],
     });
   });
+
+  it("does not report pipe-table syntax inside fenced code as a conversion", () => {
+    const source = [
+      "```md",
+      "| A | B |",
+      "| --- | --- |",
+      "| one | two |",
+      "```",
+    ].join("\n");
+
+    expect(nfmToDoc(source).content[0].type).toBe("codeBlock");
+    expect(inspectNfmFidelity(source)).toEqual({
+      status: "preserved",
+      normalizedChanged: false,
+      conversions: [],
+      unresolved: [],
+    });
+  });
 });
 
 const HARD_FIXTURES: Array<{ name: string; nfm: string }> = [
