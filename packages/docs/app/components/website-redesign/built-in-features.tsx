@@ -148,7 +148,7 @@ export function BuiltInFeatures() {
                             src={pillar.darkImage}
                             alt=""
                             crossOrigin="anonymous"
-                            sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1600px) 33vw, 533px"
+                            sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1400px) 33vw, 467px"
                             loading="lazy"
                             decoding="async"
                             style={{
@@ -164,7 +164,7 @@ export function BuiltInFeatures() {
                             src={pillar.lightImage}
                             alt=""
                             crossOrigin="anonymous"
-                            sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1600px) 33vw, 533px"
+                            sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1400px) 33vw, 467px"
                             loading="lazy"
                             decoding="async"
                             style={{
@@ -182,7 +182,7 @@ export function BuiltInFeatures() {
                           src={pillar.image}
                           alt=""
                           crossOrigin="anonymous"
-                          sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1600px) 33vw, 533px"
+                          sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1400px) 33vw, 467px"
                           loading="lazy"
                           decoding="async"
                           style={{

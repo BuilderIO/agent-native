@@ -83,7 +83,7 @@
   /* The one content measure for every full-width page: docs landings, the
      template detail shell, and the redesign page grid all read this, so the
      gridlines, the header, and the page body can't drift apart. */
-  --site-max-width: 1600px;
+  --site-max-width: 1400px;
   --docs-border: #ebebeb;
   --docs-accent: #0072f5;
   --docs-accent-light: rgba(0, 114, 245, 0.1);
