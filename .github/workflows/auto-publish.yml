@@ -62,6 +62,11 @@ on:
         required: false
         type: boolean
         default: false
+      recoverPublication:
+        description: "Recovery: publish and tag the versions already in package.json (no version bump)"
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -241,7 +246,8 @@ jobs:
     # Ordinary main pushes are nightly-only. A manual dispatch creates the
     # marked Version Packages PR; only that PR's merge can enter stable npm
     # publication. A downstream redispatch only re-sends a notification for
-    # versions that are already on npm, so it must not re-enter build/publish.
+    # versions that are already on npm. A publication recovery publishes the
+    # versions already in package.json without creating another release PR.
     needs: [verify-stable-merge]
     if: ${{ !inputs.redispatchDownstream && needs.verify-stable-merge.outputs.verified == 'true' }}
     runs-on: ubuntu-latest
@@ -282,7 +288,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Create all-package release changeset
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.recoverPublication != true
         env:
           RELEASE_TYPE: ${{ inputs.releaseType }}
         run: pnpm exec tsx scripts/create-release-changeset.ts "$RELEASE_TYPE"
@@ -377,6 +383,7 @@ jobs:
           SELF_TOKEN: ${{ steps.app-token.outputs.token }}
           WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
           REDISPATCH: ${{ inputs.redispatchDownstream }}
+          RECOVER_PUBLICATION: ${{ inputs.recoverPublication }}
           RELEASE_RESULT: ${{ needs.release.result }}
           PUBLISHED: ${{ needs.release.outputs.published }}
           PUBLISHED_PACKAGES: ${{ needs.release.outputs.publishedPackages }}
@@ -390,7 +397,21 @@ jobs:
           note() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
           hint='Re-send without republishing: Actions > Publish packages > Run workflow > "Recovery: re-notify downstream repos".'
 
-          if [ "${REDISPATCH:-false}" = "true" ]; then
+          if [ "${RECOVER_PUBLICATION:-false}" = "true" ]; then
+            # Recovery announces the versions that are already on npm so a
+            # partial publish can resume without inventing another bump.
+            entries=""
+            for name in @agent-native/core @agent-native/creative-context @agent-native/dispatch @agent-native/pinpoint @agent-native/recap-cli @agent-native/scheduling @agent-native/skills @agent-native/toolkit; do
+              if ! version="$(npm view "$name" version --prefer-online)" || [ -z "$version" ]; then
+                echo "::error::Could not read ${name}'s published version from npm."
+                note "Downstream repos were NOT notified: npm lookup for \`${name}\` failed."
+                exit 1
+              fi
+              entries="${entries}${entries:+,}$(jq -cn --arg n "$name" --arg v "$version" '{name:$n,version:$v}')"
+            done
+            packages="[${entries}]"
+            note "Publication recovery completed; notifying downstream repos for the versions currently on npm."
+          elif [ "${REDISPATCH:-false}" = "true" ]; then
             # Read versions from npm rather than from package.json so a recovery
             # run can never announce a version that was never published.
             entries=""
