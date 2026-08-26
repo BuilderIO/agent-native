@@ -32,7 +32,7 @@ describe("direct recording route shell cue", () => {
   it("keeps the main header return control icon-only and shared", () => {
     const route = readRoute("r.$recordingId.tsx");
     const headerStart = route.indexOf(
-      'className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2',
+      'className="flex min-w-0 shrink-0 items-center gap-2 px-3 py-2',
     );
     expect(headerStart).toBeGreaterThan(-1);
 
