@@ -56,6 +56,15 @@ describe("release everything workflow", () => {
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
     assert.match(source, /channel: "production"/);
+    assert.match(
+      source,
+      /const workflowRef = `@agent-native\/core@\$\{coreVersion\}`/,
+    );
+    assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
+    assert.match(source, /getReleaseByTag/);
+    assert.match(source, /hasCompleteClipsRelease/);
+    assert.match(source, /Clips_\$\{version\}_universal\.dmg/);
+    assert.match(source, /clipsAlreadyPublished/);
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
