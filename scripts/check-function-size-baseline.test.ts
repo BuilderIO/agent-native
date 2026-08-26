@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
@@ -19,6 +19,12 @@ function workspace(): string {
   return dir;
 }
 
+function build(root: string, name: string): string {
+  const dir = path.join(root, name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 /** An emitted function directory holding `appBytes` of app code, plus an
  *  optional bundled ffmpeg-static runtime of `ffmpegBytes`. */
 function emitFunction(
@@ -26,7 +32,7 @@ function emitFunction(
   name: string,
   appBytes: number,
   ffmpegBytes = 0,
-): string {
+): void {
   const fnDir = path.join(root, name);
   mkdirSync(fnDir, { recursive: true });
   writeFileSync(path.join(fnDir, "server.mjs"), Buffer.alloc(appBytes));
@@ -35,7 +41,6 @@ function emitFunction(
     mkdirSync(ffmpegDir, { recursive: true });
     writeFileSync(path.join(ffmpegDir, "ffmpeg"), Buffer.alloc(ffmpegBytes));
   }
-  return fnDir;
 }
 
 function runGuard(
@@ -65,47 +70,69 @@ after(() => {
 
 describe("serverless function size baseline", () => {
   /**
-   * The regression this exists for. `ffmpeg-static` is bundled only when the
-   * deploy environment sets AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH, so production
-   * emits it and beta does not. Measuring it made clips' production `server`
-   * read 112.6MB against a 36.1MB baseline recorded on beta, and that phantom
-   * 76MB blocked every production promotion of the media apps.
+   * The measurement stays raw on purpose. Subtracting the deploy-gated payload
+   * while the committed baselines hold a mix of payload-inclusive and
+   * payload-free numbers would let a real regression smaller than the payload
+   * pass silently — the opposite of what this guard exists for.
    */
-  it("does not count a deploy-gated runtime payload as bundle growth", () => {
+  it("counts a deploy-gated payload in the size it compares", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
 
-    const betaBuild = path.join(root, "beta");
-    mkdirSync(betaBuild, { recursive: true });
-    emitFunction(betaBuild, "server", 4 * MB);
-    const recorded = runGuard(betaBuild, baselineFile, ["--update"]);
-    assert.equal(recorded.status, 0, recorded.output);
+    const withoutPayload = build(root, "beta");
+    emitFunction(withoutPayload, "server", 4 * MB);
+    assert.equal(
+      runGuard(withoutPayload, baselineFile, ["--update"]).status,
+      0,
+    );
 
-    // Same commit, production context: identical app code plus ffmpeg-static.
-    const productionBuild = path.join(root, "production");
-    mkdirSync(productionBuild, { recursive: true });
-    emitFunction(productionBuild, "server", 4 * MB, 76 * MB);
+    // Same app code, plus the production-only runtime payload.
+    const withPayload = build(root, "production");
+    emitFunction(withPayload, "server", 4 * MB, 76 * MB);
 
-    const checked = runGuard(productionBuild, baselineFile);
-    assert.equal(checked.status, 0, checked.output);
-    // Set aside, not silently dropped: the reviewer still sees the payload.
+    const checked = runGuard(withPayload, baselineFile);
+    assert.equal(checked.status, 1, checked.output);
+    assert.match(checked.output, /function payload grew/);
+  });
+
+  /**
+   * The part that cost two days: a 76MB swing with no visible cause. The
+   * payload and its size have to be named at the moment the guard reports.
+   */
+  it("names the deploy-gated payload so the swing is not a mystery", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+
+    const withPayload = build(root, "production");
+    emitFunction(withPayload, "server", 4 * MB, 76 * MB);
+
+    const checked = runGuard(withPayload, baselineFile, ["--update"]);
     assert.match(checked.output, /ffmpeg-static/);
-    assert.match(checked.output, /no function grew past its baseline/);
+    assert.match(checked.output, /AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH/);
+    assert.match(checked.output, /deploy-gated runtime payload/);
+  });
+
+  it("stays silent about payloads a build does not contain", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+
+    const withoutPayload = build(root, "beta");
+    emitFunction(withoutPayload, "server", 4 * MB);
+
+    const checked = runGuard(withoutPayload, baselineFile, ["--update"]);
+    assert.doesNotMatch(checked.output, /deploy-gated runtime payload/);
   });
 
   it("still fails when the app's own payload grows", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
 
-    const before = path.join(root, "before");
-    mkdirSync(before, { recursive: true });
+    const before = build(root, "before");
     emitFunction(before, "server", 4 * MB);
     assert.equal(runGuard(before, baselineFile, ["--update"]).status, 0);
 
-    // App code tripled; ffmpeg present too, so the exclusion must not mask it.
-    const after_ = path.join(root, "after");
-    mkdirSync(after_, { recursive: true });
-    emitFunction(after_, "server", 12 * MB, 76 * MB);
+    const after_ = build(root, "after");
+    emitFunction(after_, "server", 12 * MB);
 
     const checked = runGuard(after_, baselineFile);
     assert.equal(checked.status, 1, checked.output);
