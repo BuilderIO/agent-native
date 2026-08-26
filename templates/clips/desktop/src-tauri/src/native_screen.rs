@@ -6189,7 +6189,7 @@ async fn get_native_retry_upload_plan(
                     if tokio::time::Instant::now() + delay <= deadline {
                         emit_native_upload_progress(
                             app,
-                            &recording_id,
+                            recording_id,
                             "uploading",
                             "Waiting for prior retry",
                             None,
