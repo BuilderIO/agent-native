@@ -89,7 +89,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
   {
     name: "github",
     label: "GitHub",
-    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9e5ae6792dc448e298f89a70e52104e6",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74fc1b966afa4f1081770ecd25455819",
     srcWidth: 552,
     srcHeight: 556,
     fill: true,
@@ -121,7 +121,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
   {
     name: "coral-circles",
     label: "Builder",
-    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F09b602e08d754495aebd541fd8aafcbb",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F133a8e3ebbd54e18aa55730045239cbb",
     srcWidth: 552,
     srcHeight: 568,
     fill: true,
