@@ -317,12 +317,42 @@ Measured 2026-08-26:
 
 | case | import | export | export hop |
 | --- | --- | --- | --- |
+| card-grid | 3.14% | 3.14% | **0.000%** |
+| constraints | 2.33% | 2.28% | 0.17% |
+| typography | 13.27% | 13.19% | 0.19% |
 | shapes | 0.54% | 0.29% | 0.31% |
-| constraints | 2.33% | 2.46% | 2.47% |
-| community untitled-ui landing | 2.65% | 3.66% | 3.61% |
-| card-grid | 3.14% | 3.53% | 2.99% |
-| autolayout | 3.48% | 6.10% | 5.63% |
-| parity-stress | 2.79% | 4.45% | 3.93% |
+| parity-stress | 2.79% | 3.27% | 0.73% |
+| community untitled-ui landing | 2.65% | 3.07% | 1.63% |
+| autolayout | 3.48% | 5.72% | 3.11% |
+| positivus (clipboard) | 8.37% | 9.57% | 3.95% |
+| fills-effects | 14.33% | 23.38% | 9.70% |
+| untitled-ui (clipboard) | 12.90% | 20.42% | 13.25% |
+
+**Load the fonts the SVG names before measuring it.** The exported SVG carries
+`font-family` but no `@font-face` — Figma resolves families against its own font
+list on import. Rendering it without them silently substitutes Arial for every
+custom face, which shifts every glyph: that alone accounted for most of the
+apparent export cost (typography 17.32% -> 0.19%, card-grid 2.99% -> 0.000%).
+The caveat that survives is real, though: a family Figma does not have will
+fall back there too.
+
+Three export defects the round trip found, none of which the single-hop export
+harness could see because its own preset designs use none of them:
+
+- **A conic gradient was dropped.** SVG has no angular gradient and the paint
+  builder answered by omitting the layer, so Figma received a blank tile where
+  the design has one — even though Figma itself supports angular gradients. A
+  leaf carrying one is now rasterized, the same way `backdrop-filter` already
+  was: pixel-accurate, and reported. `fills-effects` export hop 16.81% -> 9.70%.
+- **A CSS clip-path or mask was ignored,** so a masked element exported at full
+  size. On Positivus that is a black rectangle Figma only reveals through a
+  starburst; unmasked it covered the entire contact form, and the band around
+  it differed by 79.6%. Now rasterized. Positivus export hop 9.57% -> 3.95%.
+- **A percentage border-radius exported as a rounded rectangle** (see below).
+
+Rasterizing is deliberately restricted to leaves. Rasterizing a container would
+flatten children that export perfectly well as geometry, and those children are
+not walked once a node is rasterized, so they would vanish rather than double.
 
 **Feed it the document the product PERSISTS, not the converter's fragment.**
 `mapFigmaNodeToHtml` returns a bare `<div>` that only lays out correctly once

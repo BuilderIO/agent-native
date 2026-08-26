@@ -960,3 +960,46 @@ describe("hydrateRawFigmaSvgNode", () => {
     expect(node.children?.[0].name).toBe("Child");
   });
 });
+
+describe("paints the box model cannot carry", () => {
+  // These reach the SVG as a screenshot of the element's region rather than as
+  // geometry. Each one previously left a visible hole in what Figma received:
+  // a blank tile where an angular gradient should be, and a masked element
+  // painted at full size — the Positivus contact block covered its own form
+  // with the black rectangle the mask is supposed to reveal a starburst of.
+  it("hydrates a conic-gradient leaf as a raster", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason:
+          "conic-gradient has no SVG equivalent — rasterized this element's region via screenshot.",
+        rasterHref: "data:image/png;base64,AAA",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.reason).toContain("conic-gradient");
+  });
+
+  it("hydrates a clip-path / mask element as a raster", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason:
+          "clip-path / mask has no SVG equivalent here — rasterized this element's region via screenshot.",
+        rasterHref: "data:image/png;base64,AAA",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.reason).toContain("clip-path");
+  });
+
+  // A raster whose screenshot could not be taken must still be reported, not
+  // quietly emitted as a normal box that paints its background over the design.
+  it("keeps a raster node a raster even when the screenshot failed", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason: "clip-path / mask has no SVG equivalent here.",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.href).toBe("");
+  });
+});

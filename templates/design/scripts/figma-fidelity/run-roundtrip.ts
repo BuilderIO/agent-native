@@ -71,6 +71,41 @@ interface CaseOutcome {
   error?: string;
 }
 
+/**
+ * Google Fonts request covering every family the SVG asks for. Only the first
+ * family of each stack is requested: the rest are the local fallbacks the
+ * exporter appends, and asking Google for "-apple-system" returns a 400 that
+ * would drop the whole stylesheet.
+ */
+function googleFontsUrlForSvg(svg: string): string | null {
+  const families = new Set<string>();
+  for (const match of svg.matchAll(/font-family="([^"]*)"/g)) {
+    const stack = match[1]!.replace(/&quot;/g, '"');
+    const first = stack
+      .split(",")[0]
+      ?.trim()
+      .replace(/^["']|["']$/g, "");
+    if (!first) continue;
+    // Generic and system families are not on Google Fonts.
+    if (
+      /^(-|system-ui$|sans-serif$|serif$|monospace$|cursive$|fantasy$)/i.test(
+        first,
+      )
+    ) {
+      continue;
+    }
+    families.add(first);
+  }
+  if (families.size === 0) return null;
+  const params = [...families]
+    .map(
+      (family) =>
+        `family=${encodeURIComponent(family).replace(/%20/g, "+")}:wght@100;200;300;400;500;600;700;800;900`,
+    )
+    .join("&");
+  return `https://fonts.googleapis.com/css2?${params}&display=block`;
+}
+
 function score(comparison: {
   diffRatio: number;
   meanDelta: number;
@@ -115,10 +150,18 @@ async function runCase(
   writeFileSync(join(dir, "export.svg"), svg);
   writeFileSync(join(dir, "report.json"), JSON.stringify(report, null, 2));
 
+  // The SVG names its font families but carries no @font-face — Figma resolves
+  // them against its own font list on import. Rendering it here without them
+  // silently substitutes Arial for every custom face, which shifts every glyph
+  // and would report a font the harness did not load as an export defect.
+  const fontsUrl = googleFontsUrlForSvg(svg);
   const rendered = await renderSvgToPng(browser, svg, {
     width: testCase.width,
     height: testCase.height,
     deviceScaleFactor: 1,
+    headHtml: fontsUrl
+      ? `<link rel="stylesheet" href="${fontsUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
+      : "",
   });
   writeFileSync(join(dir, "export.png"), rendered.png);
 

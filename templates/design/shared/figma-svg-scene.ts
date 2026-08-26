@@ -2572,6 +2572,40 @@ export function collectRawFigmaSvgScene(
           "backdrop-filter cannot be expressed in SVG — rasterized this element's region via screenshot.",
       };
     }
+    // A CSS clip-path or mask reshapes what the element paints, and the box
+    // model this exporter builds has no way to carry an arbitrary one — so a
+    // masked element exported at full size. Positivus' contact block is a
+    // black rectangle revealed through a starburst; unmasked it covered the
+    // whole form. A screenshot of the region reproduces the mask exactly.
+    if (
+      (style.clipPath && style.clipPath !== "none") ||
+      (style.maskImage && style.maskImage !== "none") ||
+      (style.webkitMaskImage && style.webkitMaskImage !== "none")
+    ) {
+      return {
+        ...base,
+        rasterReason:
+          "clip-path / mask has no SVG equivalent here — rasterized this element's region via screenshot.",
+      };
+    }
+    // SVG has no conic gradient, and the paint builder answered that by
+    // dropping the layer — Figma received a blank tile where the design has an
+    // angular gradient. A screenshot of the region reproduces it exactly. Only
+    // for a leaf: rasterizing a container would flatten real children that
+    // export perfectly well on their own, and they would also still be walked
+    // and drawn underneath it.
+    if (
+      el.children.length === 0 &&
+      /(^|[\s,(])(repeating-)?conic-gradient\(/i.test(
+        base.backgroundImage || "",
+      )
+    ) {
+      return {
+        ...base,
+        rasterReason:
+          "conic-gradient has no SVG equivalent — rasterized this element's region via screenshot.",
+      };
+    }
 
     // An inline <svg> is already vector art. Its children paint through
     // presentation attributes and a viewBox scale that the box/text model
