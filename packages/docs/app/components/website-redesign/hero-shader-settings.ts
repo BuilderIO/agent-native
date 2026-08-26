@@ -169,7 +169,7 @@ export const DEFAULT_ATMOSPHERE_SETTINGS: AtmosphereSettings = {
   eyeDistance: 3.4,
   centerX: 0.5,
   centerY: 0.12,
-  lightPitch: 78,
+  lightPitch: 8,
   lightYawOffset: -70,
   lightSpeed: 0.22,
   rayleighR: 3.8,

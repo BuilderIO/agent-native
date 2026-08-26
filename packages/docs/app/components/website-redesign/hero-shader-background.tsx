@@ -1376,20 +1376,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
   vec3 eye = vec3(0.0, 0.0, uEyeDistance);
 
-  // Rotating around a single axis (pitch = X, yaw = Y) only sweeps the
-  // light back and forth along one meridian, so the grazing rim highlight
-  // moves in and out of view rather than tracing the visible edge. Instead,
-  // uLightPitch is used as a fixed cone angle away from the eye/sphere axis
-  // (Z), and uLightSpeed spins the azimuth *around* that axis -- this is
-  // what actually orbits the light around the planet's circumference as
-  // seen from the camera, independent of pitch/yaw.
-  float tiltRad = radians(uLightPitch);
-  float orbitRad = radians(uLightYawOffset) + iTime * uLightSpeed;
-  vec3 l = normalize(vec3(
-    sin(tiltRad) * cos(orbitRad),
-    sin(tiltRad) * sin(orbitRad),
-    cos(tiltRad)
-  ));
+  float lightPitchRad = radians(uLightPitch);
+  float lightYawRad = radians(uLightYawOffset) + iTime * uLightSpeed;
+  vec3 l = normalize(rot3xy(vec2(lightPitchRad, lightYawRad)) * vec3(0.0, 0.0, 1.0));
 
   float R = uPlanetRadius + uAtmosphereThickness;
   vec2 e = ray_vs_sphere(eye, dir, R);
@@ -1653,14 +1642,19 @@ function AtmosphereShaderBackground({
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
+    // Rendered into a width/height-swapped buffer, then CSS-rotated 90deg
+    // clockwise (see the canvas's inline transform below) -- swapping the
+    // source buffer's own dimensions before that rotate() is what lets the
+    // rotated result land back on the container's exact WxH box with zero
+    // stretching or cropping.
     function resize() {
       const w = container.clientWidth;
       const h = container.clientHeight;
       dpr = Math.min(window.devicePixelRatio, 1.5);
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
+      canvas.width = h * dpr;
+      canvas.height = w * dpr;
+      canvas.style.width = h + "px";
+      canvas.style.height = w + "px";
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
 
@@ -1769,11 +1763,22 @@ function AtmosphereShaderBackground({
         inset: 0,
         zIndex: -1,
         opacity: intensity,
+        overflow: "hidden",
       }}
     >
+      {/* Rendered into a width/height-swapped buffer (see resize() above)
+          then rotated 90deg clockwise here -- centering + rotating a
+          swapped-dimension box lands it back on the container's exact
+          footprint with no stretching or cropping. */}
       <canvas
         ref={canvasRef}
-        style={{ display: "block", width: "100%", height: "100%" }}
+        style={{
+          display: "block",
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%) rotate(90deg)",
+        }}
       />
     </div>
   );
