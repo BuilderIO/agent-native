@@ -599,6 +599,39 @@ describe("createBuilderEngine", () => {
     });
   });
 
+  it("aliases oversized tool names on the gateway wire and restores them", async () => {
+    const longName = `mcp__${"server_".repeat(8)}__get_meetings`;
+    let providerName = "";
+    const fetchSpy = vi.fn().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(init.body as string);
+      providerName = body.tools[0].name;
+      return jsonlResponse([
+        { type: "tool-call", id: "toolu_01", name: providerName, input: {} },
+        { type: "stop", reason: "tool_use", requestId: "req_1" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: longName,
+            description: "Get meetings",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    expect(providerName).not.toBe(longName);
+    expect(providerName.length).toBeLessThanOrEqual(64);
+    expect(events.find((event) => event.type === "tool-call")).toMatchObject({
+      name: longName,
+    });
+  });
+
   it("assembles a tool call whose arguments arrive across multiple deltas without a terminal tool-call frame", async () => {
     vi.stubGlobal(
       "fetch",
