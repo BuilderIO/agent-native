@@ -573,7 +573,7 @@ export function createAgentNativeWebMcpRegistration(
                 options.maxInputChars ?? DEFAULT_INPUT_CHARS,
               );
               const context = options.getContext
-                ? ((await options.getContext()) ?? {})
+                ? await options.getContext()
                 : {};
               const request = {
                 action,
