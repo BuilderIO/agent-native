@@ -180,8 +180,8 @@ export function Footer() {
 
         <div className="flex items-center gap-[var(--spacing-6)]">
           <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
-            {/* i18n-ignore: a year and the wordmark, nothing translatable */}
-            © 2026 AGENT-NATIVE
+            {/* i18n-ignore: a year and the wordmark, nothing translatable */}©
+            2026 AGENT-NATIVE
           </span>
           <div
             aria-hidden

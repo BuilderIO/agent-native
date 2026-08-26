@@ -24,8 +24,7 @@ export function Hero() {
           </h1>
           <p className="m-0 text-center font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.3] text-[var(--b-text-primary)]">
             {t("homepage.hero.bodyLine1")}
-            <br className="mobile:hidden" />{" "}
-            {t("homepage.hero.bodyLine2")}
+            <br className="mobile:hidden" /> {t("homepage.hero.bodyLine2")}
           </p>
         </div>
 

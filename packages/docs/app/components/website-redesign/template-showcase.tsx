@@ -1,3 +1,4 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowUpRight,
   IconChevronLeft,
@@ -11,8 +12,6 @@ import {
   type ReactNode,
 } from "react";
 import { Link } from "react-router";
-
-import { useLocale, useT } from "@agent-native/core/client/i18n";
 
 import { BuilderImage } from "../builder-image";
 import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
