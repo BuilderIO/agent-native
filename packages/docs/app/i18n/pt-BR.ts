@@ -1960,6 +1960,7 @@ const ptBR = {
     externalAgents: "Agents externos (conectar host)",
     externalAgentsCatalog: "Catálogo de agents externos",
     mcpApps: "MCP Apps (UIs inline)",
+    webMcp: "WebMCP (ferramentas do navegador)",
     crossAppSso: "SSO entre apps",
     notifications: "Notificações",
     automationConnectors: "Conectores de fluxo de trabalho",

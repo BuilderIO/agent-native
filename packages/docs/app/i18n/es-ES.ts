@@ -1965,6 +1965,7 @@ const esES = {
     externalAgents: "Agents externos (conectar un host)",
     externalAgentsCatalog: "Catálogo de agentes externos",
     mcpApps: "MCP Apps (UI integrada)",
+    webMcp: "WebMCP (herramientas del navegador)",
     crossAppSso: "SSO entre apps",
     notifications: "Notificaciones",
     automationConnectors: "Conectores de flujo de trabajo",
