@@ -30,7 +30,6 @@ import {
   availableSizingForElement,
   commitElementMinMax,
   commitElementSizing,
-  cssElementSize,
   horizontalToJustify,
   inferElementSizing,
   measuredElementSize,
