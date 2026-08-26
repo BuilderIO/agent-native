@@ -121,7 +121,7 @@ const LOGO_ENTRIES: LogoEntry[] = [
   {
     name: "coral-circles",
     label: "Builder",
-    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1122e0c46c6740f8bfe9e9fcb77c7774",
+    src: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F09b602e08d754495aebd541fd8aafcbb",
     srcWidth: 552,
     srcHeight: 568,
     fill: true,
