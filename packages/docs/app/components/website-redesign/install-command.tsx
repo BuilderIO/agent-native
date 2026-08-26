@@ -4,6 +4,37 @@ import { useSnackbar } from "./ds/snackbar";
 
 const INSTALL_COMMAND = "npx @agent-native/core@latest create my-app";
 
+// navigator.clipboard is missing or rejects in an iframe that wasn't granted
+// clipboard-write (the preview host is one), so fall back to the legacy
+// selection-based copy instead of silently doing nothing there.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // coercion-ok: permission/availability failure, retried via execCommand
+  }
+
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.top = "0";
+  field.style.opacity = "0";
+  document.body.appendChild(field);
+  field.select();
+  field.setSelectionRange(0, text.length);
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    field.remove();
+  }
+}
+
 // Two stacked background layers on a real 1px border: the fill layer is
 // clipped to padding-box and the gradient layer to border-box, so the gradient
 // only shows inside the border itself. That keeps the hairline exactly the same
@@ -24,14 +55,9 @@ export function InstallCommand() {
   const showSnackbar = useSnackbar();
 
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(INSTALL_COMMAND);
-    } catch {
-      // coercion-ok: clipboard permission/availability failures mean the
-      // copy silently didn't happen, so skip the success feedback below
-      // rather than falsely claiming it worked
-      return;
-    }
+    // No feedback when nothing actually landed on the clipboard, rather than
+    // falsely claiming it worked.
+    if (!(await copyText(INSTALL_COMMAND))) return;
     trackEvent("copy install command", { command: INSTALL_COMMAND });
     showSnackbar("Copied");
   }
