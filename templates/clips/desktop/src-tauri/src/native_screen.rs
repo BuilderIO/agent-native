@@ -2297,6 +2297,27 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
     }
 }
 
+/// The `screencapture` fallback backend owns an OS child process, and
+/// `kill_active_screencapture_child` can only find it while the session is in
+/// the state slot. A cancel takes the session out of that slot and hands it to
+/// a detached thread, so a quit landing before that thread reaches its
+/// kill/reap path would leave `screencapture` running after Clips is gone.
+/// Stop and reap it here, on the caller's thread, and detach only the file
+/// cleanup. Bounded by `stop_screencapture`'s discard grace (~250ms) and only
+/// reached by the fallback backend — the ScreenCaptureKit paths, which carry
+/// the restart latency this detach exists for, still tear down detached.
+fn terminate_screencapture_child_before_detach(session: &mut NativeFullscreenSession) {
+    if !matches!(
+        session.backend.as_ref(),
+        Some(NativeFullscreenBackend::Screencapture { .. })
+    ) {
+        return;
+    }
+    if let Err(err) = finalize_active_backend(session, false) {
+        eprintln!("[clips-tray] cancel: screencapture stop before detach failed: {err}");
+    }
+}
+
 #[tauri::command]
 pub async fn native_fullscreen_recording_cancel(
     app: AppHandle,
@@ -2312,11 +2333,12 @@ pub async fn native_fullscreen_recording_cancel(
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
         guard.take()
     };
-    if let Some(session) = session {
+    if let Some(mut session) = session {
         eprintln!(
             "[clips-tray] cancel: detaching discard for {}",
             session.path.display()
         );
+        terminate_screencapture_child_before_detach(&mut session);
         spawn_detached_discard(session);
     }
     // An aborted start (countdown/warm cancelled before `begin`) never reaches
@@ -3054,6 +3076,25 @@ const SHAREABLE_CONTENT_PREFETCH_TTL: Duration = Duration::from_secs(15);
 static PREFETCHED_SHAREABLE_CONTENT: Mutex<Option<(Instant, SCShareableContent)>> =
     Mutex::new(None);
 
+/// Set while a prefetch is running. The cache alone cannot debounce: it stays
+/// empty for the multi-second duration of `SCShareableContent::get`, so rapid
+/// popover reopens would each see "nothing cached" and pile up another
+/// blocking fetch.
+#[cfg(target_os = "macos")]
+static SHAREABLE_CONTENT_PREFETCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+/// Clears the in-flight flag however the prefetch ends, including a panic in
+/// the blocking task.
+#[cfg(target_os = "macos")]
+struct ShareableContentPrefetchGuard;
+
+#[cfg(target_os = "macos")]
+impl Drop for ShareableContentPrefetchGuard {
+    fn drop(&mut self) {
+        SHAREABLE_CONTENT_PREFETCH_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Consume the popover-open prefetch for an initial recording start. Returns
 /// `None` (callers then do their own fresh fetch) when the snapshot is
 /// missing, expired, or does not contain the requested display — a monitor
@@ -3096,6 +3137,16 @@ pub async fn native_fullscreen_prefetch_capture_content() -> Result<(), String> 
         if recently_fetched {
             return Ok(());
         }
+        // Coalesce with a prefetch that is already running rather than queueing
+        // a second multi-second fetch behind it; the one in flight populates
+        // the same cache this call would have.
+        if SHAREABLE_CONTENT_PREFETCH_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let _in_flight = ShareableContentPrefetchGuard;
         match tauri::async_runtime::spawn_blocking(SCShareableContent::get).await {
             Ok(Ok(content)) => {
                 if let Ok(mut guard) = PREFETCHED_SHAREABLE_CONTENT.lock() {
