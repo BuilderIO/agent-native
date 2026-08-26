@@ -18,7 +18,7 @@ const PILLAR_ROWS: Pillar[][] = [
       darkImage:
         "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa06ad4fe59284a74a990a1f7002eece4",
       lightImage:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58c00496a707498abbf5dffb32358729",
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9bcf96ce33d84249ab3b1615e713d38e",
     },
     {
       title: "Embedded agent chat",
