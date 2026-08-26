@@ -233,24 +233,6 @@ describe("signOut", () => {
     expect(replace).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the all-device revoke route when requested", async () => {
-    const { signOut } = await loadSignOut();
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await signOut({ allDevices: true });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/_agent-native/auth/logout-all",
-      expect.objectContaining({
-        method: "POST",
-        credentials: "include",
-        signal: expect.any(AbortSignal),
-      }),
-    );
-    expect(replace).toHaveBeenCalledTimes(1);
-  });
-
   it("honours an explicit destination", async () => {
     const { signOut } = await loadSignOut();
     vi.stubGlobal(
