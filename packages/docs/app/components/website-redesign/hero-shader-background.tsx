@@ -1444,7 +1444,25 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     col = mix(col, screened, uLightScreenAmount);
   }
 
-  fragColor = vec4(col, alpha);
+  // Dither by +/- half a quantization step to break up 8-bit banding. This
+  // gradient is extremely shallow (a near-black falloff spread over hundreds
+  // of pixels), so consecutive pixels round to the same byte for long runs and
+  // the transitions show up as hard concentric contours. Alpha gets the same
+  // treatment with a decorrelated offset -- it's derived from the same
+  // brightness, so dithering only the color would leave the alpha steps
+  // banding on their own. Sub-LSB noise is invisible on its own but pushes
+  // pixels either side of each rounding boundary, turning the contour into a
+  // gradient. Animating on iTime keeps the noise from reading as fixed grain.
+  float noise = fract(
+    sin(dot(fragCoord + iTime, vec2(12.9898, 78.233))) * 43758.5453
+  );
+  float noiseAlpha = fract(
+    sin(dot(fragCoord + iTime, vec2(63.7264, 10.873))) * 32416.1873
+  );
+  col += (noise - 0.5) / 255.0;
+  alpha += (noiseAlpha - 0.5) / 255.0;
+
+  fragColor = vec4(clamp(col, 0.0, 1.0), clamp(alpha, 0.0, 1.0));
 }
 
 void main() {
