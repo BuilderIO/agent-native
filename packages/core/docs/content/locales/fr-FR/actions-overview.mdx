@@ -37,7 +37,7 @@ D’autres applications natives d’agent la découvrent et l’appellent via A2
 
 La plupart des applications construisent une couche API séparée entre le frontend et la base de données, une couche que seul le navigateur peut appeler. Un agent qui veut la même capacité a besoin de sa propre intégration séparée, écrite et maintenue à nouveau. Les applications natives d’agent évitent cette séparation. L’UI et l’agent appellent exactement la même action, il n’y a donc qu’une seule implémentation à écrire, et un seul endroit où un bug peut se cacher.
 
-<Diagram id="doc-block-actions-overview-2" title="Frontend traditionnel vs. Agent Native" summary="Un frontend traditionnel appelle sa propre couche API, que lui seul peut atteindre. Dans Agent Native, app/ et l’agent appellent tous deux les mêmes actions, donc chaque fonctionnalité construite ici est appelable par l’agent gratuitement.">
+<Diagram id="doc-block-actions-overview-2" title="Frontend traditionnel vs. Agent-Native" summary="Un frontend traditionnel appelle sa propre couche API, que lui seul peut atteindre. Dans Agent-Native, app/ et l’agent appellent tous deux les mêmes actions, donc chaque fonctionnalité construite ici est appelable par l’agent gratuitement.">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ La plupart des applications construisent une couche API séparée entre le front
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (frontend React)</div>
       <div class="diagram-node">Agent</div>

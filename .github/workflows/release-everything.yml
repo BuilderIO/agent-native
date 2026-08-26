@@ -349,7 +349,7 @@ jobs:
             ]);
 
             const downstream = await Promise.allSettled([
-              waitForRun(desktop, "Agent Native desktop stable release", 120 * 60_000),
+              waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
               clipsAlreadyPublished
                 ? Promise.resolve({ status: "completed", conclusion: "success" })
                 : waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
@@ -367,7 +367,7 @@ jobs:
               .addTable([
                 ["Target", "Result"],
                 ["npm packages", `${releaseType} release published`],
-                ["Agent Native desktop", `stable v${desktopVersion}`],
+                ["Agent-Native desktop", `stable v${desktopVersion}`],
                 ["Clips desktop", `stable v${clipsVersion}`],
                 ["Production sites", `${productionSites.length} *.agent-native.com apps`],
                 ["Source commit", releaseSha],

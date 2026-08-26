@@ -21,7 +21,7 @@ describe("resolveEnvironmentLaneOrigins", () => {
 });
 
 describe("isAllowedEnvironmentNavigation", () => {
-  it("keeps an Agent Native beta/prod switch in the webview", () => {
+  it("keeps an Agent-Native beta/prod switch in the webview", () => {
     expect(
       isAllowedEnvironmentNavigation(
         new URL("https://plan.agent-native.com/inbox"),

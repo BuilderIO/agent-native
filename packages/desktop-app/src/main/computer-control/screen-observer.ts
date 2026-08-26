@@ -73,7 +73,7 @@ export class EphemeralScreenObserver {
     this.purgeExpired();
     if (this.options.permissionStatus().screenRecording !== "granted") {
       throw new Error(
-        "Screen Recording permission is required to view the desktop. Enable Agent Native in System Settings > Privacy & Security > Screen Recording.",
+        "Screen Recording permission is required to view the desktop. Enable Agent-Native in System Settings > Privacy & Security > Screen Recording.",
       );
     }
     const sources = await this.options.desktopCapturer.getSources({

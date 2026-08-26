@@ -43,7 +43,7 @@ final class KeyboardViewController: UIInputViewController {
     statusLabel.numberOfLines = 2
     statusLabel.textAlignment = .center
 
-    configurePrimaryButton(dictateButton, title: "Dictate in Agent Native")
+    configurePrimaryButton(dictateButton, title: "Dictate in Agent-Native")
     dictateButton.addTarget(self, action: #selector(beginDictation), for: .touchUpInside)
 
     configurePrimaryButton(insertButton, title: "Insert Dictation")
@@ -135,7 +135,7 @@ final class KeyboardViewController: UIInputViewController {
     insertButton.isEnabled = canInsert
     statusLabel.text = canInsert
       ? "Your dictation is ready at the cursor."
-      : "Record in Agent Native, return here, then insert once."
+      : "Record in Agent-Native, return here, then insert once."
   }
 
   @objc private func beginDictation() {
@@ -158,7 +158,7 @@ final class KeyboardViewController: UIInputViewController {
       DispatchQueue.main.async {
         self?.statusLabel.text = opened
           ? "Finish dictating, return to this field, and tap Insert."
-          : "Open Agent Native and choose Dictate, then return here."
+          : "Open Agent-Native and choose Dictate, then return here."
       }
     }
   }

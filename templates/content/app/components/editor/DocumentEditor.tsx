@@ -2211,7 +2211,7 @@ function DocumentEditorBody({
               data-local-source-read-only
             >
               {t("editor.localFileReadOnlySnapshot", {
-                device: "Agent Native Desktop",
+                device: "Agent-Native Desktop",
                 date: new Date(
                   document.source?.updatedAt ?? document.updatedAt,
                 ).toLocaleString(),
