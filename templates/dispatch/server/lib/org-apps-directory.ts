@@ -38,10 +38,10 @@
  *
  * Same-org enforcement: the verified token's `org_domain` must resolve to a
  * local org (`resolveOrgByDomain`). A token with no `org_domain`, an unknown
- * domain, or a bad signature is rejected. There is no cross-org disclosure:
- * the only secrets that can sign an accepted token are the deployment's
- * global `A2A_SECRET` (shared first-party fabric) or the specific org's
- * `a2a_secret`.
+ * domain, or a bad signature is rejected. The org-specific secret is the
+ * normal path. A legacy deployment-wide secret is accepted only when the
+ * asserted domain is independently proven to be the deployment's sole org,
+ * so one global credential can never select among local tenants.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -72,6 +72,7 @@ function base64UrlDecodeToBuffer(input: string): Buffer | null {
       "base64",
     );
   } catch {
+    // coercion-ok: secret lookup failure is an authentication denial, never success.
     return null;
   }
 }
@@ -164,11 +165,10 @@ function verifyWithSecret(
  * Verify an inbound A2A bearer token the same way the core A2A receiver does:
  *
  *   1. Decode (unverified) to read the asserted `org_domain`.
- *   2. Build the ordered candidate-secret set: the deployment's global
- *      `A2A_SECRET` first (current callers prefer it), then the specific
- *      org's `a2a_secret` resolved by domain (legacy / org-scoped callers).
- *   3. Verify the signature with each candidate; the first that validates
- *      wins. A token that validates under NO candidate is rejected.
+ *   2. Resolve the specific org's `a2a_secret` by domain.
+ *   3. Verify the signature with that org-bound secret. A deployment-wide
+ *      compatibility secret may be supplied only after the plugin proves the
+ *      asserted domain is the deployment's sole organization.
  *
  * `resolveOrgSecretByDomain` is injected so this stays pure/testable; the
  * plugin wires it to `getA2ASecretByDomain` from `@agent-native/core/org`.
@@ -177,8 +177,10 @@ function verifyWithSecret(
  */
 export async function verifyA2ABearerToken(input: {
   token: string;
-  globalSecret: string | undefined;
   resolveOrgSecretByDomain: (domain: string) => Promise<string | null>;
+  resolveSoleOrgGlobalSecretByDomain?: (
+    domain: string,
+  ) => Promise<string | null>;
   nowSeconds?: number;
 }): Promise<VerifiedA2APayload | null> {
   const decoded = decodeJwtUnverified(input.token);
@@ -192,46 +194,49 @@ export async function verifyA2ABearerToken(input: {
 
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
 
-  const candidates: string[] = [];
-  const pushCandidate = (s: string | null | undefined) => {
-    const t = s?.trim();
-    if (t && !candidates.includes(t)) candidates.push(t);
-  };
-  pushCandidate(input.globalSecret);
-  if (assertedDomain) {
-    try {
-      pushCandidate(await input.resolveOrgSecretByDomain(assertedDomain));
-    } catch {
-      // DB not ready / column missing — fall through to whatever we have.
+  if (!assertedDomain) return null;
+  let orgSecret: string | null = null;
+  let soleOrgGlobalSecret: string | null = null;
+  try {
+    orgSecret = await input.resolveOrgSecretByDomain(assertedDomain);
+    if (input.resolveSoleOrgGlobalSecretByDomain) {
+      soleOrgGlobalSecret =
+        await input.resolveSoleOrgGlobalSecretByDomain(assertedDomain);
     }
+    // coercion-ok: secret lookup failure is an authentication denial, never success.
+  } catch {
+    return null;
   }
-  if (candidates.length === 0) return null;
+  const candidateSecrets = [...new Set([orgSecret, soleOrgGlobalSecret])]
+    .filter((secret): secret is string => typeof secret === "string")
+    .map((secret) => secret.trim())
+    .filter(Boolean);
+  if (candidateSecrets.length === 0) return null;
 
-  for (const secret of candidates) {
-    const payload = verifyWithSecret(decoded, secret, now);
-    if (payload) {
-      // The org directory is a general A2A-peer endpoint. Reject tokens
-      // minted for a different single purpose — SSO identity assertions
-      // (`scope: "identity"`) or MCP-connect personal tokens
-      // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
-      // cannot enumerate the org's apps. General A2A peer tokens carry no
-      // `scope` claim and are still accepted.
-      const scope =
-        typeof (payload as { scope?: unknown }).scope === "string"
-          ? ((payload as { scope: string }).scope as string)
-          : "";
-      if (scope === "identity" || scope === "mcp-connect") return null;
-      const sub = payload.sub;
-      const email =
-        typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
-      if (!email) return null;
-      // The verified token MUST carry an org_domain — the directory is
-      // strictly org-scoped, and the same-org check needs it. A token with
-      // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
-      // org and is rejected.
-      if (!assertedDomain) return null;
-      return { email, orgDomain: assertedDomain };
-    }
+  const payload = candidateSecrets
+    .map((secret) => verifyWithSecret(decoded, secret, now))
+    .find((candidate) => candidate !== null);
+  if (payload) {
+    // The org directory is a general A2A-peer endpoint. Reject tokens
+    // minted for a different single purpose — SSO identity assertions
+    // (`scope: "identity"`) or MCP-connect personal tokens
+    // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
+    // cannot enumerate the org's apps. General A2A peer tokens carry no
+    // `scope` claim and are still accepted.
+    const scope =
+      typeof (payload as { scope?: unknown }).scope === "string"
+        ? ((payload as { scope: string }).scope as string)
+        : "";
+    if (scope === "identity" || scope === "mcp-connect") return null;
+    const sub = payload.sub;
+    const email =
+      typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
+    if (!email) return null;
+    // The verified token MUST carry an org_domain — the directory is
+    // strictly org-scoped, and the same-org check needs it. A token with
+    // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
+    // org and is rejected.
+    return { email, orgDomain: assertedDomain };
   }
   return null;
 }
@@ -274,6 +279,50 @@ export interface DiscoveredAppLike {
   name: string;
   description?: string;
   url: string;
+}
+
+export interface OrgDirectorySuccessCache<T> {
+  get(key: string, load: () => Promise<T>): Promise<T>;
+  clear(): void;
+}
+
+/**
+ * Tenant-keyed success cache with single-flight refreshes. Rejections are
+ * never cached and an expired value is never served after a failed refresh.
+ */
+export function createOrgDirectorySuccessCache<T>(input?: {
+  ttlMs?: number;
+  now?: () => number;
+}): OrgDirectorySuccessCache<T> {
+  const ttlMs = input?.ttlMs ?? 60_000;
+  const now = input?.now ?? Date.now;
+  const values = new Map<string, { value: T; expiresAt: number }>();
+  const inFlight = new Map<string, Promise<T>>();
+
+  return {
+    async get(key, load) {
+      const cached = values.get(key);
+      if (cached && cached.expiresAt > now()) return cached.value;
+      values.delete(key);
+
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+      const refresh = load()
+        .then((value) => {
+          values.set(key, { value, expiresAt: now() + ttlMs });
+          return value;
+        })
+        .finally(() => {
+          inFlight.delete(key);
+        });
+      inFlight.set(key, refresh);
+      return refresh;
+    },
+    clear() {
+      values.clear();
+      inFlight.clear();
+    },
+  };
 }
 
 /**
