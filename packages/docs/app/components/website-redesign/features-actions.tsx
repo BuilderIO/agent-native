@@ -32,7 +32,7 @@ export function FeaturesActions() {
             margin: 0,
             maxWidth: 633,
             fontFamily: "var(--b-font-sans)",
-            fontSize: "var(--b-t-paragraph-2)",
+            fontSize: "var(--b-t-paragraph-1)",
             lineHeight: 1.4,
             color: "var(--b-text-secondary)",
           }}
