@@ -585,6 +585,7 @@ function isRootGoogleCallback(value: string): boolean {
       !url.hash
     );
   } catch {
+    // coercion-ok: malformed callback URLs are invalid validation candidates.
     return false;
   }
 }
@@ -597,6 +598,7 @@ function isMcpOAuthRedirectUri(value: string): boolean {
       pathname.endsWith("/_agent-native/google/callback")
     );
   } catch {
+    // coercion-ok: malformed redirect URLs are invalid validation candidates.
     return false;
   }
 }
