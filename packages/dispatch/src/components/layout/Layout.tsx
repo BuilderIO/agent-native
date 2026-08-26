@@ -1,6 +1,7 @@
 import {
   CHAT_FIRST_MODE_CHANGED_EVENT,
   AgentChatSurface,
+  AgentToggleButton,
   chatFirstSurfaceTabId,
   AgentSidebar,
   ChatFirstSurfacePanelToggle,
@@ -61,6 +62,7 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { RunsTray } from "@agent-native/core/client/progress";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
@@ -76,6 +78,7 @@ import {
   IconHierarchy2,
   IconMessageQuestion,
   IconBroadcast,
+  IconLayoutSidebar,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconSettings,
@@ -116,6 +119,7 @@ import {
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
+import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -125,7 +129,11 @@ import {
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
+import {
+  HeaderActionsProvider,
+  useHeaderActions,
+  useHeaderTitle,
+} from "./HeaderActions";
 
 export { buildChatFirstEmbedSessionInput } from "../workspace-app-host";
 
@@ -256,9 +264,8 @@ export function useDispatchExtensions(): DispatchExtensionConfig | undefined {
   return useContext(DispatchExtensionsContext);
 }
 
-// Routes whose page renders its own toolbar.
-// Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
-// there's no double-header.
+// Routes whose page renders its own toolbar. Layout skips its sticky chat
+// control so there's no duplicate page chrome.
 function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
@@ -1400,6 +1407,8 @@ export function Layout({
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
+  const pageTitle = useHeaderTitle();
+  const headerActions = useHeaderActions();
   const [mobileOpen, setMobileOpen] = useState(false);
   // Drives renderChatFirstSurfaceTab's app-tab chatSidebar decision below —
   // the chat-first surface panel is already a full-screen overlay at this
@@ -2283,7 +2292,7 @@ export function Layout({
     );
   }
 
-  const showHeader = !isChatRoute && !pageOwnsToolbar(localPathname);
+  const showAgentControls = !isChatRoute && !pageOwnsToolbar(localPathname);
   function openAskAgentFullscreen() {
     focusAgentChat();
     navigateWithAgentChatViewTransition(
@@ -2291,14 +2300,30 @@ export function Layout({
       dispatchNavLinkTarget("/chat"),
     );
   }
+  function openRunThread(threadId: string) {
+    navigate("/chat", {
+      state: {
+        dispatchThread: {
+          id: `${Date.now()}-${threadId}`,
+          threadId,
+        },
+      },
+    });
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId },
+        }),
+      );
+    });
+  }
   const sidebarSuggestions = [
     t("dispatch.sidebar.suggestionBuildApp"),
     t("dispatch.sidebar.suggestionRouteSlack"),
     t("dispatch.sidebar.suggestionGrantKey"),
   ];
   const appContent = (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      {showHeader ? <Header onOpenMobile={() => setMobileOpen(true)} /> : null}
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <InvitationBanner />
       {isChatRoute && chatFirstMode && chatFirstHasActiveChat ? (
         <ChatFirstSurfacePanelToggle
@@ -2325,16 +2350,43 @@ export function Layout({
       ) : null}
       <main
         className={cn(
-          "flex-1",
+          "min-h-0 flex-1",
           isChatRoute || isWorkspaceAppRoute
-            ? "min-h-0 overflow-hidden"
+            ? "overflow-hidden"
             : "overflow-y-auto",
         )}
       >
-        {showHeader ? (
-          <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
-            {children}
-          </div>
+        {showAgentControls ? (
+          <>
+            <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pt-2 lg:px-6">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="pointer-events-auto absolute start-4 top-2 h-8 w-8 lg:hidden"
+                onClick={() => setMobileOpen(true)}
+                aria-label="Open navigation"
+              >
+                <IconLayoutSidebar className="h-4 w-4" />
+              </Button>
+              <div className="pointer-events-auto flex items-center gap-1">
+                <RunsTray limit={8} onOpenThread={openRunThread} />
+                <AgentToggleButton className="h-8 w-8 rounded-md bg-background/80 hover:bg-accent" />
+              </div>
+            </div>
+            <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+              {localPathname !== "/overview" && (pageTitle || headerActions) ? (
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">{pageTitle}</div>
+                  {headerActions ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                      {headerActions}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {children}
+            </div>
+          </>
         ) : (
           children
         )}

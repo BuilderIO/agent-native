@@ -1,70 +1,176 @@
 ---
-title: "ميزتك الأولى في الدردشة"
+title: "الدردشة: ميزتك الأولى"
 description: "الملف الوحيد الذي يعرض شاشة بدء تشغيل الدردشة، وما تفعله خصائصه الفعلية، وشرح كامل لإضافة ميزة من البداية إلى النهاية."
 ---
 
-# ميزتك الأولى في الدردشة
+# ميزتك الأولى
 
-هذه الصفحة مخصصة للمطورين الذين يقومون بتوسيع [نموذج الدردشة](/docs/template-chat). وهي تغطي الملف الوحيد الذي يعرض شاشة الدردشة الأولية، ثم تستعرض كل ما يتعامل معه الوكيل عادةً عندما تطلب ميزة حقيقية.
+هذه الصفحة مخصصة للمطورين الذين يوسّعون [قالب الدردشة](/docs/template-chat).
+وهي تغطي الملف الوحيد الذي يعرض شاشة الدردشة الأولية، ثم تستعرض كل ما يتعامل
+معه الوكيل عادةً عندما تطلب ميزة حقيقية.
 
 ## أول رمز يجب فحصه {#first-code}
 
-- `actions/hello.ts` هو سلوك البادئ الذي يمكن للوكيل الاتصال به. استبدله أو
-  أضف actions بجانبه.
-- يعرض `app/routes/_index.tsx` سطح الدردشة بملء الصفحة. اضبط
-  الاقتراحات أو الحالة الفارغة أو الملحن أو التخطيط المحيط هنا.
+- `actions/hello.ts` هو السلوك الابتدائي الذي يمكن للوكيل استدعاؤه. استبدله
+  أو أضف إجراءات بجانبه.
+- يعرض `app/routes/_index.tsx` سطح الدردشة بملء الصفحة. عدّل الاقتراحات، أو
+  الحالة الفارغة، أو الملحن، أو التخطيط المحيط هنا.
 - يخبر `AGENTS.md` الوكيل المدمج بكيفية العمل داخل هذا التطبيق.
 
 <FileTree
-  id="doc-block-rm7ufm"
-  title={"تخطيط template Chat"}
+  id="doc-block-chat3"
+  title="تخطيط قالب الدردشة"
   entries={[
     {
       path: "actions/hello.ts",
-      note: "action المثال الوحيد؛ استبدله أو أضف actions بجانبه",
+      note: "الإجراء المثال الوحيد؛ استبدله أو أضف إجراءات بجانبه",
     },
     {
       path: "actions/view-screen.ts",
-      note: "context action قياسي يقرأه agent",
+      note: "إجراء سياق قياسي يستدعيه الوكيل أولًا",
     },
     {
       path: "actions/navigate.ts",
-      note: "navigation action قياسي",
+      note: "إجراء تنقّل قياسي",
     },
     {
       path: "app/routes/_index.tsx",
-      note: "يعرض سطح chat بصفحة كاملة؛ عدّل suggestions و empty state و composer",
+      note: "يعرض سطح الدردشة بملء الصفحة؛ عدّل الاقتراحات، والحالة الفارغة، والملحن",
     },
     {
       path: "app/routes/chat.$threadId.tsx",
-      note: "يعيد تصدير _index.tsx بحيث يعرض /chat/:threadId نفس السطح مع معرف سلسلة المحادثة في عنوان URL",
+      note: "يعيد تصدير _index.tsx بحيث يعرض /chat/:threadId نفس السطح مع معرّف سلسلة محادثة في عنوان URL",
     },
     {
       path: "AGENTS.md",
-      note: "إرشادات chat-first يقرأها agent المدمج",
+      note: "إرشادات الدردشة أولاً التي يقرأها الوكيل المدمج",
     },
   ]}
 />
 
-ملف البدء الفعلي هو أكثر من مجرد `<AgentChatSurface />` بسيط؛ راجع `app/routes/_index.tsx` للاطلاع على مزامنة عنوان URL لسلسلة المحادثة، وهوية علامة التبويب، وتخطيط الملحن الرئيسي.
+ملف البدء الفعلي أكثر من مجرد `<AgentChatSurface />` بسيط — فهو يصل مزامنة
+عنوان URL لسلسلة المحادثة، وهوية علامة تبويب لتشغيلات متعددة التبويبات،
+وتخطيط الملحن الرئيسي، ونصّه يأتي من مفاتيح i18n لا من نصوص حرفية:
 
-## استخدم الواجهة الخلفية للوكيل الخاص بك {#own-agent-backend}
-
-يستخدم القالب حلقة وكيل التطبيق المضمنة بشكل افتراضي. لتوصيل واجهة خلفية مخصصة، قم بتبديل وقت تشغيل الدردشة خلف البرنامج الإضافي لدردشة الوكيل بدلاً من إعادة كتابة UI. يجب أن يظل مسار الدردشة عارضًا رفيعًا حول سطح الدردشة المشترك؛ ينتمي اختيار الواجهة الخلفية إلى البرنامج الإضافي للخادم/محول وقت التشغيل.
-
-استخدم هذا عندما يكون تنسيق النموذج الخاص بك موجودًا بالفعل في مكان آخر، ولكنك لا تزال تريد تطبيقًا به مصادقة، وسلاسل رسائل، وحالة actions، وUI، وصفحات قابلة للنشر.
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/routes/_index.tsx (مُختصر)"
+  filename="app/routes/_index.tsx"
+  language="tsx"
+  code={
+    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "19-21",
+      label: "مزامنة عنوان URL لسلسلة المحادثة",
+      note: "يعيد `/chat/:threadId` (`chat.$threadId.tsx`) تصدير نفس هذا المكوّن. عندما يحتوي المسار على معرّف سلسلة محادثة، تحافظ `threadUrlSync` على تزامن عنوان URL والسلسلة النشطة معًا: تبديل السلاسل يدفع `/chat/<id>`، وفتح ذلك العنوان يستعيد السلسلة.",
+    },
+    {
+      lines: "38",
+      label: "هوية علامة التبويب",
+      note: "يتيح `TAB_ID` (في `app/lib/tab-id.ts`، معرّف عشوائي يُنشأ مرة واحدة لكل علامة تبويب في المتصفح) لوقت تشغيل الدردشة المشترك التمييز بين علامات تبويب متعددة مفتوحة لنفس التطبيق، بحيث لا يُخلط تشغيل بدأ في علامة تبويب بآخر في علامة تبويب مختلفة.",
+    },
+    {
+      lines: "39-44",
+      label: "الاقتراحات هي مفاتيح i18n",
+      note: 'يأتي نص الاقتراحات من `t("chat.suggestionCapabilities")` وما شابه (راجع `app/i18n/en-US.ts`)، لا من نصوص إنجليزية حرفية، وتُعطِّل `dynamicSuggestions={false}` توليد الاقتراحات الخاص بوقت التشغيل نفسه لصالح هذه الاقتراحات الثلاثة.',
+    },
+    {
+      lines: "46-47",
+      label: "تخطيط الملحن الرئيسي",
+      note: 'يُوسّط `composerLayoutVariant="hero"` مع `centerComposerWhenEmpty` الملحن مع عنوان/وصف أعلاه، بدلاً من الملحن المُرسى أسفل الصفحة ببساطة الذي تستخدمه مسارات الدردشة الأخرى ذات `mode="page"`.',
+    },
+    {
+      lines: "49-54",
+      label: "composerSlot",
+      note: 'JSX عشوائي يُعرض أعلى الملحن فقط أثناء توسيطه — هنا يعيش عنوان "كيف يمكنني المساعدة؟". عدّل هذا لتغيير خطاب الحالة الفارغة دون لمس وقت التشغيل.',
+    },
+    {
+      lines: "23-31",
+      label: "تسليم الصفحة الرئيسية",
+      note: 'عندما يبدأ تشغيل في هذه الصفحة، تسجّل `markAgentChatHomeHandoff("chat")` أن السطح الرئيسي يملك التشغيل النشط، بحيث يعيد الانتقال إلى مكان آخر والعودة الاتصال به مجددًا بدلاً من فقدانه.',
+    },
+  ]}
+/>
 
 ## التعديلات الأولى {#first-edits}
 
-بعد السقالات، اسأل الوكيل:
+تتبع معظم الميزات الأولى نفس الشكل: جدول، وإجراء أو إجراءان، ومسار، وعنصر
+تنقّل، وتحديث لـ `AGENTS.md`. اطلب من الوكيل:
 
-> أضف نموذج بيانات لـ `notes`. تحتوي الملاحظة على معرف وعنوان ونص ومالك. اعرض صفحة ملاحظات على `/notes`، وأضف إنشاء/قائمة actions، واجعل الدردشة قادرة على إنشاء ملاحظات.
+> أضف نموذج بيانات لـ `notes`. تحتوي الملاحظة على معرّف، وعنوان، ونص، ومالك.
+> اعرض صفحة ملاحظات على `/notes`، وأضف إجراءات الإنشاء/القائمة، واجعل
+> الدردشة قادرة على إنشاء ملاحظات.
 
-يجب على الوكيل إضافة مخطط Drizzle وactions والمسار والتنقل والتعليمات. ثم يمكنك استخدام ميزة الملاحظات إما من UI أو من الدردشة.
+تُشحن الدردشة بدون أي `server/db/schema.ts` على الإطلاق (راجع [ما يتم
+شحنه](/docs/template-chat#what-ships))، لذا فإن أول تغيير هو ملف جديد، يتبع
+نفس شكل `table`/`text`/`ownableColumns` الذي يستخدمه كل قالب آخر:
 
-## ما هي الخطوة التالية
+<Diff
+  id="doc-block-chat5"
+  title="جدول notes جديد"
+  filename="server/db/schema.ts"
+  language="ts"
+  before={""}
+  after={
+    'import {\n  table,\n  text,\n  ownableColumns,\n} from "@agent-native/core/db/schema";\n\nexport const notes = table("notes", {\n  id: text("id").primaryKey(),\n  title: text("title").notNull(),\n  body: text("body").notNull(),\n  createdAt: text("created_at").notNull(),\n  updatedAt: text("updated_at").notNull(),\n  ...ownableColumns(),\n});'
+  }
+  annotations={[
+    {
+      lines: "1-5",
+      label: "مساعدات المخطط المشتركة",
+      note: "تأتي `table`/`text`/`ownableColumns` من `@agent-native/core/db/schema` — نفس المساعدات المستقلة عن اللهجة (dialect-agnostic) التي يستخدمها كل قالب، لذا يبقى هذا الملف قابلًا للنقل بين SQLite وPostgres.",
+    },
+    {
+      lines: "13",
+      label: "ownableColumns",
+      note: "تضيف `...ownableColumns()` أعمدة المالك/المؤسسة التي تتوقعها مساعدات إطار العمل `accessFilter`/`resolveAccess`، بحيث تندرج notes في نموذج المشاركة القياسي لكل مستخدم/لكل مؤسسة دون أي أعمال سباكة إضافية.",
+    },
+  ]}
+/>
 
-- [**نموذج الدردشة**](/docs/template-chat) — ما يتم شحنه افتراضيًا ومتى تختاره
-- [**Chat — أسطح وقت التشغيل والإدارة**](/docs/template-chat-developers) — الجداول الأساسية، المصادقة، وصفحات الإدارة
-- [**Actions**](/docs/actions-overview) — اتصال نظام الدردشة وUI معًا
-- [**Native واجهة الدردشة**](/docs/native-chat-ui) — أساسيات سطح الدردشة وخيارات وقت التشغيل
+يتبع باقي الميزة من هناك:
+
+- `actions/create-note.ts` — إجراء `defineAction` بمخطط Zod (`title`،
+  `body`)، على شكل `actions/hello.ts`.
+- `actions/list-notes.ts` — إجراء للقراءة فقط (`readOnly: true`، كما في
+  `actions/view-screen.ts`) يستعلم عن الجدول الجديد عبر `accessFilter`.
+- `app/routes/notes.tsx` — مسار جديد؛ يستخدم التطبيق التوجيه القائم على
+  نظام الملفات (`flatRoutes()` في `app/routes.ts`)، لذا يكفي إضافة الملف
+  لتركيب `/notes`.
+- إدخال جديد في مصفوفة `navItems` في `app/components/layout/Sidebar.tsx`
+  يشير إلى `/notes`.
+- إضافة إلى `AGENTS.md` تخبر الوكيل بوجود notes وما هي الإجراءات التي
+  تديرها.
+
+يمكن للدردشة استدعاء إجراء جديد بمجرد وجوده — كل `defineAction` أداة (tool)
+افتراضيًا إلا إذا ضبط `agentTool: false`. لكنه لن يكون بالضرورة في أول طلب
+للنموذج: يضبط `server/plugins/agent-chat.ts` القيمة
+`INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`، التي تتحكم فقط
+في مخططات الأدوات المُرسَلة في الدورة الأولى. يبقى كل ما عداها، بما فيه
+`create-note` الجديد كليًا، قابلًا للوصول عبر `tool-search` ويُحمَّل عند
+الحاجة — أضف اسمًا إلى تلك القائمة فقط إذا كنت تريده في مجموعة أدوات النموذج
+الافتراضية من الرسالة الأولى.
+
+## استخدم الواجهة الخلفية لوكيلك الخاص {#own-agent-backend}
+
+يستخدم القالب حلقة وكيل التطبيق المدمجة افتراضيًا. لتوصيل واجهة خلفية
+مخصصة، بدّل وقت تشغيل الدردشة خلف المكوّن الإضافي لدردشة الوكيل عوضًا عن
+إعادة كتابة واجهة المستخدم. يجب أن يبقى مسار الدردشة عارضًا رفيعًا حول سطح
+الدردشة المشترك؛ اختيار الواجهة الخلفية ينتمي إلى المكوّن الإضافي
+للخادم/محوّل وقت التشغيل.
+
+استخدم هذا عندما يكون تنسيق نموذجك موجودًا بالفعل في مكان آخر، لكنك لا تزال
+تريد تطبيقًا يضم مصادقة، وسلاسل محادثة، وإجراءات، وحالة واجهة مستخدم، وصفحات
+قابلة للنشر.
+
+## ما التالي
+
+- [**الدردشة**](/docs/template-chat) — ما يتم شحنه افتراضيًا ومتى تختارها
+- [**الدردشة: دليل المطور**](/docs/template-chat-developers) — البدء
+  السريع، والإجراءات، والجداول الأساسية، والمصادقة، وصفحات الإدارة
+- [**الإجراءات**](/docs/actions-overview) — نظام الإجراءات الذي تستدعيه
+  الدردشة وواجهة المستخدم كلتاهما
+- [**واجهة المحادثة الأصلية**](/docs/native-chat-ui) — أساسيات سطح الدردشة
+  وخيارات وقت التشغيل

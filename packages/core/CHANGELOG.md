@@ -1,5 +1,46 @@
 # @agent-native/core
 
+## 0.175.3
+
+### Patch Changes
+
+- c30393d: Rework Chat's docs (Overview, Your First Feature, Developer Guide) into the same focused format used by the Calendar docs rework: a "Try it out now" card linking to the live chat.agent-native.com app, a What ships Comparison with explicit accent colors, and a Developer Guide quick start plus action inventory and customizing section. Also updates the ar-SA, de-DE, es-ES, fr-FR, hi-IN, ja-JP, ko-KR, pt-BR, zh-CN, and zh-TW locale translations of template-chat.mdx and template-chat-first-edits.mdx to match. template-chat-developers.mdx still has no locale mirrors at all — that gap is pre-existing and already tracked in the i18n coverage baseline.
+
+## 0.175.2
+
+### Patch Changes
+
+- 96d0181: Keep a same-origin Referer on validated embed responses so an embedded Dispatch can open workspace apps. Embed responses previously used `Referrer-Policy: no-referrer`, which stripped the Referer from every same-origin request the page made for the life of the document, so `create-workspace-app-embed-session` rejected Dispatch itself with "Workspace app sessions must be requested by Dispatch." Cross-origin referrers stay fully suppressed.
+- 462f53c: Preserve Builder OAuth state when Builder omits it from the callback query.
+- Release all public npm packages with a patch version bump.
+- 84ab540: Fix mouse-wheel zoom running at trackpad-pinch sensitivity in `usePinchZoom`.
+
+  A single wheel notch saturated the hook's ±50px delta clamp and landed on
+  `exp(0.5)`, so every detent multiplied zoom by ~1.65× regardless of how far the
+  wheel actually turned. Wheel and pinch now run through separate curves — a
+  notch is a Figma-sized 1.1× step, finger separation keeps the exponential — and
+  the device is latched per gesture rather than guessed per event, because macOS
+  ramps an accelerated wheel up from pinch-sized deltas.
+
+  Adds `@agent-native/core/client/zoom-gesture` exporting the shared
+  classification and curves (`resolveZoomGestureDevice`, `zoomFactorForWheelDelta`,
+  `clampZoomFactor`, `accumulateZoomFactor`) so canvases stop re-deriving them.
+
+  `preventDefault` on wheel and touch-pinch is now guarded by `event.cancelable`,
+  which stops the browser Intervention warning Chrome logs per event during a
+  fling.
+
+  Line- and page-mode wheel deltas are converted to pixels before the curve is
+  applied. The curve is calibrated in pixels, so a Firefox line-mode notch
+  (`deltaY: 3`) was being read as three pixels of travel and moved zoom by well
+  under a percent. Classification still reads the raw delta and its real mode —
+  normalising first would push a line tick into the trackpad band.
+
+- Updated dependencies [65a3b88]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.2
+  - @agent-native/recap-cli@0.5.16
+
 ## 0.175.1
 
 ### Patch Changes

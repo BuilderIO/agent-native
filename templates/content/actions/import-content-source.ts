@@ -15,6 +15,7 @@ import {
   parseContentSourceFile,
   type ParsedContentSourceFile,
 } from "../shared/content-source.js";
+import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   favoriteDocumentIds,
   setFavoriteMembership,
@@ -61,6 +62,10 @@ function localSourceFields(filePath: string, now: string) {
 
 function canEditRole(role: string) {
   return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK.editor;
+}
+
+function canAdminRole(role: string) {
+  return ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK.admin;
 }
 
 function normalizedFileEntries(files: Record<string, string>) {
@@ -214,6 +219,9 @@ export default defineAction({
     const parsed: ParsedContentSourceFile[] = entries.map(
       ([filePath, source]) => parseContentSourceFile(filePath, source),
     );
+    const fidelityByPath = new Map(
+      parsed.map((file) => [file.path, inspectNfmFidelity(file.content)]),
+    );
     const importPaths = [...new Set(parsed.map((file) => file.path))];
     const existingLocalDocs =
       importPaths.length > 0
@@ -292,6 +300,14 @@ export default defineAction({
         });
         continue;
       }
+      const fidelity = fidelityByPath.get(file.path);
+      if (fidelity?.status === "failed") {
+        errors.push({
+          path: file.path,
+          reason: `Document conversion failed: ${fidelity.error ?? "unreadable content"}.`,
+        });
+        continue;
+      }
 
       const sourceMatchedDocument = file.id
         ? null
@@ -337,6 +353,19 @@ export default defineAction({
         const discoverabilityChanged =
           file.hideFromSearch !== undefined &&
           boolToInt(file.hideFromSearch) !== (existing.hideFromSearch ?? 0);
+        const visibilityChanged =
+          file.visibility !== undefined &&
+          file.visibility !== existing.visibility;
+        if (
+          visibilityChanged &&
+          (!existingRole || !canAdminRole(existingRole))
+        ) {
+          skipped.push({
+            path: file.path,
+            reason: `Requires admin access to change visibility on document "${id}".`,
+          });
+          continue;
+        }
         const sourceUpdates = localSourceFields(file.path, now);
         const sourceChanged =
           existing.sourceMode !== sourceUpdates.sourceMode ||
@@ -351,6 +380,7 @@ export default defineAction({
           iconChanged ||
           favoriteChanged ||
           discoverabilityChanged ||
+          visibilityChanged ||
           sourceChanged ||
           spaceChanged;
 
@@ -379,6 +409,7 @@ export default defineAction({
           if (discoverabilityChanged) {
             updates.hideFromSearch = boolToInt(file.hideFromSearch);
           }
+          if (visibilityChanged) updates.visibility = file.visibility;
           Object.assign(updates, sourceUpdates);
 
           await db
@@ -416,7 +447,7 @@ export default defineAction({
             isFavorite: boolToInt(file.isFavorite),
             hideFromSearch: boolToInt(file.hideFromSearch),
             ...localSourceFields(file.path, now),
-            visibility: "private",
+            visibility: file.visibility ?? "private",
             createdAt: now,
             updatedAt: now,
           });
@@ -544,6 +575,7 @@ export default defineAction({
       skipped,
       errors,
       idByPath: Object.fromEntries(idByPath),
+      fidelity: Object.fromEntries(fidelityByPath),
     };
   },
 });
