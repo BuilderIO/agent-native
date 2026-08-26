@@ -328,6 +328,7 @@
 
 .builder-brand-tokens .app-carousel-card-body {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--spacing-3);
@@ -341,6 +342,8 @@
   width: 32px;
   height: 32px;
   border-radius: var(--b-radius);
+  margin-top: auto;
+  margin-bottom: 0;
 }
 
 .builder-brand-tokens .app-carousel-card:hover .app-carousel-card-arrow {
