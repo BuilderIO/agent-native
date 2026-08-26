@@ -49,6 +49,9 @@ const DISPATCH_DESCRIPTION =
 const DISPATCH_COLOR = "#14B8A6";
 const TARGET_EMBED_SESSION_ATTEMPTS = 3;
 const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
+// target apps can take a long time to cold-boot, so we give a large timeout here
+const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
+const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
@@ -1035,6 +1038,12 @@ function targetMcpRequestDetails(input: {
   };
 }
 
+function targetMcpConnectTimeout(deadline: number): number {
+  const remaining = deadline - Date.now();
+  const budget = Math.min(TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS, remaining);
+  return Math.max(1000, budget);
+}
+
 function targetMcpRetryDelay(attempt: number): number {
   const base =
     TARGET_EMBED_SESSION_RETRY_BASE_MS * Math.pow(2, Math.max(0, attempt - 1));
@@ -1048,18 +1057,22 @@ async function callTargetCreateEmbedSession(input: {
   chrome?: "full" | "minimal";
 }): Promise<unknown> {
   const serverId = "target";
+  const deadline = Date.now() + TARGET_EMBED_SESSION_BUDGET_MS;
   for (let attempt = 1; ; attempt += 1) {
-    const manager = new McpClientManager({
-      servers: {
-        [serverId]: {
-          type: "http",
-          url: `${appBaseUrl(input.app)}/mcp`,
-          headers: {
-            Authorization: `Bearer ${input.token}`,
+    const manager = new McpClientManager(
+      {
+        servers: {
+          [serverId]: {
+            type: "http",
+            url: `${appBaseUrl(input.app)}/mcp`,
+            headers: {
+              Authorization: `Bearer ${input.token}`,
+            },
           },
         },
       },
-    });
+      { connectTimeoutMs: targetMcpConnectTimeout(deadline) },
+    );
     try {
       await manager.start();
       return await manager.callTool(
@@ -1072,7 +1085,8 @@ async function callTargetCreateEmbedSession(input: {
     } catch (error) {
       if (
         attempt >= TARGET_EMBED_SESSION_ATTEMPTS ||
-        !isRetryableTargetMcpError(error)
+        !isRetryableTargetMcpError(error) ||
+        deadline - Date.now() < TARGET_EMBED_SESSION_RETRY_BASE_MS
       ) {
         throw error;
       }
