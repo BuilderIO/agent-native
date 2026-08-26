@@ -37,6 +37,7 @@ import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
+import { createProviderToolNameMap } from "./tool-name.js";
 import {
   engineToolsToAISDK,
   engineMessagesToAISDK,
@@ -309,15 +310,17 @@ class AISDKEngine implements AgentEngine {
       return;
     }
 
+    const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
     const aiSdkTools =
       opts.tools.length > 0
-        ? engineToolsToAISDK(opts.tools, jsonSchema)
+        ? engineToolsToAISDK(opts.tools, jsonSchema, toolNameMap)
         : undefined;
     const messages = engineMessagesToAISDK(opts.messages, {
       // Vision-capable provider translators (anthropic/openai/google/
       // openrouter) map image parts to native blocks; the rest stringify
       // tool-result content arrays, so images degrade to their text notes.
       toolResultImages: this.capabilities.vision,
+      toolNameMap,
     });
 
     // Resolved once so both `maxOutputTokens` (below, in the streamText call)
@@ -481,7 +484,7 @@ class AISDKEngine implements AgentEngine {
           : {}),
         abortSignal: firstEventAbort.signal,
         onStepFinish: (step: any) => {
-          assistantContent = aiSdkStepToAssistantContent(step);
+          assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
         },
         ...(Object.keys(providerOpts).length > 0
           ? { providerOptions: providerOpts }
@@ -504,7 +507,7 @@ class AISDKEngine implements AgentEngine {
           sawFirstEvent = true;
           firstEventAbort.markFirstEvent();
         }
-        for (const event of aiSdkPartToEngineEvents(part)) {
+        for (const event of aiSdkPartToEngineEvents(part, toolNameMap)) {
           observeStreamedToolInput(toolInputs, event);
           if (
             event.type === "stop" &&
