@@ -168,6 +168,22 @@ describe("runMigrations – serverless request runtime", () => {
     });
   }
 
+  it("does not resolve a lazy migration source in a guarded request", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    vi.stubEnv("NETLIFY", "true");
+    const loadMigrations = vi.fn(async () => migrations);
+
+    const plugin = runMigrations(loadMigrations, {
+      table: "lazy_guard_migrations",
+    });
+    await plugin(null);
+
+    expect(loadMigrations).not.toHaveBeenCalled();
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+  });
+
   it("keeps request-time migrations when no release runner is configured", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
@@ -532,6 +548,75 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(calls.some((s) => /ALTER TABLE t1/i.test(s))).toBe(true);
     // Version 1 and 2 must NOT be applied (already at v2)
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
+  });
+
+  it("preserves dialect-specific generated SQL on Postgres", async () => {
+    vi.mocked(isPostgres).mockReturnValue(true);
+    const pooledExec = makeExec([{ v: 0 }]);
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+
+    const directExec = makeExec([{ v: 0 }]);
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 1,
+          name: "0001_add_priority.sql",
+          sql: "ALTER TABLE tasks ADD COLUMN priority integer;",
+          dialectSpecific: true,
+        },
+        {
+          version: 1,
+          sql: "ALTER TABLE tasks ADD COLUMN handwritten_after_generated TEXT;",
+        },
+      ],
+      { table: "generated_pg_migrations" },
+    );
+    await plugin(null);
+
+    const calls = directExec.execute.mock.calls.map((c) =>
+      typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
+    );
+    expect(
+      calls.some((sql) =>
+        /ALTER TABLE tasks ADD COLUMN priority integer/i.test(sql),
+      ),
+    ).toBe(true);
+    expect(calls.some((sql) => /priority BIGINT/i.test(sql))).toBe(false);
+    const legacyInsertIndex = calls.findIndex((sql) =>
+      /INSERT INTO generated_pg_migrations VALUES/i.test(sql),
+    );
+    const handwrittenIndex = calls.findIndex((sql) =>
+      /handwritten_after_generated/i.test(sql),
+    );
+    expect(legacyInsertIndex).toBeGreaterThan(handwrittenIndex);
+  });
+
+  it("does not record dialect-specific SQL that has no SQLite entry", async () => {
+    vi.mocked(isPostgres).mockReturnValue(false);
+    const exec = makeNamedExec({ version: 8, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 9,
+          name: "0009_postgres_only.sql",
+          sql: { postgres: "ALTER TABLE tasks ADD COLUMN priority integer" },
+          dialectSpecific: true,
+        },
+      ],
+      { table: "generated_sqlite_migrations" },
+    );
+    await plugin(null);
+
+    expect(exec.insertedNames).not.toContain("0009_postgres_only.sql");
+    const calls = exec.execute.mock.calls.map((c) =>
+      typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
+    );
+    expect(calls.some((sql) => /ALTER TABLE tasks/i.test(sql))).toBe(false);
   });
 
   it("uses the pooled exec for a pending run-only migration", async () => {
