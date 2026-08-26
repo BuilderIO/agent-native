@@ -1,5 +1,36 @@
 # @agent-native/core
 
+## 0.175.4
+
+### Patch Changes
+
+- 20be465: Keep ordinary cross-app todo requests in chat and make oversized provider tool names safe for A2A handoffs.
+- 9426034: Stop a rejected provider credential from re-breaking the first prompt on a fixed cadence
+
+  A 401 pins the rejected credential so the next lane serves everyone after it, but
+  two things kept unpinning it and making the next person's first prompt pay to
+  rediscover the same rejection:
+  - `ai-sdk-engine` cleared the auth-failure marker after every stream, error or
+    not, so one unrelated failure (a 500, an overload) re-admitted a credential a
+    401 had just pinned. Clearing asserts the credential works, so only a turn
+    that actually completed does it now.
+  - Both auth-failure markers released on a flat 15-minute TTL. The marker is
+    fingerprinted on the credential value, so a rotated credential never matched
+    the old marker anyway — the TTL only ever re-tested a credential that was
+    still wrong. Repeat failures on the same fingerprint now back off
+    exponentially from that base up to 24h, while a first, genuinely transient
+    401 still releases on the original TTL.
+
+- Release all public npm packages with a patch version bump.
+- db91905: Allow hosted deployments to resolve their Notion OAuth client credentials for signed-in users.
+- 5ef18e1: Let agents inspect successful public image responses from web-request as vision context.
+- 557e694: Polish the agent recovery card action spacing.
+- 318819b: Give the Dispatch workspace embed handshake a cold-boot connect budget so opening an app whose server is still starting no longer fails as unreachable. `McpClientManager` now accepts a `connectTimeoutMs` option, and the embed session mint spends up to 90s per attempt within a 95s total budget instead of the 5s interactive default, matching the dev gateway's own readiness wait.
+- Updated dependencies [db91905]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.3
+  - @agent-native/recap-cli@0.5.17
+
 ## 0.175.3
 
 ### Patch Changes

@@ -6,11 +6,19 @@ export interface CreateDrizzleConfigOptions {
   /** Output directory for generated migrations. Defaults to `./server/db/migrations`. */
   out?: string;
   /**
+   * Dialect to use for the generated migration history. Set this to the
+   * primary deployment dialect when one output folder is shared across hosts.
+   * Defaults to detecting the dialect from `DATABASE_URL`.
+   */
+  dialect?: DrizzleKitDialect;
+  /**
    * Local SQLite file path used when `DATABASE_URL` is unset or points at SQLite.
    * Defaults to `./data/app.db`.
    */
   sqliteFile?: string;
 }
+
+export type DrizzleKitDialect = "postgresql" | "sqlite" | "turso";
 
 /**
  * Detect whether the current process was invoked as `drizzle-kit push`.
@@ -93,6 +101,14 @@ export function createDrizzleConfig(
     sqliteFile = "./data/app.db",
   } = opts;
 
+  if (opts.dialect) {
+    (
+      globalThis as typeof globalThis & {
+        __agentNativeDrizzleKitDialect?: DrizzleKitDialect;
+      }
+    ).__agentNativeDrizzleKitDialect = opts.dialect;
+  }
+
   // Mirror getDatabaseUrl / getDatabaseAuthToken from @agent-native/core (db/client)
   // without importing — drizzle-kit configs should stay side-effect-free.
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
@@ -147,18 +163,43 @@ export function createDrizzleConfig(
     );
   }
 
-  const url = envUrl || `file:${sqliteFile}`;
   // URI schemes are case-insensitive per RFC 3986; normalize before matching.
-  const scheme = url.toLowerCase();
-  const isPostgres =
-    scheme.startsWith("postgres://") || scheme.startsWith("postgresql://");
-  const isPglite = isPgliteUrl(url);
+  const envScheme = envUrl.toLowerCase();
+  const envIsPostgres =
+    envScheme.startsWith("postgres://") ||
+    envScheme.startsWith("postgresql://");
+  const envIsPglite = isPgliteUrl(envUrl);
   // Only `libsql://` matches Turso. Plain `https://` is too broad — Turso's
   // HTTP endpoint is reachable via libsql:// in drizzle-kit, and a generic
   // https:// URL is far more likely to be a custom Postgres endpoint.
-  const isTurso = scheme.startsWith("libsql://");
+  const envIsTurso = envScheme.startsWith("libsql://");
+  const detectedDialect: DrizzleKitDialect =
+    envIsPostgres || envIsPglite
+      ? "postgresql"
+      : envIsTurso
+        ? "turso"
+        : "sqlite";
+  const dialect = opts.dialect ?? detectedDialect;
+  const useEnvironmentUrl =
+    envUrl &&
+    ((dialect === "postgresql" && (envIsPostgres || envIsPglite)) ||
+      (dialect === "turso" && envIsTurso) ||
+      (dialect === "sqlite" &&
+        !envIsPostgres &&
+        !envIsPglite &&
+        !envIsTurso &&
+        envScheme.startsWith("file:")));
+  const url = useEnvironmentUrl
+    ? envUrl
+    : dialect === "postgresql"
+      ? "postgres://localhost/app"
+      : dialect === "turso"
+        ? "libsql://localhost"
+        : `file:${sqliteFile}`;
+  const scheme = url.toLowerCase();
+  const isPglite = isPgliteUrl(url);
 
-  if (isTurso && !envAuthToken) {
+  if (dialect === "turso" && !envAuthToken) {
     throw new Error(
       "createDrizzleConfig: DATABASE_URL is a libsql:// URL but DATABASE_AUTH_TOKEN " +
         "is not set. Set DATABASE_AUTH_TOKEN (or <APP_NAME>_DATABASE_AUTH_TOKEN) so " +
@@ -176,14 +217,13 @@ export function createDrizzleConfig(
   return defineConfig({
     schema,
     out,
-    dialect:
-      isPostgres || isPglite ? "postgresql" : isTurso ? "turso" : "sqlite",
+    dialect,
     ...(isPglite ? { driver: "pglite" as const } : {}),
     dbCredentials: isPglite
       ? { url: pgliteDataDirFromUrl(url) }
-      : isPostgres
+      : dialect === "postgresql"
         ? { url }
-        : isTurso
+        : dialect === "turso"
           ? { url, authToken: envAuthToken as string }
           : { url: sqlitePath },
   });
