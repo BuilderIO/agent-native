@@ -449,17 +449,12 @@ function enginePartToAnthropic(
       if (builderGateway) {
         const tool_name = toProviderToolName(part.toolName.trim(), toolNameMap);
         const tool_input = part.toolInput;
-        // Gateway degrade: the Builder gateway multiplexes to non-Anthropic
-        // models whose tool_result handling is string-only, so images are
-        // dropped here. The content string already carries a `[image: …]`
-        // note per image (appended by runToolCall), so the model still knows
-        // an image existed and any https URL survives.
         return {
           type: "tool_result",
           tool_use_id: part.toolCallId,
           tool_name,
           tool_input,
-          content: part.content,
+          content: toolResultContentToAnthropic(part),
           ...(part.isError ? { is_error: true } : {}),
         } as any;
       }

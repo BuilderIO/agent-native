@@ -491,14 +491,27 @@ describe("tool-result images", () => {
     expect(tr.is_error).toBe(true);
   });
 
-  it("degrades to string content on the Builder gateway path", () => {
+  it("preserves image content on the Builder gateway path", () => {
     const result = engineMessagesToBuilderGatewayAnthropic(
-      withImages([{ url: "https://cdn.example.com/shot.png" }]),
+      withImages([
+        { url: "https://cdn.example.com/shot.png" },
+        { data: "aGVsbG8=", mediaType: "image/jpeg" },
+      ]),
     );
     const tr = (result[2].content as any[]).find(
       (p: any) => p.type === "tool_result",
     );
-    expect(tr.content).toBe("Captured the dashboard");
+    expect(tr.content).toEqual([
+      { type: "text", text: "Captured the dashboard" },
+      {
+        type: "image",
+        source: { type: "url", url: "https://cdn.example.com/shot.png" },
+      },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: "aGVsbG8=" },
+      },
+    ]);
   });
 
   it("preserves images through the tool-result backfill", () => {
