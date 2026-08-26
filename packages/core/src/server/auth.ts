@@ -3414,8 +3414,9 @@ function isBuilderPreviewHost(host: string): boolean {
 }
 
 function isBuilderPreviewLocalDevEnabled(): boolean {
-  const value =
-    process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]?.trim().toLowerCase();
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
   return value === "1" || value === "true";
 }
 
