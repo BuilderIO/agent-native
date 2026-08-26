@@ -355,6 +355,8 @@ export type AgentChatEvent =
       input: Record<string, string>;
       /** Stable key the client echoes back in `approvedToolCalls` to approve. */
       approvalKey: string;
+      /** False when this action requires a fresh approval for every call. */
+      allowPersistentApproval?: false;
       /** The model-side tool-call id for this paused call, when available. */
       toolCallId?: string;
       /**

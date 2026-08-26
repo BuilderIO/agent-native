@@ -342,6 +342,18 @@ describe("defineAction", () => {
     expect(action.needsApproval).toBe(gate);
   });
 
+  it("preserves a per-call-only approval policy on the returned entry", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: true,
+      allowPersistentApproval: false,
+      run: async () => "sent",
+    });
+
+    expect(action.allowPersistentApproval).toBe(false);
+  });
+
   it("leaves needsApproval undefined when not specified (default off)", () => {
     const action = defineAction({
       description: "send an email",

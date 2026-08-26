@@ -177,6 +177,7 @@ import {
   startMcpConfigRefresh,
   getHubStatus,
   isHubServeEnabled,
+  type McpActionEntryOptions,
 } from "../mcp-client/index.js";
 import { declaredMcpToolNames } from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
@@ -724,6 +725,10 @@ export function createAgentChatPlugin(
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
       const backgroundMcpTools = options?.backgroundMcpTools ?? "requested";
+      const mcpActionEntryOptions: McpActionEntryOptions =
+        options?.resolveMcpActionEntry
+          ? { resolveActionEntry: options.resolveMcpActionEntry }
+          : {};
 
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
@@ -791,7 +796,9 @@ export function createAgentChatPlugin(
         await ensureMcpInitialized();
         const entries = mcpToolsToActionEntries(
           mcpManager,
-          backgroundMcpTools === "all" ? {} : { toolNames: requested },
+          backgroundMcpTools === "all"
+            ? mcpActionEntryOptions
+            : { ...mcpActionEntryOptions, toolNames: requested },
         );
         const missing = requested.filter((toolName) => !entries[toolName]);
         if (missing.length > 0) {
@@ -3328,8 +3335,12 @@ export function createAgentChatPlugin(
       // through the settings UI). getEngineTools() in production-agent re-reads
       // the registry per request, so updates here propagate without restart.
       mcpManager.onChange(() => {
-        syncMcpActionEntries(mcpManager, mcpActionEntries);
-        syncMcpActionEntries(mcpManager, prodActions);
+        syncMcpActionEntries(
+          mcpManager,
+          mcpActionEntries,
+          mcpActionEntryOptions,
+        );
+        syncMcpActionEntries(mcpManager, prodActions, mcpActionEntryOptions);
       });
 
       // Always build the production handler (includes resource tools + call-agent + team tools)
@@ -3946,7 +3957,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // === prodActions so the prod listener already covers it.
         if (devActions !== prodActions && devActions !== leanActions) {
           mcpManager.onChange(() => {
-            syncMcpActionEntries(mcpManager, devActions);
+            syncMcpActionEntries(mcpManager, devActions, mcpActionEntryOptions);
           });
         }
         devHandler = createProductionAgentHandler({
