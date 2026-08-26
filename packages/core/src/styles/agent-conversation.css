@@ -132,7 +132,8 @@
   list-style-type: decimal;
 }
 
-.agent-conversation-markdown ul.contains-task-list {
+.agent-conversation-markdown ul.contains-task-list,
+.agent-conversation-markdown ol.contains-task-list {
   list-style-type: none;
 }
 
