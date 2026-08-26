@@ -33,11 +33,14 @@ const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const BASELINE_FILE = path.join(
-  REPO_ROOT,
-  "scripts",
-  "serverless-function-baseline.json",
-);
+/**
+ * The committed baseline. Overridable only so the guard's own test can record
+ * and compare against a throwaway file instead of the tracked one — a test that
+ * had to `--update` the real baseline would rewrite the thing it is asserting.
+ */
+const BASELINE_FILE =
+  process.env.AGENT_NATIVE_FUNCTION_SIZE_BASELINE_FILE ||
+  path.join(REPO_ROOT, "scripts", "serverless-function-baseline.json");
 
 /**
  * Growth under this is normal drift — a dependency patch, a few new routes.
@@ -224,11 +227,75 @@ function dirSize(dir) {
   return total;
 }
 
+/**
+ * Runtime payloads whose presence is decided by the deploy environment rather
+ * than by anything in the app, so the same commit emits them in one build
+ * context and not another.
+ *
+ * `ffmpeg-static` is bundled only when `AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH`
+ * names an architecture matching the serverless target (`build.ts`,
+ * `shouldBundleFfmpegStaticForServerless`). Production sets it; beta does not.
+ * Measuring it made clips' production `server` read 112.6MB against a 36.1MB
+ * baseline recorded from beta — a 76MB "regression" that was the same binary
+ * both builds intended, and which blocked every production promotion of the
+ * media apps. `build.ts` already holds this payload outside the ordinary
+ * bundle budget (`NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES`); this check has
+ * to agree with it, or the two guards contradict each other on the same bytes.
+ *
+ * Excluded here means "not ordinary bundle growth", NOT unmeasured: the
+ * absolute ceiling and the hard Netlify limit in `build.ts` still bound these,
+ * and every exclusion is printed so a reviewer sees what was set aside.
+ */
+const DEPLOY_GATED_RUNTIME_PAYLOADS = [
+  {
+    relativePath: path.join("node_modules", "ffmpeg-static"),
+    reason: "bundled only when AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH matches",
+  },
+];
+
+/**
+ * Size of one emitted function, counting only what the app itself put there.
+ *
+ * Returns the measured total and whatever deploy-gated payload was set aside,
+ * so the caller can report the split instead of quietly shrinking a number.
+ */
+function measureFunction(functionDir) {
+  let excluded = 0;
+  const excludedPayloads = [];
+  for (const payload of DEPLOY_GATED_RUNTIME_PAYLOADS) {
+    const payloadDir = path.join(functionDir, payload.relativePath);
+    if (!existsSync(payloadDir)) continue;
+    const bytes = dirSize(payloadDir);
+    excluded += bytes;
+    excludedPayloads.push({ ...payload, bytes });
+  }
+  return {
+    bytes: dirSize(functionDir) - excluded,
+    excludedPayloads,
+  };
+}
+
 function measure(functionsDir) {
   const sizes = {};
+  const excluded = [];
   for (const entry of readdirSync(functionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    sizes[entry.name] = dirSize(path.join(functionsDir, entry.name));
+    const measured = measureFunction(path.join(functionsDir, entry.name));
+    sizes[entry.name] = measured.bytes;
+    for (const payload of measured.excludedPayloads) {
+      excluded.push({ fn: entry.name, ...payload });
+    }
+  }
+  if (excluded.length > 0) {
+    console.log(
+      `\n[size-baseline] Set aside ${excluded.length} deploy-gated runtime payload(s), ` +
+        "counted by build.ts's own ceiling rather than as bundle growth:",
+    );
+    for (const item of excluded) {
+      console.log(
+        `  ${item.fn}: ${item.relativePath} ${mb(item.bytes)}MB (${item.reason})`,
+      );
+    }
   }
   return sizes;
 }
