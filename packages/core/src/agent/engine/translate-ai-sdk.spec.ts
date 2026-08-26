@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  createProviderToolNameMap,
+  PROVIDER_TOOL_NAME_MAX_LENGTH,
+} from "./tool-name.js";
+import {
   engineToolsToAISDK,
   engineMessagesToAISDK,
   aiSdkPartToEngineEvents,
@@ -79,6 +83,51 @@ describe("engineToolsToAISDK", () => {
     });
     expect(result.write.inputSchema.properties.sql.minLength).toBe(1);
     expect(result.write.inputSchema.properties.statements.pattern).toBe("^\\[");
+  });
+
+  it("aliases oversized provider names and restores them on tool events", () => {
+    const longName = `mcp__${"server_".repeat(8)}__get_meetings`;
+    const tools: EngineTool[] = [
+      {
+        name: longName,
+        description: "Get meetings",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ];
+    const toolNameMap = createProviderToolNameMap(tools);
+    const providerName = Object.keys(
+      engineToolsToAISDK(tools, undefined, toolNameMap),
+    )[0];
+
+    expect(providerName).toBeDefined();
+    expect(providerName).not.toBe(longName);
+    expect(providerName!.length).toBeLessThanOrEqual(
+      PROVIDER_TOOL_NAME_MAX_LENGTH,
+    );
+
+    const assistant = engineMessagesToAISDK(
+      [
+        {
+          role: "assistant",
+          content: [
+            { type: "tool-call", id: "tc-1", name: longName, input: {} },
+          ],
+        },
+      ],
+      { toolNameMap },
+    ).find((message) => message.role === "assistant");
+    expect(assistant?.content[0].toolName).toBe(providerName);
+    expect(
+      aiSdkPartToEngineEvents(
+        {
+          type: "tool-call",
+          toolCallId: "tc-1",
+          toolName: providerName,
+          input: {},
+        },
+        toolNameMap,
+      ),
+    ).toEqual([{ type: "tool-call", id: "tc-1", name: longName, input: {} }]);
   });
 });
 

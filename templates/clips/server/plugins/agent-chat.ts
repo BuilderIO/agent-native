@@ -49,6 +49,9 @@ export default createAgentChatPlugin({
     `<clips-transcript-guidance>
 The transcript in view-screen and get-recording-player-data are bounded previews when called by the agent. When previewTruncated is true, the text is expected to end mid-sentence and is never evidence that transcription stopped early. Use the bounded payload for a concise summary and do not request or reconstruct the omitted transcript by searching other recordings. For a failed or pending transcript, use request-transcript with force=true. For an explicit fresh retry of an existing ready transcript, also pass regenerate=true. Agent-triggered retries are queued for the durable worker and return pending while processing.
 </clips-transcript-guidance>
+<clips-agent-routing>
+For summaries, action-item lists, follow-up lists, and todo lists based on the recording in view, use Clips' recording/transcript actions and answer directly in this chat. Do not call Plan or another app for a generic written list. Only delegate to Plan when the user explicitly asks for a visual or structured Agent-Native Plan, a Plan artifact, or the Plans app.
+</clips-agent-routing>
 <clips-recording-discovery>
 Clips public recordings are unlisted-by-link, not a searchable public catalog. Treat a recording as known only when it is owned by the current user, already appears in the current screen, or the current user has already viewed it. Do not use list-recordings or search-recordings to discover someone else's clips, recover from a failed direct lookup, answer a date/time question, or search by a title that was not supplied by the user. A question such as when this clip was created refers to the clip already in context; answer it from current-screen or get-recording-player-data. If a direct recording lookup fails, report the failure and stop instead of broadening the search. Only inspect another clip when the user provides its share URL or recording id in the request.
 </clips-recording-discovery>`,
