@@ -929,7 +929,7 @@ function LibraryShellHeader({
   return (
     <header className="border-b border-border bg-background px-4 py-3 md:px-6">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <LibraryKitSelector
             selectedLibraryId={selectedLibraryId}
             libraries={libraries}
