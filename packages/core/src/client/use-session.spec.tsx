@@ -336,6 +336,49 @@ describe("useSession", () => {
     expect(container.textContent).toBe("signed-out");
   });
 
+  it("revalidates a peer invalidation again after the session cache TTL", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          userId: "user-peer",
+          email: "peer@example.com",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          userId: "user-peer",
+          email: "peer@example.com",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "Not authenticated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<SessionConsumers labels={["peer"]} />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("peer@example.com");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "agent-native:session-invalidated",
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(container.textContent).toBe("signed-out");
+  });
+
   it("reports signing-out instead of the last authenticated answer", async () => {
     // The reported logout race: a cache invalidation only schedules a re-read,
     // so the hook kept answering "authenticated" from the previous read while

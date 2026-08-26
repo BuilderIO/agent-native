@@ -131,6 +131,7 @@ function installSessionInvalidationListeners(): void {
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
       invalidateSessionCache();
+      setTimeout(invalidateSessionCache, SESSION_CACHE_TTL_MS);
     }
   });
   document.addEventListener("visibilitychange", () => {
