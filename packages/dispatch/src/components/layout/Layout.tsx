@@ -129,7 +129,11 @@ import {
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
+import {
+  HeaderActionsProvider,
+  useHeaderActions,
+  useHeaderTitle,
+} from "./HeaderActions";
 
 export { buildChatFirstEmbedSessionInput } from "../workspace-app-host";
 
@@ -1403,6 +1407,8 @@ export function Layout({
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
+  const pageTitle = useHeaderTitle();
+  const headerActions = useHeaderActions();
   const [mobileOpen, setMobileOpen] = useState(false);
   // Drives renderChatFirstSurfaceTab's app-tab chatSidebar decision below —
   // the chat-first surface panel is already a full-screen overlay at this
@@ -2368,6 +2374,16 @@ export function Layout({
               </div>
             </div>
             <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+              {localPathname !== "/overview" && (pageTitle || headerActions) ? (
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">{pageTitle}</div>
+                  {headerActions ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                      {headerActions}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {children}
             </div>
           </>

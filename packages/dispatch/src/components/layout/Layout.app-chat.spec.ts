@@ -21,6 +21,8 @@ describe("Dispatch layout scrolling", () => {
       "<RunsTray limit={8} onOpenThread={openRunThread} />",
     );
     expect(layoutSource).toContain("<AgentToggleButton");
+    expect(layoutSource).toContain("useHeaderTitle");
+    expect(layoutSource).toContain("useHeaderActions");
     expect(layoutSource).not.toContain("showHeader ? <Header onOpenMobile");
   });
 });
