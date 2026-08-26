@@ -7,6 +7,7 @@ export * from "./desktop-local-code-change.js";
 export * from "./hooks/index.js";
 export * from "./navigation/index.js";
 export * from "./host/index.js";
+export * from "./webmcp.js";
 export * from "./widgets/index.js";
 export * from "./ui/index.js";
 

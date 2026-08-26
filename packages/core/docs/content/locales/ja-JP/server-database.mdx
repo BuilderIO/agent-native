@@ -255,6 +255,22 @@ export const getDb = createGetDb(schema);
   migrate:production` が用意されています。
 </Callout>
 
+### Drizzle Kit で新しいアプリマイグレーションを生成する {#drizzle-migrations}
+
+アプリの新しいスキーマ変更には `pnpm db:generate` を使い、レビュー可能な
+SQL を生成します。`server/db/migrations/<id_name>.sql` が作成され、
+`runDrizzleMigrations` がこれらのファイルを Node.js と Node ベースの
+serverless ランタイムで共有 Agent Native ランナーに読み込みます。本番の
+変更は引き続きリリース手順が担当します。方言固有の SQL、D1 の動作、
+データのバックフィル、遅延 JavaScript ステップには `runMigrations()` を使います。
+
+ファイルシステムベースのローダーは Cloudflare Workers/Pages や D1 を含む、
+デプロイ可能なファイルシステムを持たない edge ランタイムでは利用できません。
+その場合は worker bundle に SQL エントリを埋め込み、`runMigrations()` を使います。
+Drizzle の 1 つの出力フォルダーには方言固有のメタデータベースラインが 1 つだけ
+あるため、主なデプロイ方言に対して生成し、同じフォルダーを SQLite と PostgreSQL
+の間で切り替えないでください。
+
 <Callout tone="risk">
   本番データベースに対して `drizzle-kit push`
   を実行しないでください。テンプレートのスキーマはアプリ固有のドメイン
@@ -264,7 +280,7 @@ export const getDb = createGetDb(schema);
   削除しようとするため、即座にデータ損失が発生します。
 </Callout>
 
-各アプリのルートにある `drizzle.config.ts` は、ローカル開発でのスキーマ検査のために drizzle-kit を構成します。
+各アプリのルートにある `drizzle.config.ts` は、ローカル開発でのスキーマ検査のために drizzle-kit を構成します。1 つのマイグレーションフォルダーを複数のバックエンドで使う場合は、主なデプロイ方言を `createDrizzleConfig({ dialect: "postgresql" })` のように明示します。
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -343,7 +359,7 @@ const rows = await db
 
 ## SQL によるバックエンド同期 {#sync}
 
-Agent Native はファイルシステム ウォッチャーや常駐のインメモリ状態には依存しません。action がデータベースに書き込むと、同期バージョンがインクリメントされます。クライアントの `useDbSync()` フックは `/_agent-native/poll` をポーリングし、より高いバージョンを検知すると React Query のキャッシュを無効化します。
+Agent-Native はファイルシステム ウォッチャーや常駐のインメモリ状態には依存しません。action がデータベースに書き込むと、同期バージョンがインクリメントされます。クライアントの `useDbSync()` フックは `/_agent-native/poll` をポーリングし、より高いバージョンを検知すると React Query のキャッシュを無効化します。
 
 これはデータベースが調整のポイントであるため、サーバーレスやマルチインスタンスのデプロイでも機能します。actions の外部でカスタムのミューテーションを書く場合は、フレームワークのヘルパーを使うか、開いている UI が更新されるように適切な同期無効化を発行してください。
 

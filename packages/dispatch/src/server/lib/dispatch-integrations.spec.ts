@@ -844,7 +844,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
+          "Agent-Native is ready, but this Slack account is not linked to an Agent-Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
       },
     );
   });

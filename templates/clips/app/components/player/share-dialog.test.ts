@@ -129,4 +129,21 @@ describe("recording share popover", () => {
     expect(shareUiSource).toContain('useState<Role>("viewer")');
     expect(meetingDialogSource).not.toContain("roleCopy");
   });
+
+  it("lets managers change an existing share role", () => {
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
+
+    expect(shareUiSource).toContain(
+      "const handleChangeRole = (s: Share, nextRole: Role)",
+    );
+    expect(shareUiSource).toContain("principalType: s.principalType");
+    expect(shareUiSource).toContain("principalId: s.principalId");
+    expect(shareUiSource).toContain("role: nextRole");
+    expect(shareUiSource).toContain('onError?.(err, "permission")');
+    expect(shareUiSource).toContain("value={s.role}");
+    expect(shareUiSource).toContain(
+      "onValueChange={(value) => handleChangeRole(s, value as Role)}",
+    );
+    expect(shareUiSource).toContain("disabled={share.isPending}");
+  });
 });

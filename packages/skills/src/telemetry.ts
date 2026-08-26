@@ -1,7 +1,7 @@
 /**
  * Best-effort install-funnel telemetry for the skills CLI.
  *
- * Events are POSTed to the first-party Agent Native Analytics endpoint
+ * Events are POSTed to the first-party Agent-Native Analytics endpoint
  * (analytics.agent-native.com/track) using a PUBLIC, write-only key — the same
  * mechanism every agent-native app uses to report client-side events. Nothing
  * here ever blocks or throws into the install flow: sends are fire-and-forget

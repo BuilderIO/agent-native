@@ -35,11 +35,11 @@ description: "एक पूर्ण SaaS उत्पाद से शुरू
 
 ## कम्युनिटी टेम्पलेट {#community-templates}
 
-CLI पिकर में नाम वाले टेम्पलेट **फ़र्स्ट-पार्टी** हैं: Agent Native उन्हें
+CLI पिकर में नाम वाले टेम्पलेट **फ़र्स्ट-पार्टी** हैं: Agent-Native उन्हें
 फ़्रेमवर्क के साथ मेंटेन, टेस्ट, डॉक्यूमेंट और रिलीज़ करता है। **कम्युनिटी
 टेम्पलेट** का मेंटेनेंस और वर्ज़निंग उसके रिपॉज़िटरी मालिक की ज़िम्मेदारी है।
 वह उसी फ़्रेमवर्क सतह का उपयोग कर सकता है, लेकिन कम्युनिटी सूची में शामिल होना
-Agent Native का समर्थन या सहायता का वादा नहीं है।
+Agent-Native का समर्थन या सहायता का वादा नहीं है।
 
 `create` चलाएँ, **कम्युनिटी टेम्पलेट** चुनें और किसी public GitHub repository
 का सामान्य URL पेस्ट करें:
@@ -48,8 +48,8 @@ Agent Native का समर्थन या सहायता का वा�
 https://github.com/owner/repo
 ```
 
-यदि repository root एक Agent Native ऐप है, तो CLI किसी दूसरे picker के बिना
-सीधे उसे install करता है। यदि repository एक Agent Native workspace है, तो CLI
+यदि repository root एक Agent-Native ऐप है, तो CLI किसी दूसरे picker के बिना
+सीधे उसे install करता है। यदि repository एक Agent-Native workspace है, तो CLI
 `apps/*` के valid direct children खोजता है, `dispatch` हटाता है और पूछता है कि
 कौन सा ऐप install करना है।
 
@@ -213,7 +213,7 @@ Hosted demo वैकल्पिक है। यदि आप एक देत
 
 1. **एक ऐप चुनें।** CLI पिकर का उपयोग करें, या दस्तावेज़ ब्राउज़ करें।
 2. **इसे ब्रांड करें।** नाम, रंग, लोगो और कॉपी बदलें। अधिकांश उदाहरण ऐप्स इसे एक ही कॉन्फ़िगरेशन फ़ाइल में प्रदर्शित करते हैं।
-3. **इसे अनुकूलित करें।** अपने repository और development workflow में source changes करें। Agent तब मदद कर सकता है जब उसके frame को जानबूझकर workspace और write tooling दी गई हो; अन्यथा embedded agent actions, data और configured integrations के माध्यम से app चलाता है।
+3. **इसे अनुकूलित करें।** अपने repository और development workflow में source changes करें: "forms में priority field जोड़ें," "हमारे Salesforce instance से connect करें," "अपने brand से मेल खाने के लिए color scheme बदलें।" Agent तब मदद कर सकता है जब उसके frame को जानबूझकर workspace और write tooling दी गई हो; अन्यथा embedded agent actions, data और configured integrations के माध्यम से app चलाता है।
 4. **इसे शिप करें।** परिनियोजन आदेश चलाएँ। अब आपके पास अपने स्वयं के डोमेन पर एक उत्पादन ऐप है।
 
 चरण 2-4 में आम तौर पर कुछ दिन लगते हैं। चरण 3 का कोई निश्चित अंत बिंदु नहीं है — app आपका है और आप इसे विकसित कर सकते हैं, जबकि embedded agent deployed product चलाने के लिए उपलब्ध रहता है और code access स्पष्ट रूप से enable होने पर source changes में मदद कर सकता है।

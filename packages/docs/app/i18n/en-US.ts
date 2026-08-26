@@ -296,7 +296,7 @@ const enUS = {
     },
     comparison: {
       titleLine1: "Don't pick between apps or agents.",
-      titleAccent: "Agent-native apps are both",
+      titleAccent: "Agent-Native apps are both",
       columns: {
         saas: "SaaS Tools",
         agents: "Raw AI Agents",
@@ -496,7 +496,7 @@ const enUS = {
     design: {
       replaces: "Agent-Native Figma",
       description:
-        "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
+        "Agent-Native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
     },
     content: {
       replaces: "Agent-Native Notion/Obsidian",
@@ -521,7 +521,7 @@ const enUS = {
     forms: {
       replaces: "Replaces or augments Typeform, Google Forms",
       description:
-        "Agent-native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
+        "Agent-Native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
     },
     assets: {
       replaces:
@@ -1228,7 +1228,7 @@ const enUS = {
           "Plan mode is text in your terminal, visible to one person, gone when you approve it. Plans are visual — wireframes, diagrams, annotated diffs — shareable, and persistent: agents create, read, and update them across the feature's whole lifecycle.",
         question5: "Can I see plans next to my code?",
         answer5:
-          "Yes. The VS Code extension opens plans in a side panel, and Agent Native Desktop mirrors hosted plans to local MDX files.",
+          "Yes. The VS Code extension opens plans in a side panel, and Agent-Native Desktop mirrors hosted plans to local MDX files.",
         question6: "Is Plans free?",
         answer6:
           "Yes. Free, open source, MIT licensed. Plans get hosted share links, and you can mirror everything to local files.",
@@ -1262,7 +1262,7 @@ const enUS = {
       s026: "Shareable Links",
       s027: "Every plan gets a public URL. Share with teammates for async review, comments, and approvals.",
       s028: "Desktop File Sync",
-      s029: "Mirror hosted plans to local MDX files from Agent Native Desktop without cloning the app or running a CLI.",
+      s029: "Mirror hosted plans to local MDX files from Agent-Native Desktop without cloning the app or running a CLI.",
       s030: ", so review stays beside the code.",
       s031: "How it works",
       s032: "Planning lives in a shared app — both you and the agent can read and update it throughout the lifecycle of a feature.",
@@ -1296,7 +1296,7 @@ const enUS = {
       s060: "View all apps",
       s061: "VS Code Handoffs",
       s062: "Open plan links in a VS Code side panel with the",
-      s063: "Agent Native Plans extension",
+      s063: "Agent-Native Plans extension",
       s064: "Wireframe — sketchy UI mockup with component slots",
       s065: "Annotated code — source file with per-line notes",
       s066: "Diagram — flowchart, sequence, or architecture",
@@ -1514,9 +1514,9 @@ const enUS = {
     },
   },
   downloadPage: {
-    title: "Download Agent Native",
+    title: "Download Agent-Native",
     body: "All your agent-native apps in one desktop shell. Production apps built-in, with a dev mode toggle for local development.",
-    openDesktop: "Open Agent Native",
+    openDesktop: "Open Agent-Native",
     downloadInstaller: "Download installer",
     downloadStarted: "Download started",
     downloadAgain: "Didn't work? Try downloading again",
@@ -1947,6 +1947,7 @@ const enUS = {
     externalAgents: "External Agents (Connect a Host)",
     externalAgentsCatalog: "External Agents Catalog",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (Browser Tools)",
     crossAppSso: "Cross-App SSO",
     notifications: "Notifications",
     automationConnectors: "Workflow Connectors",

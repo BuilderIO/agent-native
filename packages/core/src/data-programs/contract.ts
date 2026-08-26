@@ -43,10 +43,9 @@ export interface ParsedDataProgramResult {
  *     params object out from under itself).
  *   - `emit(rows, schema?)` — single-call guard (a second call throws) that
  *     writes `DATA_PROGRAM_SENTINEL + JSON.stringify({rows, schema})` as one
- *     stdout line via `process.stdout.write`. Using `process.stdout.write`
- *     directly (not `console.log`) keeps the sentinel line byte-exact with
- *     no extra formatting, and on its own line so a naive `\n`-split still
- *     finds it even if user code itself never calls `console.log`.
+ *     stdout line via `console.log`. The Run evaluator does not expose
+ *     `process`, and the single string argument keeps the sentinel line
+ *     byte-exact with no extra formatting.
  *
  * `console.log` remains completely free for debugging — the runner captures
  * combined stdout and only strips the sentinel line when parsing.
@@ -64,7 +63,7 @@ export function buildDataProgramPrelude(
     "    throw new Error('emit() called more than once — a data program must call emit() exactly once.');",
     "  }",
     "  __dataProgramEmitted = true;",
-    `  process.stdout.write(${JSON.stringify(DATA_PROGRAM_SENTINEL)} + JSON.stringify({ rows, schema }) + '\\n');`,
+    `  console.log(${JSON.stringify(DATA_PROGRAM_SENTINEL)} + JSON.stringify({ rows, schema }));`,
     "}",
     "// --- end prelude ---",
     "",

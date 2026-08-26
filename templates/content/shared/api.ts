@@ -1,4 +1,5 @@
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { NfmFidelityReport } from "./nfm";
 import type {
   DocumentPropertyOptions,
   DocumentPropertyType,
@@ -46,6 +47,7 @@ export interface Document {
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
+  contentFidelity?: NfmFidelityReport;
 }
 
 export interface DocumentSourceInfo {

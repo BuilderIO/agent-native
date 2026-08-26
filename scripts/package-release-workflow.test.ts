@@ -4,7 +4,10 @@ import { describe, it } from "node:test";
 
 import { parse } from "yaml";
 
-import { NPM_PUBLISH_PACKAGE_NAMES } from "./changeset-publish-sequential.ts";
+import {
+  DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
+  NPM_PUBLISH_PACKAGE_NAMES,
+} from "./changeset-publish-sequential.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -105,5 +108,9 @@ describe("npm package release workflow", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
     assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 8);
+  });
+
+  it("allows npm propagation to settle before failing a publish", () => {
+    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
   });
 });

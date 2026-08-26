@@ -81,6 +81,16 @@ pub fn run() {
             // over focus and neither popover shows.
             present_popover(app);
         }))
+        .on_window_event(|window, event| {
+            // Backstop for the tray's recording mode: the pill window is its
+            // single writer, so the one report it can never deliver is its
+            // own death. Any toolbar teardown restores the plain status item.
+            if window.label() == "toolbar" {
+                if let tauri::WindowEvent::Destroyed = event {
+                    tray::reset_tray_recording(window.app_handle());
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             // clips commands
             clips::show_countdown,
@@ -90,6 +100,10 @@ pub fn run() {
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
+            clips::toolbar_save_position,
+            clips::toolbar_set_visible,
+            clips::set_toolbar_finishing,
+            tray::tray_recording_status,
             clips::show_bubble,
             clips::set_bubble_capture_excluded,
             clips::hide_overlays,
@@ -150,6 +164,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_available,
             native_screen::native_fullscreen_take_upload_finished,
             native_screen::native_fullscreen_claim_upload_open,
+            native_screen::native_fullscreen_prefetch_capture_content,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
             native_screen::native_fullscreen_recording_stop_and_upload,
@@ -360,6 +375,10 @@ pub fn run() {
             // Granola-style adhoc Zoom/Teams detection — shares session
             // credentials with the calendar watcher above.
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
+            // Retire a stored notification payload once the frontend reports the
+            // meeting on screen, so a late-mounting overlay cannot hydrate a
+            // question that has already been answered.
+            notifications::watch_meeting_notification_acks(app.handle());
             // Server-controlled desktop capture feature flags — own poll
             // loop, reuses the calendar watcher's session credentials.
             remote_flags::spawn_watcher(app.handle().clone());

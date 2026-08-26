@@ -1,5 +1,144 @@
 # @agent-native/core
 
+## 0.175.4
+
+### Patch Changes
+
+- 20be465: Keep ordinary cross-app todo requests in chat and make oversized provider tool names safe for A2A handoffs.
+- 9426034: Stop a rejected provider credential from re-breaking the first prompt on a fixed cadence
+
+  A 401 pins the rejected credential so the next lane serves everyone after it, but
+  two things kept unpinning it and making the next person's first prompt pay to
+  rediscover the same rejection:
+  - `ai-sdk-engine` cleared the auth-failure marker after every stream, error or
+    not, so one unrelated failure (a 500, an overload) re-admitted a credential a
+    401 had just pinned. Clearing asserts the credential works, so only a turn
+    that actually completed does it now.
+  - Both auth-failure markers released on a flat 15-minute TTL. The marker is
+    fingerprinted on the credential value, so a rotated credential never matched
+    the old marker anyway — the TTL only ever re-tested a credential that was
+    still wrong. Repeat failures on the same fingerprint now back off
+    exponentially from that base up to 24h, while a first, genuinely transient
+    401 still releases on the original TTL.
+
+- Release all public npm packages with a patch version bump.
+- db91905: Allow hosted deployments to resolve their Notion OAuth client credentials for signed-in users.
+- 5ef18e1: Let agents inspect successful public image responses from web-request as vision context.
+- 557e694: Polish the agent recovery card action spacing.
+- 318819b: Give the Dispatch workspace embed handshake a cold-boot connect budget so opening an app whose server is still starting no longer fails as unreachable. `McpClientManager` now accepts a `connectTimeoutMs` option, and the embed session mint spends up to 90s per attempt within a 95s total budget instead of the 5s interactive default, matching the dev gateway's own readiness wait.
+- Updated dependencies [db91905]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.3
+  - @agent-native/recap-cli@0.5.17
+
+## 0.175.3
+
+### Patch Changes
+
+- c30393d: Rework Chat's docs (Overview, Your First Feature, Developer Guide) into the same focused format used by the Calendar docs rework: a "Try it out now" card linking to the live chat.agent-native.com app, a What ships Comparison with explicit accent colors, and a Developer Guide quick start plus action inventory and customizing section. Also updates the ar-SA, de-DE, es-ES, fr-FR, hi-IN, ja-JP, ko-KR, pt-BR, zh-CN, and zh-TW locale translations of template-chat.mdx and template-chat-first-edits.mdx to match. template-chat-developers.mdx still has no locale mirrors at all — that gap is pre-existing and already tracked in the i18n coverage baseline.
+
+## 0.175.2
+
+### Patch Changes
+
+- 96d0181: Keep a same-origin Referer on validated embed responses so an embedded Dispatch can open workspace apps. Embed responses previously used `Referrer-Policy: no-referrer`, which stripped the Referer from every same-origin request the page made for the life of the document, so `create-workspace-app-embed-session` rejected Dispatch itself with "Workspace app sessions must be requested by Dispatch." Cross-origin referrers stay fully suppressed.
+- 462f53c: Preserve Builder OAuth state when Builder omits it from the callback query.
+- Release all public npm packages with a patch version bump.
+- 84ab540: Fix mouse-wheel zoom running at trackpad-pinch sensitivity in `usePinchZoom`.
+
+  A single wheel notch saturated the hook's ±50px delta clamp and landed on
+  `exp(0.5)`, so every detent multiplied zoom by ~1.65× regardless of how far the
+  wheel actually turned. Wheel and pinch now run through separate curves — a
+  notch is a Figma-sized 1.1× step, finger separation keeps the exponential — and
+  the device is latched per gesture rather than guessed per event, because macOS
+  ramps an accelerated wheel up from pinch-sized deltas.
+
+  Adds `@agent-native/core/client/zoom-gesture` exporting the shared
+  classification and curves (`resolveZoomGestureDevice`, `zoomFactorForWheelDelta`,
+  `clampZoomFactor`, `accumulateZoomFactor`) so canvases stop re-deriving them.
+
+  `preventDefault` on wheel and touch-pinch is now guarded by `event.cancelable`,
+  which stops the browser Intervention warning Chrome logs per event during a
+  fling.
+
+  Line- and page-mode wheel deltas are converted to pixels before the curve is
+  applied. The curve is calibrated in pixels, so a Firefox line-mode notch
+  (`deltaY: 3`) was being read as three pixels of travel and moved zoom by well
+  under a percent. Classification still reads the raw delta and its real mode —
+  normalising first would push a line tick into the trackpad band.
+
+- Updated dependencies [65a3b88]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.2
+  - @agent-native/recap-cli@0.5.16
+
+## 0.175.1
+
+### Patch Changes
+
+- 5a045bf: Fix file uploads for Builder connections made through OAuth. New connections
+  store only an OAuth grant, but the upload provider and the storage capability
+  gates still looked for a legacy `bpk-` private key, so uploads failed for every
+  newly connected user.
+
+  Builder OAuth now also requests `builder:assets:write`, the scope its
+  `/api/v1/upload/*` endpoints enforce, and the upload provider sends the OAuth
+  token when the request's owner has a grant — falling back to a private key only
+  when there is no grant at all.
+
+  Already-connected users must authorize Builder once more to pick up the new
+  scope.
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.15
+  - @agent-native/toolkit@0.17.1
+
+## 0.175.0
+
+### Minor Changes
+
+- da836e2: Use the hardened Run QuickJS evaluator for production sandboxed code execution.
+- cf473dc: Allow mention providers to show custom text or images with optional background
+  colors, or to omit leading media, while preserving the existing icon fallback.
+- 6c71a21: Add opt-in WebMCP producer and browser-session consumer support.
+
+### Patch Changes
+
+- 73ff8c5: Allow apps to configure approval requirements for individual MCP tools and require a fresh approval on every call when persistent approval is disabled.
+- Release all public npm packages with a patch version bump.
+- de5ba2d: Keep shared managed MCP OAuth clients from being overridden by stale personal secrets.
+- Updated dependencies
+- Updated dependencies [cf473dc]
+  - @agent-native/recap-cli@0.5.14
+  - @agent-native/toolkit@0.17.0
+
+## 0.174.2
+
+### Patch Changes
+
+- bb282b1: Removed the FAQ docs page and folded its content into What Is Agent-Native and the docs pages each answer actually belonged to (deployment, environment variables, writing agent instructions, templates, key concepts, syncing template changes).
+- a9aa623: Reset Google sign-in state when an Electron OAuth popup closes and keep Nitro dev startup errors behind the recovery page until the server is ready.
+- Release all public npm packages with a patch version bump.
+- 615c5d5: Skip `git init` when `create` scaffolds into a directory that is already inside a git repository, instead of only when the target directory itself is one. Discovery is delegated to git, so symlinked paths, filesystem boundaries, and `GIT_CEILING_DIRECTORIES` behave exactly as they do everywhere else.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.13
+  - @agent-native/toolkit@0.16.16
+
+## 0.174.1
+
+### Patch Changes
+
+- 5e57bc6: fix fresh chats to use a configured provider instead of an unavailable deployment default
+- 7d90274: Preserve shared OAuth flow cookies across redirects.
+- 7d5cce0: Use the configured Google OAuth client for official Google Workspace MCP servers.
+- a63c4b3: Support Google Workspace MCP OAuth clients that use Google's fixed OAuth endpoints instead of MCP discovery.
+- Release all public npm packages with a patch version bump.
+- a026821: keep provider-auth recovery visible while an agent run is still active
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.12
+  - @agent-native/toolkit@0.16.15
+
 ## 0.174.0
 
 ### Minor Changes
@@ -24,7 +163,7 @@
 
   `app.slug` and `app.description` are new fields with no env alias: the slug selects the per-app transactional email sender on agent-native.com, so a name the first-party template table already contains is its only source. `app.packageName` and `app.template` are deliberately still env-only — both are read as app-id fallbacks when matching stored workspace connection grants, and filling them from package.json would repoint those lookups.
 
-  A package.json that exists but cannot be read or parsed now throws and names the file, instead of being silently indistinguishable from having none — which previously branded the app "Agent Native" and sent from the generic mailbox with nothing in the log.
+  A package.json that exists but cannot be read or parsed now throws and names the file, instead of being silently indistinguishable from having none — which previously branded the app "Agent-Native" and sent from the generic mailbox with nothing in the log.
 
 - b4c3864: Deprecate `createAgentChatPlugin({ model })` and `({ durableBackgroundRuns })` in favour of the declared `agent.*` config surface.
 
@@ -202,7 +341,7 @@
 ### Patch Changes
 
 - Release all public npm packages with a patch version bump.
-- 460080b: Send `$ai_generation` and `$ai_span` to PostHog stamped at the moment the operation ended, which is the convention it reads them by: its timeline derives an operation's start as `timestamp - $ai_latency`, so stamping the start drew every bar one full latency too early — model calls overlapped each other by a growing margin, a call's tool spans appeared underneath the _next_ call, and a 35s run rendered as 31.2s. The shift is applied inside the PostHog provider, so the shared event keeps the operation's start for Mixpanel, Amplitude, webhooks, and Agent Native Analytics, which read the timestamp verbatim. Events with no `$ai_latency` — a trace, an exception — are unshifted.
+- 460080b: Send `$ai_generation` and `$ai_span` to PostHog stamped at the moment the operation ended, which is the convention it reads them by: its timeline derives an operation's start as `timestamp - $ai_latency`, so stamping the start drew every bar one full latency too early — model calls overlapped each other by a growing margin, a call's tool spans appeared underneath the _next_ call, and a 35s run rendered as 31.2s. The shift is applied inside the PostHog provider, so the shared event keeps the operation's start for Mixpanel, Amplitude, webhooks, and Agent-Native Analytics, which read the timestamp verbatim. Events with no `$ai_latency` — a trace, an exception — are unshifted.
 - Updated dependencies
   - @agent-native/recap-cli@0.5.9
   - @agent-native/toolkit@0.16.12
@@ -856,7 +995,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 ### Minor Changes
 
-- 6203d5d: Add an About Agent Native command surface for inspecting deployed framework package versions and diagnostics.
+- 6203d5d: Add an About Agent-Native command surface for inspecting deployed framework package versions and diagnostics.
 
 ## 0.167.5
 
@@ -1358,7 +1497,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 ### Patch Changes
 
-- 112547e: Resolve Agent Native model selections through request, org/user defaults, and the global catalog before sending a concrete model to the Builder gateway.
+- 112547e: Resolve Agent-Native model selections through request, org/user defaults, and the global catalog before sending a concrete model to the Builder gateway.
 
 ## 0.161.22
 
@@ -2004,7 +2143,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 907dfa3: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
 - 907dfa3: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
-- 907dfa3: Return Google sign-in callbacks to native mobile clients using signed flow intent, even when the callback browser user-agent is not mobile, and hide the Agent Native SSO control in embedded auth views.
+- 907dfa3: Return Google sign-in callbacks to native mobile clients using signed flow intent, even when the callback browser user-agent is not mobile, and hide the Agent-Native SSO control in embedded auth views.
 - 907dfa3: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
 
 ## 0.157.17

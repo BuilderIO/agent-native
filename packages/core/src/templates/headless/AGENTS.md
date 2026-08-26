@@ -1,8 +1,8 @@
 # {{APP_NAME}} - Agent Guide
 
-This is a headless Agent Native app. It starts with actions instead of a browser UI, so the first useful primitive is callable from the agent, CLI, and action runtime.
+This is a headless Agent-Native app. It starts with actions instead of a browser UI, so the first useful primitive is callable from the agent, CLI, and action runtime.
 
-This app is not stateless. The Agent Native runtime uses SQL-backed stores for app state, settings, auth/session data, resources, and other framework capabilities when those surfaces are used. Local development can use SQLite at `data/app.db`, or PGlite with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Hosted or long-lived deployments should set `DATABASE_URL` to a persistent database.
+This app is not stateless. The Agent-Native runtime uses SQL-backed stores for app state, settings, auth/session data, resources, and other framework capabilities when those surfaces are used. Local development can use SQLite at `data/app.db`, or PGlite with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Hosted or long-lived deployments should set `DATABASE_URL` to a persistent database.
 
 ## Working In This App
 
@@ -24,7 +24,7 @@ This app is not stateless. The Agent Native runtime uses SQL-backed stores for a
 
 ## Framework Docs Lookup
 
-Version-matched Agent Native docs ship with `@agent-native/core` in
+Version-matched Agent-Native docs ship with `@agent-native/core` in
 `node_modules/@agent-native/core/docs`. A source-only corpus of core and
 first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 
@@ -51,7 +51,7 @@ propose a shared seam. Preview `agent-native eject <unit>` before `--apply`,
 commit `agent-native.ejections.json`, and never edit `node_modules`, deep-import
 private source, or eject protected runtime/action contracts.
 
-Read these local package docs before implementing advanced Agent Native
+Read these local package docs before implementing advanced Agent-Native
 features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
 the corpus for reusable framework/template patterns.
 To bring an older app current, run `pnpm upgrade:agent-native` or
@@ -92,9 +92,9 @@ pnpm agent "Call the hello action for Builder and explain the result"
 ## Skills
 
 Skills in `.agents/skills/` provide detailed guidance. Read
-`.agents/skills/agent-native-docs/SKILL.md` before using advanced Agent Native
+`.agents/skills/agent-native-docs/SKILL.md` before using advanced Agent-Native
 framework APIs, generated-app features, automations, A2A, sharing, or MCP.
 Read `.agents/skills/agent-native-toolkit/SKILL.md` before adding common
 workspace, agent, chat, settings, navigation, or collaboration UI.
 Read `.agents/skills/customizing-agent-native/SKILL.md` before adding UI or
-overriding shared Agent Native features.
+overriding shared Agent-Native features.

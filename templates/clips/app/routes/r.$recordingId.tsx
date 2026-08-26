@@ -388,7 +388,6 @@ export default function RecordingPage() {
         // Also keep polling while a transcript is pending so "Transcribing…"
         // auto-flips to the ready transcript (or to the failure card).
         if (data?.transcript?.status === "pending") return 3000;
-        if (data?.transcript?.cleanup?.status === "running") return 2000;
         // And keep polling while the title is still the server-seeded
         // default — the agent will land a generated title via
         // `update-recording` and we want the skeleton to swap in promptly.
@@ -460,7 +459,6 @@ export default function RecordingPage() {
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
-  const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
   // Reaching this page already requires a signed-in session with at least
@@ -1033,7 +1031,7 @@ export default function RecordingPage() {
     if (!showRecoveryState) {
       return (
         <div className="flex min-h-screen w-full flex-col bg-background">
-          <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+          <header className="flex min-w-0 shrink-0 items-center gap-2 px-3 py-2 sm:px-4 sm:py-3">
             <BackButton
               onBack={() => navigate("/library", { replace: true })}
             />
@@ -1265,7 +1263,7 @@ export default function RecordingPage() {
         </TabsContent>
         <TabsContent
           value="transcript"
-          className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+          className="mt-0 flex-1 min-h-0 data-[state=inactive]:hidden"
         >
           <TranscriptPanel
             segments={transcriptSegments}
@@ -1279,7 +1277,6 @@ export default function RecordingPage() {
                 : transcriptStatus
             }
             failureReason={transcriptFailureReason}
-            cleanup={transcriptCleanup}
             recordingTitle={recording.title}
             onRetry={
               canEdit
@@ -1354,10 +1351,10 @@ export default function RecordingPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden">
+    <div className="clips-recording-view flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden [&_.agent-composer-root]:!bg-background [&_.agent-composer-root]:!border-0">
       {/* Main video column */}
       <div className="flex w-full min-w-0 flex-col xl:flex-1">
-        <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+        <header className="flex min-w-0 shrink-0 items-center gap-2 px-3 py-2 sm:px-4 sm:py-3">
           <BackButton
             onBack={
               editing
@@ -1426,7 +1423,7 @@ export default function RecordingPage() {
               agentViewCount={playerDataQ.data?.agentViewCount ?? 0}
               canViewDetails={canEdit}
               onOpenInsights={openInsightsPanel}
-              className="shrink-0"
+              className="shrink-0 border-0 shadow-none"
             />
           ) : null}
 
@@ -1434,7 +1431,10 @@ export default function RecordingPage() {
             <Button
               variant={editing ? "secondary" : "outline"}
               size="sm"
-              className={cn("gap-1.5", !editing && "hidden sm:inline-flex")}
+              className={cn(
+                "gap-1.5 border-0 shadow-none",
+                !editing && "hidden sm:inline-flex",
+              )}
               onClick={() => setEditing((v) => !v)}
             >
               <IconScissors className="h-4 w-4" />
@@ -1448,7 +1448,7 @@ export default function RecordingPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="hidden gap-1.5 sm:inline-flex"
+                  className="hidden gap-1.5 border-0 shadow-none sm:inline-flex"
                 >
                   {t("recordingPage.aiTools")}
                   <IconChevronDown className="h-4 w-4" />
@@ -1608,7 +1608,10 @@ export default function RecordingPage() {
                 hasPassword={Boolean(recording.hasPassword)}
                 viewerReshareOnly={viewerReshareOnly}
               >
-                <ClipsShareTrigger label={t("recordingPage.share")} />
+                <ClipsShareTrigger
+                  label={t("recordingPage.share")}
+                  className="border-0 shadow-none"
+                />
               </ShareRecordingPopover>
             )
           ) : null}
@@ -1765,7 +1768,7 @@ export default function RecordingPage() {
                   {playerDataQ.data?.meeting ? (
                     <NavLink
                       to={`/meetings/${playerDataQ.data.meeting.id}`}
-                      className="inline-flex items-center gap-1.5 mb-1 rounded-full border border-border bg-accent/40 px-2 py-0.5 text-[11px] text-foreground hover:bg-accent/70 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 mb-1 rounded-full bg-accent/40 px-2 py-0.5 text-[11px] text-foreground hover:bg-accent/70 cursor-pointer"
                     >
                       <IconCalendar className="h-3 w-3" />
                       <span className="text-muted-foreground">
@@ -1782,7 +1785,7 @@ export default function RecordingPage() {
                       <TimestampedCommentButton
                         enableComments={recording.enableComments}
                         canComment={canComment}
-                        className="shrink-0"
+                        className="shrink-0 border-0 shadow-none"
                         onOpen={() => {
                           if (isCompactLayout) {
                             openCommentsPanel();
@@ -1797,6 +1800,7 @@ export default function RecordingPage() {
                       <ReactionsTray
                         reactions={reactions}
                         disabled={!recording.enableReactions || !canComment}
+                        className="border-0 shadow-none"
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
                           const liveMs = resolvePlaybackMs();
@@ -1880,13 +1884,13 @@ export default function RecordingPage() {
           {isCompactLayout ? (
             <aside
               id="clip-activity-panel"
-              className="flex min-h-[420px] w-full min-w-0 flex-col border-t border-border bg-background xl:hidden"
+              className="flex min-h-[420px] w-full min-w-0 flex-col bg-muted xl:hidden"
             >
               {renderSidePanel("inline")}
             </aside>
           ) : null}
           {!isCompactLayout ? (
-            <aside className="hidden w-[380px] shrink-0 flex-col border-s border-border bg-background xl:flex">
+            <aside className="hidden w-[380px] shrink-0 flex-col bg-muted xl:flex">
               {renderSidePanel()}
             </aside>
           ) : null}
@@ -1923,10 +1927,10 @@ function GeneratedWorkflowNotice({
 
   return (
     <div className="bg-background px-3 py-2.5">
-      <div className="overflow-hidden rounded-md border border-border bg-muted/20">
-        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+      <div className="overflow-hidden rounded-md bg-muted/20 shadow-sm">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
               {isReady ? (
                 <IconFileText className="h-3.5 w-3.5" />
               ) : (

@@ -161,7 +161,7 @@ describe("toDesktopOpenUrl", () => {
 });
 
 describe("toVsCodeOpenUrl", () => {
-  it("wraps an absolute web URL for the Agent Native VS Code extension", () => {
+  it("wraps an absolute web URL for the Agent-Native VS Code extension", () => {
     expect(
       toVsCodeOpenUrl("https://app.example.com/_agent-native/open?view=inbox"),
     ).toBe(

@@ -1,5 +1,84 @@
 # @agent-native/skills
 
+## 0.2.712
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [20be465]
+- Updated dependencies [9426034]
+- Updated dependencies
+- Updated dependencies [db91905]
+- Updated dependencies [5ef18e1]
+- Updated dependencies [557e694]
+- Updated dependencies [318819b]
+  - @agent-native/core@0.175.4
+
+## 0.2.711
+
+### Patch Changes
+
+- Updated dependencies [c30393d]
+  - @agent-native/core@0.175.3
+
+## 0.2.710
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [96d0181]
+- Updated dependencies [462f53c]
+- Updated dependencies
+- Updated dependencies [84ab540]
+  - @agent-native/core@0.175.2
+
+## 0.2.709
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5a045bf]
+- Updated dependencies
+  - @agent-native/core@0.175.1
+
+## 0.2.708
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [73ff8c5]
+- Updated dependencies [da836e2]
+- Updated dependencies
+- Updated dependencies [de5ba2d]
+- Updated dependencies [cf473dc]
+- Updated dependencies [6c71a21]
+  - @agent-native/core@0.175.0
+
+## 0.2.707
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [bb282b1]
+- Updated dependencies [a9aa623]
+- Updated dependencies
+- Updated dependencies [615c5d5]
+  - @agent-native/core@0.174.2
+
+## 0.2.706
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e57bc6]
+- Updated dependencies [7d90274]
+- Updated dependencies [7d5cce0]
+- Updated dependencies [a63c4b3]
+- Updated dependencies
+- Updated dependencies [a026821]
+  - @agent-native/core@0.174.1
+
 ## 0.2.705
 
 ### Patch Changes

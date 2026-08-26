@@ -172,8 +172,15 @@ export default defineAction({
         );
       } catch (err) {
         if (streamingRequired) {
+          // Keep the underlying reason. A Builder connection that needs
+          // re-authorizing is not fixed by refreshing, and replacing its
+          // message with a retry prompt is why that case looked like a
+          // random failure.
+          const reason = err instanceof Error ? err.message.trim() : "";
           await failUploadSetup(
-            "Video storage could not start a resumable upload session. Refresh and try again.",
+            reason
+              ? `Video storage could not start an upload: ${reason}`
+              : "Video storage could not start a resumable upload session. Refresh and try again.",
           );
         }
         console.warn(

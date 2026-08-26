@@ -1,5 +1,60 @@
 # @agent-native/dispatch
 
+## 0.31.25
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- 32b49a8: Keep Dispatch page scrolling inside the viewport and replace the global header with a sticky agent-chat control.
+- Release all public npm packages with a patch version bump.
+- 318819b: Give the Dispatch workspace embed handshake a cold-boot connect budget so opening an app whose server is still starting no longer fails as unreachable. `McpClientManager` now accepts a `connectTimeoutMs` option, and the embed session mint spends up to 90s per attempt within a 95s total budget instead of the 5s interactive default, matching the dev gateway's own readiness wait.
+- Updated dependencies [db91905]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.3
+
+## 0.31.24
+
+### Patch Changes
+
+- 65a3b88: Keep shared feedback controls clear of the environment badge and editor chrome.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [65a3b88]
+- Updated dependencies
+  - @agent-native/toolkit@0.17.2
+
+## 0.31.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.17.1
+
+## 0.31.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [cf473dc]
+  - @agent-native/toolkit@0.17.0
+
+## 0.31.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.16
+
+## 0.31.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.15
+
 ## 0.31.19
 
 ### Patch Changes
@@ -354,7 +409,7 @@
 
 ### Patch Changes
 
-- 907dfa3: Hide redundant Agent Native SSO controls inside embedded workspace app views while preserving the app's normal login and signup controls.
+- 907dfa3: Hide redundant Agent-Native SSO controls inside embedded workspace app views while preserving the app's normal login and signup controls.
 - 907dfa3: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
 - 907dfa3: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
 
@@ -913,7 +968,7 @@
 
 ### Patch Changes
 
-- c849ba0: Allow Dispatch Thread Debug to resolve copied Agent Native request/run IDs to their owning chat threads.
+- c849ba0: Allow Dispatch Thread Debug to resolve copied Agent-Native request/run IDs to their owning chat threads.
 
 ## 0.15.24
 

@@ -6,6 +6,8 @@ import {
   type ReactNode,
 } from "react";
 
+import type { MentionItemMedia } from "./types.js";
+
 export type ComposerTranslate = (
   key: string,
   options?: Record<string, unknown>,
@@ -86,6 +88,7 @@ export interface ComposerBuilderConnectFlowOptions {
 export interface AgentComposerReference {
   label: string;
   icon?: string;
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;

@@ -1,43 +1,59 @@
 ---
-title: "聊天模板"
-description: "一个最小的聊天优先代理本机应用程序：持久的聊天线程、actions、应用程序状态、实时同步、身份验证以及添加您自己的 UI 的空间。"
+title: "聊天"
+description: "一个极简的、以聊天为先的 agent-native 应用：持久聊天线程、actions、应用状态、实时同步、身份验证，以及添加你自己 UI 的空间。"
 ---
 
-# 聊天模板
+# 聊天
 
-聊天是基本的代理本机应用程序起点。它为您提供了一个干净的 ChatGPT 风格的 shell，聊天位于中心，线程列表位于左侧，标准应用程序导航、身份验证、实时同步、actions 和一个示例操作。当您想要一个无需提交域模板即可构建的真正的浏览器应用程序时，请从这里开始。
+聊天是最朴素的 agent-native 起点：一个 ChatGPT 风格的外壳，聊天位于中心，配有线程列表、身份验证和一个示例 action，不包含任何特定领域的内容。它面向那些想要一个真正可部署的应用、并在其之上构建自己的代理和界面的开发者，而不是面向某个具体场景的成品产品。
 
-如果您想要没有浏览器 UI 的 automation-first runtime，请从 [Automation-First Apps](/docs/pure-agent-apps) 开始。如果您想要成品域产品形状，请从 [Calendar](/docs/template-calendar)、[Mail](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics) 或其他域模板开始。
+如果你想要成品的领域产品形态，请从 [日历](/docs/template-calendar)、[邮件](/docs/template-mail)、[Content](/docs/template-content)、[表格](/docs/template-forms)、[分析](/docs/template-analytics) 或其他领域模板开始。如果你确实还不需要浏览器 UI，请参阅
+[Automation-First Apps](/docs/pure-agent-apps)。
 
-<WireframeBlock id="doc-block-9cwa90">
+<Cards columns={1}>
+
+### [立即试用 →](https://chat.agent-native.com)
+
+体验聊天的实际效果：立即与代理开始一次真实对话，无需任何设置。
+
+</Cards>
+
+<WireframeBlock id="doc-block-chat1">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能帮什么？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。添加 actions、组件、页面、任务或你自己的后端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>给代理发消息...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 高</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能帮什么？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。添加 actions、组件、页面、任务或你自己的后端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>给代理发消息...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 高</span><span class='wf-pill'>执行</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
 
-## 里面有什么 {#whats-in-it}
+## 包含哪些内容 {#what-ships}
 
-- 使用框架聊天界面和持久聊天线程在 `/` 上进行**全页聊天**。
-- **应用侧边栏中的话题列表**，以便用户可以创建、重新打开、重命名、固定和存档聊天。
-- **代理聊天插件**已预先配置，因此一旦设置了代理凭据，聊天就会与内置的应用程序代理循环进行对话。
-- **Auth** 通过更好的身份验证 - 登录、注册、会话、组织。相同的流程在本地和生产中运行；在开发中，电子邮件验证被跳过。
-- **Actions 目录**，包含一个示例 (`actions/hello.ts`) 以及标准 `view-screen` 和 `navigate` actions。
-- **框架的核心表**，用于应用程序状态、设置、会话、资源、聊天线程、运行历史记录和其他运行时状态。
-- **实时同步** (`useDbSync`) 已连接，因此当代理写入 SQL 时，UI 会自动刷新。
-- **AGENTS.md** 包含用于添加 actions、路线、skills 和应用程序状态的聊天优先指南。
+<Comparison>
 
-## 其中*不*有什么 {#not-in-it}
+### :green: 已包含
 
-- 没有域表或种子数据。
-- 没有仪表板、列表、图表、表单或提供商集成。
-- 除了示例存根之外，没有特定于域的 actions。
+- 使用框架聊天界面和持久聊天线程，在 `/` 上实现整页聊天
+- 应用侧边栏中的线程列表，可以创建、重新打开、重命名、固定和存档聊天
+- 内置的应用代理循环，已针对聊天插件预先配置
+- 通过 Better Auth 实现的身份验证：登录、注册、会话、组织
+- 一个 actions 目录，包含一个示例（`actions/hello.ts`）以及标准的 `view-screen` 和 `navigate` actions
+- 框架的核心表，用于聊天线程、应用状态、设置、会话、资源和运行历史，还挂载了一个数据库管理页面和一个可观测性仪表板，无论你是否打开过它们
+- 已接好的实时同步（`useDbSync`），当代理写入 SQL 时界面会自动刷新
+- 默认挂载的扩展路由，供你的用户之后在聊天中构建沙盒化的小应用
+- AGENTS.md 中包含以聊天为先的指南，用于添加 actions、路由、skills 和应用状态
 
-这就是重点。聊天是您自己的代理的一个薄而有用的默认外壳，而不是一个假装通用的领域产品。
+### :red: 未包含
 
-<Diagram id="doc-block-1nyi620" title={"Chat shell 中包含哪些内容"} summary={"框架标准运行时上的精简聊天界面（操作、持久线程、实时同步和身份验证），有空间添加您自己的 UI。"}>
+- 领域表或种子数据
+- 仪表板、列表、图表、表单或 provider 集成
+- 除示例存根之外的特定领域 actions
+
+</Comparison>
+
+这正是重点所在。聊天是为你自己的代理提供的一个精简而实用的默认外壳，而不是一个装作通用的领域产品。
+
+<Diagram id="doc-block-chat2" title="聊天外壳包含哪些内容" summary={"框架标准运行时之上的一个精简聊天界面 —— actions、持久线程、实时同步和身份验证 —— 并留有添加你自己 UI 的空间。"}>
 
 ```html
 <div class="diagram-chat">
@@ -97,35 +113,34 @@ description: "一个最小的聊天优先代理本机应用程序：持久的聊
 
 </Diagram>
 
-## 何时采摘 {#when-to-pick}
+## 何时选择它 {#when-to-pick}
 
-- **您想要一个用户可以立即交谈的基本应用程序**，然后使用 actions 和 UI 进行扩展。
-- **您有一个无头应用程序，需要聊天**作为第一个浏览器界面。
-- **您希望将自己的代理后端插入熟悉的聊天 UI**，同时保持 Agent-Native 的 actions、状态、身份验证和部署形状。
-- \*\*您正在构建一个与域模板不匹配的自定义内部工具原型。
+- **你想要一个用户可以立即与之对话的基础应用**，然后再用 actions 和 UI 进行扩展。
+- **你想要默认的 Agent-Native 入门路径**：先有聊天，然后是 actions、原生结果和应用页面。
+- **你想把自己的代理后端接入一个熟悉的聊天 UI**，同时保留 Agent-Native 的 actions、状态、身份验证和部署形态。
+- **你正在为一个不匹配任何领域模板的自定义内部工具制作原型**。
 
-## 脚手架 {#scaffolding}
+## 开始使用 {#get-started}
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
-cd my-chat-app
-pnpm install
-pnpm dev
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
 ```
 
-或者从没有 UI 开始，然后添加聊天界面：
+请参阅 [聊天：开发者指南](/docs/template-chat-developers#quick-start) 了解安装、首次运行和连接 LLM 的方法。如果是完全没有浏览器 UI 的 automation-first 工作，请改用 `--headless` 来搭建脚手架：
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-从那里，将聊天模板的 `/` 路由和侧边栏线程列表复制到您的应用程序中，或者构建聊天应用程序并将 actions 从无头代理移动到其 `actions/` 目录中。关键不变量保持不变：actions 是聊天的共享界面，UI、HTTP、MCP、A2A 和 CLI。
+适用于计划任务、队列、CLI 循环，或聊天和应用页面尚无用处的外部代理工作流。关键的不变量保持不变：actions 是聊天、UI、HTTP、MCP、A2A 和 CLI 共用的界面。有关这条路径的详细说明，请参阅 [Automation-First Apps](/docs/pure-agent-apps)。
 
-## 下一步是什么
+## 接下来
 
-- [**在 Chat 中添加你的第一个功能**](/docs/template-chat-first-edits) — 带注释的入门聊天路由，以及添加真实功能的完整演练
-- [**Getting Started**](/docs) — 在无头、聊天和域模板之间进行选择
-- [**Agent Surfaces**](/docs/agent-surfaces) — 无头、聊天、嵌入式和完整应用模式
-- [**Actions**](/docs/actions-overview) - 操作系统聊天和 UI 都调用
+- [**在聊天中添加你的第一个功能**](/docs/template-chat-first-edits) — 带注释的入门聊天路由，以及添加一个真实功能的完整演练
+- [**聊天：开发者指南**](/docs/template-chat-developers) — 快速入门、actions、核心表、身份验证，以及默认包含的管理页面
+- [**快速入门**](/docs/getting-started) — 从 action 到内联结果再到应用页面，构建以聊天为先的路径
+- [**模板**](/docs/cloneable-saas) — 可克隆 SaaS 模型，以及可以作为起点的所有领域模板
+- [**Agent Surfaces**](/docs/agent-surfaces) — 聊天、内联 UI、应用页面、嵌入式、自动化和外部代理模式
+- [**Actions**](/docs/actions-overview) — 聊天和 UI 都会调用的 action 系统
 - [**Native 聊天界面**](/docs/native-chat-ui) — 聊天界面基元和运行时选项
-- [**Automation-First Apps**](/docs/pure-agent-apps) - 没有浏览器 UI 的自动化、队列、脚本和外部 agent 工作流
+- [**Automation-First Apps**](/docs/pure-agent-apps) — 无浏览器的工作流，用于任务、队列、脚本和外部代理

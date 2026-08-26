@@ -231,7 +231,7 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
-  it("wraps the existing Agent Native chat endpoint and normalizes SSE events", async () => {
+  it("wraps the existing Agent-Native chat endpoint and normalizes SSE events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
         {
@@ -338,6 +338,7 @@ describe("createAgentNativeChatRuntime", () => {
           input: {},
           approvalKey: "start-prospect-run:{}",
           toolCallId: "call-1",
+          allowPersistentApproval: false,
         },
         { type: "done" },
       ]),
@@ -359,6 +360,7 @@ describe("createAgentNativeChatRuntime", () => {
       approvalId: "start-prospect-run:{}",
       toolCallId: "call-1",
       toolName: "start-prospect-run",
+      allowPersistentApproval: false,
     });
   });
 });
@@ -503,6 +505,7 @@ describe("createAgentChatRuntimeAdapter", () => {
                 toolCallId: "call-1",
                 toolName: "start-prospect-run",
                 message: "Approve this tool call?",
+                allowPersistentApproval: false,
               };
               yield { type: "done", reason: "complete" };
             }
@@ -532,7 +535,10 @@ describe("createAgentChatRuntimeAdapter", () => {
     expect(toolCalls).toHaveLength(2);
     expect(toolCalls[0]).toMatchObject({
       toolCallId: "call-1",
-      approval: { approvalKey: "start-prospect-run:call-1" },
+      approval: {
+        approvalKey: "start-prospect-run:call-1",
+        allowPersistentApproval: false,
+      },
     });
     expect(toolCalls[1].approval).toBeUndefined();
   });

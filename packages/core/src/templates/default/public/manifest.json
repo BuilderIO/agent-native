@@ -1,7 +1,7 @@
 {
   "name": "{{APP_TITLE}}",
   "short_name": "{{APP_TITLE}}",
-  "description": "Agent-native application",
+  "description": "Agent-Native application",
   "start_url": "/",
   "background_color": "#111111",
   "theme_color": "#111111",

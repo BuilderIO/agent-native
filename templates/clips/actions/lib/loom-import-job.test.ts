@@ -25,6 +25,17 @@ const mockDb = vi.hoisted(() => ({
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const mockUploadFile = vi.hoisted(() => vi.fn());
 const mockDownloadLoomVideo = vi.hoisted(() => vi.fn());
+const MockLoomVideoUnavailableError = vi.hoisted(
+  () =>
+    class extends Error {
+      statusCode = 422;
+
+      constructor() {
+        super("Loom did not provide a downloadable MP4.");
+        this.name = "LoomVideoUnavailableError";
+      }
+    },
+);
 const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockQueueBuilderMediaCompression = vi.hoisted(() =>
   vi.fn(async () => undefined),
@@ -56,9 +67,11 @@ vi.mock("./loom-transcript.js", () => ({
 }));
 vi.mock("./loom-video.js", () => ({
   downloadLoomVideo: mockDownloadLoomVideo,
+  LoomVideoUnavailableError: MockLoomVideoUnavailableError,
 }));
 
 import { runLoomImportJob } from "./loom-import-job";
+import { LoomVideoUnavailableError } from "./loom-video";
 
 describe("runLoomImportJob", () => {
   beforeEach(() => {
@@ -153,6 +166,45 @@ describe("runLoomImportJob", () => {
       }),
     );
     expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps a playable Loom embed when MP4 export is unavailable", async () => {
+    mockSelectRows.queue.push([
+      {
+        id: "rec_embed",
+        durationMs: 0,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_embed",
+      },
+    ]);
+    mockDownloadLoomVideo.mockRejectedValue(new LoomVideoUnavailableError());
+    mockFetchLoomTranscript.mockResolvedValue(null);
+    mockSelectRows.queue.push([]);
+
+    const result = await runLoomImportJob({
+      recordingId: "rec_embed",
+      ownerEmail: "owner@example.com",
+      claimId: "claim_embed",
+    });
+
+    expect(result).toEqual({ status: "ready" });
+    expect(mockUploadFile).not.toHaveBeenCalled();
+    expect(mockQueueBuilderMediaCompression).not.toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+        videoSizeBytes: 0,
+        failureReason: null,
+      }),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-upload-rec_embed",
+      expect.objectContaining({
+        status: "ready",
+        videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+      }),
+    );
   });
 
   it("marks the recording failed instead of throwing when upload fails", async () => {

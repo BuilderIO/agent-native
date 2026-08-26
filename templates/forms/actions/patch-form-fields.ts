@@ -24,7 +24,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { applyFieldOps } from "../server/lib/merge-fields.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
-import { assertValidFields } from "../server/lib/validate-fields.js";
+import {
+  assertValidFields,
+  normalizePersistedFields,
+} from "../server/lib/validate-fields.js";
 import type { FormField } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
@@ -61,7 +64,11 @@ export function withFormLock<T>(
 const fieldOpSchema = z.union([
   z.object({
     op: z.literal("upsert"),
-    field: z.record(z.string(), z.any()),
+    field: z
+      .record(z.string(), z.any())
+      .describe(
+        "Complete field object with id, type, label, and required; never use shorthand strings.",
+      ),
   }),
   z.object({
     op: z.literal("remove"),
@@ -117,7 +124,9 @@ export default defineAction({
       // Parse current fields from the DB row.
       let currentFields: FormField[] = [];
       try {
-        currentFields = JSON.parse(existing.fields) as FormField[];
+        currentFields = normalizePersistedFields(
+          JSON.parse(existing.fields),
+        ) as FormField[];
       } catch {
         currentFields = [];
       }

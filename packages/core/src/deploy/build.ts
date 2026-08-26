@@ -4161,6 +4161,9 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const serverDir = path.join(internalDir, "server");
   const serverEntryPath = path.join(serverDir, "server.mjs");
   const serverMainPath = path.join(serverDir, "main.mjs");
+  const sourceDrizzleMigrationFiles = listDrizzleMigrationFiles(
+    path.join(projectCwd, DRIZZLE_MIGRATIONS_SOURCE_DIR),
+  );
 
   if (!fs.existsSync(publishDir)) {
     failures.push("missing publish directory: dist");
@@ -4229,6 +4232,18 @@ export function assertSingleTemplateNetlifyBuildOutput(
     if (!/\bpreferStatic:\s*true\b/.test(serverEntry)) {
       failures.push(
         "Netlify server entry must keep preferStatic: true so /assets/* is served from dist before the SSR catch-all",
+      );
+    }
+  }
+
+  if (sourceDrizzleMigrationFiles.length > 0) {
+    const bundledMigrationDir = path.join(serverDir, "migrations");
+    const missingDrizzleMigrationFiles = sourceDrizzleMigrationFiles.filter(
+      (file) => !fs.existsSync(path.join(bundledMigrationDir, file)),
+    );
+    if (missingDrizzleMigrationFiles.length > 0) {
+      failures.push(
+        `server bundle is missing generated Drizzle migration file(s): ${missingDrizzleMigrationFiles.join(", ")}`,
       );
     }
   }
@@ -4889,6 +4904,43 @@ export interface NitroBuildPipelineOptions {
   cwd: string;
 }
 
+const DRIZZLE_MIGRATIONS_SOURCE_DIR = path.join("server", "db", "migrations");
+
+function listDrizzleMigrationFiles(sourceDir: string): string[] {
+  if (!fs.existsSync(sourceDir)) return [];
+  return fs
+    .readdirSync(sourceDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Copy generated Drizzle SQL beside Nitro's bundled server entry.
+ * `runDrizzleMigrations(new URL("./migrations", import.meta.url))` resolves
+ * that folder from the emitted server module, not from the source checkout.
+ */
+export function copyDrizzleMigrationAssets(
+  projectCwd: string,
+  serverDir: string,
+): string[] {
+  const sourceDir = path.join(projectCwd, DRIZZLE_MIGRATIONS_SOURCE_DIR);
+  if (!fs.existsSync(sourceDir)) return [];
+  const migrationFiles = listDrizzleMigrationFiles(sourceDir);
+
+  const destinationDir = path.join(serverDir, "migrations");
+  fs.rmSync(destinationDir, { recursive: true, force: true });
+  fs.mkdirSync(destinationDir, { recursive: true });
+  for (const file of migrationFiles) {
+    fs.copyFileSync(
+      path.join(sourceDir, file),
+      path.join(destinationDir, file),
+    );
+  }
+  fs.writeFileSync(path.join(destinationDir, ".gitkeep"), "");
+  return migrationFiles;
+}
+
 /**
  * Run Nitro's lifecycle in the order required to ship a working React Router
  * framework-mode build.
@@ -5312,6 +5364,16 @@ export default bundle;
     appBasePath,
     cwd,
   });
+
+  const drizzleMigrationFiles = copyDrizzleMigrationAssets(
+    cwd,
+    nitro.options.output.serverDir,
+  );
+  if (drizzleMigrationFiles.length > 0) {
+    console.log(
+      `[deploy] Copied ${drizzleMigrationFiles.length} Drizzle migration file(s) into the server bundle.`,
+    );
+  }
 
   if (isCloudflareModulePreset(preset)) {
     configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);

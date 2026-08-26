@@ -82,7 +82,7 @@ jobs:
             jq -n \
               --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
               --arg dedup_key "agent-native-production-health" \
-              --arg summary "Agent Native production health audit is failing" \
+              --arg summary "Agent-Native production health audit is failing" \
               --arg source "${{ github.repository }}" \
               --arg run_url "$RUN_URL" \
               --arg failing "$FAILING" \
@@ -133,7 +133,7 @@ jobs:
               --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
               --arg dedup_key "agent-native-production-health" \
               --arg source "${{ github.repository }}" \
-              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent Native production health audit recovered", source: $source}}' \
+              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent-Native production health audit recovered", source: $source}}' \
               | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
                   --header 'Content-Type: application/json' \
                   --data-binary @- \

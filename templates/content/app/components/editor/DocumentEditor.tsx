@@ -105,6 +105,7 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
+import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
 import {
   classifyLocalSourceRead,
   localSourceRevisionForQueuedEdit,
@@ -749,6 +750,13 @@ function DocumentEditorBody({
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const getLinkedLocalEditorSnapshot = useCallback(
+    () => ({
+      title: localTitleRef.current,
+      content: localContentRef.current,
+    }),
+    [],
+  );
   const localSourceWriteErrorShownRef = useRef(false);
   const documentUpdatedAtRef = useRef<string | null>(
     document.updatedAt ?? null,
@@ -1266,6 +1274,59 @@ function DocumentEditorBody({
       stop?.();
     };
   }, [document.id, document.source, isLinkedLocalSourceDocument]);
+
+  const handleLinkedLocalAgentPersistence = useCallback(
+    (persisted: Document, revision?: DesktopContentFileRevision) => {
+      localSourceRevisionRef.current = revision;
+      localTitleRef.current = persisted.title;
+      localContentRef.current = persisted.content;
+      setLocalTitle(persisted.title);
+      setLocalContent(persisted.content);
+      setLocalContentUpdatedAt(persisted.updatedAt ?? new Date().toISOString());
+      lastSavedTitleRef.current = {
+        title: persisted.title,
+        updatedAt: lastSavedTitleRef.current.updatedAt,
+      };
+      lastSavedContentRef.current = {
+        content: persisted.content,
+        updatedAt: lastSavedContentRef.current.updatedAt,
+      };
+      setLocalFileSyncRevision((revision) => revision + 1);
+      setLocalSourceConflict(null);
+      const sqlUpdatedAt = documentUpdatedAtRef.current;
+      queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+        mergeDocumentIntoDocumentCache(old, {
+          ...persisted,
+          updatedAt: sqlUpdatedAt ?? persisted.updatedAt,
+        }),
+      );
+    },
+    [documentId, queryClient],
+  );
+
+  useEffect(() => {
+    if (
+      !isLinkedLocalSourceDocument ||
+      document.title !== localTitleRef.current ||
+      document.content !== localContentRef.current ||
+      !document.updatedAt
+    ) {
+      return;
+    }
+    lastSavedTitleRef.current = {
+      title: document.title,
+      updatedAt: document.updatedAt,
+    };
+    lastSavedContentRef.current = {
+      content: document.content,
+      updatedAt: document.updatedAt,
+    };
+  }, [
+    document.content,
+    document.title,
+    document.updatedAt,
+    isLinkedLocalSourceDocument,
+  ]);
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -2024,6 +2085,13 @@ function DocumentEditorBody({
       registry={contentBlockRegistry}
       ctx={blockRenderContext}
     >
+      {isLinkedLocalSourceDocument && editorCanEdit ? (
+        <LinkedLocalDocumentAgentBridge
+          document={document}
+          getEditorSnapshot={getLinkedLocalEditorSnapshot}
+          onPersisted={handleLinkedLocalAgentPersistence}
+        />
+      ) : null}
       <div
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root
@@ -2125,7 +2193,7 @@ function DocumentEditorBody({
               data-local-source-read-only
             >
               {t("editor.localFileReadOnlySnapshot", {
-                device: "Agent Native Desktop",
+                device: "Agent-Native Desktop",
                 date: new Date(
                   document.source?.updatedAt ?? document.updatedAt,
                 ).toLocaleString(),

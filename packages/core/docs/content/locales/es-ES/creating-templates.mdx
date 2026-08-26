@@ -206,7 +206,15 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-Los cambios de esquema deben ser aditivos. Agregue tablas y columnas a través de `runMigrations()` en `server/plugins/db.ts`; nunca utilice SQL, `drizzle-kit push`, cambios de nombre de tablas ni eliminación de columnas destructivos.
+Los cambios de esquema deben ser aditivos. Para nuevas tablas y columnas propias de
+la aplicación, use `drizzle-kit generate` para crear SQL revisable en
+`server/db/migrations/<id_name>.sql` y cárguelo con
+`runDrizzleMigrations()` desde el paso de release en despliegues Node.js.
+Cloudflare Workers/Pages y D1 no tienen un sistema de archivos desplegable. Allí,
+integre el SQL generado en el bundle del worker y páselo a `runMigrations()`.
+Mantenga `runMigrations()` para el historial escrito a mano y casos especiales.
+Nunca utilice SQL destructivo, `drizzle-kit push`, cambios de nombre de tablas ni
+eliminación de columnas.
 
 Para lecturas y escrituras de aplicaciones, utilice el generador de consultas de Drizzle y los operadores portátiles de `drizzle-orm`. No escriba código de producto con SQL sin formato cuando Drizzle pueda expresar la consulta y no importe desde `drizzle-orm/sqlite-core` o `drizzle-orm/pg-core` en plantillas.
 
@@ -503,7 +511,7 @@ Antes de compartir:
 4. Documente las variables de entorno requeridas y los pasos de incorporación.
 5. Incluya ejemplos o filas de semillas a través de migraciones aditivas, no archivos de datos de tiempo de ejecución rastreados.
 
-Las plantillas de la comunidad se instalan directamente desde un repositorio público de GitHub. Coloca la aplicación Agent Native en la raíz:
+Las plantillas de la comunidad se instalan directamente desde un repositorio público de GitHub. Coloca la aplicación Agent-Native en la raíz:
 
 ```bash
 npx @agent-native/core@latest create my-app --template community:owner/repo

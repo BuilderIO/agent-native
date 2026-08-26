@@ -29,4 +29,15 @@ describe("createDrizzleConfig", () => {
       dbCredentials: { url: "memory://" },
     });
   });
+
+  it("can pin migration generation to the primary Postgres dialect", async () => {
+    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(createDrizzleConfig({ dialect: "postgresql" })).toMatchObject({
+      dialect: "postgresql",
+      dbCredentials: { url: "postgres://localhost/app" },
+    });
+  });
 });

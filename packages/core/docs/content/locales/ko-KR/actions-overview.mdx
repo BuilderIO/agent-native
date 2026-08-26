@@ -37,7 +37,7 @@ Claude, Claude Desktop, Cursor, Codex 등 모든 MCP 호스트에 도구로 나�
 
 대부분의 앱은 프런트엔드와 데이터베이스 사이에 브라우저만 호출할 수 있는 별도의 API 레이어를 만듭니다. 같은 기능을 원하는 에이전트는 다시 작성하고 유지 관리해야 하는 자신만의 별도 통합이 필요합니다. 에이전트 네이티브 앱은 이 분리를 건너뜁니다. UI와 에이전트가 정확히 같은 action을 호출하므로, 구현은 하나만 작성하면 되고 버그가 숨을 곳도 한 곳뿐입니다.
 
-<Diagram id="doc-block-actions-overview-2" title="전통적인 프런트엔드 vs. Agent Native" summary="전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다.">
+<Diagram id="doc-block-actions-overview-2" title="전통적인 프런트엔드 vs. Agent-Native" summary="전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent-Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다.">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Claude, Claude Desktop, Cursor, Codex 등 모든 MCP 호스트에 도구로 나�
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React 프런트엔드)</div>
       <div class="diagram-node">에이전트</div>

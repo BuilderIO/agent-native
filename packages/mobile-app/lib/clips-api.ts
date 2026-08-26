@@ -424,7 +424,7 @@ export async function createClipsCapture(
         id: recordingId,
         title: job.title,
         titleSource: "upload",
-        sourceAppName: "Agent Native Mobile",
+        sourceAppName: "Agent-Native Mobile",
         hasCamera: job.kind === "video",
         hasAudio: true,
         mimeType,

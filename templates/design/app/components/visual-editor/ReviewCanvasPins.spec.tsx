@@ -49,6 +49,7 @@ const comment = vi.hoisted(
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
   setClientAppState: mocks.setClientAppState,
+  useAvatarUrl: () => null,
 }));
 
 vi.mock("@agent-native/core/client/review", () => ({

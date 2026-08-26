@@ -1,11 +1,11 @@
 ---
 title: "कस्टम डिज़ाइन सिस्टम"
-description: "Agent Native के व्यवहार को बदले बिना अपने कंपनी के React डिज़ाइन सिस्टम का उपयोग Agent Native ऐप्स और साझा Toolkit अनुभवों में करें।"
+description: "Agent-Native के व्यवहार को बदले बिना अपने कंपनी के React डिज़ाइन सिस्टम का उपयोग Agent-Native ऐप्स और साझा Toolkit अनुभवों में करें।"
 ---
 
 # कस्टम डिज़ाइन सिस्टम
 
-Agent Native आपके कंपनी के React घटकों के साथ ऐप-स्वामित्व वाली स्क्रीन और साझा Toolkit अनुभव रेंडर कर सकता है। एक स्पष्ट, टाइप किया हुआ अडैप्टर एक बार रजिस्टर करें; वही फ़ीचर कंट्रोलर ऐक्शन, स्थिति, एक्सेसिबिलिटी आवश्यकताओं और एजेंट को दिखने वाले व्यवहार का स्वामित्व बनाए रखते हैं।
+Agent-Native आपके कंपनी के React घटकों के साथ ऐप-स्वामित्व वाली स्क्रीन और साझा Toolkit अनुभव रेंडर कर सकता है। एक स्पष्ट, टाइप किया हुआ अडैप्टर एक बार रजिस्टर करें; वही फ़ीचर कंट्रोलर ऐक्शन, स्थिति, एक्सेसिबिलिटी आवश्यकताओं और एजेंट को दिखने वाले व्यवहार का स्वामित्व बनाए रखते हैं।
 
 अडैप्टर कॉन्ट्रैक्ट में Tailwind, shadcn, Radix, `className` या किसी खास स्टाइलिंग रनटाइम की आवश्यकता नहीं है। कोई घटक theme provider, CSS-in-JS, CSS Modules, React Aria या सामान्य CSS का उपयोग कर सकता है। `className` और `style` वैकल्पिक इंटरऑपरेबिलिटी हुक हैं, स्टाइलिंग की अनिवार्यताएँ नहीं।
 
@@ -24,7 +24,7 @@ Agent Native आपके कंपनी के React घटकों के �
 
 ## अडैप्टर रजिस्टर करें
 
-कस्टमर अडैप्टर सामान्य npm पैकेज होते हैं। एक अडैप्टर को `app/design-system.ts` में स्पष्ट रूप से इम्पोर्ट करें; Agent Native निर्भरताएँ स्कैन नहीं करता, लाइब्रेरी का स्वतः पता नहीं लगाता और JSON से घटक लोड नहीं करता।
+कस्टमर अडैप्टर सामान्य npm पैकेज होते हैं। एक अडैप्टर को `app/design-system.ts` में स्पष्ट रूप से इम्पोर्ट करें; Agent-Native निर्भरताएँ स्कैन नहीं करता, लाइब्रेरी का स्वतः पता नहीं लगाता और JSON से घटक लोड नहीं करता।
 
 बिल्ड-टाइम थीम को कम-निर्भरता वाले मॉड्यूल में रखें ताकि Vite अपना कॉन्फ़िग लोड करते समय कस्टमर React पैकेज का मूल्यांकन न करे:
 
@@ -83,7 +83,7 @@ export function AppToolkitProvider({
 }
 ```
 
-आंशिक अडैप्टर समर्थित हैं। जिस घटक को आप छोड़ देते हैं वह Agent Native के डिफ़ॉल्ट अडैप्टर का उपयोग करता है। यदि रेंडर करते समय कोई कस्टम घटक त्रुटि देता है, तो प्रति-घटक error boundary विफलता लॉग करके उस नियंत्रण का डिफ़ॉल्ट घटक रेंडर करती है; बाकी कस्टम सिस्टम सक्रिय रहता है।
+आंशिक अडैप्टर समर्थित हैं। जिस घटक को आप छोड़ देते हैं वह Agent-Native के डिफ़ॉल्ट अडैप्टर का उपयोग करता है। यदि रेंडर करते समय कोई कस्टम घटक त्रुटि देता है, तो प्रति-घटक error boundary विफलता लॉग करके उस नियंत्रण का डिफ़ॉल्ट घटक रेंडर करती है; बाकी कस्टम सिस्टम सक्रिय रहता है।
 
 दो पूर्ण Chat ऐप वास्तविक डिज़ाइन सिस्टम के साथ इस कॉन्ट्रैक्ट को परखते हैं: [Material UI उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) Emotion, `ThemeProvider` और MUI के overlay stack का उपयोग करता है, जबकि [Ant Design उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) `ConfigProvider` और Ant Design के form तथा overlay primitives का उपयोग करता है। उनकी `app/design-system.tsx` फ़ाइलें मुख्य इंटीग्रेशन संदर्भ हैं; ऊपर का Acme fixture जानबूझकर छोटा है और unit tests में उपयोग होता है।
 
@@ -91,7 +91,7 @@ export function AppToolkitProvider({
 
 ## बिल्ड-टाइम theme tokens
 
-`defineTheme` hex, `rgb()`, `hsl()` और OKLCH सहित मानक CSS रंग स्वीकार करता है। Core Vite plugin इनका सत्यापन और सामान्यीकरण Agent Native के मौजूदा semantic variables में करता है। डार्क रंग token-दर-token light palette पर fallback होते हैं; Agent Native अपने-आप डार्क palette नहीं बनाता।
+`defineTheme` hex, `rgb()`, `hsl()` और OKLCH सहित मानक CSS रंग स्वीकार करता है। Core Vite plugin इनका सत्यापन और सामान्यीकरण Agent-Native के मौजूदा semantic variables में करता है। डार्क रंग token-दर-token light palette पर fallback होते हैं; Agent-Native अपने-आप डार्क palette नहीं बनाता।
 
 थीम को Vite plugin में दें:
 
@@ -200,7 +200,7 @@ import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance
 import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
 import { acmeComponents } from "@acme/agent-native-design-system";
 
-describe("Acme Agent Native adapter", () => {
+describe("Acme Agent-Native adapter", () => {
   it("conforms", async () => {
     await assertDesignSystemConformance({
       adapterName: "Acme",
@@ -223,9 +223,9 @@ Contract evolution semantic versioning का पालन करता है:
 
 ### MUI-style theme-provider systems
 
-[Chat + Material UI उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) मुख्य worked reference है। इसका एकल `app/design-system.tsx` मॉड्यूल semantic adapter, MUI के light और dark `createTheme` values तथा `defineTheme` token source export करता है। ऐप का `AppToolkitProvider` MUI `ThemeProvider` को shared Toolkit surfaces के ऊपर रखता है, जबकि `vite.config.ts` वही `theme` value build-time CSS generation के लिए import करता है। इससे Emotion styles, MUI portals और Agent Native tokens एक ही source of truth पर रहते हैं।
+[Chat + Material UI उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) मुख्य worked reference है। इसका एकल `app/design-system.tsx` मॉड्यूल semantic adapter, MUI के light और dark `createTheme` values तथा `defineTheme` token source export करता है। ऐप का `AppToolkitProvider` MUI `ThemeProvider` को shared Toolkit surfaces के ऊपर रखता है, जबकि `vite.config.ts` वही `theme` value build-time CSS generation के लिए import करता है। इससे Emotion styles, MUI portals और Agent-Native tokens एक ही source of truth पर रहते हैं।
 
-Company theme provider को `AppToolkitProvider` के ऊपर रखें और package boundary पर semantic props को adapt करें। `intent`, `emphasis` और `size` को अडैप्टर के अंदर अपने सिस्टम की vocabulary में मैप करें—Agent Native feature code में नहीं। Overlays के लिए `portalContainer` को design system के container या portal prop तक forward करें और उसके focus manager से `initialFocusRef`/`restoreFocusRef` लागू करें।
+Company theme provider को `AppToolkitProvider` के ऊपर रखें और package boundary पर semantic props को adapt करें। `intent`, `emphasis` और `size` को अडैप्टर के अंदर अपने सिस्टम की vocabulary में मैप करें—Agent-Native feature code में नहीं। Overlays के लिए `portalContainer` को design system के container या portal prop तक forward करें और उसके focus manager से `initialFocusRef`/`restoreFocusRef` लागू करें।
 
 ```tsx
 export const ActionButton: DesignSystemComponents["ActionButton"] = ({

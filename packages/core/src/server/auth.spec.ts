@@ -5833,8 +5833,10 @@ describe("server/auth", () => {
         'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
       );
       expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
-      expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
-      expect(html).toContain("__anStartNativeDesktopOAuth(ret, btn, err)");
+      expect(html).toContain("__anStartPopupOAuth(ret, btn, err, flowId)");
+      expect(html).toContain(
+        "__anStartNativeDesktopOAuth(ret, btn, err, flowId)",
+      );
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
@@ -5909,8 +5911,58 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
       );
+      expect(html).toContain(
+        "function __anWatchOAuthPopupClose(popup, flowId)",
+      );
+      expect(html).toContain("function __anHandleOAuthPopupClosed(flowId)");
+      expect(html).toContain("var __anOAuthPopupCloseGraceMs = 5000;");
+      expect(html).toContain("var __anNativeOAuthFlowId = null;");
+      expect(html).toContain("var __anNativeOAuthRequestPending = false;");
+      expect(html).toContain("var __anNativeOAuthReturnObserved = false;");
+      expect(html).toContain("var __anNativeOAuthAbandonGraceMs = 5000;");
+      expect(html).toContain("function __anBeginNativeOAuth(flowId)");
+      expect(html).toContain("function __anCancelNativeOAuthAbandonment()");
+      expect(html).toContain(
+        "function __anScheduleNativeOAuthAbandonment(flowId)",
+      );
+      expect(html).toContain("__anFinalizeNativeOAuthAbandonment(flowId);");
+      expect(html).toContain("__anNativeOAuthRequestPending = true;");
+      expect(html).toContain("__anNativeOAuthRequestPending = false;");
+      expect(html).toContain("__anNativeOAuthReturnObserved = true;");
+      expect(html).toContain("__anBeginNativeOAuth(flowId);");
+      expect(html).toContain("__anMarkNativeOAuthPolling(flowId);");
+      expect(html).toContain(
+        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);\n        __anScheduleNativeOAuthAbandonment(flowId);",
+      );
+      expect(html).toContain(
+        "if (__anOAuthPollTimer) {\n        __anOAuthPopupCloseGraceTimer = setTimeout(function()",
+      );
+      expect(html).toContain(
+        "__anFinalizeOAuthPopupClose(flowId);\n        }, __anOAuthPopupCloseGraceMs);",
+      );
+      expect(html).toContain("__anHandleOAuthPopupClosed(flowId);");
+      expect(html).toContain("closed = popup.closed === true");
+      expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
+      expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");
+      expect(html).toContain(
+        "if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;",
+      );
+      expect(html).toContain("__anStopOAuthExchangePolling();");
+      expect(html).toContain(
+        "if (!__anIsCurrentGoogleSignInFlow(flowId)) return;",
+      );
+      expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
+      expect(html).toContain(
+        "window.addEventListener('focus', function() {\n        __anRecoverGoogleSignInAfterReturn();\n      });",
+      );
+      expect(html).toContain(
+        "window.addEventListener('blur', function() {\n        __anCancelNativeOAuthAbandonment();\n      });",
+      );
+      expect(html).toContain(
+        "if (document.visibilityState === 'visible') {\n          __anRecoverGoogleSignInAfterReturn();\n        } else {\n          __anCancelNativeOAuthAbandonment();\n        }",
+      );
       const recoverStart = html.indexOf(
-        "function __anRecoverGoogleSignInAfterReturn()",
+        "function __anRecoverGoogleSignInAfterReturn(flowId)",
       );
       const recoverEnd = html.indexOf(
         "function __anBindGoogleRecover()",
@@ -6474,7 +6526,7 @@ describe("server/auth", () => {
       expect(html).not.toContain("return to Clips");
     });
 
-    it("uses a deep link for Agent Native desktop exchange completion", async () => {
+    it("uses a deep link for Agent-Native desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const response = await Promise.resolve(
         oauthCallbackResponse(
@@ -6589,7 +6641,7 @@ describe("server/auth", () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       // Reproduces the Builder.io Fusion webview hitting the no-flowId
       // desktop login path with `desktop=true` in OAuth state but a generic
-      // Electron UA. Pre-fix this rendered the dead-end "Open Agent Native"
+      // Electron UA. Pre-fix this rendered the dead-end "Open Agent-Native"
       // deep-link page; now the server should fall through to a 302 redirect.
       const event = createMockEvent({
         headers: {

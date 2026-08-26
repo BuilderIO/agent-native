@@ -39,7 +39,7 @@ export function ComputerConnectSheet({
           </Pressable>
         </View>
         <Text className="mb-5 text-muted-foreground text-[15px] leading-6">
-          Open Agent Native Desktop on your laptop and sign in with this
+          Open Agent-Native Desktop on your laptop and sign in with this
           account. When it appears here, choose it from the computer menu.
         </Text>
         <Pressable

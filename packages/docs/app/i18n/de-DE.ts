@@ -279,7 +279,7 @@ const deDE = {
     },
     comparison: {
       titleLine1: "Wählen Sie nicht zwischen Apps und Agents.",
-      titleAccent: "Agent-native apps sind beides.",
+      titleAccent: "Agent-Native apps sind beides.",
       columns: {
         saas: "SaaS-Tools",
         agents: "Rohe AI-Agenten",
@@ -435,7 +435,7 @@ const deDE = {
     viewAllApps: "Alle Apps anzeigen",
   },
   templatesPage: {
-    title: "Open-Source-Agent-native Apps, die Sie besitzen",
+    title: "Open-Source-Agent-Native Apps, die Sie besitzen",
     eyebrow:
       "Starte mit einer funktionierenden App und lass sie vom Agenten weiterentwickeln.",
     body: "Du kannst alles anpassen.",
@@ -502,7 +502,7 @@ const deDE = {
     design: {
       replaces: "Ersetzt oder erweitert Design-Prototyping-Tools",
       description:
-        "Agent-native HTML-Prototyping-Studio. Erzeuge interaktive Alpine/Tailwind-Designs, vergleiche Varianten, verfeinere Live-Kontrollen und exportiere das Ergebnis.",
+        "Agent-Native HTML-Prototyping-Studio. Erzeuge interaktive Alpine/Tailwind-Designs, vergleiche Varianten, verfeinere Live-Kontrollen und exportiere das Ergebnis.",
     },
     content: {
       replaces: "Ersetzt oder erweitert Obsidian für MDX, Notion, Google Docs",
@@ -527,7 +527,7 @@ const deDE = {
     forms: {
       replaces: "Ersetzt oder erweitert Typeform, Google Forms",
       description:
-        "Agent-nativer Formularersteller. Generieren Sie Formulare aus einer Eingabeaufforderung, bearbeiten Sie Felder visuell oder im Dialog und senden Sie Übermittlungen an Slack, Discord, Google Sheets oder Webhooks.",
+        "Agent-Nativer Formularersteller. Generieren Sie Formulare aus einer Eingabeaufforderung, bearbeiten Sie Felder visuell oder im Dialog und senden Sie Übermittlungen an Slack, Discord, Google Sheets oder Webhooks.",
     },
     assets: {
       replaces:
@@ -1020,7 +1020,7 @@ const deDE = {
       s008: "Sprechen Sie mit Ihrem Agenten über Slack, Telegram oder einen beliebigen Messenger und er wird an Ihre anderen Apps weitergeleitet. Jobs, Speicher, Genehmigungen und A2A-Delegierung – alles an einem Ort.",
       s009: "Ausprobieren",
       s010: "Was Sie tun können",
-      s011: "Dispatch ist die dem Messenger zugewandte Eingangstür für Ihren gesamten Agent-native-Stack.",
+      s011: "Dispatch ist die dem Messenger zugewandte Eingangstür für Ihren gesamten Agent-Native-Stack.",
       s012: "Bidirektionale Nachrichtenübermittlung mit Thread-Kontext, Block Kit-Antworten und Inline-Genehmigungen. Sprechen Sie von überall.",
       s013: "Dispatch leitet Arbeit über das A2A-Protokoll an Ihre anderen agentennativen Apps weiter. Mail, Folien, Design – alles über einen Chat erreichbar.",
       s014: "Wiederkehrende Jobs",
@@ -1241,7 +1241,7 @@ const deDE = {
           "Der Planmodus ist Text in Ihrem Terminal, für eine Person sichtbar und nach der Freigabe verschwunden. Plans sind visuell — Wireframes, Diagramme, annotierte Diffs —, teilbar und dauerhaft: Agents erstellen, lesen und aktualisieren sie über den gesamten Lebenszyklus eines Features.",
         question5: "Kann ich Pläne neben meinem Code sehen?",
         answer5:
-          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
+          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent-Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
         question6: "Ist Plans kostenlos?",
         answer6:
           "Ja. Kostenlos, Open Source und MIT-lizenziert. Plans bietet gehostete Freigabelinks, und Sie können alles in lokale Dateien spiegeln.",
@@ -1275,7 +1275,7 @@ const deDE = {
       s026: "Gemeinsam nutzbare Links",
       s027: "Jeder Plan erhält eine öffentliche URL. Teilen Sie sie mit Teamkollegen für asynchrone Überprüfungen, Kommentare und Genehmigungen.",
       s028: "Desktop-Dateisynchronisierung",
-      s029: "Spiegeln Sie gehostete Pläne in lokale MDX-Dateien von Agent Native Desktop, ohne die App zu klonen oder ein CLI auszuführen.",
+      s029: "Spiegeln Sie gehostete Pläne in lokale MDX-Dateien von Agent-Native Desktop, ohne die App zu klonen oder ein CLI auszuführen.",
       s030: "Daher bleibt die Überprüfung neben dem Code.",
       s031: "Wie es funktioniert",
       s032: "Planen Sie Leben in einer gemeinsamen App – sowohl Sie als auch der Agent können sie während des gesamten Lebenszyklus einer Funktion lesen und aktualisieren.",
@@ -1309,7 +1309,7 @@ const deDE = {
       s060: "Alle Vorlagen anzeigen",
       s061: "VS Code-Übergaben",
       s062: "Öffnen Sie Plan-Links in einem VS Code-Seitenbereich mit der",
-      s063: "Agent Native Plans-Erweiterung",
+      s063: "Agent-Native Plans-Erweiterung",
       s064: "Wireframe — skizzenhaftes UI-Modell mit Komponentenplätzen",
       s065: "Kommentierter Code — Quelldatei mit zeilenweisen Notizen",
       s066: "Diagramm — Ablauf, Sequenz oder Architektur",
@@ -1532,9 +1532,9 @@ const deDE = {
     },
   },
   downloadPage: {
-    title: "Agent Native herunterladen",
+    title: "Agent-Native herunterladen",
     body: "Alle agent-native Apps in einer Desktop-Shell. Produktions-Apps sind integriert, mit Dev-Modus für lokale Entwicklung.",
-    openDesktop: "Agent Native öffnen",
+    openDesktop: "Agent-Native öffnen",
     downloadInstaller: "Installer herunterladen",
     downloadStarted: "Download gestartet",
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
@@ -1968,6 +1968,7 @@ const deDE = {
     externalAgents: "Externe Agents (Host verbinden)",
     externalAgentsCatalog: "Katalog externer Agents",
     mcpApps: "MCP Apps (Inline-UIs)",
+    webMcp: "WebMCP (Browser-Tools)",
     crossAppSso: "Cross-App-SSO",
     notifications: "Benachrichtigungen",
     automationConnectors: "Workflow-Connectors",
