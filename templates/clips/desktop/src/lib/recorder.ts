@@ -49,7 +49,6 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import {
   waitForAcceptedRecordingAfterFinalizeError,
@@ -269,6 +268,12 @@ export interface StartParams {
   preAcquiredDisplayStream?: MediaStream | null;
   /** Live microphone capture handed over on restart. See `preAcquiredDisplayStream`. */
   preAcquiredAudioStream?: MediaStream | null;
+  /**
+   * The replaced take's transcription teardown, handed over on restart. See
+   * `RestartHandoff.transcriptionTornDown` — the engine is process-global, so
+   * this session must await it immediately before starting transcription.
+   */
+  pendingTranscriptionTeardown?: Promise<void> | null;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -338,6 +343,16 @@ export interface RestartHandoff {
   /** Null when the backend re-acquires capture natively (no user gesture needed). */
   displayStream: MediaStream | null;
   audioStream: MediaStream | null;
+  /**
+   * Settles when the discarded take's transcription engine has fully stopped.
+   * The engine is process-global (one session slot), so the retake must await
+   * this immediately before its own `startTranscriptionCapture` — and no
+   * earlier, so Whisper's final flush hides under the retake's countdown
+   * instead of delaying it. Every creation site attaches its own `.catch`,
+   * so this promise never rejects. Absent/null when the discarded take had
+   * no transcription running.
+   */
+  transcriptionTornDown?: Promise<void> | null;
 }
 
 export interface RecorderHandle {
@@ -2463,16 +2478,43 @@ async function runRecordingCountdown(
 }
 
 function showFinalizingFeedback() {
-  // The finalizing window is created asynchronously. Clear the previous
-  // completion record before showing it so a new stop cannot consume an old
-  // result while its event listener is still mounting.
+  // Clear the previous completion record so a new stop cannot consume an old
+  // result while listeners are still mounting.
   try {
     window.localStorage.removeItem(FINALIZING_RESULT_STORAGE_KEY);
   } catch {
     // Storage is a best-effort event-race fallback only.
   }
-  invoke("show_finalizing").catch((err) =>
-    console.error("[clips-recorder] show_finalizing failed:", err),
+  // The recording pill renders the completion card in place — it holds its
+  // window open via `set_toolbar_finishing` before emitting stop and consumes
+  // the same upload progress/finished events — so the separate finalizing
+  // window is no longer shown here.
+}
+
+/**
+ * Tell the recording pill which clip this session will become, so Stop can
+ * copy the share link the instant it's clicked instead of waiting for the
+ * upload to finish. Re-emitted from every `clips:toolbar-ready` handshake so
+ * a pill that mounts late still learns its session.
+ *
+ * `recordingId` is also the pill's session identity: its window is reused
+ * across a restart, so it needs this to tell its own completion event from a
+ * previous take's late one. It is sent for local-only takes too, where it is
+ * the export folder name — the same value the save command echoes back as
+ * `recordingId`, so the comparison holds on both sides. Only `serverUrl` is
+ * withheld for local, which is what keeps `viewUrl` null.
+ */
+function emitRecorderSession(
+  serverUrl: string | null,
+  recordingId: string | null,
+  localOnly: boolean,
+) {
+  const viewUrl =
+    serverUrl && recordingId
+      ? `${serverUrl.replace(/\/+$/, "")}/r/${recordingId}`
+      : null;
+  emit("clips:recorder-session", { viewUrl, recordingId, localOnly }).catch(
+    () => {},
   );
 }
 
@@ -2513,24 +2555,6 @@ async function publishFinalizingResult(params: {
       void invoke("hide_finalizing").catch(() => {});
     }
   });
-}
-
-async function claimNativeUploadOpen(recordingId: string): Promise<boolean> {
-  return invoke<boolean>("native_fullscreen_claim_upload_open", {
-    recordingId,
-  }).catch(() => true);
-}
-
-async function openNativeUploadUrl(
-  recordingId: string,
-  url: string,
-): Promise<void> {
-  if (!(await claimNativeUploadOpen(recordingId))) return;
-  try {
-    await openExternal(url);
-  } catch (err) {
-    console.error("[clips-recorder] openExternal failed:", err);
-  }
 }
 
 /**
@@ -2731,11 +2755,17 @@ async function tryStartRewindFullscreenRecording(
   const canTranscribeLocally = !localOnly && includeMic;
   const startRewindTranscription = async () => {
     if (!canTranscribeLocally || transcriptionCapture) return;
+    // The engine is process-global: on a restart the replaced take's stop must
+    // land before this start, or it attaches to the dying capture. The wait
+    // runs here, under the countdown, instead of inside the discard.
+    await params.pendingTranscriptionTeardown;
+    if (transcriptionAborted) return;
     // Runs after `rewind_clip_prepare`, so the Rewind producer already carries
     // mic (+system) and whisper attaches to it instead of opening its own
     // ScreenCaptureKit stream — which would mute the clip's own audio legs.
-    // This runs inside the countdown's Promise.all: a transcription failure
-    // must never reject there, or it would abort the recording itself.
+    // This runs at the end of prepare(), under the live countdown: a
+    // transcription failure must never reject here, or it would cancel the
+    // countdown and abort the recording itself.
     const capture = await startTranscriptionCapture(
       { deviceId: params.micId, label: params.micLabel },
       includeSystemAudio,
@@ -2756,9 +2786,6 @@ async function tryStartRewindFullscreenRecording(
       void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
   };
-  await guardRecordingStart(invoke("show_preparing"), {
-    signal: params.signal,
-  });
   const recordingPromise = localOnly
     ? Promise.resolve<{ id: string; uploadMode: UploadMode }>({
         id: folderName,
@@ -2786,6 +2813,17 @@ async function tryStartRewindFullscreenRecording(
           },
         );
       })();
+  // Prepare and the countdown start concurrently, and `runRecordingCountdown`
+  // installs its Tauri listeners asynchronously. A prepare that fails inside
+  // that window has nothing listening for `clips:countdown-cancel`, and the
+  // dropped event leaves the countdown on screen for its full timeout before
+  // the real error surfaces. An abort signal is durable where an event is not
+  // — the waiter checks `aborted` as it registers — so the controller is
+  // created before either phase starts.
+  const countdownAbort = new AbortController();
+  const abortCountdown = () => countdownAbort.abort();
+  if (params.signal?.aborted) abortCountdown();
+  else params.signal?.addEventListener("abort", abortCountdown, { once: true });
   try {
     const recording = await prepareRewindRecordingStart({
       async prepare() {
@@ -2806,18 +2844,24 @@ async function tryStartRewindFullscreenRecording(
           }),
           { signal: params.signal },
         );
+        // Whisper stays after `rewind_clip_prepare` (it attaches to the
+        // producer that call registers) and inside prepare so it has settled
+        // before activation, while the countdown runs over all of it.
+        await startRewindTranscription();
         return preparedRecording;
       },
       async countdown() {
-        console.log("[rewind-latency] countdown shown after preparation");
-        await boundedCleanup(invoke("hide_preparing"));
-        // Overlap whisper startup with the countdown so the capture boundary
-        // never waits on it, but have both settled before activation.
-        await Promise.all([
-          runRecordingCountdown(true, params.signal),
-          startRewindTranscription(),
-        ]);
+        console.log("[rewind-latency] countdown shown; preparation overlapped");
+        await runRecordingCountdown(true, countdownAbort.signal);
         console.log("[rewind-latency] countdown completed");
+      },
+      cancelCountdown() {
+        // Abort first: it is the half that cannot be lost to a countdown that
+        // has not finished registering. The event stays so a countdown that
+        // IS listening tears its chrome down through the same path Escape
+        // uses, and so any other listener still sees the cancel.
+        abortCountdown();
+        void emit("clips:countdown-cancel", { cause: "prepare-failed" });
       },
       async activate(preparedRecording) {
         const activationStarted = performance.now();
@@ -2842,6 +2886,7 @@ async function tryStartRewindFullscreenRecording(
         void audioCue.playBeforeCapture();
       },
     });
+    params.signal?.removeEventListener("abort", abortCountdown);
     id = recording.id;
     const originalStartedAt = new Date().toISOString();
     if (!localOnly) {
@@ -2854,7 +2899,7 @@ async function tryStartRewindFullscreenRecording(
       });
     }
   } catch (err) {
-    await boundedCleanup(invoke("hide_preparing"));
+    params.signal?.removeEventListener("abort", abortCountdown);
     transcriptionAborted = true;
     // Cast: `transcriptionCapture` is only assigned inside the
     // `startRewindTranscription` closure, which TS's control-flow analysis
@@ -2927,7 +2972,7 @@ async function tryStartRewindFullscreenRecording(
     await clearRecordingState();
   };
 
-  const discardTake = async (forRestart: boolean) => {
+  const discardTake = async (forRestart: boolean): Promise<RestartHandoff> => {
     stopped = true;
     cleanupUi();
     transcriptionAborted = true;
@@ -2945,13 +2990,27 @@ async function tryStartRewindFullscreenRecording(
     }
     if (!localOnly && id) {
       forgetRewindClipOrigin(id);
-      await cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-        () => {},
+      void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+        (err) => {
+          console.warn(
+            "[clips-recorder] cancelled recording cleanup failed:",
+            err,
+          );
+        },
       );
     }
     // The transcription engine is process-global, so this stop must land
-    // before the replacement session starts it again.
-    if (forRestart) await transcriptionTornDown;
+    // before the replacement session starts it again. Hand the pending
+    // teardown to the retake — it awaits it right before its own
+    // transcription start, hiding the flush under the new countdown instead
+    // of delaying it here.
+    return {
+      displayStream: null,
+      audioStream: null,
+      transcriptionTornDown: forRestart
+        ? (transcriptionTornDown ?? null)
+        : null,
+    };
   };
 
   const handle: RecorderHandle = {
@@ -3037,10 +3096,6 @@ async function tryStartRewindFullscreenRecording(
               : Promise.resolve(true);
           await invoke("hide_recording_chrome").catch(() => {});
           if (wantsCamera) await invoke("close_bubble").catch(() => {});
-          await openNativeUploadUrl(
-            id,
-            `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-          );
           try {
             const uploaded = await uploadPromise;
             if (uploaded.verificationPending) {
@@ -3099,7 +3154,7 @@ async function tryStartRewindFullscreenRecording(
         return cancelPromise;
       }
       if (stopped) return;
-      cancelPromise = discardTake(false);
+      cancelPromise = discardTake(false).then(() => {});
       return cancelPromise;
     },
     async discardForRestart() {
@@ -3112,11 +3167,8 @@ async function tryStartRewindFullscreenRecording(
         throw new Error("Recording already finished — nothing to restart");
       }
       // The Rewind producer re-acquires capture natively, so the retake needs
-      // nothing handed to it.
-      discardPromise = discardTake(true).then(() => ({
-        displayStream: null,
-        audioStream: null,
-      }));
+      // no streams handed to it — only the pending transcription teardown.
+      discardPromise = discardTake(true);
       return discardPromise;
     },
   };
@@ -3163,12 +3215,22 @@ async function tryStartRewindFullscreenRecording(
     }),
     listen("clips:toolbar-ready", () => {
       emit("clips:toolbar-enabled", !stopped).catch(() => {});
+      emitRecorderSession(
+        localOnly ? null : params.serverUrl,
+        id || null,
+        localOnly,
+      );
       emitState();
     }),
   ]);
   tickHandle = window.setInterval(emitState, 500);
   emit("clips:toolbar-sync").catch(() => {});
   emit("clips:toolbar-enabled", true).catch(() => {});
+  emitRecorderSession(
+    localOnly ? null : params.serverUrl,
+    id || null,
+    localOnly,
+  );
   emitState();
   return handle;
 }
@@ -3218,6 +3280,10 @@ async function startNativeFullscreenRecording(
   };
   const startNativeTranscriptionBeforeRecording = async () => {
     if (localOnly || !canTranscribeLocally || transcriptionCapture) return;
+    // The engine is process-global: on a restart the replaced take's stop must
+    // land before this start, or it attaches to the dying capture. The wait
+    // runs here, under the countdown, instead of inside the discard.
+    await params.pendingTranscriptionTeardown;
     throwIfRecordingStartAborted(params.signal);
     transcriptionCapture = await guardRecordingStart(
       startTranscriptionCapture(
@@ -3503,6 +3569,11 @@ async function startNativeFullscreenRecording(
     // timer baseline so the toolbar clock lines up with the real start.
     startedAt = Date.now();
     emit("clips:toolbar-enabled", true).catch(() => {});
+    emitRecorderSession(
+      localOnly ? null : params.serverUrl,
+      id || null,
+      localOnly,
+    );
     emit("clips:recorder-state", {
       paused: false,
       elapsedMs: 0,
@@ -3625,7 +3696,7 @@ async function startNativeFullscreenRecording(
     await invoke("hide_overlays").catch(() => {});
   };
 
-  const discardTake = async (forRestart: boolean) => {
+  const discardTake = async (forRestart: boolean): Promise<RestartHandoff> => {
     stopped = true;
     clearSegmentRotator();
     pauseQueue?.dispose();
@@ -3684,8 +3755,17 @@ async function startNativeFullscreenRecording(
       );
     }
     // The transcription engine is process-global, so this stop must land
-    // before the replacement session starts it again.
-    if (forRestart) await transcriptionTornDown;
+    // before the replacement session starts it again. Hand the pending
+    // teardown to the retake — it awaits it right before its own
+    // transcription start, hiding the flush under the new countdown instead
+    // of delaying it here.
+    return {
+      displayStream: null,
+      audioStream: null,
+      transcriptionTornDown: forRestart
+        ? (transcriptionTornDown ?? null)
+        : null,
+    };
   };
 
   const handle: RecorderHandle = {
@@ -3822,13 +3902,6 @@ async function startNativeFullscreenRecording(
           },
         );
         uploadPromise.catch(() => {});
-        // The recording row already exists, so open its page as soon as the
-        // native stop command has started. Upload/finalize continues in this
-        // webview while the page polls from `uploading` to `ready`.
-        await openNativeUploadUrl(
-          id,
-          `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-        );
         try {
           await Promise.race([
             recorderFinalized,
@@ -3926,7 +3999,7 @@ async function startNativeFullscreenRecording(
         return cancelPromise;
       }
       if (stopped) return;
-      cancelPromise = discardTake(false);
+      cancelPromise = discardTake(false).then(() => {});
       return cancelPromise;
     },
 
@@ -3940,11 +4013,9 @@ async function startNativeFullscreenRecording(
         throw new Error("Recording already finished — nothing to restart");
       }
       // ScreenCaptureKit is driven from Rust, so the retake re-acquires
-      // capture natively without needing a user gesture.
-      discardPromise = discardTake(true).then(() => ({
-        displayStream: null,
-        audioStream: null,
-      }));
+      // capture natively without needing a user gesture — only the pending
+      // transcription teardown is handed over.
+      discardPromise = discardTake(true);
       return discardPromise;
     },
   };
@@ -4015,6 +4086,11 @@ async function startNativeFullscreenRecording(
     }),
     listen("clips:toolbar-ready", () => {
       emit("clips:toolbar-enabled", !stopped).catch(() => {});
+      emitRecorderSession(
+        localOnly ? null : params.serverUrl,
+        id || null,
+        localOnly,
+      );
       emitState();
     }),
   ]);
@@ -4023,6 +4099,11 @@ async function startNativeFullscreenRecording(
   startSegmentRotator();
   emit("clips:toolbar-sync").catch(() => {});
   emit("clips:toolbar-enabled", true).catch(() => {});
+  emitRecorderSession(
+    localOnly ? null : params.serverUrl,
+    id || null,
+    localOnly,
+  );
   emitState();
 
   if (!localOnly) {
@@ -4204,7 +4285,11 @@ export function resolveRestartHandoff(
     stopStream(audioStream);
     throw new Error(RESTART_CAPTURE_ENDED_MESSAGE);
   }
-  return { displayStream, audioStream };
+  return {
+    displayStream,
+    audioStream,
+    transcriptionTornDown: params.pendingTranscriptionTeardown,
+  };
 }
 
 async function startRecordingInner(
@@ -4690,6 +4775,7 @@ async function startRecordingInner(
           emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
             () => {},
           );
+          emitRecorderSession(null, null, true);
           emitState(pausedAt != null);
         }),
       ]);
@@ -4702,6 +4788,7 @@ async function startRecordingInner(
       startedAt = Date.now();
       tickHandle = setInterval(() => emitState(pausedAt != null), 500);
       emit("clips:toolbar-enabled", true).catch(() => {});
+      emitRecorderSession(null, null, true);
       emitState(false);
 
       const detachCombinedStream = () => {
@@ -5124,6 +5211,7 @@ async function startRecordingInner(
         emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
           () => {},
         );
+        emitRecorderSession(params.serverUrl, id, false);
         emitState(pausedAt != null);
       }),
     ]);
@@ -5140,6 +5228,7 @@ async function startRecordingInner(
     // Now that MediaRecorder is actually ticking, flip the toolbar's
     // Stop / Pause buttons to enabled so the user can drive the recorder.
     emit("clips:toolbar-enabled", true).catch(() => {});
+    emitRecorderSession(params.serverUrl, id, false);
     // Seed the initial recorder-state so the time / paused styling match
     // MediaRecorder's real state (before the first 500ms tick).
     emitState(false);
@@ -5149,6 +5238,10 @@ async function startRecordingInner(
     // delaying capture, so the first ~1s the user expected to record was lost
     // (and the recording felt cut at the end). It's a separate capture from the
     // recorded audio tracks, so starting it slightly late is safe.
+    //
+    // The engine is process-global: a restart's handed-off teardown must land
+    // before this start, or it attaches to the dying capture.
+    if (canTranscribeLocally) await restartHandoff.transcriptionTornDown;
     transcriptionCapture = canTranscribeLocally
       ? await startTranscriptionCapture(
           {
@@ -5243,11 +5336,6 @@ async function startRecordingInner(
       // fixed even if launching the browser takes a moment. Open the existing
       // recording row now and let its page poll while upload/finalize continues.
       //
-      // This must claim the native upload-open slot before launching. The
-      // Finalizing overlay receives the completion event later and uses the
-      // same claim; without it, browser recordings opened once here and then a
-      // second time when finalization completed.
-      await openNativeUploadUrl(id, absoluteViewUrl);
       const recorderStopTimedOut = await Promise.race([
         recorderStopped.then(() => false),
         wait(MEDIA_RECORDER_STOP_TIMEOUT_MS).then(() => true),
@@ -5613,11 +5701,25 @@ async function startRecordingInner(
         console.warn("[clips-recorder] local backup cleanup failed:", err);
       });
       // The transcription engine is process-global, so this stop must land
-      // before the replacement session starts it again.
-      if (keepCaptureStreams) await transcriptionTornDown;
+      // before the replacement session starts it again. Hand the pending
+      // teardown to the retake — it awaits it right before its own
+      // transcription start, hiding the flush under the new countdown instead
+      // of delaying it here. Gated on `keepCaptureStreams`, not `handsOff`:
+      // a synthetic-capture restart hands over no streams but still restarts.
+      const handedTranscriptionTeardown = keepCaptureStreams
+        ? (transcriptionTornDown ?? null)
+        : null;
       return handsOff
-        ? { displayStream, audioStream }
-        : { displayStream: null, audioStream: null };
+        ? {
+            displayStream,
+            audioStream,
+            transcriptionTornDown: handedTranscriptionTeardown,
+          }
+        : {
+            displayStream: null,
+            audioStream: null,
+            transcriptionTornDown: handedTranscriptionTeardown,
+          };
     };
 
     const handle: RecorderHandle = {
