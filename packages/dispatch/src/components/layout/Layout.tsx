@@ -1,6 +1,7 @@
 import {
   CHAT_FIRST_MODE_CHANGED_EVENT,
   AgentChatSurface,
+  AgentToggleButton,
   chatFirstSurfaceTabId,
   AgentSidebar,
   ChatFirstSurfacePanelToggle,
@@ -76,6 +77,7 @@ import {
   IconHierarchy2,
   IconMessageQuestion,
   IconBroadcast,
+  IconLayoutSidebar,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconSettings,
@@ -116,6 +118,7 @@ import {
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
+import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -256,9 +259,8 @@ export function useDispatchExtensions(): DispatchExtensionConfig | undefined {
   return useContext(DispatchExtensionsContext);
 }
 
-// Routes whose page renders its own toolbar.
-// Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
-// there's no double-header.
+// Routes whose page renders its own toolbar. Layout skips its sticky chat
+// control so there's no duplicate page chrome.
 function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
@@ -2283,7 +2285,7 @@ export function Layout({
     );
   }
 
-  const showHeader = !isChatRoute && !pageOwnsToolbar(localPathname);
+  const showAgentControls = !isChatRoute && !pageOwnsToolbar(localPathname);
   function openAskAgentFullscreen() {
     focusAgentChat();
     navigateWithAgentChatViewTransition(
@@ -2297,8 +2299,7 @@ export function Layout({
     t("dispatch.sidebar.suggestionGrantKey"),
   ];
   const appContent = (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      {showHeader ? <Header onOpenMobile={() => setMobileOpen(true)} /> : null}
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <InvitationBanner />
       {isChatRoute && chatFirstMode && chatFirstHasActiveChat ? (
         <ChatFirstSurfacePanelToggle
@@ -2325,16 +2326,30 @@ export function Layout({
       ) : null}
       <main
         className={cn(
-          "flex-1",
+          "min-h-0 flex-1",
           isChatRoute || isWorkspaceAppRoute
-            ? "min-h-0 overflow-hidden"
+            ? "overflow-hidden"
             : "overflow-y-auto",
         )}
       >
-        {showHeader ? (
-          <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
-            {children}
-          </div>
+        {showAgentControls ? (
+          <>
+            <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pt-2 lg:px-6">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="pointer-events-auto absolute start-4 top-2 h-8 w-8 lg:hidden"
+                onClick={() => setMobileOpen(true)}
+                aria-label="Open navigation"
+              >
+                <IconLayoutSidebar className="h-4 w-4" />
+              </Button>
+              <AgentToggleButton className="pointer-events-auto h-8 w-8 rounded-md bg-background/80 hover:bg-accent" />
+            </div>
+            <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+              {children}
+            </div>
+          </>
         ) : (
           children
         )}

@@ -11,6 +11,17 @@ const railSource = readFileSync(
   "utf8",
 );
 
+describe("Dispatch layout scrolling", () => {
+  it("keeps page scrolling inside the viewport with a sticky chat control", () => {
+    expect(layoutSource).toMatch(/<main\s+className=\{cn\(\s*"min-h-0 flex-1"/);
+    expect(layoutSource).toContain(
+      'className="pointer-events-none sticky top-0',
+    );
+    expect(layoutSource).toContain("<AgentToggleButton");
+    expect(layoutSource).not.toContain("showHeader ? <Header onOpenMobile");
+  });
+});
+
 describe("Dispatch workspace app chat rail", () => {
   it("routes the open-app rail through the shared app-chat component", () => {
     // Both app surfaces must share one rail: a second inlined AgentSidebar is
