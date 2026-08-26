@@ -52,6 +52,13 @@ describe("release everything workflow", () => {
     const source = String((coordinator.with as Workflow).script);
     assert.match(source, /auto-publish\.yml/);
     assert.match(source, /waitForStablePackagePublish/);
+    assert.match(source, /async function hasRemoteTag\(tag\)/);
+    assert.match(source, /git\.getRef/);
+    assert.match(
+      source,
+      /waitForStablePackagePublish\(releaseSha, workflowRef\)/,
+    );
+    assert.match(source, /Stable npm publication completed without remote tag/);
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);

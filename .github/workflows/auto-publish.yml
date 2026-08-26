@@ -297,6 +297,24 @@ jobs:
         if: github.event_name == 'push'
         run: pnpm -r build
 
+      # A stable merge can race with another PR's pending changeset. Keep
+      # those changesets out of this publish decision so this merge publishes
+      # its already-versioned packages; the files remain in the checkout for
+      # the next release train.
+      - name: Hold pending changesets for stable publication
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          mkdir -p "$hold"
+          shopt -s nullglob
+          for file in .changeset/*.md; do
+            if [[ "$file" == ".changeset/README.md" ]]; then
+              continue
+            fi
+            mv "$file" "$hold/"
+          done
+
       - name: Create stable Release PR or publish to npm
         id: changesets
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
@@ -312,7 +330,7 @@ jobs:
           # and is required before this workflow can publish stable packages.
           # The custom version script also keeps package CHANGELOG.md files
           # short and archives older sections under changelog/archive/.
-          version-script: pnpm changeset version && pnpm changelog:compact
+          version: pnpm changeset version && pnpm changelog:compact
           title: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
           commit: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
         env:
@@ -326,6 +344,18 @@ jobs:
           # publish wrapper uses this only when npm returns 404 for the package
           # name itself; existing packages still publish through OIDC/provenance.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Restore pending changesets
+        if: ${{ always() && github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          if [ -d "$hold" ]; then
+            shopt -s nullglob
+            for file in "$hold"/*.md; do
+              mv "$file" .changeset/
+            done
+          fi
 
   # Downstream notification lives in its own job so it can (a) run on a manual
   # redispatch without re-entering build/publish and (b) still run — and say so

@@ -134,6 +134,20 @@ jobs:
               })).data;
             }
 
+            async function hasRemoteTag(tag) {
+              try {
+                await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: `tags/${tag}`,
+                });
+                return true;
+              } catch (error) {
+                if (error.status === 404) return false;
+                throw error;
+              }
+            }
+
             async function waitForRun(run, label, timeoutMs) {
               const deadline = Date.now() + timeoutMs;
               let lastStatus = "";
@@ -229,7 +243,7 @@ jobs:
               throw new Error(`Stable release PR #${pr.number} did not merge in time: ${pr.html_url}`);
             }
 
-            async function waitForStablePackagePublish(mergeSha) {
+            async function waitForStablePackagePublish(mergeSha, packageTag) {
               const deadline = Date.now() + 120 * 60_000;
               while (Date.now() < deadline) {
                 const response = await github.rest.actions.listWorkflowRuns({
@@ -244,7 +258,7 @@ jobs:
                   (candidate) => candidate.event === "push" && candidate.head_sha === mergeSha,
                 );
                 if (run) {
-                  return waitForRun(
+                  const completed = await waitForRun(
                     {
                       id: run.id,
                       url: run.html_url,
@@ -252,6 +266,12 @@ jobs:
                     "Stable npm publication",
                     Math.max(60_000, deadline - Date.now()),
                   );
+                  if (!(await hasRemoteTag(packageTag))) {
+                    throw new Error(
+                      `Stable npm publication completed without remote tag ${packageTag}: ${run.html_url}`,
+                    );
+                  }
+                  return completed;
                 }
                 await sleep(pollIntervalMs);
               }
@@ -281,7 +301,21 @@ jobs:
 
             const releasePr = await waitForReleasePullRequest(previousReleaseNumbers);
             const releaseSha = await waitForReleaseMerge(releasePr);
-            await waitForStablePackagePublish(releaseSha);
+            const corePackage = await readJsonAt(
+              releaseSha,
+              "packages/core/package.json",
+            );
+            const stableVersion = (value, label) => {
+              if (typeof value !== "string" || !/^\d+\.\d+\.\d+$/.test(value)) {
+                throw new Error(`${label} has no exact stable semver: ${value}`);
+              }
+              return value;
+            };
+            const coreVersion = stableVersion(corePackage.version, "Core package");
+            // workflow_dispatch accepts a branch or tag, not a raw commit SHA.
+            // The stable core package tag points at the verified release commit.
+            const workflowRef = `@agent-native/core@${coreVersion}`;
+            await waitForStablePackagePublish(releaseSha, workflowRef);
 
             const desktopPackage = await readJsonAt(
               releaseSha,
@@ -291,26 +325,12 @@ jobs:
               releaseSha,
               "templates/clips/desktop/package.json",
             );
-            const corePackage = await readJsonAt(
-              releaseSha,
-              "packages/core/package.json",
-            );
             const sitesManifest = await readJsonAt(
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
-            const stableVersion = (value, label) => {
-              if (typeof value !== "string" || !/^\d+\.\d+\.\d+$/.test(value)) {
-                throw new Error(`${label} has no exact stable semver: ${value}`);
-              }
-              return value;
-            };
             const desktopVersion = stableVersion(desktopPackage.version, "Desktop app");
             const clipsVersion = stableVersion(clipsPackage.version, "Clips desktop app");
-            const coreVersion = stableVersion(corePackage.version, "Core package");
-            // workflow_dispatch accepts a branch or tag, not a raw commit SHA.
-            // The stable core package tag points at the verified release commit.
-            const workflowRef = `@agent-native/core@${coreVersion}`;
             const productionSites = Object.entries(sitesManifest)
               .filter(([, site]) =>
                 typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),

@@ -113,4 +113,33 @@ describe("npm package release workflow", () => {
   it("allows npm propagation to settle before failing a publish", () => {
     assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
   });
+
+  it("publishes stable versions before concurrent changesets are versioned", () => {
+    const release = jobs.release as Workflow;
+    const releaseSteps = release.steps as Workflow[];
+    const hold = releaseSteps.find(
+      (step) => step.name === "Hold pending changesets for stable publication",
+    );
+    assert(hold);
+    assert.match(String(hold.if), /github\.event_name == 'push'/);
+    assert.match(JSON.stringify(hold), /RUNNER_TEMP/);
+    assert.match(JSON.stringify(hold), /README\.md/);
+
+    const changesets = releaseSteps.find(
+      (step) => step.name === "Create stable Release PR or publish to npm",
+    );
+    assert(changesets);
+    const options = changesets.with as Workflow;
+    assert.equal(
+      options.version,
+      "pnpm changeset version && pnpm changelog:compact",
+    );
+    assert.equal(options["version-script"], undefined);
+
+    const restore = releaseSteps.find(
+      (step) => step.name === "Restore pending changesets",
+    );
+    assert(restore);
+    assert.match(String(restore.if), /always\(\)/);
+  });
 });
