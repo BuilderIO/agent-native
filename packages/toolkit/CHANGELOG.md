@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.17.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.17.0
 
 ### Minor Changes
