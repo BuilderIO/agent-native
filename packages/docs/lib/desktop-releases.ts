@@ -84,8 +84,9 @@ function isAgentNativeAsset(name: string): boolean {
   const n = name.toLowerCase();
   return (
     n.startsWith("agent-native-") ||
-    n.startsWith("agent-native-") ||
     n.startsWith("agent-native nightly-") ||
+    n.startsWith("agent native-") ||
+    n.startsWith("agent native nightly-") ||
     n.startsWith("agent.native-")
   );
 }

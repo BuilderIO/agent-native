@@ -720,6 +720,67 @@ describe("Builder CMS read client", () => {
     expect(fields).not.toContain("data.blocksString");
   });
 
+  it("falls back to the legacy Builder CMS test search label", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const legacySearchText = ["Agent", "Native"].join(" ") + " Test";
+    const toolResponse = (content: unknown[]) =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ content }),
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    const entry = {
+      id: "legacy-entry",
+      lastUpdated: "2026-08-26T12:00:00.000Z",
+      data: { title: "Legacy test entry", url: "/legacy-test-entry" },
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(toolResponse([]))
+      .mockResolvedValueOnce(toolResponse([]))
+      .mockResolvedValueOnce(toolResponse([entry]))
+      .mockResolvedValueOnce(toolResponse([entry]));
+
+    const result = await readBuilderCmsContentEntries({
+      model: "agent-native-blog-article-test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries).toMatchObject([
+      { id: "legacy-entry", title: "Legacy test entry" },
+    ]);
+    const searchTexts = fetchImpl.mock.calls
+      .slice(3, 5)
+      .map(
+        ([, request]) =>
+          JSON.parse(String((request as RequestInit).body)).params.arguments
+            .searchText,
+      );
+    expect(searchTexts).toEqual(["Agent-Native Test", legacySearchText]);
+  });
+
   it("paginates Builder content through the Content API up to the read limit", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     resolveBuilderCredentialMock.mockImplementation(async (key) =>

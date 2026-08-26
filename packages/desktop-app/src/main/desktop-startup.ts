@@ -69,7 +69,10 @@ export function initializeDesktopStartup({
     : isolatedUserDataDirectoryName
       ? path.join(appDataPath, isolatedUserDataDirectoryName)
       : !isPackaged
-        ? path.join(appDataPath, "Agent-Native Dev")
+        ? path.join(
+            appDataPath,
+            "Agent Native Dev", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+          )
         : null;
   if (isolatedUserDataPath) {
     try {

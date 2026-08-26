@@ -91,10 +91,10 @@ describe("initializeDesktopStartup", () => {
     initializeDesktopStartup(dependencies);
 
     expect(dependencies.createDirectory).toHaveBeenCalledWith(
-      "/application-support/Agent-Native SSO Canary",
+      "/application-support/Agent Native SSO Canary", // agent-native-brand-ok: preserve the legacy Electron profile directory.
     );
     expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
-      "/application-support/Agent-Native SSO Canary",
+      "/application-support/Agent Native SSO Canary", // agent-native-brand-ok: preserve the legacy Electron profile directory.
     );
     expect(events).toEqual([
       "create-directory",

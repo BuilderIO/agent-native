@@ -13,6 +13,10 @@ describe("classifyDesktopAsset", () => {
   it("recognizes Agent-Native desktop installers", () => {
     expect(classifyDesktopAsset("Agent-Native-arm64.dmg")).toBe("mac-arm64");
     expect(classifyDesktopAsset("Agent-Native-x64.dmg")).toBe("mac-x64");
+    expect(classifyDesktopAsset("Agent Native-x64.dmg")).toBe("mac-x64");
+    expect(classifyDesktopAsset("Agent Native Nightly-arm64.dmg")).toBe(
+      "mac-arm64",
+    );
     expect(classifyDesktopAsset("Agent-Native-x64.exe")).toBe("windows-x64");
     expect(classifyDesktopAsset("Agent-Native-arm64.exe")).toBe(
       "windows-arm64",
