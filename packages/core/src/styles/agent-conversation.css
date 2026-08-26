@@ -124,6 +124,19 @@
   padding-inline-start: 20px;
 }
 
+.agent-conversation-markdown ul:not(.contains-task-list) {
+  list-style-type: disc;
+}
+
+.agent-conversation-markdown ol:not(.contains-task-list) {
+  list-style-type: decimal;
+}
+
+.agent-conversation-markdown ul.contains-task-list,
+.agent-conversation-markdown ol.contains-task-list {
+  list-style-type: none;
+}
+
 .agent-conversation-markdown li {
   margin: 3px 0;
   padding-inline-start: 2px;

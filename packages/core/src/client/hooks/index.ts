@@ -26,10 +26,13 @@ export {
 } from "../use-demo-mode-status.js";
 export { useReconciledState } from "../use-external-value.js";
 export {
+  beginSignOut,
+  isSigningOut,
   notifySessionInvalidated,
   useSession,
   type AuthSession,
 } from "../use-session.js";
+export { signOut, type SignOutOptions } from "../sign-out.js";
 export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
