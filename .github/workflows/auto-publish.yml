@@ -395,8 +395,14 @@ jobs:
               exit 0
             fi
             if [ "$attempt" -lt 5 ]; then
-              git fetch origin main --quiet
+              git fetch origin main:refs/remotes/origin/main --quiet
               if git merge-base --is-ancestor HEAD origin/main; then
+                while IFS= read -r file; do
+                  if [ -n "$file" ] && git cat-file -e "origin/main:.changeset/$file"; then
+                    echo "::error::Remote main still contains eligible changeset $file after cleanup commit." >&2
+                    exit 1
+                  fi
+                done < "$eligible"
                 echo "Concurrent changesets were consumed by another main update."
                 exit 0
               fi
