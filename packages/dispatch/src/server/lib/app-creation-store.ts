@@ -33,7 +33,10 @@ import {
   recordAudit,
   resolveLinkedOwner,
 } from "./dispatch-store.js";
-import { projectEnvironmentUrl } from "./environment-lane.js";
+import {
+  projectEnvironmentUrl,
+  requestEnvironmentLane,
+} from "./environment-lane.js";
 import { createRequest, listSecretOptions } from "./vault-store.js";
 import { WORKSPACE_APPS_ACTION_PATH } from "./workspace-app-action-auth.js";
 import {
@@ -1731,6 +1734,7 @@ async function applyArchivedAndPending(
       workspaceSso: isWorkspaceSsoAppUrl(withMetadata, {
         nodeEnv: process.env.NODE_ENV,
         registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+        environmentLane: requestEnvironmentLane(),
       }),
       ...(archivedSet.has(app.id) ? { archived: true } : {}),
     };

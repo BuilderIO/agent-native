@@ -79,6 +79,16 @@ function clientRuntimeEnvironment(): "production" | "development" {
   return "production";
 }
 
+function clientEnvironmentLane(): "production" | "beta" {
+  if (typeof window === "undefined") return "production";
+  const hostname = window.location.hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  const targets = resolveEnvironmentTargets(hostname);
+  return targets?.betaHost === hostname ? "beta" : "production";
+}
+
 /**
  * The workspace SSO action only accepts an exact registered app identity and
  * origin. The catalog's boolean is a server-derived projection for custom
@@ -95,7 +105,10 @@ export function isWorkspaceSsoApp(
     if (app.workspaceSso === true) return true;
     return isWorkspaceSsoAppUrl(
       { id: app.id, url: rawUrl },
-      { nodeEnv: clientRuntimeEnvironment() },
+      {
+        nodeEnv: clientRuntimeEnvironment(),
+        environmentLane: clientEnvironmentLane(),
+      },
     );
     // coercion-ok: malformed app metadata is not eligible for workspace SSO.
   } catch {

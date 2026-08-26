@@ -32,7 +32,10 @@ import {
   isWorkspaceSsoAppUrl,
 } from "../../shared/workspace-sso.js";
 import { listWorkspaceApps } from "./app-creation-store.js";
-import { projectEnvironmentUrl } from "./environment-lane.js";
+import {
+  projectEnvironmentUrl,
+  requestEnvironmentLane,
+} from "./environment-lane.js";
 import {
   getDispatchMcpAppAccessSettings,
   isAppAllowedByMcpAccess,
@@ -682,6 +685,7 @@ async function isEligibleWorkspaceSsoApp(
   return isWorkspaceSsoAppUrl(candidate, {
     nodeEnv: process.env.NODE_ENV,
     registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+    environmentLane: requestEnvironmentLane(),
   });
 }
 

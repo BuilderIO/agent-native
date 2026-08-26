@@ -76,7 +76,7 @@ describe("workspace app routes", () => {
     expect(isDispatchWorkspaceAppId("dispatch-tools")).toBe(false);
   });
 
-  it("requires canonical metadata before enabling workspace SSO", () => {
+  it("requires canonical metadata and the active environment for workspace SSO", () => {
     expect(
       isWorkspaceSsoApp({
         id: " Mail ",
@@ -90,7 +90,7 @@ describe("workspace app routes", () => {
         path: "/",
         url: "https://beta.mail.agent-native.com",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isWorkspaceSsoApp({
         id: "mail",
