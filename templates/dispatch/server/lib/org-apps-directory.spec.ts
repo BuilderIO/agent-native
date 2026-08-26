@@ -70,14 +70,13 @@ describe("decodeJwtUnverified", () => {
 });
 
 describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
-  it("ACCEPTS a token signed with the deployment global A2A_SECRET", async () => {
+  it("REJECTS a token signed only with the deployment global A2A_SECRET", async () => {
     const tok = await signGlobal("alice@acme.com", "acme.com");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: GLOBAL_SECRET,
       resolveOrgSecretByDomain: async () => null,
     });
-    expect(v).toEqual({ email: "alice@acme.com", orgDomain: "acme.com" });
+    expect(v).toBeNull();
   });
 
   it("ACCEPTS a token signed with the org's per-domain a2a_secret", async () => {
@@ -86,7 +85,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     });
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: undefined,
       resolveOrgSecretByDomain: async (d) =>
         d === "acme.com" ? ORG_SECRET : null,
     });
@@ -97,7 +95,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     const tok = await signGlobal("eve@acme.com", "acme.com");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: "the-wrong-secret",
       resolveOrgSecretByDomain: async () => "also-wrong",
     });
     expect(v).toBeNull();
@@ -115,7 +112,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     );
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: undefined,
       resolveOrgSecretByDomain: async () => "org-b-secret",
     });
     expect(v).toBeNull();
@@ -125,8 +121,7 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     const tok = await signGlobal("late@acme.com", "acme.com", "1s");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: GLOBAL_SECRET,
-      resolveOrgSecretByDomain: async () => null,
+      resolveOrgSecretByDomain: async () => GLOBAL_SECRET,
       nowSeconds: Math.floor(Date.now() / 1000) + 3600,
     });
     expect(v).toBeNull();
@@ -136,7 +131,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     const tok = await signGlobal("nobody@x.com", undefined);
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: GLOBAL_SECRET,
       resolveOrgSecretByDomain: async () => null,
     });
     expect(v).toBeNull();
@@ -146,7 +140,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     const tok = await signGlobal("a@acme.com", "acme.com");
     const v = await verifyA2ABearerToken({
       token: tok,
-      globalSecret: undefined,
       resolveOrgSecretByDomain: async () => null,
     });
     expect(v).toBeNull();
@@ -155,7 +148,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
   it("REJECTS a garbage token", async () => {
     const v = await verifyA2ABearerToken({
       token: "garbage",
-      globalSecret: GLOBAL_SECRET,
       resolveOrgSecretByDomain: async () => null,
     });
     expect(v).toBeNull();

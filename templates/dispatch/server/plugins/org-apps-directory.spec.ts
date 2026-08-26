@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const discoverOrgDirectoryAgentsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/org", () => ({
-  getA2ASecretByDomain: vi.fn(async () => null),
+  getA2ASecretByDomain: vi.fn(async () => TEST_SECRET),
   getOrgDomain: vi.fn(async () => "example.test"),
   resolveOrgByDomain: vi.fn(async () => ({
     orgId: "org-123",
@@ -32,23 +32,15 @@ import {
 const TEST_SECRET = "fake-directory-plugin-secret";
 
 async function authorization(): Promise<string> {
-  const previous = process.env.A2A_SECRET;
-  process.env.A2A_SECRET = TEST_SECRET;
-  try {
-    return `Bearer ${await signA2AToken(
-      "operator@example.test",
-      "example.test",
-      undefined,
-      { preferGlobalSecret: true },
-    )}`;
-  } finally {
-    if (previous === undefined) delete process.env.A2A_SECRET;
-    else process.env.A2A_SECRET = previous;
-  }
+  return `Bearer ${await signA2AToken(
+    "operator@example.test",
+    "example.test",
+    TEST_SECRET,
+    { preferGlobalSecret: false },
+  )}`;
 }
 
 async function request(): Promise<Response> {
-  process.env.A2A_SECRET = TEST_SECRET;
   const app = createApp();
   app.use(orgAppsHandler);
   return app.request("https://dispatch.example.test/_agent-native/org/apps", {

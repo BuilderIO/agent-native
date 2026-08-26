@@ -164,11 +164,10 @@ function verifyWithSecret(
  * Verify an inbound A2A bearer token the same way the core A2A receiver does:
  *
  *   1. Decode (unverified) to read the asserted `org_domain`.
- *   2. Build the ordered candidate-secret set: the deployment's global
- *      `A2A_SECRET` first (current callers prefer it), then the specific
- *      org's `a2a_secret` resolved by domain (legacy / org-scoped callers).
- *   3. Verify the signature with each candidate; the first that validates
- *      wins. A token that validates under NO candidate is rejected.
+ *   2. Resolve the specific org's `a2a_secret` by domain.
+ *   3. Verify the signature with that org-bound secret. The deployment-wide
+ *      `A2A_SECRET` is deliberately not accepted because it cannot bind a
+ *      caller-provided domain to one organization.
  *
  * `resolveOrgSecretByDomain` is injected so this stays pure/testable; the
  * plugin wires it to `getA2ASecretByDomain` from `@agent-native/core/org`.
@@ -177,7 +176,6 @@ function verifyWithSecret(
  */
 export async function verifyA2ABearerToken(input: {
   token: string;
-  globalSecret: string | undefined;
   resolveOrgSecretByDomain: (domain: string) => Promise<string | null>;
   nowSeconds?: number;
 }): Promise<VerifiedA2APayload | null> {
@@ -192,46 +190,37 @@ export async function verifyA2ABearerToken(input: {
 
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
 
-  const candidates: string[] = [];
-  const pushCandidate = (s: string | null | undefined) => {
-    const t = s?.trim();
-    if (t && !candidates.includes(t)) candidates.push(t);
-  };
-  pushCandidate(input.globalSecret);
-  if (assertedDomain) {
-    try {
-      pushCandidate(await input.resolveOrgSecretByDomain(assertedDomain));
-    } catch {
-      // DB not ready / column missing — fall through to whatever we have.
-    }
+  if (!assertedDomain) return null;
+  let secret: string | null = null;
+  try {
+    secret = await input.resolveOrgSecretByDomain(assertedDomain);
+  } catch {
+    return null;
   }
-  if (candidates.length === 0) return null;
+  if (!secret?.trim()) return null;
 
-  for (const secret of candidates) {
-    const payload = verifyWithSecret(decoded, secret, now);
-    if (payload) {
-      // The org directory is a general A2A-peer endpoint. Reject tokens
-      // minted for a different single purpose — SSO identity assertions
-      // (`scope: "identity"`) or MCP-connect personal tokens
-      // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
-      // cannot enumerate the org's apps. General A2A peer tokens carry no
-      // `scope` claim and are still accepted.
-      const scope =
-        typeof (payload as { scope?: unknown }).scope === "string"
-          ? ((payload as { scope: string }).scope as string)
-          : "";
-      if (scope === "identity" || scope === "mcp-connect") return null;
-      const sub = payload.sub;
-      const email =
-        typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
-      if (!email) return null;
-      // The verified token MUST carry an org_domain — the directory is
-      // strictly org-scoped, and the same-org check needs it. A token with
-      // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
-      // org and is rejected.
-      if (!assertedDomain) return null;
-      return { email, orgDomain: assertedDomain };
-    }
+  const payload = verifyWithSecret(decoded, secret.trim(), now);
+  if (payload) {
+    // The org directory is a general A2A-peer endpoint. Reject tokens
+    // minted for a different single purpose — SSO identity assertions
+    // (`scope: "identity"`) or MCP-connect personal tokens
+    // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
+    // cannot enumerate the org's apps. General A2A peer tokens carry no
+    // `scope` claim and are still accepted.
+    const scope =
+      typeof (payload as { scope?: unknown }).scope === "string"
+        ? ((payload as { scope: string }).scope as string)
+        : "";
+    if (scope === "identity" || scope === "mcp-connect") return null;
+    const sub = payload.sub;
+    const email =
+      typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
+    if (!email) return null;
+    // The verified token MUST carry an org_domain — the directory is
+    // strictly org-scoped, and the same-org check needs it. A token with
+    // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
+    // org and is rejected.
+    return { email, orgDomain: assertedDomain };
   }
   return null;
 }

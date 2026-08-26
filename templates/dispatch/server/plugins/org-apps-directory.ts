@@ -14,8 +14,8 @@
  * (`packages/core/src/a2a/server.ts` `verifyA2AToken`) and
  * `receiveA2ASecretHandler` (`packages/core/src/org/handlers.ts`): peek the
  * unverified `org_domain`, build the ordered candidate-secret set
- * (`process.env.A2A_SECRET` then the org's per-domain `a2a_secret` via
- * `getA2ASecretByDomain` from `@agent-native/core/org`), verify the HS256
+ * (the org's per-domain `a2a_secret` via `getA2ASecretByDomain` from
+ * `@agent-native/core/org`), verify the HS256
  * signature, then require the verified org_domain to resolve to a LOCAL org
  * (`resolveOrgByDomain`). Cross-org / unauthenticated callers are rejected.
  * The crypto/secret-resolution helpers are imported from `@agent-native/core`
@@ -109,7 +109,6 @@ export const orgAppsHandler = defineEventHandler(
 
     const verified = await verifyA2ABearerToken({
       token,
-      globalSecret: process.env.A2A_SECRET,
       resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
     });
     if (!verified) {
