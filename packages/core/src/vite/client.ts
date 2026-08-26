@@ -445,7 +445,7 @@ function mirrorReactRouterVirtualInvalidation(
  *
  * `@react-router/dev`'s framework-mode plugin invalidates its virtual modules
  * through `server.moduleGraph` — Vite's deprecated back-compat graph, which
- * proxies only the `client` and `ssr` environments. Agent Native serves SSR
+ * proxies only the `client` and `ssr` environments. Agent-Native serves SSR
  * from Nitro's `nitro` environment, so that invalidation never reaches the
  * `virtual:react-router/server-build` the request path evaluates, and the route
  * table stays frozen at whatever it was when the dev server booted. A new route

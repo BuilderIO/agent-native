@@ -51,7 +51,7 @@ export function installBrowserNativeHost(
   ];
   writePrivateJson(manifestPath, {
     name: AGENT_NATIVE_BROWSER_HOST_NAME,
-    description: "Agent Native browser control bridge",
+    description: "Agent-Native browser control bridge",
     path: launcherPath,
     type: "stdio",
     allowed_origins: exactExtensionOrigins(extensionIds),

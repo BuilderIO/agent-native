@@ -1,5 +1,5 @@
 name: Submit a community template
-description: Propose a public Agent Native template for the community catalog.
+description: Propose a public Agent-Native template for the community catalog.
 title: "Community template: "
 labels:
   - community-template
@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for sharing your template. Community templates are maintained by their authors and listed separately from Agent Native's first-party templates.
+        Thanks for sharing your template. Community templates are maintained by their authors and listed separately from Agent-Native's first-party templates.
 
   - type: input
     id: name
@@ -21,7 +21,7 @@ body:
     id: repository
     attributes:
       label: Public GitHub repository
-      description: Provide either a single Agent Native app at the repository root or an Agent Native workspace with a non-empty agent-native.workspaceCore marker and community apps directly under apps/*.
+      description: Provide either a single Agent-Native app at the repository root or an Agent-Native workspace with a non-empty agent-native.workspaceCore marker and community apps directly under apps/*.
       placeholder: https://github.com/owner/repository
     validations:
       required: true
@@ -89,7 +89,7 @@ body:
       options:
         - label: The repository is public and has a license.
           required: true
-        - label: The Agent Native app is at the repository root or directly under apps/<name>, and its package.json directly depends on @agent-native/core.
+        - label: The Agent-Native app is at the repository root or directly under apps/<name>, and its package.json directly depends on @agent-native/core.
           required: true
         - label: A workspace repository has a valid non-empty agent-native.workspaceCore marker in its root package.json.
           required: true
@@ -99,5 +99,5 @@ body:
           required: true
         - label: Required environment variables and setup steps are documented without including real secrets.
           required: true
-        - label: I understand this remains a community-maintained template and is not supported as a first-party Agent Native app.
+        - label: I understand this remains a community-maintained template and is not supported as a first-party Agent-Native app.
           required: true

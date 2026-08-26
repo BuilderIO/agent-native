@@ -1,5 +1,5 @@
 {
-  "name": "Agent Native Templates (First-party)",
+  "name": "Agent-Native Templates (First-party)",
   "description": "Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events. Includes explicit feedback sentiment by model and optional inferred message sentiment.",
   "filters": [
     {

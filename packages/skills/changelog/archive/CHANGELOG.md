@@ -1526,7 +1526,7 @@
 
 ### Patch Changes
 
-- 648c2d7: Install Rewind through Agent Native's complete local Screen Memory setup instead of treating it as a plain public skill, route every supported Rewind name through the same fail-before-writes checks, reject missing or disconnected local stores, keep explicit-store retrieval bound to Clips' feature configuration, and guide first-time users through consent-gated Clips Desktop setup.
+- 648c2d7: Install Rewind through Agent-Native's complete local Screen Memory setup instead of treating it as a plain public skill, route every supported Rewind name through the same fail-before-writes checks, reject missing or disconnected local stores, keep explicit-store retrieval bound to Clips' feature configuration, and guide first-time users through consent-gated Clips Desktop setup.
 - Updated dependencies [648c2d7]
   - @agent-native/core@0.122.4
 
@@ -1617,7 +1617,7 @@
 
 ### Patch Changes
 
-- 0e2c19d: Capture server-side and CLI exceptions in first-party Agent Native monitoring, and avoid reporting browser errors already handled by stale-chunk recovery or extensions.
+- 0e2c19d: Capture server-side and CLI exceptions in first-party Agent-Native monitoring, and avoid reporting browser errors already handled by stale-chunk recovery or extensions.
 - Updated dependencies [0e2c19d]
 - Updated dependencies [0e2c19d]
 - Updated dependencies [0e2c19d]
@@ -4644,7 +4644,7 @@
 
 ### Patch Changes
 
-- d684bbf: Add scaffold skill refresh commands for generated Agent Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
+- d684bbf: Add scaffold skill refresh commands for generated Agent-Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
 - Updated dependencies [d684bbf]
 - Updated dependencies [d684bbf]
 - Updated dependencies [d684bbf]
@@ -5251,7 +5251,7 @@
 
 - 914c8db: Unify the skills CLI flow so `@agent-native/skills` delegates normal user-facing
   list/add flows to the core skills CLI with an expanded public skills catalog,
-  while `agent-native skills` keeps the Agent Native-only catalog.
+  while `agent-native skills` keeps the Agent-Native-only catalog.
 
 ## 0.2.5
 
@@ -5293,7 +5293,7 @@
 
 ### Minor Changes
 
-- d77a37f: Add best-effort install-funnel analytics to both skills CLIs (`npx @agent-native/skills@latest` and `npx @agent-native/core@latest skills`). Each run reports a step-by-step funnel — started, skills prompted, skills selected, clients selected, scope selected, install completed, MCP registered, connect, and completed/failed/cancelled — to the first-party Agent Native Analytics endpoint, so install volume, skill selection, and step-by-step dropoff can be measured. Events carry a stable per-machine install id (unique installs) and a per-run id (dropoff) and never include paths, repo names, or other identifying data. Telemetry is fire-and-forget, flushes before exit, and is opt-out via `DO_NOT_TRACK=1` or `AGENT_NATIVE_TELEMETRY_DISABLED=1`.
+- d77a37f: Add best-effort install-funnel analytics to both skills CLIs (`npx @agent-native/skills@latest` and `npx @agent-native/core@latest skills`). Each run reports a step-by-step funnel — started, skills prompted, skills selected, clients selected, scope selected, install completed, MCP registered, connect, and completed/failed/cancelled — to the first-party Agent-Native Analytics endpoint, so install volume, skill selection, and step-by-step dropoff can be measured. Events carry a stable per-machine install id (unique installs) and a per-run id (dropoff) and never include paths, repo names, or other identifying data. Telemetry is fire-and-forget, flushes before exit, and is opt-out via `DO_NOT_TRACK=1` or `AGENT_NATIVE_TELEMETRY_DISABLED=1`.
 - d77a37f: Unify the two skills installers onto one codebase + UX.
   - `npx @agent-native/skills@latest add` / `list` now delegate to `@agent-native/core`'s
     clack-based installer (`runSkills`, newly exported at `@agent-native/core/cli/skills`),

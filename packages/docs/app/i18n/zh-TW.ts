@@ -269,7 +269,7 @@ const messages = {
     },
     comparison: {
       titleLine1: "不必在 app 和 agent 之間二選一。",
-      titleAccent: "Agent-native apps 二者兼備。",
+      titleAccent: "Agent-Native apps 二者兼備。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
@@ -1214,7 +1214,7 @@ const messages = {
       s026: "可分享的連結",
       s027: "每個計畫都有一個公開 URL。與團隊成員共用以進行非同步審閱、評論和核准。",
       s028: "桌面檔案同步",
-      s029: "將託管計畫從 Agent Native Desktop 鏡像到本機 MDX 檔案，無需克隆應用程式或執行 CLI。",
+      s029: "將託管計畫從 Agent-Native Desktop 鏡像到本機 MDX 檔案，無需克隆應用程式或執行 CLI。",
       s030: "，因此審查位於程式碼旁邊。",
       s031: "它是如何運作的",
       s032: "規劃存在於共用應用程式中 - 您和代理都可以在功能的整個生命週期中讀取和更新它。",
@@ -1248,7 +1248,7 @@ const messages = {
       s060: "檢視所有範本",
       s061: "VS Code 交接",
       s062: "使用以下擴充功能在 VS Code 側邊面板中開啟計畫連結：",
-      s063: "Agent Native Plans 擴充功能",
+      s063: "Agent-Native Plans 擴充功能",
       s064: "線框圖 — 帶元件插槽的草圖式 UI 模型",
       s065: "帶註解的程式碼 — 帶逐行註解的來源檔案",
       s066: "圖表 — 流程圖、序列圖或架構圖",
@@ -1275,7 +1275,7 @@ const messages = {
           "plan mode 是終端中的文字，只對一個人可見，核准後就會消失。Plans 是視覺化的，包含線框圖、圖表和帶註解的差異；它可分享、可持久保存，代理能在功能的整個生命週期中建立、讀取和更新計畫。",
         question5: "我可以在程式碼旁邊查看計畫嗎？",
         answer5:
-          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
+          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent-Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
         question6: "Plans 免費嗎？",
         answer6:
           "免費、開放原始碼，並採用 MIT 授權。Plans 提供託管的分享連結，你也可以把所有內容鏡像到本機檔案。",
@@ -1496,9 +1496,9 @@ const messages = {
     },
   },
   downloadPage: {
-    title: "下載 Agent Native",
+    title: "下載 Agent-Native",
     body: "所有 agent-native 應用都在一個桌面外殼中。內建正式環境應用，並提供用於本機開發的開發模式開關。",
-    openDesktop: "開啟 Agent Native",
+    openDesktop: "開啟 Agent-Native",
     downloadInstaller: "下載安裝程式",
     downloadStarted: "已開始下載",
     downloadAgain: "沒有成功？再試一次下載",

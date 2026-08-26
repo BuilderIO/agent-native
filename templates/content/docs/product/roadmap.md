@@ -1,8 +1,8 @@
-# Agent Native Content public roadmap
+# Agent-Native Content public roadmap
 
 <!-- Generated from the atomic records in chapters/, features/, and capabilities/. Do not edit this projection directly. -->
 
-Agent Native Content brings documents, data, connected sources, collaboration, and agent work into one durable place. People and agents work on the same real objects through the same permissions and operations. The result is a workspace that can begin as a Page, grow into a system, and remain understandable, portable, and recoverable as more people and automations become involved.
+Agent-Native Content brings documents, data, connected sources, collaboration, and agent work into one durable place. People and agents work on the same real objects through the same permissions and operations. The result is a workspace that can begin as a Page, grow into a system, and remain understandable, portable, and recoverable as more people and automations become involved.
 
 ## How to read this roadmap
 
@@ -267,7 +267,7 @@ Choose governed native and provider Sources, preserve their identity, and compos
 **What this Feature includes:**
 
 - **Sources catalog:** Lists approved personal, workspace, and organization connections with their capabilities and policy.
-- **Provider adapters:** Give Builder, Notion, Drive, Agent Native apps, and later providers one shared contract with independent certification.
+- **Provider adapters:** Give Builder, Notion, Drive, Agent-Native apps, and later providers one shared contract with independent certification.
 - **Item binding:** Maps each provider item to one stable Content identity without turning the provider into the Page's owner.
 - **Typed Queries:** Combine Databases, Sources, and other Queries through one visual selection and alignment model.
 - **Provenance:** Shows where each value or representation came from and which system owns changes to it.
@@ -416,7 +416,7 @@ Govern reusable Skills so the agent offers the right instructions for the curren
 
 **Example workflow:** A writer selects a paragraph and opens Ask Agent; Content prioritizes the organization's approved voice-and-style Skill, explains that it will propose a replacement, and records the resulting edits when invoked.
 
-**What works today:** The Agent Native framework already loads governed developer Skills, and Content provides selection context and the shared Agent chat for carrying out authorized work.
+**What works today:** The Agent-Native framework already loads governed developer Skills, and Content provides selection context and the shared Agent chat for carrying out authorized work.
 
 **What remains:** Content needs a user-manageable Skills catalog, scope and compatibility rules, contextual discovery, specific-over-general ranking, clear mutation previews, and shared invocation for people and agents.
 
@@ -570,12 +570,12 @@ Build Forms over the same schema, validation, and submission Actions as the Data
 
 **What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Database record.
 
-**What remains:** Content and Agent Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff.
+**What remains:** Content and Agent-Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff.
 
 **What this Feature includes:**
 
 - **Form View:** Saves field selection, order, presentation, and submission behavior over one Database.
-- **Shared schema:** Reuses the same Property types and validation as Agent Native Forms and ordinary record editing.
+- **Shared schema:** Reuses the same Property types and validation as Agent-Native Forms and ordinary record editing.
 - **Conditional fields:** Shows or requires inputs through the typed expression language rather than custom form-only logic.
 - **Submission grants:** Allow a person to submit without silently granting broad access to the underlying Database.
 - **Idempotent submission:** Prevents duplicate records when a request retries or returns ambiguously.
@@ -593,7 +593,7 @@ Use Charts, Pivots, grouping, measures, and drill-down without creating a separa
 
 **Example workflow:** A marketing analyst groups campaigns by channel, compares spend and conversions in a Chart and Pivot, then drills into one surprising aggregate to inspect the canonical campaigns behind it.
 
-**What works today:** Database calculations, grouping, rollup foundations, and chart tooling elsewhere in the Agent Native framework provide useful implementation donors.
+**What works today:** Database calculations, grouping, rollup foundations, and chart tooling elsewhere in the Agent-Native framework provide useful implementation donors.
 
 **What remains:** Content needs typed aggregations, multi-dimensional grouping, Pivot, a shared Chart specification and renderer library, saved Chart Views, embeddable Chart Blocks, and drill-down to canonical records.
 
@@ -601,7 +601,7 @@ Use Charts, Pivots, grouping, measures, and drill-down without creating a separa
 
 - **Multiple grouping dimensions:** Partitions typed Query results consistently across Views.
 - **Measures and totals:** Compute access-safe counts, sums, averages, subtotals, and grand totals.
-- **Charts:** Share one typed chart specification and renderer toolkit with Agent Native Analytics.
+- **Charts:** Share one typed chart specification and renderer toolkit with Agent-Native Analytics.
 - **Pivot:** Places dimensions on rows and columns with typed aggregations in cells.
 - **Drill-down:** Opens the canonical records behind an aggregate instead of turning cells into independent data.
 - **Accessible summaries:** Explains the chart or pivot meaning beyond color, shape, or pointer interaction.
@@ -686,7 +686,7 @@ Read comfortably, mark exact material, preserve revision context, and find those
 - **Precise selectors:** Anchor to text ranges, pages, regions, timestamps, transcript ranges, and the source revision being viewed.
 - **Annotations rail:** Reveals highlights only when opened and supports search, filtering, grouping, re-anchoring, and orphan repair.
 - **Carry-forward:** Moves a filtered set of relevant Annotations to another named Version without pretending every old anchor still exists.
-- **Speech:** Adds dictation and read-aloud through shared Agent Native capabilities rather than a Reader-only AI system.
+- **Speech:** Adds dictation and read-aloud through shared Agent-Native capabilities rather than a Reader-only AI system.
 
 **Required capability records:** [Reader surface](capabilities/content.reader.surface.md), [Annotations](capabilities/content.research.annotation.md), [Media Blocks](capabilities/content.author.media.md)
 
@@ -832,9 +832,9 @@ Mount and edit the same canonical Content object inside an authorized host witho
 
 **Status:** Planned
 
-**Example workflow:** A planner mounts the canonical project brief inside another Agent Native app, edits it through the same Actions, and sees the change, history, and permissions remain identical when opening it later in Content.
+**Example workflow:** A planner mounts the canonical project brief inside another Agent-Native app, edits it through the same Actions, and sees the change, history, and permissions remain identical when opening it later in Content.
 
-**What works today:** Agent Native toolkits already share Content components across sibling apps, and Content exposes reusable Actions and object identities that hosts can call without duplicating business logic.
+**What works today:** Agent-Native toolkits already share Content components across sibling apps, and Content exposes reusable Actions and object identities that hosts can call without duplicating business logic.
 
 **What remains:** A canonical embeddable surface needs host grants, viewer-scoped authorization, shared editing and history, stable mounting contracts, responsive presentation, and later MCP App compatibility.
 
@@ -844,7 +844,7 @@ Mount and edit the same canonical Content object inside an authorized host witho
 - **Host grant:** Gives one named application only the mount and Action capabilities it needs.
 - **Viewer authority:** Never lets the host widen what the signed-in person could see or edit in Content itself.
 - **Shared Actions:** Routes edits through the same validation, permissions, Events, history, and agent surface.
-- **Agent Native toolkits:** Reuse common components and behavior across sibling applications without coupling them to the Content app shell.
+- **Agent-Native toolkits:** Reuse common components and behavior across sibling applications without coupling them to the Content app shell.
 - **MCP App widening:** Later exposes the same governed surface to compatible external agent hosts once identity and presentation contracts are proven.
 
 **Required capability records:** [Embedded Content surface](capabilities/content.embed.surface.md), [Embedded host grants](capabilities/content.embed.host-grant.md), [Agent and UI parity](capabilities/content.agent.action-parity.md)
