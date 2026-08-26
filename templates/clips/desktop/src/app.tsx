@@ -545,12 +545,22 @@ async function hasConfiguredVideoStorage(
   // Last-known-good cache: seeds the next launch's Start button so it isn't
   // held behind this round-trip. Only "configured" is ever cached —
   // "missing"/"unknown" must always re-probe.
-  if (probe === "configured") saveBool(VIDEO_STORAGE_CONFIGURED_KEY, true);
+  if (probe === "configured") {
+    saveBool(videoStorageConfiguredKey(serverUrl), true);
+  }
   return probe;
 }
 
 function authTokenStorageKey(serverUrl: string): string {
   return `${AUTH_TOKEN_KEY}:${originForServer(serverUrl)}`;
+}
+
+// Whether video storage is configured is a fact about one server, so the
+// last-known-good seed is stored per origin. A single shared key would let a
+// configured server's success enable Start against a different, unconfigured
+// one for the whole of that server's first probe.
+function videoStorageConfiguredKey(serverUrl: string): string {
+  return `${VIDEO_STORAGE_CONFIGURED_KEY}:${originForServer(serverUrl)}`;
 }
 
 function loadDesktopAuthToken(serverUrl: string): string {
@@ -1244,7 +1254,9 @@ export function App({
   // still run and correct a since-deconfigured server within seconds.
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>(() =>
-      loadBool(VIDEO_STORAGE_CONFIGURED_KEY, false) ? "configured" : "checking",
+      loadBool(videoStorageConfiguredKey(serverUrl), false)
+        ? "configured"
+        : "checking",
     );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const [signInPending, setSignInPending] = useState<
@@ -1303,6 +1315,21 @@ export function App({
   useEffect(() => {
     installAuthFetchInterceptor();
     setDesktopAuthContext(serverUrl, loadDesktopAuthToken(serverUrl));
+  }, [serverUrl]);
+
+  // Switching servers makes the current answer meaningless: the probe below
+  // deliberately never downgrades "configured" to "checking", so without this
+  // the old server's success would keep Start enabled against the new one
+  // until its first probe lands. Re-seed from the new origin's own cache.
+  const probedServerRef = useRef(serverUrl);
+  useEffect(() => {
+    if (probedServerRef.current === serverUrl) return;
+    probedServerRef.current = serverUrl;
+    setVideoStorageStatus(
+      loadBool(videoStorageConfiguredKey(serverUrl), false)
+        ? "configured"
+        : "checking",
+    );
   }, [serverUrl]);
 
   const refreshVideoStorageStatus = useCallback(async () => {
@@ -3837,6 +3864,15 @@ export function App({
               folderPath: stopResult.localFolder,
               files: stopResult.localFiles ?? [],
             });
+            // A local-only stop has no upload, so nothing else ever publishes
+            // its outcome. Without this the pill's completion card would hold
+            // "finishing up" until its stall timeout — and it must not claim
+            // the file was saved before the export actually returned.
+            emit("clips:native-upload-finished", {
+              recordingId: stopResult.recordingId,
+              ok: true,
+              localFilePath: stopResult.localFiles?.[0] ?? null,
+            }).catch(() => {});
           } else {
             setLastRecordingId(stopResult.recordingId);
             // The browser opens `/r/<id>` (the author's dashboard); what lands
@@ -3847,6 +3883,13 @@ export function App({
         } catch (err) {
           stopFailed = true;
           setRecError(err instanceof Error ? err.message : String(err));
+          // The pill is showing this take's card. A stop that threw is not a
+          // completion, and for a local-only take no later event corrects it,
+          // so say so instead of leaving the card asserting success.
+          emit("clips:native-upload-finished", {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }).catch(() => {});
           await loadPendingUploads();
         } finally {
           recordingStopFinalizingRef.current = false;
