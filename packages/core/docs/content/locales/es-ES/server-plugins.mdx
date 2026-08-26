@@ -110,6 +110,16 @@ Cada entrada necesita un número de `version` y una cadena `sql`. La opción `ta
   inicio.
 </Callout>
 
+Para las nuevas tablas y columnas propias de la aplicación, prefiera el SQL
+generado por Drizzle Kit mediante `runDrizzleMigrations` en runtimes Node.js y
+serverless basados en Node. Use `runMigrations` para SQL específico del dialecto,
+comportamiento de D1, backfills y pasos de JavaScript diferidos. El ejecutor lee
+`server/db/migrations/<id_name>.sql` después de pasar el guard común de solicitudes.
+
+Cloudflare Workers/Pages y D1 no proporcionan un sistema de archivos desplegable.
+Use allí `runMigrations()` con entradas SQL integradas en el bundle del worker en
+lugar del cargador basado en archivos.
+
 ## Escribir Plugins Personalizados {#custom-plugins}
 
 Los ayudantes del marco (`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`) devuelven cada uno una función de plugin de Nitro. Para cualquier cosa fuera de esos ayudantes, escriba un plugin usando `defineNitroPlugin`:

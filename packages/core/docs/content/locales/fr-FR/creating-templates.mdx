@@ -204,7 +204,15 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-Les modifications du schéma doivent être additives. Ajoutez des tables et des colonnes via `runMigrations()` dans `server/plugins/db.ts` ; n'utilisez jamais de SQL, `drizzle-kit push` destructeurs, des renommages de tables ou des suppressions de colonnes.
+Les modifications du schéma doivent être additives. Pour les nouvelles tables et
+colonnes propres à l'application, utilisez `drizzle-kit generate` pour créer du
+SQL révisable dans `server/db/migrations/<id_name>.sql`, puis chargez-le
+avec `runDrizzleMigrations()` depuis l'étape de release sur les déploiements
+Node.js. Cloudflare Workers/Pages et D1 n'ont pas de système de fichiers
+déployable. Intégrez-y le SQL généré dans le bundle du worker et transmettez-le à
+`runMigrations()`. Conservez `runMigrations()` pour l'historique écrit à la main
+et les cas particuliers. N'utilisez jamais de SQL destructeur, `drizzle-kit push`,
+de renommage de tables ou de suppression de colonnes.
 
 Pour les lectures et écritures d'applications, utilisez le générateur de requêtes de Drizzle et les opérateurs portables de `drizzle-orm`. N'écrivez pas de code produit avec SQL brut lorsque Drizzle peut exprimer la requête, et n'importez pas depuis `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core` dans des modèles.
 

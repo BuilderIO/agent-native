@@ -109,6 +109,15 @@ export default runMigrations(
   TABLE ... DROP COLUMN`、`DELETE FROM`）。
 </Callout>
 
+對於新的應用程式自有資料表與欄位，請優先在 Node.js 與以 Node 為基礎的
+serverless runtime 使用 Drizzle Kit 產生的 SQL，並透過 `runDrizzleMigrations`
+載入。需要方言專用 SQL、D1 行為、資料回填或延遲 JavaScript 步驟時，請使用
+`runMigrations`。runner 會在通過共用請求守衛後讀取
+`server/db/migrations/<id_name>.sql`。
+
+Cloudflare Workers/Pages 與 D1 不提供可部署的檔案系統。在這些環境中，請將 SQL
+項目嵌入 worker bundle 並使用 `runMigrations()`，不要使用檔案 loader。
+
 ## 撰寫自訂外掛 {#custom-plugins}
 
 框架幫手（`createAuthPlugin`、`createAgentChatPlugin`、`runMigrations`）各自回傳一個 Nitro 外掛函式。若需求超出這些幫手的範圍，請使用 `defineNitroPlugin` 撰寫外掛：
