@@ -12,7 +12,6 @@ export function BottomCta() {
           alignItems: "center",
           gap: "var(--spacing-12)",
           padding: "var(--spacing-40) var(--spacing-10)",
-          borderTop: "1px solid var(--b-border-default)",
         }}
       >
         <div
