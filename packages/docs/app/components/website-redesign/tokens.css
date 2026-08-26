@@ -48,8 +48,8 @@
   --b-bg-alternative: #00161b;
   /* Surface for terminal/code chrome. In dark mode it drops below the page
      background -- the only --b-bg-* step that does -- so a command line reads
-     as cut into the page. Light mode instead sits flush with the page so the
-     white end of the hairline gradient is what lifts it. */
+     as cut into the page. Light mode goes the other way and lifts to white,
+     since dropping below an already-light page just reads as dirty. */
   --b-bg-inset: #000000;
 
   /* Semantic tokens: text */
@@ -193,7 +193,7 @@
   --b-bg-prominent: #f0efeb;
   --b-bg-translucent: #faf9f5e6;
   --b-bg-alternative: #e5f8fa;
-  --b-bg-inset: #faf9f5;
+  --b-bg-inset: #ffffff;
 
   --b-text-primary: #0a0a0a;
   --b-text-secondary: #3d3d3d;
