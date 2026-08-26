@@ -292,23 +292,36 @@ export async function createAgentToolApproval(
  */
 export async function consumeAgentToolApproval(
   binding: AgentToolApprovalBinding,
-): Promise<boolean> {
+): Promise<boolean | "denied"> {
   await ensureAgentToolApprovalTable();
   const now = Date.now();
   const result = await getDbExec().execute({
     sql: `UPDATE agent_tool_approvals
       SET status = 'consumed', consumed_at = ?, updated_at = ?
       WHERE id = (
-        SELECT id FROM agent_tool_approvals
-        WHERE owner_email = ?
-          AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-          AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
-          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
-          AND tool_name = ?
-          AND approval_key_hash = ?
-          AND status = 'pending'
-          AND expires_at > ?
-        ORDER BY created_at DESC
+        SELECT candidate.id FROM agent_tool_approvals AS candidate
+        WHERE candidate.owner_email = ?
+          AND ((candidate.org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR candidate.org_id = ?)
+          AND ((candidate.thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR candidate.thread_id = ?)
+          AND ((candidate.turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR candidate.turn_id = ?)
+          AND candidate.tool_name = ?
+          AND candidate.approval_key_hash = ?
+          AND candidate.status = 'pending'
+          AND candidate.expires_at > ?
+          AND NOT EXISTS (
+            SELECT 1 FROM agent_tool_approvals denied
+            WHERE denied.owner_email = candidate.owner_email
+              AND ((denied.org_id IS NULL AND candidate.org_id IS NULL)
+                OR denied.org_id = candidate.org_id)
+              AND ((denied.thread_id IS NULL AND candidate.thread_id IS NULL)
+                OR denied.thread_id = candidate.thread_id)
+              AND ((denied.turn_id IS NULL AND candidate.turn_id IS NULL)
+                OR denied.turn_id = candidate.turn_id)
+              AND denied.tool_name = candidate.tool_name
+              AND denied.approval_key_hash = candidate.approval_key_hash
+              AND denied.status = 'denied'
+          )
+        ORDER BY candidate.created_at DESC
         LIMIT 1
       )
       AND status = 'pending'`,
@@ -327,5 +340,146 @@ export async function consumeAgentToolApproval(
       now,
     ],
   });
-  return result.rowsAffected === 1;
+  if (result.rowsAffected === 1) return true;
+
+  const denied = await getDbExec().execute({
+    sql: `SELECT status FROM agent_tool_approvals
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
+        AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
+        AND tool_name = ?
+        AND approval_key_hash = ?
+        AND status = 'denied'
+      LIMIT 1`,
+    args: [
+      binding.ownerEmail,
+      binding.orgId ?? null,
+      binding.orgId ?? null,
+      binding.threadId ?? null,
+      binding.threadId ?? null,
+      binding.turnId ?? null,
+      binding.turnId ?? null,
+      binding.toolName,
+      hashAgentToolApprovalKey(binding.approvalKey),
+    ],
+  });
+  return (denied.rows ?? []).length > 0 ? "denied" : false;
+}
+
+export type AgentToolApprovalResolution = "approved" | "denied";
+
+interface AgentToolApprovalThreadScope {
+  ownerEmail: string;
+  orgId?: string | null;
+  threadId: string;
+}
+
+type StoredAgentToolApproval = {
+  turn_id: string | null;
+  tool_name: string;
+  approval_key_hash: string;
+  status: string;
+};
+
+async function readAgentToolApproval(
+  input: AgentToolApprovalThreadScope & { approvalId: string },
+): Promise<StoredAgentToolApproval | undefined> {
+  const result = await getDbExec().execute({
+    sql: `SELECT turn_id, tool_name, approval_key_hash, status
+      FROM agent_tool_approvals
+      WHERE id = ? AND owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND thread_id = ? LIMIT 1`,
+    args: [
+      input.approvalId,
+      input.ownerEmail,
+      input.orgId ?? null,
+      input.orgId ?? null,
+      input.threadId,
+    ],
+  });
+  return (result.rows ?? [])[0] as StoredAgentToolApproval | undefined;
+}
+
+export async function denyAgentToolApproval(
+  input: AgentToolApprovalThreadScope & { approvalId: string },
+): Promise<AgentToolApprovalResolution | null> {
+  await ensureAgentToolApprovalTable();
+  const client = getDbExec();
+  const logical = await readAgentToolApproval(input);
+  if (!logical) return null;
+  if (logical.status === "consumed") return "approved";
+  if (logical.status === "denied") return "denied";
+  if (logical.status !== "pending") return null;
+
+  const logicalArgs = [
+    input.ownerEmail,
+    input.orgId ?? null,
+    input.orgId ?? null,
+    input.threadId,
+    logical.turn_id,
+    logical.turn_id,
+    logical.tool_name,
+    logical.approval_key_hash,
+  ];
+  await client.execute({
+    sql: `UPDATE agent_tool_approvals
+      SET status = 'denied', updated_at = ?
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND thread_id = ?
+        AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
+        AND tool_name = ? AND approval_key_hash = ?
+        AND status = 'pending'`,
+    args: [Date.now(), ...logicalArgs],
+  });
+  const resolution = await client.execute({
+    sql: `SELECT status FROM agent_tool_approvals
+      WHERE id = ? AND owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND thread_id = ?
+        AND status IN ('consumed', 'denied')
+      LIMIT 1`,
+    args: [
+      input.approvalId,
+      input.ownerEmail,
+      input.orgId ?? null,
+      input.orgId ?? null,
+      input.threadId,
+    ],
+  });
+  const status = (resolution.rows ?? [])[0]?.status;
+  return status === "consumed"
+    ? "approved"
+    : status === "denied"
+      ? status
+      : null;
+}
+
+export async function listAgentToolApprovalResolutions(
+  input: AgentToolApprovalThreadScope,
+): Promise<Record<string, AgentToolApprovalResolution>> {
+  await ensureAgentToolApprovalTable();
+  const result = await getDbExec().execute({
+    sql: `SELECT id, status FROM agent_tool_approvals
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND thread_id = ?
+        AND status IN ('consumed', 'denied')`,
+    args: [
+      input.ownerEmail,
+      input.orgId ?? null,
+      input.orgId ?? null,
+      input.threadId,
+    ],
+  });
+  const resolutions: Record<string, AgentToolApprovalResolution> = {};
+  for (const row of result.rows ?? []) {
+    const { id, status } = row as { id?: unknown; status?: unknown };
+    if (typeof id !== "string") continue;
+    if (status === "consumed") resolutions[id] = "approved";
+    if (status === "denied") resolutions[id] = status;
+  }
+  return resolutions;
 }

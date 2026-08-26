@@ -7,6 +7,7 @@ import {
   finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
+  resolveAgentApprovalThreadScope,
   resolveRecurringJobsBuildMarker,
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
@@ -99,6 +100,34 @@ const run: AgentRunSummary = {
   terminalReason: "done",
   diagStage: null,
 };
+
+describe("approval thread scope", () => {
+  it("uses the persisted owner and org after authorizing a shared editor", async () => {
+    const resolveAccess = vi.fn(async () =>
+      sharedThread({ orgId: "thread-org" }),
+    );
+
+    await expect(
+      resolveAgentApprovalThreadScope(
+        "editor@example.com",
+        "active-org",
+        "thread-1",
+        "editor",
+        resolveAccess,
+      ),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "thread-org",
+      threadId: "thread-1",
+    });
+    expect(resolveAccess).toHaveBeenCalledWith(
+      "editor@example.com",
+      "thread-1",
+      "editor",
+      { orgId: "active-org" },
+    );
+  });
+});
 
 describe("recurring jobs runtime startup", () => {
   it("disables background jobs in local development before scheduler and trigger load", () => {

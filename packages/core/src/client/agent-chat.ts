@@ -30,6 +30,78 @@ import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 
 export type AgentChatRequestMode = "act" | "plan";
 
+export type AgentToolApprovalResolution = "approved" | "denied";
+
+export class AgentToolApprovalRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "AgentToolApprovalRequestError";
+  }
+}
+
+async function approvalJson(
+  response: Response,
+): Promise<Record<string, unknown>> {
+  if (!response.ok) {
+    throw new AgentToolApprovalRequestError(
+      "Could not resolve tool approval",
+      response.status,
+    );
+  }
+  return (await response.json()) as Record<string, unknown>;
+}
+
+export async function loadAgentToolApprovalResolutions(
+  apiUrl: string,
+  threadId: string,
+  signal?: AbortSignal,
+): Promise<Record<string, AgentToolApprovalResolution>> {
+  const payload = await approvalJson(
+    await fetch(
+      `${apiUrl}/approvals?threadId=${encodeURIComponent(threadId)}`,
+      {
+        method: "GET",
+        cache: "no-store",
+        signal,
+      },
+    ),
+  );
+  const resolutions: Record<string, AgentToolApprovalResolution> = {};
+  if (!payload.resolutions || typeof payload.resolutions !== "object") {
+    return resolutions;
+  }
+  for (const [id, value] of Object.entries(payload.resolutions)) {
+    if (value === "approved" || value === "denied") resolutions[id] = value;
+  }
+  return resolutions;
+}
+
+export async function denyAgentToolApproval(
+  apiUrl: string,
+  input: {
+    threadId: string;
+    approvalId: string;
+  },
+): Promise<AgentToolApprovalResolution> {
+  const payload = await approvalJson(
+    await fetch(`${apiUrl}/approvals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Agent-Native-CSRF": "1",
+      },
+      body: JSON.stringify(input),
+    }),
+  );
+  if (payload.resolution !== "approved" && payload.resolution !== "denied") {
+    throw new AgentToolApprovalRequestError("Invalid approval response", 500);
+  }
+  return payload.resolution;
+}
+
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
   message: string;

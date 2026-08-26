@@ -29,6 +29,12 @@ const binding = {
   approvalKey: 'send-email:{"to":"recipient@example.com"}',
 };
 
+function queueApprovalTableReady() {
+  for (let index = 0; index < 4; index += 1) {
+    dbMocks.execute.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+  }
+}
+
 describe("agent tool approval store", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -60,6 +66,9 @@ describe("agent tool approval store", () => {
     expect(dbMocks.execute.mock.calls[4]?.[0].args).not.toContain(
       binding.approvalKey,
     );
+    expect(dbMocks.execute.mock.calls[5]?.[0].sql).toContain(
+      "status <> 'pending'",
+    );
   });
 
   it("gives a delayed approval click at least 30 minutes before the grant expires", async () => {
@@ -79,7 +88,7 @@ describe("agent tool approval store", () => {
     expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
   });
 
-  it("recovers a unique pending turn when a continuation omits its turn id", async () => {
+  it("recovers only a live pending turn", async () => {
     dbMocks.execute
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
@@ -101,6 +110,9 @@ describe("agent tool approval store", () => {
         approvalKeys: [binding.approvalKey],
       }),
     ).resolves.toBe("turn-1");
+    expect(dbMocks.execute.mock.calls[4]?.[0].sql).not.toContain(
+      "status = 'denied'",
+    );
   });
 
   it("does not guess between pending approvals from different turns", async () => {
@@ -142,7 +154,8 @@ describe("agent tool approval store", () => {
         await import("./tool-approval-store.js");
 
       await expect(consumeAgentToolApproval(binding)).resolves.toBe(expected);
-      expect(dbMocks.execute).toHaveBeenLastCalledWith(
+      expect(dbMocks.execute).toHaveBeenNthCalledWith(
+        5,
         expect.objectContaining({
           sql: expect.stringMatching(
             /status = 'pending'[\s\S]*expires_at > \?/,
@@ -154,7 +167,7 @@ describe("agent tool approval store", () => {
           ]),
         }),
       );
-      const consumeQuery = dbMocks.execute.mock.calls.at(-1)?.[0] as {
+      const consumeQuery = dbMocks.execute.mock.calls[4]?.[0] as {
         sql: string;
         args: unknown[];
       };
@@ -164,6 +177,103 @@ describe("agent tool approval store", () => {
       expect(consumeQuery.args).not.toContain(binding.callId);
     },
   );
+
+  it("returns denied instead of authorizing or re-asking a rejected logical call", async () => {
+    queueApprovalTableReady();
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ status: "denied" }],
+        rowsAffected: 0,
+      });
+    const { consumeAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    await expect(consumeAgentToolApproval(binding)).resolves.toBe("denied");
+    const consumeQuery = dbMocks.execute.mock.calls[4]?.[0] as {
+      sql: string;
+    };
+    expect(consumeQuery.sql).toContain(
+      "FROM agent_tool_approvals AS candidate",
+    );
+    expect(consumeQuery.sql).toMatch(/NOT EXISTS[\s\S]*status = 'denied'/);
+  });
+
+  it("denies one logical call idempotently without touching parallel approvals", async () => {
+    queueApprovalTableReady();
+    const logical = {
+      turn_id: binding.turnId,
+      tool_name: binding.toolName,
+      approval_key_hash: "approval-hash",
+    };
+    dbMocks.execute
+      .mockResolvedValueOnce({
+        rows: [{ ...logical, status: "pending" }],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 2 })
+      .mockResolvedValueOnce({
+        rows: [{ status: "denied" }],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({
+        rows: [{ ...logical, status: "denied" }],
+        rowsAffected: 0,
+      });
+    const { denyAgentToolApproval } = await import("./tool-approval-store.js");
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId: "ask-1",
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toBe("denied");
+    await expect(
+      denyAgentToolApproval({
+        approvalId: "ask-1",
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toBe("denied");
+
+    const denyQuery = dbMocks.execute.mock.calls[5]?.[0] as {
+      sql: string;
+      args: unknown[];
+    };
+    expect(denyQuery.sql).toMatch(/SET status = 'denied'/);
+    expect(denyQuery.sql).toMatch(
+      /approval_key_hash = \?[\s\S]*status = 'pending'/,
+    );
+    expect(denyQuery.args).toContain("approval-hash");
+    expect(denyQuery.args).not.toContain("parallel-ask");
+  });
+
+  it("returns terminal resolutions used to rehydrate approval cards after reload", async () => {
+    queueApprovalTableReady();
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [
+        { id: "ask-approved", status: "consumed" },
+        { id: "ask-denied", status: "denied" },
+      ],
+      rowsAffected: 0,
+    });
+    const { listAgentToolApprovalResolutions } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      listAgentToolApprovalResolutions({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toEqual({
+      "ask-approved": "approved",
+      "ask-denied": "denied",
+    });
+  });
 
   it("propagates database failures instead of authorizing", async () => {
     dbMocks.execute

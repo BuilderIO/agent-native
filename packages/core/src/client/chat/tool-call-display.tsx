@@ -110,15 +110,17 @@ export function ToolCallStackMotion({
  * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
  * re-issues the turn approving a specific paused tool call (opt-in
  * `needsApproval` actions). When null, the Approve button is not rendered.
- * Deny defaults to local-only (the action stays un-run) unless `onDeny` is
- * provided. The chevron menu persists an action-type policy before approving
- * the current call.
+ * Deny is persisted by the owning chat when `onDeny` is provided. The chevron
+ * menu persists an action-type policy before approving the current call.
  */
 export type ApprovalResolution = "approved" | "denied";
 
 export type ApprovalContextValue = {
   /** Re-issue the turn so the server runs the approved call. */
-  onApprove: (approvalKey: string) => void;
+  onApprove: (
+    approvalKey: string,
+    askId?: string,
+  ) => ApprovalResolution | void | Promise<ApprovalResolution | void>;
   /**
    * Keep the visible resolution stable while the chat repository refreshes or
    * remounts the message containing this approval card.
@@ -142,11 +144,11 @@ export type ApprovalContextValue = {
     toolCallId?: string,
     askId?: string,
   ) => ApprovalResolution | null;
-  /**
-   * Optional host hook invoked in addition to the local "denied" state, e.g.
-   * so a Code session can also resolve its own pending approval as denied.
-   */
-  onDeny?: (approvalKey: string) => void;
+  /** Persist the rejection before the card displays its terminal state. */
+  onDeny?: (
+    approvalKey: string,
+    askId?: string,
+  ) => ApprovalResolution | void | Promise<ApprovalResolution | void>;
   /**
    * Optional host hook that persists this action type and resolves the current
    * call. The default AssistantChat implementation uses the shared policy.
@@ -154,7 +156,10 @@ export type ApprovalContextValue = {
   onAlwaysAllow?: (
     approvalKey: string,
     toolName: string,
-  ) => void | Promise<void>;
+    askId?: string,
+  ) => ApprovalResolution | void | Promise<ApprovalResolution | void>;
+  approvalHydrationStatus?: "loading" | "ready" | "error";
+  onRetryApprovalResolutions?: () => void;
 };
 export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
@@ -565,7 +570,7 @@ export function AnimatedCollapse({
 /**
  * Inline Approve/Deny prompt rendered when a `needsApproval` action paused the
  * turn. Approve re-issues the turn with the call's `approvalKey`; Deny dismisses
- * the prompt locally (the action stays un-run).
+ * the prompt after the owning chat has durably rejected the call.
  */
 function ApprovalAffordance({
   toolName,
@@ -585,8 +590,10 @@ function ApprovalAffordance({
   const ctx = React.useContext(ApprovalContext);
   const [localResolution, setLocalResolution] =
     useState<ApprovalResolution | null>(null);
-  const [isAlwaysAllowing, setIsAlwaysAllowing] = useState(false);
-  const [alwaysAllowFailed, setAlwaysAllowFailed] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
+  const approveInFlight = React.useRef(false);
+  const denyInFlight = React.useRef(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const onAlwaysAllow =
     approval.allowPersistentApproval === false ? undefined : ctx?.onAlwaysAllow;
   const retainedResolution =
@@ -599,6 +606,9 @@ function ApprovalAffordance({
     retainedResolution ??
     localResolution ??
     (approval.dismissed === true ? "denied" : null);
+  const hydrationBlocked =
+    ctx?.approvalHydrationStatus === "loading" ||
+    ctx?.approvalHydrationStatus === "error";
 
   // Once resolved, collapse to a quiet note so a repository refresh cannot
   // restore the action buttons while the continuation is running.
@@ -609,9 +619,6 @@ function ApprovalAffordance({
       </div>
     );
   }
-  // Deny defaults to local-only (the action simply stays un-run). When the
-  // host also provided `onDeny` (e.g. a Code session resolving its own
-  // pending approval), it fires alongside the local state.
   if (resolution === "denied") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
@@ -620,22 +627,73 @@ function ApprovalAffordance({
     );
   }
   const handleAlwaysAllow = async () => {
-    if (!onAlwaysAllow || isAlwaysAllowing) return;
-    setIsAlwaysAllowing(true);
-    setAlwaysAllowFailed(false);
+    if (!onAlwaysAllow || isResolving || hydrationBlocked) return;
+    setIsResolving(true);
+    setSaveFailed(false);
     try {
-      await onAlwaysAllow(approval.approvalKey, toolName);
-      setLocalResolution("approved");
+      const result = approval.askId
+        ? await onAlwaysAllow(approval.approvalKey, toolName, approval.askId)
+        : await onAlwaysAllow(approval.approvalKey, toolName);
+      const resolution = result ?? "approved";
+      setLocalResolution(resolution);
       ctx?.onApprovalResolved?.(
         approval.approvalKey,
-        "approved",
+        resolution,
         toolCallId,
         approval.askId,
       );
     } catch {
-      setAlwaysAllowFailed(true);
+      setSaveFailed(true);
     } finally {
-      setIsAlwaysAllowing(false);
+      setIsResolving(false);
+    }
+  };
+  const handleApprove = async () => {
+    if (!ctx || approveInFlight.current || hydrationBlocked) return;
+    approveInFlight.current = true;
+    setIsResolving(true);
+    setSaveFailed(false);
+    try {
+      const result = approval.askId
+        ? await ctx.onApprove(approval.approvalKey, approval.askId)
+        : await ctx.onApprove(approval.approvalKey);
+      const resolution = result ?? "approved";
+      setLocalResolution(resolution);
+      ctx.onApprovalResolved?.(
+        approval.approvalKey,
+        resolution,
+        toolCallId,
+        approval.askId,
+      );
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      approveInFlight.current = false;
+      setIsResolving(false);
+    }
+  };
+  const handleDeny = async () => {
+    if (denyInFlight.current || hydrationBlocked) return;
+    denyInFlight.current = true;
+    setIsResolving(true);
+    setSaveFailed(false);
+    try {
+      const result = approval.askId
+        ? await ctx?.onDeny?.(approval.approvalKey, approval.askId)
+        : await ctx?.onDeny?.(approval.approvalKey);
+      const nextResolution = result ?? "denied";
+      setLocalResolution(nextResolution);
+      ctx?.onApprovalResolved?.(
+        approval.approvalKey,
+        nextResolution,
+        toolCallId,
+        approval.askId,
+      );
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      denyInFlight.current = false;
+      setIsResolving(false);
     }
   };
   return (
@@ -648,17 +706,8 @@ function ApprovalAffordance({
         <div className="inline-flex shrink-0 items-stretch">
           <button
             type="button"
-            disabled={isAlwaysAllowing}
-            onClick={() => {
-              setLocalResolution("approved");
-              ctx.onApprovalResolved?.(
-                approval.approvalKey,
-                "approved",
-                toolCallId,
-                approval.askId,
-              );
-              ctx.onApprove(approval.approvalKey);
-            }}
+            disabled={isResolving || hydrationBlocked}
+            onClick={() => void handleApprove()}
             className={cn(
               "inline-flex shrink-0 items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors",
               "bg-foreground text-background hover:bg-foreground/90",
@@ -674,7 +723,7 @@ function ApprovalAffordance({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  disabled={isAlwaysAllowing}
+                  disabled={isResolving || hydrationBlocked}
                   aria-label={t("agentChat.approval.moreOptions")}
                   title={t("agentChat.approval.moreOptions")}
                   className={cn(
@@ -700,17 +749,8 @@ function ApprovalAffordance({
       )}
       <button
         type="button"
-        disabled={isAlwaysAllowing}
-        onClick={() => {
-          setLocalResolution("denied");
-          ctx?.onApprovalResolved?.(
-            approval.approvalKey,
-            "denied",
-            toolCallId,
-            approval.askId,
-          );
-          ctx?.onDeny?.(approval.approvalKey);
-        }}
+        disabled={isResolving || hydrationBlocked}
+        onClick={() => void handleDeny()}
         className={cn(
           "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
           "text-foreground hover:bg-muted",
@@ -720,9 +760,26 @@ function ApprovalAffordance({
         <IconX className="h-3.5 w-3.5" />
         {t("agentChat.approval.deny")}
       </button>
-      {alwaysAllowFailed && (
+      {saveFailed && (
         <span role="alert" className="basis-full text-xs text-destructive">
           {t("agentChat.common.saveFailed")}
+        </span>
+      )}
+      {ctx?.approvalHydrationStatus === "error" && (
+        <span
+          role="alert"
+          className="flex basis-full gap-2 text-xs text-destructive"
+        >
+          {t("agentChat.common.saveFailed")}
+          {ctx.onRetryApprovalResolutions && (
+            <button
+              type="button"
+              onClick={ctx.onRetryApprovalResolutions}
+              className="font-medium underline underline-offset-2"
+            >
+              {t("agentChat.common.retry")}
+            </button>
+          )}
         </span>
       )}
     </div>

@@ -39,6 +39,7 @@ import {
   latestNonRecoveryUserMessageText,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
+  resolveApprovalResolution,
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
@@ -52,6 +53,29 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("tool approval resolution", () => {
+  it.each([
+    { localScope: "old-thread", local: "approved" as const },
+    { localScope: "thread-2", local: "approved" as const },
+  ])("keeps a persisted denial authoritative", ({ localScope, local }) => {
+    expect(
+      resolveApprovalResolution({
+        scope: "thread-2",
+        identity: "call\0key\0ask-1",
+        askId: "ask-1",
+        local: {
+          scope: localScope,
+          byIdentity: new Map([["call\0key\0ask-1", local]]),
+        },
+        persisted: {
+          scope: "thread-2",
+          resolutions: { "ask-1": "denied" },
+        },
+      }),
+    ).toBe("denied");
+  });
+});
 
 describe("shouldShowAssistantChatModelSelector", () => {
   it("keeps the framework selector by default and lets hosts replace only its visual control", () => {

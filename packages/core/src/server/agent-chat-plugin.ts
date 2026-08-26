@@ -78,6 +78,7 @@ import {
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
+  resolveAgentApprovalThreadScope as resolveProductionAgentApprovalThreadScope,
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
@@ -109,6 +110,10 @@ import {
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
+import {
+  denyAgentToolApproval,
+  listAgentToolApprovalResolutions,
+} from "../agent/tool-approval-store.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
@@ -455,6 +460,22 @@ export function resolveInteractiveAgentRunOptions(
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
   };
+}
+
+export async function resolveAgentApprovalThreadScope(
+  callerEmail: string,
+  activeOrgId: string | null | undefined,
+  threadId: string,
+  role: "viewer" | "editor",
+  resolveAccess: typeof resolveThreadAccess = resolveThreadAccess,
+) {
+  return resolveProductionAgentApprovalThreadScope(
+    callerEmail,
+    activeOrgId,
+    threadId,
+    role,
+    resolveAccess,
+  );
 }
 
 export function createSerializedA2ATaskStatusWriter(
@@ -5235,6 +5256,53 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       );
 
       // ─── Run management endpoints (for hot-reload resilience) ─────────────
+
+      getH3App(nitroApp).use(
+        `${routePath}/approvals`,
+        withTransientDatabaseFallback(
+          `${routePath}/approvals`,
+          async (event) => {
+            const ownerEmail = await getOwnerFromEvent(event);
+            const orgId = await getOrgIdFromEvent(event);
+            const method = getMethod(event);
+            const body = method === "POST" ? await readBody(event) : null;
+            const threadId = String(
+              method === "GET"
+                ? (getQuery(event).threadId ?? "")
+                : (body?.threadId ?? ""),
+            );
+            const approvalScope = await resolveAgentApprovalThreadScope(
+              ownerEmail,
+              orgId,
+              threadId,
+              method === "GET" ? "viewer" : "editor",
+            );
+            if (!threadId || !approvalScope) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
+            if (method === "GET") {
+              return {
+                resolutions:
+                  await listAgentToolApprovalResolutions(approvalScope),
+              };
+            }
+            if (method !== "POST" || typeof body?.approvalId !== "string") {
+              setResponseStatus(event, 400);
+              return { error: "approvalId required" };
+            }
+            const resolution = await denyAgentToolApproval({
+              ...approvalScope,
+              approvalId: body.approvalId,
+            });
+            if (!resolution) {
+              setResponseStatus(event, 404);
+              return { error: "Approval not found" };
+            }
+            return { resolution };
+          },
+        ),
+      );
 
       // GET /runs/active?threadId=X — check if there's an active run for a thread
       getH3App(nitroApp).use(
