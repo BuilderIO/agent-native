@@ -19,7 +19,7 @@ import {
   setAgentChatContextItem,
 } from "../agent-chat.js";
 import { SIDEBAR_STATE_CHANGE_EVENT } from "../agent-sidebar-state.js";
-import { agentNativePath } from "../api-path.js";
+import { appPath } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
@@ -57,7 +57,7 @@ function subscribeSidebarState(
 }
 
 const coreComposerAdapters: Omit<ComposerRuntimeAdapters, "translate"> = {
-  resolvePath: agentNativePath,
+  resolvePath: (path) => appPath(path),
   models: {
     useChatModels,
     useAgentEngineConfigured,

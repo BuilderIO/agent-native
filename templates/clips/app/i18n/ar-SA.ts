@@ -1003,8 +1003,6 @@ const messages = {
     editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
-    mentionSomeone: "أذكر شخصًا",
-    addEmoji: "أضف رمزًا تعبيريًا",
   },
   shareMeeting: {
     pageTitle: "ملاحظات الاجتماع · Clips",
@@ -1546,6 +1544,7 @@ const messages = {
     invite: "دعوة",
     inviteFailed: "تعذرت دعوة الشخص",
     removePersonFailed: "تعذرت إزالة الشخص",
+    permissionUpdateFailed: "تعذر تحديث الإذن",
     passwordProtectedDescription:
       "هذا الفيديو محمي. أدخل كلمة المرور للمشاهدة.",
     password: "كلمة المرور",

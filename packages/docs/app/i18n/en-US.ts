@@ -1947,6 +1947,7 @@ const enUS = {
     externalAgents: "External Agents (Connect a Host)",
     externalAgentsCatalog: "External Agents Catalog",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (Browser Tools)",
     crossAppSso: "Cross-App SSO",
     notifications: "Notifications",
     automationConnectors: "Workflow Connectors",

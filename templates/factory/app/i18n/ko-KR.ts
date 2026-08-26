@@ -192,6 +192,18 @@ const messages = {
     automationsTab: "자동화",
     agentsTab: "에이전트",
     factorySettings: "설정",
+    dangerZone: "위험 영역",
+    deleteFactory: "팩토리 삭제",
+    deleteFactoryDescription:
+      "이 팩토리와 맵, 대기열, 규칙, 활동, 설정, 폴링 및 자동화를 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
+    deleteFactoryTitle: "{{name}}을(를) 삭제할까요?",
+    deleteFactoryWarning:
+      "GitHub, Slack 또는 Builder에서 이미 실행 중인 작업은 취소되지 않습니다.",
+    deleteFactoryConfirmation: "확인하려면 {{name}}을(를) 입력하세요",
+    deleteFactoryCancel: "취소",
+    deleteFactoryConfirm: "팩토리 삭제",
+    factoryDeleted: "팩토리가 삭제되었습니다.",
+    factoryDeleteFailed: "팩토리를 삭제할 수 없습니다.",
     agenticAppsTitle: "에이전트 앱",
     agenticAppsEmpty: "이 워크스페이스에는 아직 에이전트 앱이 없습니다.",
     createApp: "앱 만들기",

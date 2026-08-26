@@ -17,9 +17,9 @@ import {
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -1017,7 +1017,7 @@ export function oauthDesktopExchangePage(
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function resolveOAuthAppName(explicit?: string): string {
-  const raw = explicit || getAppName() || "Agent Native";
+  const raw = explicit || getAppConfig().app.name || "Agent Native";
   if (!/^[a-z0-9_-]+$/.test(raw)) return raw;
   return raw
     .split(/[-_]+/)

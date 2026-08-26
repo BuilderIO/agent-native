@@ -984,8 +984,6 @@ const messages = {
     editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
-    mentionSomeone: "किसी का उल्लेख करें",
-    addEmoji: "इमोजी जोड़ें",
   },
   shareMeeting: {
     pageTitle: "मीटिंग नोट्स · Clips",
@@ -1525,6 +1523,7 @@ const messages = {
     invite: "आमंत्रित करें",
     inviteFailed: "व्यक्ति को आमंत्रित नहीं कर सके",
     removePersonFailed: "व्यक्ति को हटा नहीं सके",
+    permissionUpdateFailed: "अनुमति अपडेट नहीं की जा सकी",
     passwordProtectedDescription:
       "यह वीडियो सुरक्षित है। देखने के लिए पासवर्ड दर्ज करें।",
     password: "पासवर्ड",

@@ -942,6 +942,38 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("sign-in-required");
   });
 
+  it("announces a status only when it actually changes", async () => {
+    // The renderer refreshes its workspace app list and environment lane on
+    // every status event, and the lane read calls back into refreshStatus().
+    // Re-announcing an unchanged status closed that into a feedback loop that
+    // hammered the dispatch origin at round-trip speed.
+    const authority = authorityFixture();
+    const onStatus = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: vi.fn(async () => sessionResponse()),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      statusRevalidationIntervalMs: 0,
+      onStatus,
+    });
+
+    await broker.refreshStatus(authority);
+    await broker.refreshStatus(authority);
+    await broker.refreshStatus(authority);
+
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(onStatus).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenCalledWith("signed-in");
+  });
+
   it("preserves a verified session across a transient status refresh failure", async () => {
     const authority = authorityFixture();
     const identityFetch = vi

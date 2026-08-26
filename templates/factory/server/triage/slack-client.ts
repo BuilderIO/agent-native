@@ -26,6 +26,15 @@ export interface SlackReaderIdentity {
   orgId?: string | null;
 }
 
+const AGENT_NATIVE_SLACK_USER_NAMES = new Set(["agent-native", "agentnative"]);
+
+/** Slack reports the bot as @agent-native or @agentnative; do not treat hyphen padding as the same handle. */
+export function isAgentNativeSlackUserName(value: string): boolean {
+  return AGENT_NATIVE_SLACK_USER_NAMES.has(
+    value.trim().replace(/^@/, "").toLowerCase(),
+  );
+}
+
 function createTokenResolver({
   ownerEmail,
   orgId,
@@ -53,8 +62,7 @@ export function createSlackReader(identity: SlackReaderIdentity) {
     const existing = identities.get(workspace);
     if (existing) return existing;
     const auth = await readAuthTest(workspace, tokenResolver);
-    const userName = auth.userName.trim().replace(/^@/, "").toLowerCase();
-    if (userName !== "agent-native") {
+    if (!isAgentNativeSlackUserName(auth.userName)) {
       throw new Error(
         `Slack credential authenticated as @${auth.userName}, not @agent-native.`,
       );

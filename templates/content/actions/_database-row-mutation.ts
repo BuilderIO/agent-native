@@ -34,11 +34,13 @@ import {
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 
+const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("personal"), id: z.string().min(1) }),
+  z.object({ kind: z.literal("organization"), id: z.string().min(1) }),
+]);
+
 export const databaseMutationTargetSchema = z.object({
-  authorityScope: z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("personal"), id: z.string().min(1) }),
-    z.object({ kind: z.literal("organization"), id: z.string().min(1) }),
-  ]),
+  authorityScope: databaseMutationAuthorityScopeSchema,
   spaceId: z.string().min(1).describe("Exact Content space ID"),
   databaseId: z.string().min(1).describe("Exact Content database ID"),
   databaseDocumentId: z
@@ -47,8 +49,35 @@ export const databaseMutationTargetSchema = z.object({
     .describe("Exact page ID backing the Content database"),
 });
 
+export const databaseMutationTargetInputSchema = z.object({
+  authorityScope: databaseMutationAuthorityScopeSchema
+    .optional()
+    .describe(
+      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected database.",
+    ),
+  spaceId: z
+    .string()
+    .min(1)
+    .describe("Exact Content space ID returned by database discovery"),
+  databaseId: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact Content database ID returned by database discovery; never derive it from a title or number in the request",
+    ),
+  databaseDocumentId: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact page ID backing the database, returned by database discovery",
+    ),
+});
+
+export const databaseMutationAgentTargetSchema =
+  databaseMutationTargetInputSchema.omit({ authorityScope: true });
+
 export const databaseMutationEnvelopeSchema = z.object({
-  target: databaseMutationTargetSchema,
+  target: databaseMutationTargetInputSchema,
   expectedSchemaRevision: z
     .string()
     .min(1)
@@ -58,6 +87,9 @@ export const databaseMutationEnvelopeSchema = z.object({
 
 export type DatabaseMutationTarget = z.infer<
   typeof databaseMutationTargetSchema
+>;
+export type DatabaseMutationTargetInput = z.infer<
+  typeof databaseMutationTargetInputSchema
 >;
 
 type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
@@ -82,11 +114,12 @@ export interface RowSnapshot {
 export type DatabaseRowMutationOperation = "create" | "update" | "upsert";
 
 export interface CreateDatabaseRowMutationInput {
-  target: DatabaseMutationTarget;
+  target: DatabaseMutationTargetInput;
   expectedSchemaRevision: string;
   idempotencyKey: string;
   title?: string;
   propertyValues?: Record<string, unknown>;
+  propertyTypeAssertions?: Record<string, string>;
 }
 
 export interface UpdateDatabaseRowMutationInput extends CreateDatabaseRowMutationInput {
@@ -211,7 +244,7 @@ function acceptedShape(type: DocumentPropertyType): string {
 }
 
 export async function loadContext(
-  target: DatabaseMutationTarget,
+  target: DatabaseMutationTargetInput,
   role: "viewer" | "editor",
   db: Db = getDb(),
   accessAlreadyResolved = false,
@@ -260,8 +293,9 @@ export async function loadContext(
     ? { kind: "organization" as const, id: database.orgId }
     : { kind: "personal" as const, id: database.ownerEmail };
   if (
-    target.authorityScope.kind !== authorityScope.kind ||
-    target.authorityScope.id !== authorityScope.id ||
+    (target.authorityScope !== undefined &&
+      (target.authorityScope.kind !== authorityScope.kind ||
+        target.authorityScope.id !== authorityScope.id)) ||
     database.spaceId !== target.spaceId ||
     database.documentId !== target.databaseDocumentId ||
     databaseDocument.spaceId !== target.spaceId ||
@@ -322,7 +356,12 @@ export async function getDatabaseMutationContract(
   );
   return {
     target: {
-      ...target,
+      authorityScope: context.database.orgId
+        ? { kind: "organization", id: context.database.orgId }
+        : { kind: "personal", id: context.database.ownerEmail },
+      spaceId: context.database.spaceId!,
+      databaseId: context.database.id,
+      databaseDocumentId: context.database.documentId,
     },
     schemaRevision: context.schemaRevision,
     naturalKeyPropertyId: context.database.naturalKeyPropertyId,
@@ -695,14 +734,72 @@ export function revisionPropertyIds(context: MutationContext) {
   );
 }
 
-function payloadDigest(
+export function databaseMutationPayloadDigest(
   operation: DatabaseRowMutationOperation,
   input:
     | CreateDatabaseRowMutationInput
     | UpdateDatabaseRowMutationInput
     | UpsertDatabaseRowMutationInput,
 ) {
-  return digest({ operation, ...input });
+  const {
+    propertyTypeAssertions: _propertyTypeAssertions,
+    target,
+    ...canonicalInput
+  } = input;
+  const { authorityScope: _authorityScope, ...stableTarget } = target ?? {};
+  return digest({ operation, ...canonicalInput, target: stableTarget });
+}
+
+export function legacyDatabaseMutationPayloadDigest(
+  operation: DatabaseRowMutationOperation,
+  input:
+    | CreateDatabaseRowMutationInput
+    | UpdateDatabaseRowMutationInput
+    | UpsertDatabaseRowMutationInput,
+  authorityScope = input.target.authorityScope,
+) {
+  const { propertyTypeAssertions: _propertyTypeAssertions, ...legacyInput } =
+    input;
+  return digest({
+    operation,
+    ...legacyInput,
+    target: { ...legacyInput.target, authorityScope },
+  });
+}
+
+function authorityScopeForContext(context: MutationContext) {
+  return context.database.orgId
+    ? ({ kind: "organization", id: context.database.orgId } as const)
+    : ({ kind: "personal", id: context.database.ownerEmail } as const);
+}
+
+function assertPropertyTypeAssertions(
+  context: MutationContext,
+  assertions: Record<string, string> | undefined,
+) {
+  if (!assertions) return;
+  const definitionsById = new Map(
+    context.definitions.map((definition) => [definition.id, definition]),
+  );
+  for (const [propertyId, assertedType] of Object.entries(assertions)) {
+    const definition = definitionsById.get(propertyId);
+    if (!definition) {
+      throw new ActionContractError(
+        `Unknown property definition "${propertyId}".`,
+        {
+          errorCode: "UNKNOWN_PROPERTY",
+          details: { propertyId },
+          statusCode: 400,
+        },
+      );
+    }
+    if (definition.type !== assertedType) {
+      invalidProperty(
+        definition,
+        `typed entry declared propertyType "${assertedType}" but the discovered property type is "${definition.type}"`,
+      );
+    }
+  }
 }
 
 function resultForReceipt(
@@ -721,9 +818,7 @@ function resultForReceipt(
   },
 ): ContentDatabaseRowMutationResult {
   const target = {
-    authorityScope: context.database.orgId
-      ? ({ kind: "organization", id: context.database.orgId } as const)
-      : ({ kind: "personal", id: context.database.ownerEmail } as const),
+    authorityScope: authorityScopeForContext(context),
     spaceId: context.database.spaceId!,
     databaseId: context.database.id,
     databaseDocumentId: context.database.documentId,
@@ -770,7 +865,7 @@ function resultForReceipt(
 async function replayReceipt(
   context: MutationContext,
   idempotencyKey: string,
-  expectedPayloadDigest: string,
+  expectedPayloadDigests: readonly string[],
   db: Db = getDb(),
 ): Promise<ContentDatabaseRowMutationResult | null> {
   const [stored] = await db
@@ -789,7 +884,7 @@ async function replayReceipt(
       ),
     );
   if (!stored) return null;
-  if (stored.payloadDigest !== expectedPayloadDigest) {
+  if (!expectedPayloadDigests.includes(stored.payloadDigest)) {
     conflict(
       "IDEMPOTENCY_KEY_REUSED",
       "This idempotency key was already used for a different row mutation.",
@@ -1137,13 +1232,22 @@ export async function createDatabaseRow(
   input: CreateDatabaseRowMutationInput,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
-  const inputDigest = payloadDigest("create", input);
+  const inputDigest = databaseMutationPayloadDigest("create", input);
+  const replayDigests = [
+    inputDigest,
+    legacyDatabaseMutationPayloadDigest(
+      "create",
+      input,
+      authorityScopeForContext(initial),
+    ),
+  ];
   const replay = await replayReceipt(
     initial,
     input.idempotencyKey,
-    inputDigest,
+    replayDigests,
   );
   if (replay) return replay;
+  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, () =>
@@ -1160,10 +1264,11 @@ export async function createDatabaseRow(
       const lockedReplay = await replayReceipt(
         locked,
         input.idempotencyKey,
-        inputDigest,
+        replayDigests,
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
+      assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       await touchContentDatabase(
         tx as unknown as Db,
@@ -1206,13 +1311,22 @@ export async function updateDatabaseRow(
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
   await assertAccess("document", input.documentId, "editor");
-  const inputDigest = payloadDigest("update", input);
+  const inputDigest = databaseMutationPayloadDigest("update", input);
+  const replayDigests = [
+    inputDigest,
+    legacyDatabaseMutationPayloadDigest(
+      "update",
+      input,
+      authorityScopeForContext(initial),
+    ),
+  ];
   const replay = await replayReceipt(
     initial,
     input.idempotencyKey,
-    inputDigest,
+    replayDigests,
   );
   if (replay) return replay;
+  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, () =>
@@ -1229,10 +1343,11 @@ export async function updateDatabaseRow(
       const lockedReplay = await replayReceipt(
         locked,
         input.idempotencyKey,
-        inputDigest,
+        replayDigests,
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
+      assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       const updated = await updateInsideTransaction(
         tx as unknown as Db,
@@ -1305,13 +1420,22 @@ export async function upsertDatabaseRow(
       "must match the upsert keyValue when provided in propertyValues",
     );
   }
-  const inputDigest = payloadDigest("upsert", input);
+  const inputDigest = databaseMutationPayloadDigest("upsert", input);
+  const replayDigests = [
+    inputDigest,
+    legacyDatabaseMutationPayloadDigest(
+      "upsert",
+      input,
+      authorityScopeForContext(initial),
+    ),
+  ];
   const replay = await replayReceipt(
     initial,
     input.idempotencyKey,
-    inputDigest,
+    replayDigests,
   );
   if (replay) return replay;
+  assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const keyPropertyId = initial.database.naturalKeyPropertyId;
   if (!keyPropertyId) {
@@ -1368,10 +1492,11 @@ export async function upsertDatabaseRow(
       const lockedReplay = await replayReceipt(
         locked,
         input.idempotencyKey,
-        inputDigest,
+        replayDigests,
         tx as unknown as Db,
       );
       if (lockedReplay) return lockedReplay;
+      assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       if (locked.database.naturalKeyPropertyId !== keyPropertyId) {
         conflict("SCHEMA_REVISION_CONFLICT", "The natural key changed.");

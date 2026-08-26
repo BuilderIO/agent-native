@@ -374,6 +374,7 @@ export interface AgentChatRuntimeApprovalRequestEvent extends AgentChatRuntimeEv
   readonly toolName?: string;
   readonly message: string;
   readonly input?: unknown;
+  readonly allowPersistentApproval?: false;
 }
 
 export interface AgentChatRuntimeApprovalResolvedEvent extends AgentChatRuntimeEventBase<"approval-resolved"> {
@@ -1371,6 +1372,9 @@ function mapAgentNativeEvent(
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
         input: ev.input,
+        ...(ev.allowPersistentApproval === false
+          ? { allowPersistentApproval: false }
+          : {}),
       },
     ];
   }
@@ -1658,7 +1662,12 @@ function applyRuntimeEventToContent(
             isToolCall(candidate) && candidate.toolName === typed.toolName,
         );
     if (part && part.type === "tool-call") {
-      part.approval = { approvalKey: typed.approvalId };
+      part.approval = {
+        approvalKey: typed.approvalId,
+        ...(typed.allowPersistentApproval === false
+          ? { allowPersistentApproval: false }
+          : {}),
+      };
     } else if (!typed.toolCallId) {
       // Only runtimes that never announced the call (no id) get a synthesized
       // card. An id that matches nothing means the call was never observed or
@@ -1670,7 +1679,12 @@ function applyRuntimeEventToContent(
         toolName: typed.toolName ?? "approval",
         argsText: typed.input ? JSON.stringify(typed.input) : "",
         args: toContentPartInput(typed.input),
-        approval: { approvalKey: typed.approvalId },
+        approval: {
+          approvalKey: typed.approvalId,
+          ...(typed.allowPersistentApproval === false
+            ? { allowPersistentApproval: false }
+            : {}),
+        },
       });
     }
     return { content: [...content] } as ChatModelRunResult;

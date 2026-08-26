@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getActive: vi.fn(),
   list: vi.fn(),
-  resolveHasBuilderPrivateKey: vi.fn(),
+  hasBuilderApiCredentialCustody: vi.fn(),
   builder: {
     id: "builder",
     name: "Builder.io",
@@ -21,8 +21,8 @@ vi.mock("@agent-native/core/file-upload", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveHasBuilderPrivateKey: (...args: unknown[]) =>
-    mocks.resolveHasBuilderPrivateKey(...args),
+  hasBuilderApiCredentialCustody: (...args: unknown[]) =>
+    mocks.hasBuilderApiCredentialCustody(...args),
 }));
 
 import { resolveResumableUploadProvider } from "./resumable-upload-provider.js";
@@ -32,7 +32,7 @@ describe("resolveResumableUploadProvider", () => {
     vi.clearAllMocks();
     mocks.getActive.mockResolvedValue(null);
     mocks.list.mockReturnValue([]);
-    mocks.resolveHasBuilderPrivateKey.mockResolvedValue(false);
+    mocks.hasBuilderApiCredentialCustody.mockResolvedValue(false);
   });
 
   it("returns the request-scoped provider that owns the session", async () => {
@@ -73,7 +73,7 @@ describe("resolveResumableUploadProvider", () => {
   });
 
   it("resolves Builder sessions from request-scoped credentials", async () => {
-    mocks.resolveHasBuilderPrivateKey.mockResolvedValue(true);
+    mocks.hasBuilderApiCredentialCustody.mockResolvedValue(true);
 
     await expect(resolveResumableUploadProvider("builder")).resolves.toBe(
       mocks.builder,

@@ -1645,11 +1645,12 @@ export function AddAppDialog({
   async function saveAppsRoot(nextRoot: string) {
     const trimmed = nextRoot.trim();
     if (!trimmed) return;
-    const settings =
-      await window.electronAPI?.appConfig?.updateCreationSettings({
-        appsRoot: trimmed,
-      });
-    if (settings?.appsRoot) setAppsRoot(settings.appsRoot);
+    const result = await window.electronAPI?.appConfig?.updateCreationSettings({
+      appsRoot: trimmed,
+    });
+    if (!result) return;
+    setAppsRoot(result.settings.appsRoot);
+    setBuildError(result.error ?? "");
   }
 
   async function chooseAppsRoot() {

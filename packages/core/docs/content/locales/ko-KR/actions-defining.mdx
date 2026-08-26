@@ -269,6 +269,97 @@ POST가 기본값이며, `http: { method: "GET" }`을 지정하면 GET이 됩니
 - **`readOnly: true`**: 아무것도 변경하지 않는 POST action이라도 폴링 새로 고침을 명시적으로 건너뜁니다. 이는 액세스 제어가 아닙니다. 누가 이 action을 호출할 수 있는지를 제한하지 않으며, `useActionQuery()`, `useActionMutation()`, 그 어떤 클라이언트 후크에도 영향을 주지 않습니다. 유일한 효과는 호출 후 새로 고침 이벤트를 억제하고, 이 action을 쓰기 감사 대상에서 제외하는 것뿐입니다. 모델에서 action을 숨기려면 `agentTool: false`를 사용하세요. 누가 호출할 수 있는지 제한하려면 [액세스 및 권한 부여](/docs/actions-access-control)의 인증 및 액세스 옵션을 사용하세요.
 - **`parallelSafe: true`**: 변경 action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다. 이 action이 동시 실행에 안전하고 순서에 의존하지 않을 때만 설정하세요. 변경 action은 기본적으로 직렬화됩니다.
 
+## Action 실패시키기 {#failing}
+
+Action은 throw로 실패를 알립니다. 대신 `{ error: "..." }`를 반환하면 프레임워크의 모든 부분에서 성공처럼 보입니다. 그래서 에이전트의 재시도 차단기가 이를 세지 않고, 호출은 완료된 부수 효과로 기록됩니다.
+
+무엇을 throw하느냐가 메시지가 얼마나 살아남는지를 결정합니다. `fail()`은 `ActionContractError`를 던지며, 텍스트가 호출자에게 도달하는 유일한 이유가 바로 그 타입입니다. 맨 `throw new Error("No such email")`는 Postgres나 업스트림 장애와 구분할 수 없으므로, action 라우트는 이를 일반적인 500 `"Internal server error"`로 바꾸고 실제 메시지는 서버 로그에만 남기며 오류 추적으로 보고합니다. 맨 throw는 진짜 내부 장애를 위해 남겨 두세요. 500은 그러라고 있는 것입니다.
+
+`fail()`은 메시지와 옵션 객체를 받습니다.
+
+- **message**: 호출자가 읽는 텍스트입니다. 로그가 아니라 사람을 위해 쓰세요.
+- **options.errorCode**: 안정적인 기계 판독용 코드입니다. 기본값은 `"action_failed"`입니다.
+- **options.statusCode**: action 라우트의 HTTP 상태입니다. 기본값은 `400`입니다.
+- **options.details**: 호출자를 위한 안전한 구조화 컨텍스트입니다. 비밀 값이나 드라이버 원시 출력을 절대 넣지 마세요.
+
+가장 단순한 호출에는 메시지만 있으면 됩니다.
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+원인에 이름을 붙여야 UI가 실패를 출력하는 데 그치지 않고 분기할 수 있습니다. 코드와 상태 모두 전송을 통과합니다.
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+브라우저는 `{ error, errorCode, details }`를 받습니다. `useActionQuery()`, `useActionMutation()`, `callAction()` 모두 `status`, `errorCode`, `details`, `actionMessage`를 지닌 `Error`로 노출합니다.
+
+`error.message`에는 `Action <name> failed:` 접두사가 남습니다. 콘솔에는 어울리지만 토스트에서는 어색하게 읽힙니다. `actionErrorMessage()`는 action이 쓴 텍스트만 반환하고, 아무도 쓰지 않았으면 `undefined`를 반환합니다.
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+네트워크 끊김, 프록시의 HTML 오류 페이지, 맨 상태 줄은 메시지를 쓰지 않습니다. 그래서 UI가 실수로 보여줄 문자열 대신 `undefined`를 반환합니다. 항상 자체 문구와 함께 사용하세요.
+
+### 각 throw가 만들어내는 것 {#failure-shapes}
+
+| `run()`에서 throw                               | HTTP 상태           | 응답 본문                                    | 오류 추적 보고 |
+| ----------------------------------------------- | ------------------- | -------------------------------------------- | -------------- |
+| `fail(msg)`                                     | 400                 | `{ error: msg, errorCode: "action_failed" }` | 아니요         |
+| `fail(msg, { errorCode, statusCode, details })` | 지정한 `statusCode` | `{ error, errorCode, details }`              | 아니요         |
+| `new ActionContractError(msg, { errorCode })`   | 409                 | `{ error, errorCode, details }`              | 아니요         |
+| `new AgentActionStopError(msg)`                 | 500                 | `{ error: msg }`                             | 아니요         |
+| `new Error(msg)`                                | 500                 | `{ error: "Internal server error" }`         | 예             |
+| `schema` 검증에 실패한 입력                     | 400                 | `{ error: "Invalid action parameters..." }`  | 아니요         |
+
+`AgentActionStopError`는 에이전트가 실패를 읽고 다시 시도하는 대신 턴을 끝내야 할 때 던집니다. `ActionContractError`는 `fail()`이 대신 던져 주므로, 409가 원하는 상태일 때만 직접 사용하세요.
+
+### 재시도 정책이 판단할 수 있는 상태 고르기 {#failure-status}
+
+`useActionQuery()`는 `429`, `502`, `503`, `504`를 최대 세 번까지, 500ms 다음 1초 다음 2초로 물러나며 재시도합니다. 그 밖의 모든 상태는 결정적인 것으로 보고 첫 응답에서 드러냅니다. 잘못되었다는 이유로 거부된 요청을 다시 보내 봐야 같은 거부를 한 번 더 살 뿐입니다. `useActionMutation()`은 전혀 재시도하지 않습니다.
+
+그러니 상태는 장식이 아닙니다. `404`로 보낸 거부는 왕복 한 번이면 됩니다. 같은 거부를 `500`으로 보내거나 맨 throw로 던지면 왕복 네 번과 중복 오류 보고 네 건이 듭니다.
+
+에이전트 호출자는 상태를 보지 않습니다. 에이전트는 `run()`을 프로세스 안에서 실행하므로 타입과 무관하게 메시지를 `Error running <action>: <message>` 형태로 그대로 받습니다. 기본값 `action_failed`가 아닌 `errorCode`는 `(errorCode: not_found)`로 덧붙어, 모델이 문장을 파싱하지 않고 분기할 수 있습니다. MCP를 통한 외부 에이전트도 같은 텍스트를 받습니다. 메시지 속 비밀 값은 먼저 가려지고, 반복 오류에 대한 에이전트 자체 차단기가 재시도 횟수를 제한합니다.
+
 ## Action 표면을 작게 유지하기 {#small-surface}
 
 에이전트가 볼 수 있는 모든 action은 모델의 도구 목록에서 한 자리를 차지하며, 목록이 길고 서로 겹치면 모델이 올바른 도구를 고르기 어려워집니다. UI의 버튼 하나마다 action을 하나씩 만들기보다, 여러분이 유지 관리하는 API처럼 action 표면을 설계하세요.

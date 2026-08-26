@@ -1943,6 +1943,7 @@ const arSA = {
     externalAgents: "External Agents (ربط مضيف)",
     externalAgentsCatalog: "فهرس الوكلاء الخارجيين",
     mcpApps: "MCP Apps (واجهات مضمنة)",
+    webMcp: "WebMCP (أدوات المتصفح)",
     crossAppSso: "SSO عبر التطبيقات",
     notifications: "الإشعارات",
     automationConnectors: "موصلات سير العمل",

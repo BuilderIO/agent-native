@@ -13,7 +13,7 @@
  *   pnpm action list-clip-views --recordingId=<id> [--limit=50]
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
