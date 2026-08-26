@@ -1557,12 +1557,10 @@ export default function SlideEditor({
   // the keepalive queue before browser teardown.
   useEffect(() => {
     const flushInlineEditDraft = () => {
-      const draft = inlineEditDraftRef.current;
-      if (!draft) return;
-      onUpdateSlideRef.current({ content: draft.content }, draft.slideId, {
-        persistence: "debounced",
-      });
-      inlineEditDraftRef.current = null;
+      // Input captures already enqueue the current draft. Keep the ref while
+      // the editor remains mounted so the first edit after tab restore queues
+      // against the previous snapshot instead of being mistaken for setup.
+      if (!inlineEditDraftRef.current) return;
       flushPendingSaves();
     };
     const flushWhenHidden = () => {
