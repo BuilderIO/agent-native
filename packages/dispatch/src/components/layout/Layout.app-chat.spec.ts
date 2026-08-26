@@ -17,6 +17,9 @@ describe("Dispatch layout scrolling", () => {
     expect(layoutSource).toContain(
       'className="pointer-events-none sticky top-0',
     );
+    expect(layoutSource).toContain(
+      "<RunsTray limit={8} onOpenThread={openRunThread} />",
+    );
     expect(layoutSource).toContain("<AgentToggleButton");
     expect(layoutSource).not.toContain("showHeader ? <Header onOpenMobile");
   });

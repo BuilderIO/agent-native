@@ -62,6 +62,7 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { RunsTray } from "@agent-native/core/client/progress";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
@@ -2293,6 +2294,23 @@ export function Layout({
       dispatchNavLinkTarget("/chat"),
     );
   }
+  function openRunThread(threadId: string) {
+    navigate("/chat", {
+      state: {
+        dispatchThread: {
+          id: `${Date.now()}-${threadId}`,
+          threadId,
+        },
+      },
+    });
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId },
+        }),
+      );
+    });
+  }
   const sidebarSuggestions = [
     t("dispatch.sidebar.suggestionBuildApp"),
     t("dispatch.sidebar.suggestionRouteSlack"),
@@ -2344,7 +2362,10 @@ export function Layout({
               >
                 <IconLayoutSidebar className="h-4 w-4" />
               </Button>
-              <AgentToggleButton className="pointer-events-auto h-8 w-8 rounded-md bg-background/80 hover:bg-accent" />
+              <div className="pointer-events-auto flex items-center gap-1">
+                <RunsTray limit={8} onOpenThread={openRunThread} />
+                <AgentToggleButton className="h-8 w-8 rounded-md bg-background/80 hover:bg-accent" />
+              </div>
             </div>
             <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
               {children}
