@@ -13,6 +13,7 @@ import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
   isDesignSaveSuccessConflict,
+  patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
 
 export interface SaveFileContentArgs {
@@ -150,6 +151,7 @@ export function runSaveFileContent(
         }
         if (isDesignSaveSuccessConflict(persistedContentMatches)) {
           toast.error(t("designEditor.toasts.saveConflict"), {
+            id: `design-save-conflict:${pending.id}`,
             duration: 4000,
           });
         }
@@ -162,11 +164,23 @@ export function runSaveFileContent(
         ) {
           delete latestFileSaveForUnloadRef.current[pending.id];
         }
-        setPatchProof((prev) =>
-          prev && prev.fileId === pending.id && prev.status === "queued"
-            ? { ...prev, status: "applied" }
-            : prev,
-        );
+        setPatchProof((prev) => {
+          if (
+            !(prev && prev.fileId === pending.id && prev.status === "queued")
+          ) {
+            return prev;
+          }
+          const status = patchProofStatusAfterPersistedSave(
+            persistedContentMatches,
+          );
+          return status === "failed"
+            ? {
+                ...prev,
+                status,
+                error: t("designEditor.toasts.saveConflict"),
+              }
+            : { ...prev, status };
+        });
       } catch (error) {
         // Drop the (evidently wrong) acked hash so the failure is
         // one-shot: the DB-reconcile effect pulls the fresh server

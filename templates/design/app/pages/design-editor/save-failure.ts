@@ -34,6 +34,14 @@ export function isDesignSaveSuccessConflict(
   return !persistedContentMatches;
 }
 
+/** A 200 stale-mirror skip still toasts conflict; queued proofs must not
+ * flip to applied or later commit/rollback treats the skipped write as done. */
+export function patchProofStatusAfterPersistedSave(
+  persistedContentMatches: boolean,
+): "applied" | "failed" {
+  return persistedContentMatches ? "applied" : "failed";
+}
+
 /**
  * Only true transport failures deserve the “save when reconnected” warning.
  * HMR/editor reload aborts, optimistic conflicts, IndexedDB/outbox failures,

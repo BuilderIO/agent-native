@@ -7,7 +7,10 @@ import {
   insertClonedHtmlLayers,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
-import { authoredDocumentPositionForNode } from "@/pages/design-editor/html-layer-positioning";
+import {
+  authoredContainingBlockPositionForNode,
+  authoredDocumentPositionForNode,
+} from "@/pages/design-editor/html-layer-positioning";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface PasteOverSelectionArgs {
@@ -48,8 +51,9 @@ function offsetPasteOverPositions(
   }));
 }
 
-/** Paste-over must use document-root authored CSS, not the selection bounding
- * box and not containing-block left/top. Clones insert at the document root. */
+/** Paste-over must use document-root CSS. Clones insert at the document
+ * root, so containing-block computed left/top is composed with the nearest
+ * inline-positioned ancestor. Never write iframe boundingRect as CSS. */
 export function resolvePasteOverPositions(
   entries: CanvasLayerClipboardEntry[],
   selectedElement: ElementInfo | null,
@@ -67,7 +71,24 @@ export function resolvePasteOverPositions(
   }
   const selectedLeft = parseFloat(selectedElement?.computedStyles?.left ?? "");
   const selectedTop = parseFloat(selectedElement?.computedStyles?.top ?? "");
-  if (Number.isFinite(selectedLeft) && Number.isFinite(selectedTop)) {
+  const hasComputed =
+    Number.isFinite(selectedLeft) && Number.isFinite(selectedTop);
+  if (nodeId && documentHtml && hasComputed) {
+    const containingBlock = authoredContainingBlockPositionForNode(
+      documentHtml,
+      nodeId,
+    );
+    if (containingBlock) {
+      return offsetPasteOverPositions(
+        {
+          x: containingBlock.x + selectedLeft,
+          y: containingBlock.y + selectedTop,
+        },
+        entries.length,
+      );
+    }
+  }
+  if (hasComputed) {
     return offsetPasteOverPositions(
       { x: selectedLeft, y: selectedTop },
       entries.length,

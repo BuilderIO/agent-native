@@ -6,6 +6,7 @@ import {
   hasPendingGenerationOutput,
   isPendingGenerationStale,
   PENDING_GENERATION_STALE_MS,
+  shouldSkipPendingGenerationResume,
 } from "./pending-generation";
 
 describe("pending generation freshness", () => {
@@ -127,6 +128,32 @@ describe("board file is not generation output", () => {
       hasPendingGenerationOutput({ prompt: "login screen" }, [
         board,
         stylesheet,
+      ]),
+    ).toBe(false);
+    expect(
+      shouldSkipPendingGenerationResume({ prompt: "login screen" }, [
+        board,
+        stylesheet,
+      ]),
+    ).toBe(false);
+    expect(
+      shouldSkipPendingGenerationResume({ prompt: "login screen" }, [
+        board,
+        {
+          id: "file-1",
+          filename: "index.html",
+          content: "<main>Login</main>",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      shouldSkipPendingGenerationResume({ templateId: "template-1" }, [
+        board,
+        {
+          id: "file-1",
+          filename: "index.html",
+          content: "<main>Login</main>",
+        },
       ]),
     ).toBe(false);
   });

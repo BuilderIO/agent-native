@@ -83,6 +83,38 @@ export function authoredDocumentPositionForNode(
   }
 }
 
+/** Document-root position of the nearest ancestor with inline absolute/fixed
+ * left/top. Used when the subject itself is class-positioned: its computed
+ * left/top is containing-block relative, so paste-over adds this ancestor
+ * offset instead of writing iframe boundingRect as CSS. Returns null when an
+ * in-between ancestor is positioned without resolvable inline coords — that
+ * remaining nested class-in-class case cannot be composed from HTML. */
+export function authoredContainingBlockPositionForNode(
+  content: string,
+  nodeAttrId: string,
+): { x: number; y: number } | null {
+  if (typeof window === "undefined" || !nodeAttrId) return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    );
+    if (!element) return null;
+    let ancestor = element.parentElement;
+    while (ancestor && ancestor.tagName.toLowerCase() !== "body") {
+      if (hasResolvableInlineOffset(ancestor)) {
+        return authoredElementPosition(ancestor);
+      }
+      if (isUnresolvedContainingBlock(ancestor)) return null;
+      ancestor = ancestor.parentElement;
+    }
+    return null;
+  } catch {
+    // coercion-ok: unreadable HTML is "no authored position", same as a missing node.
+    return null;
+  }
+}
+
 function hasResolvableInlineOffset(element: Element): boolean {
   const style = (element as HTMLElement).style;
   const position = style.position;
@@ -91,6 +123,27 @@ function hasResolvableInlineOffset(element: Element): boolean {
     Number.isFinite(parseFloat(style.left)) &&
     Number.isFinite(parseFloat(style.top))
   );
+}
+
+const POSITION_CLASS_RE =
+  /(?:^|\s)(?:!)?(?:absolute|fixed|relative|sticky)(?:\s|$)/;
+
+function isUnresolvedContainingBlock(element: Element): boolean {
+  const style = (element as HTMLElement).style;
+  const position = style.position;
+  if (
+    position === "absolute" ||
+    position === "fixed" ||
+    position === "relative" ||
+    position === "sticky"
+  ) {
+    return !hasResolvableInlineOffset(element);
+  }
+  const className =
+    typeof (element as HTMLElement).className === "string"
+      ? (element as HTMLElement).className
+      : "";
+  return POSITION_CLASS_RE.test(className);
 }
 
 /** Persist the bridge's narrow fallback for a flow insertion whose authored
