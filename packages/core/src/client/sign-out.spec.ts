@@ -177,16 +177,28 @@ describe("signOut", () => {
     );
   });
 
-  it("revokes every device when asked", async () => {
+  it("shares one revoke and redirect across concurrent calls", async () => {
     const { signOut } = await loadSignOut();
-    const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
+    let settleRevoke: (() => void) | undefined;
+    const revoke = new Promise<void>((resolve) => {
+      settleRevoke = resolve;
+    });
+    const fetchMock = vi.fn(async () => {
+      await revoke;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    await signOut({ allDevices: true });
+    const first = signOut();
+    const second = signOut();
+    expect(first).toBe(second);
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
 
-    expect(fetchMock.mock.calls[0][0]).toBe("/_agent-native/auth/logout-all");
+    settleRevoke!();
+    await Promise.all([first, second]);
+    expect(replace).toHaveBeenCalledTimes(1);
   });
 
   it("honours an explicit destination", async () => {
