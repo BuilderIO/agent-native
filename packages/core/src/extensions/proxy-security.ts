@@ -114,6 +114,7 @@ export async function readResponseBytesWithLimit(
 ): Promise<{ bytes: Uint8Array; truncated: boolean; size: number }> {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
+    await response.body?.cancel().catch(() => {});
     return {
       bytes: new Uint8Array(),
       truncated: true,
