@@ -34,66 +34,82 @@ export function InstallCommand() {
       type="button"
       onClick={handleCopy}
       aria-label="Copy install command"
-      className="border-[var(--b-border-default)] bg-[var(--b-bg-raised)] hover:border-[var(--b-border-title-row)] hover:text-[var(--b-text-primary)]"
+      className="hover:text-[var(--b-text-primary)]"
       style={{
         display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--spacing-2)",
         fontFamily: "var(--b-font-mono)",
         fontSize: "var(--b-t-label-1)",
         color: "var(--b-text-secondary)",
-        borderWidth: 1,
-        borderStyle: "solid",
+        // 1px of padding over a gradient background with an opaque child on
+        // top: only a gradient hairline shows through at the edges, which a
+        // real border can't do -- the line is brightest at the top-left and
+        // fades out where the gradient meets the fill color. Same trick as
+        // the nav's IconBox.
+        padding: 1,
+        border: "none",
         borderRadius: "var(--b-radius)",
-        padding: "10px var(--spacing-3)",
+        background:
+          "linear-gradient(140deg, var(--c-neutral-700) 0%, var(--b-bg-prominent) 100%)",
         lineHeight: 1,
         cursor: "pointer",
-        transition: "color 0.15s, border-color 0.15s",
+        transition: "color 0.15s, background 0.2s ease",
       }}
     >
-      <span aria-hidden="true" style={{ color: "var(--b-text-muted)" }}>
-        &gt;
-      </span>
-      <code
+      <span
         style={{
-          fontFamily: "inherit",
-          fontSize: "inherit",
-          color: "inherit",
-          background: "transparent",
-          border: "none",
-          borderRadius: 0,
-          padding: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "var(--spacing-2)",
+          padding: "9px var(--spacing-3)",
+          borderRadius: "calc(var(--b-radius) - 1px)",
+          background: "var(--b-bg-prominent)",
+          transition: "background 0.2s ease",
         }}
       >
-        {INSTALL_COMMAND}
-      </code>
-      {copied ? (
-        <span
-          aria-hidden="true"
+        <span aria-hidden="true" style={{ color: "var(--b-text-muted)" }}>
+          &gt;
+        </span>
+        <code
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            marginLeft: "var(--spacing-1)",
-            fontWeight: 600,
-            letterSpacing: "0.02em",
-            color: "var(--b-text-primary)",
+            fontFamily: "inherit",
+            fontSize: "inherit",
+            color: "inherit",
+            background: "transparent",
+            border: "none",
+            borderRadius: 0,
+            padding: 0,
           }}
         >
-          <IconCheck size={14} stroke={1.75} />
-          COPIED
-        </span>
-      ) : (
-        <IconCopy
-          size={14}
-          stroke={1.75}
-          aria-hidden="true"
-          style={{
-            marginLeft: "var(--spacing-1)",
-            color: "var(--b-text-muted)",
-          }}
-        />
-      )}
+          {INSTALL_COMMAND}
+        </code>
+        {copied ? (
+          <span
+            aria-hidden="true"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              marginLeft: "var(--spacing-1)",
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+              color: "var(--b-text-primary)",
+            }}
+          >
+            <IconCheck size={14} stroke={1.75} />
+            COPIED
+          </span>
+        ) : (
+          <IconCopy
+            size={14}
+            stroke={1.75}
+            aria-hidden="true"
+            style={{
+              marginLeft: "var(--spacing-1)",
+              color: "var(--b-text-muted)",
+            }}
+          />
+        )}
+      </span>
       <span aria-live="polite" className="sr-only">
         {copied ? "Copied!" : ""}
       </span>
