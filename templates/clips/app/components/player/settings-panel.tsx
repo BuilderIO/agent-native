@@ -24,7 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 
 import { SPEED_OPTIONS } from "./player-controls";
@@ -103,9 +102,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex h-full flex-col bg-transparent">
       {showHeader ? (
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between px-4 py-3">
           <h2 className="text-sm font-medium">{t("playerSettings.title")}</h2>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <IconX className="h-4 w-4" />
@@ -229,8 +228,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
           </div>
         </section>
 
-        <Separator />
-
         {/* Toggles */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -262,8 +259,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
           />
         </section>
 
-        <Separator />
-
         {/* Default speed */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -285,8 +280,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
             </SelectContent>
           </Select>
         </section>
-
-        <Separator />
 
         {/* CTA editor */}
         <section className="space-y-3">
@@ -395,7 +388,7 @@ function CtaEditor({
 
   return (
     <div
-      className="rounded-lg border border-border bg-card p-3 space-y-2"
+      className="rounded-lg bg-card p-3 space-y-2"
       onFocusCapture={() => {
         editing.current = true;
       }}

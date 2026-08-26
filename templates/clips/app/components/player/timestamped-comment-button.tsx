@@ -111,7 +111,7 @@ export function TimestampedCommentBar({
       data-player-ui
       className={cn("absolute inset-x-0 bottom-0 z-30 p-3", className)}
     >
-      <div className="rounded-xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur">
+      <div className="rounded-xl border-0 bg-background/95 p-3 shadow-lg backdrop-blur">
         <Textarea
           ref={textareaRef}
           value={draft}
