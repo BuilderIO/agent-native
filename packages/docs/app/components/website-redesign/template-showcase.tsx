@@ -55,9 +55,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F53ab0a006ca6460c801b3520d3cee3c6",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F469bb8923c3a4fe8aeeb76524757ebc0",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8c58fe985404b36aba808247d419757",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb06a2d6d71404a42874e09b4c2493f2f",
     href: "/apps/clips",
   },
   {
@@ -66,9 +66,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd803cdb0e1714fae8ecccbc49c048d3c",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdb2aa3507abd455781fd9a918b49556d",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F731521261daf4044b1ebcec808002a35",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdcc7ffad1b2143d8ad848d897d48090a",
     href: "/apps/design",
   },
   {
@@ -77,9 +77,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff9ad9cbac8dd4f2ca719a398fe4d8112",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68cfef4529c5464196005a9f40c92d5c",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8268ac325c8d42f1ab9bc29da763a236",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc10fec20f1244fee95ced166261e9fec",
     href: "/apps/slides",
   },
   {
@@ -88,9 +88,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd60771677167437f9aa07175ac040484",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd8f72ede40714d5f80adcc885b71afb6",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa380454478cf4e2481ae80a0984d7c41",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7e394cf1fd54a078881358a944c8280",
     href: "/apps/analytics",
   },
   {
@@ -98,6 +98,10 @@ const APPS: ShowcaseApp[] = [
     name: "Calendar",
     description:
       "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F18c4d2061c584743aa4915169de8f6b2",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3351715f7c6a402f9f006d83d333dc58",
     href: "/apps/calendar",
   },
   {
@@ -105,6 +109,10 @@ const APPS: ShowcaseApp[] = [
     name: "Mail",
     description:
       "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1dab5941bced4ea88b6c29ca9c8842f5",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5b10f254a3f8464b8b03a4786ec85761",
     href: "/apps/mail",
   },
   {
@@ -112,6 +120,10 @@ const APPS: ShowcaseApp[] = [
     name: "Assets",
     description:
       "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F505903e15f1445e589d76da4702953c0",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcb8bc4b883e649a7ba64b3a500b1f555",
     href: "/apps/assets",
   },
   {
@@ -119,6 +131,10 @@ const APPS: ShowcaseApp[] = [
     name: "Content",
     description:
       "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and use an AI agent to draft, rewrite, and publish.",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F54069e80e822449b935ae764a1982a96",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd23954911e94101a7a0f0393a195dad",
     href: "/apps/content",
   },
 ];
