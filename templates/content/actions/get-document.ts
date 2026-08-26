@@ -119,7 +119,7 @@ export default defineAction({
     if (
       args.databaseId &&
       (!propertyDatabase ||
-        !propertyDatabaseAccess ||
+        (!propertyDatabaseAccess && access.role === "owner") ||
         (propertyDatabase.documentId !== doc.id && !databaseMembership))
     ) {
       throw Object.assign(new Error("Database context not found"), {
@@ -201,7 +201,11 @@ export default defineAction({
         : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: await listPropertiesForDocument(doc, args.databaseId),
+      properties: await listPropertiesForDocument(doc, args.databaseId, {
+        // A share authorizes the exact page and its membership-local fields,
+        // not the private database document that owns those definitions.
+        requireDatabaseAccess: propertyDatabaseAccess !== null,
+      }),
       contextPath: await getDocumentContextPath(doc, {
         databaseId: args.databaseId,
       }),

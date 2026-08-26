@@ -1673,6 +1673,23 @@ describe("content database soft-delete actions and reads", () => {
       createdAt: now,
     });
 
+    const contextualDocument = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () =>
+        getDocumentAction.run({
+          id: sharedDocumentId,
+          databaseId,
+          databaseDocumentId,
+        }),
+    );
+    expect(contextualDocument).toMatchObject({
+      id: sharedDocumentId,
+      title: "Shared Personal row",
+      content: "Keep this nonempty Personal body.",
+      accessRole: "editor",
+      databaseMembership: { databaseId },
+    });
+
     const shared = await runWithRequestContext(
       { userEmail: COLLABORATOR },
       () =>
@@ -1710,6 +1727,15 @@ describe("content database soft-delete actions and reads", () => {
         }),
       ),
     ).rejects.toThrow("Document is not part of this database.");
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        getDocumentAction.run({
+          id: sharedDocumentId,
+          databaseId: unrelated.databaseId,
+          databaseDocumentId: unrelated.databaseDocumentId,
+        }),
+      ),
+    ).rejects.toThrow("Database context not found");
     await expect(
       runWithRequestContext({ userEmail: COLLABORATOR }, () =>
         configureDocumentPropertyAction.run({
