@@ -82,6 +82,7 @@ import {
 } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
 import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
@@ -2382,26 +2383,72 @@ function workspaceOAuthCallbackRelayResponse(
   ).get("state");
   const appId = extractOAuthStateAppId(state);
   const provider = extractOAuthStateProvider(state);
+  const cookieAppId =
+    !appId && !provider && normalizedPath === "/_agent-native/google/callback"
+      ? extractMcpOAuthCookieAppId(event, state)
+      : undefined;
+  const effectiveAppId = appId ?? cookieAppId;
+  const effectiveProvider = provider ?? (cookieAppId ? "mcp" : undefined);
   const providerCallbackPath =
-    normalizedPath === "/_agent-native/google/callback" && provider === "mcp"
+    normalizedPath === "/_agent-native/google/callback" &&
+    effectiveProvider === "mcp"
       ? "/_agent-native/mcp/servers/oauth/callback"
       : normalizedPath === "/_agent-native/google/callback" &&
-          isWorkspaceGoogleOAuthProvider(provider)
-        ? `/_agent-native/connections/oauth/${provider}/callback`
+          isWorkspaceGoogleOAuthProvider(effectiveProvider)
+        ? `/_agent-native/connections/oauth/${effectiveProvider}/callback`
         : normalizedPath;
   if (
-    !appId ||
-    (appId === getOAuthStateAppId() &&
+    !effectiveAppId ||
+    (effectiveAppId === getOAuthStateAppId() &&
       providerCallbackPath === normalizedPath) ||
-    !isValidWorkspaceAppIdFormat(appId)
+    !isValidWorkspaceAppIdFormat(effectiveAppId)
   ) {
     return undefined;
   }
 
   return new Response("", {
     status: 302,
-    headers: { Location: `/${appId}${providerCallbackPath}${search}` },
+    headers: {
+      Location: `/${effectiveAppId}${providerCallbackPath}${search}`,
+    },
   });
+}
+
+function extractMcpOAuthCookieAppId(
+  event: H3Event,
+  state: string | null,
+): string | undefined {
+  if (!state) return undefined;
+  const result = readMcpOAuthFlowCookiePayload(event);
+  if (result.status !== "ok") return undefined;
+  if (
+    result.value.state !== state ||
+    typeof result.value.redirectUri !== "string"
+  ) {
+    return undefined;
+  }
+
+  let redirectUri: URL;
+  let requestOrigin: URL;
+  try {
+    redirectUri = new URL(result.value.redirectUri);
+    requestOrigin = new URL(getOrigin(event));
+  } catch {
+    return undefined;
+  }
+  if (
+    redirectUri.origin !== requestOrigin.origin ||
+    redirectUri.search ||
+    redirectUri.hash
+  ) {
+    return undefined;
+  }
+
+  const match = redirectUri.pathname.match(
+    /^\/([a-z0-9][a-z0-9-]*)\/_agent-native\/mcp\/servers\/oauth\/callback$/,
+  );
+  const appId = match?.[1];
+  return appId && isValidWorkspaceAppIdFormat(appId) ? appId : undefined;
 }
 
 function isWorkspaceGoogleOAuthProvider(

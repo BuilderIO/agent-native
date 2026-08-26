@@ -4,8 +4,6 @@ import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client"
 import {
   deleteCookie,
   defineEventHandler,
-  getChunkedCookie,
-  getCookie,
   getMethod,
   getQuery,
   setChunkedCookie,
@@ -14,7 +12,7 @@ import {
 } from "h3";
 
 import { getOrgContext } from "../org/context.js";
-import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
+import { encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
 import {
   CredentialStoreUnavailableError,
@@ -38,6 +36,12 @@ import {
   validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
 import {
+  MCP_OAUTH_FLOW_COOKIE as FLOW_COOKIE,
+  MCP_OAUTH_FLOW_COOKIE_CHUNK_SIZE as FLOW_COOKIE_CHUNK_SIZE,
+  MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
+  readMcpOAuthFlowCookiePayload,
+} from "./oauth-flow-cookie.js";
+import {
   addOAuthRemoteServer,
   listRemoteServers,
   normalizeServerName,
@@ -46,11 +50,7 @@ import {
   type RemoteMcpScope,
 } from "./remote-store.js";
 
-const FLOW_COOKIE = "an_mcp_oauth_flow";
 const FLOW_TTL_SECONDS = 10 * 60;
-const FLOW_COOKIE_CHUNK_SIZE = 2_800;
-const FLOW_COOKIE_MAX_CHUNKS = 8;
-const CHUNKED_COOKIE_PREFIX = "__chunked__";
 const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
@@ -525,22 +525,8 @@ export function setMcpOAuthFlowCookie(
 }
 
 export function readMcpOAuthFlowCookie(event: H3Event): McpOAuthFlow | null {
-  const primaryCookie = getCookie(event, FLOW_COOKIE);
-  if (!primaryCookie) return null;
-  if (primaryCookie.startsWith(CHUNKED_COOKIE_PREFIX)) {
-    const rawCount = primaryCookie.slice(CHUNKED_COOKIE_PREFIX.length);
-    if (!/^\d+$/.test(rawCount)) return null;
-    const chunkCount = Number(rawCount);
-    if (chunkCount < 2 || chunkCount > FLOW_COOKIE_MAX_CHUNKS) return null;
-  }
-  const encrypted = getChunkedCookie(event, FLOW_COOKIE);
-  if (!encrypted) return null;
-  try {
-    const parsed = JSON.parse(decryptSecretValue(encrypted)) as McpOAuthFlow;
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
+  const result = readMcpOAuthFlowCookiePayload(event);
+  return result.status === "ok" ? (result.value as McpOAuthFlow) : null;
 }
 
 export function clearMcpOAuthFlowCookies(event: H3Event): void {
