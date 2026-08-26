@@ -59,6 +59,7 @@ export function FeaturesActions() {
             width: "100%",
             height: "auto",
             borderLeft: "1px solid var(--b-border-subtle)",
+            borderRight: "1px solid var(--b-border-subtle)",
           }}
         />
       </GridInner>
