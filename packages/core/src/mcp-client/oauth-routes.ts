@@ -526,7 +526,9 @@ export function setMcpOAuthFlowCookie(
 
 export function readMcpOAuthFlowCookie(event: H3Event): McpOAuthFlow | null {
   const result = readMcpOAuthFlowCookiePayload(event);
-  return result.status === "ok" ? (result.value as McpOAuthFlow) : null;
+  return result.status === "ok"
+    ? (result.value as unknown as McpOAuthFlow)
+    : null;
 }
 
 export function clearMcpOAuthFlowCookies(event: H3Event): void {
