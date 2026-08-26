@@ -42,8 +42,33 @@ import { comparePngs } from "./lib/compare.js";
 import { renderHtmlToPng } from "./lib/render.js";
 
 const OUT_DIR = ".tmp/figma-fidelity/import";
-/** Figma's rate limit is per-minute, so a handful of waits clears any burst. */
+/** Figma's per-minute rate limit clears in seconds, so a few waits absorb a burst. */
 const MAX_RATE_LIMIT_RETRIES = 6;
+/**
+ * Figma answers a per-minute burst with `Retry-After` in seconds — but it uses
+ * the SAME header for an exhausted account quota, where the value is days
+ * (398128s / 4.6 days observed). Honouring that literally makes the run sit
+ * there looking like it is still working. Anything past this cap is a quota
+ * wall, not pacing, and has to be said out loud.
+ */
+const MAX_RATE_LIMIT_WAIT_MS = 120_000;
+
+function rateLimitWaitMs(response: Response, attempt: number): number {
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    const waitMs = retryAfter * 1000;
+    if (waitMs > MAX_RATE_LIMIT_WAIT_MS) {
+      const resetsAt = new Date(Date.now() + waitMs).toISOString();
+      throw new Error(
+        `Figma rate limit is not a burst: it asked for ${Math.round(retryAfter / 3600)}h ` +
+          `(until ${resetsAt}). That is an exhausted account quota, not pacing — ` +
+          `waiting would stall this run for days. Use a different token or resume after the reset.`,
+      );
+    }
+    return waitMs;
+  }
+  return Math.min(MAX_RATE_LIMIT_WAIT_MS, 2 ** attempt * 5_000);
+}
 const CACHE_DIR = ".tmp/figma-fidelity/import-cache";
 const MANIFEST = "templates/design/scripts/figma-fidelity/import-corpus.json";
 
@@ -80,11 +105,7 @@ async function figmaJson<T>(path: string, attempt = 0): Promise<T> {
   // pacing problem as an import defect — which is exactly the kind of
   // misattribution this harness exists to avoid.
   if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
-    const retryAfter = Number(response.headers.get("retry-after"));
-    const waitMs =
-      Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : Math.min(60_000, 2 ** attempt * 5_000);
+    const waitMs = rateLimitWaitMs(response, attempt);
     process.stdout.write(
       `(rate limited, waiting ${Math.round(waitMs / 1000)}s) `,
     );
@@ -119,12 +140,7 @@ async function fetchBinary(url: string, attempt = 0): Promise<Buffer> {
   if (existsSync(cached)) return readFileSync(cached);
   const response = await fetch(url);
   if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
-    const retryAfter = Number(response.headers.get("retry-after"));
-    await sleep(
-      Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : Math.min(60_000, 2 ** attempt * 5_000),
-    );
+    await sleep(rateLimitWaitMs(response, attempt));
     return fetchBinary(url, attempt + 1);
   }
   if (!response.ok) {
