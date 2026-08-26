@@ -9,6 +9,7 @@ const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
+const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./builder-oauth.js", () => ({
   getBuilderOAuthSession: getBuilderOAuthSessionMock,
@@ -19,6 +20,7 @@ vi.mock("./credential-provider.js", () => ({
 }));
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
+  getRequestOrgId: getRequestOrgIdMock,
 }));
 
 const ASSETS_WRITE = "builder:assets:write";
@@ -26,6 +28,7 @@ const ASSETS_WRITE = "builder:assets:write";
 beforeEach(() => {
   vi.clearAllMocks();
   getRequestUserEmailMock.mockReturnValue("user@example.com");
+  getRequestOrgIdMock.mockReturnValue(undefined);
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
   resolveBuilderPrivateKeyMock.mockResolvedValue(null);
@@ -84,6 +87,28 @@ describe("resolveBuilderApiAuthorization", () => {
   it("reports not connected when neither credential kind answers", async () => {
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).rejects.toThrow(
       /not connected/,
+    );
+  });
+
+  // The grant is org-scoped, so a recording that finalizes after the user
+  // switched active org must still authorize against its own org.
+  it("binds the lookup to the request organization, not the active one", async () => {
+    getRequestOrgIdMock.mockReturnValue("org-recording");
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: ["builder:ai:invoke", ASSETS_WRITE],
+    });
+
+    await resolveBuilderApiAuthorization(ASSETS_WRITE);
+
+    expect(hasBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "org-recording",
+    );
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "org-recording",
     );
   });
 

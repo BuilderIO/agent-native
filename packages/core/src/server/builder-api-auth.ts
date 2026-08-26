@@ -13,7 +13,7 @@ import {
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
 import { resolveBuilderPrivateKey } from "./credential-provider.js";
-import { getRequestUserEmail } from "./request-context.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 /**
  * Resolve the `Authorization` header for a Builder asset API call.
@@ -29,9 +29,14 @@ export async function resolveBuilderApiAuthorization(
   requiredScope?: string,
 ): Promise<string> {
   const ownerEmail = getRequestUserEmail();
+  // Bind to the request's organization, not the user's currently active one:
+  // the grant is org-scoped, and a recording that finalizes after the user
+  // switched org must still authorize against the org it belongs to. The
+  // legacy private-key path already resolves this way.
+  const orgId = getRequestOrgId();
 
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail))) {
-    const session = await getBuilderOAuthSession(ownerEmail);
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+    const session = await getBuilderOAuthSession(ownerEmail, orgId);
     if (!session) {
       throw new Error(
         "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
@@ -62,6 +67,11 @@ export async function resolveBuilderApiAuthorization(
  */
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail))) return true;
+  if (
+    ownerEmail &&
+    (await hasBuilderOAuthSession(ownerEmail, getRequestOrgId()))
+  ) {
+    return true;
+  }
   return !!(await resolveBuilderPrivateKey());
 }

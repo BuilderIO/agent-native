@@ -179,6 +179,67 @@ describe("Builder hosted user OAuth", () => {
     );
   });
 
+  // Without this the grant's scopes would have to be guessed on every later
+  // read, and a new two-scope grant is indistinguishable from a legacy one.
+  it("records the requested scopes when the token response omits them", async () => {
+    const finished = credentials({
+      tokens: {
+        access_token: "<ACCESS_TOKEN_EXAMPLE>",
+        issuer: BUILDER_OAUTH_ISSUER,
+      },
+    });
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: expect.objectContaining({
+          tokens: expect.objectContaining({
+            scope: BUILDER_OAUTH_SCOPES.join(" "),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("leaves a declared scope claim untouched", async () => {
+    const finished = credentials({
+      tokens: {
+        access_token: "<ACCESS_TOKEN_EXAMPLE>",
+        scope: BUILDER_OAUTH_SCOPE,
+        issuer: BUILDER_OAUTH_ISSUER,
+      },
+    });
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({ credentials: finished }),
+    );
+  });
+
   it("does not accept a completed exchange bound to another resource", async () => {
     const finished = credentials({
       serverUrl: "https://unrelated.example.com",
@@ -376,10 +437,11 @@ describe("Builder hosted user OAuth", () => {
     ).rejects.toThrow("does not grant builder:assets:write");
   });
 
-  // A token response may omit `scope` when the grant matches the request
-  // (RFC 6749 §5.1). Assuming a narrower set there would tell the user to
-  // reconnect, hand them the identical grant, and loop forever.
-  it("assumes the requested scopes when the token response omits scope", async () => {
+  // A stored credential with no `scope` claim predates both Builder always
+  // setting one and this flow recording it, so it can only be an AI-only grant.
+  // Crediting it with the upload scope would trade a clear local error for an
+  // opaque 403 from Builder.
+  it("keeps a scope-less legacy credential AI-only", async () => {
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
@@ -391,14 +453,14 @@ describe("Builder hosted user OAuth", () => {
     );
 
     await expect(getBuilderOAuthSession(ownerEmail)).resolves.toMatchObject({
-      scopes: [...BUILDER_OAUTH_SCOPES],
+      scopes: [BUILDER_OAUTH_SCOPE],
     });
     await expect(
       resolveBuilderOAuthRequestAccess({
         ownerEmail,
         requiredScope: "builder:assets:write",
       }),
-    ).resolves.toMatchObject({ ownerEmail });
+    ).rejects.toThrow("does not grant builder:assets:write");
   });
 
   it("fails closed for a credential whose issuer or resource binding changed", async () => {
