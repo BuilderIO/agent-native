@@ -1,3 +1,4 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandGithub,
   IconMenu2,
@@ -8,6 +9,7 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router";
 
+import { sitePathForLocale } from "../docs-locale";
 import { useSearchModal } from "../use-search-modal";
 import { Button } from "./ds/button";
 import { IconButton, ThemeIconButton } from "./ds/icon-button";
@@ -22,21 +24,7 @@ const SearchModal = lazy(() =>
   import("../SearchModal").then((m) => ({ default: m.SearchModal })),
 );
 
-const NAV_LINKS: Array<{
-  label: string;
-  href: string;
-  external?: boolean;
-  showArrow?: boolean;
-}> = [
-  { label: "Docs", href: "/docs" },
-  { label: "Apps", href: "/apps" },
-  {
-    label: "Discord",
-    href: "https://discord.gg/qm82StQ2NC",
-    external: true,
-    showArrow: true,
-  },
-];
+const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
 
 const GITHUB_REPO_URL = "https://github.com/BuilderIO/agent-native";
 
@@ -51,11 +39,13 @@ function formatStarCount(count: number): string {
 }
 
 function AskAiIconButton() {
+  const t = useT();
+  const label = t("header.askAssistant");
   return (
     <IconButton
       onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
-      aria-label="Ask AI"
-      title="Ask AI"
+      aria-label={label}
+      title={label}
     >
       <IconMessage size={18} stroke={1.5} />
     </IconButton>
@@ -82,12 +72,18 @@ function GithubStarsButton({ starCount }: { starCount: number | null }) {
   );
 }
 
-function SearchTrigger({ onClick }: { onClick: () => void }) {
+function SearchTrigger({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label="Search docs"
+      aria-label={label}
       className="border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
       style={{
         height: 40,
@@ -109,7 +105,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
       }}
     >
       <IconSearch size={16} stroke={1.75} />
-      <span className="hidden sm:inline">Search</span>
+      <span className="hidden sm:inline">{label}</span>
       <span className="hidden sm:inline">
         <Kbd>⌘K</Kbd>
       </span>
@@ -129,6 +125,8 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     everOpened: searchEverOpened,
     openModal: openSearchModal,
   } = useSearchModal();
+  const t = useT();
+  const { locale } = useLocale();
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -145,6 +143,23 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     openSearchModal();
   }
 
+  // This header renders on every route, so its internal links have to stay in
+  // the visitor's locale tree instead of dropping them back into English.
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
+
+  const navLinks = [
+    { label: t("header.docs"), href: localizedPath("/docs") },
+    { label: t("header.templates"), href: localizedPath("/apps") },
+    {
+      label: "Discord",
+      href: DISCORD_URL,
+      external: true,
+      showArrow: true,
+    },
+  ];
+
+  const searchLabel = t("header.searchAria");
+
   return (
     <header
       style={{
@@ -158,6 +173,10 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
         backdropFilter: "blur(12px)",
         borderBottom: "1px solid var(--b-border-default)",
       }}
+      // The --b-* variables live on this class, so the header carries its own
+      // scope: it renders on docs routes too, and a wrapper element around it
+      // would break `position: sticky` by boxing it into 64px.
+      className="builder-brand-tokens"
     >
       <div
         style={{
@@ -178,7 +197,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
           }}
         >
           <Link
-            to="/website-redesign/homepage"
+            to={localizedPath("/")}
             aria-label="Agent-Native"
             style={{ display: "flex", color: "var(--b-text-primary)" }}
           >
@@ -186,7 +205,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
           </Link>
 
           <nav className="hidden items-center gap-1 lg:flex">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <NavLink
                 key={link.label}
                 href={link.href}
@@ -204,19 +223,19 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               search, GitHub, and Ask AI. The mobile panel below still carries
               all of them, since it is the only nav on small screens. */}
           <div className="hidden items-stretch gap-3 lg:flex">
-            <SearchTrigger onClick={openSearch} />
+            <SearchTrigger onClick={openSearch} label={searchLabel} />
             <GithubStarsButton starCount={starCount} />
             <AskAiIconButton />
           </div>
 
           <div className="flex items-center gap-2 lg:hidden">
-            <IconButton onClick={openSearch} aria-label="Search docs">
+            <IconButton onClick={openSearch} aria-label={searchLabel}>
               <IconSearch size={18} stroke={1.5} />
             </IconButton>
             <button
               type="button"
               onClick={() => setMobileOpen((open) => !open)}
-              aria-label="Toggle navigation"
+              aria-label={t("header.toggleNavigation")}
               aria-expanded={mobileOpen}
               className="flex h-10 w-10 items-center justify-center text-[var(--b-text-primary)]"
               style={{
@@ -248,7 +267,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             gap: "var(--spacing-3)",
           }}
         >
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <NavLink
               key={link.label}
               href={link.href}

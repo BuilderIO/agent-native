@@ -45,6 +45,19 @@ export async function getGithubStarCount(): Promise<number | null> {
   return refresh();
 }
 
+// For the root loader, which runs on every page: awaiting the GitHub fetch
+// there would put a cold-start network round trip in front of the whole site.
+// An unknown count renders as no count, so returning null while the refresh
+// runs in the background is the honest answer rather than a stalled page.
+export function getGithubStarCountFromCache(): number | null {
+  if (!cache) {
+    void refresh();
+    return null;
+  }
+  if (Date.now() - cache.ts >= CACHE_FRESH_MS) void refresh();
+  return cache.count;
+}
+
 export function resetGithubStarCountCacheForTests(): void {
   cache = null;
   inFlight = null;

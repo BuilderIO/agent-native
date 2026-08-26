@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -44,13 +45,11 @@ export function IconButton({
 }
 
 export function ThemeIconButton() {
+  const t = useT();
   const { theme, toggleTheme } = useDocsTheme();
+  const label = t("theme.toggle");
   return (
-    <IconButton
-      onClick={toggleTheme}
-      aria-label="Toggle theme"
-      title="Toggle theme"
-    >
+    <IconButton onClick={toggleTheme} aria-label={label} title={label}>
       {theme === "light" ? (
         <IconSun size={18} stroke={1.5} />
       ) : (

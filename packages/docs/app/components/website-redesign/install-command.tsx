@@ -29,6 +29,7 @@ async function copyText(text: string): Promise<boolean> {
   try {
     return document.execCommand("copy");
   } catch {
+    // coercion-ok: false is the copy-failed signal the caller already branches on
     return false;
   } finally {
     field.remove();

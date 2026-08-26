@@ -26,6 +26,7 @@ const CARD_IMAGE_SIZES = "(max-width: 768px) 260px, 320px";
 interface ShowcaseApp {
   slug: string;
   name: string;
+  // guard:allow-required-description - the carousel card is nothing but name + description; an app with neither has no card to render
   description: string;
   // Both variants or neither -- the card falls back to a placeholder unless it
   // has final art for each theme, since a dark screenshot shown in light mode

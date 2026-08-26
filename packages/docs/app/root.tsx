@@ -22,6 +22,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { getGithubStarCountFromCache } from "../lib/github-star-count";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -36,12 +37,13 @@ import {
   docsMarkdownPathForPath,
 } from "./components/docs-seo";
 import Footer from "./components/Footer";
-import Header from "./components/Header";
+import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
+import tokensCss from "./components/website-redesign/tokens.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
@@ -119,6 +121,7 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
     locale,
     preference: { locale },
     messages: await initialMessagesForLocale(locale),
+    starCount: getGithubStarCountFromCache(),
   };
 }
 
@@ -136,6 +139,7 @@ function fallbackRootLocaleData(pathname: string): RootLocaleData {
     locale,
     preference: { locale },
     messages: null,
+    starCount: null,
   };
 }
 
@@ -150,6 +154,9 @@ function useRootLocaleData() {
 
 export const links = () => [
   { rel: "stylesheet", href: appCss },
+  // Every selector in tokens.css is scoped under .builder-brand-tokens, so
+  // loading it site-wide cannot restyle a page that does not opt in.
+  { rel: "stylesheet", href: tokensCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
   { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
 ];
@@ -176,9 +183,8 @@ export const meta = () => [
   { property: "og:site_name", content: "Agent-Native" },
 ];
 
-// The hidden /website-redesign route tree renders its own self-contained
-// header (and, eventually, footer) against the `--b-*` token system — it must
-// not be stacked underneath the main docs site's Header/Footer.
+// The /website-redesign tree brings its own footer, styled against the same
+// `--b-*` tokens as its page body; the docs footer would stack underneath it.
 function isWebsiteRedesignPath(pathname: string): boolean {
   return (
     pathname === "/website-redesign" ||
@@ -188,21 +194,14 @@ function isWebsiteRedesignPath(pathname: string): boolean {
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  if (isWebsiteRedesignPath(location.pathname)) {
-    return (
-      <div className="w-full min-w-0 overflow-x-clip">
-        <ScrollManager />
-        {children}
-      </div>
-    );
-  }
+  const { starCount } = useRootLocaleData();
 
   return (
     <div className="w-full min-w-0 overflow-x-clip">
       <ScrollManager />
-      <Header />
+      <SiteHeader starCount={starCount} />
       {children}
-      <Footer />
+      {isWebsiteRedesignPath(location.pathname) ? null : <Footer />}
     </div>
   );
 }
