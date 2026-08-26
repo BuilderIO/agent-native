@@ -999,10 +999,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const activateVideoSurface = useCallback(
       (input: "mouse" | "touch") => {
-        // Match native mobile players: touching the video reveals the controls
-        // without unexpectedly pausing or resuming it. Embeds that explicitly
-        // hide their chrome keep surface-tap playback so they remain usable.
+        // Touch taps should behave like native mobile players: pause while
+        // playing, resume while paused, and keep the chrome visible long
+        // enough to expose the explicit controls. Embeds that explicitly hide
+        // their chrome keep surface-tap playback so they remain usable.
         if (input === "touch" && !hideChrome) {
+          togglePlayback();
           bumpControls();
           return;
         }
@@ -1629,6 +1631,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const fullscreenMenuContainer = isFullscreen ? containerRef.current : null;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
+    const controlsVisible =
+      showControls || !isPlaying || isPlayPending || isBuffering;
     // Mobile Safari may defer loadeddata/canplay until playback starts. Keep
     // the paused state actionable even when those readiness events have not
     // fired yet; once the user asks to play, the pending/buffering states give
@@ -2067,7 +2071,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <div
             className={cn(
               "absolute inset-x-0 bottom-0 z-20 transition-opacity duration-200",
-              showControls ? "opacity-100" : "opacity-0 pointer-events-none",
+              controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none",
             )}
           >
             <PlayerControls

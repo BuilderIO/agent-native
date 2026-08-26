@@ -1289,19 +1289,17 @@ export default function Index() {
   // first (the same path the editor's own Duplicate uses) and navigate to
   // that; the background action reconciles or rolls the copy back.
   const handleDuplicate = useCallback(
-    (id: string) => {
-      let copy: ReturnType<typeof duplicateDeck> | undefined;
-      flushSync(() => {
-        copy = duplicateDeck(id, `deck-${nanoid()}`, undefined, () => {
-          // The background duplicate-deck action failed after we already
-          // navigated to the optimistic copy's route. If the user is still
-          // there, send them back to the deck list instead of stranding them
-          // on a "Deck unavailable" screen for a deck that no longer exists.
-          if (deckIdFromPathname(window.location.pathname) === copy?.id) {
-            navigate("/");
-          }
-          toast.error(t("home.duplicateFailed"));
-        });
+    async (id: string) => {
+      const newId = `deck-${nanoid()}`;
+      const copy = await duplicateDeck(id, newId, undefined, () => {
+        // The background duplicate-deck action failed after we already
+        // navigated to the optimistic copy's route. If the user is still
+        // there, send them back to the deck list instead of stranding them
+        // on a "Deck unavailable" screen for a deck that no longer exists.
+        if (deckIdFromPathname(window.location.pathname) === newId) {
+          navigate("/");
+        }
+        toast.error(t("home.duplicateFailed"));
       });
       // The context refuses a second copy of the same deck while the first
       // one's action is still in flight.

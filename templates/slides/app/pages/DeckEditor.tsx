@@ -182,7 +182,9 @@ export default function DeckEditor() {
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
   const hasPendingDeckEdits =
     inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
-  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  // Inline drafts flush through SlideEditor keepalive handlers. The native
+  // prompt only needs to cover queued or in-flight writes now.
+  usePendingDeckUnloadGuard(id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -1545,9 +1547,9 @@ export default function DeckEditor() {
         onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
         onToggleTextBoxMode={toggleTextBoxMode}
-        onDuplicateDeck={() => {
+        onDuplicateDeck={async () => {
           const newId = `deck-${nanoid()}`;
-          const optimistic = duplicateDeck(id, newId, undefined, () => {
+          const optimistic = await duplicateDeck(id, newId, undefined, () => {
             // The background duplicate-deck action failed after we already
             // navigated to the optimistic copy. If the user is still there,
             // send them back instead of stranding them on a "Deck

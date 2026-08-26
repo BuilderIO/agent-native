@@ -316,7 +316,7 @@ describe("workspace provider OAuth", () => {
     );
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
-    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
     expect(url.searchParams.get("scope")?.split(" ")).toEqual(
       expect.arrayContaining([
         "openid",
@@ -325,6 +325,41 @@ describe("workspace provider OAuth", () => {
         "https://www.googleapis.com/auth/drive.file",
       ]),
     );
+  });
+
+  it("keeps the Google account chooser and preselects the signed-in identity", () => {
+    const provider = getWorkspaceConnectionProvider("google_calendar")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "google-client",
+        redirectUri:
+          "https://beta.calendar.agent-native.com/_agent-native/connections/oauth/google_calendar/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+        loginHint: "work@example.com",
+      }),
+    );
+
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
+    expect(url.searchParams.get("login_hint")).toBe("work@example.com");
+  });
+
+  it("omits login_hint when no signed-in identity is available", () => {
+    const provider = getWorkspaceConnectionProvider("google_calendar")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "google-client",
+        redirectUri:
+          "https://beta.calendar.agent-native.com/_agent-native/connections/oauth/google_calendar/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+      }),
+    );
+
+    expect(url.searchParams.has("login_hint")).toBe(false);
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
   });
 
   it("exchanges Figma codes at the current token endpoint without exposing credentials", async () => {

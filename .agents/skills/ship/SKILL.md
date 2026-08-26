@@ -98,9 +98,10 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   already has an `👀` reaction from anyone, preserve that fact as an existing
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified `@agent-native` **Fixed**,
-  **In progress**, or **Clarification needed** disposition; an eye-only or
-  stale eye-only item remains actionable for that handoff check. For items
+  an actionable in-scope item, require a verified disposition from the
+  invoking Slack identity - **Fixed**, **In progress**, or **Clarification
+  needed**; an eye-only or stale eye-only item remains actionable for that
+  handoff check. For items
   routed to Sid or Alice, or classified as external, duplicate, deferred, or
   informational, honor that owning disposition and do not turn the eye into a
   merge blocker. If the reaction state is unavailable, record the item as
@@ -133,7 +134,8 @@ external, or unavailable/unverified - always re-read the complete source thread
 and current handoff and reconcile them for new replies, reactions, linked
 evidence, resolution, or ownership signals. The handoff is a prior record, not
 the source of truth. After that refresh, if
-`@agent-native` or another participant already supplied the needed details,
+the invoking Slack identity, a legacy `@agent-native` message, or another
+participant already supplied the needed details,
 identified the cause, linked a fix, or said the issue is fixed, landed, or being
 fixed, do not reopen it as a clarification request or ask for duplicate
 information. Carry it as fixed pending verification, already owned, or in
@@ -170,7 +172,8 @@ workflow's ownership. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
 parent marked with `👀` is not thereby complete or non-actionable: preserve the
 reaction without duplicating it, and for actionable in-scope items do not merge
-while an eye-only or stale eye-only item lacks a verified bot disposition.
+while an eye-only or stale eye-only item lacks a verified disposition from the
+invoking Slack identity.
 
 ## Worktree and branch setup
 

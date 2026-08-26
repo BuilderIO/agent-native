@@ -27,6 +27,8 @@ import {
   DesignToolbarTool,
 } from "@/components/design/editor/toolbar-controls";
 import { IconText } from "@/components/design/inspector/design-icons";
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   MOVE_GROUP_TOOL_PRESENTATIONS,
   getMoveGroupToolPresentation,
@@ -83,6 +85,7 @@ export function DesignBottomToolbar({
   shortcutsPanelOpen: boolean;
 }) {
   const t = useT();
+  const applePlatform = useApplePlatform();
   const shapeTools = new Set<DesignTool>([
     "rect",
     "line",
@@ -132,7 +135,7 @@ export function DesignBottomToolbar({
       key: "arrow",
       label: t("designEditor.tools.arrow"),
       icon: shapeIcon("arrow", "size-4"),
-      shortcut: "⇧L",
+      shortcut: formatShortcutLabel("shift+l", applePlatform),
       active: activeTool === "arrow",
       onSelect: () => onShape("arrow"),
     },

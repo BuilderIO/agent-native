@@ -186,6 +186,18 @@ const messages = {
     automationsTab: "الأتمتة",
     agentsTab: "الوكلاء",
     factorySettings: "الإعدادات",
+    dangerZone: "منطقة الخطر",
+    deleteFactory: "حذف المصنع",
+    deleteFactoryDescription:
+      "احذف هذا المصنع وخريطته وقائمته وقواعده ونشاطه وإعداداته وعمليات الاستطلاع والأتمتة نهائيًا. لا يمكن التراجع عن هذا الإجراء.",
+    deleteFactoryTitle: "حذف {{name}}؟",
+    deleteFactoryWarning:
+      "لن يتم إلغاء العمل الجاري بالفعل في GitHub أو Slack أو Builder.",
+    deleteFactoryConfirmation: "اكتب {{name}} للتأكيد",
+    deleteFactoryCancel: "إلغاء",
+    deleteFactoryConfirm: "حذف المصنع",
+    factoryDeleted: "تم حذف المصنع.",
+    factoryDeleteFailed: "تعذر حذف المصنع.",
     agenticAppsTitle: "التطبيقات الوكيلة",
     agenticAppsEmpty: "لا توجد تطبيقات وكيلة في مساحة العمل هذه بعد.",
     createApp: "إنشاء تطبيق",

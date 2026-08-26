@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   assertUniqueSlackChannelForFactory,
+  assignCreatedByIfMissing,
   builderSlackUserIdSchema,
   factoryAutomationLeafName,
   factoryConfigRowId,
   readAutomationFactoryId,
+  requireExistingFactory,
   triageConfigUpdateRowId,
 } from "./factory-scope.js";
 
@@ -109,6 +111,24 @@ describe("factoryAutomationLeafName", () => {
   });
 });
 
+describe("assignCreatedByIfMissing", () => {
+  it("leaves an existing createdBy in place", () => {
+    const content = "---\ncreatedBy: teammate@example.com\n---\nObserve.\n";
+    expect(
+      assignCreatedByIfMissing(content, "settings-saver@example.com"),
+    ).toBe(content);
+  });
+
+  it("stamps createdBy when the field is missing", () => {
+    expect(
+      assignCreatedByIfMissing(
+        "---\ndomain: factory\n---\nObserve.\n",
+        "owner@example.com",
+      ),
+    ).toContain("createdBy: owner@example.com");
+  });
+});
+
 describe("builderSlackUserIdSchema", () => {
   it("accepts empty, user, and workspace Slack member ids", () => {
     expect(builderSlackUserIdSchema.parse("")).toBe("");
@@ -121,5 +141,30 @@ describe("builderSlackUserIdSchema", () => {
       /U01234567/,
     );
     expect(() => builderSlackUserIdSchema.parse("U".padEnd(33, "0"))).toThrow();
+  });
+});
+
+describe("requireExistingFactory", () => {
+  it("allows the virtual default Factory without a definition row", async () => {
+    const db = { select: vi.fn() };
+    await expect(
+      requireExistingFactory(db as never, "org-1", "product-feedback"),
+    ).resolves.toBeUndefined();
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing user-created Factory", async () => {
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+    };
+    await expect(
+      requireExistingFactory(db as never, "org-1", "support-triage"),
+    ).rejects.toThrow("Factory not found.");
   });
 });

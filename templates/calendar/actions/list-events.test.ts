@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getRequestTimezoneMock = vi.hoisted(() => vi.fn());
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
@@ -250,6 +250,10 @@ describe("list-events inventory contract", () => {
         `${Buffer.from(JSON.stringify({ resourceId })).toString("base64url")}.signature`,
     );
     verifyShortLivedTokenMock.mockReturnValue({ ok: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("keeps legacy callers on CalendarEvent arrays", async () => {
@@ -702,6 +706,62 @@ describe("list-events inventory contract", () => {
       ),
     ).rejects.toThrow("Expired or invalid");
     expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the saved timezone for omitted-range inventory cursors", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-17T12:00:00.000Z"));
+    getRequestTimezoneMock.mockReturnValue("UTC");
+    getUserSettingMock.mockResolvedValue({ timezone: "America/New_York" });
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-event-1",
+          googleEventId: "event-1",
+          title: "First",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          accountEmail: "steve@example.com",
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+        {
+          id: "google-event-2",
+          googleEventId: "event-2",
+          title: "Second",
+          description: "",
+          start: "2026-06-17T17:00:00.000Z",
+          end: "2026-06-17T17:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          accountEmail: "steve@example.com",
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+    });
+
+    const first = await (listEventsAction as any).run(
+      { format: "inventory", pageSize: 1, sources: ["google"] },
+      { caller: "mcp" },
+    );
+    const second = await (listEventsAction as any).run(
+      {
+        format: "inventory",
+        pageSize: 1,
+        sources: ["google"],
+        cursor: first.page.nextCursor,
+      },
+      { caller: "mcp" },
+    );
+
+    expect(second.items.map((item: any) => item.id)).toEqual(["event-2"]);
   });
 
   it("rejects a malformed inventory cursor before provider reads", async () => {

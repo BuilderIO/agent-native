@@ -239,6 +239,23 @@ describe("document database layout", () => {
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 
+  it("does not publish an export context before database data is available", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("useMemo<DatabaseExportContext | null>");
+    expect(source).toContain("data\n        ? {");
+    expect(source).toContain("onExportContextChange?.(exportContext)");
+
+    const editorSource = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+    expect(editorSource).toContain("databaseExportContextFingerprintRef");
+    expect(editorSource).toContain(
+      "onExportContextChange={handleDatabaseExportContextChange}",
+    );
+  });
+
   it("uses pill view tabs without a separate active chevron", () => {
     const source = readDatabaseSource();
 

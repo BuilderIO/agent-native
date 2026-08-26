@@ -161,9 +161,10 @@ describe("desktop passive-access regressions", () => {
     expect(connectFlow).toContain("hasMissingCredentialSignal(");
     expect(connectFlow).toContain("await host.retryRun({");
     expect(connectFlow).toContain("selectRun(retryResult.run.id)");
-    expect(agent).toContain(
-      "const hasCredentialGap = providerBlocked && hasCredentialHistory",
-    );
+    expect(agent).toContain("shouldShowCodeAgentCredentialCallout({");
+    expect(agent).toContain("providerBlocked,");
+    expect(agent).toContain("hasCredentialHistory,");
+    expect(agent).toContain("phase: run.phase,");
     expect(agent).toContain("hideCredentialMessages={hasCredentialHistory}");
   });
 
@@ -202,7 +203,7 @@ describe("desktop passive-access regressions", () => {
     const providerCheck = between(
       main,
       "function ensureCodeAgentLlmProvider()",
-      "function getLocalCodexCliStatus()",
+      "const CLI_PROBE_TIMEOUT_MS",
     );
 
     expect(providerCheck).toContain(
@@ -327,5 +328,45 @@ describe("desktop passive-access regressions", () => {
     expect(guardIndex).toBeGreaterThanOrEqual(0);
     expect(guardIndex).toBeLessThan(quittingIndex);
     expect(guardIndex).toBeLessThan(stopServicesIndex);
+  });
+
+  it("captures a cold-start deep link from argv on Windows/Linux instead of dropping it", () => {
+    const main = source("./index.ts");
+    const singleInstanceSetup = between(
+      main,
+      "function capturePendingDeepLinkFromArgv(argv: string[]): void {",
+      "interface OAuthInjectionTarget {",
+    );
+
+    // Reuses the same isDeepLinkArg/pendingDeepLink path as the macOS
+    // open-url cold start, instead of a parallel deep-link path.
+    expect(singleInstanceSetup).toContain("argv.find(isDeepLinkArg)");
+    expect(singleInstanceSetup).toContain("pendingDeepLink = deepLink;");
+
+    // Both the dev (no single-instance lock) and packaged (lock acquired)
+    // startup paths must capture it — a cold start can happen either way.
+    const devBranch = between(singleInstanceSetup, "if (IS_DEV) {", "} else {");
+    const lockAcquiredBranch = between(
+      singleInstanceSetup,
+      'app.on("second-instance", handleSecondInstance);\n    capturePendingDeepLinkFromArgv(process.argv);',
+      "}\n}",
+    );
+
+    expect(devBranch).toContain(
+      "capturePendingDeepLinkFromArgv(process.argv);",
+    );
+    expect(lockAcquiredBranch).toContain(
+      "capturePendingDeepLinkFromArgv(process.argv);",
+    );
+
+    // app.whenReady() must be the only place pendingDeepLink is dispatched,
+    // so a cold-start link isn't handled before dependent startup steps run.
+    const whenReady = between(
+      main,
+      "app.whenReady().then(async () => {",
+      "// Webviews now run in per-app persisted partitions",
+    );
+    expect(whenReady).toContain("if (pendingDeepLink) {");
+    expect(whenReady).toContain("handleDeepLink(pendingDeepLink);");
   });
 });

@@ -145,6 +145,7 @@ const messages = {
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
     backToLibrary: "ライブラリに戻る",
+    sharedWithYou: "あなたと共有",
     storageStillDisconnected: "ストレージがまだ接続されていません",
     finishBuilderOrS3:
       "Builder.io ポップアップを終了するか、S3 ストレージを構成してから、再試行してください。",
@@ -527,6 +528,7 @@ const messages = {
     height: "身長",
     autoplay: "自動再生",
     startAt: "(秒)から開始",
+    startAtTimestamp: "{{time}} から開始",
     embedCode: "埋め込みコード",
     sharePlainTitle: "{{title}}を共有する",
   },
@@ -1005,8 +1007,6 @@ const messages = {
     editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
-    mentionSomeone: "メンバーをメンション",
-    addEmoji: "絵文字を追加",
   },
   shareMeeting: {
     pageTitle: "会議メモ · Clips",
@@ -1558,6 +1558,7 @@ const messages = {
     invite: "招待",
     inviteFailed: "招待できませんでした",
     removePersonFailed: "削除できませんでした",
+    permissionUpdateFailed: "権限を更新できませんでした",
     passwordProtectedDescription:
       "この動画は保護されています。視聴するにはパスワードを入力してください。",
     password: "パスワード",

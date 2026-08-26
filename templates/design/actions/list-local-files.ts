@@ -15,7 +15,7 @@
  *     X-Bridge-Token so the bridge can reject unauthorized callers.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 

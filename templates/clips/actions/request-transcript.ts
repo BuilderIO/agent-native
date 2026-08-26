@@ -30,7 +30,7 @@
  *   pnpm action request-transcript --recordingId=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
   readAppState,
@@ -80,6 +80,7 @@ import {
   clearBuilderCreditsExhausted,
   noteBuilderCreditsExhausted,
 } from "./lib/builder-credits-state.js";
+import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
@@ -739,6 +740,7 @@ export async function importLoomTranscriptForRecording({
           now,
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
+        await finalizeEndedMeetingsForRecording(db, recordingId);
         await queueBrainExport(recordingId);
         return {
           recordingId,
@@ -1177,6 +1179,7 @@ async function completeReadyTranscript({
   // (`transcript-cleanup-${recordingId}`) before its next 2s tick lands —
   // otherwise the "Cleaning up…" badge can lag for one full poll interval.
   await writeAppState("refresh-signal", { ts: Date.now() });
+  await finalizeEndedMeetingsForRecording(db, recordingId);
   await queueBrainExport(recordingId);
 
   return {
@@ -1580,6 +1583,7 @@ const requestTranscriptAction = defineAction({
             now,
           });
           await writeAppState("refresh-signal", { ts: Date.now() });
+          await finalizeEndedMeetingsForRecording(db, args.recordingId);
           await queueBrainExport(args.recordingId);
           await clearBuilderCreditsExhausted();
 

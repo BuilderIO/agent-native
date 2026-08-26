@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { AgentNativeI18nProvider } from "../i18n.js";
 import type { ContentPart } from "../sse-event-processor.js";
+import { ThinkingDisplayProvider } from "../thinking-display.js";
 import {
   ApprovalContext,
   ChatRunningContext,
@@ -649,30 +650,32 @@ describe("ToolCallDisplay native renderers", () => {
   it("interleaves remote reasoning segments with their following tool calls", () => {
     act(() => {
       root.render(
-        <ToolCallDisplay
-          toolName="agent:Analytics"
-          args={{}}
-          isRunning={true}
-          structuredMeta={{
-            agentActivity: {
-              kind: "agent-native/agent-activity",
-              version: 1,
-              sequence: 5,
-              startedAt: 1,
-              updatedAt: 5,
-              durationMs: 4,
-              activePhase: "responding",
-              reasoning: ["Plan the query", "Interpret the result"],
-              toolCalls: [
-                {
-                  id: "tool-1",
-                  name: "query-warehouse",
-                  status: "completed",
-                },
-              ],
-            },
-          }}
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ToolCallDisplay
+            toolName="agent:Analytics"
+            args={{}}
+            isRunning={true}
+            structuredMeta={{
+              agentActivity: {
+                kind: "agent-native/agent-activity",
+                version: 1,
+                sequence: 5,
+                startedAt: 1,
+                updatedAt: 5,
+                durationMs: 4,
+                activePhase: "responding",
+                reasoning: ["Plan the query", "Interpret the result"],
+                toolCalls: [
+                  {
+                    id: "tool-1",
+                    name: "query-warehouse",
+                    status: "completed",
+                  },
+                ],
+              },
+            }}
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1602,9 +1605,11 @@ describe("ToolCallDisplay native renderers", () => {
 
     act(() => {
       root.render(
-        <ChatRunningContext.Provider value={true}>
-          <ReconnectStreamMessage content={content} />
-        </ChatRunningContext.Provider>,
+        <ThinkingDisplayProvider value="expanded">
+          <ChatRunningContext.Provider value={true}>
+            <ReconnectStreamMessage content={content} />
+          </ChatRunningContext.Provider>
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1630,9 +1635,11 @@ describe("ToolCallDisplay native renderers", () => {
 
     act(() => {
       root.render(
-        <ChatRunningContext.Provider value={true}>
-          <ReconnectStreamMessage content={content} />
-        </ChatRunningContext.Provider>,
+        <ThinkingDisplayProvider value="expanded">
+          <ChatRunningContext.Provider value={true}>
+            <ReconnectStreamMessage content={content} />
+          </ChatRunningContext.Provider>
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1647,13 +1654,42 @@ describe("ToolCallDisplay native renderers", () => {
 
     act(() => {
       root.render(
-        <ChatRunningContext.Provider value={false}>
-          <ReconnectStreamMessage content={content} />
-        </ChatRunningContext.Provider>,
+        <ThinkingDisplayProvider value="expanded">
+          <ChatRunningContext.Provider value={false}>
+            <ReconnectStreamMessage content={content} />
+          </ChatRunningContext.Provider>
+        </ThinkingDisplayProvider>,
       );
     });
 
     expect(container.textContent).toContain("Current thought");
+  });
+
+  it("renders no reconnect reasoning at all when thinking is hidden", () => {
+    const content: ContentPart[] = [
+      { type: "reasoning", text: "Completed thought" },
+      {
+        type: "tool-call",
+        toolCallId: "tc_1",
+        toolName: "read-file",
+        args: {},
+        result: "done",
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ThinkingDisplayProvider value="hidden">
+          <ChatRunningContext.Provider value={true}>
+            <ReconnectStreamMessage content={content} />
+          </ChatRunningContext.Provider>
+        </ThinkingDisplayProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Completed thought");
+    expect(container.textContent).not.toContain("Thought");
+    expect(container.textContent).toContain("read file");
   });
 });
 
@@ -1693,24 +1729,90 @@ describe("ReasoningCell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders plain-English thinking prose expanded by default and can collapse", () => {
+  it("collapses by default and opens on click", () => {
     act(() => {
       root.render(
-        <ReasoningCell text="I should verify the join keys first." />,
+        <ReasoningCell
+          text="I should verify the join keys first."
+          defaultOpen
+        />,
       );
     });
 
     expect(container.textContent).toContain("Thought");
-    expect(container.textContent).toContain("verify the join keys first.");
+    expect(container.textContent).not.toContain("verify the join keys first.");
 
     const button = container.querySelector(
-      'button[aria-expanded="true"]',
+      'button[aria-expanded="false"]',
     ) as HTMLButtonElement | null;
     act(() => {
       button?.click();
     });
 
-    expect(button?.getAttribute("aria-expanded")).toBe("false");
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("verify the join keys first.");
+  });
+
+  it("opens a requested cell by default in expanded mode", () => {
+    act(() => {
+      root.render(
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell text="I should verify the join keys first." />
+        </ThinkingDisplayProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("verify the join keys first.");
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBe(
+      null,
+    );
+  });
+
+  it("renders nothing at all in hidden mode", () => {
+    act(() => {
+      root.render(
+        <ThinkingDisplayProvider value="hidden">
+          <ReasoningCell
+            text="I should verify the join keys first."
+            durationMs={4200}
+          />
+        </ThinkingDisplayProvider>,
+      );
+    });
+
+    expect(container.textContent).toBe("");
+    expect(container.querySelector("button")).toBe(null);
+  });
+
+  it("re-applies a mode change to a cell already on screen", () => {
+    act(() => {
+      root.render(
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell text="I should verify the join keys first." />
+        </ThinkingDisplayProvider>,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBe(
+      null,
+    );
+
+    act(() => {
+      root.render(
+        <ThinkingDisplayProvider value="collapsed">
+          <ReasoningCell text="I should verify the join keys first." />
+        </ThinkingDisplayProvider>,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="false"]')).not.toBe(
+      null,
+    );
+    expect(
+      container
+        .querySelector(".agent-chat-collapse")
+        ?.getAttribute("data-state"),
+    ).toBe("closed");
   });
 
   it("honors an explicitly collapsed default", () => {
@@ -1737,7 +1839,7 @@ describe("ReasoningCell", () => {
     expect(container.textContent).toContain("verify the join keys first.");
   });
 
-  it("renders reasoning directly inside the shared work disclosure", () => {
+  it("keeps its own disclosure inside the shared work disclosure", () => {
     act(() => {
       root.render(
         <WorkedForSummary>
@@ -1749,13 +1851,23 @@ describe("ReasoningCell", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
     expect(container.textContent).not.toContain("verify the join keys first.");
 
+    // Opening "Worked for…" reveals the thought's own collapsed row, not its
+    // prose — reasoning is collapsible in there just like the tool calls it
+    // sits between.
     act(() => {
       container.querySelector("button")?.click();
     });
 
-    expect(container.querySelectorAll("button")).toHaveLength(1);
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(2);
+    expect(container.textContent).toContain("Thought");
+    expect(container.textContent).not.toContain("verify the join keys first.");
+
+    act(() => {
+      buttons[1]?.click();
+    });
+
     expect(container.textContent).toContain("verify the join keys first.");
-    expect(container.textContent).not.toContain("Thought");
   });
 
   it('shows a shimmering "Thinking" label while streaming', () => {
@@ -1772,16 +1884,38 @@ describe("ReasoningCell", () => {
     const text = "Weighing options carefully.";
 
     act(() => {
-      root.render(<ReasoningCell text={text} isStreaming />);
+      root.render(
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell text={text} isStreaming />
+        </ThinkingDisplayProvider>,
+      );
     });
 
     expect(container.textContent).toContain(text);
 
     act(() => {
-      root.render(<ReasoningCell text={text} isStreaming={false} />);
+      root.render(
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell text={text} isStreaming={false} />
+        </ThinkingDisplayProvider>,
+      );
     });
 
     expect(container.textContent).toContain(text);
+  });
+
+  it("renders reasoning markdown instead of its source characters", () => {
+    act(() => {
+      root.render(
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text={"**Searching for news updates**\n\nThen read it."}
+          />
+        </ThinkingDisplayProvider>,
+      );
+    });
+
+    expect(container.querySelector(".agent-markdown")).not.toBe(null);
   });
 
   it('falls back to a plain "Thought" label with no live timing', () => {
@@ -1819,11 +1953,13 @@ describe("ReasoningCell", () => {
   it("animates a live reasoning segment closed when it finishes", () => {
     act(() => {
       root.render(
-        <ReasoningCell
-          text="I should verify the join keys first."
-          isStreaming
-          autoCollapse
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text="I should verify the join keys first."
+            isStreaming
+            autoCollapse
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1833,12 +1969,14 @@ describe("ReasoningCell", () => {
 
     act(() => {
       root.render(
-        <ReasoningCell
-          text="I should verify the join keys first."
-          isStreaming={false}
-          autoCollapse
-          durationMs={1400}
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text="I should verify the join keys first."
+            isStreaming={false}
+            autoCollapse
+            durationMs={1400}
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1856,21 +1994,25 @@ describe("ReasoningCell", () => {
   it("keeps a finished reasoning segment open until a newer one replaces it", () => {
     act(() => {
       root.render(
-        <ReasoningCell
-          text="The first thought is complete."
-          isStreaming
-          defaultOpen
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text="The first thought is complete."
+            isStreaming
+            defaultOpen
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
     act(() => {
       root.render(
-        <ReasoningCell
-          text="The first thought is complete."
-          isStreaming={false}
-          durationMs={1400}
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text="The first thought is complete."
+            isStreaming={false}
+            durationMs={1400}
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1881,12 +2023,14 @@ describe("ReasoningCell", () => {
 
     act(() => {
       root.render(
-        <ReasoningCell
-          text="The first thought is complete."
-          isStreaming={false}
-          durationMs={1400}
-          collapseWhenReplaced
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text="The first thought is complete."
+            isStreaming={false}
+            durationMs={1400}
+            collapseWhenReplaced
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1903,11 +2047,13 @@ describe("ReasoningCell", () => {
   it("clamps to a tail view while streaming and open, and unclamps once done", () => {
     act(() => {
       root.render(
-        <ReasoningCell
-          text="Line one\nLine two\nLine three"
-          isStreaming
-          defaultOpen
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text="Line one\nLine two\nLine three"
+            isStreaming
+            defaultOpen
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -1915,11 +2061,13 @@ describe("ReasoningCell", () => {
 
     act(() => {
       root.render(
-        <ReasoningCell
-          text="Line one\nLine two\nLine three"
-          isStreaming={false}
-          defaultOpen
-        />,
+        <ThinkingDisplayProvider value="expanded">
+          <ReasoningCell
+            text="Line one\nLine two\nLine three"
+            isStreaming={false}
+            defaultOpen
+          />
+        </ThinkingDisplayProvider>,
       );
     });
 
@@ -2258,6 +2406,7 @@ describe("ApprovalAffordance", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -2365,6 +2514,32 @@ describe("ApprovalAffordance", () => {
         (button) => button.textContent,
       ),
     ).toEqual(["bash"]);
+  });
+
+  it("hides the persistent approval option for per-call-only actions", () => {
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{ onApprove: vi.fn(), onAlwaysAllow: vi.fn() }}
+        >
+          <ToolCallDisplay
+            toolName="send-email"
+            args={{}}
+            approval={{
+              approvalKey: "approval-1",
+              allowPersistentApproval: false,
+            }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["send email", "Approve", "Deny"]);
   });
 
   it("keeps Approved visible when the chat refresh remounts the tool card", () => {

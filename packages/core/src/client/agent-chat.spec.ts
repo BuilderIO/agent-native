@@ -656,6 +656,11 @@ describe("sendToAgentChat", () => {
       normalizeAgentComposerReference({
         label: " Product shots ",
         icon: "folder",
+        media: {
+          type: "text",
+          text: " 📷 ",
+          backgroundColor: " #0f766e ",
+        },
         source: "assets",
         refType: " brand-kit ",
         refId: " lib_123 ",
@@ -676,6 +681,11 @@ describe("sendToAgentChat", () => {
     ).toEqual({
       label: "Product shots",
       icon: "folder",
+      media: {
+        type: "text",
+        text: "📷",
+        backgroundColor: "#0f766e",
+      },
       source: "assets",
       refType: "brand-kit",
       refId: "lib_123",
@@ -697,6 +707,33 @@ describe("sendToAgentChat", () => {
     expect(
       normalizeAgentComposerReference({ label: "", refType: "preset" }),
     ).toBeNull();
+    expect(
+      normalizeAgentComposerReference({
+        label: "No icon",
+        refType: "agent",
+        media: { type: "none" },
+      }),
+    ).toMatchObject({ media: { type: "none" } });
+    expect(
+      normalizeAgentComposerReference({
+        label: "Invalid media",
+        refType: "agent",
+        media: { type: "text", text: "" },
+      }),
+    ).not.toHaveProperty("media");
+    expect(
+      normalizeAgentComposerReference({
+        label: "Logo",
+        refType: "agent",
+        media: {
+          type: "image",
+          src: " /agents/logo.png ",
+          fit: "cover",
+        },
+      }),
+    ).toMatchObject({
+      media: { type: "image", src: "/agents/logo.png", fit: "cover" },
+    });
   });
 
   it("posts composer references without submitting", () => {

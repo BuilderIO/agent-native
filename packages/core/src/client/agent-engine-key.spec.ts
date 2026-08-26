@@ -57,4 +57,39 @@ describe("saveAgentEngineApiKey", () => {
       },
     );
   });
+
+  it("preserves plain-text relay errors for the setup UI", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          "Desktop app chat relay failed. Update or restart the desktop app, then try again.",
+          { status: 502 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      saveAgentEngineProviderSettings({
+        provider: "openrouter",
+        apiKey: "sk-or-example",
+      }),
+    ).rejects.toThrow(
+      "Desktop app chat relay failed. Update or restart the desktop app, then try again.",
+    );
+  });
+
+  it("uses the HTTP fallback for primitive JSON error bodies", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("null", { status: 502 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      saveAgentEngineProviderSettings({
+        provider: "openrouter",
+        apiKey: "sk-or-example",
+      }),
+    ).rejects.toThrow("Could not save provider settings (HTTP 502).");
+  });
 });

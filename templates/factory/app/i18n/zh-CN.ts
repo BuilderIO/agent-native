@@ -180,6 +180,18 @@ const messages = {
     automationsTab: "自动化",
     agentsTab: "代理",
     factorySettings: "设置",
+    dangerZone: "危险区域",
+    deleteFactory: "删除工厂",
+    deleteFactoryDescription:
+      "永久删除此工厂及其地图、队列、规则、活动、设置、轮询和自动化。此操作无法撤销。",
+    deleteFactoryTitle: "删除 {{name}}？",
+    deleteFactoryWarning:
+      "GitHub、Slack 或 Builder 中已在运行的工作不会被取消。",
+    deleteFactoryConfirmation: "输入 {{name}} 以确认",
+    deleteFactoryCancel: "取消",
+    deleteFactoryConfirm: "删除工厂",
+    factoryDeleted: "工厂已删除。",
+    factoryDeleteFailed: "无法删除工厂。",
     agenticAppsTitle: "代理应用",
     agenticAppsEmpty: "此工作区还没有代理应用。",
     createApp: "创建应用",

@@ -156,6 +156,96 @@ describe("browser session store", () => {
     ).resolves.toMatchObject({ status: "completed" });
   });
 
+  it("keeps WebMCP descriptors separate from client actions", async () => {
+    const {
+      claimBrowserSessionRequest,
+      createBrowserSessionRequest,
+      registerBrowserSession,
+    } = await import("./store.js");
+
+    await registerBrowserSession("alice@example.com", {
+      session: { id: "tab-webmcp" },
+      actions: [{ name: "select-row", description: "Select a row" }],
+      webmcpTools: [
+        {
+          name: "get-order",
+          description: "Read an order",
+          origin: "https://shop.example",
+          annotations: { readOnlyHint: true },
+        },
+      ],
+    });
+
+    const { getBrowserSession } = await import("./store.js");
+    await expect(
+      getBrowserSession("alice@example.com", "tab-webmcp"),
+    ).resolves.toMatchObject({
+      actions: [expect.objectContaining({ name: "select-row" })],
+      webmcpTools: [
+        expect.objectContaining({
+          name: "get-order",
+          origin: "https://shop.example",
+        }),
+      ],
+    });
+
+    const request = await createBrowserSessionRequest(
+      "alice@example.com",
+      "tab-webmcp",
+      {
+        type: "run-webmcp-tool",
+        name: "get-order",
+        origin: "https://shop.example",
+        args: { id: "order-1" },
+      },
+    );
+    await expect(
+      claimBrowserSessionRequest("alice@example.com", "tab-webmcp"),
+    ).resolves.toMatchObject({
+      id: request.id,
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+      args: { id: "order-1" },
+    });
+
+    await expect(
+      registerBrowserSession("alice@example.com", {
+        session: { id: "tab-too-many-webmcp" },
+        webmcpTools: Array.from({ length: 101 }, (_, index) => ({
+          name: `tool-${index}`,
+          description: "A tool",
+        })),
+      }),
+    ).rejects.toThrow("100-tool limit");
+  });
+
+  it("preserves empty WebMCP arguments when an origin is present", async () => {
+    const {
+      claimBrowserSessionRequest,
+      createBrowserSessionRequest,
+      registerBrowserSession,
+    } = await import("./store.js");
+
+    await registerBrowserSession("alice@example.com", {
+      session: { id: "tab-empty-webmcp" },
+    });
+    await createBrowserSessionRequest("alice@example.com", "tab-empty-webmcp", {
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+    });
+
+    await expect(
+      claimBrowserSessionRequest("alice@example.com", "tab-empty-webmcp"),
+    ).resolves.toMatchObject({
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+      args: {},
+    });
+  });
+
   it("waits for a live browser result", async () => {
     const {
       callBrowserSession,

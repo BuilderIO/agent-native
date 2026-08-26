@@ -6,11 +6,21 @@ import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { ActionQueryError } from "@agent-native/dispatch/components";
-import { IconLoader2 } from "@tabler/icons-react";
+import { IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -107,8 +117,12 @@ function formatAutomationDate(value: string | number | null | undefined) {
 
 export function FactorySettingsView({
   factoryId = "product-feedback",
+  factoryName,
+  onDeleted,
 }: {
   factoryId?: string;
+  factoryName: string;
+  onDeleted: () => void;
 }) {
   const t = useT();
   const [workspace, setWorkspace] = useState<"primary" | "secondary">(
@@ -128,6 +142,8 @@ export function FactorySettingsView({
     useState(true);
   const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
     useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const query = useActionQuery("get-triage-config", { factoryId });
   const schedulerHealthQuery = useActionQuery<FactoryAutomationHealth>(
     "get-factory-automation-health",
@@ -138,6 +154,9 @@ export function FactorySettingsView({
   const hydratedRef = useRef(false);
   const dirtyRef = useRef(false);
   const mutation = useActionMutation("save-triage-config");
+  const deleteMutation = useActionMutation("delete-factory", {
+    method: "DELETE",
+  });
 
   const applyForm = useCallback((state: TriageFormState) => {
     setWorkspace(state.workspace);
@@ -231,6 +250,24 @@ export function FactorySettingsView({
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("triage.settingsError"),
+      );
+    }
+  };
+
+  const deleteFactory = async () => {
+    try {
+      await deleteMutation.mutateAsync({
+        factoryId,
+        confirmName: deleteConfirmation,
+      });
+      toast.success(t("factoryRoute.factoryDeleted"));
+      setDeleteDialogOpen(false);
+      onDeleted();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.factoryDeleteFailed"),
       );
     }
   };
@@ -516,6 +553,85 @@ export function FactorySettingsView({
         error={schedulerHealthQuery.error}
         t={t}
       />
+
+      {factoryId !== "product-feedback" ? (
+        <SettingsGroup title={t("factoryRoute.dangerZone")}>
+          <SettingsRow
+            label={t("factoryRoute.deleteFactory")}
+            description={t("factoryRoute.deleteFactoryDescription")}
+            control={
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={deleteMutation.isPending}
+              >
+                <IconTrash />
+                {t("factoryRoute.deleteFactory")}
+              </Button>
+            }
+          />
+        </SettingsGroup>
+      ) : null}
+
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (deleteMutation.isPending) return;
+          setDeleteDialogOpen(open);
+          if (!open) setDeleteConfirmation("");
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("factoryRoute.deleteFactoryTitle", { name: factoryName })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("factoryRoute.deleteFactoryWarning")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-2">
+            <label
+              htmlFor="delete-factory-confirmation"
+              className="text-sm font-medium"
+            >
+              {t("factoryRoute.deleteFactoryConfirmation", {
+                name: factoryName,
+              })}
+            </label>
+            <Input
+              id="delete-factory-confirmation"
+              value={deleteConfirmation}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              {t("factoryRoute.deleteFactoryCancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={
+                deleteConfirmation !== factoryName || deleteMutation.isPending
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteFactory();
+              }}
+            >
+              {deleteMutation.isPending ? (
+                <IconLoader2 className="animate-spin" />
+              ) : (
+                <IconTrash />
+              )}
+              {t("factoryRoute.deleteFactoryConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

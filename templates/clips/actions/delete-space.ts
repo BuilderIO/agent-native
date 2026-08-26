@@ -8,7 +8,7 @@
  *   pnpm action delete-space --id=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";

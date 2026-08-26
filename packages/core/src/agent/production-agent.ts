@@ -14,6 +14,7 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
   describeToolParameterSignature,
+  isActionContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   type ActionAutomationContext,
@@ -781,6 +782,11 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * Whether a user-scoped action preference may satisfy `needsApproval`
+   * without prompting for this call. Defaults to true.
+   */
+  allowPersistentApproval?: boolean;
   /**
    * The action hands control back to the user: once it succeeds the loop stops
    * the turn instead of asking the model for another step, and any remaining
@@ -5042,7 +5048,11 @@ export async function runAgentLoop(opts: {
         const closeModelStreamBracket = () => {
           if (!modelStreamBracketOpen) return;
           modelStreamBracketOpen = false;
-          send({ type: "model_stream", status: "end" });
+          send({
+            type: "model_stream",
+            status: "end",
+            ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+          });
         };
         let lastModelStreamProgressAt = Date.now();
         // FIX 2: true once a real (non-heartbeat) engine-stream event has been
@@ -5964,7 +5974,11 @@ export async function runAgentLoop(opts: {
           // than silently running a high-consequence action.
           mustApprove = true;
         }
-        if (mustApprove && opts.isToolAlwaysAllowed) {
+        if (
+          mustApprove &&
+          actionEntry.allowPersistentApproval !== false &&
+          opts.isToolAlwaysAllowed
+        ) {
           try {
             mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
           } catch {
@@ -5994,6 +6008,9 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(actionEntry.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
             ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
@@ -6625,7 +6642,17 @@ export async function runAgentLoop(opts: {
             };
           } else {
             const message = sanitizeToolErrorValue(err);
-            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+            // A code the action chose is worth more to the model than the
+            // prose alone: it can branch on `not_found` without parsing a
+            // sentence. `action_failed` is what `fail()` fills in when the
+            // author picked nothing, so it says only "it failed" — which the
+            // word "Error" already said. Appending it would be noise the
+            // breaker then has to key on.
+            const errorCode =
+              isActionContractError(err) && err.errorCode !== "action_failed"
+                ? ` (errorCode: ${err.errorCode})`
+                : "";
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
           }
           isError = true;
         }

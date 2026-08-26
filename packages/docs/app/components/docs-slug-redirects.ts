@@ -23,6 +23,11 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   resources: "agent-resources",
   secrets: "security",
   workspace: "agent-resources",
+  // FAQ folded into What Is Agent-Native and rehomed into the docs it
+  // answered questions about (deployment, environment-variables,
+  // writing-agent-instructions, cloneable-saas, key-concepts,
+  // syncing-template-changes).
+  faq: "what-is-agent-native",
   // Plans docs consolidated into the single template-plan page.
   "visual-plans": "template-plan",
   // Toolkit -ui pages merged into their parent kit doc.
@@ -43,6 +48,11 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // actions.mdx split into the Actions section (actions-overview, -defining,
   // -access-control, -run-context, -other-surfaces, -advanced).
   actions: "actions-overview",
+  // Calendar's Scheduling and Booking Links pages merged into one Features
+  // doc as part of the app-doc-format rework (Overview / Features / Talking
+  // to the Agent / Developer Guide).
+  "template-calendar-scheduling": "template-calendar-features",
+  "template-calendar-booking-links": "template-calendar-features",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */
