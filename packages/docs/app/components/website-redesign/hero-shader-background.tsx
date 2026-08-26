@@ -1468,6 +1468,8 @@ function AtmosphereShaderBackground({
   gamma,
   outScatterSteps,
   inScatterSteps,
+  lightSaturation,
+  lightScreenAmount,
   intensity,
   paused,
   frameRate = 30,
@@ -1480,7 +1482,11 @@ function AtmosphereShaderBackground({
     stop: () => void;
   } | null>(null);
 
-  const settingsRef = useRef({
+  // Explicitly typed rather than inferred: every numeric field here is fed
+  // straight to gl.uniform1f, and an omitted field silently becomes
+  // undefined -> NaN -> a solid black canvas. Annotating it makes forgetting
+  // to thread a new setting through a compile error instead.
+  const settingsRef = useRef<Omit<AtmosphereSettings, "intensity">>({
     planetRadius,
     atmosphereThickness,
     fov,
@@ -1503,6 +1509,8 @@ function AtmosphereShaderBackground({
     gamma,
     outScatterSteps,
     inScatterSteps,
+    lightSaturation,
+    lightScreenAmount,
     paused,
   });
   useEffect(() => {
@@ -1529,6 +1537,8 @@ function AtmosphereShaderBackground({
       gamma,
       outScatterSteps,
       inScatterSteps,
+      lightSaturation,
+      lightScreenAmount,
       paused,
     };
   }, [
@@ -1554,6 +1564,8 @@ function AtmosphereShaderBackground({
     gamma,
     outScatterSteps,
     inScatterSteps,
+    lightSaturation,
+    lightScreenAmount,
     paused,
   ]);
 
