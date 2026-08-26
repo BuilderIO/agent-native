@@ -1259,6 +1259,8 @@ uniform float uLightSaturation;
 uniform float uLightScreenAmount;
 uniform float uIntroDuration;
 uniform float uDitherAmount;
+uniform float uDitherScale;
+uniform float uDitherSpeed;
 
 const float PI = 3.14159265359;
 const float MAX = 10000.0;
@@ -1451,20 +1453,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // concentric contours. Noise pushes pixels either side of each rounding
   // boundary, turning the contour into a gradient. Alpha gets the same
   // treatment with a decorrelated offset -- it's derived from the same
-  // brightness, so dithering only the color would leave the alpha steps
-  // banding on their own. Animating on iTime keeps it from reading as fixed
-  // grain.
-  //
-  // uDitherAmount is in quantization steps: 1.0 is the +/- half-LSB that
-  // exactly cancels banding while staying invisible, and larger values push
-  // past correction into deliberate visible grain.
-  if (uDitherAmount > 0.0) {
-    float noise = fract(
-      sin(dot(fragCoord + iTime, vec2(12.9898, 78.233))) * 43758.5453
-    );
-    float noiseAlpha = fract(
-      sin(dot(fragCoord + iTime, vec2(63.7264, 10.873))) * 32416.1873
-    );
     float ditherStep = uDitherAmount / 255.0;
     col += (noise - 0.5) * ditherStep;
     // Scaled by alpha so grain fades out with the effect instead of
@@ -1511,6 +1499,8 @@ function AtmosphereShaderBackground({
   lightScreenAmount,
   introDuration,
   ditherAmount,
+  ditherScale,
+  ditherSpeed,
   intensity,
   paused,
   frameRate = 30,
@@ -1554,6 +1544,8 @@ function AtmosphereShaderBackground({
     lightScreenAmount,
     introDuration,
     ditherAmount,
+    ditherScale,
+    ditherSpeed,
     paused,
   });
   useEffect(() => {
@@ -1584,6 +1576,8 @@ function AtmosphereShaderBackground({
       lightScreenAmount,
       introDuration,
       ditherAmount,
+      ditherScale,
+      ditherSpeed,
       paused,
     };
   }, [
@@ -1613,6 +1607,8 @@ function AtmosphereShaderBackground({
     lightScreenAmount,
     introDuration,
     ditherAmount,
+    ditherScale,
+    ditherSpeed,
     paused,
   ]);
 
@@ -1726,6 +1722,8 @@ function AtmosphereShaderBackground({
     );
     const uIntroDuration = gl.getUniformLocation(program, "uIntroDuration");
     const uDitherAmount = gl.getUniformLocation(program, "uDitherAmount");
+    const uDitherScale = gl.getUniformLocation(program, "uDitherScale");
+    const uDitherSpeed = gl.getUniformLocation(program, "uDitherSpeed");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1775,6 +1773,8 @@ function AtmosphereShaderBackground({
       );
       gl.uniform1f(uIntroDuration, settingsRef.current.introDuration);
       gl.uniform1f(uDitherAmount, settingsRef.current.ditherAmount);
+      gl.uniform1f(uDitherScale, settingsRef.current.ditherScale);
+      gl.uniform1f(uDitherSpeed, settingsRef.current.ditherSpeed);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
