@@ -1060,6 +1060,43 @@ export async function readBuilderConnectPendingState(
 
 const BUILDER_CONNECT_PENDING_PREFIX = "builder-connect-pending:";
 
+type BuilderConnectPendingStateLookup =
+  | { status: "found"; state: string }
+  | { status: "absent" }
+  | { status: "unavailable" };
+
+export async function findBuilderConnectPendingStateForOwner(
+  ownerEmail: string,
+  now = Date.now(),
+  list: typeof listSettingsByPrefix = listSettingsByPrefix,
+): Promise<BuilderConnectPendingStateLookup> {
+  let rows: Array<{ key: string; value: Record<string, unknown> }>;
+  try {
+    rows = await list(BUILDER_CONNECT_PENDING_PREFIX);
+  } catch {
+    return { status: "unavailable" };
+  }
+
+  const matches = rows.filter((row) => {
+    const state = row.key.slice(BUILDER_CONNECT_PENDING_PREFIX.length);
+    return (
+      isSignedBuilderConnectState(state) &&
+      row.value.ownerEmail === ownerEmail &&
+      row.value.consumed !== true &&
+      typeof row.value.expiresAt === "number" &&
+      row.value.expiresAt > now &&
+      typeof row.value.encryptedOAuthFlow === "string" &&
+      typeof row.value.redirectUri === "string"
+    );
+  });
+
+  if (matches.length !== 1) return { status: "absent" };
+  return {
+    status: "found",
+    state: matches[0]!.key.slice(BUILDER_CONNECT_PENDING_PREFIX.length),
+  };
+}
+
 export async function purgeExpiredBuilderConnectPendingStates(
   now = Date.now(),
   dependencies: {
@@ -3175,7 +3212,7 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const state = requestUrl.searchParams.get("state");
+          let state = requestUrl.searchParams.get("state");
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           const fail = async (
             status: number,
@@ -3211,6 +3248,24 @@ export function createCoreRoutesPlugin(
             });
           };
 
+          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
+          if (!state && session?.email) {
+            // ponytail: single pending-flow fallback; reject ambiguous concurrent
+            // connects until Builder reliably echoes the OAuth state.
+            const lookup = await findBuilderConnectPendingStateForOwner(
+              session.email,
+            );
+            if (lookup.status === "unavailable") {
+              return fail(
+                503,
+                "Builder connect callback could not be verified. Try again.",
+                session.email,
+                "pending_state_unavailable",
+              );
+            }
+            if (lookup.status === "found") state = lookup.state;
+          }
+
           if (!state || !isSignedBuilderConnectState(state)) {
             return fail(
               403,
@@ -3232,7 +3287,6 @@ export function createCoreRoutesPlugin(
             pending.tracking && typeof pending.tracking === "object"
               ? (pending.tracking as BuilderConnectTrackingParams)
               : {};
-          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
           const expiresAt =
             typeof pending.expiresAt === "number" ? pending.expiresAt : 0;
           const encryptedOAuthFlow =
