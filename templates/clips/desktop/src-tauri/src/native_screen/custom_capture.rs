@@ -3831,10 +3831,12 @@ impl CustomCaptureResume {
         // timeline. The session stays paused and can be retried — and a retry
         // re-measures `paused_for` from the same (uncleared) pause instant, so
         // advancing the offset here would compound on every failed attempt.
+        // The replacement handler bumps the stream generation so callbacks still
+        // in flight from the paused stream are rejected rather than appended.
+        // `None` for the prefetched content: a resume can land long after the
+        // display topology changed, so it must resolve against fresh content
+        // rather than the snapshot the initial start was sized from.
         let replacement_handler = self.handler.replacement_stream();
-        // `None`: a resume can run long after the display topology changed, so
-        // it must resolve against fresh shareable content rather than the
-        // snapshot the initial start was sized from.
         let new_stream =
             build_custom_scstream(&self.params, &replacement_handler, &self.watch, None)?;
 
