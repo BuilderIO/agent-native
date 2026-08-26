@@ -72,6 +72,7 @@ function base64UrlDecodeToBuffer(input: string): Buffer | null {
       "base64",
     );
   } catch {
+    // coercion-ok: secret lookup failure is an authentication denial, never success.
     return null;
   }
 }
@@ -194,6 +195,7 @@ export async function verifyA2ABearerToken(input: {
   let secret: string | null = null;
   try {
     secret = await input.resolveOrgSecretByDomain(assertedDomain);
+    // coercion-ok: secret lookup failure is an authentication denial, never success.
   } catch {
     return null;
   }
