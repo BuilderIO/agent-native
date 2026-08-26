@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   isConnected: vi.fn(),
   gmailToEmailMessage: vi.fn(),
-  getAccessTokens: vi.fn(),
+  getClientsWithErrors: vi.fn(),
   fetchLabelMap: vi.fn(),
   gmailGetMessage: vi.fn(),
   gmailGetThread: vi.fn(),
@@ -25,6 +25,7 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("../server/lib/google-auth.js", () => ({
   isConnected: mocks.isConnected,
   gmailToEmailMessage: mocks.gmailToEmailMessage,
+  getClientsWithErrors: mocks.getClientsWithErrors,
 }));
 
 vi.mock("../server/lib/google-api.js", () => ({
@@ -35,7 +36,6 @@ vi.mock("../server/lib/google-api.js", () => ({
 }));
 
 vi.mock("./helpers.js", () => ({
-  getAccessTokens: mocks.getAccessTokens,
   fetchLabelMap: mocks.fetchLabelMap,
 }));
 
@@ -58,10 +58,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.isConnected.mockResolvedValue(true);
-  mocks.getAccessTokens.mockResolvedValue([
-    { email: OWNER, accessToken: "owner-token" },
-    { email: OTHER, accessToken: "other-token" },
-  ]);
+  mocks.getClientsWithErrors.mockImplementation(
+    async (_ownerEmail, accountEmails) => ({
+      clients: [
+        { email: OWNER, accessToken: "owner-token", refreshToken: "" },
+        { email: OTHER, accessToken: "other-token", refreshToken: "" },
+      ].filter(({ email }) => accountEmails.includes(email)),
+      errors: [],
+    }),
+  );
   mocks.fetchLabelMap.mockResolvedValue(new Map());
   mocks.gmailToEmailMessage.mockImplementation((message, accountEmail) => ({
     id: message.id,
@@ -104,6 +109,7 @@ describe("exact Mail body reads", () => {
     );
 
     expect(mocks.fetchLabelMap).toHaveBeenCalledOnce();
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(OWNER, [OWNER]);
     expect(mocks.fetchLabelMap).toHaveBeenCalledWith("owner-token");
     expect(mocks.gmailGetMessage).toHaveBeenCalledWith(
       "owner-token",
@@ -138,6 +144,7 @@ describe("exact Mail body reads", () => {
     );
 
     expect(mocks.fetchLabelMap).toHaveBeenCalledOnce();
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(OWNER, [OTHER]);
     expect(mocks.fetchLabelMap).toHaveBeenCalledWith("other-token");
     expect(mocks.gmailGetThread).toHaveBeenCalledWith(
       "other-token",
@@ -180,6 +187,43 @@ describe("exact Mail body reads", () => {
     expect(mocks.gmailGetThread).not.toHaveBeenCalled();
     expect(mocks.gmailModifyMessage).not.toHaveBeenCalled();
     expect(mocks.gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("reads a managed Gmail account returned by the shared client resolver", async () => {
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        {
+          email: "managed@example.com",
+          accessToken: "managed-token",
+          refreshToken: "",
+        },
+      ],
+      errors: [],
+    });
+    mocks.gmailGetMessage.mockResolvedValue(
+      rawMessage("managed-message", "managed-thread"),
+    );
+
+    await getEmail.run({
+      accountEmail: "managed@example.com",
+      id: "managed-message",
+    });
+
+    expect(mocks.gmailGetMessage).toHaveBeenCalledWith(
+      "managed-token",
+      "managed-message",
+      "full",
+    );
+  });
+
+  it("rejects accounts the Gmail-capable client resolver excludes", async () => {
+    mocks.getClientsWithErrors.mockResolvedValue({ clients: [], errors: [] });
+
+    await expect(
+      getEmail.run({ accountEmail: OWNER, id: "message-1" }),
+    ).rejects.toThrow("Requested Google account is not connected.");
+
+    expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
   });
 
   it("uses the inventory-compatible local coordinate for unscoped synthetic mail", async () => {
@@ -226,7 +270,7 @@ describe("exact Mail body reads", () => {
       getThread.run({ accountEmail: OTHER, id: "local-thread" }),
     ).rejects.toThrow("Thread not found.");
 
-    expect(mocks.getAccessTokens).not.toHaveBeenCalled();
+    expect(mocks.getClientsWithErrors).not.toHaveBeenCalled();
     expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
     expect(mocks.gmailGetThread).not.toHaveBeenCalled();
   });

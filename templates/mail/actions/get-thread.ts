@@ -4,8 +4,12 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { gmailGetThread } from "../server/lib/google-api.js";
-import { gmailToEmailMessage, isConnected } from "../server/lib/google-auth.js";
-import { getAccessTokens, fetchLabelMap } from "./helpers.js";
+import {
+  getClientsWithErrors,
+  gmailToEmailMessage,
+  isConnected,
+} from "../server/lib/google-auth.js";
+import { fetchLabelMap } from "./helpers.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -91,8 +95,10 @@ export default defineAction({
         : result;
     }
 
-    const accounts = await getAccessTokens();
-    const account = accounts.find(
+    const { clients } = await getClientsWithErrors(ownerEmail, [
+      requestedAccount,
+    ]);
+    const account = clients.find(
       ({ email }) => email.toLowerCase() === requestedAccount,
     );
     if (!account) throw new Error("Requested Google account is not connected.");

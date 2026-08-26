@@ -4,8 +4,12 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { gmailGetMessage } from "../server/lib/google-api.js";
-import { isConnected, gmailToEmailMessage } from "../server/lib/google-auth.js";
-import { getAccessTokens, fetchLabelMap } from "./helpers.js";
+import {
+  getClientsWithErrors,
+  isConnected,
+  gmailToEmailMessage,
+} from "../server/lib/google-auth.js";
+import { fetchLabelMap } from "./helpers.js";
 
 const accountCoordinate = z.union([z.string().email(), z.literal("local")]);
 
@@ -57,8 +61,10 @@ export default defineAction({
         : email;
     }
 
-    const accounts = await getAccessTokens();
-    const account = accounts.find(
+    const { clients } = await getClientsWithErrors(ownerEmail, [
+      requestedAccount,
+    ]);
+    const account = clients.find(
       ({ email }) => email.toLowerCase() === requestedAccount,
     );
     if (!account) throw new Error("Requested Google account is not connected.");
