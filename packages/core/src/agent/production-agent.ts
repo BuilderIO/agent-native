@@ -258,6 +258,8 @@ export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
  */
 export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
+/** Keep an alive-but-unclaimed worker out of the unclaimed-run reaper. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 
 export type BackgroundDispatchOutcome =
   | { action: "stream" }
@@ -7678,49 +7680,79 @@ export async function claimBackgroundWorkerRunEarly(opts: {
         ? opts.requestTurnId.trim()
         : opts.runId;
 
-  await record(
-    opts.runId,
-    RUN_DIAG_STAGE.workerEntered,
-    [
-      `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
-      `continuationCount=${opts.continuationCount}`,
-      opts.backgroundRuntimeDetail,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  ).catch(() => {});
+  let preclaimHeartbeatInFlight = false;
+  let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  const heartbeatWhileUnclaimed = () => {
+    if (preclaimHeartbeatInFlight) return;
+    preclaimHeartbeatInFlight = true;
+    void heartbeat(opts.runId)
+      .catch(() => {})
+      .finally(() => {
+        preclaimHeartbeatInFlight = false;
+      });
+  };
+  const stopPreclaimHeartbeat = () => {
+    if (preclaimHeartbeatTimer !== undefined) {
+      clearInterval(preclaimHeartbeatTimer);
+      preclaimHeartbeatTimer = undefined;
+    }
+  };
 
-  // A failed durable abort read must surface as infrastructure failure. It is
-  // not evidence that the user stopped the turn.
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+  // The foreground subscribes as soon as this worker proves it is alive, so
+  // the worker must keep the still-unclaimed row fresh while its abort checks
+  // and atomic claim are in flight. Once claimed, run-manager owns the timer.
+  preclaimHeartbeatTimer = setInterval(
+    heartbeatWhileUnclaimed,
+    BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+  );
+  try {
+    await record(
+      opts.runId,
+      RUN_DIAG_STAGE.workerEntered,
+      [
+        `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
+        `continuationCount=${opts.continuationCount}`,
+        opts.backgroundRuntimeDetail,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ).catch(() => {});
 
-  if (opts.continuationCount > 0) {
-    await insert(opts.runId, threadId, turnId, {
-      dispatchMode: "background",
-    }).catch(() => {});
-  }
+    // A failed durable abort read must surface as infrastructure failure. It is
+    // not evidence that the user stopped the turn.
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+    if (opts.continuationCount > 0) {
+      await insert(opts.runId, threadId, turnId, {
+        dispatchMode: "background",
+      }).catch(() => {});
+    }
 
-  const won = await claim(opts.runId);
-  if (!won) {
-    await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
-    return { claimed: false, skipped: "already-claimed" };
-  }
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
-  await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
+    const won = await claim(opts.runId);
+    stopPreclaimHeartbeat();
+    if (!won) {
+      await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
+      return { claimed: false, skipped: "already-claimed" };
+    }
+
+    await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
+    await heartbeat(opts.runId).catch(() => {});
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
+    return { claimed: true };
+  } finally {
+    stopPreclaimHeartbeat();
   }
-  return { claimed: true };
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
   callConnectedAgentReference,
@@ -11497,6 +11498,36 @@ describe("claimBackgroundWorkerRunEarly", () => {
       "worker_entered",
       "runsInBackgroundFunction=true continuationCount=0",
     );
+  });
+
+  it("heartbeats a slow worker while its unclaimed claim is in flight", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-slow",
+        threadId: "thread-slow",
+        markerTurnId: "turn-slow",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records background runtime marker diagnostics on worker entry", async () => {
