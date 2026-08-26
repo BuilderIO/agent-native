@@ -478,7 +478,9 @@ describe("meeting microphone capture", () => {
 
     expect(engine).toBe("macos-native");
     expect(invokeMock).toHaveBeenNthCalledWith(2, "native_speech_start", {
-      locale: "en-US",
+      // The fallback forwards the browser's own locale; asserting a literal
+      // here passes only on a machine that happens to run in en-US.
+      locale: navigator.language || "en-US",
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       owner: "meeting",
@@ -548,7 +550,7 @@ describe("meeting microphone capture", () => {
       "Your selected microphone is no longer available. Clips tried your Mac's default microphone, but notes still could not start. Choose an available microphone in Clips settings, then try again.",
     );
     expect(invokeMock).toHaveBeenNthCalledWith(3, "native_speech_start", {
-      locale: "en-US",
+      locale: navigator.language || "en-US",
       micDeviceId: null,
       micDeviceLabel: null,
       owner: "meeting",
