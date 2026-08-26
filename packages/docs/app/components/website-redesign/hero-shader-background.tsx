@@ -1253,6 +1253,8 @@ uniform float uExposure;
 uniform float uGamma;
 uniform float uOutSteps;
 uniform float uInSteps;
+uniform vec3 uPageColor;
+uniform float uScreenBlend;
 
 const float PI = 3.14159265359;
 const float MAX = 10000.0;
@@ -1407,6 +1409,19 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // smoothly to fully transparent at the sphere's silhouette instead of
   // cutting to a flat opaque disc against the void.
   float alpha = clamp(max(max(col.r, col.g), col.b) * 1.6, 0.0, 1.0);
+
+  // Light mode screen-blends here rather than via CSS mix-blend-mode. Every
+  // ancestor PageSection sets isolation: isolate, which makes the hero an
+  // isolated blending group -- a CSS blend mode on this canvas resolves
+  // against that group's transparent backdrop instead of the actual page
+  // background, silently collapsing back into plain alpha-over compositing
+  // (which is what kept darkening light mode). Screening against the real
+  // --b-bg-page value in here is immune to that: the result is >= the page
+  // color in every channel, so it can only ever brighten, never darken.
+  if (uScreenBlend > 0.5) {
+    col = 1.0 - (1.0 - uPageColor) * (1.0 - col);
+  }
+
   fragColor = vec4(col, alpha);
 }
 
@@ -1632,6 +1647,8 @@ function AtmosphereShaderBackground({
     const uGamma = gl.getUniformLocation(program, "uGamma");
     const uOutSteps = gl.getUniformLocation(program, "uOutSteps");
     const uInSteps = gl.getUniformLocation(program, "uInSteps");
+    const uPageColor = gl.getUniformLocation(program, "uPageColor");
+    const uScreenBlend = gl.getUniformLocation(program, "uScreenBlend");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -1672,6 +1689,8 @@ function AtmosphereShaderBackground({
       gl.uniform1f(uGamma, settingsRef.current.gamma);
       gl.uniform1f(uOutSteps, settingsRef.current.outScatterSteps);
       gl.uniform1f(uInSteps, settingsRef.current.inScatterSteps);
+      gl.uniform3f(uPageColor, pageColor[0], pageColor[1], pageColor[2]);
+      gl.uniform1f(uScreenBlend, dark ? 0 : 1);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -1701,18 +1720,26 @@ function AtmosphereShaderBackground({
       );
     }
 
-    // Dark mode keeps normal alpha-over compositing (the void is already
-    // near-black, so a plain blend already reads as colorful light against
-    // space). Light mode switches to `screen` -- against a near-white page
-    // background, a normal blend of this shader's fairly dark scattering
-    // colors reads as a dirty/grey smear, while `screen` can only brighten,
-    // never darken, so it reads as light being added on top of the page.
-    function applyBlendMode() {
-      canvas.style.mixBlendMode = readDarkMode() ? "normal" : "screen";
+    function readPageColor(): [number, number, number] {
+      const raw = getComputedStyle(container)
+        .getPropertyValue("--b-bg-page")
+        .trim();
+      return hexToRgb01(raw || "#0a0a0a");
     }
 
-    applyBlendMode();
-    const themeObserver = new MutationObserver(applyBlendMode);
+    // Dark mode keeps plain alpha-over compositing (the void is already
+    // near-black, so the scattering colors read as light against space).
+    // Light mode screens against the page color instead -- see the shader's
+    // uScreenBlend branch for why this can't be a CSS blend mode.
+    let dark = readDarkMode();
+    let pageColor = readPageColor();
+
+    function applyTheme() {
+      dark = readDarkMode();
+      pageColor = readPageColor();
+    }
+
+    const themeObserver = new MutationObserver(applyTheme);
     themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class", "data-theme"],
