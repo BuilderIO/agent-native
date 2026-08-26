@@ -149,6 +149,7 @@ import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
   dashboardCacheScope,
+  preserveScopedDashboardPlaceholder,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
@@ -1713,7 +1714,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
+    placeholderData: (prev, previousQuery) =>
+      preserveScopedDashboardPlaceholder(prev, previousQuery, dashboardScope),
   });
 
   const {

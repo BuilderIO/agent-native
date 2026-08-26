@@ -22,6 +22,14 @@ export function dashboardCacheScope(
   return `${encodeURIComponent(principal)}:${encodeURIComponent(org)}`;
 }
 
+export function preserveScopedDashboardPlaceholder<T>(
+  previous: T | undefined,
+  previousQuery: { queryKey: readonly unknown[] } | undefined,
+  scope: string,
+): T | undefined {
+  return previousQuery?.queryKey[1] === scope ? previous : undefined;
+}
+
 export const sqlDashboardPrefetchKey = (
   id: string,
   scope = "anonymous:personal",
