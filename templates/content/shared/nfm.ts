@@ -1364,6 +1364,25 @@ function endsWithUnescapedPipe(value: string): boolean {
   return backslashes % 2 === 0;
 }
 
+function hasMatchingBacktickRun(
+  value: string,
+  start: number,
+  expectedLength: number,
+): boolean {
+  for (let i = start; i < value.length; i++) {
+    if (value[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (value[i] !== "`") continue;
+    let runLength = 1;
+    while (value[i + runLength] === "`") runLength++;
+    if (runLength === expectedLength) return true;
+    i += runLength - 1;
+  }
+  return false;
+}
+
 function splitGfmPipeRow(line: string): string[] | null {
   const value = line.trim();
   if (!value) return null;
@@ -1382,7 +1401,11 @@ function splitGfmPipeRow(line: string): string[] | null {
     if (char === "`") {
       let runLength = 1;
       while (value[i + runLength] === "`") runLength++;
-      if (codeFenceLength === 0) codeFenceLength = runLength;
+      if (
+        codeFenceLength === 0 &&
+        hasMatchingBacktickRun(value, i + runLength, runLength)
+      )
+        codeFenceLength = runLength;
       else if (codeFenceLength === runLength) codeFenceLength = 0;
       cell += "`".repeat(runLength);
       i += runLength - 1;
@@ -1440,6 +1463,7 @@ function parseGfmPipeTable(
   let ragged = false;
   while (end < lines.length) {
     if (lines[end].trim() === "" || leadingTabs(lines[end]) !== indent) break;
+    if (/^ {0,3}#{1,6}(?:\s|$)/.test(lines[end].slice(indent))) break;
     const row = splitGfmPipeRow(lines[end].slice(indent));
     if (!row) break;
     if (row.length !== header.length) ragged = true;
