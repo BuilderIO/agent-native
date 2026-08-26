@@ -37,4 +37,17 @@ describe("SlideEditor render-phase safety", () => {
     });
     expect(offenders.map((m) => m[0])).toEqual([]);
   });
+
+  it("flushes an active inline draft before browser teardown", () => {
+    expect(source).toContain("flushPendingSaves");
+    expect(source).toContain(
+      'window.addEventListener("beforeunload", flushInlineEditDraft',
+    );
+    expect(source).toContain(
+      'window.addEventListener("pagehide", flushInlineEditDraft',
+    );
+    expect(source).toContain(
+      'document.addEventListener("visibilitychange", flushWhenHidden',
+    );
+  });
 });
