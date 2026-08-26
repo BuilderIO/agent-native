@@ -384,6 +384,24 @@ describe("nfm converter — structural parsing", () => {
     expect(docToNfm(doc)).toContain("`left | right`");
   });
 
+  it("treats an unmatched backtick as literal table text", () => {
+    const doc = nfmToDoc(
+      "| Label | Value |\n| --- | --- |\n| unmatched `tick | retained |",
+    );
+
+    expect(doc.content[0].type).toBe("table");
+    expect(docToNfm(doc)).toContain("unmatched \\`tick");
+  });
+
+  it("stops a pipe table before a Markdown heading", () => {
+    const doc = nfmToDoc(
+      "| A | B |\n| --- | --- |\n| 1 | 2 |\n## Next | section",
+    );
+
+    expect(doc.content.map((node) => node.type)).toEqual(["table", "heading"]);
+    expect(docToNfm(doc)).toContain("## Next \\| section");
+  });
+
   it("reports aligned pipe tables as unresolved instead of dropping alignment", () => {
     const source = "| Left | Right |\n| :--- | --- |\n| A | B |";
     const doc = nfmToDoc(source);
