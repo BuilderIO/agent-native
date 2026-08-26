@@ -252,11 +252,6 @@ export const builderFileUploadProvider: FileUploadProvider = {
   id: "builder",
   name: "Builder.io",
   isConfigured: () => !!process.env.BUILDER_PRIVATE_KEY,
-  // isConfiguredForRequest: async () => {
-  //   const { hasBuilderApiCredentialCustody } =
-  //     await import("../server/builder-api-auth.js");
-  //   return hasBuilderApiCredentialCustody();
-  // },
   upload: async (input: FileUploadInput) => {
     const { data, filename, mimeType } = input;
     const authorization = await assetAuthorization();
