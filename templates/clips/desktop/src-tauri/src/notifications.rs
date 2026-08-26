@@ -243,6 +243,38 @@ fn notification_key_from_parts(
 /// dropped, and hydration afterwards shows "Take notes?" over a meeting that is
 /// already recording. A caller that has started capture clears the payload
 /// rather than trusting an event the overlay may not be listening for yet.
+/// Clear the stored payload once the frontend confirms a card is finished with.
+///
+/// `pending` is the cold-overlay hydration path, so it has to outlive the emit
+/// that dismisses a card in an overlay that is already mounted — otherwise an
+/// overlay mounting late loses the notification entirely. It must not outlive it
+/// indefinitely either: a payload still sitting there after capture has begun
+/// becomes a "Take notes?" card over a meeting that is already recording.
+///
+/// `meetings:hide-notification` is the frontend's own acknowledgement that
+/// startup got far enough to put the meeting on screen, which makes it the exact
+/// point where the stored copy stops being a recovery path and starts being
+/// wrong. A start that fails emits `meetings:transcription-error` instead and
+/// deliberately leaves the payload in place, so the user keeps a way back to the
+/// detected meeting.
+pub fn watch_meeting_notification_acks(app: &AppHandle) {
+    use tauri::Listener;
+
+    let handle = app.clone();
+    app.listen("meetings:hide-notification", move |event| {
+        let Some(meeting_id) = serde_json::from_str::<Value>(event.payload())
+            .ok()
+            .as_ref()
+            .and_then(|payload| payload.get("meetingId"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
+            return;
+        };
+        clear_pending_meeting_notification(&handle, &meeting_id);
+    });
+}
+
 pub(crate) fn clear_pending_meeting_notification(app: &AppHandle, meeting_id: &str) {
     let Some(state) = app.try_state::<MeetingNotificationState>() else {
         return;

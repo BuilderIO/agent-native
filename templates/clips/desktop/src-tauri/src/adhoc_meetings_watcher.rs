@@ -89,6 +89,12 @@ const RECONCILE_SKEW_SECS: i64 = 10;
 /// abandoned retries — it is not what makes the lookup correct.
 const RECONCILE_PAGE_LIMIT: usize = 200;
 
+/// How many reconcile pages to walk before giving up. The agenda view has no
+/// upper bound, so a user with a long future calendar would otherwise have every
+/// retry page through all of it. Running out of pages is reported as unresolved
+/// rather than as "no such row", so the cap costs a retry, never a duplicate.
+const RECONCILE_MAX_PAGES: usize = 5;
+
 const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
     // (bundle_id, platform, display title)
     ("us.zoom.xos", "zoom", "Zoom meeting detected"),
@@ -838,12 +844,12 @@ async fn tick_macos(
                 "scheduledStart": meeting.scheduled_start,
             }),
         );
-        // Awaiting the notification above orders the *events*, but it cannot
-        // make a webview that has not mounted yet receive one. A cold overlay
-        // misses both the show and the hide, then hydrates `pending` on mount
-        // and asks "Take notes?" about a meeting already recording. Nothing is
-        // being asked here, so the stored payload goes away with the question.
-        crate::notifications::clear_pending_meeting_notification(app, &meeting.id);
+        // The stored payload is deliberately left alone here. Emitting only
+        // *requests* startup — audio acquisition happens afterwards and can
+        // still fail — so clearing it now would leave a cold overlay with
+        // nothing to hydrate and the user with no way back to the detected
+        // meeting. `watch_meeting_notification_acks` retires it when the
+        // frontend confirms the meeting is on screen instead.
     }
 
     Ok(())
@@ -1972,15 +1978,64 @@ async fn find_recent_adhoc_meeting(
     // Reach back to the earliest attempt still in doubt, plus a minute so the
     // window cannot close on the row it is looking for.
     let lookback_min = (((now_ts - since_ts).max(0) / 60) + 2).to_string();
+
+    // Walk pages until the window is covered. The agenda view is ascending from
+    // the start of the lookback, so the row a lost response created can sit
+    // behind a page boundary if enough meetings start ahead of it — and
+    // answering "no such row" from a page that stopped short is what would
+    // insert the duplicate. Bounded, because an unbounded walk over a calendar
+    // with no upper bound would page through every future meeting on every
+    // retry.
+    for page in 0..RECONCILE_MAX_PAGES {
+        let offset = page * RECONCILE_PAGE_LIMIT;
+        let rows = fetch_agenda_page(
+            app,
+            client,
+            server_url,
+            session,
+            lookback_min.as_str(),
+            offset,
+        )
+        .await?;
+
+        if let Some(found) = pick_recent_adhoc_meeting(&rows, platform, since_ts, now_ts) {
+            return Ok(Some(found));
+        }
+        if reconcile_window_was_covered(&rows, now_ts) {
+            return Ok(None);
+        }
+    }
+
+    // Ran out of pages with the window still open. Unresolved, not absent.
+    Err(format!(
+        "list-meetings did not reach the reconcile window within {RECONCILE_MAX_PAGES} pages"
+    ))
+}
+
+/// One page of persisted agenda rows.
+///
+/// Persisted only: a live calendar event cannot be what a `create-meeting`
+/// insert left behind, and asking for them would make this lookup depend on the
+/// calendar being reachable.
+async fn fetch_agenda_page(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    server_url: &str,
+    session: &crate::meetings_watcher::MeetingsSessionSnapshot,
+    lookback_min: &str,
+    offset: usize,
+) -> Result<Vec<MeetingItem>, String> {
     let page_limit = RECONCILE_PAGE_LIMIT.to_string();
+    let offset = offset.to_string();
     let url = format!("{server_url}/_agent-native/actions/list-meetings");
     let mut req = client
         .get(url)
         .query(&[
             ("view", "agenda"),
-            ("agendaLookbackMin", lookback_min.as_str()),
+            ("agendaLookbackMin", lookback_min),
             ("includeLiveCalendar", "false"),
             ("limit", page_limit.as_str()),
+            ("offset", offset.as_str()),
         ])
         .header("X-Request-Source", "clips-desktop");
     if let Some(cookie) = session.session_cookie.as_deref() {
@@ -2006,29 +2061,14 @@ async fn find_recent_adhoc_meeting(
         .map_err(|error| format!("list-meetings response: {error}"))?;
     // A 200 whose body is not a meetings list — an error payload, or a changed
     // envelope — is unreadable, not empty. `parse_meetings` flattens both to an
-    // empty vector, and this caller is deciding whether to insert a row, so it
+    // empty vector, and the caller is deciding whether to insert a row, so it
     // has to see the difference.
-    let rows = crate::meetings_watcher::try_parse_meetings(&body).ok_or_else(|| {
+    crate::meetings_watcher::try_parse_meetings(&body).ok_or_else(|| {
         format!(
             "list-meetings response was not a meetings list: {}",
             body.to_string().chars().take(200).collect::<String>()
         )
-    })?;
-
-    if let Some(found) = pick_recent_adhoc_meeting(&rows, platform, since_ts, now_ts) {
-        return Ok(Some(found));
-    }
-    // Found nothing — but "nothing on the page we read" is only "no such row" if
-    // the page actually covered the window. The agenda view is ascending from
-    // the start of the lookback, so a full page tells us only that we saw
-    // everything up to its newest row; the row we want could sit past the cut.
-    if !reconcile_window_was_covered(&rows, now_ts) {
-        return Err(format!(
-            "list-meetings returned a full page ending before the reconcile window closed ({} rows)",
-            rows.len()
-        ));
-    }
-    Ok(None)
+    })
 }
 
 /// Whether a returned page can be trusted to answer "no such row".
