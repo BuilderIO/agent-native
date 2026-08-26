@@ -2810,6 +2810,17 @@ async function tryStartRewindFullscreenRecording(
           },
         );
       })();
+  // Prepare and the countdown start concurrently, and `runRecordingCountdown`
+  // installs its Tauri listeners asynchronously. A prepare that fails inside
+  // that window has nothing listening for `clips:countdown-cancel`, and the
+  // dropped event leaves the countdown on screen for its full timeout before
+  // the real error surfaces. An abort signal is durable where an event is not
+  // — the waiter checks `aborted` as it registers — so the controller is
+  // created before either phase starts.
+  const countdownAbort = new AbortController();
+  const abortCountdown = () => countdownAbort.abort();
+  if (params.signal?.aborted) abortCountdown();
+  else params.signal?.addEventListener("abort", abortCountdown, { once: true });
   try {
     const recording = await prepareRewindRecordingStart({
       async prepare() {
@@ -2838,13 +2849,15 @@ async function tryStartRewindFullscreenRecording(
       },
       async countdown() {
         console.log("[rewind-latency] countdown shown; preparation overlapped");
-        await runRecordingCountdown(true, params.signal);
+        await runRecordingCountdown(true, countdownAbort.signal);
         console.log("[rewind-latency] countdown completed");
       },
       cancelCountdown() {
-        // Prepare failed under a live countdown: route through the same
-        // cancel event Escape uses so runRecordingCountdown tears the
-        // countdown chrome down before the failure surfaces.
+        // Abort first: it is the half that cannot be lost to a countdown that
+        // has not finished registering. The event stays so a countdown that
+        // IS listening tears its chrome down through the same path Escape
+        // uses, and so any other listener still sees the cancel.
+        abortCountdown();
         void emit("clips:countdown-cancel", { cause: "prepare-failed" });
       },
       async activate(preparedRecording) {
@@ -2870,6 +2883,7 @@ async function tryStartRewindFullscreenRecording(
         void audioCue.playBeforeCapture();
       },
     });
+    params.signal?.removeEventListener("abort", abortCountdown);
     id = recording.id;
     const originalStartedAt = new Date().toISOString();
     if (!localOnly) {
@@ -2882,6 +2896,7 @@ async function tryStartRewindFullscreenRecording(
       });
     }
   } catch (err) {
+    params.signal?.removeEventListener("abort", abortCountdown);
     transcriptionAborted = true;
     // Cast: `transcriptionCapture` is only assigned inside the
     // `startRewindTranscription` closure, which TS's control-flow analysis

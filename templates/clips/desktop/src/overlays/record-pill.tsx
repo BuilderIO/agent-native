@@ -642,6 +642,13 @@ export function RecordingPill() {
   }
 
   function handleUploadFinished(payload: NativeUploadFinished) {
+    // A completion only means something to a card that is on screen. While
+    // the pill is recording there is no card, and anything applied here would
+    // sit in state waiting to surface on the NEXT take's card — which is how
+    // a discarded take's URL reached its replacement. Nothing is lost by
+    // dropping these: the done-mode effect drains both the stored result and
+    // the localStorage hand-off when a card does open.
+    if (modeRef.current !== "done") return;
     const completion = resolveCompletion(
       sessionRef.current.recordingId,
       payload,
@@ -970,20 +977,32 @@ export function RecordingPill() {
   // otherwise. Rust infers nothing; a window-destroyed backstop covers the
   // one report this effect can never send.
   const trayLive = enabled && mode !== "done";
+  // One ordered writer. These calls used to be two independent fire-and-forget
+  // invokes, so a timer update issued just before a stop could land after the
+  // stop's inactive write and put the stop square back for a session that had
+  // already ended, until the dead-man cleared it seconds later.
+  const trayOpChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  function writeTrayStatus(active: boolean, title: string | null) {
+    trayOpChainRef.current = trayOpChainRef.current.then(() =>
+      safeInvoke("tray_recording_status", { active, title }),
+    );
+  }
+  function liveTrayTitle() {
+    return `${pausedRef.current ? "⏸ " : ""}${formatTimer(elapsedRef.current)}`;
+  }
   useEffect(() => {
     if (!hasTauri) return;
-    void safeInvoke("tray_recording_status", {
-      active: trayLive,
-      title: trayLive ? formatTimer(elapsedRef.current) : null,
-    });
-  }, [trayLive]);
+    writeTrayStatus(trayLive, trayLive ? liveTrayTitle() : null);
+  }, [trayLive, elapsed, paused]);
+  // The tray's dead-man clears the status item after 2.5s without a write.
+  // While paused, `elapsed` stops advancing and `paused` stops changing, so
+  // the effect above stops firing and the menu bar would drop a recording
+  // that is still very much live. This heartbeat is what keeps it.
   useEffect(() => {
     if (!hasTauri || !trayLive) return;
-    void safeInvoke("tray_recording_status", {
-      active: true,
-      title: `${paused ? "⏸ " : ""}${formatTimer(elapsed)}`,
-    });
-  }, [trayLive, elapsed, paused]);
+    const beat = setInterval(() => writeTrayStatus(true, liveTrayTitle()), 800);
+    return () => clearInterval(beat);
+  }, [trayLive]);
 
   // ---- interactions ----
 
