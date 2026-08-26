@@ -68,6 +68,19 @@ const CALENDAR_SOFT_GUARD_SECS: i64 = 3 * 60;
 /// lands on the next tick and every tick after it.
 const CREATE_RETRY_BACKOFF_SECS: i64 = 60;
 
+/// How long an unresolved `create-meeting` attempt keeps forcing a reconcile
+/// before the next attempt for the same call. Bounded on purpose: a doubt
+/// pinned to a call whose end the watcher can no longer observe would
+/// eventually let a *new* call adopt the old call's row. Long enough to cover
+/// several backoff retries of a server outage, short enough that the window in
+/// which that mis-adoption is possible stays narrow.
+const CREATE_DOUBT_TTL_SECS: i64 = 5 * 60;
+
+/// Slack on the reconcile window's lower edge. `scheduledStart` is stamped by
+/// this process but read back through the server, so allow a little clock skew
+/// rather than missing the row we are looking for by one second.
+const RECONCILE_SKEW_SECS: i64 = 10;
+
 const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
     // (bundle_id, platform, display title)
     ("us.zoom.xos", "zoom", "Zoom meeting detected"),
@@ -95,6 +108,37 @@ struct AdhocMeetingsWatcherInner {
     evidence: HashMap<String, CallEvidence>,
     /// Platforms already notified for the current call.
     session_notified: HashMap<String, bool>,
+    /// platform -> unix-seconds of the earliest `create-meeting` attempt for
+    /// the current call whose outcome could not be read. A lost response is not
+    /// a failed write, so while an entry stands the next attempt must look for
+    /// the row the last one may already have committed instead of inserting a
+    /// second one. Earliest, not latest: any attempt in the run could be the
+    /// one that landed, so the reconcile window has to reach back to the first.
+    create_in_doubt_since: HashMap<String, i64>,
+}
+
+/// Why a `create-meeting` attempt failed — specifically, whether it could have
+/// committed. Collapsing these two into one error is what turns a lost response
+/// into a duplicate meeting row: the retry cannot tell "the write never
+/// happened" from "the write happened and the answer went missing".
+#[derive(Debug)]
+enum CreateFailure {
+    /// Rejected before any insert could run, so nothing was written.
+    NotCommitted(String),
+    /// Unreadable outcome: the row may or may not exist.
+    Ambiguous(String),
+}
+
+impl CreateFailure {
+    fn message(&self) -> &str {
+        match self {
+            CreateFailure::NotCommitted(m) | CreateFailure::Ambiguous(m) => m,
+        }
+    }
+
+    fn is_ambiguous(&self) -> bool {
+        matches!(self, CreateFailure::Ambiguous(_))
+    }
 }
 
 /// Whether a call is underway on one platform.
@@ -316,14 +360,53 @@ impl AdhocMeetingsWatcherInner {
         self.session_notified.remove(platform);
         self.prompt_cooldown_until.remove(platform);
         self.dismissed_until.remove(platform);
+        // The doubt belonged to the call that just ended. Carrying it into the
+        // next call would make that call adopt the previous call's row.
+        self.create_in_doubt_since.remove(platform);
     }
 
     /// A create failed. Let the same call try again, but not on the next tick:
     /// the evidence is untouched, so it reconfirms immediately.
-    fn note_create_failed(&mut self, platform: &str, now_ts: i64) {
+    ///
+    /// `ambiguous` is the part that matters. Backoff alone cannot make a
+    /// non-idempotent create safe — it only decides *when* the duplicate is
+    /// inserted — so an attempt that may have committed has to be remembered
+    /// and reconciled before the next one runs.
+    fn note_create_failed(&mut self, platform: &str, now_ts: i64, ambiguous: bool) {
         self.session_notified.remove(platform);
         self.prompt_cooldown_until
             .insert(platform.to_string(), now_ts + CREATE_RETRY_BACKOFF_SECS);
+        if ambiguous {
+            self.create_in_doubt_since
+                .entry(platform.to_string())
+                .or_insert(now_ts);
+        }
+    }
+
+    /// A create resolved: there is a row, and we know its id.
+    fn note_create_resolved(&mut self, platform: &str) {
+        self.create_in_doubt_since.remove(platform);
+    }
+
+    /// Hold back the platforms that lost this poll's tie-break, now that the
+    /// selected platform has actually produced a meeting row.
+    ///
+    /// Deliberately not a prompt cooldown: these platforms were never prompted
+    /// for. Giving them one would mute a live call for eight minutes on the
+    /// strength of a different call winning a coin toss, which is the same
+    /// defect one layer down. The bare flag is released by the platform's own
+    /// call end — or, on the fallback path, by the boundaries that keep it from
+    /// stranding — and either way what follows is the prompt it never got.
+    fn defer_secondary_candidates(&mut self, platforms: &[&str]) {
+        for platform in platforms {
+            self.session_notified.insert((*platform).to_string(), true);
+        }
+    }
+
+    /// The attempt timestamp a retry for this platform must reconcile against,
+    /// or `None` when no attempt is outstanding.
+    fn create_doubt_since(&self, platform: &str) -> Option<i64> {
+        self.create_in_doubt_since.get(platform).copied()
     }
 
     /// Stop tracking calls entirely: the feature is off, or a meeting is
@@ -339,6 +422,9 @@ impl AdhocMeetingsWatcherInner {
     /// already has its own clock and is left alone.
     fn clear_tracking(&mut self, now_ts: i64) {
         self.evidence.clear();
+        // Whatever call the doubt belonged to, we are no longer tracking it, so
+        // there is nothing left to tie a found row to.
+        self.create_in_doubt_since.clear();
         let notified: Vec<String> = self.session_notified.drain().map(|(p, _)| p).collect();
         for platform in notified {
             let until = now_ts + COOLDOWN_SECS;
@@ -353,6 +439,8 @@ impl AdhocMeetingsWatcherInner {
         self.prompt_cooldown_until
             .retain(|_, until| *until > now_ts);
         self.dismissed_until.retain(|_, until| *until > now_ts);
+        self.create_in_doubt_since
+            .retain(|_, since| *since + CREATE_DOUBT_TTL_SECS > now_ts);
     }
 
     fn is_suppressed(&self, platform: &str, now_ts: i64) -> bool {
@@ -516,6 +604,7 @@ async fn tick_macos(
     // stream open while you take notes elsewhere, read Slack, or share a doc,
     // so that stream is the evidence that survives leaving the meeting window.
     let mut confirmed: Option<(&'static str, &'static str)> = None;
+    let mut deferred: Vec<&'static str> = Vec::new();
     for (platform, fallback) in platform_titles() {
         let mic = crate::call_activity::call_app_uses_microphone(&bundles_for_platform(platform));
         let frontmost = front_platform == Some(platform);
@@ -572,9 +661,14 @@ async fn tick_macos(
                 // One poll prompts for one call. A second platform holding a
                 // stream at the same moment would otherwise be untouched here
                 // and confirm on the very next tick, so a single moment of
-                // overlap becomes a second meeting two seconds later. Mark it
-                // handled; its own call end releases it again.
-                g.session_notified.insert(platform.to_string(), true);
+                // overlap becomes a second meeting two seconds later.
+                //
+                // Only note it, though — suppressing it here would spend the
+                // selected platform's failure on it. If the selected flow then
+                // errors or is skipped by the calendar guard, the platform that
+                // lost the tie is the only live call left, and marking it
+                // already would have hidden it for the rest of its run.
+                deferred.push(platform);
             }
         }
     }
@@ -609,48 +703,74 @@ async fn tick_macos(
         }
     }
 
-    {
+    let reconcile_since = {
         let state = app
             .try_state::<AdhocMeetingsWatcherState>()
             .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
         let mut g = state.inner.lock().map_err(|e| e.to_string())?;
         g.note_prompted(platform, now_ts);
-    }
+        g.create_doubt_since(platform)
+    };
 
     dlog!(
         "[clips-tray] adhoc call confirmed for {} — creating meeting",
         platform
     );
 
-    let meeting = match create_adhoc_meeting(app, client, platform).await {
+    let meeting = match create_adhoc_meeting(app, client, platform, reconcile_since).await {
         Ok(meeting) => meeting,
-        Err(err) => {
+        Err(failure) => {
             // Retry, but not on the very next tick. The evidence is untouched,
             // so the call reconfirms immediately and would re-submit every two
-            // seconds for as long as the call runs. A create whose response was
-            // lost after it committed would leave one meeting row per attempt.
+            // seconds for as long as the call runs. Backoff only spaces the
+            // attempts out, though — an attempt whose outcome we could not read
+            // is recorded as such so the next one reconciles instead of
+            // inserting a second row for the same call.
             if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
                 if let Ok(mut g) = state.inner.lock() {
-                    g.note_create_failed(platform, now_ts);
+                    g.note_create_failed(platform, now_ts, failure.is_ambiguous());
                 }
             }
-            return Err(err);
+            return Err(failure.message().to_string());
         }
     };
+
+    // The selected flow produced a row, so the tie-break above is now settled
+    // and the platforms that lost it can be held back. Their own call end
+    // releases them again.
+    if !deferred.is_empty() {
+        if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
+            if let Ok(mut g) = state.inner.lock() {
+                g.defer_secondary_candidates(&deferred);
+            }
+        }
+    }
+
+    {
+        let state = app
+            .try_state::<AdhocMeetingsWatcherState>()
+            .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
+        let mut g = state.inner.lock().map_err(|e| e.to_string())?;
+        g.note_create_resolved(platform);
+    }
 
     let AdhocNotificationPlan {
         show_widget,
         auto_start,
     } = adhoc_notification_plan(config);
 
+    // Awaited, not spawned. `meetings:hide-notification` is dropped by the
+    // overlay unless it already holds the matching payload, so auto-start
+    // emitting first would race the card into existence *after* the only event
+    // that clears it — leaving a "Take notes?" prompt stuck over a meeting that
+    // is already recording. Installing the payload before startup is announced
+    // makes that ordering impossible rather than unlikely.
     if show_widget {
-        let app_clone = app.clone();
-        let id_clone = meeting.id.clone();
-        let title_clone = meeting
+        let title = meeting
             .title
             .clone()
             .unwrap_or_else(|| fallback_title.to_string());
-        let platform_clone = meeting
+        let notify_platform = meeting
             .platform
             .clone()
             .unwrap_or_else(|| platform.to_string());
@@ -658,24 +778,26 @@ async fn tick_macos(
             .scheduled_start
             .clone()
             .or_else(|| Some(chrono::Utc::now().to_rfc3339()));
-        let scheduled_end = meeting.scheduled_end.clone();
-        let join_url = meeting.join_url.clone();
-        let source = meeting.source.clone().or_else(|| Some("adhoc".to_string()));
-        tauri::async_runtime::spawn(async move {
-            let _ = crate::notifications::notify_meeting_starting(
-                app_clone,
-                id_clone,
-                title_clone,
-                0,
-                join_url,
-                scheduled_start,
-                scheduled_end,
-                Some(platform_clone),
-                Some(auto_start),
-                source,
-            )
-            .await;
-        });
+        if let Err(err) = crate::notifications::notify_meeting_starting(
+            app.clone(),
+            meeting.id.clone(),
+            title,
+            0,
+            meeting.join_url.clone(),
+            scheduled_start,
+            meeting.scheduled_end.clone(),
+            Some(notify_platform),
+            Some(auto_start),
+            meeting.source.clone().or_else(|| Some("adhoc".to_string())),
+        )
+        .await
+        {
+            dlog!(
+                "[clips-tray] adhoc notification failed for {}: {}",
+                meeting.id,
+                err
+            );
+        }
     }
 
     if auto_start {
@@ -1109,7 +1231,7 @@ mod tests {
         let mut state = AdhocMeetingsWatcherInner::default();
         state.note_prompted("zoom", now_ts);
 
-        state.note_create_failed("zoom", now_ts);
+        state.note_create_failed("zoom", now_ts, false);
 
         assert!(
             state.is_suppressed("zoom", now_ts + CREATE_RETRY_BACKOFF_SECS - 1),
@@ -1122,6 +1244,274 @@ mod tests {
         assert!(
             CREATE_RETRY_BACKOFF_SECS < COOLDOWN_SECS,
             "a failed create retries sooner than a successful prompt repeats"
+        );
+    }
+
+    #[test]
+    fn a_create_that_could_not_have_committed_does_not_force_a_reconcile() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.note_create_failed("zoom", now_ts, false);
+
+        assert_eq!(
+            state.create_doubt_since("zoom"),
+            None,
+            "a rejected request wrote nothing, so there is no row to look for"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_create_outcome_makes_the_next_attempt_reconcile() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.note_create_failed("zoom", now_ts, true);
+
+        assert_eq!(
+            state.create_doubt_since("zoom"),
+            Some(now_ts),
+            "the attempt may have committed, so the retry must look before inserting"
+        );
+        assert_eq!(
+            state.create_doubt_since("teams"),
+            None,
+            "doubt is per platform"
+        );
+    }
+
+    #[test]
+    fn a_run_of_unreadable_attempts_reconciles_against_the_first_one() {
+        // Any attempt in the run could be the one that landed, so the window has
+        // to reach back to the earliest — a later timestamp would look right past
+        // the row the first attempt created.
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.note_create_failed("zoom", now_ts, true);
+        state.note_create_failed("zoom", now_ts + CREATE_RETRY_BACKOFF_SECS, true);
+
+        assert_eq!(state.create_doubt_since("zoom"), Some(now_ts));
+    }
+
+    #[test]
+    fn a_resolved_create_stops_reconciling() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_create_failed("zoom", now_ts, true);
+
+        state.note_create_resolved("zoom");
+
+        assert_eq!(state.create_doubt_since("zoom"), None);
+    }
+
+    #[test]
+    fn a_finished_call_drops_the_doubt_from_the_call_that_ended() {
+        // Otherwise the next call reconciles against the previous call's row and
+        // adopts it, attaching this call's notes to the wrong meeting.
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_create_failed("zoom", now_ts, true);
+
+        state.end_call_session("zoom");
+
+        assert_eq!(state.create_doubt_since("zoom"), None);
+    }
+
+    #[test]
+    fn an_unresolved_create_doubt_expires() {
+        // The doubt is pinned to one call. On the fallback path the watcher may
+        // never see that call end, so the marker needs a clock of its own.
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_create_failed("zoom", now_ts, true);
+
+        state.retain_live_cooldowns(now_ts + CREATE_DOUBT_TTL_SECS - 1);
+        assert_eq!(state.create_doubt_since("zoom"), Some(now_ts));
+
+        state.retain_live_cooldowns(now_ts + CREATE_DOUBT_TTL_SECS);
+        assert_eq!(state.create_doubt_since("zoom"), None);
+    }
+
+    #[test]
+    fn abandoning_tracking_drops_the_doubt_too() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_create_failed("zoom", now_ts, true);
+
+        state.clear_tracking(now_ts);
+
+        assert_eq!(
+            state.create_doubt_since("zoom"),
+            None,
+            "there is no tracked call left to tie a found row to"
+        );
+    }
+
+    #[test]
+    fn a_deferred_platform_is_suppressed_only_once_the_winner_has_a_row() {
+        // Both platforms confirmed on one poll. Until the selected platform
+        // actually produces a meeting, the loser must stay eligible — if the
+        // selected flow errors or the calendar guard skips it, the loser is the
+        // only live call left and it is the one the user wants.
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_prompted("zoom", now_ts);
+
+        assert!(
+            !state.is_suppressed("teams", now_ts),
+            "losing the tie-break is not grounds for suppression on its own"
+        );
+
+        state.defer_secondary_candidates(&["teams"]);
+
+        assert!(
+            state.is_suppressed("teams", now_ts),
+            "once the winner has a row, one poll has prompted for one call"
+        );
+    }
+
+    #[test]
+    fn a_deferred_platform_survives_the_winners_failure() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_prompted("zoom", now_ts);
+
+        // The selected platform's create failed, so the deferral never happens.
+        state.note_create_failed("zoom", now_ts, true);
+
+        assert!(
+            !state.is_suppressed("teams", now_ts),
+            "the other live call must still be promptable on the next tick"
+        );
+    }
+
+    #[test]
+    fn a_deferred_platform_is_released_by_its_own_call_end() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.defer_secondary_candidates(&["teams"]);
+        assert!(state.is_suppressed("teams", now_ts));
+
+        state.end_call_session("teams");
+
+        assert!(
+            !state.is_suppressed("teams", now_ts),
+            "a deferral carries no cooldown, so the next call prompts immediately"
+        );
+    }
+
+    fn adhoc_row(id: &str, platform: &str, start: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "platform": platform,
+            "source": "adhoc",
+            "scheduledStart": start,
+        })
+    }
+
+    #[test]
+    fn reconcile_adopts_the_row_a_lost_response_left_behind() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [adhoc_row("zoom-row", "zoom", "2026-08-19T10:00:05Z")],
+        }));
+        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
+            .unwrap()
+            .timestamp();
+
+        let found = pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts);
+
+        assert_eq!(found.map(|m| m.id), Some("zoom-row".to_string()));
+    }
+
+    #[test]
+    fn reconcile_ignores_a_previous_calls_row() {
+        // The row predates the attempt, so it belongs to an earlier call.
+        // Adopting it would file this call's notes under that meeting.
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [adhoc_row("old-row", "zoom", "2026-08-19T09:30:00Z")],
+        }));
+        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
+            .unwrap()
+            .timestamp();
+
+        assert!(pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).is_none());
+    }
+
+    #[test]
+    fn reconcile_stays_on_its_own_platform_and_source() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                adhoc_row("teams-row", "teams", "2026-08-19T10:00:05Z"),
+                {
+                    "id": "calendar-row",
+                    "platform": "zoom",
+                    "source": "calendar",
+                    "scheduledStart": "2026-08-19T10:00:05Z",
+                },
+            ],
+        }));
+        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
+            .unwrap()
+            .timestamp();
+
+        assert!(
+            pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).is_none(),
+            "a Teams row and a calendar row are both the wrong meeting to adopt"
+        );
+    }
+
+    #[test]
+    fn reconcile_takes_the_newest_row_when_attempts_already_duplicated() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                adhoc_row("first", "zoom", "2026-08-19T10:00:05Z"),
+                adhoc_row("second", "zoom", "2026-08-19T10:01:10Z"),
+            ],
+        }));
+        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
+            .unwrap()
+            .timestamp();
+
+        assert_eq!(
+            pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).map(|m| m.id),
+            Some("second".to_string())
+        );
+    }
+
+    #[test]
+    fn reconcile_tolerates_clock_skew_on_the_window_edge() {
+        // `scheduledStart` is stamped here but read back through the server.
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [adhoc_row("zoom-row", "zoom", "2026-08-19T09:59:55Z")],
+        }));
+        let attempt_ts = chrono::DateTime::parse_from_rfc3339("2026-08-19T10:00:00Z")
+            .unwrap()
+            .timestamp();
+
+        assert_eq!(
+            pick_recent_adhoc_meeting(&meetings, "zoom", attempt_ts).map(|m| m.id),
+            Some("zoom-row".to_string()),
+            "a few seconds of skew must not hide the row we just created"
+        );
+        assert!(
+            RECONCILE_SKEW_SECS < CALL_END.as_secs() as i64,
+            "the skew allowance must not reach into a previous call"
+        );
+    }
+
+    #[test]
+    fn an_unparseable_start_is_not_treated_as_a_match() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                { "id": "no-start", "platform": "zoom", "source": "adhoc" },
+                adhoc_row("bad-start", "zoom", "not-a-timestamp"),
+            ],
+        }));
+
+        assert!(
+            pick_recent_adhoc_meeting(&meetings, "zoom", 0).is_none(),
+            "a row whose start cannot be read is not a row we can place in the window"
         );
     }
 
@@ -1249,13 +1639,16 @@ async fn create_adhoc_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
     platform: &str,
-) -> Result<MeetingItem, String> {
+    reconcile_since: Option<i64>,
+) -> Result<MeetingItem, CreateFailure> {
     let session = app
         .try_state::<MeetingsWatcherState>()
         .map(|s| s.session_snapshot())
         .unwrap_or_default();
     let Some(server_url) = session.server_url.as_deref() else {
-        return Err("no server_url for create-meeting".to_string());
+        return Err(CreateFailure::NotCommitted(
+            "no server_url for create-meeting".to_string(),
+        ));
     };
 
     // The native watcher knows which conferencing app is active, but not the
@@ -1278,6 +1671,36 @@ async fn create_adhoc_meeting(
             platform,
             error
         ),
+    }
+
+    // A previous attempt for this same call may have committed before its
+    // response went missing. `create-meeting` is only idempotent on its
+    // `calendarEventId` path (that one claims the event row atomically); the
+    // ad-hoc path is a bare insert, so nothing server-side collapses a second
+    // attempt into the first. Until it has an idempotency key, the only way not
+    // to leave one row per attempt is to go looking for the first row.
+    //
+    // A lookup that fails is not a lookup that found nothing. Treating an
+    // unreadable reconcile as "no existing row" would insert the duplicate this
+    // whole path exists to avoid, so it abandons the attempt and stays in doubt
+    // for the next tick instead.
+    if let Some(since) = reconcile_since {
+        match find_recent_adhoc_meeting(app, client, server_url, &session, platform, since).await {
+            Ok(Some(existing)) => {
+                dlog!(
+                    "[clips-tray] adhoc reconciled to existing meeting {} for {}",
+                    existing.id,
+                    platform
+                );
+                return Ok(existing);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return Err(CreateFailure::Ambiguous(format!(
+                    "adhoc reconcile unreadable for {platform}, not retrying create: {error}"
+                )));
+            }
+        }
     }
 
     let url = format!("{}/_agent-native/actions/create-meeting", server_url);
@@ -1306,29 +1729,51 @@ async fn create_adhoc_meeting(
         req = req.bearer_auth(token);
     }
 
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("create-meeting fetch: {e}"))?;
+    let resp = req.send().await.map_err(|e| {
+        let message = format!("create-meeting fetch: {e}");
+        // A request that never opened a connection cannot have written
+        // anything. Everything else here — a timeout above all — may have been
+        // answered by a handler that had already committed.
+        if e.is_connect() || e.is_builder() {
+            CreateFailure::NotCommitted(message)
+        } else {
+            CreateFailure::Ambiguous(message)
+        }
+    })?;
     let status = resp.status();
     if status == reqwest::StatusCode::UNAUTHORIZED {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
-        return Err("create-meeting http 401".to_string());
+        return Err(CreateFailure::NotCommitted(
+            "create-meeting http 401".to_string(),
+        ));
     }
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!(
+        let message = format!(
             "create-meeting http {} — {}",
             status,
             text.chars().take(180).collect::<String>()
-        ));
+        );
+        // A 4xx is the action refusing the request, so no row exists. A 5xx can
+        // be raised after the insert committed — by the app-state write or the
+        // read-back that follows it — so it has to be treated as unresolved.
+        return Err(if status.is_client_error() {
+            CreateFailure::NotCommitted(message)
+        } else {
+            CreateFailure::Ambiguous(message)
+        });
     }
-    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    // Past here the server returned success, so a row exists. Anything we then
+    // fail to read about it leaves us holding a committed write we cannot name.
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| CreateFailure::Ambiguous(format!("create-meeting response: {e}")))?;
     let id = extract_meeting_id(&body).ok_or_else(|| {
-        format!(
+        CreateFailure::Ambiguous(format!(
             "create-meeting response missing meeting id: {}",
             body.to_string().chars().take(200).collect::<String>()
-        )
+        ))
     })?;
     Ok(MeetingItem {
         id,
@@ -1339,6 +1784,92 @@ async fn create_adhoc_meeting(
         platform: Some(platform.to_string()),
         source: Some("adhoc".to_string()),
     })
+}
+
+/// Look for the ad-hoc row an earlier unanswered attempt may already have
+/// created for this call.
+///
+/// Reads persisted rows only: a live calendar event cannot be what a
+/// `create-meeting` insert left behind, and asking for them would make this
+/// lookup depend on the calendar being reachable.
+async fn find_recent_adhoc_meeting(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    server_url: &str,
+    session: &crate::meetings_watcher::MeetingsSessionSnapshot,
+    platform: &str,
+    since_ts: i64,
+) -> Result<Option<MeetingItem>, String> {
+    // Reach back to the earliest attempt still in doubt, plus a minute so the
+    // window cannot close on the row it is looking for.
+    let lookback_min = (((chrono::Utc::now().timestamp() - since_ts).max(0) / 60) + 2).to_string();
+    let url = format!("{server_url}/_agent-native/actions/list-meetings");
+    let mut req = client
+        .get(url)
+        .query(&[
+            ("view", "agenda"),
+            ("agendaLookbackMin", lookback_min.as_str()),
+            ("includeLiveCalendar", "false"),
+            ("limit", "50"),
+        ])
+        .header("X-Request-Source", "clips-desktop");
+    if let Some(cookie) = session.session_cookie.as_deref() {
+        req = req.header("Cookie", cookie);
+    }
+    if let Some(token) = session.auth_token.as_deref() {
+        req = req.bearer_auth(token);
+    }
+    let response = req
+        .send()
+        .await
+        .map_err(|error| format!("list-meetings fetch: {error}"))?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
+        return Err("list-meetings http 401".to_string());
+    }
+    if !response.status().is_success() {
+        return Err(format!("list-meetings http {}", response.status()));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("list-meetings response: {error}"))?;
+    Ok(pick_recent_adhoc_meeting(
+        &parse_meetings(&body),
+        platform,
+        since_ts,
+    ))
+}
+
+/// The ad-hoc row a lost `create-meeting` response would have left behind: same
+/// platform, `source == "adhoc"`, and scheduled no earlier than the attempt that
+/// went unanswered. Rows older than that belong to a previous call, and adopting
+/// one would attach this call's notes to the wrong meeting. Newest wins, so a
+/// run of attempts that duplicated before this guard existed still lands on the
+/// row this call is actually using.
+fn pick_recent_adhoc_meeting(
+    meetings: &[MeetingItem],
+    platform: &str,
+    since_ts: i64,
+) -> Option<MeetingItem> {
+    let floor = since_ts - RECONCILE_SKEW_SECS;
+    meetings
+        .iter()
+        .filter(|m| m.source.as_deref() == Some("adhoc"))
+        .filter(|m| {
+            m.platform
+                .as_deref()
+                .is_some_and(|p| p.eq_ignore_ascii_case(platform))
+        })
+        .filter_map(|m| {
+            let start = m.scheduled_start.as_deref()?;
+            let ts = chrono::DateTime::parse_from_rfc3339(start)
+                .ok()?
+                .timestamp();
+            (ts >= floor).then_some((ts, m))
+        })
+        .max_by_key(|(ts, _)| *ts)
+        .map(|(_, m)| m.clone())
 }
 
 async fn find_calendar_meeting(
