@@ -237,11 +237,13 @@ export function MeetingNotification() {
       }).catch(() => {});
     };
 
-    trackListen(
-      listen<NotificationData>("meetings:show-notification", (ev) => {
+    const showListener = listen<NotificationData>(
+      "meetings:show-notification",
+      (ev) => {
         showNotification(ev.payload);
-      }),
+      },
     );
+    trackListen(showListener);
 
     trackListen(
       listen<{ hovered: boolean }>("meetings:notification-hover", (ev) => {
@@ -271,19 +273,22 @@ export function MeetingNotification() {
     // Cold overlay boot: hydrate any payload stored before this webview
     // mounted (calendar or adhoc).
     //
-    // Only once the hide and error listeners are actually registered. `take` is
-    // destructive, so hydrating first opens a window where the payload is no
-    // longer on the native side and this webview is not yet listening — a hide
-    // landing in it is lost by both, and the card it hydrates is one nothing can
-    // take back. The native side tombstones acknowledged meetings so the common
-    // case returns nothing at all; awaiting here covers the payload already in
-    // flight when the answer arrives.
-    Promise.all([hideListener, errorListener])
+    // Every listener has to be live first, because `take` is destructive and
+    // each event lost in the gap is lost permanently. A hide landing before the
+    // hide listener registers leaves a card nothing can take back; a show
+    // landing before the show listener registers is dropped while the payload it
+    // duplicated has already been consumed, so no card appears at all.
+    Promise.all([showListener, hideListener, errorListener])
       .then(() =>
         invoke<NotificationData | null>("take_pending_meeting_notification"),
       )
       .then((pending) => {
         if (stopped || !pending) return;
+        // The take is asynchronous, so a live `meetings:show-notification` may
+        // have arrived while it was in flight. That payload is newer than this
+        // one by definition, and hydration is only a cold-boot fallback, so it
+        // must not replace what the live path already put on screen.
+        if (dataRef.current) return;
         showNotification(pending, { hydrated: true });
       })
       .catch(() => {});
