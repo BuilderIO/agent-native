@@ -48,7 +48,6 @@ const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
 interface ClipsUserSettings {
   defaultPlaybackSpeed?: string;
   emailNotifications?: boolean;
-  transcriptCleanupEnabled?: boolean;
   includeFullVideoInAi?: boolean;
   defaultRecordingVisibility?: ClipsDefaultVisibility;
 }
@@ -133,9 +132,6 @@ export default function SettingsIndexRoute() {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [defaultVisibility, setDefaultVisibility] =
     useState<ClipsDefaultVisibility>(DEFAULT_CLIPS_RECORDING_VISIBILITY);
-  const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
-    useState(true);
-
   useEffect(() => {
     let cancelled = false;
     loadSettings().then((v) => {
@@ -145,7 +141,6 @@ export default function SettingsIndexRoute() {
       setDefaultVisibility(
         v.defaultRecordingVisibility ?? DEFAULT_CLIPS_RECORDING_VISIBILITY,
       );
-      setTranscriptCleanupEnabled(v.transcriptCleanupEnabled !== false);
       setLoading(false);
     });
     return () => {
@@ -194,7 +189,6 @@ export default function SettingsIndexRoute() {
       await saveSettings({
         defaultPlaybackSpeed: defaultSpeed,
         emailNotifications,
-        transcriptCleanupEnabled,
         defaultRecordingVisibility: defaultVisibility,
       });
       toast.success(t("settings.saved"));
@@ -354,20 +348,6 @@ export default function SettingsIndexRoute() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                  }
-                />
-                <SettingsRow
-                  id="transcript"
-                  label={t("settings.transcriptCleanup")}
-                  description={t("settings.transcriptCleanupDescription")}
-                  control={
-                    <Switch
-                      id="transcript-cleanup"
-                      aria-label={t("settings.transcriptCleanup")}
-                      checked={transcriptCleanupEnabled}
-                      onCheckedChange={setTranscriptCleanupEnabled}
-                      disabled={loading}
-                    />
                   }
                 />
                 <SettingsRow
