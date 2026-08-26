@@ -88,7 +88,10 @@ export function InstallCommand() {
           size={14}
           stroke={1.75}
           aria-hidden="true"
-          style={{ marginLeft: "var(--spacing-1)" }}
+          style={{
+            marginLeft: "var(--spacing-1)",
+            color: "var(--b-text-muted)",
+          }}
         />
       )}
       <span aria-live="polite" className="sr-only">
