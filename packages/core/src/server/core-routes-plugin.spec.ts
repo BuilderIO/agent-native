@@ -16,7 +16,6 @@ import {
   buildBuilderWaitlistFormPayload,
   checkBuilderWaitlistRateLimit,
   consumeBuilderConnectPendingState,
-  findBuilderConnectPendingStateForOwner,
   isBuilderConnectCallbackOwner,
   purgeExpiredBuilderConnectPendingStates,
   readBuilderConnectPendingState,
@@ -412,62 +411,6 @@ describe("Builder OAuth callback state", () => {
         consumed: true,
       })),
     ).resolves.toBeNull();
-  });
-
-  it("recovers one live pending flow when Builder omits callback state", async () => {
-    const state = createBuilderConnectState();
-    await expect(
-      findBuilderConnectPendingStateForOwner(
-        "alice@example.com",
-        Date.now(),
-        async () => [
-          {
-            key: `builder-connect-pending:${state}`,
-            value: {
-              ownerEmail: "alice@example.com",
-              expiresAt: Date.now() + 60_000,
-              encryptedOAuthFlow: "<ENCRYPTED_FLOW_EXAMPLE>",
-              redirectUri:
-                "https://app.example.com/_agent-native/builder/callback",
-            },
-          },
-        ],
-      ),
-    ).resolves.toEqual({ status: "found", state });
-  });
-
-  it("fails closed when multiple live pending flows could match", async () => {
-    const rows = [1, 2].map(() => {
-      const state = createBuilderConnectState();
-      return {
-        key: `builder-connect-pending:${state}`,
-        value: {
-          ownerEmail: "alice@example.com",
-          expiresAt: Date.now() + 60_000,
-          encryptedOAuthFlow: "<ENCRYPTED_FLOW_EXAMPLE>",
-          redirectUri: "https://app.example.com/_agent-native/builder/callback",
-        },
-      };
-    });
-    await expect(
-      findBuilderConnectPendingStateForOwner(
-        "alice@example.com",
-        Date.now(),
-        async () => rows,
-      ),
-    ).resolves.toEqual({ status: "absent" });
-  });
-
-  it("distinguishes pending-flow storage failure from no matching flow", async () => {
-    await expect(
-      findBuilderConnectPendingStateForOwner(
-        "alice@example.com",
-        Date.now(),
-        async () => {
-          throw new Error("settings unavailable");
-        },
-      ),
-    ).resolves.toEqual({ status: "unavailable" });
   });
 
   it("deletes expired Builder OAuth pending-flow rows", async () => {

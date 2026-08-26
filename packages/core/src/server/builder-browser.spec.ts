@@ -414,6 +414,16 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("binds the OAuth state into the registered callback URL", () => {
+      const event = createBuilderBrowserEvent({
+        host: "myapp.up.railway.app",
+        "x-forwarded-proto": "https",
+      });
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        "https://myapp.up.railway.app/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+    });
+
     it("rejects building a callback URL when the request origin is HTTP in production", () => {
       process.env.NODE_ENV = "production";
       const event = createBuilderBrowserEvent({

@@ -183,16 +183,19 @@ export function isBuilderConnectCallbackUrlAllowed(
  * `getAppBasePath()` + `BUILDER_CALLBACK_PATH`. Intentionally ignores any
  * `?redirect_uri=` query override — connect always returns to this app's own
  * callback. Validated with `isBuilderConnectCallbackUrlAllowed` (Railway-safe,
- * no fixed domain allowlist).
+ * no fixed domain allowlist). When state is provided, bind it into the exact
+ * registered callback URI because Builder can omit top-level OAuth state.
  */
 export function resolveBuilderConnectCallbackUrl(
   event: H3Event,
+  state?: string,
 ): string | null {
-  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}`;
+  const stateSuffix = state ? `?state=${encodeURIComponent(state)}` : "";
+  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
   // Match google-oauth default-redirect behavior when the request is not under
   // APP_BASE_PATH: fall back to the root `/_agent-native/...` callback.
-  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}`;
+  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
     return root;
   }

@@ -1060,45 +1060,6 @@ export async function readBuilderConnectPendingState(
 
 const BUILDER_CONNECT_PENDING_PREFIX = "builder-connect-pending:";
 
-type BuilderConnectPendingStateLookup =
-  | { status: "found"; state: string }
-  | { status: "absent" }
-  | { status: "unavailable" };
-
-export async function findBuilderConnectPendingStateForOwner(
-  ownerEmail: string,
-  now = Date.now(),
-  list: typeof listSettingsByPrefix = listSettingsByPrefix,
-): Promise<BuilderConnectPendingStateLookup> {
-  let rows: Array<{ key: string; value: Record<string, unknown> }>;
-  try {
-    rows = await list(BUILDER_CONNECT_PENDING_PREFIX);
-  } catch {
-    return { status: "unavailable" };
-  }
-
-  const matches = rows.filter((row) => {
-    const state = row.key.slice(BUILDER_CONNECT_PENDING_PREFIX.length);
-    const value = row.value;
-    if (!value || typeof value !== "object") return false;
-    return (
-      isSignedBuilderConnectState(state) &&
-      value.ownerEmail === ownerEmail &&
-      value.consumed !== true &&
-      typeof value.expiresAt === "number" &&
-      value.expiresAt > now &&
-      typeof value.encryptedOAuthFlow === "string" &&
-      typeof value.redirectUri === "string"
-    );
-  });
-
-  if (matches.length !== 1) return { status: "absent" };
-  return {
-    status: "found",
-    state: matches[0]!.key.slice(BUILDER_CONNECT_PENDING_PREFIX.length),
-  };
-}
-
 export async function purgeExpiredBuilderConnectPendingStates(
   now = Date.now(),
   dependencies: {
@@ -2741,7 +2702,8 @@ export function createCoreRoutesPlugin(
             // No prior error row — fine
           }
 
-          const callbackUrl = resolveBuilderConnectCallbackUrl(event);
+          const state = createBuilderConnectState();
+          const callbackUrl = resolveBuilderConnectCallbackUrl(event, state);
           if (
             !callbackUrl ||
             !isBuilderConnectCallbackUrlAllowed(callbackUrl, event)
@@ -2785,8 +2747,6 @@ export function createCoreRoutesPlugin(
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
-          const state = createBuilderConnectState();
-
           // The standard OAuth client discovers Builder's protected-resource
           // metadata, dynamically registers, and creates its S256 verifier.
           // Persist that opaque protocol state encrypted and consume it once.
@@ -3250,24 +3210,6 @@ export function createCoreRoutesPlugin(
             });
           };
 
-          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
-          if (!state && session?.email) {
-            // ponytail: single pending-flow fallback; reject ambiguous concurrent
-            // connects until Builder reliably echoes the OAuth state.
-            const lookup = await findBuilderConnectPendingStateForOwner(
-              session.email,
-            );
-            if (lookup.status === "unavailable") {
-              return fail(
-                503,
-                "Builder connect callback could not be verified. Restart the connection.",
-                session.email,
-                "pending_state_unavailable",
-              );
-            }
-            if (lookup.status === "found") state = lookup.state;
-          }
-
           if (!state || !isSignedBuilderConnectState(state)) {
             return fail(
               403,
@@ -3289,6 +3231,7 @@ export function createCoreRoutesPlugin(
             pending.tracking && typeof pending.tracking === "object"
               ? (pending.tracking as BuilderConnectTrackingParams)
               : {};
+          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
           const expiresAt =
             typeof pending.expiresAt === "number" ? pending.expiresAt : 0;
           const encryptedOAuthFlow =
@@ -3299,7 +3242,10 @@ export function createCoreRoutesPlugin(
             typeof pending.redirectUri === "string"
               ? pending.redirectUri
               : null;
-          const expectedRedirectUri = resolveBuilderConnectCallbackUrl(event);
+          const expectedRedirectUri = resolveBuilderConnectCallbackUrl(
+            event,
+            state,
+          );
 
           if (
             !ownerEmail ||
