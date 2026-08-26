@@ -2785,7 +2785,8 @@ export function createAgentChatPlugin(
         // Ignore — templates without sharing still work.
       }
       if (Object.keys(httpActions).length > 0) {
-        const { mountActionRoutes } = await import("./action-routes.js");
+        const { mountActionRoutes, mountWebMcpActionRoutes } =
+          await import("./action-routes.js");
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
             options.actionRoutePublicPaths,
@@ -2793,6 +2794,13 @@ export function createAgentChatPlugin(
           );
         }
         mountActionRoutes(nitroApp, httpActions, {
+          getOwnerFromEvent,
+          getUserNameFromEvent,
+          appId: options?.appId,
+          resolveOrgId: options?.resolveOrgId,
+          actionRouteAuth: options?.actionRouteAuth,
+        });
+        mountWebMcpActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
           getUserNameFromEvent,
           appId: options?.appId,

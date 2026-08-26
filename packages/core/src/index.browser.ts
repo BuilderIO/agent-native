@@ -90,6 +90,7 @@ export {
   AgentNativeWebMcpUnsupportedError,
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
+  createAgentNativeServerActionWebMcpRegistration,
   isAgentNativeWebMcpSupported,
   type AgentNativeWebMcpApprovalRequest,
   type AgentNativeWebMcpClient,

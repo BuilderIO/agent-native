@@ -476,6 +476,69 @@ export interface AgentNativeWebMcpRegistration {
   stop(): void;
 }
 
+interface AgentNativeServerActionManifest {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+  readOnly?: boolean;
+}
+
+export function createAgentNativeServerActionWebMcpRegistration(options?: {
+  document?: Document;
+  fetch?: typeof fetch;
+}): AgentNativeWebMcpRegistration {
+  const fetchImpl =
+    options?.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  return createAgentNativeWebMcpRegistration({
+    document: options?.document,
+    maxToolCount: 1_000,
+    maxDescriptionChars: 10_000,
+    actions: async () => {
+      const response = await fetchImpl("/_agent-native/webmcp/manifest", {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Unable to load WebMCP actions (${response.status})`);
+      }
+      const manifest =
+        (await response.json()) as AgentNativeServerActionManifest[];
+      if (!Array.isArray(manifest)) {
+        throw new Error("WebMCP action manifest must be an array");
+      }
+      return manifest.map((action) => ({
+        name: action.name,
+        description: action.description,
+        ...(action.inputSchema ? { schema: action.inputSchema } : {}),
+        ...(action.readOnly ? { readOnly: true } : {}),
+        run: async (args) => {
+          const result = await fetchImpl(
+            `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+            {
+              method: "POST",
+              credentials: "same-origin",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(args),
+            },
+          );
+          const body = await result.json().catch(() => null);
+          if (!result.ok) {
+            throw new Error(
+              isRecord(body) && typeof body.error === "string"
+                ? body.error
+                : `WebMCP action failed (${result.status})`,
+            );
+          }
+          return body;
+        },
+      }));
+    },
+  });
+}
+
 function resolveActions(
   actions: AgentNativeClientActions,
 ): Promise<AgentNativeClientAction[]> {

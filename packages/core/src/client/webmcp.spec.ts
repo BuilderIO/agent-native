@@ -6,6 +6,7 @@ import {
   AgentNativeWebMcpUnsupportedError,
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
+  createAgentNativeServerActionWebMcpRegistration,
 } from "./webmcp.js";
 
 function documentWithModelContext(modelContext: Record<string, unknown>) {
@@ -162,6 +163,105 @@ describe("WebMCP client", () => {
     await expect(client.listTools()).rejects.toThrow(
       'WebMCP returned duplicate tool "get-order"',
     );
+  });
+});
+
+describe("automatic server action WebMCP registration", () => {
+  it("derives tools from the authenticated manifest and invokes the shared route", async () => {
+    const registrations: Array<{ tool: Record<string, any>; options: any }> =
+      [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool, options) => {
+        registrations.push({ tool, options });
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              name: "get-order",
+              description: "Read an order",
+              inputSchema: {
+                type: "object",
+                properties: { id: { type: "string" } },
+              },
+              readOnly: true,
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "order-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      fetch: fetchMock,
+    });
+    await registration.start();
+
+    expect(registrations[0]?.tool).toMatchObject({
+      name: "get-order",
+      description: "Read an order",
+      annotations: { readOnlyHint: true },
+    });
+    await expect(
+      registrations[0]?.tool.execute(
+        { id: "order-1" },
+        { signal: new AbortController().signal },
+      ),
+    ).resolves.toBe('{"id":"order-1"}');
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/_agent-native/webmcp/manifest",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/_agent-native/webmcp/actions/get-order",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        body: '{"id":"order-1"}',
+      }),
+    );
+  });
+
+  it("accepts framework-scale catalogs and long backend descriptions", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const manifest = Array.from({ length: 101 }, (_, index) => ({
+      name: `action-${index}`,
+      description: index === 0 ? "x".repeat(2_001) : `Action ${index}`,
+      inputSchema: { type: "object" },
+    }));
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      fetch: vi.fn(async () =>
+        Promise.resolve(
+          new Response(JSON.stringify(manifest), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    });
+
+    await registration.start();
+
+    expect(registration.registered).toBe(101);
+    expect(modelContext.registerTool).toHaveBeenCalledTimes(101);
   });
 });
 
