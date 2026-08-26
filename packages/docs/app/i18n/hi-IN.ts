@@ -1945,6 +1945,7 @@ const hiIN = {
     externalAgents: "External Agents (host connect करें)",
     externalAgentsCatalog: "बाहरी एजेंट कैटलॉग",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (ब्राउज़र टूल्स)",
     crossAppSso: "Cross-app SSO",
     notifications: "सूचनाएँ",
     automationConnectors: "वर्कफ़्लो कनेक्टर",

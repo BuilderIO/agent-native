@@ -1,43 +1,79 @@
 ---
-title: "Modèle de discussion"
-description: "Une application native d'agent minimale axée sur le chat : fils de discussion durables, actions, état de l'application, synchronisation en direct, authentification et espace pour ajouter votre propre UI."
+title: "Discussion"
+description: "Une application agent-native minimale axée sur le chat : fils de discussion durables, actions, état de l'application, synchronisation en direct, authentification, et de la place pour ajouter votre propre interface."
 ---
 
-# Modèle de discussion
+# Discussion
 
-Chat est le point de départ de base d'une application native pour agent. Il vous offre un shell propre de style ChatGPT avec une discussion au centre, une liste de fils de discussion à gauche, une navigation d'application standard, une authentification, une synchronisation en direct, actions et un exemple d'action. Commencez ici lorsque vous souhaitez une véritable application de navigateur sur laquelle vous pouvez créer sans vous engager dans un modèle de domaine.
+Discussion est le point de départ agent-natif le plus simple : un shell de style ChatGPT
+avec le chat au centre, une liste de fils de discussion, l'authentification, et un
+exemple d'action, rien de spécifique à un domaine. Elle s'adresse aux développeurs qui
+veulent une véritable application déployable sur laquelle construire leur propre agent
+et leurs propres écrans, pas un produit fini pour un métier particulier.
 
-Si vous souhaitez un runtime automation-first sans UI navigateur, commencez par [Automation-First Apps](/docs/pure-agent-apps). Si vous souhaitez une forme de produit de domaine fini, commencez par [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) ou un autre modèle de domaine.
+Si vous voulez une forme de produit de domaine fini, partez de
+[Calendrier](/docs/template-calendar), [Courrier](/docs/template-mail),
+[Contenu](/docs/template-content), [Formulaires](/docs/template-forms),
+[Analyses](/docs/template-analytics), ou un autre modèle de domaine. Si vous
+n'avez vraiment pas encore besoin d'une UI navigateur, consultez
+[Automation-First Apps](/docs/pure-agent-apps).
 
-<WireframeBlock id="doc-block-19iybib">
+<Cards columns={1}>
+
+### [Essayez-le maintenant →](https://chat.agent-native.com)
+
+Découvrez Discussion en direct : commencez une véritable conversation avec l'agent, aucune configuration requise.
+
+</Cards>
+
+<WireframeBlock id="doc-block-chat1">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Comment puis-je aider ?</h1><p class='wf-muted' style='margin:10px 0 0'>Discutez de tout. Ajoutez actions, composants, pages, jobs ou votre propre backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Écrire à l’agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · Élevé</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Comment puis-je aider ?</h1><p class='wf-muted' style='margin:10px 0 0'>Discutez de tout. Ajoutez des actions, des composants, des pages, des jobs, ou votre propre backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Écrire à l'agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Joindre'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · Élevé</span><span class='wf-pill'>Agir</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
 
-## Qu'est-ce qu'il y a dedans {#whats-in-it}
+## Ce qui est livré {#what-ships}
 
-- **Chat en pleine page** sur `/` en utilisant la surface de chat du framework et des fils de discussion durables.
-- **Liste de sujets dans la barre latérale de l'application** afin que les utilisateurs puissent créer, rouvrir, renommer, épingler et archiver des discussions.
-- **Plugin de chat d'agent** préconfiguré pour que le chat communique avec la boucle application-agent intégrée une fois les informations d'identification de votre agent définies.
-- **Auth** via Better Auth : connexion, inscription, sessions, organisations. Le même flux circule localement et en production ; en cours de développement, la vérification des e-mails est ignorée.
-- **Répertoire Actions** avec un exemple (`actions/hello.ts`) plus les standards `view-screen` et `navigate` actions.
-- **Tableaux principaux du framework** pour l'état de l'application, les paramètres, les sessions, les ressources, les fils de discussion, l'historique d'exécution et d'autres états d'exécution.
-- **Synchronisation en direct** (`useDbSync`) déjà câblée pour que UI s'actualise automatiquement lorsque l'agent écrit sur SQL.
-- **AGENTS.md** avec des conseils de discussion en premier pour ajouter actions, les itinéraires, skills et l'état de l'application.
+<Comparison>
 
-## Qu'est-ce qu'il n'y a _pas_ dedans {#not-in-it}
+### :green: Inclus
 
-- Aucune table de domaine ni donnée de départ.
-- Aucun tableau de bord, liste, graphique, formulaire ou intégration de fournisseur.
-- Aucun actions spécifique au domaine au-delà de l'exemple de stub.
+- Chat en pleine page sur `/` utilisant la surface de chat du framework et des
+  fils de discussion durables
+- Liste de fils de discussion dans la barre latérale de l'application pour
+  créer, rouvrir, renommer, épingler et archiver des discussions
+- La boucle application-agent intégrée, préconfigurée pour le plugin de chat
+- Authentification via Better Auth : connexion, inscription, sessions,
+  organisations
+- Un répertoire actions avec un exemple (`actions/hello.ts`) plus les actions
+  standards `view-screen` et `navigate`
+- Les tables principales du framework pour les fils de discussion, l'état de
+  l'application, les paramètres, les sessions, les ressources et l'historique
+  d'exécution, plus une page d'administration Base de données et un tableau
+  de bord Observabilité, montées que vous les ouvriez ou non
+- Synchronisation en direct (`useDbSync`) déjà câblée pour que l'interface
+  s'actualise quand l'agent écrit dans SQL
+- Routes Extensions montées par défaut, pour les mini-apps sandboxées que vos
+  utilisateurs créent plus tard à l'intérieur du chat
+- AGENTS.md avec des conseils axés sur le chat pour ajouter des actions, des
+  routes, des skills, et de l'état de l'application
 
-C'est ça le point. Chat est un shell par défaut mince et utile pour votre propre agent, et non un produit de domaine prétendant être générique.
+### :red: Non inclus
 
-<Diagram id="doc-block-osoedq" title={"Ce qui est livré dans le shell Chat"} summary={"Une fine surface de discussion sur le temps d'exécution standard du framework (actions, threads durables, synchronisation en direct et authentification) avec de la place pour ajouter votre propre interface utilisateur."}>
+- Tables de domaine ou données d'amorçage
+- Tableaux de bord, listes, graphiques, formulaires ou intégrations
+  fournisseur
+- Actions spécifiques à un domaine au-delà de l'exemple fourni
+
+</Comparison>
+
+C'est exactement le but. Discussion est un shell par défaut mince et utile pour
+votre propre agent, pas un produit de domaine qui prétend être générique.
+
+<Diagram id="doc-block-chat2" title="Ce qui est livré dans le shell Discussion" summary={"Une fine surface de chat par-dessus le runtime standard du framework — actions, fils durables, synchronisation en direct, et authentification — avec de la place pour ajouter votre propre interface."}>
 
 ```html
 <div class="diagram-chat">
@@ -48,7 +84,7 @@ C'est ça le point. Chat est un shell par défaut mince et utile pour votre prop
       >
     </div>
     <div class="diagram-node">
-      Chat pleine page<br /><small class="diagram-muted"
+      Chat en pleine page<br /><small class="diagram-muted"
         >surface de chat du framework sur /</small
       >
     </div>
@@ -61,7 +97,7 @@ C'est ça le point. Chat est un shell par défaut mince et utile pour votre prop
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-col right">
     <div class="diagram-box">
-      Tables SQL centrales<br /><small class="diagram-muted"
+      Tables SQL principales<br /><small class="diagram-muted"
         >threads · application_state · settings · sessions · runs</small
       >
     </div>
@@ -103,33 +139,55 @@ C'est ça le point. Chat est un shell par défaut mince et utile pour votre prop
 
 ## Quand le choisir {#when-to-pick}
 
-- **Vous souhaitez une application de base avec laquelle les utilisateurs peuvent parler immédiatement**, puis l'étendre avec actions et UI.
-- **Vous disposez d'une application sans interface graphique qui nécessite le chat** comme première surface de navigateur.
-- **Vous souhaitez connecter votre propre backend d'agent à un chat familier UI** tout en conservant la forme actions, l'état, l'authentification et le déploiement de Agent-Native.
-- **Vous prototypez un outil interne personnalisé** qui ne correspond pas à un modèle de domaine.
+- **Vous voulez une application de base à laquelle les utilisateurs peuvent
+  parler immédiatement**, puis l'étendre avec des actions et une interface.
+- **Vous voulez le point d'entrée par défaut d'Agent-Native** : le chat
+  d'abord, puis les actions, les résultats natifs, et les pages
+  d'application.
+- **Vous voulez brancher votre propre backend d'agent sur une interface de
+  chat familière** tout en conservant la forme actions, état,
+  authentification et déploiement d'Agent-Native.
+- **Vous prototypez un outil interne personnalisé** qui ne correspond à
+  aucun modèle de domaine.
 
-## Échafaudage {#scaffolding}
+## Commencer {#get-started}
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
-cd my-chat-app
-pnpm install
-pnpm dev
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
 ```
 
-Ou commencez sans UI et ajoutez une surface de discussion plus tard :
+Consultez [Discussion : Guide développeur](/docs/template-chat-developers#quick-start)
+pour l'installation, la première exécution, et la connexion d'un LLM. Pour un
+travail automation-first sans aucune UI navigateur, échafaudez plutôt avec
+`--headless` :
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-À partir de là, copiez l'itinéraire `/` et la liste de fils de discussion de la barre latérale du modèle Chat dans votre application, ou créez une application Chat et déplacez le actions de votre agent sans tête vers son répertoire `actions/`. L'invariant clé reste le même : actions est la surface partagée pour le chat, UI, HTTP, MCP, A2A et CLI.
+Utilisez-le pour les jobs planifiés, les files d'attente, les boucles CLI, ou
+les workflows d'agents externes là où le chat et les pages d'application ne
+sont pas encore utiles. L'invariant clé reste le même : les actions sont la
+surface partagée pour le chat, l'UI, HTTP, MCP, A2A, et CLI. Consultez
+[Automation-First Apps](/docs/pure-agent-apps) pour approfondir ce chemin.
 
-## Quelle est la prochaine étape
+## Et ensuite
 
-- [**Votre première fonctionnalité dans Chat**](/docs/template-chat-first-edits) — la route de chat de démarrage, annotée, ainsi qu'un guide complet pour ajouter une véritable fonctionnalité
-- [**Getting Started**](/docs) : choisissez entre les modèles sans tête, de chat et de domaine
-- [**Agent Surfaces**](/docs/agent-surfaces) – modèles sans tête, de chat, intégrés et d'application complète
-- [**Actions**](/docs/actions-overview) — le chat du système d'action et UI appellent tous deux
-- [**Native Interface de chat**](/docs/native-chat-ui) – primitives de la surface de discussion et options d'exécution
-- [**Automation-First Apps**](/docs/pure-agent-apps) : automatisations, files, scripts et workflows d'agents externes sans UI navigateur
+- [**Votre première fonctionnalité dans Discussion**](/docs/template-chat-first-edits) —
+  la route de chat de démarrage, annotée, plus un guide complet pour ajouter
+  une véritable fonctionnalité
+- [**Discussion : Guide développeur**](/docs/template-chat-developers) —
+  démarrage rapide, actions, tables principales, authentification, et les
+  pages d'administration livrées par défaut
+- [**Bien démarrer**](/docs/getting-started) — construisez le chemin axé sur
+  le chat, de l'action au résultat en ligne jusqu'à la page d'application
+- [**Modèles**](/docs/cloneable-saas) — le modèle SaaS clonable, et tous les
+  modèles de domaine à partir desquels démarrer à la place
+- [**Surfaces d'agent**](/docs/agent-surfaces) — chat, UI en ligne, pages
+  d'application, intégré, automatisation, et patterns d'agents externes
+- [**Actions**](/docs/actions-overview) — le système d'actions que le chat
+  et l'UI appellent tous les deux
+- [**Interface de chat native**](/docs/native-chat-ui) — primitives de la
+  surface de chat et options d'exécution
+- [**Automation-First Apps**](/docs/pure-agent-apps) — workflows sans
+  navigateur pour les jobs, files d'attente, scripts, et agents externes

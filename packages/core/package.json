@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.174.2",
+  "version": "0.175.3",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -126,6 +126,7 @@
     "./client/feature-flags": "./dist/client/feature-flags/index.js",
     "./client/hooks": "./dist/client/hooks/index.js",
     "./client/host": "./dist/client/host/index.js",
+    "./client/webmcp": "./dist/client/webmcp.js",
     "./client/integrations": "./dist/client/integrations/index.js",
     "./client/navigation": "./dist/client/navigation/index.js",
     "./client/resources": "./dist/client/resources/index.js",
@@ -133,6 +134,7 @@
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/settings": "./dist/client/settings/index.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
+    "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/uploads": "./dist/client/uploads/index.js",
     "./client/widgets": "./dist/client/widgets/index.js",

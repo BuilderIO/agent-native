@@ -5,7 +5,7 @@ vi.mock("@agent-native/core/file-upload", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveHasBuilderPrivateKey: async () => false,
+  hasBuilderApiCredentialCustody: async () => false,
   runWithRequestContext: async (
     _context: unknown,
     fn: () => Promise<unknown>,
