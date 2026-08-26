@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Lista de permissões de redirecionamento.** O hub (Dispatch) valida `redirect_uri` no endpoint autorizado antes de emitir um token. A lista de permissões está configurada em `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Padrão:** somente pares exatos de ID/origem de aplicativos Agent Native registrados e localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
+- **Padrão:** somente pares exatos de ID/origem de aplicativos Agent-Native registrados e localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Estendendo:** defina a variável de ambiente `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` na implantação do Dispatch com uma lista separada por vírgulas de sufixos de host adicionais:
 
   ```bash

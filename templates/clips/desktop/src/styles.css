@@ -3652,7 +3652,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 4px 2px 0;
 }
 
-/* Agent Native's mark, so the first screen says whose app this is. */
+/* Agent-Native's mark, so the first screen says whose app this is. */
 .signin-mark {
   display: block;
   width: 26px;

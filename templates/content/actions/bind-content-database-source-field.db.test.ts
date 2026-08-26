@@ -287,7 +287,7 @@ async function seedStaleBuilderTopicsSnapshot(rowCount = 2) {
           label: "Topics",
           type: "list",
           inputType: "tags",
-          options: ["Agent Native", "Developer Experience"],
+          options: ["Agent-Native", "Developer Experience"],
         },
       ],
     }),
@@ -758,7 +758,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
             sourceValuesJson: JSON.stringify({
               ...JSON.parse(row.sourceValuesJson),
               "data.topics": [
-                index === 0 ? "Agent Native" : "Developer Experience",
+                index === 0 ? "Agent-Native" : "Developer Experience",
               ],
               "_builder.bodyContent": "unrelated".repeat(5_000),
             }),
@@ -802,7 +802,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       .update(schema.contentDatabaseSourceRows)
       .set({
         sourceValuesJson: JSON.stringify({
-          "data.topics": ["Agent Native"],
+          "data.topics": ["Agent-Native"],
           "_builder.bodyContent": "unrelated".repeat(500),
         }),
       })
@@ -851,7 +851,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
             title: f.rows[0].title,
             urlPath: "/first-article",
             updatedAt: f.now,
-            sourceValues: { "data.topics": ["Agent Native"] },
+            sourceValues: { "data.topics": ["Agent-Native"] },
           },
           {
             id: f.rows[1].entryId,
@@ -912,7 +912,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       sourceRows.map((row) => {
         return JSON.parse(row.sourceValuesJson)["data.topics"];
       }),
-    ).toEqual([["Agent Native"], ["Developer Experience"]]);
+    ).toEqual([["Agent-Native"], ["Developer Experience"]]);
     const properties = await db
       .select()
       .from(schema.documentPropertyDefinitions)
@@ -974,7 +974,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       data: {
         title: `Remote ${row.title}`,
         tags: [`remote-tag-${index + 1}`],
-        topics: [index % 2 === 0 ? "Agent Native" : "Developer Experience"],
+        topics: [index % 2 === 0 ? "Agent-Native" : "Developer Experience"],
       },
     }));
     const requests: Array<{ limit: number; offset: number }> = [];
@@ -1036,7 +1036,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
           "data.title": row.title,
           "data.tags": [`stored-tag-${index + 1}`],
           "data.topics": [
-            index % 2 === 0 ? "Agent Native" : "Developer Experience",
+            index % 2 === 0 ? "Agent-Native" : "Developer Experience",
           ],
         });
       }
@@ -1097,7 +1097,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
             title: f.rows[0].title,
             urlPath: "/first-article",
             updatedAt: f.now,
-            sourceValues: { "data.topics": ["Agent Native"] },
+            sourceValues: { "data.topics": ["Agent-Native"] },
           },
           {
             id: f.rows[1].entryId,
@@ -1164,7 +1164,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     );
     expect(valuesBySourceRowId.get(f.rows[0].entryId)).toMatchObject({
       "data.concurrent": "preserve me",
-      "data.topics": ["Agent Native"],
+      "data.topics": ["Agent-Native"],
     });
     expect(valuesBySourceRowId.get(f.rows[1].entryId)).toMatchObject({
       "data.topics": ["Developer Experience"],
@@ -1288,7 +1288,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
           title: f.rows[0].title,
           urlPath: "/first-article",
           updatedAt: f.now,
-          sourceValues: { "data.topics": ["Agent Native"] },
+          sourceValues: { "data.topics": ["Agent-Native"] },
         },
       ],
       fetchedAt: f.now,

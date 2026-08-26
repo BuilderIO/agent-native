@@ -2309,7 +2309,7 @@ export async function startDesignConnectBridge(
               sendJson(res, 400, {
                 ok: false,
                 error:
-                  "script must install an approved Agent Native editor or canvas-pan bridge",
+                  "script must install an approved Agent-Native editor or canvas-pan bridge",
               });
               return;
             }

@@ -43,7 +43,7 @@ function subscription(
   return {
     id: "sub_1",
     dashboardId: "agent-native",
-    name: "Agent Native daily email",
+    name: "Agent-Native daily email",
     recipients: ["steve@builder.io"],
     filters: {},
     frequency: "daily",

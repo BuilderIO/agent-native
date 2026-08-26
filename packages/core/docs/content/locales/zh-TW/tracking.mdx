@@ -107,7 +107,7 @@ track(
 
 `source` 可以是直接傳遞的動作 `ctx`，也可以是沒有 `ctx` 的呼叫端所使用的 `{ userId, anonymousId, sessionId }` 中繼資料物件。
 
-瀏覽器工作階段不需要呼叫端自行提供：它來自環境請求內容（`RequestContext.browserSessionId`，由動作用戶端、聊天與瀏覽器端 `track()` 都會送出的 `X-Agent-Native-Session-Id` 標頭設定），因此無論事件是由介面或代理程式觸發，都會關聯到同一次造訪。每個供應商都會將它對應到自己的工作階段欄位：PostHog 使用 `$session_id`，藉此把事件與工作階段重播連結起來；Mixpanel 與 Amplitude 使用 `session_id` 屬性；Webhook 與 Agent Native Analytics 使用最上層的 `sessionId`。對於沒有瀏覽器的呼叫端（cron、CLI、MCP、A2A）此值不存在，而中繼資料物件中的 `sessionId` 會覆寫它。
+瀏覽器工作階段不需要呼叫端自行提供：它來自環境請求內容（`RequestContext.browserSessionId`，由動作用戶端、聊天與瀏覽器端 `track()` 都會送出的 `X-Agent-Native-Session-Id` 標頭設定），因此無論事件是由介面或代理程式觸發，都會關聯到同一次造訪。每個供應商都會將它對應到自己的工作階段欄位：PostHog 使用 `$session_id`，藉此把事件與工作階段重播連結起來；Mixpanel 與 Amplitude 使用 `session_id` 屬性；Webhook 與 Agent-Native Analytics 使用最上層的 `sessionId`。對於沒有瀏覽器的呼叫端（cron、CLI、MCP、A2A）此值不存在，而中繼資料物件中的 `sessionId` 會覆寫它。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -194,11 +194,11 @@ track("checkout.completed", { total: 49.99, items: 3 });
 - **一勞永逸。**它永遠不會阻塞 UI，永遠不會拋出並吞掉網路錯誤。
 - **經過驗證，僅限第一方。** 該路由需要工作階段和同來源/CSRF 標記（由幫助程式自動設定），因此它不能用作開放分析中繼。 `name` 的上限為 200 個字符，`properties` 的上限為 ~16KB；過大或格式錯誤的有效負載將被拒絕。
 
-這與框架的內部瀏覽器遙測（`trackEvent()` /自動頁面瀏覽量 - 請參閱下面的 [Browser defaults](#browser-defaults)）不同，後者為 Agent Native 自己的產品分析提供支援。將 `track()` 用於您的應用自己的分析事件，這些事件應到達您設定的提供者。
+這與框架的內部瀏覽器遙測（`trackEvent()` /自動頁面瀏覽量 - 請參閱下面的 [Browser defaults](#browser-defaults)）不同，後者為 Agent-Native 自己的產品分析提供支援。將 `track()` 用於您的應用自己的分析事件，這些事件應到達您設定的提供者。
 
 ## 工作階段重播 {#session-replay}
 
-Agent Native 應用程式可以選擇加入第一方瀏覽器工作階段重播，而無需新增第二個分析 SDK。在瀏覽器根目錄中呼叫一次 `configureTracking()`，並傳入 Analytics 公開金鑰以及收集器端點：
+Agent-Native 應用程式可以選擇加入第一方瀏覽器工作階段重播，而無需新增第二個分析 SDK。在瀏覽器根目錄中呼叫一次 `configureTracking()`，並傳入 Analytics 公開金鑰以及收集器端點：
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -219,7 +219,7 @@ configureTracking({
 
 當 `sessionReplay.enabled` 為真值時，用戶端會在啟動後動態匯入 `@rrweb/record`，並將重播區塊發佈到重播端點。如果 `endpoint` 以 `/api/analytics/track` 或 `/track` 結尾，重播端點會自動衍生為 `/api/analytics/replay`。當重播收集器位於其他位置時，請使用 `sessionReplay.endpoint` 明確覆寫它。
 
-Agent Native 範本根目錄已經呼叫了 `configureTracking()`。託管範本部署可以透過 Vite/Netlify 環境變數開啟重播，而函式庫使用者則應優先使用上面明確的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
+Agent-Native 範本根目錄已經呼叫了 `configureTracking()`。託管範本部署可以透過 Vite/Netlify 環境變數開啟重播，而函式庫使用者則應優先使用上面明確的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -228,7 +228,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-瀏覽器輔助程式也會盡力執行、非阻塞式讀取目前的 Agent Native 驗證工作階段。重播預設僅限已登入使用者：當 `sessionReplay` 啟用時，除非工作階段解析出使用者電子郵件地址，否則不會開始錄製。已登入使用者的重播包含以電子郵件為基礎的 `userId`/`userEmail` 以及 `orgId`。
+瀏覽器輔助程式也會盡力執行、非阻塞式讀取目前的 Agent-Native 驗證工作階段。重播預設僅限已登入使用者：當 `sessionReplay` 啟用時，除非工作階段解析出使用者電子郵件地址，否則不會開始錄製。已登入使用者的重播包含以電子郵件為基礎的 `userId`/`userEmail` 以及 `orgId`。
 
 僅在刻意進行匿名重播部署時，才設定 `sessionReplay.requireSignedInUser: false` 或 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`。停用驗證閘控後，匿名錄製仍可依匿名訪客、工作階段、應用程式/範本、主機名稱與路徑進行查詢。
 

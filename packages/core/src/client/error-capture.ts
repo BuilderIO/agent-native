@@ -1,5 +1,5 @@
 /**
- * First-party, Sentry-style browser error capture for the Agent Native
+ * First-party, Sentry-style browser error capture for the Agent-Native
  * analytics SDK.
  *
  * Two responsibilities:

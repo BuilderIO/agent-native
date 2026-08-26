@@ -39,7 +39,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-29
 

@@ -35,9 +35,9 @@ Claude、Claude Desktop、Cursor、Codex など、あらゆる MCP ホストに�
 
 </Cards>
 
-ほとんどのアプリは、フロントエンドとデータベースの間に、ブラウザだけが呼び出せる独自の API 層を構築します。同じ機能をエージェントにも持たせたい場合、別途の統合を書いて、また保守し続ける必要があります。Agent-native アプリはこの分断を回避します。UI とエージェントはまったく同じアクションを呼び出すため、実装すべき箇所は1つだけであり、バグが隠れる場所も1つだけです。
+ほとんどのアプリは、フロントエンドとデータベースの間に、ブラウザだけが呼び出せる独自の API 層を構築します。同じ機能をエージェントにも持たせたい場合、別途の統合を書いて、また保守し続ける必要があります。Agent-Native アプリはこの分断を回避します。UI とエージェントはまったく同じアクションを呼び出すため、実装すべき箇所は1つだけであり、バグが隠れる場所も1つだけです。
 
-<Diagram id="doc-block-actions-overview-2" title="従来のフロントエンド vs. Agent Native" summary="従来のフロントエンドは、それ専用の API 層を呼び出します。Agent Native では、app/ とエージェントの両方が同じアクションを呼び出すため、ここで構築されるすべての機能が無料でエージェント呼び出し可能になります。">
+<Diagram id="doc-block-actions-overview-2" title="従来のフロントエンド vs. Agent-Native" summary="従来のフロントエンドは、それ専用の API 層を呼び出します。Agent-Native では、app/ とエージェントの両方が同じアクションを呼び出すため、ここで構築されるすべての機能が無料でエージェント呼び出し可能になります。">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Claude、Claude Desktop、Cursor、Codex など、あらゆる MCP ホストに�
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React フロントエンド)</div>
       <div class="diagram-node">エージェント</div>

@@ -324,12 +324,12 @@ function showUpdateCheckResultNotification(status: UpdateStatus) {
   const notification =
     status.state === "not-available"
       ? new Notification({
-          title: "Agent Native is up to date",
+          title: "Agent-Native is up to date",
           body: `You're running the latest version (${status.currentVersion}).`,
         })
       : status.state === "error"
         ? new Notification({
-            title: "Could not check for Agent Native updates",
+            title: "Could not check for Agent-Native updates",
             body: status.message,
           })
         : null;

@@ -107,7 +107,7 @@ track(
 
 `source` या तो किसी ऐक्शन का `ctx` है, जिसे सीधे आगे भेजा जाता है, या फिर उन कॉलर्स के लिए `{ userId, anonymousId, sessionId }` मेटा ऑब्जेक्ट है जिनके पास `ctx` नहीं है।
 
-ब्राउज़र सेशन कॉलर को स्वयं देना ज़रूरी नहीं है: यह परिवेशी रिक्वेस्ट कॉन्टेक्स्ट से आता है (`RequestContext.browserSessionId`, जो `X-Agent-Native-Session-Id` हेडर से सेट होता है — इसे ऐक्शन क्लाइंट, चैट और ब्राउज़र का `track()` तीनों भेजते हैं), इसलिए इवेंट चाहे UI ने ट्रिगर किया हो या एजेंट ने, वही विज़िट सहसंबद्ध रहती है। हर प्रोवाइडर इसे अपने सेशन फ़ील्ड पर मैप करता है: PostHog में `$session_id`, जो इवेंट को सेशन रीप्ले से जोड़ता है; Mixpanel और Amplitude में `session_id` प्रॉपर्टी; वेबहुक और Agent Native Analytics में शीर्ष-स्तरीय `sessionId`। बिना ब्राउज़र वाले कॉलर्स (cron, CLI, MCP, A2A) के लिए यह अनुपस्थित रहता है, और मेटा ऑब्जेक्ट का `sessionId` इसे ओवरराइड कर देता है।
+ब्राउज़र सेशन कॉलर को स्वयं देना ज़रूरी नहीं है: यह परिवेशी रिक्वेस्ट कॉन्टेक्स्ट से आता है (`RequestContext.browserSessionId`, जो `X-Agent-Native-Session-Id` हेडर से सेट होता है — इसे ऐक्शन क्लाइंट, चैट और ब्राउज़र का `track()` तीनों भेजते हैं), इसलिए इवेंट चाहे UI ने ट्रिगर किया हो या एजेंट ने, वही विज़िट सहसंबद्ध रहती है। हर प्रोवाइडर इसे अपने सेशन फ़ील्ड पर मैप करता है: PostHog में `$session_id`, जो इवेंट को सेशन रीप्ले से जोड़ता है; Mixpanel और Amplitude में `session_id` प्रॉपर्टी; वेबहुक और Agent-Native Analytics में शीर्ष-स्तरीय `sessionId`। बिना ब्राउज़र वाले कॉलर्स (cron, CLI, MCP, A2A) के लिए यह अनुपस्थित रहता है, और मेटा ऑब्जेक्ट का `sessionId` इसे ओवरराइड कर देता है।
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -194,11 +194,11 @@ track("checkout.completed", { total: 49.99, items: 3 });
 - **फ़ायर-एंड-फ़ॉरगेट।** यह कभी भी UI को ब्लॉक नहीं करता, कभी फेंकता नहीं और नेटवर्क त्रुटियों को निगल जाता है।
 - **प्रमाणित, केवल प्रथम-पक्ष।** रूट के लिए एक सत्र और एक समान-मूल/CSRF मार्कर (सहायक द्वारा स्वचालित रूप से सेट) की आवश्यकता होती है, इसलिए इसे एक ओपन एनालिटिक्स रिले के रूप में उपयोग नहीं किया जा सकता है। `name` की सीमा 200 अक्षर और `properties` की अधिकतम सीमा ~16KB है; अधिक आकार वाले या विकृत पेलोड अस्वीकार कर दिए जाते हैं।
 
-यह फ्रेमवर्क के आंतरिक ब्राउज़र टेलीमेट्री (`trackEvent()` / स्वचालित पेजव्यू - नीचे [Browser defaults](#browser-defaults) देखें) से अलग है, जो Agent Native के स्वयं के उत्पाद विश्लेषण को शक्ति प्रदान करता है। अपने ऐप के स्वयं के एनालिटिक्स इवेंट के लिए `track()` का उपयोग करें जो आपके कॉन्फ़िगर किए गए प्रदाताओं तक पहुंचना चाहिए।
+यह फ्रेमवर्क के आंतरिक ब्राउज़र टेलीमेट्री (`trackEvent()` / स्वचालित पेजव्यू - नीचे [Browser defaults](#browser-defaults) देखें) से अलग है, जो Agent-Native के स्वयं के उत्पाद विश्लेषण को शक्ति प्रदान करता है। अपने ऐप के स्वयं के एनालिटिक्स इवेंट के लिए `track()` का उपयोग करें जो आपके कॉन्फ़िगर किए गए प्रदाताओं तक पहुंचना चाहिए।
 
 ## Session replay {#session-replay}
 
-Agent Native ऐप्स दूसरा एनालिटिक्स SDK जोड़े बिना फर्स्ट-पार्टी ब्राउज़र session replay को ऑप्ट इन कर सकते हैं। ब्राउज़र रूट में एक बार `configureTracking()` को कॉल करें और Analytics पब्लिक की के साथ collector endpoint पास करें:
+Agent-Native ऐप्स दूसरा एनालिटिक्स SDK जोड़े बिना फर्स्ट-पार्टी ब्राउज़र session replay को ऑप्ट इन कर सकते हैं। ब्राउज़र रूट में एक बार `configureTracking()` को कॉल करें और Analytics पब्लिक की के साथ collector endpoint पास करें:
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -219,7 +219,7 @@ configureTracking({
 
 जब `sessionReplay.enabled` truthy होता है, तो क्लाइंट स्टार्टअप के बाद `@rrweb/record` को डायनेमिक रूप से इंपोर्ट करता है और replay chunks को replay endpoint पर पोस्ट करता है। यदि `endpoint`, `/api/analytics/track` या `/track` पर समाप्त होता है, तो replay endpoint स्वचालित रूप से `/api/analytics/replay` के रूप में व्युत्पन्न होता है। जब replay collector कहीं और हो, तो इसे `sessionReplay.endpoint` के साथ स्पष्ट रूप से ओवरराइड करें।
 
-Agent Native टेम्पलेट रूट पहले से ही `configureTracking()` को कॉल करते हैं। होस्टेड टेम्पलेट डिप्लॉयमेंट Vite/Netlify एनवायरनमेंट वेरिएबल्स के साथ replay चालू कर सकते हैं, जबकि लाइब्रेरी उपभोक्ताओं को ऊपर दिए गए स्पष्ट `configureTracking({ key, endpoint, sessionReplay })` फॉर्म को प्राथमिकता देनी चाहिए:
+Agent-Native टेम्पलेट रूट पहले से ही `configureTracking()` को कॉल करते हैं। होस्टेड टेम्पलेट डिप्लॉयमेंट Vite/Netlify एनवायरनमेंट वेरिएबल्स के साथ replay चालू कर सकते हैं, जबकि लाइब्रेरी उपभोक्ताओं को ऊपर दिए गए स्पष्ट `configureTracking({ key, endpoint, sessionReplay })` फॉर्म को प्राथमिकता देनी चाहिए:
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -228,7 +228,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-ब्राउज़र हेल्पर वर्तमान Agent Native auth session का एक बेस्ट-एफर्ट, नॉन-ब्लॉकिंग रीड भी करता है। Replay डिफ़ॉल्ट रूप से केवल साइन-इन उपयोगकर्ताओं के लिए है: जब `sessionReplay` सक्षम होता है, तो जब तक session किसी उपयोगकर्ता के ईमेल पते पर रिज़ॉल्व नहीं होता, तब तक रिकॉर्डिंग शुरू नहीं होती। साइन-इन replays में ईमेल-बैक्ड `userId`/`userEmail` के साथ `orgId` शामिल होता है।
+ब्राउज़र हेल्पर वर्तमान Agent-Native auth session का एक बेस्ट-एफर्ट, नॉन-ब्लॉकिंग रीड भी करता है। Replay डिफ़ॉल्ट रूप से केवल साइन-इन उपयोगकर्ताओं के लिए है: जब `sessionReplay` सक्षम होता है, तो जब तक session किसी उपयोगकर्ता के ईमेल पते पर रिज़ॉल्व नहीं होता, तब तक रिकॉर्डिंग शुरू नहीं होती। साइन-इन replays में ईमेल-बैक्ड `userId`/`userEmail` के साथ `orgId` शामिल होता है।
 
 `sessionReplay.requireSignedInUser: false` या `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` को केवल एक जानबूझकर किए गए एनोनिमस replay डिप्लॉयमेंट के लिए सेट करें। जब auth gating अक्षम होती है, तो एनोनिमस रिकॉर्डिंग्स एनोनिमस विज़िटर, session, app/template, hostname, और path के अनुसार क्वेरी करने योग्य बनी रहती हैं।
 

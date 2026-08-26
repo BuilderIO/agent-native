@@ -498,7 +498,7 @@ const koKR = {
     design: {
       replaces: "디자인 프로토타이핑 도구를 대체하거나 보강",
       description:
-        "Agent-native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
+        "Agent-Native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
     },
     content: {
       replaces:
@@ -1231,7 +1231,7 @@ const koKR = {
       s026: "공유 가능한 링크",
       s027: "모든 계획에는 공개 URL이 있습니다. 비동기식 검토, 댓글 및 승인을 위해 팀원과 공유하세요.",
       s028: "데스크탑 파일 동기화",
-      s029: "앱을 복제하거나 CLI을 실행하지 않고 Agent Native Desktop에서 로컬 MDX 파일로 호스팅된 계획을 미러링합니다.",
+      s029: "앱을 복제하거나 CLI을 실행하지 않고 Agent-Native Desktop에서 로컬 MDX 파일로 호스팅된 계획을 미러링합니다.",
       s030: "이므로 리뷰는 코드 옆에 유지됩니다.",
       s031: "작동 원리",
       s032: "계획은 공유 앱에 있습니다. 귀하와 상담원 모두 기능 수명 주기 동안 계획을 읽고 업데이트할 수 있습니다.",
@@ -1265,7 +1265,7 @@ const koKR = {
       s060: "모든 템플릿 보기",
       s061: "VS Code 핸드오프",
       s062: "다음을 사용해 VS Code 사이드 패널에서 계획 링크를 여세요:",
-      s063: "Agent Native Plans 확장",
+      s063: "Agent-Native Plans 확장",
       s064: "와이어프레임 — 컴포넌트 슬롯이 있는 스케치 UI 모형",
       s065: "주석 코드 — 줄별 메모가 있는 소스 파일",
       s066: "다이어그램 — 흐름, 시퀀스 또는 아키텍처",
@@ -1293,7 +1293,7 @@ const koKR = {
           "plan mode는 터미널의 텍스트로, 한 사람만 볼 수 있고 승인하면 사라집니다. Plans는 와이어프레임, 다이어그램, 주석이 달린 차이를 포함한 시각적 계획입니다. 공유하고 계속 보관할 수 있으며, 에이전트가 기능의 전체 수명 주기 동안 만들고 읽고 업데이트할 수 있습니다.",
         question5: "코드 옆에서 계획을 볼 수 있나요?",
         answer5:
-          "네. VS Code 확장 프로그램이 계획을 사이드 패널에서 열고, Agent Native Desktop은 호스팅된 계획을 로컬 MDX 파일로 미러링합니다.",
+          "네. VS Code 확장 프로그램이 계획을 사이드 패널에서 열고, Agent-Native Desktop은 호스팅된 계획을 로컬 MDX 파일로 미러링합니다.",
         question6: "Plans는 무료인가요?",
         answer6:
           "네. 무료 오픈 소스이며 MIT 라이선스입니다. Plans는 호스팅된 공유 링크를 제공하고, 모든 내용을 로컬 파일로 미러링할 수도 있습니다.",
@@ -1516,9 +1516,9 @@ const koKR = {
     },
   },
   downloadPage: {
-    title: "Agent Native 다운로드",
+    title: "Agent-Native 다운로드",
     body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
-    openDesktop: "Agent Native 열기",
+    openDesktop: "Agent-Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
     downloadStarted: "다운로드가 시작되었습니다",
     downloadAgain: "작동하지 않았나요? 다시 다운로드해 보세요",
