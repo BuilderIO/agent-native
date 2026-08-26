@@ -37,4 +37,23 @@ describe("notifyClients", () => {
       deckId: "deck-1",
     });
   });
+
+  it("preserves deletion scope after the deck row is removed", () => {
+    notifyClients("deck-1", {
+      type: "deck-deleted",
+      owner: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "deck",
+      type: "deck-deleted",
+      key: "deck-1",
+      resourceType: "deck",
+      resourceId: "deck-1",
+      owner: "owner@example.com",
+      orgId: "org-1",
+      deckId: "deck-1",
+    });
+  });
 });

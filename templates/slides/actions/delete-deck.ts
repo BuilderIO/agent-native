@@ -27,16 +27,18 @@ export default defineAction({
       // this resource — it must run BEFORE the delete so we don't leak
       // existence to callers who lack access.
       const access = await assertAccess("deck", id, "admin");
+      const owner = access.resource.ownerEmail as string;
+      const orgId =
+        typeof access.resource.orgId === "string"
+          ? access.resource.orgId
+          : undefined;
       const db = getDb();
       await db
         .delete(schema.deckVersions)
         .where(
           and(
             eq(schema.deckVersions.deckId, id),
-            eq(
-              schema.deckVersions.ownerEmail,
-              access.resource.ownerEmail as string,
-            ),
+            eq(schema.deckVersions.ownerEmail, owner),
           ),
         );
       const result = await db
@@ -47,7 +49,7 @@ export default defineAction({
       if (result.length === 0) {
         throw deckHttpError(404, "Deck not found");
       }
-      notifyClients(id, "deck-deleted");
+      notifyClients(id, { type: "deck-deleted", owner, orgId });
       return { success: true };
     } catch (err) {
       // 404 rather than 403 so callers can't probe for decks they can't see.

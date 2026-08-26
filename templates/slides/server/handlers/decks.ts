@@ -36,6 +36,9 @@ export interface NotifyClientsOptions {
   slideId?: string;
   /** Who made the change: "agent" for AI writes, "human" otherwise. */
   actor?: "agent" | "human";
+  /** Pre-delete ownership metadata for access-aware deletion events. */
+  owner?: string;
+  orgId?: string;
 }
 
 /**
@@ -71,6 +74,8 @@ export function notifyClients(
     key: deckId,
     resourceType: "deck",
     resourceId: deckId,
+    ...(options.owner ? { owner: options.owner } : {}),
+    ...(options.orgId ? { orgId: options.orgId } : {}),
     ...payload,
   });
   if (process.env.DEBUG_SLIDES_SSE) {
