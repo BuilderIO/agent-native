@@ -36,7 +36,7 @@ const PILLAR_ROWS: Pillar[][] = [
       darkImage:
         "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4d4986fc4c2447d0b39260aa65df823a",
       lightImage:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93d43e22a4604d438458cd8ab4532272",
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff291129737ef48c9a77badc32c1d9df8",
     },
   ],
   [
