@@ -885,7 +885,7 @@ export function DrawOverlay({
     <TooltipProvider>
       <div
         data-draw-toolbar
-        className="pointer-events-auto fixed bottom-20 left-1/2 z-[110] flex max-w-[calc(100vw-1rem)] -translate-x-1/2 flex-nowrap items-center justify-center gap-2 overflow-x-auto rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="pointer-events-auto fixed bottom-20 left-1/2 z-[110] flex max-w-[calc(100vw-1rem)] -translate-x-1/2 flex-nowrap items-center justify-start gap-2 overflow-x-auto rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {/* Color picker */}
         <div className="flex gap-1">

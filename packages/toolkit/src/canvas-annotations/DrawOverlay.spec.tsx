@@ -148,6 +148,7 @@ describe("DrawOverlay clear undo", () => {
     const overlay = container.querySelector<HTMLElement>("[data-draw-overlay]");
 
     expect(toolbar?.className).toContain("flex-nowrap");
+    expect(toolbar?.className).toContain("justify-start");
     expect(toolbar?.className).toContain("overflow-x-auto");
     expect(overlay?.className).toContain("z-[60]");
   });
