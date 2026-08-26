@@ -265,7 +265,12 @@ export function TemplateShowcase() {
             {APPS.map((app) => (
               <Link key={app.slug} to={app.href} className="app-carousel-card">
                 <div className="app-carousel-card-image">
-                  <ImgPlaceholder aspectRatio="320 / 256" label={app.name} />
+                  <ImgPlaceholder
+                    aspectRatio="320 / 256"
+                    label=""
+                    rounded={false}
+                    background="#000"
+                  />
                 </div>
                 <div className="app-carousel-card-body">
                   <h3
