@@ -122,7 +122,7 @@ describe("createFetchToolEntry", () => {
       name: "a compact credential header",
       args: {
         url: "https://93.184.216.34/frame.jpg",
-        headers: JSON.stringify({ "X-RapidAPI-Key": "example-key" }),
+        headers: JSON.stringify({ "x-rapidapi-key": "example-key" }),
       },
     },
     {
