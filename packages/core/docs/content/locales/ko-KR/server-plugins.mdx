@@ -110,6 +110,12 @@ export default runMigrations(
   마세요.
 </Callout>
 
+새 앱 소유 테이블과 열에는 Drizzle Kit이 생성한 SQL을
+`runDrizzleMigrations`로 사용하는 방식을 우선하세요. 방언별 SQL, D1 동작,
+backfill 및 지연된 JavaScript 단계에는 `runMigrations`를 사용하세요. 러너는
+공유 request guard를 통과한 후 `server/db/migrations/<id_name>.sql`을
+읽습니다.
+
 ## 커스텀 플러그인 작성하기 {#custom-plugins}
 
 프레임워크 도우미(`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`)는 각각 Nitro 플러그인 함수를 반환합니다. 이 도우미들의 범위를 벗어나는 작업에는 `defineNitroPlugin`을 사용해 플러그인을 작성하세요.

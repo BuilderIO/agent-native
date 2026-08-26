@@ -109,6 +109,11 @@ export default runMigrations(
   و`ALTER TABLE ... DROP COLUMN`، و`DELETE FROM`) في إضافات بدء التشغيل.
 </Callout>
 
+بالنسبة إلى الجداول والأعمدة الجديدة الخاصة بالتطبيق، فضّل SQL الذي ينشئه Drizzle
+Kit عبر `runDrizzleMigrations`. استخدم `runMigrations` للحالات التي تحتاج إلى SQL
+خاص باللهجة أو D1، أو إلى عمليات ملء البيانات، أو خطوات JavaScript المؤجلة. يقرأ
+المشغّل ملفات `server/db/migrations/<id_name>.sql` بعد اجتياز حارس الطلب.
+
 ## كتابة إضافات مخصصة {#custom-plugins}
 
 تُرجع كل من مساعدات إطار العمل (`createAuthPlugin`، و`createAgentChatPlugin`، و`runMigrations`) دالة إضافة Nitro. وبالنسبة لأي شيء خارج نطاق هذه المساعدات، اكتب إضافة باستخدام `defineNitroPlugin`:

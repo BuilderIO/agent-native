@@ -266,6 +266,16 @@ export interface MigrationEntry {
   run?: () => Promise<MigrationRunResult>;
 }
 
+/**
+ * A static migration list or a lazy loader for migration entries.
+ *
+ * Lazy sources are resolved only after the serverless request guard passes, so
+ * release-only migration files do not become request-path work.
+ */
+export type MigrationSource =
+  | Array<MigrationEntry>
+  | (() => Array<MigrationEntry> | Promise<Array<MigrationEntry>>);
+
 function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
   if (typeof sql === "string") return sql;
   const raw = pg ? sql.postgres : sql.sqlite;
@@ -373,8 +383,25 @@ function appMigratesAtRelease(): boolean {
  */
 export { withMigrationRuntime } from "./migration-runtime.js";
 
-export function runMigrations(
+function validateMigrationNames(
   migrations: Array<MigrationEntry>,
+  table: string,
+): void {
+  const seenNames = new Set<string>();
+  for (const m of migrations) {
+    if (!m.name) continue;
+    if (seenNames.has(m.name)) {
+      throw new Error(
+        `runMigrations: duplicate migration name "${m.name}" in the migration list for table "${table}". ` +
+          "Migration names must be unique - pick a different stable slug.",
+      );
+    }
+    seenNames.add(m.name);
+  }
+}
+
+export function runMigrations(
+  migrationSource: MigrationSource,
   options: RunMigrationsOptions,
 ): NitroPluginDef {
   const table = options?.table;
@@ -391,25 +418,18 @@ export function runMigrations(
   }
 
   // Duplicate-name detection — programmer error, fail loud at startup rather
-  // than silently tracking the wrong migration's applied state.
-  {
-    const seenNames = new Set<string>();
-    for (const m of migrations) {
-      if (!m.name) continue;
-      if (seenNames.has(m.name)) {
-        throw new Error(
-          `runMigrations: duplicate migration name "${m.name}" in the migration list for table "${table}". ` +
-            "Migration names must be unique — pick a different stable slug.",
-        );
-      }
-      seenNames.add(m.name);
-    }
+  // than silently tracking the wrong migration's applied state. Lazy sources
+  // are validated after the request guard, when their entries are available.
+  if (Array.isArray(migrationSource)) {
+    validateMigrationNames(migrationSource, table);
   }
 
   // A plugin with no migrations is intentionally a no-op. Creating or reading
   // a bookkeeping table here turns an empty app plugin into a database cold
   // start on every serverless boot.
-  if (migrations.length === 0) return async () => {};
+  if (Array.isArray(migrationSource) && migrationSource.length === 0) {
+    return async () => {};
+  }
 
   const namedTable = `${table}_named`;
 
@@ -440,6 +460,20 @@ export function runMigrations(
       return;
     }
     try {
+      const migrations =
+        typeof migrationSource === "function"
+          ? await migrationSource()
+          : migrationSource;
+      if (!Array.isArray(migrations)) {
+        throw new Error(
+          "runMigrations: a lazy migration source must return an array of migration entries",
+        );
+      }
+      if (typeof migrationSource === "function") {
+        validateMigrationNames(migrations, table);
+      }
+      if (migrations.length === 0) return;
+
       // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
       const d1 =
         getDialect() === "d1"

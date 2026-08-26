@@ -255,6 +255,14 @@ export const getDb = createGetDb(schema);
   migrate:production` が用意されています。
 </Callout>
 
+### Drizzle Kit で新しいアプリマイグレーションを生成する {#drizzle-migrations}
+
+アプリの新しいスキーマ変更には `pnpm db:generate` を使い、レビュー可能な
+SQL を生成します。`server/db/migrations/<id_name>.sql` が作成され、
+`runDrizzleMigrations` がこれらのファイルを共有 Agent Native ランナーに読み込みます。
+本番の変更は引き続きリリース手順が担当します。方言固有の SQL、D1 の動作、
+データのバックフィル、遅延 JavaScript ステップには `runMigrations()` を使います。
+
 <Callout tone="risk">
   本番データベースに対して `drizzle-kit push`
   を実行しないでください。テンプレートのスキーマはアプリ固有のドメイン

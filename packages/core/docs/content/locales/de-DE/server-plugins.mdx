@@ -109,6 +109,12 @@ Jeder Eintrag benötigt eine `version`-Nummer und einen `sql`-String. Die Option
   TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) in Startup-Plugins ein.
 </Callout>
 
+Für neue app-eigene Tabellen und Spalten sollten Sie von Drizzle Kit erzeugtes SQL
+mit `runDrizzleMigrations` verwenden. Verwenden Sie `runMigrations` für
+dialektspezifisches SQL, D1-Verhalten, Backfills und verzögerte JavaScript-Schritte.
+Der Runner liest `server/db/migrations/<id_name>.sql` erst nach dem
+gemeinsamen Request-Guard.
+
 ## Eigene Plugins schreiben {#custom-plugins}
 
 Die Framework-Helfer (`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`) geben jeweils eine Nitro-Plugin-Funktion zurück. Für alles außerhalb dieser Helfer schreiben Sie ein Plugin mit `defineNitroPlugin`:

@@ -247,6 +247,14 @@ export const getDb = createGetDb(schema);
   Chat 範本提供 `pnpm migrate:production`，用於在發佈步驟執行遷移。
 </Callout>
 
+### 使用 Drizzle Kit 產生新的應用程式遷移 {#drizzle-migrations}
+
+對於新的應用程式架構變更，請使用 `pnpm db:generate` 產生可供審查的 SQL。
+這會建立 `server/db/migrations/<id_name>.sql`，並由
+`runDrizzleMigrations` 將這些檔案載入共用的 Agent Native runner。正式環境的
+變更仍由發佈步驟負責。方言專用 SQL、D1 行為、資料回填與延遲的 JavaScript
+步驟，請繼續使用 `runMigrations()`。
+
 <Callout tone="risk">
   切勿針對正式環境資料庫執行 `drizzle-kit
   push`。範本架構僅定義特定於應用程式的資料表；它們不包含中央框架資料表（`user`、`session`、`application_state`

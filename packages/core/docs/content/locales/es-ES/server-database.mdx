@@ -255,6 +255,15 @@ número de versión.
   como parte del paso de release.
 </Callout>
 
+### Generar nuevas migraciones de la aplicación con Drizzle Kit {#drizzle-migrations}
+
+Para los nuevos cambios del esquema de la aplicación, use `pnpm db:generate` para
+crear SQL revisable. Esto crea `server/db/migrations/<id_name>.sql` y
+`runDrizzleMigrations` carga esos archivos en el ejecutor compartido de Agent
+Native. El paso de release sigue siendo el responsable de los cambios en
+producción. Mantenga `runMigrations()` para SQL específico del dialecto, D1,
+backfills y pasos de JavaScript diferidos.
+
 <Callout tone="risk">
   Nunca ejecute `drizzle-kit push` contra una base de datos de producción. Los
   esquemas de las plantillas solo definen tablas específicas de la aplicación;

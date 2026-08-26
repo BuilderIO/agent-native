@@ -206,7 +206,12 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-يجب أن تكون تغييرات المخطط إضافية. إضافة الجداول والأعمدة من خلال `runMigrations()` في `server/plugins/db.ts`؛ لا تستخدم مطلقًا SQL أو `drizzle-kit push` أو إعادة تسمية الجداول أو إسقاط الأعمدة.
+يجب أن تكون تغييرات المخطط إضافية. بالنسبة إلى الجداول والأعمدة الجديدة الخاصة
+بالتطبيق، استخدم `drizzle-kit generate` لإنشاء SQL قابل للمراجعة ضمن
+`server/db/migrations/<id_name>.sql`، ثم حمّله عبر
+`runDrizzleMigrations()` من خطوة الإصدار. احتفظ بـ `runMigrations()` للتاريخ
+المكتوب يدويًا والحالات الخاصة. لا تستخدم مطلقًا SQL أو `drizzle-kit push` أو
+إعادة تسمية الجداول أو إسقاط الأعمدة.
 
 لقراءة التطبيق وكتابته، استخدم منشئ الاستعلامات والمشغلات المحمولة Drizzle من `drizzle-orm`. لا تكتب رمز المنتج باستخدام SQL الخام عندما يتمكن Drizzle من التعبير عن الاستعلام، ولا تستورد من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core` في القوالب.
 

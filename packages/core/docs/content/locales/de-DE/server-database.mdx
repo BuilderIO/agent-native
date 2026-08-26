@@ -255,6 +255,15 @@ von ihrer Versionsnummer verfolgt.
   Teil des Release-Schritts auszuführen.
 </Callout>
 
+### Neue App-Migrationen mit Drizzle Kit erzeugen {#drizzle-migrations}
+
+Verwenden Sie für neue Schemaänderungen der App `pnpm db:generate`, um
+prüfbares SQL zu erzeugen. Dadurch entsteht
+`server/db/migrations/<id_name>.sql`. `runDrizzleMigrations` lädt diese
+Dateien in den gemeinsamen Agent-Native-Runner. Der Release-Schritt bleibt für
+Produktionsänderungen zuständig. Verwenden Sie `runMigrations()` weiterhin für
+dialektspezifisches SQL, D1-Verhalten, Backfills und verzögerte JavaScript-Schritte.
+
 <Callout tone="risk">
   Führen Sie `drizzle-kit push` niemals gegen eine Produktionsdatenbank aus.
   Vorlagenschemata definieren nur app-spezifische Tabellen; sie enthalten keine

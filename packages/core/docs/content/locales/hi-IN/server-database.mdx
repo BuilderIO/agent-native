@@ -254,6 +254,15 @@ named migrations को version number से स्वतंत्र track क
   migrate:production` देता है।
 </Callout>
 
+### Drizzle Kit के साथ नए ऐप माइग्रेशन बनाएं {#drizzle-migrations}
+
+ऐप स्कीमा में नए बदलावों के लिए समीक्षा योग्य SQL बनाने हेतु
+`pnpm db:generate` चलाएं। इससे `server/db/migrations/<id_name>.sql`
+बनता है और `runDrizzleMigrations` इन फ़ाइलों को साझा Agent Native रनर में लोड
+करता है। प्रोडक्शन बदलावों की जिम्मेदारी release चरण की रहती है। डायलेक्ट-विशिष्ट
+SQL, D1 व्यवहार, backfill और स्थगित JavaScript चरणों के लिए `runMigrations()` का
+उपयोग जारी रखें।
+
 <Callout tone="risk">
   उत्पादन डेटाबेस के विरुद्ध कभी भी `drizzle-kit push` न चलाएं। टेम्प्लेट स्कीमा
   केवल ऐप-विशिष्ट तालिकाओं को परिभाषित करते हैं; इनमें केंद्रीय फ्रेमवर्क

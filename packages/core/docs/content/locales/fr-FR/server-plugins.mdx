@@ -110,6 +110,12 @@ Chaque entrée nécessite un numéro `version` et une chaîne `sql`. L'option `t
   de démarrage.
 </Callout>
 
+Pour les nouvelles tables et colonnes propres à l'application, préférez le SQL
+généré par Drizzle Kit avec `runDrizzleMigrations`. Utilisez `runMigrations` pour
+le SQL propre au dialecte, le comportement D1, les backfills et les étapes
+JavaScript différées. Le runner lit `server/db/migrations/<id_name>.sql`
+après le garde-fou commun des requêtes.
+
 ## Écrire des plugins personnalisés {#custom-plugins}
 
 Les assistants du framework (`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`) renvoient chacun une fonction de plugin Nitro. Pour tout ce qui sort de ces assistants, écrivez un plugin à l'aide de `defineNitroPlugin` :

@@ -254,6 +254,14 @@ export const getDb = createGetDb(schema);
   الإصدار.
 </Callout>
 
+### إنشاء ترحيلات التطبيق الجديدة باستخدام Drizzle Kit {#drizzle-migrations}
+
+بالنسبة إلى تغييرات مخطط التطبيق الجديدة، استخدم `pnpm db:generate` لإنشاء SQL
+قابل للمراجعة. ينشئ ذلك `server/db/migrations/<id_name>.sql`، ويحمّل
+`runDrizzleMigrations` هذه الملفات إلى مشغّل Agent Native المشترك. تبقى خطوة
+الإصدار هي المسؤولة عن تغييرات الإنتاج. احتفظ بـ `runMigrations()` للحالات
+الخاصة باللهجات أو D1، وعمليات ملء البيانات، وخطوات JavaScript المؤجلة.
+
 <Callout tone="risk">
   لا تقم أبدًا بتشغيل `drizzle-kit push` مقابل قاعدة بيانات إنتاج. تُعرّف مخططات
   القالب جداول التطبيق الخاصة فقط؛ ولا تتضمن جداول إطار العمل المركزية (`user`،

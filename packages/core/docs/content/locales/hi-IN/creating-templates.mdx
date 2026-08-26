@@ -208,7 +208,11 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-स्कीमा परिवर्तन योगात्मक होने चाहिए। `server/plugins/db.ts` में `runMigrations()` के माध्यम से तालिकाएँ और कॉलम जोड़ें; कभी भी विनाशकारी SQL, `drizzle-kit push`, तालिका का नाम बदलने या कॉलम ड्रॉप का उपयोग न करें।
+स्कीमा परिवर्तन योगात्मक होने चाहिए। नए ऐप-स्वामित्व वाले टेबल और कॉलम के लिए
+`drizzle-kit generate` से `server/db/migrations/<id_name>.sql` में
+समीक्षा योग्य SQL बनाएं और release चरण से `runDrizzleMigrations()` के माध्यम से
+लोड करें। हाथ से लिखे इतिहास और विशेष मामलों के लिए `runMigrations()` रखें।
+विनाशकारी SQL, `drizzle-kit push`, तालिका का नाम बदलने या कॉलम ड्रॉप का उपयोग न करें।
 
 ऐप पढ़ने और लिखने के लिए, Drizzle के क्वेरी बिल्डर और `drizzle-orm` के पोर्टेबल ऑपरेटरों का उपयोग करें। जब Drizzle क्वेरी को व्यक्त कर सकता है, तो कच्चे SQL के साथ उत्पाद कोड न लिखें, और टेम्पलेट्स में `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` से आयात न करें।
 

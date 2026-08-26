@@ -168,6 +168,22 @@ describe("runMigrations – serverless request runtime", () => {
     });
   }
 
+  it("does not resolve a lazy migration source in a guarded request", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    vi.stubEnv("NETLIFY", "true");
+    const loadMigrations = vi.fn(async () => migrations);
+
+    const plugin = runMigrations(loadMigrations, {
+      table: "lazy_guard_migrations",
+    });
+    await plugin(null);
+
+    expect(loadMigrations).not.toHaveBeenCalled();
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+  });
+
   it("keeps request-time migrations when no release runner is configured", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
