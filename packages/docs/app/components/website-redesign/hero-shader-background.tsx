@@ -674,7 +674,7 @@ uniform float uSpread;
 uniform float uContrast;
 uniform float uGlow;
 uniform float uBrightness;
-uniform float uPosterizeLevels;
+uniform float uDither;
 uniform float uDotDensity;
 uniform float uDotScale;
 uniform float uSeed;
@@ -774,18 +774,13 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float falloff = exp(-1.6 * distFromFocus * distFromFocus);
   tone *= falloff;
 
-  // Shapes the tonal distribution before quantizing, deciding how the levels
-  // get spent: below 1 widens the bright areas, above 1 crushes them inward.
+  // Shapes the tonal distribution: below 1 widens the bright areas, above 1
+  // crushes them inward. Tone stays continuous from here on -- dot radius
+  // varies smoothly rather than snapping to a few sizes, so brightness reads
+  // as a gradient instead of visible steps.
   tone = pow(clamp(tone, 0., 1.), mix(2.6, 0.5, uContrast));
 
-  // Keep the continuous tone for the glow wash below, before quantizing.
   float smoothTone = tone;
-
-  // Posterize, which is what gives the classic Ben-Day look: dot radii come
-  // in a few discrete sizes rather than varying continuously. Rounding to
-  // nearest (the 0.5 bias) keeps the largest dots on the wave peaks.
-  float levels = max(uPosterizeLevels, 2.) - 1.;
-  tone = floor(tone * levels + 0.5) / levels;
 
   // sqrt() because the eye reads a dot's *area* as its brightness, and area
   // grows with the square of the radius -- taking the root makes apparent
@@ -797,7 +792,16 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float px = (1. / iResolution.y) / cellSize;
   float edge = max(px * 1.2, 0.004);
 
+  // Per-pixel hash offsetting the edge test, which erodes each dot's rim
+  // stochastically instead of shifting it uniformly -- that's what produces
+  // the finely broken-up edges rather than a clean circle or a blur. Keyed on
+  // raw fragCoord (not the cell) so the noise is per-pixel; scaled by the
+  // dot's own radius so faint small dots aren't dissolved entirely while
+  // bright large ones still get texture.
   float dist = length(cellUv);
+  float grain = N21(floor(fragCoord)) - 0.5;
+  dist += grain * uDither * max(radius, 0.05) * 0.8;
+
   float dotMask = 1. - S(radius - edge, radius + edge, dist);
 
   // Soft halo just outside each dot, scaled by the continuous tone so the
@@ -849,7 +853,7 @@ function RibbonFieldShaderBackground({
   contrast,
   glow,
   brightness,
-  posterizeLevels,
+  dither,
   dotDensity,
   dotScale,
   intensity,
@@ -880,7 +884,7 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    posterizeLevels,
+    dither,
     dotDensity,
     dotScale,
     seed,
@@ -902,7 +906,7 @@ function RibbonFieldShaderBackground({
       contrast,
       glow,
       brightness,
-      posterizeLevels,
+      dither,
       dotDensity,
       dotScale,
       seed,
@@ -923,7 +927,7 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
-    posterizeLevels,
+    dither,
     dotDensity,
     dotScale,
     seed,
@@ -1009,7 +1013,7 @@ function RibbonFieldShaderBackground({
     const uContrast = gl.getUniformLocation(program, "uContrast");
     const uGlow = gl.getUniformLocation(program, "uGlow");
     const uBrightness = gl.getUniformLocation(program, "uBrightness");
-    const uPosterizeLevels = gl.getUniformLocation(program, "uPosterizeLevels");
+    const uDither = gl.getUniformLocation(program, "uDither");
     const uDotDensity = gl.getUniformLocation(program, "uDotDensity");
     const uDotScale = gl.getUniformLocation(program, "uDotScale");
     const uSeed = gl.getUniformLocation(program, "uSeed");
@@ -1084,7 +1088,7 @@ function RibbonFieldShaderBackground({
       gl.uniform1f(uContrast, settingsRef.current.contrast);
       gl.uniform1f(uGlow, settingsRef.current.glow);
       gl.uniform1f(uBrightness, settingsRef.current.brightness);
-      gl.uniform1f(uPosterizeLevels, settingsRef.current.posterizeLevels);
+      gl.uniform1f(uDither, settingsRef.current.dither);
       gl.uniform1f(uDotDensity, settingsRef.current.dotDensity);
       gl.uniform1f(uDotScale, settingsRef.current.dotScale);
       gl.uniform1f(uSeed, settingsRef.current.seed);
