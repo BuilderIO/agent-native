@@ -267,6 +267,38 @@ describe("mcpToolsToActionEntries", () => {
     expect(authorize).toHaveBeenNthCalledWith(2, args, context);
   });
 
+  it("authorizes once when the manager resolver supersedes the wrapper fallback", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const authorize = vi.fn(async () => true);
+    mgr.setToolAuthorizationResolver(() => authorize);
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+    const context = {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      caller: "tool",
+    } satisfies ActionRunContext;
+    const args = { recordId: "record-1" };
+
+    const result = await entry.run(args, context);
+
+    expect(isMcpActionResult(result)).toBe(true);
+    expect(authorize).toHaveBeenCalledOnce();
+    expect(authorize).toHaveBeenCalledWith(args, context);
+    expect(callImpl).toHaveBeenCalledOnce();
+  });
+
   it("updates existing MCP ActionEntry policy when the manager tool set changes", async () => {
     const callImpl = vi.fn(() => ({
       content: [{ type: "text", text: "inspected" }],
