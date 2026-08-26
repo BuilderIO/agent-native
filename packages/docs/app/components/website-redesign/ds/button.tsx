@@ -92,6 +92,7 @@ export function Button({
   children,
   forceState,
   dimBorder,
+  className: extraClassName,
   ...rest
 }: ButtonProps) {
   const showsIconByDefault = variant === "cta" || variant.endsWith("-icon");
@@ -107,13 +108,18 @@ export function Button({
     </>
   );
 
+  // Appended, not spread through `rest`: a caller-supplied className there
+  // would land after this one on the element and replace the whole variant.
   const className = [
     baseClass,
     variantTextClass(variant),
     variantClasses(variant, dimBorder),
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
     "disabled:cursor-not-allowed disabled:opacity-40",
-  ].join(" ");
+    extraClassName,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const forceAttr = forceState === "hover" ? "hover" : undefined;
 

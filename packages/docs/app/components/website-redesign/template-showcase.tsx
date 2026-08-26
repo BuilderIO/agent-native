@@ -181,7 +181,7 @@ export function TemplateShowcase() {
           tools to do the same work.
         </p>
         <div className="flex">
-          <Button variant="secondary-icon" href="/apps">
+          <Button variant="secondary-icon" href="/apps" className="uppercase">
             Browse apps
           </Button>
         </div>
