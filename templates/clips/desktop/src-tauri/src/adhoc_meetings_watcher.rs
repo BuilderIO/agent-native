@@ -44,6 +44,13 @@ const JOIN_GRACE: Duration = Duration::from_secs(20);
 /// A live stream that blips out for less than this is still the same call.
 const MIC_DROP_GRACE: Duration = Duration::from_secs(8);
 
+/// How long an unreadable input state keeps vouching for a stream that was live
+/// a moment ago. Unreadable is not silence, so it must never end a call — but
+/// it cannot vouch forever either, or a machine whose CoreAudio stopped
+/// answering would hold a finished call open and never prompt again. Past this
+/// the mic has nothing to say and the foreground fallback decides.
+const MIC_UNREADABLE_GRACE: Duration = Duration::from_secs(45);
+
 /// No live stream for this long ends the call, which releases the per-call
 /// suppression so the next call gets its own prompt.
 const CALL_END: Duration = Duration::from_secs(30);
@@ -71,8 +78,14 @@ pub struct AdhocMeetingsWatcherState {
 
 #[derive(Default)]
 struct AdhocMeetingsWatcherInner {
-    /// platform -> unix-seconds when we last fired (or dismissed via cooldown).
-    cooldown_until: HashMap<String, i64>,
+    /// platform -> unix-seconds until which an auto-prompt is held back. This
+    /// is the backstop for the fallback path, where nothing but the foreground
+    /// can say a call is over.
+    prompt_cooldown_until: HashMap<String, i64>,
+    /// platform -> unix-seconds until which a user dismissal holds. Kept apart
+    /// from the prompt backstop because the fallback's coarse "left the window"
+    /// signal must not undo a choice the user made on purpose.
+    dismissed_until: HashMap<String, i64>,
     /// platform -> what that platform has shown us so far.
     evidence: HashMap<String, CallEvidence>,
     /// Platforms already notified for the current call.
@@ -99,6 +112,14 @@ struct CallEvidence {
     mic_since: Option<Instant>,
     /// The most recent tick that saw a live input stream.
     mic_last_true: Option<Instant>,
+    /// Start of the current unbroken run of reads that say there is no stream.
+    /// Only `Some(false)` lands here. An unreadable read is not evidence of
+    /// silence, and silence is the only thing allowed to end a call.
+    mic_silent_since: Option<Instant>,
+    /// Start of the current unbroken run of unreadable (`None`) reads.
+    mic_unreadable_since: Option<Instant>,
+    /// Set at a call boundary, reported once by `take_call_ended`.
+    call_ended: bool,
 }
 
 impl CallEvidence {
@@ -108,28 +129,71 @@ impl CallEvidence {
         } else {
             self.front_since = None;
         }
-        if mic == Some(true) {
-            self.mic_last_true = Some(now);
-            self.mic_since.get_or_insert(now);
-        } else if self
-            .mic_lost_for(now)
-            .is_some_and(|lost| lost >= MIC_DROP_GRACE)
-        {
-            // Keep `mic_last_true`: it is what dates the end of the call.
-            self.mic_since = None;
+        match mic {
+            Some(true) => {
+                // A stream that appears after the previous one already lapsed
+                // is the next call, not a resumption of the old one. Without
+                // this boundary a call starting inside the previous call's
+                // `CALL_END` window inherits its suppression and never prompts.
+                if self.mic_since.is_none() && self.mic_last_true.is_some() {
+                    self.end_call(now);
+                }
+                self.mic_last_true = Some(now);
+                self.mic_since.get_or_insert(now);
+                self.mic_silent_since = None;
+                self.mic_unreadable_since = None;
+            }
+            Some(false) => {
+                self.mic_unreadable_since = None;
+                let silent_since = *self.mic_silent_since.get_or_insert(now);
+                let silent_for = now.saturating_duration_since(silent_since);
+                if silent_for >= MIC_DROP_GRACE {
+                    self.mic_since = None;
+                }
+                if self.mic_last_true.is_some() && silent_for >= CALL_END {
+                    self.end_call(now);
+                }
+            }
+            // The OS could not answer. That is not a "no": leave every mic
+            // timer where it is so an unreadable stretch neither starts a call
+            // nor ends one.
+            None => {
+                self.mic_unreadable_since.get_or_insert(now);
+            }
         }
     }
 
-    fn mic_lost_for(&self, now: Instant) -> Option<Duration> {
-        self.mic_last_true
-            .map(|last| now.saturating_duration_since(last))
+    /// Close the current call: report the boundary once, and drop the evidence
+    /// that only describes the call that just ended.
+    fn end_call(&mut self, now: Instant) {
+        self.call_ended = true;
+        self.mic_since = None;
+        self.mic_last_true = None;
+        self.mic_silent_since = None;
+        // The next call may start muted in this same still-frontmost window.
+        // An untouched foreground age would be past `JOIN_GRACE` already and
+        // read as a window merely parked open, so re-arm the grace here.
+        if self.front_since.is_some() {
+            self.front_since = Some(now);
+        }
     }
 
     fn mic_live(&self, now: Instant, mic: Option<bool>) -> bool {
-        mic == Some(true)
-            || self
-                .mic_lost_for(now)
-                .is_some_and(|lost| lost < MIC_DROP_GRACE)
+        if mic == Some(true) {
+            return true;
+        }
+        if self.mic_last_true.is_none() {
+            return false;
+        }
+        if self
+            .mic_silent_since
+            .is_some_and(|since| now.saturating_duration_since(since) >= MIC_DROP_GRACE)
+        {
+            return false;
+        }
+        !self
+            .mic_unreadable_since
+            .is_some_and(|since| now.saturating_duration_since(since) >= MIC_UNREADABLE_GRACE)
     }
 
     fn classify(&self, now: Instant, mic: Option<bool>, frontmost: bool) -> CallState {
@@ -170,34 +234,59 @@ impl CallEvidence {
         }
     }
 
-    /// True once, when a live call has been gone long enough to count as over.
-    fn take_call_ended(&mut self, now: Instant) -> bool {
-        if self.mic_since.is_some() {
-            return false;
-        }
-        let ended = self.mic_lost_for(now).is_some_and(|lost| lost >= CALL_END);
-        if ended {
-            self.mic_last_true = None;
-        }
-        ended
+    /// True once per call boundary: either a confirmed run of silence long
+    /// enough to be the end of the call, or a fresh stream that can only be the
+    /// next one. An unreadable input state is neither, so it never fires here —
+    /// releasing the per-call suppression on a state we could not read is how
+    /// the same call gets prompted twice.
+    fn take_call_ended(&mut self) -> bool {
+        std::mem::take(&mut self.call_ended)
     }
 }
 
 impl AdhocMeetingsWatcherInner {
-    fn refresh_suppression(&mut self, platform: &str, now_ts: i64) {
+    fn note_prompted(&mut self, platform: &str, now_ts: i64) {
         self.session_notified.insert(platform.to_string(), true);
-        self.cooldown_until
+        self.prompt_cooldown_until
             .insert(platform.to_string(), now_ts + COOLDOWN_SECS);
     }
 
-    /// The current call is over: prompt again for the next one.
+    fn note_dismissed(&mut self, platform: &str, now_ts: i64) {
+        self.session_notified.insert(platform.to_string(), true);
+        self.dismissed_until
+            .insert(platform.to_string(), now_ts + COOLDOWN_SECS);
+    }
+
+    /// The current call is confirmed over: prompt again for the next one, even
+    /// if the user dismissed this one.
     fn end_call_session(&mut self, platform: &str) {
         self.session_notified.remove(platform);
-        self.cooldown_until.remove(platform);
+        self.prompt_cooldown_until.remove(platform);
+        self.dismissed_until.remove(platform);
+    }
+
+    /// The fallback path's only end-of-session signal: no stream ever spoke for
+    /// this call and its window is gone. Releases the prompt backstop so the
+    /// next call still prompts, but leaves a dismissal standing — this signal
+    /// is too coarse to overrule one.
+    fn end_foreground_session(&mut self, platform: &str) {
+        self.session_notified.remove(platform);
+        self.prompt_cooldown_until.remove(platform);
+    }
+
+    fn retain_live_cooldowns(&mut self, now_ts: i64) {
+        self.prompt_cooldown_until
+            .retain(|_, until| *until > now_ts);
+        self.dismissed_until.retain(|_, until| *until > now_ts);
     }
 
     fn is_suppressed(&self, platform: &str, now_ts: i64) -> bool {
-        self.cooldown_until.get(platform).copied().unwrap_or(0) > now_ts
+        self.prompt_cooldown_until
+            .get(platform)
+            .copied()
+            .unwrap_or(0)
+            > now_ts
+            || self.dismissed_until.get(platform).copied().unwrap_or(0) > now_ts
             || self
                 .session_notified
                 .get(platform)
@@ -215,7 +304,7 @@ pub fn refresh_dismissal_suppression(app: &AppHandle, platform: &str) -> Result<
         .try_state::<AdhocMeetingsWatcherState>()
         .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
     let mut g = state.inner.lock().map_err(|e| e.to_string())?;
-    g.refresh_suppression(&platform, chrono::Utc::now().timestamp());
+    g.note_dismissed(&platform, chrono::Utc::now().timestamp());
     Ok(())
 }
 
@@ -360,19 +449,19 @@ async fn tick_macos(
             .try_state::<AdhocMeetingsWatcherState>()
             .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
         let mut g = state.inner.lock().map_err(|e| e.to_string())?;
-        g.cooldown_until.retain(|_, until| *until > now_ts);
+        g.retain_live_cooldowns(now_ts);
 
         let (call_state, call_ended, mic_live) = {
             let evidence = g.evidence.entry(platform.to_string()).or_default();
             evidence.observe(now, mic, frontmost);
             (
                 evidence.classify(now, mic, frontmost),
-                evidence.take_call_ended(now),
+                evidence.take_call_ended(),
                 evidence.mic_live(now, mic),
             )
         };
 
-        // A finished call releases both suppressions, so the next call in a
+        // A finished call releases every suppression, so the next call in a
         // back-to-back block gets its own prompt instead of inheriting one.
         if call_ended {
             g.end_call_session(platform);
@@ -381,7 +470,7 @@ async fn tick_macos(
         // over. This is also the only session-end signal on a machine that
         // cannot report input state.
         if !mic_live && !frontmost {
-            g.session_notified.remove(platform);
+            g.end_foreground_session(platform);
         }
 
         if confirmed.is_none()
@@ -412,7 +501,7 @@ async fn tick_macos(
             .try_state::<AdhocMeetingsWatcherState>()
             .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
         let mut g = state.inner.lock().map_err(|e| e.to_string())?;
-        g.refresh_suppression(platform, now_ts);
+        g.note_prompted(platform, now_ts);
     }
 
     dlog!(
@@ -540,6 +629,7 @@ mod tests {
             front_since: None,
             mic_since: Some(ago(now, 6)),
             mic_last_true: Some(now),
+            ..Default::default()
         };
         assert_eq!(evidence.classify(now, Some(true), false), CallState::Live);
     }
@@ -551,6 +641,7 @@ mod tests {
             front_since: None,
             mic_since: Some(ago(now, 2)),
             mic_last_true: Some(now),
+            ..Default::default()
         };
         assert_eq!(
             evidence.classify(now, Some(true), false),
@@ -618,24 +709,149 @@ mod tests {
         let now = Instant::now();
         let mut evidence = CallEvidence::default();
         evidence.observe(ago(now, 90), Some(true), true);
+        evidence.observe(ago(now, 60), Some(false), true);
         evidence.observe(now, Some(false), true);
 
         assert!(
-            evidence.take_call_ended(now),
+            evidence.take_call_ended(),
             "no stream for 30s ends the call even with the window still front"
         );
         assert!(
-            !evidence.take_call_ended(now),
+            !evidence.take_call_ended(),
             "the end of a call fires once, not on every later tick"
         );
 
         let mut state = AdhocMeetingsWatcherInner::default();
-        state.refresh_suppression("zoom", 1_000);
+        state.note_prompted("zoom", 1_000);
         assert!(state.is_suppressed("zoom", 1_001));
         state.end_call_session("zoom");
         assert!(
             !state.is_suppressed("zoom", 1_001),
             "back-to-back calls each get their own prompt"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_read_does_not_end_a_live_call() {
+        // CoreAudio returning `None` mid-call is a read failure, not silence.
+        // Ending the call here releases the per-call suppression, so the same
+        // call gets prompted a second time once readable samples resume.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 60), Some(true), false);
+        for secs in (1..=50).rev() {
+            evidence.observe(ago(now, secs), None, false);
+            assert!(
+                !evidence.take_call_ended(),
+                "an unreadable read must never end a call"
+            );
+        }
+        evidence.observe(now, Some(true), false);
+
+        assert!(
+            !evidence.take_call_ended(),
+            "a stream that was never confirmed gone is still the same call"
+        );
+        assert_eq!(
+            evidence.mic_since,
+            Some(ago(now, 60)),
+            "the original dwell survives the unreadable stretch"
+        );
+        assert_eq!(evidence.classify(now, Some(true), false), CallState::Live);
+    }
+
+    #[test]
+    fn an_unreadable_stretch_hands_back_to_the_foreground_fallback() {
+        // Unreadable cannot vouch for a live stream forever, or a machine whose
+        // CoreAudio stopped answering would hold a finished call open. Past the
+        // grace the mic abstains and foreground dwell decides — but it still
+        // reports no call end, because nothing confirmed one.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 300), Some(true), true);
+        evidence.observe(ago(now, 200), None, true);
+        evidence.observe(now, None, true);
+
+        assert!(!evidence.mic_live(now, None));
+        assert!(
+            !evidence.take_call_ended(),
+            "a state we could not read is not a confirmed call end"
+        );
+        assert_eq!(
+            evidence.classify(now, None, true),
+            CallState::Live,
+            "foreground dwell is the only evidence left"
+        );
+        assert_eq!(evidence.classify(now, None, false), CallState::Idle);
+    }
+
+    #[test]
+    fn a_new_stream_before_the_end_threshold_starts_a_new_call() {
+        // Leaving one call and joining the next inside `CALL_END` used to leave
+        // the first call's suppression in place, so the second never prompted.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 40), Some(true), false);
+        evidence.observe(ago(now, 20), Some(false), false);
+        evidence.observe(ago(now, 12), Some(false), false);
+        assert!(
+            !evidence.take_call_ended(),
+            "12s of silence is short of the end-of-call threshold"
+        );
+
+        evidence.observe(ago(now, 10), Some(true), false);
+        assert!(
+            evidence.take_call_ended(),
+            "a fresh stream after the last one lapsed is the next call"
+        );
+        assert_eq!(evidence.mic_since, Some(ago(now, 10)));
+        assert_eq!(evidence.classify(now, Some(true), false), CallState::Live);
+    }
+
+    #[test]
+    fn a_second_muted_call_in_the_same_window_gets_a_fresh_join_grace() {
+        // Zoom never left the foreground, so without re-arming the grace the
+        // next call reads as a window parked open and stays Idle forever.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 600), Some(true), true);
+        evidence.observe(ago(now, 100), Some(false), true);
+        evidence.observe(ago(now, 10), Some(false), true);
+        assert!(evidence.take_call_ended());
+
+        assert_eq!(
+            evidence.classify(now, Some(false), true),
+            CallState::Pending,
+            "joining the next call muted still gets its join grace"
+        );
+    }
+
+    #[test]
+    fn a_fallback_session_end_releases_the_prompt_but_not_a_dismissal() {
+        // macOS 13 has no stream to end a call, so leaving the window is the
+        // only signal there is. It must free the next call to prompt without
+        // undoing a dismissal the user chose.
+        let now_ts = 1_000;
+
+        let mut prompted = AdhocMeetingsWatcherInner::default();
+        prompted.note_prompted("zoom", now_ts);
+        prompted.end_foreground_session("zoom");
+        assert!(
+            !prompted.is_suppressed("zoom", now_ts + 1),
+            "a second fallback call within the cooldown still prompts"
+        );
+
+        let mut dismissed = AdhocMeetingsWatcherInner::default();
+        dismissed.note_dismissed("zoom", now_ts);
+        dismissed.end_foreground_session("zoom");
+        assert!(
+            dismissed.is_suppressed("zoom", now_ts + 1),
+            "leaving the window is too coarse to overrule a dismissal"
+        );
+        dismissed.end_call_session("zoom");
+        assert!(
+            !dismissed.is_suppressed("zoom", now_ts + 1),
+            "a confirmed call end does release a dismissal"
         );
     }
 
@@ -672,7 +888,7 @@ mod tests {
         let now_ts = 1_000;
         let mut state = AdhocMeetingsWatcherInner::default();
 
-        state.refresh_suppression("zoom", now_ts);
+        state.note_dismissed("zoom", now_ts);
         state.session_notified.remove("zoom");
 
         assert!(state.is_suppressed("zoom", now_ts + COOLDOWN_SECS - 1));
@@ -684,7 +900,7 @@ mod tests {
         let now_ts = 1_000;
         let mut state = AdhocMeetingsWatcherInner::default();
 
-        state.refresh_suppression("zoom", now_ts);
+        state.note_dismissed("zoom", now_ts);
 
         assert!(state.is_suppressed("zoom", now_ts));
         assert!(!state.is_suppressed("teams", now_ts));
