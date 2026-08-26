@@ -273,19 +273,29 @@ export type BackgroundDispatchOutcome =
 
 /**
  * `diag_stage` is persisted as a JSON payload (`{ stage, detail?, at }`) by
- * `recordRunDiagnostic`. Extract the bare stage name so it can be compared to
- * `RUN_DIAG_STAGE` constants. Falls back to the raw value when it is not JSON
- * (defensive — legacy rows or tests may store a bare stage).
+ * `recordRunDiagnostic`. Extract the stage and timestamp so the stage can be
+ * compared to `RUN_DIAG_STAGE` constants and its deadline enforced. Falls back
+ * to the raw value when it is not JSON (defensive — legacy rows or tests may
+ * store a bare stage).
  */
-function parseRunDiagStage(raw: string | null | undefined): string | null {
-  if (!raw) return null;
+function parseRunDiagnostic(raw: string | null | undefined): {
+  stage: string | null;
+  at: number | null;
+} {
+  if (!raw) return { stage: null, at: null };
   try {
-    const parsed = JSON.parse(raw) as { stage?: unknown };
-    if (parsed && typeof parsed.stage === "string") return parsed.stage;
+    const parsed = JSON.parse(raw) as { stage?: unknown; at?: unknown };
+    return {
+      stage: typeof parsed.stage === "string" ? parsed.stage : null,
+      at:
+        typeof parsed.at === "number" && Number.isFinite(parsed.at)
+          ? parsed.at
+          : null,
+    };
   } catch {
     // Not JSON — treat the raw value as the stage name.
   }
-  return typeof raw === "string" ? raw : null;
+  return { stage: raw, at: null };
 }
 
 /**
@@ -316,12 +326,15 @@ export async function resolveBackgroundDispatchOutcome(opts: {
    * provided, the foreground may keep waiting PAST `graceMs` while the worker is
    * provably alive and still in setup — but it recovers inline before the run has
    * been unclaimed this long (minus the safety margin), so it always claims
-   * before the reaper can fire. Omit to disable the extension (behaves exactly
-   * like the base grace).
+   * before the reaper can fire. The worker's pre-claim diagnostic deadline is a
+   * second hard cap. Omit to disable the extension (behaves exactly like the
+   * base grace).
    */
   reaperGraceMs?: number;
   /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
   reaperSafetyMarginMs?: number;
+  /** Return the durable stream as soon as the worker proves it entered setup. */
+  streamWhenWorkerAlive?: boolean;
   pollIntervalMs: number;
   readClaim: (runId: string) => Promise<{
     dispatchMode: string | null;
@@ -364,6 +377,7 @@ export async function resolveBackgroundDispatchOutcome(opts: {
     const reaperGraceMs = opts.reaperGraceMs;
     const reaperMargin =
       opts.reaperSafetyMarginMs ?? BACKGROUND_REAPER_SAFETY_MARGIN_MS;
+    let preclaimDeadlineAt: number | null = null;
     for (;;) {
       const claim = await opts.readClaim(opts.runId).catch(() => null);
       if (
@@ -375,10 +389,25 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       }
       // `diag_stage` is stored as JSON ({stage, detail?, at}); compare on the
       // bare stage name, not the raw payload.
-      const stage = parseRunDiagStage(claim?.diagStage);
+      const diagnostic = parseRunDiagnostic(claim?.diagStage);
+      const stage = diagnostic.stage;
+      if (
+        preclaimDeadlineAt == null &&
+        diagnostic.at != null &&
+        ALIVE_IN_SETUP.has(stage ?? "")
+      ) {
+        const diagnosticDeadline =
+          diagnostic.at + BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS;
+        preclaimDeadlineAt = diagnosticDeadline;
+      }
       // Worker recorded a pre-claim death — no point waiting out the grace.
       if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
       const elapsedNow = now();
+      // Heartbeats stop at the worker-entry deadline. Do not let the stale
+      // diagnostic marker extend the foreground wait beyond that same window.
+      if (preclaimDeadlineAt != null && elapsedNow >= preclaimDeadlineAt) {
+        break;
+      }
       // The unclaimed-reaper errors any still-`background` row once it has been
       // unclaimed for `reaperGraceMs`, measured from the row's OWN liveness
       // (COALESCE(heartbeat_at, started_at)) — NOT from when we began polling.
@@ -400,6 +429,9 @@ export async function resolveBackgroundDispatchOutcome(opts: {
         claim?.status === "running" &&
         !!stage &&
         ALIVE_IN_SETUP.has(stage);
+      if (aliveInSetup && opts.streamWhenWorkerAlive) {
+        return { action: "stream" };
+      }
       if (elapsedNow >= baseDeadline && !aliveInSetup) break;
       await sleep(opts.pollIntervalMs);
     }
@@ -9930,16 +9962,17 @@ export function createProductionAgentHandler(
       // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
       // row sits at `dispatch_mode='background'` until the reaper errors it
       // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
-      // polls briefly for the claim and keeps polling while a live setup marker
-      // proves the worker is still progressing:
-      //   - "stream":    a worker claimed the run → subscribe to it.
+      // polls briefly for the claim or a live setup marker and decides:
+      //   - "stream":    a worker claimed or entered setup → subscribe to it.
       //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
       //                  run a second copy.
       //   - "inline":    dispatch failed OR no worker claimed within grace → we
       //                  atomically own the run; recover by running it inline so a
       //                  dead worker degrades to a working synchronous turn.
-      // The foreground remains in this coordination loop through worker setup,
-      // so it can claim the row before the unclaimed-run reaper does.
+      // Once the worker has entered setup, the SQL stream opens immediately and
+      // the worker continues setup in the background. The bounded preclaim
+      // heartbeat keeps the reaper from racing that setup; the reaper owns
+      // recovery if the worker later fails before claiming the run.
       const backgroundOutcome = await resolveBackgroundDispatchOutcome({
         dispatched,
         backgroundRowInserted,
@@ -9949,6 +9982,7 @@ export function createProductionAgentHandler(
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,
+        streamWhenWorkerAlive: true,
       });
 
       if (
