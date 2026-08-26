@@ -1949,6 +1949,7 @@ const koKR = {
     externalAgents: "외부 Agents (호스트 연결)",
     externalAgentsCatalog: "외부 Agents 카탈로그",
     mcpApps: "MCP Apps (인라인 UI)",
+    webMcp: "WebMCP (브라우저 도구)",
     crossAppSso: "크로스 앱 SSO",
     notifications: "알림",
     automationConnectors: "워크플로 커넥터",

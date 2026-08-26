@@ -1960,6 +1960,7 @@ const jaJP = {
     externalAgents: "外部 Agents (ホスト接続)",
     externalAgentsCatalog: "外部 Agents カタログ",
     mcpApps: "MCP Apps (インライン UI)",
+    webMcp: "WebMCP (ブラウザ ツール)",
     crossAppSso: "クロスアプリ SSO",
     notifications: "通知",
     automationConnectors: "ワークフローコネクタ",
