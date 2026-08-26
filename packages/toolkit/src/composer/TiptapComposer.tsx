@@ -917,7 +917,7 @@ function ModeSelector({
   const resolvedPlanModeDisabledReason =
     planModeDisabledReason ??
     t("agentChat.composer.planDesktopRequired", {
-      defaultValue: "Open Agent Native Desktop to use Plan mode.",
+      defaultValue: "Open Agent-Native Desktop to use Plan mode.",
     });
 
   return (
@@ -1646,7 +1646,7 @@ function ModelSelector({
                           {hostedHarness
                             ? t("agentChat.composer.hostedHarnessDescription", {
                                 defaultValue:
-                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent Native Desktop.",
+                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent-Native Desktop.",
                               })
                             : t("agentChat.composer.harnessAgentDescription", {
                                 defaultValue:

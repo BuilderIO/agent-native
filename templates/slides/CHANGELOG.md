@@ -227,7 +227,7 @@ time from the command menu (Cmd+K → "What's new").
 - Design system setup keeps focus rings visible and uses a simpler dialog title.
 - Skip prompt is now available in the new deck prompt header
 - Slides now detect real text and box overflow across the deck and verify bounded repairs.
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ### Fixed
 

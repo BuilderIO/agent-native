@@ -6526,7 +6526,7 @@ describe("server/auth", () => {
       expect(html).not.toContain("return to Clips");
     });
 
-    it("uses a deep link for Agent Native desktop exchange completion", async () => {
+    it("uses a deep link for Agent-Native desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const response = await Promise.resolve(
         oauthCallbackResponse(
@@ -6641,7 +6641,7 @@ describe("server/auth", () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       // Reproduces the Builder.io Fusion webview hitting the no-flowId
       // desktop login path with `desktop=true` in OAuth state but a generic
-      // Electron UA. Pre-fix this rendered the dead-end "Open Agent Native"
+      // Electron UA. Pre-fix this rendered the dead-end "Open Agent-Native"
       // deep-link page; now the server should fall through to a 302 redirect.
       const event = createMockEvent({
         headers: {

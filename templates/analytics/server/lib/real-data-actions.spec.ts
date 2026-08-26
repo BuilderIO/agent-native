@@ -169,7 +169,7 @@ describe("real data action classification", () => {
     expect(
       hasDataQueryAttempt([
         {
-          name: "query agent native analytics",
+          name: "query agent-native analytics",
           content: JSON.stringify({ rows: [{ count: 1 }], schema: [] }),
         },
       ]),

@@ -84,7 +84,7 @@ export const AgentNativeFrame = forwardRef<
     auth,
     onBridgeEvent,
     onBridgeReady,
-    title = "Agent Native assistant",
+    title = "Agent-Native assistant",
     sandbox = "allow-scripts allow-same-origin allow-forms allow-popups allow-downloads",
     allow = "clipboard-read; clipboard-write; microphone; fullscreen",
     referrerPolicy = "strict-origin-when-cross-origin",

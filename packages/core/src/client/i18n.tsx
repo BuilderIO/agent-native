@@ -731,7 +731,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
     '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
   "codeRequired.subtitle":
     "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
-  "codeRequired.desktopTitle": "Use Agent Native Desktop",
+  "codeRequired.desktopTitle": "Use Agent-Native Desktop",
   "codeRequired.desktopDescription":
     "Open the project in the desktop app to enable source edits and CLI access.",
   "codeRequired.builderAgentTitle": "Use Builder.io Agent",
@@ -748,7 +748,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "agentPanel.useBuilder": "Use Builder",
   "agentPanel.openDesktopToEditCode": "Open Desktop to edit code",
   "agentPanel.codeUnavailableDescription":
-    "Source-code changes and CLI access are available in the Agent Native Desktop app.",
+    "Source-code changes and CLI access are available in the Agent-Native Desktop app.",
   "agentPanel.downloadDesktop": "Download Desktop",
   "agentPanel.chatMode": "Chat mode",
   "agentPanel.chat": "Chat",

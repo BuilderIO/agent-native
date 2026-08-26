@@ -41,7 +41,7 @@ const field: FormField = {
 function payload(overrides: Record<string, unknown> = {}) {
   return {
     formId: "form-1",
-    formTitle: "Agent Native Feedback",
+    formTitle: "Agent-Native Feedback",
     responseId: "resp-1",
     fields: [field],
     data: { msg: "the comments are buggy" },
@@ -81,7 +81,7 @@ describe("buildSlackPayload page context", () => {
     expect(text).toContain("by *user@example.com*");
   });
 
-  it("hides synthetic anonymous Agent Native submitter emails", () => {
+  it("hides synthetic anonymous Agent-Native submitter emails", () => {
     const text = contextText(
       buildSlackPayload(
         payload({

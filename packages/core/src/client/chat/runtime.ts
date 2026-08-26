@@ -1416,7 +1416,7 @@ export function createAgentNativeChatRuntime(
   return createHttpAgentChatRuntime({
     id: runtimeId,
     kind: "agent-native",
-    label: options.label ?? "Agent Native",
+    label: options.label ?? "Agent-Native",
     description:
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,

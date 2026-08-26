@@ -237,7 +237,7 @@ A typical root looks like:
 ```
 
 Content never stores an absolute local path or raw file body in source metadata.
-File access still requires a local Content app, Agent Native Desktop, or another
+File access still requires a local Content app, Agent-Native Desktop, or another
 trusted bridge. Disconnecting a folder leaves the SQL pages and disk files in
 place. Concurrent edits and missing source files require explicit review.
 

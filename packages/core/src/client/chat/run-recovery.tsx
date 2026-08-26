@@ -718,13 +718,13 @@ export function RunErrorRecoveryCard({
           <button
             type="button"
             onClick={onContinue}
-            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
           >
             <IconPlayerPlay size={13} />
             <span className="truncate">{t("agentChat.common.continue")}</span>
           </button>
         )}
-        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background/60 p-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           {canRetry && (
             <button
               type="button"
