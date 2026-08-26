@@ -36,16 +36,21 @@ async function getAction(
   name: string,
   data: Record<string, string>,
 ): Promise<{ ok: boolean; status: number; result: ActionResult }> {
-  const query = new URLSearchParams(data);
-  const response = await page.request.get(
-    `/_agent-native/actions/${name}?${query.toString()}`,
-    { headers: ACTION_HEADERS },
+  return page.evaluate(
+    async ({ name, data, headers }) => {
+      const query = new URLSearchParams(data);
+      const response = await fetch(
+        `/_agent-native/actions/${name}?${query.toString()}`,
+        { headers },
+      );
+      return {
+        ok: response.ok,
+        status: response.status,
+        result: (await response.json().catch(() => ({}))) as ActionResult,
+      };
+    },
+    { name, data, headers: ACTION_HEADERS },
   );
-  return {
-    ok: response.ok(),
-    status: response.status(),
-    result: (await response.json().catch(() => ({}))) as ActionResult,
-  };
 }
 
 async function registerRecipient(
