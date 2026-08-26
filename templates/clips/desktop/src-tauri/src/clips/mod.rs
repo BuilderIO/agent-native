@@ -40,6 +40,12 @@ const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
 // Guards the single cursor-poll loop that toggles click-through on the
 // countdown overlay so only the button zones are interactive.
 static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
+// Set by the recording pill the instant Stop is clicked, before it emits
+// `clips:recorder-stop`. While held, `hide_overlays` / `hide_recording_chrome`
+// skip the toolbar window so the pill can swap to its completion card in
+// place; every other teardown path (cancel, restart, popover lifecycle) still
+// closes it. Cleared when the card is dismissed or the next session starts.
+static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
@@ -66,7 +72,6 @@ const OVERLAY_LABELS: &[&str] = &[
 /// launch — this matches Loom's out-of-the-box behavior.
 const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
@@ -114,11 +119,6 @@ fn overlay_scale_factor(app: &AppHandle) -> f64 {
 
 fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
     (OVERLAY_SHADOW_GUTTER_LOGICAL * overlay_scale_factor(app)).round() as u32
-}
-
-fn popover_window_size_logical(content_width: f64, content_height: f64) -> (f64, f64) {
-    let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
-    (content_width + gutter, content_height + gutter)
 }
 
 fn bubble_size_for_name(name: &str) -> u32 {
@@ -954,30 +954,89 @@ pub async fn set_recording_display_override(
     Ok(())
 }
 
-/// Vertical recording pill anchored to the left edge. Stop + timer + pause,
-/// with hover-revealed restart/cancel controls matching Loom's left-rail
-/// placement. Draggable, always on top.
+fn toolbar_position_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir.join("toolbar-pill-position.json"))
+}
+
+fn load_toolbar_position(app: &AppHandle) -> Option<(i32, i32)> {
+    let path = toolbar_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let x = value.get("x")?.as_i64()? as i32;
+    let y = value.get("y")?.as_i64()? as i32;
+    Some((x, y))
+}
+
+/// Persist the pill's dragged position (outer physical px). The renderer
+/// calls this debounced from the window's move events while at rest — it
+/// skips saves mid-reveal so a grown pill never becomes the stored anchor.
+#[tauri::command]
+pub async fn toolbar_save_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    let Some(path) = toolbar_position_path(&app) else {
+        return Ok(());
+    };
+    let body =
+        serde_json::to_vec(&serde_json::json!({ "x": x, "y": y })).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &body).is_err() {
+        return Ok(());
+    }
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(())
+}
+
+/// Hold or release the stop-flow toolbar preservation described on
+/// `TOOLBAR_FINISHING`. The pill sets the hold synchronously before emitting
+/// `clips:recorder-stop` so the recorder's teardown cannot race it.
+#[tauri::command]
+pub async fn set_toolbar_finishing(hold: bool) -> Result<(), String> {
+    TOOLBAR_FINISHING.store(hold, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Horizontal recording pill — dot, timer, level meter, pause, and a white
+/// Stop capsule that grows rightward from an anchored left edge for hover
+/// extras and the inline delete confirm. Draggable, always on top. The
+/// renderer owns exact sizing: it measures its content and resizes this
+/// window around the fixed anchor edge, so the values here only need to fit
+/// the resting pill for first paint.
 #[tauri::command]
 pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_toolbar invoked");
+    // A fresh session can never start inside the finishing hold — if a stale
+    // completion card is still open its window gets replaced below anyway.
+    TOOLBAR_FINISHING.store(false, Ordering::SeqCst);
     // Reset the blur guard — spawning an overlay can briefly steal focus
     // from the popover on some macOS versions even with .focused(false).
     mark_popover_shown(&app);
-    let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    let gutter = overlay_shadow_gutter_physical(&app);
+    // The window is sized to the pill EXACTLY — elevation comes from the
+    // native NSWindow shadow (shadow(true) below), which macOS derives from
+    // the drawn rounded shape. A transparent CSS-shadow apron is never used
+    // here: its invisible margin eats clicks and fights screen-edge docking.
     // CSS is authored in logical px, while this command sizes the native
-    // window in physical px. Keep the visible toolbar large enough for the
-    // fixed 30px circular controls on high-DPI displays.
-    let content_w: u32 = (72.0 * scale).round() as u32;
-    let collapsed_content_h: u32 = (150.0 * scale).round() as u32;
-    let w: u32 = content_w + gutter * 2;
-    let h: u32 = collapsed_content_h + gutter * 2;
-    // Flush-left with a small margin; vertically center the collapsed pill.
-    // The React toolbar temporarily resizes this window while hover/focus
-    // reveals extra controls so transparent pixels don't block clicks.
-    let x: i32 = mx + 48 - gutter as i32;
-    let y: i32 = my + (mh as i32 - collapsed_content_h as i32) / 2 - gutter as i32;
+    // window in physical px.
+    let w: u32 = (248.0 * scale).round() as u32;
+    let h: u32 = (42.0 * scale).round() as u32;
+    // Bottom-center by default; a user-dragged position wins when it still
+    // lands on the tray monitor (clamped so a monitor change can't strand
+    // the pill off-screen).
+    let default_x: i32 = mx + (mw as i32 - w as i32) / 2;
+    let default_y: i32 = my + mh as i32 - h as i32 - (48.0 * scale).round() as i32;
+    let (x, y) = match load_toolbar_position(&app) {
+        Some((sx, sy)) => (
+            sx.clamp(mx, mx + mw as i32 - w as i32),
+            sy.clamp(my, my + mh as i32 - h as i32),
+        ),
+        None => (default_x, default_y),
+    };
     dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
@@ -985,7 +1044,6 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
-        crate::util::show_without_activation(&existing);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -996,11 +1054,11 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        // IMPORTANT: native window shadow MUST stay off — macOS draws it
-        // based on the rectangular window bounds, not the rounded React
-        // content, so it shows up as a hard-edged black rectangle around
-        // the rounded pill.
-        .shadow(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the capsule gets a
+        // correctly rounded OS shadow with the window sized to the pill
+        // exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
         .visible(false)
         .focused(false);
     // macOS: without this, the first click on an unfocused window is
@@ -1022,9 +1080,30 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
-    let _ = win.show();
-    dlog!("[clips-tray] toolbar shown");
+    // Deliberately NOT shown here. The pill owns its visibility through
+    // `toolbar_set_visible`: it stays hidden through pre-record and the
+    // countdown and appears only once the recorder reports capture live —
+    // recording controls before recording exists read as a broken state.
+    dlog!("[clips-tray] toolbar created (hidden until capture is live)");
 
+    Ok(())
+}
+
+/// Show or hide the recording pill without activating it. Visibility is
+/// driven entirely by the pill renderer: hidden while the recorder is
+/// preparing or counting down, visible while capture is live or the
+/// completion card is up.
+#[tauri::command]
+pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    let Some(win) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    if visible {
+        raise_to_status_level(&win);
+        crate::util::show_without_activation(&win);
+    } else {
+        let _ = win.hide();
+    }
     Ok(())
 }
 
@@ -1149,10 +1228,16 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
 }
 
 fn overlay_labels_to_hide(preserve_finalizing: bool) -> impl Iterator<Item = &'static str> {
-    OVERLAY_LABELS
-        .iter()
-        .copied()
-        .filter(move |label| !preserve_finalizing || *label != FINALIZING_LABEL)
+    let preserve_toolbar = TOOLBAR_FINISHING.load(Ordering::SeqCst);
+    OVERLAY_LABELS.iter().copied().filter(move |label| {
+        if preserve_finalizing && *label == FINALIZING_LABEL {
+            return false;
+        }
+        if preserve_toolbar && *label == TOOLBAR_LABEL {
+            return false;
+        }
+        true
+    })
 }
 
 #[tauri::command]
@@ -1194,7 +1279,10 @@ pub async fn hide_recording_chrome(
     let keep_region_guides = g.always_visible && g.enabled && !g.rects.is_empty();
     // The recording-region border belongs to a single recording (never pinned),
     // so it always tears down here alongside the countdown + toolbar.
-    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_RECORD_BORDER_LABEL];
+    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, REGION_RECORD_BORDER_LABEL];
+    if !TOOLBAR_FINISHING.load(Ordering::SeqCst) {
+        labels.push(TOOLBAR_LABEL);
+    }
     if !keep_region_guides {
         labels.push(REGION_GUIDES_LABEL);
     }
@@ -1284,10 +1372,9 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
             .as_ref()
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().height as f64) / scale
-                    - 24.0
-                    - POPOVER_SHADOW_GUTTER_LOGICAL * 2.0)
-                    .clamp(260.0, 820.0)
+                // The window IS the visible panel (native shadow, no apron),
+                // so only the 24px menu-bar margin is reserved.
+                ((monitor.size().height as f64) / scale - 24.0).clamp(260.0, 820.0)
             })
             .unwrap_or(820.0);
         // Same idea as height: a monitor narrower than the requested width
@@ -1297,18 +1384,18 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         let max_logical_width = monitor
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().width as f64) / scale - 16.0 - POPOVER_SHADOW_GUTTER_LOGICAL * 2.0)
-                    .clamp(320.0, 960.0)
+                ((monitor.size().width as f64) / scale - 16.0).clamp(320.0, 960.0)
             })
             .unwrap_or(960.0);
         let clamped = height.clamp(200.0, max_logical_height);
         let width = width
             .unwrap_or(320.0)
             .clamp(320.0, max_logical_width.max(320.0));
-        let (window_width, window_height) = popover_window_size_logical(width, clamped);
+        // The window IS the panel now — elevation is the native NSWindow
+        // shadow on exact bounds, so there is no apron to add here.
+        let (window_width, window_height) = (width, clamped);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            window_width,
-            window_height,
+            width, clamped,
         )));
         // Re-anchor to the tray icon so the window doesn't drift below the
         // bottom of the monitor after a growth. Pass the size we just asked
@@ -1643,14 +1730,17 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    // Wide + tall enough for a 5-line transcript preview above the pill.
-    let content_w: u32 = (640.0 * scale).round() as u32;
-    let content_h: u32 = (160.0 * scale).round() as u32;
-    let bottom_margin: i32 = (14.0 * scale).round() as i32;
-    let gutter = overlay_shadow_gutter_physical(&app);
-    let w: u32 = content_w + gutter * 2;
-    let h: u32 = content_h + gutter * 2;
-    let x: i32 = (mx + (mw as i32 - content_w as i32) / 2 - gutter as i32).max(mx);
+    // The window is sized to the content EXACTLY — wide + tall enough for a
+    // 5-line transcript preview above the pill. Elevation comes from the
+    // native NSWindow shadow (shadow(true) below), which macOS derives from
+    // the drawn pill/preview alpha. A transparent CSS-shadow apron is never
+    // used here: its invisible margin eats clicks.
+    let w: u32 = (640.0 * scale).round() as u32;
+    let h: u32 = (160.0 * scale).round() as u32;
+    // 32 = the old 14px visible margin + the removed 18px shadow gutter, so
+    // the visible pill keeps its exact on-screen position.
+    let bottom_margin: i32 = (32.0 * scale).round() as i32;
+    let x: i32 = (mx + (mw as i32 - w as i32) / 2).max(mx);
     let y: i32 = (my + mh as i32 - h as i32 - bottom_margin).max(my);
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
@@ -1673,7 +1763,11 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .shadow(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the pill and preview
+        // get correctly rounded OS shadows with the window sized to the
+        // content exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
         .visible(false)
         .focused(false)
         .build()
@@ -2649,11 +2743,10 @@ fn present_popover(app: &AppHandle, window: &WebviewWindow) {
     // recording or voice wake. The content's ResizeObserver will fine-tune the
     // height on the next render, but we need a sensible starting size so
     // `position_popover` can anchor correctly.
-    let (w, h) = popover_window_size_logical(
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
         POPOVER_DEFAULT_WIDTH_LOGICAL,
         POPOVER_DEFAULT_HEIGHT_LOGICAL,
-    );
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
+    )));
     position_popover(app, window);
     mark_popover_shown(app);
     present_interactive_window(window);
@@ -2755,9 +2848,9 @@ pub fn position_popover_with_size(
 
         // Center the popover horizontally on the icon.
         let mut x = icon_x + icon_w / 2 - (win_size.width as i32) / 2;
-        // Drop the visible panel below the icon with a tiny gap. The native
-        // window itself starts a shadow-gutter earlier so the top shadow has
-        // real transparent pixels to paint into without moving the panel down.
+        // Drop the panel below the icon with a tiny gap. The window IS the
+        // visible panel — its elevation is the native NSWindow shadow, which
+        // paints outside the window bounds, so no shadow-gutter offset here.
         let gap = 6_i32;
         let mut y = icon_y + icon_h + gap;
 
@@ -2777,15 +2870,6 @@ pub fn position_popover_with_size(
                     && icon_cy < mp.y + ms.height as i32
             })
         });
-        let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL
-            * tray_monitor
-                .as_ref()
-                .map(|m| m.scale_factor())
-                .unwrap_or_else(|| monitor.scale_factor())
-                .max(1.0))
-        .round() as i32;
-        y -= popover_gutter;
-
         let (clamp_pos, clamp_size) = tray_monitor
             .map(|m| (*m.position(), *m.size()))
             .unwrap_or((*mon_pos, *mon_size));
@@ -2817,13 +2901,12 @@ pub fn position_popover_with_size(
     let scale = monitor.scale_factor();
     let margin_right = (12.0 * scale) as i32;
     let margin_top = (36.0 * scale) as i32;
-    let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL * scale.max(1.0)).round() as i32;
     let min_x = mon_pos.x + 8;
     let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
     let min_y = mon_pos.y + 8;
     let max_y = mon_pos.y + mon_size.height as i32 - win_size.height as i32 - 8;
     let x = (mon_pos.x + mon_size.width as i32 - win_size.width as i32 - margin_right)
         .clamp(min_x, max_x.max(min_x));
-    let y = (mon_pos.y + margin_top - popover_gutter).clamp(min_y, max_y.max(min_y));
+    let y = (mon_pos.y + margin_top).clamp(min_y, max_y.max(min_y));
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
