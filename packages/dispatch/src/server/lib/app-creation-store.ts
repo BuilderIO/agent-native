@@ -33,6 +33,10 @@ import {
   recordAudit,
   resolveLinkedOwner,
 } from "./dispatch-store.js";
+import {
+  projectEnvironmentUrl,
+  requestEnvironmentLane,
+} from "./environment-lane.js";
 import { createRequest, listSecretOptions } from "./vault-store.js";
 import { WORKSPACE_APPS_ACTION_PATH } from "./workspace-app-action-auth.js";
 import {
@@ -460,13 +464,14 @@ function applyWorkspaceAppMetadataOverride(
 // code belongs here; changes to authorship, content trust, or sharing require
 // an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
-  const base =
+  const configuredBase =
     process.env.WORKSPACE_GATEWAY_URL ||
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL ||
     null;
+  const base = configuredBase ? projectEnvironmentUrl(configuredBase) : null;
   if (!base) return null;
   try {
     return new URL(appPath, `${base.replace(/\/$/, "")}/`).toString();
@@ -493,7 +498,7 @@ function workspaceAppLink(
   if (!urlValue) return workspaceAppUrl(appPath);
   if (urlValue.startsWith("/")) return workspaceAppUrl(urlValue) ?? urlValue;
   try {
-    return new URL(urlValue).toString();
+    return projectEnvironmentUrl(new URL(urlValue).toString());
   } catch {
     return urlValue;
   }
@@ -1461,8 +1466,9 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
 async function readWorkspaceAppsFromGateway(): Promise<
   WorkspaceAppSummary[] | null
 > {
-  const base = process.env.WORKSPACE_GATEWAY_URL;
-  if (!base) return null;
+  const configuredBase = process.env.WORKSPACE_GATEWAY_URL;
+  if (!configuredBase) return null;
+  const base = projectEnvironmentUrl(configuredBase);
 
   let baseUrl: URL;
   try {
@@ -1728,6 +1734,7 @@ async function applyArchivedAndPending(
       workspaceSso: isWorkspaceSsoAppUrl(withMetadata, {
         nodeEnv: process.env.NODE_ENV,
         registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+        environmentLane: requestEnvironmentLane(),
       }),
       ...(archivedSet.has(app.id) ? { archived: true } : {}),
     };
