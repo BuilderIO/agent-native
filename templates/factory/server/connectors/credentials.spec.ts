@@ -81,6 +81,7 @@ describe("resolveConnectorSecret", () => {
 
   it("prefers an app-granted provider connection for known source keys", async () => {
     mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-local-token");
     mocks.resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
       available: true,
@@ -118,6 +119,7 @@ describe("resolveConnectorSecret", () => {
 
   it("reads provider keys from env on a local sqlite database", async () => {
     mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("SLACK_BOT_TOKEN", " xoxb-local-token ");
 
     await expect(
@@ -125,5 +127,42 @@ describe("resolveConnectorSecret", () => {
         orgId: "active-org",
       }),
     ).resolves.toBe("xoxb-local-token");
+  });
+
+  it("does not use provider env on production even with a file database", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-production-file-db");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not use provider env on Netlify even with a file database", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-netlify-file-db");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not use provider env on hosted workspace even with a file database", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-hosted-file-db");
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
   });
 });

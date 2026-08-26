@@ -35,6 +35,46 @@ function isMissingTableError(err: unknown): boolean {
   );
 }
 
+function isProductionLikeRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||
+    /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
+    /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
+    Boolean(
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.AWS_EXECUTION_ENV ||
+      process.env.FUNCTIONS_WORKER_RUNTIME ||
+      process.env.K_SERVICE ||
+      process.env.RENDER,
+    )
+  );
+}
+
+function isHostedWorkspaceRuntime(): boolean {
+  return (
+    /^(1|true)$/i.test(process.env.AGENT_NATIVE_WORKSPACE ?? "") ||
+    /^(1|true)$/i.test(process.env.VITE_AGENT_NATIVE_WORKSPACE ?? "") ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(
+      process.env.FUSION_ENVIRONMENT ||
+      process.env.FUSION_ENV_ORIGIN ||
+      process.env.VITE_FUSION_ENV_ORIGIN,
+    )
+  );
+}
+
+function canUseLocalProviderEnvFallback(): boolean {
+  // A file: or unset DATABASE_URL is not local development. Hosted/production
+  // processes must stay vault-only even when the database URL looks local.
+  return (
+    isLocalDatabase() &&
+    !isProductionLikeRuntime() &&
+    !isHostedWorkspaceRuntime()
+  );
+}
+
 export class VaultUnavailableError extends Error {
   cause: unknown;
 
@@ -150,9 +190,9 @@ export async function resolveConnectorSecret(
     }
   }
 
-  // Hosted Factory keeps Slack/GitHub/Sentry vault-only. Local sqlite may
-  // still read `.env` so `pnpm dev` can poll without a Dispatch connection.
-  if (!VAULT_ONLY_KEYS.has(key) || isLocalDatabase()) {
+  // Hosted Factory keeps Slack/GitHub/Sentry vault-only. Local `pnpm dev`
+  // sqlite may still read `.env` so polling works without a Dispatch connection.
+  if (!VAULT_ONLY_KEYS.has(key) || canUseLocalProviderEnvFallback()) {
     const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - local sqlite and generic deploy-level connector fallback
     if (environmentSecret) return environmentSecret;
   }
