@@ -120,6 +120,12 @@ struct CallEvidence {
     mic_unreadable_since: Option<Instant>,
     /// Set at a call boundary, reported once by `take_call_ended`.
     call_ended: bool,
+    /// Set once when a readable stream stops being able to speak for the call,
+    /// reported by `take_mic_abstained`.
+    mic_abstained: bool,
+    /// Whether the stream was the authority as of the previous tick, so the
+    /// moment it stops being one can be caught as an edge rather than a state.
+    mic_was_authoritative: bool,
 }
 
 impl CallEvidence {
@@ -151,13 +157,22 @@ impl CallEvidence {
                     self.end_call(now);
                 }
             }
-            // The OS could not answer. That is not a "no": leave every mic
-            // timer where it is so an unreadable stretch neither starts a call
-            // nor ends one.
+            // The OS could not answer. That is not a "no": the stream timers
+            // stay where they are so an unreadable stretch neither starts a
+            // call nor ends one. The silence run does break, though — time we
+            // could not read is not time we watched go quiet, and counting it
+            // would let one `Some(false)` afterwards satisfy `CALL_END` on its
+            // own and end a call that may never have stopped.
             None => {
                 self.mic_unreadable_since.get_or_insert(now);
+                self.mic_silent_since = None;
             }
         }
+        let authoritative = self.mic_is_authoritative(now);
+        if self.mic_was_authoritative && !authoritative {
+            self.mic_abstained = true;
+        }
+        self.mic_was_authoritative = authoritative;
     }
 
     /// Close the current call: report the boundary once, and drop the evidence
@@ -167,6 +182,9 @@ impl CallEvidence {
         self.mic_since = None;
         self.mic_last_true = None;
         self.mic_silent_since = None;
+        // A call that ended on the stream's own verdict has not lost its
+        // authority — it exercised it. Only an unreadable stretch abstains.
+        self.mic_was_authoritative = false;
         // The next call may start muted in this same still-frontmost window.
         // An untouched foreground age would be past `JOIN_GRACE` already and
         // read as a window merely parked open, so re-arm the grace here.
@@ -258,6 +276,13 @@ impl CallEvidence {
     fn take_call_ended(&mut self) -> bool {
         std::mem::take(&mut self.call_ended)
     }
+
+    /// True once, at the moment a readable stream becomes unreadable for longer
+    /// than its grace. Not a call end — we do not know that — but a change of
+    /// regime, after which only the foreground has anything to say.
+    fn take_mic_abstained(&mut self) -> bool {
+        std::mem::take(&mut self.mic_abstained)
+    }
 }
 
 impl AdhocMeetingsWatcherInner {
@@ -281,13 +306,15 @@ impl AdhocMeetingsWatcherInner {
         self.dismissed_until.remove(platform);
     }
 
-    /// The fallback path's only end-of-session signal: no stream ever spoke for
-    /// this call and its window is gone. Releases the prompt backstop so the
-    /// next call still prompts, but leaves a dismissal standing — this signal
-    /// is too coarse to overrule one.
-    fn end_foreground_session(&mut self, platform: &str) {
-        self.session_notified.remove(platform);
-        self.prompt_cooldown_until.remove(platform);
+    /// Stop tracking calls entirely: the feature is off, or a meeting is
+    /// already being transcribed. The per-call suppression goes with the
+    /// evidence, because evidence is the only thing that releases it — dropping
+    /// one and keeping the other leaves a platform suppressed with nothing left
+    /// that could ever clear it. A dismissal keeps its own clock, so it stays.
+    fn clear_tracking(&mut self) {
+        self.evidence.clear();
+        self.session_notified.clear();
+        self.prompt_cooldown_until.clear();
     }
 
     fn retain_live_cooldowns(&mut self, now_ts: i64) {
@@ -467,41 +494,43 @@ async fn tick_macos(
         let mut g = state.inner.lock().map_err(|e| e.to_string())?;
         g.retain_live_cooldowns(now_ts);
 
-        let (call_state, call_ended, mic_live, mic_authoritative, mic_ever_spoke) = {
+        let (call_state, call_ended, mic_abstained, mic_live, mic_authoritative) = {
             let evidence = g.evidence.entry(platform.to_string()).or_default();
             evidence.observe(now, mic, frontmost);
             (
                 evidence.classify(now, mic, frontmost),
                 evidence.take_call_ended(),
+                evidence.take_mic_abstained(),
                 evidence.mic_live(now, mic),
                 evidence.mic_is_authoritative(now),
-                evidence.mic_ever_spoke(),
             )
         };
 
         // A finished call releases every suppression, so the next call in a
         // back-to-back block gets its own prompt instead of inheriting one.
+        // This is the stream's verdict, and the only thing that clears the
+        // cooldown: nothing below can prove a call ended, only that we stopped
+        // being able to see it.
         if call_ended {
             g.end_call_session(platform);
         }
-        // Who is allowed to say the session is over. While the stream is
-        // readable it is the only authority, and `call_ended` above is its
-        // verdict — the window must not pre-empt it, or a call backgrounded
-        // through an ordinary blip loses its suppression and prompts twice.
+        // `session_notified` is the flag with no clock of its own, so it needs
+        // releasing on evidence weaker than a call end or it strands the
+        // platform. Both releases below leave the prompt cooldown standing,
+        // which is what bounds a duplicate prompt in the meantime.
+        //
+        // Losing the window is not proof a call ended — on the fallback path,
+        // switching to Slack mid-call looks exactly the same — so it may only
+        // release the flag while the stream is not speaking for the call.
         if !mic_live && !frontmost && !mic_authoritative {
-            if mic_ever_spoke {
-                // A stream spoke for this call and then became unreadable. Too
-                // little to declare the call over, but `session_notified` has
-                // no clock, so leaving it set on evidence we can no longer read
-                // would strand the platform. Drop it and let the prompt
-                // cooldown expire on its own rather than clearing it here.
-                g.session_notified.remove(platform);
-            } else {
-                // No stream ever spoke for this platform, so the foreground is
-                // the only signal there has ever been. This is the fallback
-                // path, and its whole session ends here.
-                g.end_foreground_session(platform);
-            }
+            g.session_notified.remove(platform);
+        }
+        // The stream just stopped being readable. The window may never change
+        // again, so this edge is the only chance to hand the session to the
+        // fallback; without it a later call in a still-frontmost window has no
+        // boundary left that could ever release the flag.
+        if mic_abstained {
+            g.session_notified.remove(platform);
         }
 
         if confirmed.is_none()
@@ -523,6 +552,16 @@ async fn tick_macos(
                 "[clips-tray] adhoc skip: recent calendar notify for {}",
                 platform
             );
+            // The calendar reminder owns this call, so record it as handled
+            // rather than just skipping the tick. Leaving it unmarked keeps the
+            // call eligible on every later tick, and the moment the guard
+            // expires the same call prompts again — the double-prompt this
+            // guard exists to prevent, three minutes late.
+            if let Some(adhoc) = app.try_state::<AdhocMeetingsWatcherState>() {
+                if let Ok(mut g) = adhoc.inner.lock() {
+                    g.session_notified.insert(platform.to_string(), true);
+                }
+            }
             return Ok(());
         }
     }
@@ -919,31 +958,115 @@ mod tests {
     }
 
     #[test]
-    fn a_fallback_session_end_releases_the_prompt_but_not_a_dismissal() {
-        // macOS 13 has no stream to end a call, so leaving the window is the
-        // only signal there is. It must free the next call to prompt without
-        // undoing a dismissal the user chose.
+    fn losing_the_window_never_releases_the_prompt_cooldown() {
+        // On the fallback path, switching to Slack mid-call is indistinguishable
+        // from the call ending. Releasing the cooldown there would re-prompt
+        // the same still-running call the moment the user came back, so only a
+        // confirmed call end may clear it.
         let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_prompted("zoom", now_ts);
 
-        let mut prompted = AdhocMeetingsWatcherInner::default();
-        prompted.note_prompted("zoom", now_ts);
-        prompted.end_foreground_session("zoom");
+        state.session_notified.remove("zoom");
         assert!(
-            !prompted.is_suppressed("zoom", now_ts + 1),
-            "a second fallback call within the cooldown still prompts"
+            state.is_suppressed("zoom", now_ts + 1),
+            "the same call must not prompt again on returning to the window"
+        );
+        assert!(
+            !state.is_suppressed("zoom", now_ts + COOLDOWN_SECS),
+            "and the cooldown still expires, so the platform is never stranded"
         );
 
-        let mut dismissed = AdhocMeetingsWatcherInner::default();
-        dismissed.note_dismissed("zoom", now_ts);
-        dismissed.end_foreground_session("zoom");
+        state.end_call_session("zoom");
         assert!(
-            dismissed.is_suppressed("zoom", now_ts + 1),
-            "leaving the window is too coarse to overrule a dismissal"
+            !state.is_suppressed("zoom", now_ts + 1),
+            "a confirmed call end is what frees the next call"
         );
-        dismissed.end_call_session("zoom");
+    }
+
+    #[test]
+    fn abandoning_evidence_takes_the_suppression_it_would_have_released() {
+        // Transcription starts, so the watcher stops sampling. Keeping the
+        // per-call flag while dropping the evidence that releases it leaves the
+        // platform suppressed with nothing left that could clear it.
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+        state.note_prompted("zoom", now_ts);
+        state.note_dismissed("teams", now_ts);
+        state
+            .evidence
+            .insert("zoom".to_string(), CallEvidence::default());
+
+        state.clear_tracking();
+
+        assert!(state.evidence.is_empty());
         assert!(
-            !dismissed.is_suppressed("zoom", now_ts + 1),
-            "a confirmed call end does release a dismissal"
+            !state.is_suppressed("zoom", now_ts + 1),
+            "the next call after transcription prompts normally"
+        );
+        assert!(
+            state.is_suppressed("teams", now_ts + 1),
+            "a dismissal has its own clock and is not ours to discard"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_stream_hands_the_session_over_exactly_once() {
+        // The window may never change again, so the moment the stream stops
+        // being readable is the only boundary left to release the flag on.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 300), Some(true), true);
+        assert!(!evidence.take_mic_abstained());
+
+        evidence.observe(ago(now, 200), None, true);
+        assert!(
+            !evidence.take_mic_abstained(),
+            "inside the grace the stream still speaks for the call"
+        );
+
+        evidence.observe(now, None, true);
+        assert!(
+            evidence.take_mic_abstained(),
+            "past the grace the session is handed to the fallback"
+        );
+        assert!(
+            !evidence.take_mic_abstained(),
+            "and handed over once, not on every later tick"
+        );
+    }
+
+    #[test]
+    fn a_confirmed_call_end_is_not_an_abstention() {
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 90), Some(true), true);
+        evidence.observe(ago(now, 60), Some(false), true);
+        evidence.observe(now, Some(false), true);
+
+        assert!(evidence.take_call_ended());
+        assert!(
+            !evidence.take_mic_abstained(),
+            "the stream exercised its authority rather than losing it"
+        );
+    }
+
+    #[test]
+    fn unreadable_time_does_not_count_as_confirmed_silence() {
+        // The unreadable stretch may have been full of audio. Counting it would
+        // let the first `Some(false)` afterwards satisfy CALL_END on its own and
+        // end a call that never stopped.
+        let now = Instant::now();
+        let mut evidence = CallEvidence::default();
+        evidence.observe(ago(now, 120), Some(true), false);
+        evidence.observe(ago(now, 118), Some(false), false);
+        evidence.observe(ago(now, 100), None, false);
+        evidence.observe(ago(now, 10), None, false);
+        evidence.observe(now, Some(false), false);
+
+        assert!(
+            !evidence.take_call_ended(),
+            "the silence clock restarts after time we could not read"
         );
     }
 
@@ -999,17 +1122,10 @@ mod tests {
     }
 }
 
-/// Stop tracking calls entirely: the feature is off, or a meeting is already
-/// being transcribed. The per-call suppression goes with the evidence, because
-/// evidence is the only thing that releases it — dropping one and keeping the
-/// other leaves a platform suppressed with nothing left that could ever clear
-/// it. A dismissal keeps its own clock and expires on its own, so it stays.
 fn reset_evidence(app: &AppHandle) {
     if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
         if let Ok(mut g) = state.inner.lock() {
-            g.evidence.clear();
-            g.session_notified.clear();
-            g.prompt_cooldown_until.clear();
+            g.clear_tracking();
         }
     }
 }
