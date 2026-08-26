@@ -4,6 +4,7 @@ import {
   drillInCandidateKey,
   drillInChainAtPoint,
   resolveDrillInTarget,
+  resolvePickTargetAtPoint,
 } from "./drill-in";
 import type { CanvasLayerMarqueeCandidate } from "./types";
 
@@ -185,5 +186,35 @@ describe("resolveDrillInTarget", () => {
     const left = candidate("", { x: 0, y: 0, width: 50, height: 50 });
     const right = candidate("", { x: 50, y: 0, width: 50, height: 50 });
     expect(drillInCandidateKey(left)).not.toBe(drillInCandidateKey(right));
+  });
+});
+
+describe("resolvePickTargetAtPoint", () => {
+  // A generated screen wraps its content in a full-bleed div, so the outermost
+  // candidate under any point is that wrapper.
+  const WRAPPER = candidate("wrapper", {
+    x: 0,
+    y: 0,
+    width: 400,
+    height: 800,
+  });
+
+  it("selects the innermost layer, not the screen's full-bleed wrapper", () => {
+    const target = resolvePickTargetAtPoint({
+      candidates: [WRAPPER, SECTION, HEADING, SPAN],
+      screenId: "screen-1",
+      point: { x: 60, y: 60 },
+    });
+    expect(target?.info.sourceId).toBe("span");
+  });
+
+  it("returns null when only the wrapper sits under the pointer", () => {
+    expect(
+      resolvePickTargetAtPoint({
+        candidates: [WRAPPER],
+        screenId: "screen-1",
+        point: { x: 390, y: 790 },
+      }),
+    ).toBeNull();
   });
 });

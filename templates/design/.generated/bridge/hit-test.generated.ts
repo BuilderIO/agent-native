@@ -145,6 +145,21 @@ export const hitTestBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
+    function isAbsoluteLayoutContainer(el) {
+      if (!el || el === document.body || el === document.documentElement) {
+        return false;
+      }
+      var cs = window.getComputedStyle(el);
+      if (cs.position === "static") return false;
+      var children = el.children;
+      for (var i = 0; i < children.length; i += 1) {
+        var childPosition = window.getComputedStyle(children[i]).position;
+        if (childPosition === "absolute" || childPosition === "fixed") {
+          return true;
+        }
+      }
+      return false;
+    }
     function isAbsolutePrimitiveContainer(el) {
       if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
@@ -160,7 +175,7 @@ export const hitTestBridgeScript: string = `"use strict";
         var cursor = hits[i];
         var candidate = null;
         while (cursor && cursor !== document.body) {
-          if (isAbsolutePrimitiveContainer(cursor)) {
+          if (isAbsolutePrimitiveContainer(cursor) || isAbsoluteLayoutContainer(cursor)) {
             candidate = cursor;
             break;
           }
@@ -391,7 +406,7 @@ export const hitTestBridgeScript: string = `"use strict";
             dropMode: "flow-insert"
           };
         }
-        if (isAbsolutePrimitiveContainer(cursor)) {
+        if (isAbsolutePrimitiveContainer(cursor) || isAbsoluteLayoutContainer(cursor)) {
           return {
             anchor: cursor,
             placement: "inside",
@@ -516,6 +531,47 @@ export const hitTestBridgeScript: string = `"use strict";
     } else {
       scheduleReviewLayout();
     }
+    var NON_SELECTABLE_TAGS = [
+      "script",
+      "style",
+      "template",
+      "link",
+      "meta",
+      "title",
+      "noscript",
+      "br"
+    ];
+    var MIN_SELECTABLE_EXTENT_PX = 4;
+    function collectSelectableElementInfos() {
+      var nodes = Array.prototype.slice.call(
+        document.body ? document.body.querySelectorAll("*") : []
+      );
+      var infos = [];
+      nodes.forEach(function(node) {
+        if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 || isEditorInjectedElement(node) || isTemplateCloneElement(node) || node.ownerSVGElement) {
+          return;
+        }
+        var rect = node.getBoundingClientRect();
+        var padX = rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+        var padY = rect.height < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+        var nodeId = getNodeId(node);
+        infos.push({
+          tagName: node.tagName.toLowerCase(),
+          sourceId: nodeId || void 0,
+          // Not minted here: a whole-document sweep must stay read-only, and the
+          // host resolves an id-less node through this structural selector.
+          selector: nodeId ? void 0 : buildSourceEquivalentSelector(node) || void 0,
+          layerName: node.getAttribute("data-agent-native-layer-name") || void 0,
+          boundingRect: {
+            x: rect.left - padX,
+            y: rect.top - padY,
+            width: rect.width + padX * 2,
+            height: rect.height + padY * 2
+          }
+        });
+      });
+      return infos;
+    }
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
@@ -615,6 +671,23 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:hit-test-preview-clear") {
         hideInsertionGuide();
+        return;
+      }
+      if (e.data.type === "agent-native:collect-selectable-rects") {
+        if (window.__agentNativeEditorChrome) {
+          return;
+        }
+        try {
+          window.parent.postMessage(
+            {
+              type: "agent-native:selectable-rects-result",
+              correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+              payload: collectSelectableElementInfos()
+            },
+            "*"
+          );
+        } catch (_err) {
+        }
         return;
       }
       if (e.data.type !== "agent-native:hit-test") return;

@@ -498,31 +498,66 @@ export function runCrossScreenElementDrop(
     destNodeAttrId,
     liveDestIframe?.contentDocument ?? null,
   );
-  const nextDestContent = targetAnchorAttrId
-    ? targetDropMode === "absolute-container"
-      ? targetLocalPoint && targetAnchorRect
-        ? setAbsolutePositioningForNodeInHtml(
+  // One decision, one label: the branch name in the trace is the branch that
+  // ran, so a bug report cannot disagree with the code.
+  const placed = ((): { content: string; branch: string } => {
+    if (targetAnchorAttrId) {
+      if (targetDropMode !== "absolute-container") {
+        return {
+          content: removeAbsolutePositioningFromNodeInHtml(
             stylePreservedDest,
             destNodeAttrId,
-            {
-              x: targetLocalPoint.x - targetAnchorRect.left,
-              y: targetLocalPoint.y - targetAnchorRect.top,
-            },
-            sourcePointerOffset,
-          )
-        : stylePreservedDest
-      : removeAbsolutePositioningFromNodeInHtml(
+          ),
+          branch: "anchored-flow-insert",
+        };
+      }
+      if (!targetLocalPoint || !targetAnchorRect) {
+        return {
+          content: stylePreservedDest,
+          branch: "anchored-absolute-missing-geometry",
+        };
+      }
+      return {
+        content: setAbsolutePositioningForNodeInHtml(
           stylePreservedDest,
           destNodeAttrId,
-        )
-    : targetLocalPoint
-      ? setAbsolutePositioningForNodeInHtml(
-          stylePreservedDest,
-          destNodeAttrId,
-          targetLocalPoint,
+          {
+            x: targetLocalPoint.x - targetAnchorRect.left,
+            y: targetLocalPoint.y - targetAnchorRect.top,
+          },
           sourcePointerOffset,
-        )
-      : stylePreservedDest;
+        ),
+        branch: "anchored-absolute",
+      };
+    }
+    if (!targetLocalPoint) {
+      // Writing the node with no position is what made a dropped layer land in
+      // the corner or read as lost. Keep its previous position and say so.
+      return { content: stylePreservedDest, branch: "rooted-no-point" };
+    }
+    return {
+      content: setAbsolutePositioningForNodeInHtml(
+        stylePreservedDest,
+        destNodeAttrId,
+        targetLocalPoint,
+        sourcePointerOffset,
+      ),
+      branch: "rooted-absolute",
+    };
+  })();
+  const point = (value: { x: number; y: number } | undefined) =>
+    value ? `${Math.round(value.x)},${Math.round(value.y)}` : "none";
+  // Flat string, not an object: a console paste collapses objects to "{…}".
+  trace(
+    "drop",
+    "placement",
+    `${placed.branch} node=${destNodeAttrId} target=${targetScreenId}` +
+      ` anchor=${targetAnchorAttrId ?? "none"} mode=${targetDropMode ?? "none"}` +
+      ` local=${point(targetLocalPoint)}` +
+      ` anchorRect=${targetAnchorRect ? `${Math.round(targetAnchorRect.left)},${Math.round(targetAnchorRect.top)}` : "none"}` +
+      ` grab=${point(sourcePointerOffset)}`,
+  );
+  const nextDestContent = placed.content;
 
   recordContentHistoryEntry({
     changes: [

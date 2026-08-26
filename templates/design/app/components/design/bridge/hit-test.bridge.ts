@@ -244,6 +244,23 @@
     );
   }
 
+  // keep in sync with editor-chrome.bridge.ts isAbsoluteLayoutContainer
+  function isAbsoluteLayoutContainer(el: Element | null): boolean {
+    if (!el || el === document.body || el === document.documentElement) {
+      return false;
+    }
+    var cs = window.getComputedStyle(el);
+    if (cs.position === "static") return false;
+    var children = el.children;
+    for (var i = 0; i < children.length; i += 1) {
+      var childPosition = window.getComputedStyle(children[i]).position;
+      if (childPosition === "absolute" || childPosition === "fixed") {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
     if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
     var primitive = (
@@ -278,7 +295,10 @@
       var cursor: Element | null = hits[i];
       var candidate: Element | null = null;
       while (cursor && cursor !== document.body) {
-        if (isAbsolutePrimitiveContainer(cursor)) {
+        if (
+          isAbsolutePrimitiveContainer(cursor) ||
+          isAbsoluteLayoutContainer(cursor)
+        ) {
           candidate = cursor;
           break;
         }
@@ -678,7 +698,10 @@
           dropMode: "flow-insert",
         };
       }
-      if (isAbsolutePrimitiveContainer(cursor)) {
+      if (
+        isAbsolutePrimitiveContainer(cursor) ||
+        isAbsoluteLayoutContainer(cursor)
+      ) {
         return {
           anchor: cursor,
           placement: "inside",
@@ -830,6 +853,67 @@
     scheduleReviewLayout();
   }
 
+  var NON_SELECTABLE_TAGS = [
+    "script",
+    "style",
+    "template",
+    "link",
+    "meta",
+    "title",
+    "noscript",
+    "br",
+  ];
+  var MIN_SELECTABLE_EXTENT_PX = 4;
+
+  // keep in sync with editor-chrome.bridge.ts collectSelectableElements
+  // Same layer set as the editable bridge, by a shorter route: that one promotes
+  // svg internals to their <svg>, this one skips them, and both land on the
+  // <svg> itself. Answers only when editor chrome is absent (see the flag).
+  function collectSelectableElementInfos(): unknown[] {
+    var nodes = Array.prototype.slice.call(
+      document.body ? document.body.querySelectorAll("*") : [],
+    ) as Element[];
+    var infos: unknown[] = [];
+    nodes.forEach(function (node) {
+      if (
+        NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 ||
+        isEditorInjectedElement(node) ||
+        isTemplateCloneElement(node) ||
+        (node as SVGElement).ownerSVGElement
+      ) {
+        return;
+      }
+      var rect = node.getBoundingClientRect();
+      var padX =
+        rect.width < MIN_SELECTABLE_EXTENT_PX
+          ? MIN_SELECTABLE_EXTENT_PX / 2
+          : 0;
+      var padY =
+        rect.height < MIN_SELECTABLE_EXTENT_PX
+          ? MIN_SELECTABLE_EXTENT_PX / 2
+          : 0;
+      var nodeId = getNodeId(node);
+      infos.push({
+        tagName: node.tagName.toLowerCase(),
+        sourceId: nodeId || undefined,
+        // Not minted here: a whole-document sweep must stay read-only, and the
+        // host resolves an id-less node through this structural selector.
+        selector: nodeId
+          ? undefined
+          : buildSourceEquivalentSelector(node) || undefined,
+        layerName:
+          node.getAttribute("data-agent-native-layer-name") || undefined,
+        boundingRect: {
+          x: rect.left - padX,
+          y: rect.top - padY,
+          width: rect.width + padX * 2,
+          height: rect.height + padY * 2,
+        },
+      });
+    });
+    return infos;
+  }
+
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
@@ -944,6 +1028,32 @@
     }
     if (e.data.type === "agent-native:hit-test-preview-clear") {
       hideInsertionGuide();
+      return;
+    }
+    // The only bridge injected when editor chrome is off (read-only, Interact,
+    // thumbnail overview): with no answer the host cannot tell a timeout from
+    // "nothing here is selectable".
+    if (e.data.type === "agent-native:collect-selectable-rects") {
+      // The editable bridge owns this reply when it is present; see the flag it
+      // sets in editor-chrome.bridge.ts.
+      if (
+        (window as unknown as Record<string, boolean>).__agentNativeEditorChrome
+      ) {
+        return;
+      }
+      try {
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:selectable-rects-result",
+            correlationId:
+              typeof e.data.correlationId === "string"
+                ? e.data.correlationId
+                : "",
+            payload: collectSelectableElementInfos(),
+          },
+          "*",
+        );
+      } catch (_err) {}
       return;
     }
     if (e.data.type !== "agent-native:hit-test") return;
