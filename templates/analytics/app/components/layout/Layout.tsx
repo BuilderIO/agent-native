@@ -85,7 +85,6 @@ function InteractiveLayout({ children }: LayoutProps) {
         formattedAnswers,
         "",
         "Use these answers to choose the dashboard scope, data source, metrics, breakdowns, and layout. For dashboards, consult the data dictionary before writing SQL.",
-        "Every question above is settled. Do not re-ask it, and do not ask the user to confirm it. Ask a new question only about a required source/table/metric that is still genuinely ambiguous and is not answered above.",
       ].join("\n"),
     buildSkipContext: () =>
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",

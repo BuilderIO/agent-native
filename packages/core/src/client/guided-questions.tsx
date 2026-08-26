@@ -190,15 +190,21 @@ export function formatGuidedAnswersForAgent(
     .join("\n");
 }
 
+const SETTLED_ANSWERS_INSTRUCTION =
+  "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
+
 function defaultGuidedSubmitContext(formattedAnswers: string): string {
   return [
     "The user answered the guided questions.",
     "Use the selected option values below as authoritative. If an answer includes exact ids, file names, or action instructions, follow those exact details instead of inferring them.",
-    "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.",
     "",
     "Answers:",
     formattedAnswers,
   ].join("\n");
+}
+
+function settledGuidedSubmitContext(context: string): string {
+  return [context, SETTLED_ANSWERS_INSTRUCTION].filter(Boolean).join("\n\n");
 }
 
 /** A single option for {@link askUserQuestion}. Mirrors the agent `ask-question`
@@ -1169,8 +1175,10 @@ export function useGuidedQuestionFlow({
       const resolvedSubmitMessage =
         visiblePayload?.submitMessage ?? submitMessage;
       const context = [
-        buildSubmitContext?.({ answers, formattedAnswers }) ??
-          defaultGuidedSubmitContext(formattedAnswers),
+        settledGuidedSubmitContext(
+          buildSubmitContext?.({ answers, formattedAnswers }) ??
+            defaultGuidedSubmitContext(formattedAnswers),
+        ),
         visiblePayload?.submitContext,
       ]
         .filter(Boolean)

@@ -118,7 +118,6 @@ export function useQuestionFlow(
     buildSubmitContext: ({ formattedAnswers }) =>
       [
         "The user answered the pre-generation questions.",
-        SETTLED_ANSWERS_INSTRUCTION,
         designId ? `Design ID: ${designId}` : "",
         "",
         "Answers:",

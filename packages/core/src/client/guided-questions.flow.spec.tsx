@@ -408,6 +408,36 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(context.toLowerCase()).toContain("settled");
   });
 
+  it("adds the settled instruction to custom submit contexts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      refetchInterval: false,
+      buildSubmitContext: () => "Custom submit context",
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ q1: "7d" });
+      await Promise.resolve();
+    });
+
+    const context = sendToAgentChatMock.mock.calls[0][0].context ?? "";
+    expect(context).toContain("Custom submit context");
+    expect(context).toContain(
+      "Treat every question below as settled: do not ask it again",
+    );
+  });
+
   // askUserQuestion() is the client-side twin of the agent's `ask-question`
   // tool: it writes a payload carrying a `clientResolveId`, and the mounted
   // hook resolves the caller's promise with the answer instead of forwarding
