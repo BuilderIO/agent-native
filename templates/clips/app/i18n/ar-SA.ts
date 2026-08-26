@@ -495,7 +495,8 @@ const messages = {
     agentPrompt:
       "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
     agentTokenDescription:
-      "رابط مؤقت للقراءة فقط للوكلاء. تنتهي صلاحيته بعد ساعتين.",
+      "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
+    agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",
     agentLinkUnavailable: "تعذر إنشاء رابط الوكيل.",
     retryAgentLink: "إعادة المحاولة",
     gifPreview: "معاينة GIF",
@@ -519,7 +520,6 @@ const messages = {
     height: "ارتفاع",
     autoplay: "التشغيل التلقائي",
     startAt: "البدء عند (ثواني)",
-    startAtTimestamp: "البدء عند {{time}}",
     embedCode: "كود التضمين",
     copyEmbedCode: "نسخ كود التضمين",
     more: "المزيد",

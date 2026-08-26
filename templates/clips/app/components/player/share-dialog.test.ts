@@ -22,9 +22,13 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain('t("shareDialog.shareWithAgents")');
     // Both links are copy actions, so neither URL is rendered as text.
     expect(shareDialogSource).toContain("<CopyButton");
-    expect(shareDialogSource).toContain("value={linkUrl}");
+    expect(shareDialogSource).toContain("value={shareUrl}");
     expect(shareDialogSource).toContain("value={agentCopyValue}");
-    expect(shareDialogSource).not.toContain("value={shareUrl}");
+    // The embed textarea is the only readOnly field; share URLs are never
+    // rendered into an input.
+    expect(shareDialogSource).not.toContain(
+      "value={shareUrl}\n          readOnly",
+    );
   });
 
   it("keeps individual access in the primary share surface", () => {
@@ -102,13 +106,22 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain('t("shareDialog.copyEmailPreview")');
   });
 
-  it("offers a visible timestamped public share link control", () => {
+  it("keeps the share link free of playback-position clutter", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
-    expect(shareDialogSource).toContain('url.searchParams.set("at",');
-    expect(shareDialogSource).toContain('t("shareDialog.startAtTimestamp"');
-    expect(shareDialogSource).not.toContain(
-      'typeof currentMs === "number" ? (',
+    expect(shareDialogSource).not.toContain('url.searchParams.set("at",');
+    expect(shareDialogSource).not.toContain("currentMs");
+    expect(shareDialogSource).toContain("value={shareUrl}");
+  });
+
+  it("only promises agent-link expiry when the link is scoped", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain(
+      'needsScopedAgentContext\n              ? t("shareDialog.agentTokenDescription")',
+    );
+    expect(shareDialogSource).toContain(
+      't("shareDialog.agentPublicDescription")',
     );
   });
 

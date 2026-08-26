@@ -488,7 +488,10 @@ const messages = {
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
       "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
-    agentTokenDescription: "एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
+    agentTokenDescription:
+      "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
+    agentPublicDescription:
+      "एजेंटों के लिए रीड-ओनली लिंक। जब तक क्लिप सार्वजनिक है, काम करता है।",
     agentLinkUnavailable: "एजेंट लिंक नहीं बन सका।",
     retryAgentLink: "फिर से प्रयास करें",
     gifPreview: "GIF पूर्वावलोकन",
@@ -512,7 +515,6 @@ const messages = {
     height: "ऊंचाई",
     autoplay: "स्वत: प्ले",
     startAt: "प्रारंभ करें (सेकंड)",
-    startAtTimestamp: "{{time}} पर शुरू करें",
     embedCode: "एम्बेड कोड",
     copyEmbedCode: "एम्बेड कोड कॉपी करें",
     more: "अधिक",

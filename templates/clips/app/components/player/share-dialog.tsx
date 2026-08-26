@@ -36,7 +36,6 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -54,7 +53,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { formatMs } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
 import { buildAgentApiUrls } from "../../../shared/agent-context";
@@ -89,7 +87,6 @@ export interface ShareRecordingPopoverProps {
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
-  currentMs?: number;
   hasPassword?: boolean;
   /**
    * Restricts the dialog to a bare copy-link control for viewers who can
@@ -128,7 +125,6 @@ export function ShareRecordingPopover({
   thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
-  currentMs,
   hasPassword,
   viewerReshareOnly = false,
   children,
@@ -153,7 +149,6 @@ export function ShareRecordingPopover({
           thumbnailUrl={thumbnailUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
-          currentMs={currentMs}
           hasPassword={hasPassword}
           viewerReshareOnly={viewerReshareOnly}
         />
@@ -176,7 +171,6 @@ export function ShareRecordingDialog({
   thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
-  currentMs,
   open,
   onOpenChange,
   hasPassword,
@@ -200,7 +194,6 @@ export function ShareRecordingDialog({
           thumbnailUrl={thumbnailUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
-          currentMs={currentMs}
           hasPassword={hasPassword}
           viewerReshareOnly={viewerReshareOnly}
           reserveCloseButton
@@ -219,7 +212,6 @@ function ShareRecordingContent({
   thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
-  currentMs,
   reserveCloseButton = false,
   hasPassword,
   viewerReshareOnly = false,
@@ -232,7 +224,6 @@ function ShareRecordingContent({
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
-  currentMs?: number;
   reserveCloseButton?: boolean;
   hasPassword?: boolean;
   viewerReshareOnly?: boolean;
@@ -315,7 +306,6 @@ function ShareRecordingContent({
             thumbnailUrl={thumbnailUrl}
             animatedThumbnailUrl={animatedThumbnailUrl}
             isLoomRecording={isLoomRecording}
-            currentMs={currentMs}
             hasPassword={hasPassword}
             canViewShares={canViewShares}
           />
@@ -354,7 +344,6 @@ function LinkTab({
   thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording: isLoomRecordingProp,
-  currentMs = 0,
   hasPassword,
   canViewShares,
 }: {
@@ -373,23 +362,12 @@ function LinkTab({
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
-  currentMs?: number;
   hasPassword?: boolean;
   canViewShares: boolean;
 }) {
   const t = useT();
   const isPublic = visibility === "public";
   const sharesLoaded = visibility !== null;
-  const timestampMs = Number.isFinite(currentMs)
-    ? Math.max(0, Math.floor(currentMs! / 1000) * 1000)
-    : 0;
-  const [shareFromTimestamp, setShareFromTimestamp] = useState(false);
-  const linkUrl = useMemo(() => {
-    if (!shareFromTimestamp || timestampMs === 0) return shareUrl;
-    const url = new URL(shareUrl);
-    url.searchParams.set("at", String(timestampMs / 1000));
-    return url.toString();
-  }, [shareFromTimestamp, shareUrl, timestampMs]);
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
   const needsScopedAgentContext = !isPublic || hasPassword !== false;
   const publicAgentContextUrl = useMemo(
@@ -603,26 +581,11 @@ function LinkTab({
 
       <div className="flex flex-wrap items-center gap-2">
         <CopyButton
-          value={linkUrl}
+          value={shareUrl}
           disabled={visibilityPending || !sharesLoaded}
         >
           {t("shareUi.copyLink")}
         </CopyButton>
-        <Label
-          className="flex items-center gap-2 text-sm font-normal"
-          htmlFor="share-from-timestamp"
-        >
-          <Checkbox
-            id="share-from-timestamp"
-            checked={shareFromTimestamp}
-            onCheckedChange={(checked) =>
-              setShareFromTimestamp(checked === true)
-            }
-          />
-          {t("shareDialog.startAtTimestamp", {
-            time: formatMs(timestampMs),
-          })}
-        </Label>
         {moreMenuItems.length > 0 ? (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
@@ -655,7 +618,11 @@ function LinkTab({
             {t("shareDialog.shareWithAgents")}
           </div>
           <p className="text-xs text-muted-foreground">
-            {t("shareDialog.agentTokenDescription")}
+            {/* A public, unprotected clip hands agents its permanent public
+                context URL; everything else gets a short-lived scoped token. */}
+            {needsScopedAgentContext
+              ? t("shareDialog.agentTokenDescription")
+              : t("shareDialog.agentPublicDescription")}
           </p>
         </div>
         {agentLinkError ? (

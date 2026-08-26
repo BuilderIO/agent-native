@@ -470,7 +470,9 @@ const messages = {
     copyAgentPrompt: "复制代理提示",
     agentPrompt:
       "获取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 transcript.segments 读取语音上下文，获取 recommendedFrames 或帧 API URL 来查看屏幕，并在 browserDiagnostics 存在时检查经过脱敏的控制台日志和 fetch/XHR 请求元数据。",
-    agentTokenDescription: "供代理使用的临时只读链接。2 小时后过期。",
+    agentTokenDescription:
+      "此剪辑未公开，因此提供供代理使用的临时只读链接。2 小时后过期。",
+    agentPublicDescription: "供代理使用的只读链接。剪辑保持公开期间有效。",
     agentLinkUnavailable: "无法创建代理链接。",
     retryAgentLink: "重试",
     gifPreview: "GIF 预览",
@@ -494,7 +496,6 @@ const messages = {
     height: "高度",
     autoplay: "自动播放",
     startAt: "开始时间（秒）",
-    startAtTimestamp: "从 {{time}} 开始",
     embedCode: "嵌入代码",
     copyEmbedCode: "复制嵌入代码",
     more: "更多",

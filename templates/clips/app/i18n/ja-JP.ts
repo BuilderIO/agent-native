@@ -504,7 +504,9 @@ const messages = {
     agentPrompt:
       "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
     agentTokenDescription:
-      "エージェント用の一時的な読み取り専用リンク。2 時間で期限切れになります。",
+      "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
+    agentPublicDescription:
+      "エージェント用の読み取り専用リンク。クリップが公開されている間は有効です。",
     agentLinkUnavailable: "エージェント用リンクを作成できませんでした。",
     retryAgentLink: "再試行",
     gifPreview: "GIF プレビュー",
@@ -528,7 +530,6 @@ const messages = {
     height: "身長",
     autoplay: "自動再生",
     startAt: "(秒)から開始",
-    startAtTimestamp: "{{time}} から開始",
     embedCode: "埋め込みコード",
     copyEmbedCode: "埋め込みコードをコピー",
     more: "その他",

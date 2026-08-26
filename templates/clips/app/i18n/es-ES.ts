@@ -507,7 +507,9 @@ const messages = {
     agentPrompt:
       "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
     agentTokenDescription:
-      "Enlace temporal de solo lectura para agentes. Caduca en 2 horas.",
+      "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
+    agentPublicDescription:
+      "Enlace de solo lectura para agentes. Funciona mientras el clip sea público.",
     agentLinkUnavailable: "No se pudo crear el enlace para agentes.",
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
@@ -532,7 +534,6 @@ const messages = {
     height: "Altura",
     autoplay: "Reproducción automática",
     startAt: "Empezar en (segundos)",
-    startAtTimestamp: "Empezar en {{time}}",
     embedCode: "Código de inserción",
     copyEmbedCode: "Copiar código de inserción",
     more: "Más",
