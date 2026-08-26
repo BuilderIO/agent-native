@@ -273,6 +273,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.needsApproval = entry.needsApproval;
   }
+  if (typeof entry.allowPersistentApproval === "boolean") {
+    out.allowPersistentApproval = entry.allowPersistentApproval;
+  }
   return out;
 }
 

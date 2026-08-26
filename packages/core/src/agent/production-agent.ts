@@ -783,6 +783,11 @@ export interface ActionEntry {
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
   /**
+   * Whether a user-scoped action preference may satisfy `needsApproval`
+   * without prompting for this call. Defaults to true.
+   */
+  allowPersistentApproval?: boolean;
+  /**
    * The action hands control back to the user: once it succeeds the loop stops
    * the turn instead of asking the model for another step, and any remaining
    * tool calls in the same assistant message do not execute. Only for actions
@@ -5969,7 +5974,11 @@ export async function runAgentLoop(opts: {
           // than silently running a high-consequence action.
           mustApprove = true;
         }
-        if (mustApprove && opts.isToolAlwaysAllowed) {
+        if (
+          mustApprove &&
+          actionEntry.allowPersistentApproval !== false &&
+          opts.isToolAlwaysAllowed
+        ) {
           try {
             mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
           } catch {
@@ -5999,6 +6008,9 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(actionEntry.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
             ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
