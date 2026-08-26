@@ -40,11 +40,6 @@
   font-weight: 600;
 }
 
-body:has(.fixed.bottom-3.left-3) [data-dispatch-sidebar-footer] {
-  /* The fixed environment badge only needs this space when it is rendered. */
-  padding-bottom: 2.5rem;
-}
-
 @media (max-width: 767px) {
   .dispatch-chat-first-surface {
     position: relative;

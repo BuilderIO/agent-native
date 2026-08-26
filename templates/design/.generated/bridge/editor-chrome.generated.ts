@@ -4210,7 +4210,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return null;
     }
     function stopNativeInteraction(e) {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     }
