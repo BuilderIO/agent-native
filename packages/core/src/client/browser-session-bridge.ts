@@ -350,6 +350,22 @@ function requireDirectWebMcpClient(
   return options.webmcp;
 }
 
+function findWebMcpTool(
+  tools: AgentNativeWebMcpTool[],
+  name: string,
+  origin?: string,
+): AgentNativeWebMcpTool | undefined {
+  const matches = tools.filter(
+    (tool) => tool.name === name && (!origin || tool.origin === origin),
+  );
+  if (matches.length > 1 && !origin) {
+    throw new Error(
+      `WebMCP tool "${name}" is exposed by multiple origins; origin is required`,
+    );
+  }
+  return matches[0];
+}
+
 async function findDirectAction(
   options: AgentNativeBrowserSessionBridgeOptions,
   name: string,
@@ -425,10 +441,13 @@ async function executeDirectBrowserSessionRequest(
     if (!request.name) {
       throw new Error("Browser-session WebMCP request is missing name");
     }
-    return requireDirectWebMcpClient(options).executeTool(
-      { name: request.name, origin: request.origin },
-      request.args,
-    );
+    const client = requireDirectWebMcpClient(options);
+    const tools = await client.listTools();
+    const tool = findWebMcpTool(tools, request.name, request.origin);
+    if (!tool) {
+      throw new Error(`WebMCP tool "${request.name}" is no longer available`);
+    }
+    return client.executeListedTool(tool, request.args);
   }
   if (request.type === "command") {
     return runDirectCommand(

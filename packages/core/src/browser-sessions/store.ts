@@ -371,7 +371,12 @@ function rowToRequest(
       payload && typeof payload === "object" && !Array.isArray(payload)
         ? (payload as { args?: unknown; origin?: unknown })
         : undefined;
-    request.args = envelope && "args" in envelope ? envelope.args : payload;
+    request.args =
+      envelope && "args" in envelope
+        ? envelope.args
+        : typeof envelope?.origin === "string" && envelope.origin
+          ? {}
+          : payload;
     if (typeof envelope?.origin === "string" && envelope.origin) {
       request.origin = envelope.origin;
     }

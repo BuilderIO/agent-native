@@ -1,5 +1,4 @@
 import type { ActionEntry } from "../agent/production-agent.js";
-import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
 import {
   callBrowserSession,
   getBrowserSession,
@@ -54,49 +53,6 @@ async function resolveSessionId(
     );
   }
   return sessions[0].sessionId;
-}
-
-function findWebMcpTool(
-  value: unknown,
-  name: string,
-  origin?: string,
-): AgentNativeWebMcpTool | undefined {
-  if (!Array.isArray(value)) {
-    throw new Error("Browser session returned an invalid WebMCP tool list");
-  }
-  const matches = value.filter((tool): tool is AgentNativeWebMcpTool => {
-    if (!tool || typeof tool !== "object") return false;
-    const candidate = tool as Partial<AgentNativeWebMcpTool>;
-    return candidate.name === name && (!origin || candidate.origin === origin);
-  });
-  if (matches.length > 1 && !origin) {
-    throw new Error(
-      `WebMCP tool "${name}" is exposed by multiple origins; origin is required`,
-    );
-  }
-  return matches[0];
-}
-
-async function requireLiveWebMcpTool(
-  ownerEmail: string,
-  sessionId: string,
-  name: string,
-  origin?: string,
-  timeoutMs?: number,
-) {
-  const tools = await callBrowserSession(
-    ownerEmail,
-    sessionId,
-    { type: "list-webmcp-tools", timeoutMs },
-    { timeoutMs },
-  );
-  const tool = findWebMcpTool(tools, name, origin);
-  if (!tool) {
-    throw new Error(
-      `WebMCP tool "${name}" is not available in the connected browser session`,
-    );
-  }
-  return tool;
 }
 
 function compactSession(
@@ -329,13 +285,6 @@ export function createBrowserSessionActionEntries(
           readString(args, "sessionId"),
         );
         const origin = readString(args, "origin");
-        await requireLiveWebMcpTool(
-          ownerEmail,
-          sessionId,
-          name,
-          origin,
-          timeoutMs,
-        );
         const result = await callBrowserSession(
           ownerEmail,
           sessionId,

@@ -310,6 +310,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     };
 
     const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "embedded-tab",
       session: { id: "embedded-tab" },
       getContext: () => ({ route: { name: "builder-editor" } }),
       webmcp,
@@ -457,6 +458,74 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       }),
       undefined,
     );
+  });
+
+  it("executes the descriptor from the live direct WebMCP listing", async () => {
+    const tool = {
+      name: "get-order",
+      description: "Read an order",
+      origin: "https://shop.example",
+      inputSchema: { type: "object" },
+    };
+    const listTools = vi.fn(async () => [tool]);
+    const executeTool = vi.fn(async () => {
+      throw new Error("stale executeTool path");
+    });
+    const executeListedTool = vi.fn(async () => ({ status: "shipped" }));
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (
+        url === "/_agent-native/browser-sessions/embedded-tab/requests/claim" &&
+        method === "POST"
+      ) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-webmcp",
+            sessionId: "embedded-tab",
+            type: "run-webmcp-tool",
+            name: "get-order",
+            origin: "https://shop.example",
+            args: { id: "order-1" },
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 1000,
+          },
+        });
+      }
+      if (
+        url ===
+          "/_agent-native/browser-sessions/embedded-tab/requests/req-webmcp/complete" &&
+        method === "POST"
+      ) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          ok: true,
+          result: { status: "shipped" },
+        });
+        return jsonResponse({ ok: true, request: { id: "req-webmcp" } });
+      }
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    });
+
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "embedded-tab",
+      session: { id: "embedded-tab" },
+      webmcp: {
+        supported: true,
+        listTools,
+        executeTool,
+        executeListedTool,
+      },
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await bridge.claimOnce();
+
+    expect(listTools).toHaveBeenCalledOnce();
+    expect(executeListedTool).toHaveBeenCalledWith(tool, {
+      id: "order-1",
+    });
+    expect(executeTool).not.toHaveBeenCalled();
   });
 
   it("routes host WebMCP through the host bridge with mixed direct options", async () => {

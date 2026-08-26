@@ -300,7 +300,6 @@ export function createAgentNativeWebMcpClient(
     maxToolCount: options.maxToolCount ?? DEFAULT_TOOL_COUNT,
     maxManifestChars: options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
   };
-  const nativeTools = new Map<string, NativeRegisteredTool>();
   // Keep bindings for in-flight approvals; each descriptor is a listing capability.
   const listedNativeTools = new WeakMap<object, NativeRegisteredTool>();
 
@@ -341,18 +340,17 @@ export function createAgentNativeWebMcpClient(
       }
       seenKeys.add(key);
     });
-    nativeTools.clear();
     normalizedTools.forEach((tool, index) => {
-      nativeTools.set(toolKey(tool), result[index]);
       listedNativeTools.set(tool, result[index]);
     });
     return normalizedTools;
   }
 
-  function findNativeTool(
+  function findListedNativeTool(
+    tools: AgentNativeWebMcpTool[],
     tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
   ): NativeRegisteredTool | undefined {
-    const matches = [...nativeTools.values()].filter(
+    const matches = tools.filter(
       (candidate) =>
         candidate.name === tool.name &&
         (!tool.origin || candidate.origin === tool.origin),
@@ -362,7 +360,8 @@ export function createAgentNativeWebMcpClient(
         `WebMCP tool "${tool.name}" is exposed by multiple origins; origin is required`,
       );
     }
-    return matches[0];
+    const listedTool = matches[0];
+    return listedTool ? listedNativeTools.get(listedTool) : undefined;
   }
 
   async function executeNativeTool(
@@ -397,8 +396,8 @@ export function createAgentNativeWebMcpClient(
       throw new Error("A WebMCP tool name is required");
     }
 
-    await listTools();
-    const nativeTool = findNativeTool(tool);
+    const listedTools = await listTools();
+    const nativeTool = findListedNativeTool(listedTools, tool);
     if (!nativeTool) {
       throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
     }

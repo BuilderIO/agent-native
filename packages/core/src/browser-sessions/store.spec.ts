@@ -220,6 +220,32 @@ describe("browser session store", () => {
     ).rejects.toThrow("100-tool limit");
   });
 
+  it("preserves empty WebMCP arguments when an origin is present", async () => {
+    const {
+      claimBrowserSessionRequest,
+      createBrowserSessionRequest,
+      registerBrowserSession,
+    } = await import("./store.js");
+
+    await registerBrowserSession("alice@example.com", {
+      session: { id: "tab-empty-webmcp" },
+    });
+    await createBrowserSessionRequest("alice@example.com", "tab-empty-webmcp", {
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+    });
+
+    await expect(
+      claimBrowserSessionRequest("alice@example.com", "tab-empty-webmcp"),
+    ).resolves.toMatchObject({
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+      args: {},
+    });
+  });
+
   it("waits for a live browser result", async () => {
     const {
       callBrowserSession,
