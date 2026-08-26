@@ -22,6 +22,7 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_MAX_AGE,
 } from "../shared/first-run-onboarding.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
@@ -380,7 +381,7 @@ export interface AuthOptions {
   };
   /**
    * Optional email signup legal copy for the built-in login page.
-   * Leave unset to use Agent Native links only on `*.agent-native.com` hosts,
+   * Leave unset to use Agent-Native links only on `*.agent-native.com` hosts,
    * pass false to suppress, or pass URLs for custom/self-hosted policies.
    */
   signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
@@ -2747,7 +2748,7 @@ function desktopMagicLinkLandingPage(
         `<input type="hidden" name="${escapeHtmlAttr(name)}" value="${escapeHtmlAttr(value)}">`,
     )
     .join("");
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button></form></main></body></html>`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent-Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button></form></main></body></html>`;
   return new Response(html, {
     status: 200,
     headers: {
@@ -4415,9 +4416,9 @@ async function mountBetterAuthRoutes(
           if (isNewGoogleUser === true) {
             setFirstRunOnboardingCookie(event);
           }
-          if (typeof user.picture === "string" && user.picture.trim()) {
+          if (isGoogleProfileImageUrl(user.picture)) {
             await putSetting(`avatar:${email}`, {
-              image: user.picture,
+              image: user.picture.trim(),
             }).catch((error) => {
               console.warn(
                 "[auth] failed to store Google profile image:",

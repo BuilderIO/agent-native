@@ -409,7 +409,7 @@ export class DesktopComputerMcpBridge {
           screen = {
             available: false,
             guidance:
-              "Enable Agent Native in System Settings > Privacy & Security > Screen Recording to include a desktop image.",
+              "Enable Agent-Native in System Settings > Privacy & Security > Screen Recording to include a desktop image.",
           };
         }
         content.unshift({
@@ -562,7 +562,7 @@ export class DesktopComputerMcpBridge {
       "browser_status",
       {
         description:
-          "Read Agent Native Chrome extension, native-host, and task attachment status.",
+          "Read Agent-Native Chrome extension, native-host, and task attachment status.",
         annotations: { readOnlyHint: true, openWorldHint: false },
       },
       async () => {
@@ -990,7 +990,7 @@ export class DesktopComputerMcpBridge {
   private assertBrowserContext(): RunContext {
     const context = this.assertMutationContext();
     if (!context.browserRegistration || !this.options.browserBridge) {
-      throw new Error("Agent Native browser control is unavailable.");
+      throw new Error("Agent-Native browser control is unavailable.");
     }
     return context;
   }

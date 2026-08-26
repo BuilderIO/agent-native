@@ -5,6 +5,8 @@ description: "Talk to your agent from Slack, Microsoft Teams, Discord interactio
 
 # Messaging
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 Connect your agent to Slack, Microsoft Teams, Discord interactions, email, Telegram, or WhatsApp. It's the same agent — same memory, same tools, same threads — just reachable from more places.
 
 <Callout tone="info">
@@ -92,7 +94,7 @@ Slack workspace, app, channel, and thread IDs are part of the conversation key.
    it from **App Manifest**. The manifest enables Slack's current `agent_view`
    experience plus a writable App Home **Messages** tab for direct messages.
    Slack app icons are not part of the manifest. Under **Basic Information →
-   Display Information**, upload the Agent Native icon so the Agents picker
+   Display Information**, upload the Agent-Native icon so the Agents picker
    matches the product; you can use the app's public `icon-512.svg` as the source
    and convert it to a Slack-supported upload format if needed.
 2. Verify that the manifest requests these exact **Bot Token Scopes** under
@@ -184,7 +186,7 @@ take precedence.
   `assistant:write` enables Agent View context events; `chat:write` powers
   replies and live status updates.
 - **Personal and channel identity.** A personal Slack DM is accepted only for a
-  verified Agent Native organization member or a Slack identity already linked
+  verified Agent-Native organization member or a Slack identity already linked
   to that member. Configured channels instead run as the channel's explicit
   service principal, with separate channel policies and budgets, so shared tools
   and connections do not silently inherit the latest speaker's personal access.
@@ -229,7 +231,7 @@ and `link_shared` events to the Clips unfurl handler.
 
 - **Channel mentions** — use an @mention to start work. Each channel turn must explicitly mention the agent; ordinary thread replies and general channel chatter do not invoke it.
 - **DMs** — accepted personal DMs are private conversations and require a verified organization member or linked Slack identity.
-- **Identity** — personal DMs require a verified Agent Native organization member or an already linked Slack identity. Configured channels use a separate service principal, policy, and budget.
+- **Identity** — personal DMs require a verified Agent-Native organization member or an already linked Slack identity. Configured channels use a separate service principal, policy, and budget.
 - **Production allowlists** — set `SLACK_ALLOWED_TEAM_IDS` and, for shared Slack apps, `SLACK_ALLOWED_API_APP_IDS` so a valid signing secret cannot be reused by an unexpected workspace.
 - **Clips app unfurls** — Clips can share the managed Slack app credentials, but a Slack app has only one Events API Request URL; route `link_shared` to Clips when chat and unfurls share an app.
 

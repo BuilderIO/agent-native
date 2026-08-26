@@ -1237,7 +1237,7 @@ const ptBR = {
           "O modo de planejamento é texto no seu terminal, visível para uma pessoa e perdido depois que você aprova. Plans é visual — com wireframes, diagramas e diffs anotados —, compartilhável e persistente: os agentes criam, leem e atualizam os planos durante todo o ciclo de vida do recurso.",
         question5: "Posso ver os planos ao lado do meu código?",
         answer5:
-          "Sim. A extensão do VS Code abre os planos em um painel lateral, e o Agent Native Desktop espelha os planos hospedados em arquivos MDX locais.",
+          "Sim. A extensão do VS Code abre os planos em um painel lateral, e o Agent-Native Desktop espelha os planos hospedados em arquivos MDX locais.",
         question6: "Plans é gratuito?",
         answer6:
           "Sim. É gratuito, de código aberto e licenciado sob MIT. Plans oferece links de compartilhamento hospedados, e você pode espelhar tudo em arquivos locais.",
@@ -1271,7 +1271,7 @@ const ptBR = {
       s026: "Links compartilháveis",
       s027: "Cada plano recebe um URL público. Compartilhe com colegas de equipe para revisão, comentários e aprovações assíncronas.",
       s028: "Sincronização de arquivos da área de trabalho",
-      s029: "Espelhe planos hospedados para arquivos MDX locais do Agent Native Desktop sem clonar o aplicativo ou executar um CLI.",
+      s029: "Espelhe planos hospedados para arquivos MDX locais do Agent-Native Desktop sem clonar o aplicativo ou executar um CLI.",
       s030: ", então a revisão fica ao lado do código.",
       s031: "Como funciona",
       s032: "O planejamento fica em um aplicativo compartilhado – você e o agente podem lê-lo e atualizá-lo durante todo o ciclo de vida de um recurso.",
@@ -1305,7 +1305,7 @@ const ptBR = {
       s060: "Ver todos os modelos",
       s061: "Envios para VS Code",
       s062: "Abra links de planos em um painel lateral do VS Code com a",
-      s063: "extensão Agent Native Plans",
+      s063: "extensão Agent-Native Plans",
       s064: "Wireframe — maquete de UI esboçada com slots de componentes",
       s065: "Código anotado — arquivo-fonte com notas por linha",
       s066: "Diagrama — fluxo, sequência ou arquitetura",
@@ -1524,9 +1524,9 @@ const ptBR = {
     },
   },
   downloadPage: {
-    title: "Baixar Agent Native",
+    title: "Baixar Agent-Native",
     body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
-    openDesktop: "Abrir Agent Native",
+    openDesktop: "Abrir Agent-Native",
     downloadInstaller: "Baixar instalador",
     downloadStarted: "Download iniciado",
     downloadAgain: "Não funcionou? Tente baixar novamente",

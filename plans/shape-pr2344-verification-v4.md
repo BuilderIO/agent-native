@@ -9,9 +9,9 @@ authority-source: 'Alice invoked "$work" on 2026-08-14, approving shape-pr2344-v
 authorized-scope:
   repositories: [BuilderIO/agent-native]
   product-surfaces:
-    - Agent Native Content Builder source attachment handoff
-    - Agent Native Content Builder body hydration orchestration
-    - Agent Native Content Builder phantom-change and Review Diff regression proof
+    - Agent-Native Content Builder source attachment handoff
+    - Agent-Native Content Builder body hydration orchestration
+    - Agent-Native Content Builder phantom-change and Review Diff regression proof
   outcome: >-
     Make a ready Builder preview visible immediately after Attach, end the
     attaching state from the durable attachment acknowledgement, and begin the
@@ -111,7 +111,7 @@ architecture-fingerprint:
   shipping-surfaces:
     - id: content-builder-source-lifecycle
       repository: BuilderIO/agent-native
-      product-surface: Agent Native Content Builder source attachment, hydration, and Review Diff
+      product-surface: Agent-Native Content Builder source attachment, hydration, and Review Diff
       constituency: authenticated Content editors
       durable-destination: repository main lineage
       integration-action: merge
@@ -147,7 +147,7 @@ architecture-fingerprint:
       modality: real-interface
       independence: preferred
       custody: same-context-allowed
-      interface: authenticated local Agent Native Content browser surface
+      interface: authenticated local Agent-Native Content browser surface
       rationale: >-
         This is an ordinary bounded read-only source lifecycle repair. Current
         implementer-run browser evidence may satisfy every assertion; an

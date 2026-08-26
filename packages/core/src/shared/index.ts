@@ -9,6 +9,7 @@ export {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
 } from "./oauth-state.js";
+export { isGoogleProfileImageUrl } from "./google-profile-image.js";
 export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,

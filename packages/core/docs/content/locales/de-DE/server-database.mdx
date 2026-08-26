@@ -255,6 +255,24 @@ von ihrer Versionsnummer verfolgt.
   Teil des Release-Schritts auszuführen.
 </Callout>
 
+### Neue App-Migrationen mit Drizzle Kit erzeugen {#drizzle-migrations}
+
+Verwenden Sie für neue Schemaänderungen der App `pnpm db:generate`, um
+prüfbares SQL zu erzeugen. Dadurch entsteht
+`server/db/migrations/<id_name>.sql`. `runDrizzleMigrations` lädt diese
+Dateien in Node.js- und Node-basierten Serverless-Runtimes in den gemeinsamen
+Agent-Native-Runner. Der Release-Schritt bleibt für Produktionsänderungen
+zuständig. Verwenden Sie `runMigrations()` weiterhin für dialektspezifisches SQL,
+D1-Verhalten, Backfills und verzögerte JavaScript-Schritte.
+
+Der dateisystembasierte Loader ist in Cloudflare Workers/Pages und anderen Edge-
+Runtimes ohne bereitgestelltes Dateisystem, einschließlich D1, nicht verfügbar.
+Verwenden Sie dort `runMigrations()` mit in das Worker-Bundle eingebetteten
+SQL-Einträgen. Ein Drizzle-Ausgabeordner hat eine dialektspezifische
+Metadaten-Baseline. Erzeugen Sie Migrationen daher für den primären
+Bereitstellungsdialekt und wechseln Sie denselben Ordner nicht zwischen SQLite
+und PostgreSQL.
+
 <Callout tone="risk">
   Führen Sie `drizzle-kit push` niemals gegen eine Produktionsdatenbank aus.
   Vorlagenschemata definieren nur app-spezifische Tabellen; sie enthalten keine
@@ -264,7 +282,7 @@ von ihrer Versionsnummer verfolgt.
   Datenverlust führt.
 </Callout>
 
-`drizzle.config.ts` im Root jeder App konfiguriert drizzle-kit für die lokale Schema-Inspektion in der Entwicklung:
+`drizzle.config.ts` im Root jeder App konfiguriert drizzle-kit für die lokale Schema-Inspektion in der Entwicklung. Wenn ein Migrationsordner mehrere Backends bedient, geben Sie den primären Bereitstellungsdialekt explizit an, zum Beispiel `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -343,7 +361,7 @@ Das vollständige Modell finden Sie unter [Security — Data Scoping](/docs/secu
 
 ## SQL-gestützte Synchronisierung {#sync}
 
-Agent-native verlässt sich nicht auf Dateisystem-Watcher oder klebrigen In-Memory-Zustand. Wenn eine Action in die Datenbank schreibt, erhöht sich eine Sync-Version. Der Client-Hook `useDbSync()` pollt `/_agent-native/poll` und invalidiert React-Query-Caches, sobald er eine höhere Version sieht.
+Agent-Native verlässt sich nicht auf Dateisystem-Watcher oder klebrigen In-Memory-Zustand. Wenn eine Action in die Datenbank schreibt, erhöht sich eine Sync-Version. Der Client-Hook `useDbSync()` pollt `/_agent-native/poll` und invalidiert React-Query-Caches, sobald er eine höhere Version sieht.
 
 Das funktioniert über serverlose und Multi-Instanz-Deployments hinweg, weil die Datenbank der Koordinationspunkt ist. Wenn Sie benutzerdefinierte Mutationen außerhalb von Actions schreiben, verwenden Sie Framework-Helfer oder lösen Sie die passende Sync-Invalidierung aus, damit offene UIs sich aktualisieren.
 

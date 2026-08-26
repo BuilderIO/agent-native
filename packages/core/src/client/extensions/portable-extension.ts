@@ -468,7 +468,7 @@ export function buildAgentNativeExtensionHtml({
     host: AGENT_NATIVE_HOST_MESSAGE_TYPES,
     extension: AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   });
-  const titleText = title ?? "Agent Native extension";
+  const titleText = title ?? "Agent-Native extension";
 
   return `<!DOCTYPE html>
 <html lang="en"${isDark ? ' class="dark"' : ""}>

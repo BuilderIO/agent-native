@@ -476,7 +476,7 @@ const THUMB_RESPONSE_INDEX = { thumbs_up: 1, thumbs_down: 2 } as const;
  * Sent to PostHog ONLY, not through `track()`. The survey response carries the
  * user's free-text feedback verbatim, and configuring a PostHog survey id must
  * not silently start shipping that text to Mixpanel, Amplitude, webhooks, or
- * Agent Native Analytics. Those backends get the content-free `$ai_feedback`
+ * Agent-Native Analytics. Those backends get the content-free `$ai_feedback`
  * event instead.
  *
  * @see https://posthog.com/docs/ai-observability/user-feedback/manual-event-capture

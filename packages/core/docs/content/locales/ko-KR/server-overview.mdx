@@ -85,7 +85,7 @@ description: "에이전트 기반 앱의 Nitro 서버 계층: 무엇을 위한 �
 
 전통적인 웹 앱에서는 대부분의 로직이 서버에 있습니다. 비즈니스 규칙, 데이터 접근, 화면 표현이 모두 라우트 핸들러 안에서 일어납니다. 에이전트 기반 앱은 다르게 동작합니다. 로직은 액션에 있으며, 에이전트와 UI는 이를 동등한 파트너로서 공유합니다. 서버의 역할은 조율입니다. 데이터베이스 마이그레이션을 실행하고, 인증을 구성하고, 에이전트 루프를 마운트하고, 액션 스스로 표현할 수 없는 좁은 범위의 HTTP 관심사를 처리합니다.
 
-<Diagram id="doc-block-server-overview-2" title="전통적인 서버 대 Agent Native">
+<Diagram id="doc-block-server-overview-2" title="전통적인 서버 대 Agent-Native">
 
 ```html
 <div class="diagram-cmp">
@@ -107,7 +107,7 @@ description: "에이전트 기반 앱의 Nitro 서버 계층: 무엇을 위한 �
   </div>
   <div class="cmp-vs diagram-muted">vs</div>
   <div class="cmp-col">
-    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-label diagram-muted">Agent-Native</div>
     <div class="cmp-callers">
       <div class="diagram-node">브라우저 / UI</div>
       <div class="diagram-node">에이전트</div>
@@ -213,7 +213,7 @@ Nitro는 또한 배포 방식에 구애받지 않습니다. 동일한 앱이 코
 
 ## 우선 액션부터 고려하기 {#actions-first}
 
-Agent Native 아키텍처는 다릅니다. 애플리케이션의 새 기능을 떠올릴 때마다, 먼저 그것이 액션이 될 수 있는지 고려하세요. 예를 들어 UI와 에이전트가 둘 다 어떤 작업을 해야 한다면, 커스텀 API 라우트 대신 액션을 정의하세요. 액션은 자동으로 다음이 됩니다.
+Agent-Native 아키텍처는 다릅니다. 애플리케이션의 새 기능을 떠올릴 때마다, 먼저 그것이 액션이 될 수 있는지 고려하세요. 예를 들어 UI와 에이전트가 둘 다 어떤 작업을 해야 한다면, 커스텀 API 라우트 대신 액션을 정의하세요. 액션은 자동으로 다음이 됩니다.
 
 - 에이전트 도구.
 - 타입이 지정된 프런트엔드 후크.

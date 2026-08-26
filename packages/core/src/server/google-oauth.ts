@@ -87,7 +87,7 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Detect requests from the Agent Native desktop app specifically.
+ * Detect requests from the Agent-Native desktop app specifically.
  *
  * The desktop app appends `AgentNativeDesktop/<version>` to its user-agent
  * (see `packages/desktop-app/src/main/index.ts`). We check for that marker
@@ -95,7 +95,7 @@ function escapeHtml(s: string): string {
  * Electron-based webviews like Builder.io's Fusion, Slack desktop, Discord,
  * etc. Falsely treating those as "the desktop app" sends users to the
  * `agentnative://oauth-complete` deep-link success page after Google sign-in,
- * where the protocol handler can't fire and the "Open Agent Native" button
+ * where the protocol handler can't fire and the "Open Agent-Native" button
  * does nothing.
  *
  * Kept exported as `isElectron` for backwards compatibility with consumers.
@@ -947,7 +947,7 @@ export function oauthCallbackResponse(
   // check, any client whose OAuth state was minted with `desktop=true` (e.g.
   // a stale link, or an upstream that wrongly set `?desktop=1`) would land
   // on the `agentnative://` page where the deep link can't fire and the
-  // "Open Agent Native" button does nothing — surfaces inside Builder.io's
+  // "Open Agent-Native" button does nothing — surfaces inside Builder.io's
   // Fusion webview hit this exact dead-end. Fall through to the web flow
   // for non-Agent-Native-Desktop clients so they get a real redirect.
   if (opts.desktop && isElectron(event)) {
@@ -1023,7 +1023,7 @@ export function oauthDesktopExchangePage(
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function resolveOAuthAppName(explicit?: string): string {
-  const raw = explicit || getAppConfig().app.name || "Agent Native";
+  const raw = explicit || getAppConfig().app.name || "Agent-Native";
   if (!/^[a-z0-9_-]+$/.test(raw)) return raw;
   return raw
     .split(/[-_]+/)
@@ -1057,18 +1057,19 @@ function desktopSuccessPage(
     const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
     // Defence in depth: if this page somehow gets served to a UA that isn't
-    // the Agent Native desktop app (server gate bypassed, stale link, etc.),
+    // the Agent-Native desktop app (server gate bypassed, stale link, etc.),
     // skip the `agentnative://` deep link entirely and bounce to the app
     // root. The deep link silently fails outside the desktop app and the
-    // "Open Agent Native" button is a dead end in a generic browser/webview.
+    // "Open Agent-Native" button is a dead end in a generic browser/webview.
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
+      // guard:allow-raw-color - standalone OAuth completion page has no app stylesheet.
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent-Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
     );
   }
   return htmlResponse(
     oauthSuccessCloseTabHtml(
       msg,
-      "You can close this tab and return to Agent Native.",
+      "You can close this tab and return to Agent-Native.",
     ),
   );
 }
