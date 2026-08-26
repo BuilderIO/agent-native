@@ -1,4 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
 import type { MouseEvent, ReactNode } from "react";
 import { useState } from "react";
@@ -50,6 +51,7 @@ export function GetStartedCta({
   location: GetStartedLocation;
   children: ReactNode;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   function handleTriggerClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -96,9 +98,10 @@ export function GetStartedCta({
           <Option label="Build an app locally">
             <InstallCommand />
             <Button
-              variant="secondary"
+              variant="cta"
               icon={null}
               href="/docs"
+              className="uppercase"
               onClick={() => choose("read_docs")}
             >
               Read the docs
@@ -107,9 +110,10 @@ export function GetStartedCta({
 
           <Option label="Try an app">
             <Button
-              variant="secondary"
+              variant="cta"
               icon={null}
               href="/apps"
+              className="uppercase"
               onClick={() => choose("browse_apps")}
             >
               Browse apps
@@ -117,9 +121,19 @@ export function GetStartedCta({
           </Option>
 
           {/* BuildOnlinePopover fires its own "click build online" event, so
-              there is nothing to wrap here. */}
+              there is nothing to wrap here. Its default trigger belongs to the
+              older docs button vocabulary (full width, sans, rounded-md),
+              which is why this one used to look nothing like the other two.
+              The label stays on the catalog key because it is translated. */}
           <Option label="Build in the cloud">
-            <BuildOnlinePopover location="get_started_modal" />
+            <BuildOnlinePopover
+              location="get_started_modal"
+              trigger={
+                <Button variant="cta" icon={null} className="uppercase">
+                  {t("buildFromScratch.buildOnline")}
+                </Button>
+              }
+            />
           </Option>
         </DialogContent>
       </Dialog>
