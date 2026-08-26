@@ -658,9 +658,8 @@ interface SlideEditorProps {
   deckId?: string;
   /**
    * Called the moment the user enters contentEditable inline edit mode.
-   * The parent should call `markDeckDirty(deckId)` here so the SSE/poll
-   * reconcile path knows not to replace the deck under an active in-progress
-   * edit, even before a `content` update has been flushed.
+   * The parent should mark the slide as actively edited so the SSE/poll
+   * reconcile path knows not to replace it before a `content` update is queued.
    */
   onInlineEditStart?: (slideId: string) => void;
   /** Called after inline edit mode exits and its draft has been handed off.
@@ -1606,13 +1605,14 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
         const next = { slideId, content: html };
+        const previous = inlineEditDraftRef.current;
         const initial = inlineEditInitialContentRef.current;
         if (!initial || initial.slideId !== slideId) {
           inlineEditInitialContentRef.current = next;
         }
         if (
-          initial?.slideId === slideId &&
-          shouldPersistInlineEditContent(initial, next)
+          previous?.slideId === slideId &&
+          previous.content !== next.content
         ) {
           onUpdateSlideRef.current({ content: html }, slideId, {
             preserveLocalState: true,

@@ -160,7 +160,6 @@ export default function DeckEditor() {
     addSlide,
     flushDeckSave,
     reorderSlides,
-    markDeckDirty,
     undo,
     loading,
     loadError,
@@ -1770,7 +1769,6 @@ export default function DeckEditor() {
               )
             }
             onInlineEditStart={(slideId) => {
-              markDeckDirty(id);
               if (id) markSlideEditingActive(id, slideId);
             }}
             onInlineEditEnd={(slideId) => {

@@ -622,6 +622,173 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("persists the latest inline draft when the user reverts before debounce", async () => {
+    window.history.pushState({}, "", "/deck/inline-revert-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-revert-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-revert-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        "inline-revert-deck",
+        "slide-1",
+        { content: "<div>Original</div>" },
+        { preserveLocalState: true },
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      return actionCallBody(init).deckId === "inline-revert-deck";
+    });
+    expect(patchCalls).toHaveLength(1);
+    expect(actionCallBody(patchCalls[0]?.[1])).toMatchObject({
+      operations: [
+        {
+          fields: { content: "<div>Original</div>" },
+        },
+      ],
+    });
+  });
+
+  it("records one undo entry when an inline draft commits", async () => {
+    window.history.pushState({}, "", "/deck/inline-undo-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-undo-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        "inline-undo-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+      // The editor's exit path commits the live DOM through the normal update
+      // path, which records the one deck-level undo entry for the session.
+      result.current.updateSlide("inline-undo-deck", "slide-1", {
+        content: "<div>Draft</div>",
+      });
+    });
+
+    expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
+      "<div>Draft</div>",
+    );
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => result.current.undo());
+    await waitFor(() =>
+      expect(
+        result.current.getDeck("inline-undo-deck")?.slides[0]?.content,
+      ).toBe("<div>Original</div>"),
+    );
+  });
+
+  it("does not full-replace after an inline draft save and later deck render", async () => {
+    window.history.pushState({}, "", "/deck/inline-render-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-render-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-render-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const fullSaveCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      return (
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === "inline-render-deck"
+      );
+    });
+    expect(fullSaveCalls).toHaveLength(0);
+  });
+
   it("persists a duplicated slide after the optimistic insert", async () => {
     window.history.pushState({}, "", "/");
     const { fetchMock, resolveCreate } = setupFetch();

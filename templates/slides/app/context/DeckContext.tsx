@@ -402,10 +402,9 @@ const pendingOpsQueue = new Map<string, GranularOp[]>();
 // whole request duration, starving unrelated agent writes of live sync.
 const inFlightOpSlides = new Map<string, GranularOp[]>();
 
-// Slides currently mid inline-edit (contentEditable open, keystrokes not yet
-// committed to a "patch-slide" op). `onInlineEditStart`/`onInlineEditEnd`
-// keep this current; a slide only reaches `pendingOpsQueue` when editing
-// ends, so this is the only signal that catches live, uncommitted typing.
+// Slides currently mid inline-edit (contentEditable open). `onInlineEditStart`
+// /`onInlineEditEnd` keep this current while content captures queue granular
+// ops without replacing the live DOM.
 const activeInlineEditSlides = new Map<string, Set<string>>();
 
 /** Mark `slideId` as mid inline-edit so a concurrent agent write to the same
@@ -2452,8 +2451,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             : "Edit slide";
       const before = decksRef.current.find((d) => d.id === deckId);
       const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
-      if (before && !deriveInverseOp(before, op)) return;
-      markDeckDirty(deckId);
+      if (
+        before &&
+        !deriveInverseOp(before, op) &&
+        !options?.preserveLocalState
+      ) {
+        return;
+      }
+      if (!options?.preserveLocalState) markDeckDirty(deckId);
       if (!options?.preserveLocalState) {
         setDecksLocal((prev: Deck[]) =>
           prev.map((d) => {
