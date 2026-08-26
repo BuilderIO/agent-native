@@ -119,6 +119,7 @@ describe("Builder callback CSRF state", () => {
   beforeEach(() => {
     // Pin the secret so signed tokens are stable across calls and the
     // .env.local autogeneration in resolveAuthSecret never fires.
+    delete process.env.OAUTH_STATE_SECRET;
     process.env.BETTER_AUTH_SECRET = "test-secret-9f2a7c";
   });
 
@@ -347,6 +348,24 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("Builder connect OAuth state", () => {
+    it("uses the stable OAuth state secret when auth secret is absent", () => {
+      delete process.env.BETTER_AUTH_SECRET;
+      process.env.OAUTH_STATE_SECRET = "oauth-state-secret-for-tests";
+
+      const state = createBuilderConnectState();
+
+      delete process.env.OAUTH_STATE_SECRET;
+      process.env.OAUTH_STATE_SECRET = "oauth-state-secret-for-tests";
+      expect(isSignedBuilderConnectState(state)).toBe(true);
+    });
+
+    it("accepts an in-flight state signed with the previous auth secret", () => {
+      const state = createBuilderConnectState();
+      process.env.OAUTH_STATE_SECRET = "oauth-state-secret-for-tests";
+
+      expect(isSignedBuilderConnectState(state)).toBe(true);
+    });
+
     it("creates a signed OAuth state", () => {
       expect(isSignedBuilderConnectState(createBuilderConnectState())).toBe(
         true,
