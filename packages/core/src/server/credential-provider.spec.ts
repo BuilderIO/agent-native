@@ -142,6 +142,8 @@ beforeEach(() => {
   delete process.env.SENDGRID_API_KEY;
   delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.NOTION_CLIENT_ID;
+  delete process.env.NOTION_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
@@ -1377,6 +1379,28 @@ describe("resolveSecret (generic)", () => {
     );
     expect(
       canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_SECRET"),
+    ).toBe(true);
+  });
+
+  it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NOTION_CLIENT_ID = "notion-deploy-client-id";
+    process.env.NOTION_CLIENT_SECRET = "notion-deploy-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("NOTION_CLIENT_ID")).toBe(
+      "notion-deploy-client-id",
+    );
+    expect(await resolveSecret("NOTION_CLIENT_SECRET")).toBe(
+      "notion-deploy-secret",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(
+      canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_SECRET"),
     ).toBe(true);
   });
 
