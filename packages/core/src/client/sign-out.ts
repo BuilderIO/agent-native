@@ -26,6 +26,7 @@ import { buildSignInReturnHref } from "./require-session.js";
 import { beginSignOut, notifySessionInvalidated } from "./use-session.js";
 
 const LOGOUT_PATH = "/_agent-native/auth/logout";
+const LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const SIGN_OUT_REQUEST_TIMEOUT_MS = 15_000;
 let signOutOperation: Promise<void> | null = null;
 
@@ -35,6 +36,11 @@ export interface SignOutOptions {
    * framework sign-in page carrying a continuation back to the current URL.
    */
   redirectTo?: string;
+  /**
+   * Revoke every framework-managed session for this user on every device.
+   * Custom auth providers must expose the same route to support this option.
+   */
+  allDevices?: boolean;
 }
 
 /**
@@ -52,6 +58,7 @@ export function signOut(options: SignOutOptions = {}): Promise<void> {
 
 async function signOutFlow(options: SignOutOptions): Promise<void> {
   beginSignOut();
+  const logoutPath = options.allDevices ? LOGOUT_ALL_PATH : LOGOUT_PATH;
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -59,7 +66,7 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   );
   let revoked = false;
   try {
-    const response = await fetch(agentNativePath(LOGOUT_PATH), {
+    const response = await fetch(agentNativePath(logoutPath), {
       method: "POST",
       credentials: "include",
       signal: controller.signal,
