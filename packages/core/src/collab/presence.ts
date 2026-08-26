@@ -41,6 +41,7 @@ export function deriveCollabUser(
     name: userState?.name ?? (isAgent ? "AI Assistant" : "Unknown"),
     email:
       userState?.email ?? (isAgent ? "agent@system" : `client-${clientId}`),
+    // guard:allow-raw-color — collaboration protocol default, not theme UI
     color: userState?.color ?? (isAgent ? "#00B5FF" : "#94a3b8"),
     ...(avatarUrl ? { avatarUrl } : {}),
   };
