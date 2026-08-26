@@ -21,7 +21,10 @@ import {
   uploadFile,
   getActiveFileUploadProvider,
 } from "@agent-native/core/file-upload";
-import { hasBuilderApiCredentialCustody } from "@agent-native/core/server";
+import {
+  CredentialStoreUnavailableError,
+  hasBuilderApiCredentialCustody,
+} from "@agent-native/core/server";
 
 import {
   getPresignedS3ObjectUrl,
@@ -94,8 +97,8 @@ export async function isObjectStorageConfigured(): Promise<boolean> {
   if (active && active.id !== "sql") return true;
   try {
     if (await hasBuilderApiCredentialCustody()) return true;
-  } catch {
-    /* fall through */
+  } catch (err) {
+    if (err instanceof CredentialStoreUnavailableError) throw err;
   }
   return false;
 }
