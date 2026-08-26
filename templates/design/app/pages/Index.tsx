@@ -397,7 +397,8 @@ export default function Index() {
   }, []);
 
   const handleDesignFilterChange = useCallback((next: string) => {
-    const nextFilter: DesignFilter = next === "all" ? "all" : "mine";
+    if (next !== "all" && next !== "mine") return;
+    const nextFilter: DesignFilter = next;
     setDesignFilter(nextFilter);
     writeStoredDesignFilter(nextFilter);
     setPage(1);
