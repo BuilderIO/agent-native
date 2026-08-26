@@ -94,7 +94,11 @@ export function BuiltInFeatures() {
               key={row.map((pillar) => pillar.title).join("-")}
               className="border-t border-solid border-[var(--b-border-subtle)]"
             >
-              <div className="pillars-grid grid">
+              {/* Column dividers are a border-right on the non-last cells of a
+                  real 3-track grid — the same technique the page gridlines use,
+                  so both round sub-pixel track remainders identically and the
+                  lines stay aligned. */}
+              <div className="grid grid-cols-3 [&>*:not(:last-child)]:border-r [&>*:not(:last-child)]:border-solid [&>*:not(:last-child)]:border-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1 narrow:[&>*:not(:last-child)]:border-b narrow:[&>*:not(:last-child)]:border-solid narrow:[&>*:not(:last-child)]:border-[var(--b-border-subtle)] narrow:[&>*]:border-r-0">
                 {row.map((pillar) => (
                   <div
                     key={pillar.title}
@@ -102,7 +106,7 @@ export function BuiltInFeatures() {
                   >
                     {rowIndex === 0 &&
                       (pillar.darkImage && pillar.lightImage ? (
-                        <div className="pillar-media-spacing relative">
+                        <div className="relative mt-[var(--spacing-8)] mobile:mt-0">
                           <BuilderImage
                             className="theme-img-dark relative block aspect-[104/75] w-full object-cover"
                             src={pillar.darkImage}

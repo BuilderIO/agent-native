@@ -253,6 +253,28 @@ const LOGO_ENTRIES: LogoEntry[] = [
   },
 ];
 
+// Each logo ships with its own intrinsic SVG/img dimensions, so without a
+// shared cap they render at wildly different visual sizes next to each other
+// at every breakpoint, not just mobile. mix-blend-mode lives here (on the
+// marks) rather than on the grid container — blending the container blended
+// its own border against the page background too, which showed up as a
+// doubled/ghosted line at the grid's right edge.
+const LOGO_IMG_CLASS =
+  "h-auto w-auto mix-blend-luminosity max-h-[55%] max-w-[55%]";
+
+// Uploaded logo assets ship with their own built-in padding, unlike the
+// tight-cropped inline SVGs, so they fill the tile instead of being capped.
+const LOGO_IMG_FILL_CLASS =
+  "h-auto w-auto mix-blend-luminosity max-h-full max-w-full";
+
+const LOGO_TILE_CLASS = [
+  "flex aspect-square items-center justify-center overflow-hidden p-[var(--spacing-4)] box-border",
+  // Monochrome marks use fill="currentColor" instead of a hardcoded white so
+  // they stay visible against --b-bg-page in both themes, rather than
+  // disappearing once the light theme makes the page background near-white.
+  "text-[var(--b-text-primary)]",
+].join(" ");
+
 const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
   ...entry,
   render: () =>
@@ -266,7 +288,7 @@ const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
         sizes="(max-width: 768px) 17vw, (max-width: 1400px) 11vw, 156px"
         loading="lazy"
         decoding="async"
-        className={entry.fill ? "logo-tile-img-fill" : undefined}
+        className={entry.fill ? LOGO_IMG_FILL_CLASS : LOGO_IMG_CLASS}
       />
     ) : (
       <LogoPlaceholder label={entry.label} />
@@ -287,16 +309,20 @@ export function WorksWithStack() {
       </GridInner>
 
       <GridInner className="bg-[var(--b-bg-page)]">
-        <div className="logos-grid">
+        <div className="grid grid-cols-9 border border-solid border-[var(--b-border-subtle)] mobile:grid-cols-6">
           {LOGOS.map((logo) => (
             <div
               key={logo.name}
-              className="logo-tile"
+              className={LOGO_TILE_CLASS}
               aria-label={logo.name}
               role="img"
             >
+              {/* The per-logo multipliers were tuned by eye against the mobile
+                  6-column layout, so the scale only applies there — the
+                  9-column desktop grid needs the shared cap but not this
+                  additional per-mark nudging. */}
               <div
-                className="logo-scale-wrap"
+                className="flex items-center justify-center mobile:scale-[var(--logo-scale,1)]"
                 style={{ "--logo-scale": logo.scale ?? 1 } as CSSProperties}
               >
                 {logo.render()}
@@ -306,9 +332,9 @@ export function WorksWithStack() {
           <Link
             to="/apps"
             aria-label="Explore apps built with Agent-Native"
-            className="logo-tile works-with-stack-arrow-tile"
+            className={`${LOGO_TILE_CLASS} group no-underline`}
           >
-            <span className="template-showcase-arrow works-with-stack-arrow">
+            <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)] transition-[background,border-color,color] duration-150 ease-[ease] group-hover:border-[var(--b-text-primary)] group-hover:bg-[var(--b-text-primary)] group-hover:text-[var(--b-bg-page)] narrow:h-11 narrow:w-11">
               <IconArrowUpRight size={40} stroke={1.75} />
             </span>
           </Link>

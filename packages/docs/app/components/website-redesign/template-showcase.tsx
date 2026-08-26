@@ -18,10 +18,22 @@ import { Button } from "./ds/button";
 import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
-// Card is 320px wide, 260px below the 768px breakpoint (see .app-carousel-card
-// in tokens.css). Without this the browser assumes 100vw and pulls a source
-// several times larger than the slot.
+// Card is 320px wide, 260px below the 768px breakpoint (see CARD_CLASS).
+// Without this the browser assumes 100vw and pulls a source several times
+// larger than the slot.
 const CARD_IMAGE_SIZES = "(max-width: 768px) 260px, 320px";
+
+const CARD_CLASS = [
+  "app-carousel-card group flex w-[320px] shrink-0 snap-start flex-col gap-[var(--spacing-4)] overflow-hidden bg-[var(--b-bg-page)] no-underline mobile:w-[260px]",
+  "transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]",
+  "not-last:border-r not-last:border-solid not-last:border-[var(--b-border-subtle)]",
+].join(" ");
+
+const CARD_ARROW_CLASS = [
+  "mt-auto flex h-8 w-8 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)]",
+  "transition-[background,border-color,color] duration-150 ease-[ease]",
+  "group-hover:border-[var(--b-text-primary)] group-hover:bg-[var(--b-text-primary)] group-hover:text-[var(--b-bg-page)]",
+].join(" ");
 
 interface ShowcaseApp {
   slug: string;
@@ -195,13 +207,16 @@ export function TemplateShowcase() {
       <GridInner>
         <div
           ref={viewportRef}
-          className="app-carousel-viewport"
+          className="snap-x snap-mandatory scroll-smooth overflow-x-auto overflow-y-hidden border-x border-solid border-[var(--b-border-subtle)] [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onScroll={updateScrollState}
         >
-          <div className="app-carousel-track">
+          <div className="app-carousel-track flex w-max border-y border-solid border-[var(--b-border-subtle)]">
             {APPS.map((app) => (
-              <Link key={app.slug} to={app.href} className="app-carousel-card">
-                <div className="app-carousel-card-image">
+              <Link key={app.slug} to={app.href} className={CARD_CLASS}>
+                {/* `relative` anchors the theme-img-light overlay, which is
+                    absolutely positioned so it can sit exactly on top of the
+                    in-flow dark variant. */}
+                <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden bg-[var(--b-bg-page)]">
                   {app.imageDark && app.imageLight ? (
                     <>
                       {/* Dark variant is the in-flow one so it establishes the
@@ -238,17 +253,14 @@ export function TemplateShowcase() {
                     />
                   )}
                 </div>
-                <div className="app-carousel-card-body">
+                <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
                   <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                     {app.name}
                   </h3>
                   <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
                     {app.description}
                   </p>
-                  <span
-                    aria-hidden="true"
-                    className="template-showcase-arrow app-carousel-card-arrow"
-                  >
+                  <span aria-hidden="true" className={CARD_ARROW_CLASS}>
                     <IconArrowUpRight size={16} stroke={1.75} />
                   </span>
                 </div>
@@ -256,8 +268,12 @@ export function TemplateShowcase() {
             ))}
             {/* Not a <Link> like the app cards: it holds two interactive
                 children of its own, and nesting those inside an anchor is
-                invalid. It still lives in the track so the arrows reach it. */}
-            <div className="app-carousel-cta-card">
+                invalid. It still lives in the track so the arrows reach it.
+                Same footprint and divider as an app card so it reads as the
+                last item in the rail, but its content is centred rather than
+                top-aligned: it has no screenshot to anchor the top of the
+                box. */}
+            <div className="app-carousel-cta-card flex w-[320px] shrink-0 snap-start flex-col items-center justify-center gap-[var(--spacing-4)] border-l border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-6)] py-[var(--spacing-8)] text-center transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[260px]">
               <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                 Build from scratch
               </h3>

@@ -247,8 +247,8 @@ export default function WebsiteRedesignHomepage() {
         >
           <SectionHeader eyebrow="Tokens" heading="Gradient" />
           <div className="mt-[var(--spacing-6)] flex flex-col gap-[var(--spacing-4)]">
-            <div className="blue-gradient h-16 rounded-[var(--b-radius)]" />
-            <p className="blue-gradient-text m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-3)] font-medium">
+            <div className="h-16 rounded-[var(--b-radius)] bg-[image:var(--b-gradient-blue)]" />
+            <p className="m-0 bg-[image:var(--b-gradient-blue)] bg-clip-text font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-3)] font-medium text-transparent">
               Gradient text example
             </p>
           </div>

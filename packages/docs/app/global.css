@@ -95,6 +95,15 @@
    This is how a theme-conditional utility gets written: `light:opacity-0`. */
 @custom-variant light (&:where(.light *));
 
+/* The redesign is desktop-first: tokens.css shrinks the `--spacing-*` and
+   `--b-t-*` scales inside `max-width: 768px` / `max-width: 480px` blocks, and
+   these are the matching variants for the layout rules that move to utilities.
+   They spell the media query out rather than using `max-[768px]:`, which
+   compiles to `width < 768px` and would leave a viewport of exactly 768px —
+   iPad portrait — on the mobile type scale but the desktop layout. */
+@custom-variant mobile (@media (max-width: 768px));
+@custom-variant narrow (@media (max-width: 480px));
+
 :root {
   --fg: #171717;
   --fg-secondary: #666;
