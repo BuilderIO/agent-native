@@ -108,6 +108,18 @@
      search/GitHub/Ask AI cluster) where the default border reads too loud.
      Opt-in only — the shared secondary border stays where it is. */
   --b-action-secondary-border-dim: #2e2e2e;
+  /* Stays white in both themes, same reasoning as the snackbar above: this is
+     a button that has to read as a surface lifted off the page rather than
+     part of it. Every other --b-bg-* / --b-text-* pair flips per theme, so
+     none of them can express "white" — --b-bg-raised is #ffffff in light but
+     #0f0f0f in dark. Deliberately has no light-block override; adding one
+     defeats the point. */
+  --b-action-white-bg: #ffffff;
+  --b-action-white-hover: #e0e0d7;
+  --b-action-white-text: #0a0a0a;
+  /* Not decorative: in light mode the fill sits on the #faf9f5 page, and
+     white-on-off-white has almost no edge without this. */
+  --b-action-white-border: #cac9c6;
   /* The cta variant fills with --b-text-primary, so its hover has to move in
      the opposite direction per theme: dimmer than near-white in dark, lifted
      off near-black in light. A single palette value can't do that, which is

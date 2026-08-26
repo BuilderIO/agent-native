@@ -17,9 +17,10 @@ export type ButtonVariant =
   | "primary"
   | "primary-alt"
   | "primary-icon"
-  | "raised"
   | "secondary"
-  | "secondary-icon";
+  | "secondary-icon"
+  // Stays white in both themes; see --b-action-white-* in tokens.css.
+  | "white";
 
 type TablerIcon = ForwardRefExoticComponent<IconProps & RefAttributes<Icon>>;
 
@@ -60,8 +61,8 @@ function variantTextClass(variant: ButtonVariant) {
       return "text-[var(--b-action-primary-text)]";
     case "primary-alt":
       return "text-[var(--b-action-primary-bg)]";
-    case "raised":
-      return "text-[var(--b-text-primary)]";
+    case "white":
+      return "text-[var(--b-action-white-text)]";
     case "secondary":
     case "secondary-icon":
     default:
@@ -82,8 +83,8 @@ function variantClasses(variant: ButtonVariant, dimBorder?: boolean) {
       return "border-[var(--b-action-primary-bg)] bg-[var(--b-action-primary-bg)] hover:border-[var(--b-action-primary-hover)] hover:bg-[var(--b-action-primary-hover)] hover:shadow-[0_0_16px_var(--b-action-primary-effect)] data-[force=hover]:border-[var(--b-action-primary-hover)] data-[force=hover]:bg-[var(--b-action-primary-hover)] data-[force=hover]:shadow-[0_0_16px_var(--b-action-primary-effect)]";
     case "primary-alt":
       return "border-[var(--b-action-primary-border)] bg-transparent";
-    case "raised":
-      return "border-[var(--b-border-default)] bg-[var(--b-bg-raised)] hover:bg-[var(--b-bg-prominent)] data-[force=hover]:bg-[var(--b-bg-prominent)]";
+    case "white":
+      return "border-[var(--b-action-white-border)] bg-[var(--b-action-white-bg)] hover:bg-[var(--b-action-white-hover)] data-[force=hover]:bg-[var(--b-action-white-hover)]";
     case "secondary":
     case "secondary-icon":
     default:

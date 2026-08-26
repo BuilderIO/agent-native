@@ -309,7 +309,7 @@ export function TemplateShowcase() {
                     // becomes the accessible name and screen readers spell it
                     // out letter by letter.
                     <Button
-                      variant="raised"
+                      variant="white"
                       icon={null}
                       compact
                       className="uppercase"
