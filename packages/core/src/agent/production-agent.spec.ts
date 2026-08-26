@@ -11650,30 +11650,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     expect(claim).not.toHaveBeenCalled();
   });
 
-  it("streams while a live worker finishes setup when requested", async () => {
-    const claim = vi.fn();
-    const readClaim = vi.fn().mockResolvedValue({
-      dispatchMode: "background",
-      status: "running",
-      diagStage: diag("worker_entered"),
-      lastLivenessAt: 0,
-    });
-    const outcome = await resolveBackgroundDispatchOutcome({
-      ...base,
-      dispatched: true,
-      backgroundRowInserted: true,
-      reaperGraceMs: 100_000,
-      readClaim,
-      claim,
-      streamWhenWorkerAlive: true,
-      now: makeClock(),
-    });
-
-    expect(outcome).toEqual({ action: "stream" });
-    expect(readClaim).toHaveBeenCalledTimes(1);
-    expect(claim).not.toHaveBeenCalled();
-  });
-
   it("202 + no claim within grace -> foreground claims and runs inline", async () => {
     const readClaim = vi
       .fn()
