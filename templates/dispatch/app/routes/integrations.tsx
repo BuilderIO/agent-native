@@ -221,6 +221,12 @@ interface WorkspaceConnectionGrantSummary {
 }
 
 interface WorkspaceConnectionsResponse {
+  availability?: {
+    googleOAuth: {
+      status: "configured" | "unconfigured" | "unavailable";
+      retryable: boolean;
+    };
+  };
   providers: WorkspaceConnectionProvider[];
   connections: WorkspaceConnection[];
   grants: WorkspaceConnectionGrant[];
@@ -2719,6 +2725,9 @@ export default function WorkspaceIntegrationsRoute() {
     EMPTY_RESPONSE) as WorkspaceConnectionsResponse;
   const providers = data.providers;
   const connections = data.connections;
+  const googleOAuthUnavailable =
+    data.availability?.googleOAuth.status === "unavailable" &&
+    data.availability.googleOAuth.retryable;
   const apps = (appsQuery.data ?? []) as WorkspaceAppSummary[];
   const groups = (groupsQuery.data ?? []) as WorkspaceUserGroup[];
   const providersById = useMemo(
@@ -3151,6 +3160,9 @@ export default function WorkspaceIntegrationsRoute() {
               void appsQuery.refetch();
             }}
           />
+        ) : null}
+        {googleOAuthUnavailable ? (
+          <ActionQueryError onRetry={() => void connectionsQuery.refetch()} />
         ) : null}
         {!connectionsQuery.isError && !appsQuery.isError ? (
           <>

@@ -354,6 +354,8 @@ graph LR
 
 エージェントがデータを変更したとき、UI は手動での更新なしにそれを反映する必要があります。`useDbSync()` がそれを自動化します。同一プロセスの書き込みは `/_agent-native/events` 経由でストリームされます。`/_agent-native/poll` は引き続きクロスプロセスおよびサーバーレス向けのフォールバックです。エージェントがデータベース (アプリケーション状態、設定、またはドメインデータ) に書き込むと、バージョンカウンターが増加し、クライアントは関連する React Query のキャッシュを無効化します。
 
+WebSockets ではなく SSE が一般的なケースをカバーしているのは、通常の HTTP だけで同一プロセスの書き込みをブラウザへ即座に届けられるからです。一方でバージョンカウンターによるポーリングはフォールバックとして残り、永続的なソケットを利用できないことがあるサーバーレスやエッジを含む、あらゆるデプロイ環境で機能します。
+
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
 import { useDbSync } from "@agent-native/core/client/hooks";

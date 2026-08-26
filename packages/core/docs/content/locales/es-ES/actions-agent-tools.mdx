@@ -102,12 +102,12 @@ export default createAgentChatPlugin({
 Los modos disponibles son:
 
 - `off`. El predeterminado. No se registra ninguna herramienta de ejecución de código en producción.
-- `sandboxed`. Registra `run-code`, un ejecutor aislado de JavaScript en Node.js con un entorno depurado, un directorio temporal nuevo, límites de salida/tiempo y un puente localhost hacia herramientas registradas en la lista de permitidos, como `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, y el puente de archivos de espacio de trabajo respaldado por Resources que usan `workspaceRead` / `workspaceWrite`.
+- `sandboxed`. Registra `run-code`, un evaluador QuickJS reforzado con límites de memoria, pila, código fuente, resultado y salida, y funciones de host para herramientas registradas permitidas como `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request` y el puente de archivos respaldado por Resources que usan `workspaceRead` / `workspaceWrite`. El código invitado no dispone de módulos Node, sistema de archivos, variables de entorno, red, temporizadores ni imports.
 - `trusted`. Registra `run-code` más el registro completo de herramientas de codificación (`bash`, `read`, `edit`, `write`). Úsalo solo para implementaciones de un solo inquilino o controladas por un operador donde el acceso completo por shell al host es intencional.
 
 Establece `AGENT_PROD_CODE_EXECUTION=sandboxed` o `AGENT_PROD_CODE_EXECUTION=trusted` para anular la opción del plugin en una implementación específica sin un cambio de código. `AGENT_PROD_CODE_EXECUTION=off` fuerza la desactivación de la ejecución de código incluso cuando la opción del plugin la habilita.
 
-El sandbox de `run-code` es aislamiento a nivel de proceso, no un contenedor de sistema operativo. Elimina los secretos de la aplicación del entorno del proceso hijo y usa el modelo de permisos de Node cuando está disponible, pero Node mismo no bloquea la red saliente. Las llamadas autenticadas deben pasar por los asistentes de puente que expone la herramienta.
+El evaluador de producción de `run-code` usa QuickJS reforzado en lugar de un proceso hijo de Node. No es un contenedor de sistema operativo: las funciones de host siguen siendo capacidades de confianza y aplican autenticación y autorización, mientras el evaluador limita los recursos del código invitado y las llamadas al puente.
 
 ## Qué sigue
 

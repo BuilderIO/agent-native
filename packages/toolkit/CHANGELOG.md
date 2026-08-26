@@ -1,5 +1,34 @@
 # @agent-native/toolkit
 
+## 0.17.0
+
+### Minor Changes
+
+- cf473dc: Allow mention providers to show custom text or images with optional background
+  colors, or to omit leading media, while preserving the existing icon fallback.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.16.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.16.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.16.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.16.13
 
 ### Patch Changes

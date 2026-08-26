@@ -188,6 +188,69 @@ describe("createTiptapComposerExtensions", () => {
     editor.destroy();
   });
 
+  it.each([
+    [
+      "text",
+      {
+        type: "text",
+        text: "PK",
+        backgroundColor: "#4f46e5",
+      },
+    ],
+    [
+      "image",
+      {
+        type: "image",
+        src: "/agents/property.png",
+        fit: "cover",
+        backgroundColor: "#ffffff",
+      },
+    ],
+    ["none", { type: "none" }],
+  ] as const)(
+    "preserves %s mention media through HTML drafts",
+    (_type, media) => {
+      const first = new Editor({
+        element: document.createElement("div"),
+        extensions: createTiptapComposerExtensions(() => "Message agent..."),
+        content: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "mentionReference",
+                  attrs: {
+                    label: "Property agent",
+                    media,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+      const html = first.getHTML();
+      first.destroy();
+
+      expect(html).toContain("data-media=");
+      expect(html).not.toContain("[object Object]");
+
+      const restored = new Editor({
+        element: document.createElement("div"),
+        extensions: createTiptapComposerExtensions(() => "Message agent..."),
+        content: html,
+      });
+      const mentionNode = restored.getJSON().content?.[0]?.content?.[0] as
+        | { attrs?: Record<string, unknown> }
+        | undefined;
+      restored.destroy();
+
+      expect(mentionNode?.attrs?.media).toEqual(media);
+    },
+  );
+
   it("allows sending an attachment-only prompt", () => {
     expect(
       canSubmitComposerContent({

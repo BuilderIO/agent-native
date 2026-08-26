@@ -49,7 +49,9 @@ export default defineAction({
     fields: z
       .union([z.string(), z.array(z.any())])
       .optional()
-      .describe("Array of form fields (or JSON string of the same)"),
+      .describe(
+        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+      ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()

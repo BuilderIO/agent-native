@@ -1,5 +1,58 @@
 # @agent-native/skills
 
+## 0.2.708
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [73ff8c5]
+- Updated dependencies [da836e2]
+- Updated dependencies
+- Updated dependencies [de5ba2d]
+- Updated dependencies [cf473dc]
+- Updated dependencies [6c71a21]
+  - @agent-native/core@0.175.0
+
+## 0.2.707
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [bb282b1]
+- Updated dependencies [a9aa623]
+- Updated dependencies
+- Updated dependencies [615c5d5]
+  - @agent-native/core@0.174.2
+
+## 0.2.706
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e57bc6]
+- Updated dependencies [7d90274]
+- Updated dependencies [7d5cce0]
+- Updated dependencies [a63c4b3]
+- Updated dependencies
+- Updated dependencies [a026821]
+  - @agent-native/core@0.174.1
+
+## 0.2.705
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [d9e978f]
+- Updated dependencies [b4c3864]
+- Updated dependencies [b4c3864]
+- Updated dependencies [b4c3864]
+- Updated dependencies [536e193]
+- Updated dependencies
+- Updated dependencies [b4c3864]
+- Updated dependencies [f22b29b]
+- Updated dependencies [eae6742]
+  - @agent-native/core@0.174.0
+
 ## 0.2.704
 
 ### Patch Changes

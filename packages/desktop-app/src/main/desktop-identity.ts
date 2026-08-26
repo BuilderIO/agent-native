@@ -3575,6 +3575,15 @@ export class DesktopIdentityBroker {
   }
 
   private setStatus(status: DesktopIdentityStatus): void {
+    // Captured before the assignment below: only a real transition may be
+    // announced. Every listener treats this as an edge — the renderer reloads
+    // its workspace app list and environment lane, and that lane read calls
+    // back into refreshStatus(), which lands here again. Re-announcing an
+    // unchanged status closes that into a main<->renderer loop that re-warms
+    // app origins and rebuilds the menu at round-trip speed. The bookkeeping
+    // below still runs every time, so `statusVerifiedAt` keeps refreshing and
+    // the signed-in freshness check is unaffected.
+    const changed = status !== this.status;
     if (
       status === "signing-in" ||
       status === "sign-in-required" ||
@@ -3588,6 +3597,6 @@ export class DesktopIdentityBroker {
     if (status !== "signed-in") this.verifiedIdentityEmail = null;
     this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;
     this.statusRevalidationRetryAt = 0;
-    this.options.onStatus?.(status);
+    if (changed) this.options.onStatus?.(status);
   }
 }
