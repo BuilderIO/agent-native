@@ -675,6 +675,8 @@ uniform float uContrast;
 uniform float uGlow;
 uniform float uBrightness;
 uniform float uPosterizeLevels;
+uniform float uDotDensity;
+uniform float uDotScale;
 uniform float uSeed;
 uniform float uVignette;
 uniform vec3 uFgColor;
@@ -744,43 +746,66 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 focus = vec2(uFocusX, uFocusY);
   float t = iTime * uSpeed;
 
-  // Pointer drags the sampling position, falling off with distance, so the
+  // Ben-Day halftone grid. The wave field is sampled once per cell at the
+  // cell's center rather than per pixel, which is what keeps each dot a
+  // clean uniform disc -- sampling per pixel would let the tone vary across
+  // a single dot and smear its edge.
+  float cellSize = 1. / max(uDotDensity, 1.);
+  vec2 cell = floor(uv / cellSize);
+  vec2 cellCenter = (cell + 0.5) * cellSize;
+  vec2 cellUv = (uv - cellCenter) / cellSize;
+
+  // Pointer drags the sampled position, falling off with distance, so the
   // wavefronts bend locally toward the cursor rather than the whole field
   // sliding as one.
-  vec2 pointerDelta = pointerUv - uv;
+  vec2 pointerDelta = pointerUv - cellCenter;
   float pull = 1. - S(0.05, 1.6, length(pointerDelta));
   pull = pull * pull * (3. - 2. * pull);
-  vec2 samplePos = uv + pointerDelta * pull * 0.35 * uPointerAmount * uPointer.z;
+  vec2 samplePos =
+    cellCenter + pointerDelta * pull * 0.35 * uPointerAmount * uPointer.z;
 
-  float field = waveField(samplePos, t);
+  float tone = waveField(samplePos, t);
 
-  // Radial falloff from the focus point, applied *before* posterizing. That
-  // ordering is what produces concentric band contours: the quantizer sees a
-  // signal that already decays outward, so the level boundaries land on rings
-  // around the focus rather than only tracking the wave direction.
-  float distFromFocus = length(uv - focus) / max(uSpread, 0.001);
+  // Radial falloff from the focus point, applied *before* posterizing so the
+  // quantizer sees a signal that already decays outward -- that's what makes
+  // the dot sizes step down in rings around the bright focus instead of only
+  // tracking the wave direction.
+  float distFromFocus = length(cellCenter - focus) / max(uSpread, 0.001);
   float falloff = exp(-1.6 * distFromFocus * distFromFocus);
-  field *= falloff;
+  tone *= falloff;
 
-  // Contrast shapes the tonal distribution before quantizing, which decides
-  // how the levels get spent -- pushing the exponent below 1 widens the
-  // bright bands, above 1 crushes them toward the focus.
-  field = pow(clamp(field, 0., 1.), mix(2.6, 0.5, uContrast));
+  // Shapes the tonal distribution before quantizing, deciding how the levels
+  // get spent: below 1 widens the bright areas, above 1 crushes them inward.
+  tone = pow(clamp(tone, 0., 1.), mix(2.6, 0.5, uContrast));
 
-  // Keep an unposterized copy so the glow can sit underneath as a smooth
-  // wash; without it the bands read as flat paper cutouts.
-  float smoothField = field;
+  // Keep the continuous tone for the glow wash below, before quantizing.
+  float smoothTone = tone;
 
-  // Posterize into discrete bands of light. The 0.5 bias rounds to nearest
-  // rather than flooring, which keeps the band centers aligned with the
-  // wave peaks instead of shifting every band down by half a step.
+  // Posterize, which is what gives the classic Ben-Day look: dot radii come
+  // in a few discrete sizes rather than varying continuously. Rounding to
+  // nearest (the 0.5 bias) keeps the largest dots on the wave peaks.
   float levels = max(uPosterizeLevels, 2.) - 1.;
-  field = floor(field * levels + 0.5) / levels;
+  tone = floor(tone * levels + 0.5) / levels;
 
-  // Screen-blend the soft wash so it can only lift the bands, never darken
-  // them, preserving the quantized steps while filling the gaps between.
-  float glowTerm = smoothField * uGlow;
-  float value = 1. - (1. - field) * (1. - clamp(glowTerm, 0., 1.));
+  // sqrt() because the eye reads a dot's *area* as its brightness, and area
+  // grows with the square of the radius -- taking the root makes apparent
+  // tone track the field linearly instead of darkening too fast.
+  float radius = sqrt(clamp(tone, 0., 1.)) * 0.5 * uDotScale;
+
+  // One device pixel expressed in cell-local units, so the dot edge gets the
+  // same visual softness regardless of grid density or resolution.
+  float px = (1. / iResolution.y) / cellSize;
+  float edge = max(px * 1.2, 0.004);
+
+  float dist = length(cellUv);
+  float dotMask = 1. - S(radius - edge, radius + edge, dist);
+
+  // Soft halo just outside each dot, scaled by the continuous tone so the
+  // grid sits on a gentle wash instead of reading as flat paper cutouts.
+  float glowTerm =
+    (1. - S(radius, radius + uGlow * 0.9, dist)) * uGlow * smoothTone;
+
+  float value = clamp(dotMask + glowTerm * 0.6, 0., 1.);
 
   value *= clamp(1. - dot(uv, uv) * uVignette, 0., 1.);
   // Fade up over the first couple of seconds. The smoothstep bounds have to
@@ -792,11 +817,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // Extrapolating away from bg along the fg/bg contrast direction (rather
   // than mixing toward literal white) keeps brightness correct in both
   // themes: in dark mode fg is lighter than bg so it pushes toward white, in
-  // light mode fg is darker so it pushes toward black. Scaling by value
-  // means already-bright bands pull further than dim ones, which is what
+  // light mode fg is darker so it pushes toward black. Scaling by tone means
+  // dots nearer the focus pull further than dim outer ones, which is what
   // creates the bright-center/dim-edge separation.
-  vec3 lit = mix(uBgColor, uFgColor, clamp(value, 0., 1.));
-  lit += (uFgColor - uBgColor) * value * value * (uBrightness - 1.);
+  vec3 lit = mix(uBgColor, uFgColor, value);
+  lit += (uFgColor - uBgColor) * value * tone * (uBrightness - 1.);
 
   fragColor = vec4(clamp(lit, 0., 1.), 1.);
 }
@@ -825,6 +850,8 @@ function RibbonFieldShaderBackground({
   glow,
   brightness,
   posterizeLevels,
+  dotDensity,
+  dotScale,
   intensity,
   seed,
   vignette,
@@ -854,6 +881,8 @@ function RibbonFieldShaderBackground({
     glow,
     brightness,
     posterizeLevels,
+    dotDensity,
+    dotScale,
     seed,
     vignette,
     paused,
@@ -874,6 +903,8 @@ function RibbonFieldShaderBackground({
       glow,
       brightness,
       posterizeLevels,
+      dotDensity,
+      dotScale,
       seed,
       vignette,
       paused,
@@ -893,6 +924,8 @@ function RibbonFieldShaderBackground({
     glow,
     brightness,
     posterizeLevels,
+    dotDensity,
+    dotScale,
     seed,
     vignette,
     paused,
@@ -977,6 +1010,8 @@ function RibbonFieldShaderBackground({
     const uGlow = gl.getUniformLocation(program, "uGlow");
     const uBrightness = gl.getUniformLocation(program, "uBrightness");
     const uPosterizeLevels = gl.getUniformLocation(program, "uPosterizeLevels");
+    const uDotDensity = gl.getUniformLocation(program, "uDotDensity");
+    const uDotScale = gl.getUniformLocation(program, "uDotScale");
     const uSeed = gl.getUniformLocation(program, "uSeed");
     const uVignette = gl.getUniformLocation(program, "uVignette");
     const uFgColor = gl.getUniformLocation(program, "uFgColor");
@@ -1050,6 +1085,8 @@ function RibbonFieldShaderBackground({
       gl.uniform1f(uGlow, settingsRef.current.glow);
       gl.uniform1f(uBrightness, settingsRef.current.brightness);
       gl.uniform1f(uPosterizeLevels, settingsRef.current.posterizeLevels);
+      gl.uniform1f(uDotDensity, settingsRef.current.dotDensity);
+      gl.uniform1f(uDotScale, settingsRef.current.dotScale);
       gl.uniform1f(uSeed, settingsRef.current.seed);
       gl.uniform1f(uVignette, settingsRef.current.vignette);
       gl.uniform3f(uFgColor, fgColor[0], fgColor[1], fgColor[2]);

@@ -82,6 +82,8 @@ export interface RibbonFieldSettings {
   focusY: number;
   spread: number;
   posterizeLevels: number;
+  dotDensity: number;
+  dotScale: number;
   contrast: number;
   glow: number;
   brightness: number;
@@ -93,22 +95,24 @@ export interface RibbonFieldSettings {
 
 export const DEFAULT_RIBBON_FIELD_SETTINGS: RibbonFieldSettings = {
   waveCount: 3,
-  waveScale: 2.2,
+  waveScale: 4.5,
   flowAngle: 21,
   warp: 0.45,
   speed: 0.35,
   pointerAmount: 0.45,
   smoothing: 0.09,
   focusX: 0,
-  focusY: -0.35,
-  spread: 0.9,
-  posterizeLevels: 7,
+  focusY: 0,
+  spread: 1.1,
+  posterizeLevels: 5,
+  dotDensity: 70,
+  dotScale: 1,
   contrast: 0.6,
-  glow: 0.5,
-  brightness: 1.6,
+  glow: 0.35,
+  brightness: 1.8,
   intensity: 0.8,
   seed: 56,
-  vignette: 0.6,
+  vignette: 0.5,
   paused: false,
 };
 
@@ -127,6 +131,8 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   focusY: { kind: "range", min: -1, max: 1, step: 0.05 },
   spread: { kind: "range", min: 0.2, max: 3, step: 0.05 },
   posterizeLevels: { kind: "range", min: 2, max: 16, step: 1 },
+  dotDensity: { kind: "number", min: 4, max: 400, step: 1 },
+  dotScale: { kind: "range", min: 0.2, max: 2, step: 0.05 },
   contrast: { kind: "range", min: 0, max: 1, step: 0.05 },
   glow: { kind: "range", min: 0, max: 1, step: 0.05 },
   brightness: { kind: "range", min: 0, max: 3, step: 0.1 },
