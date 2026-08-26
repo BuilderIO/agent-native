@@ -244,12 +244,6 @@ export default function SettingsIndexRoute() {
         hash: "playback",
       },
       {
-        id: "clips-transcript",
-        label: t("settings.transcript"),
-        keywords: "transcript cleanup captions",
-        hash: "transcript",
-      },
-      {
         id: "clips-sharing",
         label: t("settings.sharing"),
         keywords: "sharing visibility private public organization default",
