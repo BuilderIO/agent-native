@@ -1403,21 +1403,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec3 I = in_scatter(eye, dir, e, l);
   vec3 col = clamp(pow(max(I, vec3(0.0)), vec3(1.0 / uGamma)), 0.0, 1.0);
 
-  // A small lift toward white keeps the color pastel/luminous rather than a
-  // deep saturated tone -- standard alpha-over blending of a dark color at
-  // moderate opacity reads as a dirty/grey smear on a light-theme (near-
-  // white) page background, since it drags the background *down* rather
-  // than adding perceived light.
-  col = mix(col, vec3(1.0), 0.18);
-
-  // Brightness was previously alpha's only input via a flat linear scale,
-  // so even dim/faint scattering (which should read as barely-there) still
-  // contributed a fair amount of opacity and smeared color across the
-  // whole background. smoothstep keeps genuinely dim areas fully
-  // transparent (clean background) while still ramping up to full opacity
-  // for the brighter, more colorful parts of the halo/rim.
-  float brightness = max(max(col.r, col.g), col.b);
-  float alpha = clamp(smoothstep(0.35, 0.75, brightness) * 1.3, 0.0, 1.0);
+  // Alpha tracks the scattering brightness itself, so the glow fades
+  // smoothly to fully transparent at the sphere's silhouette instead of
+  // cutting to a flat opaque disc against the void.
+  float alpha = clamp(max(max(col.r, col.g), col.b) * 1.6, 0.0, 1.0);
   fragColor = vec4(col, alpha);
 }
 
@@ -1696,6 +1685,30 @@ function AtmosphereShaderBackground({
     resize();
     window.addEventListener("resize", resize);
 
+    function readDarkMode() {
+      return (
+        document.documentElement.classList.contains("dark") ||
+        document.documentElement.getAttribute("data-theme") === "dark"
+      );
+    }
+
+    // Dark mode keeps normal alpha-over compositing (the void is already
+    // near-black, so a plain blend already reads as colorful light against
+    // space). Light mode switches to `screen` -- against a near-white page
+    // background, a normal blend of this shader's fairly dark scattering
+    // colors reads as a dirty/grey smear, while `screen` can only brighten,
+    // never darken, so it reads as light being added on top of the page.
+    function applyBlendMode() {
+      canvas.style.mixBlendMode = readDarkMode() ? "normal" : "screen";
+    }
+
+    applyBlendMode();
+    const themeObserver = new MutationObserver(applyBlendMode);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
+
     // Tracks hero visibility so the RAF loop can stop entirely once scrolled
     // past instead of waking every frame just to no-op.
     let isVisible = true;
@@ -1775,6 +1788,7 @@ function AtmosphereShaderBackground({
           handleReducedMotionChange,
         );
       }
+      themeObserver.disconnect();
       visibilityObserver.disconnect();
       window.removeEventListener("resize", resize);
       gl.deleteProgram(program);
