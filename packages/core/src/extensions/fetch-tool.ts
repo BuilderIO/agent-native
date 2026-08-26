@@ -32,6 +32,12 @@ import {
 } from "./web-content.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const VISION_IMAGE_CONTENT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
 
 /**
  * Headers that mimic a current Chrome on macOS so anti-bot middleware (Cloudflare,
@@ -142,7 +148,7 @@ export function createFetchToolEntry(
             responseMode: {
               type: "string",
               description:
-                "How to return the response. Default: auto (HTML pages become clean markdown; JSON/text stays raw). Use raw for exact bytes, markdown/text for extracted readable content, links for just links, metadata for page metadata, or matches with search.",
+                "How to return the response. Default: auto (HTML pages become clean markdown; JSON/text stays raw; successful public image responses are attached as vision context). Use raw for exact bytes, markdown/text for extracted readable content, links for just links, metadata for page metadata, or matches with search.",
               enum: [
                 "auto",
                 "raw",
@@ -349,11 +355,46 @@ export function createFetchToolEntry(
             }`;
           }
 
-          // Check if caller wants to save to workspace file (before truncation).
+          const contentType =
+            response.headers.get("content-type")?.split(";")[0].trim() ??
+            "text/plain";
+
+          // A fetched image is useful as model context, not as text decoded
+          // from arbitrary bytes. Passing the public URL through the
+          // well-known result-image field lets vision-capable engines inspect
+          // it while keeping the URL available for slide/image authorship.
           const saveToFilePath =
             typeof (args as Record<string, unknown>).saveToFile === "string"
               ? ((args as Record<string, unknown>).saveToFile as string).trim()
               : "";
+          if (
+            !saveToFilePath &&
+            method === "GET" &&
+            response.ok &&
+            VISION_IMAGE_CONTENT_TYPES.has(contentType.toLowerCase()) &&
+            resolvedUrl.startsWith("https://") &&
+            allUsedKeys.length === 0
+          ) {
+            if (response.body) await response.body.cancel().catch(() => {});
+            console.log(
+              "[fetch-tool] " +
+                method +
+                " " +
+                rawUrl +
+                " → " +
+                response.status +
+                " (" +
+                elapsed +
+                "ms, keys: none, vision image)",
+            );
+            return {
+              status: response.status,
+              statusText: response.statusText,
+              contentType,
+              url: resolvedUrl,
+              _agentImages: [{ url: resolvedUrl }],
+            };
+          }
 
           let body: string;
           try {
@@ -367,9 +408,6 @@ export function createFetchToolEntry(
             body = "(could not read response body)";
           }
           body = redactString(body, secretValues);
-          const contentType =
-            response.headers.get("content-type")?.split(";")[0].trim() ??
-            "text/plain";
           let displayBody: string;
           let processedMode = "raw";
           try {

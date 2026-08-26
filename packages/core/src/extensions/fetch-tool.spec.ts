@@ -74,6 +74,26 @@ describe("createFetchToolEntry", () => {
     );
   });
 
+  it("attaches public image responses as vision context", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("jpeg bytes", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://93.184.216.34/frame.jpg"),
+    ).resolves.toEqual({
+      status: 200,
+      statusText: "OK",
+      contentType: "image/jpeg",
+      url: "https://93.184.216.34/frame.jpg",
+      _agentImages: [{ url: "https://93.184.216.34/frame.jpg" }],
+    });
+  });
+
   it("blocks redirects to private/internal addresses", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, {
