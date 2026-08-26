@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -194,6 +196,26 @@ describe("workspace app routes", () => {
         }),
       ]),
     );
+  });
+
+  it("maps default first-party apps to beta origins in beta Dispatch", () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { hostname: "beta.dispatch.agent-native.com" },
+    });
+
+    try {
+      const apps = mergeChatFirstWorkspaceApps(undefined);
+      expect(apps.find((app) => app.id === "mail")?.url).toBe(
+        "https://beta.mail.agent-native.com/",
+      );
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it("lets a mounted workspace app override a default row", () => {

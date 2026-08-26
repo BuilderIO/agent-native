@@ -108,6 +108,7 @@ import {
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
   navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
   workspaceAppRoute,
@@ -1517,7 +1518,7 @@ export function Layout({
         isPathMountedWorkspaceApp(registration)
           ? workspaceAppDirectHref(registration, "/")
           : null;
-      if (directHref) {
+      if (directHref && shouldOpenWorkspaceAppInTopWindow()) {
         navigateToWorkspaceApp(directHref);
         return;
       }

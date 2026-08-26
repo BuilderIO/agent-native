@@ -215,6 +215,27 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
   });
 
+  it("projects first-party app URLs onto the beta request lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.find((app) => app.id === "analytics")?.url).toBe(
+      "https://beta.analytics.agent-native.com/",
+    );
+  });
+
   it("includes Dispatch itself so agents can target extension routes", async () => {
     mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
     const apps = await runWithRequestContext(
