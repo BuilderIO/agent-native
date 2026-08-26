@@ -260,6 +260,8 @@ export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 /** Keep an alive-but-unclaimed worker out of the unclaimed-run reaper. */
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
+/** Stop extending an unclaimed row so a stuck setup remains recoverable. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
 
 export type BackgroundDispatchOutcome =
   | { action: "stream" }
@@ -7682,7 +7684,15 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   let preclaimHeartbeatInFlight = false;
   let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  const preclaimHeartbeatStartedAt = Date.now();
   const heartbeatWhileUnclaimed = () => {
+    if (
+      Date.now() - preclaimHeartbeatStartedAt >=
+      BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
+    ) {
+      stopPreclaimHeartbeat();
+      return;
+    }
     if (preclaimHeartbeatInFlight) return;
     preclaimHeartbeatInFlight = true;
     void heartbeat(opts.runId)

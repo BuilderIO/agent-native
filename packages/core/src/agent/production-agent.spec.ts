@@ -30,6 +30,7 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
@@ -11522,6 +11523,38 @@ describe("claimBackgroundWorkerRunEarly", () => {
 
       await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
       expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops extending a stuck pre-claim worker after a hard deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-stuck",
+        threadId: "thread-stuck",
+        markerTurnId: "turn-stuck",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS);
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
 
       releaseAbort(false);
       await expect(pending).resolves.toEqual({ claimed: true });
