@@ -94,6 +94,44 @@ describe("EditorSidebar thumbnail scroll cue", () => {
 });
 
 describe("EditorSidebar arrow navigation", () => {
+  it("moves to the next thumbnail with arrows after a thumbnail click", () => {
+    const slideOne: Slide = {
+      id: "slide-1",
+      content: "<div />",
+      notes: "",
+      layout: "content",
+    };
+    const slideTwo: Slide = {
+      id: "slide-2",
+      content: "<div />",
+      notes: "",
+      layout: "content",
+    };
+    const onSelectSlide = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={[slideOne, slideTwo]}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-1"]',
+    );
+    thumbnail?.focus();
+    onSelectSlide.mockClear();
+
+    fireEvent.keyDown(thumbnail ?? document, { key: "ArrowDown" });
+
+    expect(onSelectSlide).toHaveBeenCalledOnce();
+    expect(onSelectSlide).toHaveBeenCalledWith("slide-2");
+  });
+
   it("does not navigate while a slide text block owns the arrow keys", () => {
     const slideOne: Slide = {
       id: "slide-1",

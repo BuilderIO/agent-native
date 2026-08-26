@@ -132,6 +132,22 @@ function isAgentPresenceUser(user: CollabUser): boolean {
   );
 }
 
+function getNextSlideId(
+  slides: Slide[],
+  activeSlideId: string,
+  key: "ArrowUp" | "ArrowDown",
+): string | null {
+  const currentIndex = slides.findIndex((s) => s.id === activeSlideId);
+  if (currentIndex === -1) return null;
+
+  const nextIndex =
+    key === "ArrowUp"
+      ? Math.max(0, currentIndex - 1)
+      : Math.min(slides.length - 1, currentIndex + 1);
+
+  return nextIndex === currentIndex ? null : (slides[nextIndex]?.id ?? null);
+}
+
 /** Small presence avatar circle with hover card showing name + email */
 function PresenceAvatarTip({
   user,
@@ -197,6 +213,7 @@ function SortableSlideThumb({
   index,
   isActive,
   onSelect,
+  onArrowNavigate,
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
@@ -219,6 +236,7 @@ function SortableSlideThumb({
   index: number;
   isActive: boolean;
   onSelect: () => void;
+  onArrowNavigate: (key: "ArrowUp" | "ArrowDown") => void;
   readOnly?: boolean;
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
@@ -280,6 +298,12 @@ function SortableSlideThumb({
             type="button"
             {...(readOnly ? {} : attributes)}
             {...(readOnly ? {} : listeners)}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+              event.preventDefault();
+              event.stopPropagation();
+              onArrowNavigate(event.key);
+            }}
             onClick={(event) => {
               // Safari does not focus a button on click, and the slide copy/paste
               // and delete shortcuts are scoped to a focused thumbnail.
@@ -603,6 +627,21 @@ export default function EditorSidebar({
     [describeSlideId],
   );
 
+  const navigateToSlide = useCallback(
+    (fromSlideId: string, key: "ArrowUp" | "ArrowDown") => {
+      const nextSlideId = getNextSlideId(slides, fromSlideId, key);
+      if (!nextSlideId) return;
+
+      onSelectSlide(nextSlideId);
+      requestAnimationFrame(() => {
+        const nextButton = slideButtonRefs.current.get(nextSlideId);
+        nextButton?.focus({ preventScroll: true });
+        nextButton?.scrollIntoView({ block: "nearest" });
+      });
+    },
+    [onSelectSlide, slides],
+  );
+
   const describeSlideIndex = describeSlideId
     ? slides.findIndex((s) => s.id === describeSlideId)
     : -1;
@@ -629,28 +668,12 @@ export default function EditorSidebar({
         return;
 
       e.preventDefault();
-      const currentIndex = slides.findIndex((s) => s.id === activeSlideId);
-      if (currentIndex === -1) return;
-
-      const nextIndex =
-        e.key === "ArrowUp"
-          ? Math.max(0, currentIndex - 1)
-          : Math.min(slides.length - 1, currentIndex + 1);
-
-      if (nextIndex !== currentIndex) {
-        const nextSlideId = slides[nextIndex].id;
-        onSelectSlide(nextSlideId);
-        requestAnimationFrame(() => {
-          const nextButton = slideButtonRefs.current.get(nextSlideId);
-          nextButton?.focus({ preventScroll: true });
-          nextButton?.scrollIntoView({ block: "nearest" });
-        });
-      }
+      navigateToSlide(activeSlideId, e.key as "ArrowUp" | "ArrowDown");
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [slides, activeSlideId, onSelectSlide]);
+  }, [activeSlideId, navigateToSlide]);
 
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
@@ -677,6 +700,7 @@ export default function EditorSidebar({
                 index={index}
                 isActive={slide.id === activeSlideId}
                 onSelect={() => onSelectSlide(slide.id)}
+                onArrowNavigate={(key) => navigateToSlide(slide.id, key)}
                 readOnly={readOnly}
                 registerButtonRef={registerSlideButton}
                 presenceUsers={slidePresence?.get(slide.id) ?? []}
