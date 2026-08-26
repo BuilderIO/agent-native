@@ -53,14 +53,14 @@ describe("resolveDesktopUpdateSupport", () => {
 
   it("isolates development and Desktop SSO canary profiles from stable Desktop", () => {
     expect(resolveDesktopUserDataDirectoryName(false, "0.1.150")).toBe(
-      "Agent Native Dev",
+      "Agent-Native Dev",
     );
     expect(
       resolveDesktopUserDataDirectoryName(
         true,
         "0.1.150-desktop-sso-canary.19",
       ),
-    ).toBe("Agent Native SSO Canary");
+    ).toBe("Agent-Native SSO Canary");
     expect(resolveDesktopUserDataDirectoryName(true, "0.1.150")).toBeNull();
     expect(
       resolveDesktopUserDataDirectoryName(

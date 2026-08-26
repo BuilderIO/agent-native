@@ -378,11 +378,11 @@ function isDesktopSsoEnabled(): boolean {
 
 // ---------- User-Agent marker ----------
 // Tag every request from this Electron app so the server can distinguish
-// Agent Native desktop from other Electron-based webviews (Builder.io's
+// Agent-Native desktop from other Electron-based webviews (Builder.io's
 // Fusion, Slack desktop, Discord, etc.). Without this, any Electron UA
 // would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
-// Open Agent Native" screen whose deep link can't fire.
+// Open Agent-Native" screen whose deep link can't fire.
 const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
@@ -1092,7 +1092,7 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
     buttons: ["Add Shortcut", "Cancel"],
     defaultId: 0,
     cancelId: 1,
-    message: "Add Agent Native app shortcut?",
+    message: "Add Agent-Native app shortcut?",
     detail: [
       `Shortcut: ${formatDesktopShortcutAccelerator(normalized.accelerator, process.platform)}`,
       `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
@@ -11256,7 +11256,7 @@ function ensureCodeAgentLlmProvider(): {
     return {
       ok: false,
       error:
-        "Agent Native could not read the saved code provider keys. Reconnect the provider in Settings.",
+        "Agent-Native could not read the saved code provider keys. Reconnect the provider in Settings.",
     };
   }
   return {
@@ -12668,7 +12668,7 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
   const authUrl = new URL("/cli-auth", getBuilderCliAuthHost());
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("host", "agent-native-desktop");
-  authUrl.searchParams.set("client_id", "Agent Native Desktop");
+  authUrl.searchParams.set("client_id", "Agent-Native Desktop");
   authUrl.searchParams.set("redirect_url", callback.toString());
   authUrl.searchParams.set("preview_url", callback.origin);
   authUrl.searchParams.set("framework", "agent-native");
@@ -12779,7 +12779,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       res.end(
         desktopBuilderCallbackPage(
           "success",
-          "You can close this tab and return to Agent Native Desktop.",
+          "You can close this tab and return to Agent-Native Desktop.",
         ),
       );
       finish({
@@ -13656,7 +13656,7 @@ function installApplicationMenu() {
       ...(desktopIdentityBroker && desktopIdentityBroker.getStatus() !== "idle"
         ? [
             {
-              label: "Sign Out of Agent Native",
+              label: "Sign Out of Agent-Native",
               click: () =>
                 void desktopIdentityBroker?.signOut(
                   listDesktopIdentityCleanupApps(),

@@ -8,8 +8,8 @@ export function resolveDesktopUserDataDirectoryName(
   isPackaged: boolean,
   version: string,
 ): string | null {
-  if (!isPackaged) return "Agent Native Dev";
-  if (isDesktopSsoCanaryVersion(version)) return "Agent Native SSO Canary";
+  if (!isPackaged) return "Agent-Native Dev";
+  if (isDesktopSsoCanaryVersion(version)) return "Agent-Native SSO Canary";
   return null;
 }
 

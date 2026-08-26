@@ -2110,7 +2110,7 @@ mod tests {
     #[test]
     fn ocr_near_miss_of_generic_product_word_does_not_name_a_chapter() {
         let counts = BTreeMap::from([
-            ("agent native conlent".into(), 8),
+            ("agent-native conlent".into(), 8),
             ("conlent".into(), 8),
             ("semantic".into(), 5),
             ("chapters".into(), 5),

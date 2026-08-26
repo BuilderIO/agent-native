@@ -74,7 +74,7 @@ export default defineAction({
     const remote = await createRemoteDevice({
       ownerEmail,
       orgId: requestContext?.orgId ?? null,
-      label: "Agent Native for Chrome",
+      label: "Agent-Native for Chrome",
       platform: "chrome-extension",
       metadata: {
         browserExtension: { extensionId },

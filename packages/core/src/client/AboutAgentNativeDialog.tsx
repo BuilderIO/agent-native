@@ -62,7 +62,7 @@ export function AboutAgentNativeDialog({
         <DialogTitle className="flex items-center gap-2 text-base">
           <IconCode className="size-4 text-muted-foreground" />
           {t("agentChat.aboutAgentNative.title", {
-            defaultValue: "About Agent Native",
+            defaultValue: "About Agent-Native",
           })}
         </DialogTitle>
 

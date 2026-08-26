@@ -230,7 +230,7 @@ describe("Builder CMS read client", () => {
                       {
                         id: "model-test",
                         name: "agent-native-blog-article-test",
-                        displayName: "Agent Native Blog Article Test",
+                        displayName: "Agent-Native Blog Article Test",
                         kind: "component",
                         fields: [
                           { name: "title", type: "text", required: false },
@@ -256,7 +256,7 @@ describe("Builder CMS read client", () => {
         {
           id: "model-test",
           name: "agent-native-blog-article-test",
-          displayName: "Agent Native Blog Article Test",
+          displayName: "Agent-Native Blog Article Test",
           kind: "component",
           fields: [{ name: "title", type: "text", required: false }],
         },

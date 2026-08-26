@@ -73,7 +73,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('localSourceAccess === "available"');
     expect(source).toContain("data-local-source-read-only");
-    expect(source).toContain('device: "Agent Native Desktop"');
+    expect(source).toContain('device: "Agent-Native Desktop"');
     expect(source).toContain("canEdit={editorCanEdit}");
     expect(toolbar).toContain(
       "disabled={!canEdit || revealLocalSource.isPending}",

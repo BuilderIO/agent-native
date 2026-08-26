@@ -87,7 +87,7 @@ description: "エージェント ネイティブ アプリにおける Nitro サ
 
 従来の Web アプリでは、サーバーがロジックの大半を担っています。ビジネスルール、データアクセス、プレゼンテーションのすべてがルートハンドラーの内部で行われます。エージェント ネイティブ アプリはこれとは異なります。ロジックは actions に置かれ、エージェントと UI がそれを対等なパートナーとして共有します。サーバーの仕事は調整です。データベースのマイグレーションを実行し、認証を構成し、エージェント ループをマウントし、actions だけでは表現できない狭い範囲の HTTP 関心事を扱います。
 
-<Diagram id="doc-block-server-overview-2" title="従来のサーバーと Agent Native の比較">
+<Diagram id="doc-block-server-overview-2" title="従来のサーバーと Agent-Native の比較">
 
 ```html
 <div class="diagram-cmp">
@@ -109,7 +109,7 @@ description: "エージェント ネイティブ アプリにおける Nitro サ
   </div>
   <div class="cmp-vs diagram-muted">vs</div>
   <div class="cmp-col">
-    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-label diagram-muted">Agent-Native</div>
     <div class="cmp-callers">
       <div class="diagram-node">ブラウザ / UI</div>
       <div class="diagram-node">エージェント</div>
@@ -215,7 +215,7 @@ Nitro はデプロイ先にも依存しません。同じアプリを Node.js、
 
 ## まず Actions をデフォルトにする {#actions-first}
 
-Agent Native のアーキテクチャは従来とは異なります。アプリの新機能を考えるときは、まずそれが action にできないかを検討してください。たとえば、UI とエージェントの両方が何かを行う必要がある場合は、カスタム API ルートではなく action を定義します。actions は自動的に以下になります。
+Agent-Native のアーキテクチャは従来とは異なります。アプリの新機能を考えるときは、まずそれが action にできないかを検討してください。たとえば、UI とエージェントの両方が何かを行う必要がある場合は、カスタム API ルートではなく action を定義します。actions は自動的に以下になります。
 
 - エージェント ツール。
 - 型付きのフロントエンド フック。

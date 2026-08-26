@@ -66,7 +66,7 @@ export interface AgentChatMcpOptions {
   builtinCrossAppTools?: boolean;
   /** Human-facing title. Defaults to the capitalized app id/name. */
   title?: string;
-  /** Host-facing description. Defaults to "Agent-native <app> agent". */
+  /** Host-facing description. Defaults to "Agent-Native <app> agent". */
   description?: string;
   /** Canonical app URL. Relative URLs are resolved against the request origin. */
   websiteUrl?: string;

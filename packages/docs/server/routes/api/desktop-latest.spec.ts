@@ -10,9 +10,9 @@ import {
 } from "../../../lib/desktop-releases";
 
 describe("classifyDesktopAsset", () => {
-  it("recognizes Agent Native desktop installers", () => {
+  it("recognizes Agent-Native desktop installers", () => {
     expect(classifyDesktopAsset("Agent-Native-arm64.dmg")).toBe("mac-arm64");
-    expect(classifyDesktopAsset("Agent Native-x64.dmg")).toBe("mac-x64");
+    expect(classifyDesktopAsset("Agent-Native-x64.dmg")).toBe("mac-x64");
     expect(classifyDesktopAsset("Agent-Native-x64.exe")).toBe("windows-x64");
     expect(classifyDesktopAsset("Agent-Native-arm64.exe")).toBe(
       "windows-arm64",
@@ -136,7 +136,7 @@ describe("getDesktopDownloadManifest", () => {
       vi.fn(async () =>
         jsonResponse([
           release("v2.0.0-nightly.4", "2026-01-02T00:00:00Z", {
-            assetName: "Agent Native Nightly-arm64.dmg",
+            assetName: "Agent-Native Nightly-arm64.dmg",
             prerelease: true,
           }),
           release("v1.0.0", "2026-01-01T00:00:00Z"),

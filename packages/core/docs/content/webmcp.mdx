@@ -6,6 +6,8 @@ search: "WebMCP browser tools modelContext registerTool getTools executeTool bro
 
 # WebMCP
 
+<!-- i18n-copy-ignore: formatting-only table alignment; no translated prose changed. -->
+
 WebMCP is a proposed browser API for making page capabilities available to an
 agent running in that browser. It is client-side and page-local: a page
 registers tools with `document.modelContext`, another authorized page can
@@ -13,11 +15,11 @@ discover them, and the browser mediates execution.
 
 The framework supports both directions:
 
-| You want to... | Use |
-| --- | --- |
-| Make selected actions in your app available to a browser agent | `createAgentNativeWebMcpRegistration` |
-| Let Agent-Native chat discover and call WebMCP tools in the current page | `createAgentNativeWebMcpClient` plus `webmcp` on `AgentNativeEmbedded` or `AgentNativeFrame` |
-| Connect a headless or remote agent to an app | [MCP Server](/docs/mcp-protocol), [External Agents](/docs/external-agents), or [A2A](/docs/a2a-protocol) |
+| You want to...                                                           | Use                                                                                                      |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Make selected actions in your app available to a browser agent           | `createAgentNativeWebMcpRegistration`                                                                    |
+| Let Agent-Native chat discover and call WebMCP tools in the current page | `createAgentNativeWebMcpClient` plus `webmcp` on `AgentNativeEmbedded` or `AgentNativeFrame`             |
+| Connect a headless or remote agent to an app                             | [MCP Server](/docs/mcp-protocol), [External Agents](/docs/external-agents), or [A2A](/docs/a2a-protocol) |
 
 WebMCP is not a network MCP server and does not make a closed app globally
 discoverable. A consuming agent needs an open, connected browser page and the

@@ -89,8 +89,8 @@ function knowledge(args: { id: string; sourceId: string; title: string }) {
     audienceAclHash: "acl",
     kind: "fact",
     title: args.title,
-    body: "Agent Native is a framework for building software around agents.",
-    summary: "Agent Native puts agents at the center of product workflows.",
+    body: "Agent-Native is a framework for building software around agents.",
+    summary: "Agent-Native puts agents at the center of product workflows.",
     topic: "agent-native",
     tagsJson: "[]",
     entitiesJson: "[]",
@@ -99,7 +99,7 @@ function knowledge(args: { id: string; sourceId: string; title: string }) {
         captureId: `capture-${args.id}`,
         sourceId: args.sourceId,
         captureTitle: `${args.title} source`,
-        quote: "Agent Native puts agents at the center of product workflows.",
+        quote: "Agent-Native puts agents at the center of product workflows.",
         sourceUrl: `https://docs.example.test/${args.id}`,
       },
     ],
@@ -170,17 +170,17 @@ describe("ask-brain source answer policy", () => {
       knowledge({
         id: "standard",
         sourceId: "source-standard",
-        title: "Agent Native standard",
+        title: "Agent-Native standard",
       }),
       knowledge({
         id: "blessed",
         sourceId: "source-blessed",
-        title: "Agent Native blessed",
+        title: "Agent-Native blessed",
       }),
       knowledge({
         id: "untrusted",
         sourceId: "source-untrusted",
-        title: "Agent Native untrusted",
+        title: "Agent-Native untrusted",
       }),
     ];
     mocks.policies.set(
@@ -203,7 +203,7 @@ describe("ask-brain source answer policy", () => {
     );
 
     const result = await action.run({
-      question: "What is Agent Native?",
+      question: "What is Agent-Native?",
       mode: "cited",
     });
     const returnedKnowledge = result.knowledge as Array<{
@@ -237,13 +237,13 @@ describe("ask-brain source answer policy", () => {
         knowledge({
           id: `ineligible-${index}`,
           sourceId: `source-ineligible-${index}`,
-          title: `Agent Native ineligible ${index}`,
+          title: `Agent-Native ineligible ${index}`,
         }),
       ),
       knowledge({
         id: "blessed",
         sourceId: "source-blessed",
-        title: "Agent Native blessed",
+        title: "Agent-Native blessed",
       }),
     ];
     for (let index = 0; index < 7; index += 1) {
@@ -261,7 +261,7 @@ describe("ask-brain source answer policy", () => {
     );
 
     const result = await action.run({
-      question: "What is Agent Native?",
+      question: "What is Agent-Native?",
       mode: "cited",
     });
 

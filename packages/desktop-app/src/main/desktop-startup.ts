@@ -69,7 +69,7 @@ export function initializeDesktopStartup({
     : isolatedUserDataDirectoryName
       ? path.join(appDataPath, isolatedUserDataDirectoryName)
       : !isPackaged
-        ? path.join(appDataPath, "Agent Native Dev")
+        ? path.join(appDataPath, "Agent-Native Dev")
         : null;
   if (isolatedUserDataPath) {
     try {

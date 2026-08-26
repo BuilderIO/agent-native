@@ -881,7 +881,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   const searchText =
     process.env.BUILDER_CMS_MCP_SEARCH_TEXT ??
     (args.model === "agent-native-blog-article-test"
-      ? "Agent Native Test"
+      ? "Agent-Native Test"
       : "");
   if (!searchText.trim()) {
     return {

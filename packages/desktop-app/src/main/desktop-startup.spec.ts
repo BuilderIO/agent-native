@@ -10,14 +10,14 @@ import {
 describe("desktopRequestedUserDataPath", () => {
   it("uses Electron's switch when Chromium strips it from argv", () => {
     expect(
-      desktopRequestedUserDataPath("/tmp/electron-profile", ["Agent Native"]),
+      desktopRequestedUserDataPath("/tmp/electron-profile", ["Agent-Native"]),
     ).toBe("/tmp/electron-profile");
   });
 
   it("keeps the argv fallback for ordinary launches", () => {
     expect(
       desktopRequestedUserDataPath("", [
-        "Agent Native",
+        "Agent-Native",
         "--user-data-dir=/tmp/argv-profile",
       ]),
     ).toBe("/tmp/argv-profile");
@@ -91,10 +91,10 @@ describe("initializeDesktopStartup", () => {
     initializeDesktopStartup(dependencies);
 
     expect(dependencies.createDirectory).toHaveBeenCalledWith(
-      "/application-support/Agent Native SSO Canary",
+      "/application-support/Agent-Native SSO Canary",
     );
     expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
-      "/application-support/Agent Native SSO Canary",
+      "/application-support/Agent-Native SSO Canary",
     );
     expect(events).toEqual([
       "create-directory",

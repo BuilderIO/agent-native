@@ -586,7 +586,7 @@ export async function watchLinkedLocalSource(
       ok: false,
       unavailable: true,
       error:
-        "Live local file updates require a current Agent Native Desktop bridge.",
+        "Live local file updates require a current Agent-Native Desktop bridge.",
     };
   }
   const subscribed = await desktopSource.api.subscribeChanges({
@@ -721,7 +721,7 @@ export async function revealLinkedLocalSourceFile(
     return {
       ok: false,
       unavailable: true,
-      error: "Reveal in Finder is available in Agent Native Desktop.",
+      error: "Reveal in Finder is available in Agent-Native Desktop.",
     };
   }
 

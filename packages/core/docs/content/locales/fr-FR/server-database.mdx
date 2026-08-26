@@ -344,7 +344,7 @@ Voir [Security — Data Scoping](/docs/security#data-scoping) et [Sharing](/docs
 
 ## Synchronisation appuyée sur SQL {#sync}
 
-Agent Native ne repose ni sur des observateurs de système de fichiers ni sur un état en mémoire persistant. Lorsqu'une action écrit dans la base de données, une version de synchronisation s'incrémente. Le hook client `useDbSync()` interroge `/_agent-native/poll` et invalide les caches React Query lorsqu'il détecte une version supérieure.
+Agent-Native ne repose ni sur des observateurs de système de fichiers ni sur un état en mémoire persistant. Lorsqu'une action écrit dans la base de données, une version de synchronisation s'incrémente. Le hook client `useDbSync()` interroge `/_agent-native/poll` et invalide les caches React Query lorsqu'il détecte une version supérieure.
 
 Cela fonctionne aussi bien dans les déploiements sans serveur que multi-instances, car la base de données est le point de coordination. Si vous écrivez des mutations personnalisées en dehors des actions, utilisez les assistants du framework ou émettez l'invalidation de synchronisation appropriée afin que les UI ouvertes se rafraîchissent.
 
