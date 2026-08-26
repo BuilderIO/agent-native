@@ -1280,12 +1280,40 @@ function DocumentEditorBody({
       };
       setLocalFileSyncRevision((revision) => revision + 1);
       setLocalSourceConflict(null);
+      const sqlUpdatedAt = documentUpdatedAtRef.current;
       queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
-        mergeDocumentIntoDocumentCache(old, persisted),
+        mergeDocumentIntoDocumentCache(old, {
+          ...persisted,
+          updatedAt: sqlUpdatedAt ?? persisted.updatedAt,
+        }),
       );
     },
     [documentId, queryClient],
   );
+
+  useEffect(() => {
+    if (
+      !isLinkedLocalSourceDocument ||
+      document.title !== localTitleRef.current ||
+      document.content !== localContentRef.current ||
+      !document.updatedAt
+    ) {
+      return;
+    }
+    lastSavedTitleRef.current = {
+      title: document.title,
+      updatedAt: document.updatedAt,
+    };
+    lastSavedContentRef.current = {
+      content: document.content,
+      updatedAt: document.updatedAt,
+    };
+  }, [
+    document.content,
+    document.title,
+    document.updatedAt,
+    isLinkedLocalSourceDocument,
+  ]);
 
   const saveDocumentImmediately = useCallback(
     async (
