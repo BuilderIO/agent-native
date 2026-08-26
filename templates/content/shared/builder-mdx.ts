@@ -151,7 +151,12 @@ export function stableJson(value: unknown): string {
 }
 
 function hasAmbiguousSemanticUnitIdentity(
-  baselineUnits: Array<{ kind: string; markdown: string }>,
+  baselineUnits: Array<{
+    kind: string;
+    markdown: string;
+    segmentIndex: number;
+    segmentKind: ReadableEditableSegment["kind"];
+  }>,
   currentNodes: Array<{ kind: string; markdown: string }>,
 ): boolean {
   const currentUnits = currentNodes.filter(
@@ -181,20 +186,30 @@ function hasAmbiguousSemanticUnitIdentity(
 
   let editableIndex = 0;
   let previousKind: string | undefined;
-  let changedInRun = 0;
+  let previousSegmentKind: ReadableEditableSegment["kind"] | undefined;
+  let changedSegments = new Set<number>();
   for (const current of currentNodes) {
     if (isReadableUnsupportedBuilderPlaceholder(current.markdown)) {
       previousKind = undefined;
-      changedInRun = 0;
+      previousSegmentKind = undefined;
+      changedSegments = new Set<number>();
       continue;
     }
     const baseline = baselineUnits[editableIndex];
     editableIndex += 1;
     if (!baseline || baseline.kind !== current.kind) return true;
-    if (previousKind !== current.kind) changedInRun = 0;
-    if (baseline.markdown !== current.markdown) changedInRun += 1;
-    if (changedInRun > 1) return true;
+    if (
+      previousKind !== current.kind ||
+      previousSegmentKind !== baseline.segmentKind
+    ) {
+      changedSegments = new Set<number>();
+    }
+    if (baseline.markdown !== current.markdown) {
+      changedSegments.add(baseline.segmentIndex);
+    }
+    if (changedSegments.size > 1) return true;
     previousKind = current.kind;
+    previousSegmentKind = baseline.segmentKind;
   }
   return false;
 }
@@ -1624,7 +1639,13 @@ async function mergeReadableBodyToBuilderBlocks(args: {
   }
 
   const baselineUnitsBySegment = await Promise.all(
-    segments.map(async (segment) => readableSemanticNodes(segment.baseline)),
+    segments.map(async (segment, segmentIndex) =>
+      (await readableSemanticNodes(segment.baseline)).map((unit) => ({
+        ...unit,
+        segmentIndex,
+        segmentKind: segment.kind,
+      })),
+    ),
   );
   const baselineUnitCounts = baselineUnitsBySegment.map(
     (units) => units.length,

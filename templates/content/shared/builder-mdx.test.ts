@@ -2294,6 +2294,57 @@ describe("Builder MDX conversion", () => {
     expect(result.warnings[0]).toContain("moved existing semantic blocks");
   });
 
+  it("allows multiple paragraph edits within one Builder Text segment", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-multi-paragraph-text-edit",
+      model: "blog-article",
+      data: {
+        title: "Article Multi-paragraph Text Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-1",
+            component: {
+              name: "Text",
+              options: {
+                text: "<p>First paragraph.</p><p>Second paragraph.</p>",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace("First paragraph.", "First paragraph revised.")
+        .replace("Second paragraph.", "Second paragraph revised."),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks?.[0]).toMatchObject({
+      id: "text-1",
+      component: {
+        name: "Text",
+        options: {
+          text: expect.stringContaining("Second paragraph revised."),
+        },
+      },
+    });
+  });
+
   it("returns a validation warning for MDX-sensitive readable prose", async () => {
     const article: BuilderContentEntry = {
       id: "article-mdx-sensitive-prose",
