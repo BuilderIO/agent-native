@@ -861,8 +861,6 @@ export default defineAction({
       // fast render landing before this line isn't discarded as stale.
       const fitSince = Date.now();
 
-      notifyClients(deckId);
-
       const updatedSlideIds = [
         ...new Set(
           operations.flatMap((operation) =>
@@ -872,6 +870,11 @@ export default defineAction({
           ),
         ),
       ];
+      if (updatedSlideIds.length === 1) {
+        notifyClients(deckId, { slideId: updatedSlideIds[0] });
+      } else {
+        notifyClients(deckId);
+      }
 
       // Only slides whose HTML actually changed can newly overflow — an
       // add-slide always sets content; a patch-slide only when this batch's
