@@ -143,7 +143,11 @@ import {
   isToolVisibilityModelOnly,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 
-import { MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  MCP_APP_MIME_TYPE,
+  type ActionAuthorize,
+  type ActionRunContext,
+} from "../action.js";
 import type { EngineToolResultImagePart } from "../agent/engine/types.js";
 /**
  * Convert MCP tools into `ActionEntry` values suitable for registration in
@@ -165,16 +169,19 @@ import {
   type McpToolInvocationPolicy,
 } from "./tool-policy.js";
 
+export interface McpActionEntryResolution extends Partial<
+  Pick<ActionEntry, "needsApproval" | "allowPersistentApproval">
+> {
+  /** Authorization checked on every invocation immediately before the remote call. */
+  authorize?: ActionAuthorize<Record<string, unknown>>;
+}
+
 export interface McpActionEntryOptions {
   invocationPolicy?: McpToolInvocationPolicy;
   /** Restrict the generated entries to an explicit background capability set. */
   toolNames?: readonly string[];
-  /** Add app-owned approval metadata without replacing the MCP runtime wrapper. */
-  resolveActionEntry?: (
-    tool: McpTool,
-  ) =>
-    | Partial<Pick<ActionEntry, "needsApproval" | "allowPersistentApproval">>
-    | undefined;
+  /** Add app-owned approval and authorization without replacing the MCP runtime wrapper. */
+  resolveActionEntry?: (tool: McpTool) => McpActionEntryResolution | undefined;
 }
 
 export function mcpToolsToActionEntries(
@@ -223,7 +230,8 @@ function mcpToolToActionEntry(
   tool: McpTool,
   options: McpActionEntryOptions = {},
 ): ActionEntry {
-  const resolvedEntry = options.resolveActionEntry?.(tool);
+  const { authorize, ...resolvedEntry } =
+    options.resolveActionEntry?.(tool) ?? {};
   return {
     tool: {
       description: tool.description,
@@ -238,7 +246,7 @@ function mcpToolToActionEntry(
     },
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
     ...resolvedEntry,
-    run: async (args: Record<string, unknown>) => {
+    run: async (args: Record<string, unknown>, context?: ActionRunContext) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it
       // into the LLM's visible tool list, reject invocation here so we never
       // execute a user's credentials on behalf of another user.
@@ -261,6 +269,17 @@ function mcpToolToActionEntry(
             args,
             `Error: MCP tool ${tool.name} is unavailable in read-only mode: ${decision.reason}.`,
           );
+        }
+      }
+      if (authorize) {
+        const verdict = await authorize(args, context);
+        if (verdict === false) {
+          const error = new Error("Not authorized") as Error & {
+            statusCode: number;
+          };
+          error.name = "ForbiddenError";
+          error.statusCode = 403;
+          throw error;
         }
       }
       try {
