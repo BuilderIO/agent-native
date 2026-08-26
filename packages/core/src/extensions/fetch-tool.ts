@@ -38,6 +38,31 @@ const VISION_IMAGE_CONTENT_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
+const CREDENTIAL_NAME_RE =
+  /(?:^|[-_])(access[-_]?token|api[-_]?key|auth(?:orization)?|credential|expires?|key[-_]?pair[-_]?id|password|passwd|policy|secret|session|signature|sig|token|jwt|assertion)(?:$|[-_])/i;
+
+function hasCredentialBearingImageRequest(
+  url: string,
+  headers: Record<string, string>,
+): boolean {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return true;
+  }
+  if (parsedUrl.username || parsedUrl.password) return true;
+  if (
+    Object.keys(headers).some((name) =>
+      CREDENTIAL_NAME_RE.test(name.replace(/([a-z])([A-Z])/g, "$1-$2")),
+    )
+  ) {
+    return true;
+  }
+  return [...parsedUrl.searchParams.keys()].some((name) =>
+    CREDENTIAL_NAME_RE.test(name.replace(/([a-z])([A-Z])/g, "$1-$2")),
+  );
+}
 
 /**
  * Headers that mimic a current Chrome on macOS so anti-bot middleware (Cloudflare,
@@ -373,7 +398,8 @@ export function createFetchToolEntry(
             response.ok &&
             VISION_IMAGE_CONTENT_TYPES.has(contentType.toLowerCase()) &&
             resolvedUrl.startsWith("https://") &&
-            allUsedKeys.length === 0
+            allUsedKeys.length === 0 &&
+            !hasCredentialBearingImageRequest(resolvedUrl, headers)
           ) {
             if (response.body) await response.body.cancel().catch(() => {});
             console.log(

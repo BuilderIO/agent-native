@@ -94,6 +94,39 @@ describe("createFetchToolEntry", () => {
     });
   });
 
+  it.each([
+    {
+      name: "an Authorization header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ Authorization: "Bearer example-token" }),
+      },
+    },
+    {
+      name: "userinfo in the URL",
+      args: { url: "https://user:password@93.184.216.34/frame.jpg" },
+    },
+    {
+      name: "a signed URL query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?X-Amz-Signature=example-signature",
+      },
+    },
+  ])("does not attach image responses with $name", async ({ args }) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("jpeg bytes", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await createFetchToolEntry()["web-request"].run(args);
+
+    expect(typeof result).toBe("string");
+    expect(result).toContain("HTTP 200 OK");
+  });
+
   it("blocks redirects to private/internal addresses", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, {
