@@ -27,6 +27,10 @@ export interface SaveFileContentArgs {
   journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
   lastAckedFileContentHashRef: RefObject<Record<string, string>>;
   latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
+  clearPendingLocalFileContent: (
+    fileId: string,
+    expectedContent?: string,
+  ) => void;
   markPendingLocalFileContent: (
     fileId: string,
     content: string,
@@ -50,6 +54,7 @@ export function runSaveFileContent(
     journalOutboxEntry,
     lastAckedFileContentHashRef,
     latestFileSaveForUnloadRef,
+    clearPendingLocalFileContent,
     markPendingLocalFileContent,
     queryClient,
     setPatchProof,
@@ -143,8 +148,11 @@ export function runSaveFileContent(
           await acknowledgeOutboxEntry(outboxEntry);
         } else if (!persistedContentMatches) {
           // A stale/no-op save result is a source conflict, not a lost
-          // connection. Refetch below rebases the editor; never promise
-          // that simply reconnecting will save this obsolete snapshot.
+          // connection. Drop the rejected overlay before refetch — leaving
+          // it active keeps painting the skipped snapshot and can write it
+          // back into Yjs when newer remote content arrives. expectedContent
+          // keeps a newer in-flight overlay (the user kept typing).
+          clearPendingLocalFileContent(pending.id, pending.content);
           queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
@@ -196,6 +204,7 @@ export function runSaveFileContent(
         } else if (failureKind === "conflict") {
           // Rebase still happens (acked-hash reset + get-design invalidation),
           // but a silent 409 looks like the last edit saved.
+          clearPendingLocalFileContent(pending.id, pending.content);
           toast.error(t("designEditor.toasts.saveConflict"), {
             id: `design-save-conflict:${pending.id}`,
           });

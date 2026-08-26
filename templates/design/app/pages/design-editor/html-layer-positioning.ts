@@ -83,12 +83,13 @@ export function authoredDocumentPositionForNode(
   }
 }
 
-/** Document-root position of the nearest ancestor with inline absolute/fixed
- * left/top. Used when the subject itself is class-positioned: its computed
- * left/top is containing-block relative, so paste-over adds this ancestor
- * offset instead of writing iframe boundingRect as CSS. Returns null when an
- * in-between ancestor is positioned without resolvable inline coords — that
- * remaining nested class-in-class case cannot be composed from HTML. */
+/** Document-root position of the nearest ancestor with inline
+ * absolute/fixed/relative/sticky left/top. Used when the subject itself is
+ * class-positioned: its computed left/top is containing-block relative, so
+ * paste-over adds this ancestor offset instead of writing iframe boundingRect
+ * as CSS. Returns null when an in-between ancestor is positioned without
+ * resolvable inline coords — that remaining nested class-in-class case
+ * cannot be composed from HTML. */
 export function authoredContainingBlockPositionForNode(
   content: string,
   nodeAttrId: string,
@@ -118,7 +119,14 @@ export function authoredContainingBlockPositionForNode(
 function hasResolvableInlineOffset(element: Element): boolean {
   const style = (element as HTMLElement).style;
   const position = style.position;
-  if (position !== "absolute" && position !== "fixed") return false;
+  if (
+    position !== "absolute" &&
+    position !== "fixed" &&
+    position !== "relative" &&
+    position !== "sticky"
+  ) {
+    return false;
+  }
   return (
     Number.isFinite(parseFloat(style.left)) &&
     Number.isFinite(parseFloat(style.top))

@@ -95,6 +95,27 @@ describe("resolvePasteOverPositions", () => {
     ).toEqual([{ x: 356, y: 236 }]);
   });
 
+  it("walks nested authored left/top through relative ancestors", () => {
+    expect(
+      resolvePasteOverPositions(
+        [
+          {
+            html: NESTED_CHILD_HTML,
+            rootNodeId: "child-1",
+            sourceFileId: "home",
+          },
+        ],
+        selected({ left: "40px", top: "20px" }, undefined, "child-1"),
+        `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="frame-1" style="position:relative;left:300px;top:200px;width:400px;height:400px">
+${NESTED_CHILD_HTML}
+</div>
+</body></html>`,
+      ),
+    ).toEqual([{ x: 356, y: 236 }]);
+  });
+
   it("adds ancestor authored coords to computed left/top for class-based nested children", () => {
     expect(
       resolvePasteOverPositions(
@@ -109,6 +130,27 @@ describe("resolvePasteOverPositions", () => {
         `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
 <div data-agent-native-node-id="frame-1" style="position:absolute;left:300px;top:200px;width:400px;height:400px">
+<div data-agent-native-node-id="child-1" class="absolute left-10 top-5"></div>
+</div>
+</body></html>`,
+      ),
+    ).toEqual([{ x: 356, y: 236 }]);
+  });
+
+  it("adds relative ancestor coords to computed left/top for class-based children", () => {
+    expect(
+      resolvePasteOverPositions(
+        [
+          {
+            html: `<div data-agent-native-node-id="child-1" class="absolute left-10 top-5"></div>`,
+            rootNodeId: "child-1",
+            sourceFileId: "home",
+          },
+        ],
+        selected({ left: "40px", top: "20px" }, undefined, "child-1"),
+        `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="frame-1" style="position:relative;left:300px;top:200px;width:400px;height:400px">
 <div data-agent-native-node-id="child-1" class="absolute left-10 top-5"></div>
 </div>
 </body></html>`,
