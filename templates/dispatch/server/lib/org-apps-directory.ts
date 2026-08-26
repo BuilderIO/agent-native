@@ -195,19 +195,27 @@ export async function verifyA2ABearerToken(input: {
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
 
   if (!assertedDomain) return null;
-  let secret: string | null = null;
+  let orgSecret: string | null = null;
+  let soleOrgGlobalSecret: string | null = null;
   try {
-    secret = await input.resolveOrgSecretByDomain(assertedDomain);
-    if (!secret?.trim() && input.resolveSoleOrgGlobalSecretByDomain) {
-      secret = await input.resolveSoleOrgGlobalSecretByDomain(assertedDomain);
+    orgSecret = await input.resolveOrgSecretByDomain(assertedDomain);
+    if (input.resolveSoleOrgGlobalSecretByDomain) {
+      soleOrgGlobalSecret =
+        await input.resolveSoleOrgGlobalSecretByDomain(assertedDomain);
     }
     // coercion-ok: secret lookup failure is an authentication denial, never success.
   } catch {
     return null;
   }
-  if (!secret?.trim()) return null;
+  const candidateSecrets = [...new Set([orgSecret, soleOrgGlobalSecret])]
+    .filter((secret): secret is string => typeof secret === "string")
+    .map((secret) => secret.trim())
+    .filter(Boolean);
+  if (candidateSecrets.length === 0) return null;
 
-  const payload = verifyWithSecret(decoded, secret.trim(), now);
+  const payload = candidateSecrets
+    .map((secret) => verifyWithSecret(decoded, secret, now))
+    .find((candidate) => candidate !== null);
   if (payload) {
     // The org directory is a general A2A-peer endpoint. Reject tokens
     // minted for a different single purpose — SSO identity assertions
