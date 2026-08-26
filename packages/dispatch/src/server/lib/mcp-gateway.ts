@@ -33,6 +33,10 @@ import {
 } from "../../shared/workspace-sso.js";
 import { listWorkspaceApps } from "./app-creation-store.js";
 import {
+  projectEnvironmentUrl,
+  requestEnvironmentLane,
+} from "./environment-lane.js";
+import {
   getDispatchMcpAppAccessSettings,
   isAppAllowedByMcpAccess,
   type DispatchMcpAppAccessSettings,
@@ -613,7 +617,7 @@ function toAccessibleApp(
     id: agent.id,
     name: agent.name,
     description: agent.description,
-    url: agent.url,
+    url: projectEnvironmentUrl(agent.url),
     color: agent.color,
     granted: isAppAllowedByMcpAccess(agent.id, settings),
   };
@@ -684,6 +688,7 @@ async function isEligibleWorkspaceSsoApp(
   return isWorkspaceSsoAppUrl(candidate, {
     nodeEnv: process.env.NODE_ENV,
     registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+    environmentLane: requestEnvironmentLane(),
   });
 }
 
@@ -693,7 +698,10 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
     listWorkspaceApps({ includeAgentCards: false }),
   ]);
   const builtinHomeUrls = new Map(
-    getBuiltinAgents("dispatch").map((agent) => [agent.id, agent.url]),
+    getBuiltinAgents("dispatch").map((agent) => [
+      agent.id,
+      projectEnvironmentUrl(agent.url),
+    ]),
   );
   const candidatesById = new Map<string, DispatchMcpAccessibleApp>();
   for (const agent of agents) {
