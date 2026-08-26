@@ -1032,8 +1032,6 @@ const messages = {
     editComment: "Modifier le commentaire",
     commentButton: "Commenter",
     composerPlaceholder: "Ajouter un commentaire…",
-    mentionSomeone: "Mentionner quelqu'un",
-    addEmoji: "Ajouter un emoji",
   },
   shareMeeting: {
     pageTitle: "Notes de réunion · Clips",
@@ -1581,6 +1579,7 @@ const messages = {
     invite: "Inviter",
     inviteFailed: "Impossible d’inviter la personne",
     removePersonFailed: "Impossible de supprimer la personne",
+    permissionUpdateFailed: "Impossible de mettre à jour l’autorisation",
     passwordProtectedDescription:
       "Cette vidéo est protégée. Saisissez le mot de passe pour la regarder.",
     password: "Mot de passe",

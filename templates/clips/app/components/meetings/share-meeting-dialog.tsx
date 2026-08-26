@@ -223,7 +223,9 @@ function LinkTab({
           sharesQuery={sharesQuery}
           onError={(err) =>
             toast.error(
-              err instanceof Error ? err.message : t("shareUi.remove"),
+              err instanceof Error
+                ? err.message
+                : t("clipsFinalRaw.inviteFailed"),
             )
           }
         />
@@ -241,9 +243,9 @@ function LinkTab({
               toast.error(
                 err instanceof Error
                   ? err.message
-                  : action === "remove"
-                    ? t("clipsFinalRaw.removePersonFailed")
-                    : t("shareMeeting.updateTranscriptSharingFailed"),
+                  : action === "permission"
+                    ? t("clipsFinalRaw.permissionUpdateFailed")
+                    : t("clipsFinalRaw.removePersonFailed"),
               )
             }
           />

@@ -578,7 +578,7 @@ export function PeopleAccessSection({
   sharesQuery: SharesQuery;
   canManage: boolean;
   roleCopy?: Partial<Record<Role, RoleCopy>>;
-  onError?: (err: unknown, action: "changeRole" | "remove") => void;
+  onError?: (err: unknown, action: "permission" | "remove") => void;
 }) {
   const t = useT();
   const data = sharesQuery.data;
@@ -650,7 +650,7 @@ export function PeopleAccessSettingsBody({
   sharesQuery: SharesQuery;
   canManage: boolean;
   roleCopy?: Partial<Record<Role, RoleCopy>>;
-  onError?: (err: unknown, action: "changeRole" | "remove") => void;
+  onError?: (err: unknown, action: "permission" | "remove") => void;
   /** Principal already shown in the summary row, so it is not listed twice. */
   excludePrincipalId?: string;
 }) {
@@ -666,7 +666,8 @@ export function PeopleAccessSettingsBody({
   const getRoleLabel = (value: Role) =>
     roleCopy?.[value]?.label ?? t(`shareUi.roles.${value}`);
 
-  const handleRoleChange = (s: Share, nextRole: Role) => {
+  const handleChangeRole = (s: Share, nextRole: Role) => {
+    if (nextRole === s.role) return;
     share.mutate(
       {
         resourceType,
@@ -674,10 +675,13 @@ export function PeopleAccessSettingsBody({
         principalType: s.principalType,
         principalId: s.principalId,
         role: nextRole,
+        // Re-granting an existing share only changes the role, so don't email
+        // the person again.
+        notify: false,
       } as any,
       {
         onSuccess: () => sharesQuery.refetch(),
-        onError: (err: unknown) => onError?.(err, "changeRole"),
+        onError: (err: unknown) => onError?.(err, "permission"),
       },
     );
   };
@@ -719,7 +723,8 @@ export function PeopleAccessSettingsBody({
           {canManage ? (
             <Select
               value={s.role}
-              onValueChange={(v) => handleRoleChange(s, v as Role)}
+              onValueChange={(value) => handleChangeRole(s, value as Role)}
+              disabled={share.isPending}
             >
               <SelectTrigger className="h-8 w-auto shrink-0 gap-1 border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none focus:ring-0">
                 <SelectValue>{getRoleLabel(s.role)}</SelectValue>
