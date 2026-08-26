@@ -37,7 +37,7 @@ const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
 const mockRegenerateTitleRun = vi.hoisted(() => vi.fn());
 const mockRegenerateSummaryRun = vi.hoisted(() => vi.fn());
 const mockQueueTitleRegenerationRequest = vi.hoisted(() => vi.fn());
-const mockResolveHasBuilderPrivateKey = vi.hoisted(() => vi.fn());
+const mockResolveHasBuilderGatewayCredential = vi.hoisted(() => vi.fn());
 const mockTranscribeWithBuilder = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockPrepareAudioOnlyTranscriptionMedia = vi.hoisted(() => vi.fn());
@@ -75,8 +75,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveHasBuilderPrivateKey: (...args: unknown[]) =>
-    mockResolveHasBuilderPrivateKey(...args),
+  resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
+    mockResolveHasBuilderGatewayCredential(...args),
 }));
 
 vi.mock("@agent-native/core/transcription/builder", () => ({
@@ -454,7 +454,7 @@ describe("requestTranscript regeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
-    mockResolveHasBuilderPrivateKey.mockResolvedValue(true);
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
     mockSsrfSafeFetch.mockResolvedValue(
       new Response(new Blob(["recording"], { type: "video/webm" })),

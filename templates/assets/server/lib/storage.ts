@@ -21,7 +21,7 @@ import {
   uploadFile,
   getActiveFileUploadProvider,
 } from "@agent-native/core/file-upload";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import { hasBuilderApiCredentialCustody } from "@agent-native/core/server";
 
 import {
   getPresignedS3ObjectUrl,
@@ -93,7 +93,7 @@ export async function isObjectStorageConfigured(): Promise<boolean> {
   const active = getActiveFileUploadProvider();
   if (active && active.id !== "sql") return true;
   try {
-    if (await resolveHasBuilderPrivateKey()) return true;
+    if (await hasBuilderApiCredentialCustody()) return true;
   } catch {
     /* fall through */
   }
