@@ -3871,7 +3871,7 @@ export function App({
             emit("clips:native-upload-finished", {
               recordingId: stopResult.recordingId,
               ok: true,
-              localFilePath: stopResult.localFiles?.[0] ?? null,
+              localFilePath: stopResult.localFiles?.[0]?.path ?? null,
             }).catch(() => {});
           } else {
             setLastRecordingId(stopResult.recordingId);
