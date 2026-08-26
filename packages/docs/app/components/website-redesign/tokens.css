@@ -367,6 +367,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Anchors the theme-img-light overlay, which is absolutely positioned so it
+     can sit exactly on top of the in-flow dark variant. */
+  position: relative;
   aspect-ratio: 320 / 256;
   overflow: hidden;
   background: var(--b-bg-page);

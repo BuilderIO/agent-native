@@ -19,7 +19,11 @@ interface ShowcaseApp {
   slug: string;
   name: string;
   description: string;
-  image: string;
+  // Both variants or neither -- the card falls back to a placeholder unless it
+  // has final art for each theme, since a dark screenshot shown in light mode
+  // reads worse than no screenshot at all.
+  imageDark?: string;
+  imageLight?: string;
   href: string;
 }
 
@@ -29,8 +33,10 @@ const APPS: ShowcaseApp[] = [
     name: "Clips",
     description:
       "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fab7beeb1f62548fab6e2a710d880a20c?format=webp&width=800",
+    imageDark:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc84c29ecfc904f61ae96e028288c9a3f?format=webp&width=800",
+    imageLight:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15234ab94a404c9cb51607c10c46df4e?format=webp&width=800",
     href: "/apps/clips",
   },
   {
@@ -38,8 +44,6 @@ const APPS: ShowcaseApp[] = [
     name: "Design",
     description:
       "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F75026532fe204acbab72d41dbeb34305?format=webp&width=800&height=1200",
     href: "/apps/design",
   },
   {
@@ -47,8 +51,6 @@ const APPS: ShowcaseApp[] = [
     name: "Slides",
     description:
       "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b196d8d24c44914a021d1577f10879b",
     href: "/apps/slides",
   },
   {
@@ -56,8 +58,6 @@ const APPS: ShowcaseApp[] = [
     name: "Analytics",
     description:
       "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcf9102c2aa3b4de982a50ab88d07b6df",
     href: "/apps/analytics",
   },
   {
@@ -65,8 +65,6 @@ const APPS: ShowcaseApp[] = [
     name: "Calendar",
     description:
       "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd43810da66d44bfc96b21255b93d4ccb",
     href: "/apps/calendar",
   },
   {
@@ -74,8 +72,6 @@ const APPS: ShowcaseApp[] = [
     name: "Mail",
     description:
       "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F84818cf9e2fa448b84fb9f91b6f1f80b",
     href: "/apps/mail",
   },
   {
@@ -83,8 +79,6 @@ const APPS: ShowcaseApp[] = [
     name: "Assets",
     description:
       "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9fdd5469051f421db5f1fdcc749de66b?format=webp&width=800&height=1200",
     href: "/apps/assets",
   },
   {
@@ -92,8 +86,6 @@ const APPS: ShowcaseApp[] = [
     name: "Content",
     description:
       "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and use an AI agent to draft, rewrite, and publish.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa70f7bcdb3744d8291eb607bfda36ab0",
     href: "/apps/content",
   },
   {
@@ -101,8 +93,6 @@ const APPS: ShowcaseApp[] = [
     name: "Chat",
     description:
       "Chat-first app scaffold with durable threads, a standard sidebar, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65323b4e4425484ab680ae3c158fd63d",
     href: "/apps/chat",
   },
   {
@@ -110,8 +100,6 @@ const APPS: ShowcaseApp[] = [
     name: "Dispatch",
     description:
       "Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps over A2A.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fea3f73fdf23240009ef0be82f7edc0fb",
     href: "/apps/dispatch",
   },
   {
@@ -119,8 +107,6 @@ const APPS: ShowcaseApp[] = [
     name: "Forms",
     description:
       "Agent-native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdae3c94347a248e385ab9981ec7921ac",
     href: "/apps/forms",
   },
   {
@@ -128,8 +114,6 @@ const APPS: ShowcaseApp[] = [
     name: "Plan",
     description:
       "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc56ca318901149dbb0cdadea94946c11",
     href: "/apps/plan",
   },
 ];
@@ -265,13 +249,52 @@ export function TemplateShowcase() {
             {APPS.map((app) => (
               <Link key={app.slug} to={app.href} className="app-carousel-card">
                 <div className="app-carousel-card-image">
-                  <ImgPlaceholder
-                    aspectRatio="320 / 256"
-                    label=""
-                    rounded={false}
-                    background="var(--b-bg-raised)"
-                    bordered={false}
-                  />
+                  {app.imageDark && app.imageLight ? (
+                    <>
+                      {/* Dark variant is the in-flow one so it establishes the
+                          box; the light variant overlays it. Both stay mounted
+                          with real geometry (theme-img-* toggles opacity, not
+                          display) so loading="lazy" will still fetch whichever
+                          one is currently hidden. */}
+                      <img
+                        className="theme-img-dark"
+                        src={app.imageDark}
+                        alt={`${app.name} app screenshot`}
+                        crossOrigin="anonymous"
+                        loading="lazy"
+                        decoding="async"
+                        style={{
+                          position: "relative",
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                      />
+                      <img
+                        className="theme-img-light"
+                        src={app.imageLight}
+                        alt={`${app.name} app screenshot`}
+                        crossOrigin="anonymous"
+                        loading="lazy"
+                        decoding="async"
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <ImgPlaceholder
+                      aspectRatio="320 / 256"
+                      label=""
+                      rounded={false}
+                      background="var(--b-bg-raised)"
+                      bordered={false}
+                    />
+                  )}
                 </div>
                 <div className="app-carousel-card-body">
                   <h3
