@@ -447,8 +447,9 @@ describe("document editor layout", () => {
     expect(documentEditorSource).toContain(
       'docId: collabEnabled ? documentId : "",',
     );
+    expect(documentEditorSource).toContain("const collabEditorEnabled =");
     expect(documentEditorSource).toContain(
-      "collabEnabled && canEdit && !bodyHydrationPending;",
+      'collabInitialization.status === "ready"',
     );
     expect(documentEditorSource).toContain(
       "ydoc={collabEditorEnabled ? ydoc : null}",
@@ -586,6 +587,39 @@ describe("document editor layout", () => {
     expect(source).not.toContain(
       'error instanceof Error\n                      ? error.message\n                      : "The live document could not be saved before syncing."',
     );
+  });
+
+  it("attests the authoritative content snapshot in keepalive body saves", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const teardown = source.slice(
+      source.indexOf("const flushForTeardown"),
+      source.indexOf("const onVisibilityChange"),
+    );
+
+    expect(teardown).toContain("const baseUpdatedAt");
+    expect(teardown).toContain("const loadedContentWasEmpty");
+    expect(teardown).toContain("lastSavedContentRef.current.content");
+    expect(teardown).toContain("{ loadedContentWasEmpty }");
+  });
+
+  it("keeps the canonical body read-only after collaborative initialization fails", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("initialization: collabInitialization");
+    expect(source).toContain("retry: retryCollabInitialization");
+    expect(source).toContain('collabInitialization.status === "error"');
+    expect(source).toContain('collabInitialization.status === "ready"');
+    expect(source).toContain("collabSynced &&");
+    expect(source).toContain("!collabInitializationFailed");
+    expect(source).toContain("data-collab-initialization-error");
+    expect(source).toContain("onRetry={retryCollabInitialization}");
+    expect(source).toContain("ydoc={collabEditorEnabled ? ydoc : null}");
   });
 
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {

@@ -148,11 +148,14 @@ export async function resolvePropertyDatabaseForDocument(
   document: DocumentRow,
   databaseId?: string,
   role: "viewer" | "editor" | "admin" = "viewer",
+  options: { requireDatabaseAccess?: boolean } = {},
 ): Promise<ContentDatabaseRow | null> {
   if (databaseId) {
     const database = await getDatabaseById(databaseId);
     if (!database) throw new Error(`Database "${databaseId}" not found`);
-    await assertAccess("document", database.documentId, role);
+    if (options.requireDatabaseAccess !== false) {
+      await assertAccess("document", database.documentId, role);
+    }
     if (database.documentId === document.id) return database;
 
     const db = getDb();
@@ -503,10 +506,13 @@ function normalizeStringList(value: unknown) {
 export async function listPropertiesForDocument(
   document: DocumentRow,
   databaseId?: string,
+  options: { requireDatabaseAccess?: boolean } = {},
 ) {
   const database = await resolvePropertyDatabaseForDocument(
     document,
     databaseId,
+    "viewer",
+    options,
   );
   if (!database) return [];
   // Read path: PURE read. Seeding the primary Blocks field happens at create

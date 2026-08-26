@@ -32,12 +32,19 @@ export default defineAction({
     const database = await resolvePropertyDatabaseForDocument(
       access.resource,
       databaseId,
+      "viewer",
+      { requireDatabaseAccess: false },
     );
 
     return {
       documentId,
       databaseId: database?.id ?? null,
-      properties: await listPropertiesForDocument(access.resource, databaseId),
+      properties: await listPropertiesForDocument(access.resource, databaseId, {
+        // The page share authorizes this page's definitions and values. The
+        // supplied database is checked only as this page's exact membership;
+        // its backing document remains private for container operations.
+        requireDatabaseAccess: false,
+      }),
     };
   },
 });

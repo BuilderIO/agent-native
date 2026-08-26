@@ -1604,6 +1604,124 @@ describe("content database soft-delete actions and reads", () => {
     ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
   });
 
+  it("reads one shared private database row's properties without exposing its Files container", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const sharedDocumentId = await createDocument({
+      parentId: databaseDocumentId,
+      title: "Shared Personal row",
+      content: "Keep this nonempty Personal body.",
+    });
+    const siblingDocumentId = await createDocument({
+      parentId: databaseDocumentId,
+      title: "Private sibling",
+      content: "This sibling must remain private.",
+    });
+    const unrelated = await createDatabase({});
+    const propertyId = nextId("property");
+
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: sharedDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: siblingDocumentId,
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Status",
+      type: "text",
+      description: "",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyValues).values({
+      id: nextId("property_value"),
+      ownerEmail: OWNER,
+      documentId: sharedDocumentId,
+      propertyId,
+      valueJson: JSON.stringify("Shared only"),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: sharedDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: now,
+    });
+
+    const shared = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () =>
+        listDocumentPropertiesAction.run({
+          documentId: sharedDocumentId,
+          databaseId,
+        }),
+    );
+    expect(shared).toMatchObject({
+      documentId: sharedDocumentId,
+      databaseId,
+      properties: [
+        {
+          definition: { id: propertyId, name: "Status" },
+          value: "Shared only",
+        },
+      ],
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        getDocumentAction.run({ id: databaseDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${databaseDocumentId}" not found`);
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        getDocumentAction.run({ id: siblingDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${siblingDocumentId}" not found`);
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        listDocumentPropertiesAction.run({
+          documentId: sharedDocumentId,
+          databaseId: unrelated.databaseId,
+        }),
+      ),
+    ).rejects.toThrow("Document is not part of this database.");
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        configureDocumentPropertyAction.run({
+          documentId: sharedDocumentId,
+          databaseId,
+          name: "Must not be created",
+          type: "text",
+        }),
+      ),
+    ).rejects.toThrow(`No access to document ${databaseDocumentId}`);
+  });
+
   it("rejects restoring a database whose page belongs to another Trash root", async () => {
     const rootId = await createDocument({ title: "Parent Trash root" });
     const { databaseId, databaseDocumentId } = await createDatabase({

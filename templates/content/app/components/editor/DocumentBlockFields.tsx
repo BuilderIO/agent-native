@@ -18,6 +18,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   documentPropertiesResponseMatchesScope,
   useDocumentProperties,
@@ -276,6 +277,20 @@ export function DocumentBlockFields({
     () => blockFieldsFromProperties(properties),
     [properties],
   );
+
+  // A failed property read is not an empty field list. Rendering the editor in
+  // that state could bind the body before we know which storage target owns it.
+  if (query.isError) {
+    return (
+      <div className="grid gap-1" data-block-fields-state="error">
+        <QueryErrorState
+          compact
+          onRetry={() => void query.refetch()}
+          retrying={query.isRefetching}
+        />
+      </div>
+    );
+  }
 
   // Placeholder data may belong to the previous row or database. Trust it only
   // after both response identities match the active scope.
