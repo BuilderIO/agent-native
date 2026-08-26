@@ -247,7 +247,7 @@ export interface MigrationEntry {
   sql: MigrationSql;
   /**
    * SQL was generated for a specific dialect and must not be rewritten by the
-   * portable handwritten-migration adapter.
+   * portable handwritten-migration adapter or advance the legacy version gate.
    */
   dialectSpecific?: boolean;
   /**
@@ -326,13 +326,13 @@ function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
  *   unnamed migrations.
  * - Named migrations still execute in list order, interleaved with unnamed
  *   ones exactly as written.
- * - When a named migration's DDL runs, we record BOTH the named row (always)
- *   and — if its `version` is greater than the current legacy max — the
- *   legacy version row too, in the SAME atomic batch/transaction as the DDL.
- *   This keeps the legacy `MAX(version)` gate monotonically advancing for
- *   any unnamed migrations that come after it in the list, while ensuring a
- *   named migration is never "double recorded" in a way that would let it
- *   re-apply.
+ * - When a named migration's DDL runs, we record the named row (always) and,
+ *   unless it is dialect-specific, the legacy version row too when its
+ *   `version` is greater than the current legacy max. The rows land in the
+ *   SAME atomic batch/transaction as the DDL. This keeps the legacy
+ *   `MAX(version)` gate monotonically advancing for handwritten migrations
+ *   while generated dialect-specific entries stay in their name-only
+ *   namespace.
  * - A duplicate `name` across the migration list throws at startup — that's
  *   a programmer error (copy-paste or merge mistake), not a runtime data
  *   problem, and failing loud beats silently tracking the wrong row.
@@ -522,6 +522,8 @@ export function runMigrations(
               );
               continue;
             }
+            const advancesLegacyVersion =
+              !m.dialectSpecific && m.version > current;
             const recordStatements = [
               m.name
                 ? d1
@@ -530,7 +532,7 @@ export function runMigrations(
                     )
                     .bind(m.name, m.version)
                 : null,
-              m.version > current
+              advancesLegacyVersion
                 ? d1
                     .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
                     .bind(m.version)
@@ -768,11 +770,12 @@ export function runMigrations(
             ? `"${m.name}" (v${m.version})`
             : `v${m.version}`;
 
-          // Record BOTH the named row (always, when named) and the legacy
-          // version row (only if this migration actually advances the legacy
-          // MAX) — atomically with the DDL below. This keeps the legacy gate
-          // monotonic for any unnamed migrations later in the list, while a
-          // named migration is tracked by name regardless of version.
+          // Record the named row (always, when named) and the legacy version
+          // row only for migrations that advance the legacy MAX. Generated
+          // dialect-specific entries stay in their name-only namespace so
+          // they cannot suppress later handwritten migrations.
+          const advancesLegacyVersion =
+            !m.dialectSpecific && m.version > current;
           const recordSql: Array<{ sql: string; args: unknown[] }> = [];
           if (m.name) {
             recordSql.push({
@@ -780,7 +783,7 @@ export function runMigrations(
               args: [m.name, m.version],
             });
           }
-          if (m.version > current) {
+          if (advancesLegacyVersion) {
             recordSql.push({ sql: insertVersionSql, args: [m.version] });
           }
 
@@ -805,7 +808,7 @@ export function runMigrations(
             // Dialect-gated migration with no SQL for this dialect; still mark
             // as applied so we don't retry forever.
             for (const stmt of recordSql) await exec.execute(stmt);
-            if (m.version > current) current = m.version;
+            if (advancesLegacyVersion) current = m.version;
             if (m.name) appliedNames.add(m.name);
             continue;
           }
@@ -837,7 +840,7 @@ export function runMigrations(
               }
             }
             for (const stmt of recordSql) await exec.execute(stmt);
-            if (m.version > current) current = m.version;
+            if (advancesLegacyVersion) current = m.version;
             if (m.name) appliedNames.add(m.name);
             console.log(
               `[db] Applied migration ${label} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,

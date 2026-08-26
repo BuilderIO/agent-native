@@ -567,6 +567,10 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
           sql: "ALTER TABLE tasks ADD COLUMN priority integer;",
           dialectSpecific: true,
         },
+        {
+          version: 1,
+          sql: "ALTER TABLE tasks ADD COLUMN handwritten_after_generated TEXT;",
+        },
       ],
       { table: "generated_pg_migrations" },
     );
@@ -581,6 +585,13 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
       ),
     ).toBe(true);
     expect(calls.some((sql) => /priority BIGINT/i.test(sql))).toBe(false);
+    const legacyInsertIndex = calls.findIndex((sql) =>
+      /INSERT INTO generated_pg_migrations VALUES/i.test(sql),
+    );
+    const handwrittenIndex = calls.findIndex((sql) =>
+      /handwritten_after_generated/i.test(sql),
+    );
+    expect(legacyInsertIndex).toBeGreaterThan(handwrittenIndex);
   });
 
   it("does not record dialect-specific SQL that has no SQLite entry", async () => {
