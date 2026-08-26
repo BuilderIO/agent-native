@@ -236,6 +236,29 @@ describe("Dispatch MCP gateway app discovery", () => {
     );
   });
 
+  it("projects the workspace Netlify alias onto the beta request lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        id: "cs-account-health",
+        name: "CS Account Health",
+        url: "https://builder-agent-native-workspace.netlify.app/cs-account-health",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.find((app) => app.id === "cs-account-health")?.url).toBe(
+      "https://beta.agent-workspace.builder.io/cs-account-health",
+    );
+  });
+
   it("includes Dispatch itself so agents can target extension routes", async () => {
     mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
     const apps = await runWithRequestContext(
