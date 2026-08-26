@@ -110,6 +110,16 @@ describe("MCP OAuth callback flow validation", () => {
     );
   });
 
+  it("rejects an invalid chunk marker instead of reading a flow", () => {
+    const event = mockEvent(
+      new Request("http://app.example.com", {
+        headers: { cookie: "an_mcp_oauth_flow=__chunked__1" },
+      }),
+    );
+
+    expect(readMcpOAuthFlowCookie(event)).toBeNull();
+  });
+
   it("rejects flow state that exceeds the bounded chunk count", () => {
     const event = mockEvent(new Request("http://app.example.com"));
 
