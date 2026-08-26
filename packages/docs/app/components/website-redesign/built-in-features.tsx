@@ -5,6 +5,8 @@ interface Pillar {
   title: string;
   description?: string;
   image?: string;
+  darkImage?: string;
+  lightImage?: string;
 }
 
 const PILLAR_ROWS: Pillar[][] = [
@@ -13,8 +15,10 @@ const PILLAR_ROWS: Pillar[][] = [
       title: "React UI",
       description:
         "Give users familiar screens for browsing, editing, and reviewing work.",
-      image:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F30ea21dfcd2445678458fb256063a794",
+      darkImage:
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa06ad4fe59284a74a990a1f7002eece4",
+      lightImage:
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58c00496a707498abbf5dffb32358729",
     },
     {
       title: "Embedded agent chat",
@@ -128,7 +132,41 @@ export function BuiltInFeatures() {
                     }}
                   >
                     {rowIndex === 0 &&
-                      (pillar.image ? (
+                      (pillar.darkImage && pillar.lightImage ? (
+                        <div style={{ position: "relative" }}>
+                          <img
+                            className="theme-img-dark"
+                            src={pillar.darkImage}
+                            alt=""
+                            crossOrigin="anonymous"
+                            loading="lazy"
+                            decoding="async"
+                            style={{
+                              position: "relative",
+                              width: "100%",
+                              aspectRatio: "104 / 75",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
+                          />
+                          <img
+                            className="theme-img-light"
+                            src={pillar.lightImage}
+                            alt=""
+                            crossOrigin="anonymous"
+                            loading="lazy"
+                            decoding="async"
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
+                          />
+                        </div>
+                      ) : pillar.image ? (
                         <img
                           src={pillar.image}
                           alt=""
