@@ -72,6 +72,7 @@ import {
   resolveHasCompleteBuilderConnection,
   resolveSecret,
   resolveSecretPair,
+  resolveSecretPairs,
   resolveSecretDetailed,
 } from "./credential-provider.js";
 
@@ -1488,6 +1489,88 @@ describe("resolveSecretPair", () => {
         preferWorkspaceScope: true,
       }),
     ).resolves.toEqual(["workspace-client", "workspace-secret"]);
+  });
+
+  it("prefers workspace credentials across managed OAuth aliases", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, keys }: { scope: string; keys: string[] }) => {
+        if (scope === "org" && keys[0] === "HUBSPOT_MCP_CLIENT_ID") {
+          return new Map([
+            ["HUBSPOT_MCP_CLIENT_ID", { value: "stale-org-client" }],
+            ["HUBSPOT_MCP_CLIENT_SECRET", { value: "stale-org-secret" }],
+          ]);
+        }
+        if (
+          scope === "workspace" &&
+          keys[0] === "HUBSPOT_INTEGRATION_CLIENT_ID"
+        ) {
+          return new Map([
+            ["HUBSPOT_INTEGRATION_CLIENT_ID", { value: "workspace-client" }],
+            [
+              "HUBSPOT_INTEGRATION_CLIENT_SECRET",
+              { value: "workspace-secret" },
+            ],
+          ]);
+        }
+        return new Map();
+      },
+    );
+
+    await expect(
+      resolveSecretPairs(
+        [
+          ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
+          [
+            "HUBSPOT_INTEGRATION_CLIENT_ID",
+            "HUBSPOT_INTEGRATION_CLIENT_SECRET",
+          ],
+        ],
+        { allowUserScope: false, preferWorkspaceScope: true },
+      ),
+    ).resolves.toEqual(["workspace-client", "workspace-secret"]);
+    expect(
+      mockReadAppSecrets.mock.calls.map(([args]) => [args.scope, args.keys[0]]),
+    ).toEqual([
+      ["workspace", "HUBSPOT_MCP_CLIENT_ID"],
+      ["workspace", "HUBSPOT_INTEGRATION_CLIENT_ID"],
+    ]);
+  });
+
+  it("prefers workspace credentials over a stale designated-vault org pair", async () => {
+    process.env.AGENT_VAULT_ORG_ID = "dispatch-vault";
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockGetRequestOrgId.mockReturnValue("app-org");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+        if (scopeId === "dispatch-vault" && scope === "org") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "stale-org-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "stale-org-secret" }],
+          ]);
+        }
+        if (scopeId === "dispatch-vault" && scope === "workspace") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "workspace-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "workspace-secret" }],
+          ]);
+        }
+        return new Map();
+      },
+    );
+
+    await expect(
+      resolveSecretPairs([["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]], {
+        allowUserScope: false,
+        preferWorkspaceScope: true,
+      }),
+    ).resolves.toEqual(["workspace-client", "workspace-secret"]);
+    expect(
+      mockReadAppSecrets.mock.calls
+        .filter(([args]) => args.scopeId === "dispatch-vault")
+        .map(([args]) => args.scope),
+    ).toEqual(["workspace"]);
   });
 
   it("skips a stale solo workspace pair for shared OAuth clients", async () => {
