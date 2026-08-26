@@ -59,4 +59,14 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).not.toContain("inlineEditDraftRef.current = null");
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });
+
+  it("selects persisted text boxes on plain click while keeping double-click editing", () => {
+    const clickStart = source.indexOf("// For editable text");
+    const clickEnd = source.indexOf("// Non-text elements", clickStart);
+    const clickBody = source.slice(clickStart, clickEnd);
+    expect(clickBody).toContain("includeTextBoxes: false");
+    expect(source).toContain(
+      "const block = findSmartBlock(target, slideContent);",
+    );
+  });
 });

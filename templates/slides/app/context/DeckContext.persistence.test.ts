@@ -1791,6 +1791,168 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("reorders by slide id after a thumbnail delete and keeps the granular op and undo", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-4",
+          content: "<h1>Four</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(4),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+      result.current.reorderSlides("shared-deck", "slide-4", "slide-1");
+      result.current.reorderSlides("shared-deck", "slide-1", "slide-3");
+    });
+
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-4", "slide-3", "slide-1"]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        String(url).includes("/_agent-native/actions/patch-deck") &&
+        actionCallBody(init).deckId === "shared-deck"
+      );
+    });
+    expect(patchCall).toBeTruthy();
+    expect(actionCallBody(patchCall?.[1])).toMatchObject({
+      deckId: "shared-deck",
+      operations: [
+        {
+          op: "delete-slide",
+          slideId: "slide-2",
+        },
+        {
+          op: "reorder-slides",
+          orderedIds: ["slide-4", "slide-1", "slide-3"],
+        },
+        {
+          op: "reorder-slides",
+          orderedIds: ["slide-4", "slide-3", "slide-1"],
+        },
+      ],
+    });
+
+    expect(result.current.canUndo).toBe(true);
+    act(() => {
+      result.current.undo();
+    });
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-4", "slide-1", "slide-3"]);
+
+    vi.useRealTimers();
+  });
+
+  it("does not resurrect a locally deleted slide from a stale open-deck refetch", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getFirstPatchSignal, resolveDeferredPatch } =
+      setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(3),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-3"]);
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(true);
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.refreshOpenDeck("shared-deck");
+    });
+
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-3"]);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-3"]);
+    vi.useRealTimers();
+  });
+
   it("waits for an in-flight granular save before restoring an authoritative version", async () => {
     window.history.pushState({}, "", "/deck/restore-patch-race-deck");
     const initial: Deck = {

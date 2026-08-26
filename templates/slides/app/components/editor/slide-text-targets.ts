@@ -94,9 +94,18 @@ export function isSmartGroup(element: HTMLElement): boolean {
 export function findSmartBlock(
   target: HTMLElement,
   root: HTMLElement,
+  options?: { includeTextBoxes?: boolean },
 ): HTMLElement | null {
+  const includeTextBoxes = options?.includeTextBoxes ?? true;
   let element: HTMLElement | null = target;
   while (element && root.contains(element)) {
+    if (
+      !includeTextBoxes &&
+      element.classList.contains("fmd-text-box") &&
+      element.hasAttribute("data-slide-object-id")
+    ) {
+      return null;
+    }
     if (isTextLeaf(element)) {
       const list = findEnclosingList(element, root);
       if (list) return list;

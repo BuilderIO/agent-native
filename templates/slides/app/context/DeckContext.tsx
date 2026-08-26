@@ -252,7 +252,11 @@ interface DeckContextType {
     afterSlideId: string,
     slideFields: Omit<Slide, "id">,
   ) => string | undefined;
-  reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
+  reorderSlides: (
+    deckId: string,
+    activeSlideId: string,
+    overSlideId: string,
+  ) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
    * Mark a deck as having uncommitted local changes without modifying its data.
@@ -831,6 +835,23 @@ type PatchDeckFields = Extract<
   { op: "patch-deck-fields" }
 >["fields"];
 
+/** Reorders the current slide list by stable IDs, or returns null for a no-op. */
+function reorderSlidesById(
+  slides: Slide[],
+  activeSlideId: string,
+  overSlideId: string,
+): Slide[] | null {
+  const oldIndex = slides.findIndex((slide) => slide.id === activeSlideId);
+  const newIndex = slides.findIndex((slide) => slide.id === overSlideId);
+  if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return null;
+
+  const reordered = [...slides];
+  const [moved] = reordered.splice(oldIndex, 1);
+  if (!moved) return null;
+  reordered.splice(newIndex, 0, moved);
+  return reordered;
+}
+
 /**
  * Apply a single granular op to a deck's slides/fields, returning the updated
  * Deck. Unknown/no-op cases (slide already gone, etc.) return the deck
@@ -1301,9 +1322,17 @@ export function hasUncommittedDeckChanges(
  * Returns the same `local` reference when nothing was added, so callers can
  * cheaply detect "no change".
  */
-export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
+export function mergeServerAddedSlides(
+  local: Deck,
+  server: Deck,
+  options?: { shouldMergeServerOnlySlide?: (slide: Slide) => boolean },
+): Deck {
+  const shouldMergeServerOnlySlide =
+    options?.shouldMergeServerOnlySlide ?? (() => true);
   const localIds = new Set(local.slides.map((s) => s.id));
-  const additions = server.slides.filter((s) => !localIds.has(s.id));
+  const additions = server.slides.filter(
+    (s) => !localIds.has(s.id) && shouldMergeServerOnlySlide(s),
+  );
   if (additions.length === 0) return local;
 
   // Walk the server order, emitting local slides with their local (possibly
@@ -1315,7 +1344,13 @@ export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
   const merged: Slide[] = [];
   for (const s of server.slides) {
     const localSlide = localById.get(s.id);
-    merged.push(localSlide ?? s);
+    if (localSlide) {
+      merged.push(localSlide);
+    } else if (shouldMergeServerOnlySlide(s)) {
+      merged.push(s);
+    } else {
+      continue;
+    }
     emitted.add(s.id);
   }
   for (const s of local.slides) {
@@ -1357,6 +1392,20 @@ function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
   return queue.some((op) => opTargetsSlide(op, slideId));
 }
 
+function hasPendingDeleteForSlide(deckId: string, slideId: string): boolean {
+  const inFlightOps = inFlightOpSlides.get(deckId);
+  if (
+    inFlightOps?.some(
+      (op) => op.op === "delete-slide" && op.slideId === slideId,
+    )
+  ) {
+    return true;
+  }
+  const queue = pendingOpsQueue.get(deckId);
+  if (!queue) return false;
+  return queue.some((op) => op.op === "delete-slide" && op.slideId === slideId);
+}
+
 /**
  * Same additive merge as `mergeServerAddedSlides`, but additionally adopts
  * the server's content for `changedSlideId` when no local write is pending
@@ -1371,7 +1420,10 @@ export function mergeServerSlideUpdate(
   changedSlideId: string | undefined,
   deckId: string,
 ): Deck {
-  const merged = mergeServerAddedSlides(local, server);
+  const merged = mergeServerAddedSlides(local, server, {
+    shouldMergeServerOnlySlide: (slide) =>
+      !hasPendingDeleteForSlide(deckId, slide.id),
+  });
   if (!changedSlideId || hasPendingWriteForSlide(deckId, changedSlideId)) {
     return merged;
   }
@@ -2630,27 +2682,43 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const reorderSlides = useCallback(
-    (deckId: string, oldIndex: number, newIndex: number) => {
-      markDeckDirty(deckId);
+    (deckId: string, activeSlideId: string, overSlideId: string) => {
       const before = decksRef.current.find((d) => d.id === deckId);
-      let orderedIds: string[] | undefined;
+      if (!before) return;
+
+      const currentSlides = before.slides.filter(
+        (slide) => !hasPendingDeleteForSlide(deckId, slide.id),
+      );
+      const orderedSlides = reorderSlidesById(
+        currentSlides,
+        activeSlideId,
+        overSlideId,
+      );
+      if (!orderedSlides) return;
+      const orderedIds = orderedSlides.map((slide) => slide.id);
+      const updatedAt = new Date().toISOString();
+
+      markDeckDirty(deckId);
+      decksRef.current = decksRef.current.map((d) =>
+        d.id === deckId ? { ...d, slides: orderedSlides, updatedAt } : d,
+      );
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
-          const slides = [...d.slides];
-          const [moved] = slides.splice(oldIndex, 1);
-          slides.splice(newIndex, 0, moved);
-          orderedIds = slides.map((s) => s.id);
-          return { ...d, slides, updatedAt: new Date().toISOString() };
+          const slides = reorderSlidesById(
+            d.slides,
+            activeSlideId,
+            overSlideId,
+          );
+          return slides ? { ...d, slides, updatedAt } : d;
         }),
       );
-      if (orderedIds) {
-        // Granular op — server reorders by slide ID rather than by index,
-        // so concurrent adds from other writers don't get dropped.
-        const op: PatchDeckOp = { op: "reorder-slides", orderedIds };
-        enqueueDeckOp(deckId, op);
-        if (before) recordUndo(before, op, { label: "Reorder slides" });
-      }
+
+      // Granular op — server reorders by slide ID rather than by index,
+      // so concurrent adds from other writers don't get dropped.
+      const op: PatchDeckOp = { op: "reorder-slides", orderedIds };
+      enqueueDeckOp(deckId, op);
+      recordUndo(before, op, { label: "Reorder slides" });
     },
     [markDeckDirty, recordUndo, setDecksLocal],
   );

@@ -39,4 +39,24 @@ describe("slide text targets", () => {
       true,
     );
   });
+
+  it("keeps persisted text boxes selectable on single click while preserving explicit edit targets", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="fmd-text-box" data-slide-object-id="text-box-1">
+          Existing text box
+        </div>
+      </div>
+    `;
+
+    const textBox = root.querySelector(".fmd-text-box") as HTMLElement;
+
+    expect(findSmartBlock(textBox, root)).toBe(textBox);
+    expect(
+      findSmartBlock(textBox, root, {
+        includeTextBoxes: false,
+      }),
+    ).toBeNull();
+  });
 });

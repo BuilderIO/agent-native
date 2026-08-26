@@ -4983,7 +4983,9 @@ export default function SlideEditor({
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
       // style dock targets the same block being edited.
       if (!readOnly && slideContent) {
-        const block = findSmartBlock(target, slideContent);
+        const block = findSmartBlock(target, slideContent, {
+          includeTextBoxes: false,
+        });
         if (
           block &&
           slidesCanvasInteractionCore.textActivation({
