@@ -388,7 +388,6 @@ export default function RecordingPage() {
         // Also keep polling while a transcript is pending so "Transcribing…"
         // auto-flips to the ready transcript (or to the failure card).
         if (data?.transcript?.status === "pending") return 3000;
-        if (data?.transcript?.cleanup?.status === "running") return 2000;
         // And keep polling while the title is still the server-seeded
         // default — the agent will land a generated title via
         // `update-recording` and we want the skeleton to swap in promptly.
@@ -460,7 +459,6 @@ export default function RecordingPage() {
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
-  const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
   // Reaching this page already requires a signed-in session with at least
@@ -1265,7 +1263,7 @@ export default function RecordingPage() {
         </TabsContent>
         <TabsContent
           value="transcript"
-          className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+          className="mt-0 flex-1 min-h-0 data-[state=inactive]:hidden"
         >
           <TranscriptPanel
             segments={transcriptSegments}
@@ -1279,7 +1277,6 @@ export default function RecordingPage() {
                 : transcriptStatus
             }
             failureReason={transcriptFailureReason}
-            cleanup={transcriptCleanup}
             recordingTitle={recording.title}
             onRetry={
               canEdit

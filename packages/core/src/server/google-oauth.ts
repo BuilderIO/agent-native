@@ -510,7 +510,7 @@ let _devStateSigningKey: string | undefined;
  *
  * In production, throws if no usable server secret is set.
  */
-function getStateSigningKey(): string {
+export function getOAuthStateSigningKey(): string {
   const secret =
     process.env.OAUTH_STATE_SECRET ||
     process.env.BETTER_AUTH_SECRET ||
@@ -646,7 +646,7 @@ export function encodeOAuthState(
   if (signupAnonymousId) payload.ai = signupAnonymousId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
-    .createHmac("sha256", getStateSigningKey())
+    .createHmac("sha256", getOAuthStateSigningKey())
     .update(data)
     .digest("base64url");
   return `${data}.${sig}`;
@@ -669,7 +669,7 @@ export function decodeOAuthState(
       const data = stateParam.slice(0, dotIdx);
       const sig = stateParam.slice(dotIdx + 1);
       const expected = crypto
-        .createHmac("sha256", getStateSigningKey())
+        .createHmac("sha256", getOAuthStateSigningKey())
         .update(data)
         .digest("base64url");
 
