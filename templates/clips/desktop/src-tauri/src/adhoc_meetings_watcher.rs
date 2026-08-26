@@ -447,8 +447,28 @@ impl AdhocMeetingsWatcherInner {
         self.prompt_cooldown_until
             .retain(|_, until| *until > now_ts);
         self.dismissed_until.retain(|_, until| *until > now_ts);
-        self.create_in_doubt_since
-            .retain(|_, since| *since + CREATE_DOUBT_TTL_SECS > now_ts);
+
+        // An attempt we never managed to settle must not quietly become a fresh
+        // insert. Dropping the marker alone would do exactly that: the next tick
+        // would find no doubt, skip the reconcile, and bare-insert a row that may
+        // already exist. So expiry hands the platform a normal cooldown instead
+        // — the write we cannot see stays un-duplicated, and the platform is
+        // picked up again after it, by which point a new attempt is far more
+        // likely to be a genuinely new call than a retry of this one.
+        let expired: Vec<String> = self
+            .create_in_doubt_since
+            .iter()
+            .filter(|(_, since)| *since + CREATE_DOUBT_TTL_SECS <= now_ts)
+            .map(|(platform, _)| platform.clone())
+            .collect();
+        for platform in expired {
+            self.create_in_doubt_since.remove(&platform);
+            let until = now_ts + COOLDOWN_SECS;
+            self.prompt_cooldown_until
+                .entry(platform)
+                .and_modify(|existing| *existing = (*existing).max(until))
+                .or_insert(until);
+        }
     }
 
     fn is_suppressed(&self, platform: &str, now_ts: i64) -> bool {
@@ -818,6 +838,12 @@ async fn tick_macos(
                 "scheduledStart": meeting.scheduled_start,
             }),
         );
+        // Awaiting the notification above orders the *events*, but it cannot
+        // make a webview that has not mounted yet receive one. A cold overlay
+        // misses both the show and the hide, then hydrates `pending` on mount
+        // and asks "Take notes?" about a meeting already recording. Nothing is
+        // being asked here, so the stored payload goes away with the question.
+        crate::notifications::clear_pending_meeting_notification(app, &meeting.id);
     }
 
     Ok(())
@@ -1327,9 +1353,11 @@ mod tests {
     }
 
     #[test]
-    fn an_unresolved_create_doubt_expires() {
+    fn an_unresolved_create_doubt_expires_into_a_cooldown() {
         // The doubt is pinned to one call. On the fallback path the watcher may
-        // never see that call end, so the marker needs a clock of its own.
+        // never see that call end, so the marker needs a clock of its own — but
+        // expiring it on its own would let the next tick skip the reconcile and
+        // bare-insert a row that may already exist.
         let now_ts = 1_000;
         let mut state = AdhocMeetingsWatcherInner::default();
         state.note_create_failed("zoom", now_ts, true);
@@ -1337,8 +1365,21 @@ mod tests {
         state.retain_live_cooldowns(now_ts + CREATE_DOUBT_TTL_SECS - 1);
         assert_eq!(state.create_doubt_since("zoom"), Some(now_ts));
 
-        state.retain_live_cooldowns(now_ts + CREATE_DOUBT_TTL_SECS);
+        let expiry = now_ts + CREATE_DOUBT_TTL_SECS;
+        state.retain_live_cooldowns(expiry);
         assert_eq!(state.create_doubt_since("zoom"), None);
+        assert!(
+            state.is_suppressed("zoom", expiry),
+            "an unsettled write must not fall through to a fresh insert"
+        );
+        assert!(
+            state.is_suppressed("zoom", expiry + COOLDOWN_SECS - 1),
+            "the pause runs a full cooldown"
+        );
+        assert!(
+            !state.is_suppressed("zoom", expiry + COOLDOWN_SECS),
+            "and is bounded, so the platform is never suppressed forever"
+        );
     }
 
     #[test]
@@ -1391,6 +1432,27 @@ mod tests {
         assert!(
             !state.is_suppressed("teams", now_ts),
             "the other live call must still be promptable on the next tick"
+        );
+    }
+
+    #[test]
+    fn a_calendar_guarded_platform_yields_the_next_poll_to_the_other_call() {
+        // The guard records the skip exactly like a prompt, cooldown included,
+        // so the guarded platform stops being first in line. A concurrent call
+        // on the other platform is selected one tick later, not starved.
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.note_prompted("zoom", now_ts);
+
+        let next_tick = now_ts + POLL_SECS as i64;
+        assert!(
+            state.is_suppressed("zoom", next_tick),
+            "the guarded platform is no longer eligible to be picked first"
+        );
+        assert!(
+            !state.is_suppressed("teams", next_tick),
+            "so the other live call becomes this poll's candidate"
         );
     }
 

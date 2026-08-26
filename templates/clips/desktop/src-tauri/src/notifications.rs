@@ -234,6 +234,30 @@ fn notification_key_from_parts(
     )
 }
 
+/// Drop a stored payload for a meeting that no longer needs asking about.
+///
+/// `pending` exists so an overlay webview that had not mounted yet can still
+/// hydrate the card — and that is also how a stale card outlives the event meant
+/// to clear it. `meetings:hide-notification` is matched against the payload the
+/// overlay already holds, so a hide arriving before the overlay mounts is
+/// dropped, and hydration afterwards shows "Take notes?" over a meeting that is
+/// already recording. A caller that has started capture clears the payload
+/// rather than trusting an event the overlay may not be listening for yet.
+pub(crate) fn clear_pending_meeting_notification(app: &AppHandle, meeting_id: &str) {
+    let Some(state) = app.try_state::<MeetingNotificationState>() else {
+        return;
+    };
+    let Ok(mut state) = state.0.lock() else {
+        return;
+    };
+    if clear_pending_notification(&mut state.pending, meeting_id) {
+        dlog!(
+            "[clips-tray] cleared pending meeting notification for {}",
+            meeting_id
+        );
+    }
+}
+
 fn clear_pending_notification(pending: &mut Option<Value>, meeting_id: &str) -> bool {
     let matches = pending
         .as_ref()
