@@ -19,6 +19,9 @@
  *   - `Referrer-Policy: strict-origin-when-cross-origin` — strips path/query
  *     from outbound Referer headers when the request crosses origin, so a
  *     public-share viewer's outbound link clicks never leak the share token.
+ *     Validated embed-session responses tighten this to `same-origin`, which
+ *     sends nothing cross-origin at all while keeping the same-origin Referer
+ *     that parent-vs-child app checks depend on.
  *   - `Permissions-Policy: camera=*, microphone=(self), geolocation=(),
  *     screen-wake-lock=()` — allows microphone access for composer dictation
  *     and camera access for media-capture UI (the Clips recorder, and the
@@ -132,7 +135,12 @@ export function createSecurityHeadersMiddleware() {
     setResponseHeader(
       event,
       "Referrer-Policy",
-      embedFrameRequest ? "no-referrer" : "strict-origin-when-cross-origin",
+      /**
+       * Dispatch is served as an embed, and the parent page's path cannot be forged by a
+       * same-origin child app, so stripping it made minting an app session from Dispatch
+       * impossible.
+       */
+      embedFrameRequest ? "same-origin" : "strict-origin-when-cross-origin",
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
