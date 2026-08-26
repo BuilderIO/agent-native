@@ -39,7 +39,8 @@ export function deriveCollabUser(
 
   return {
     name: userState?.name ?? (isAgent ? "AI Assistant" : "Unknown"),
-    email: userState?.email ?? (isAgent ? "agent@system" : `client-${clientId}`),
+    email:
+      userState?.email ?? (isAgent ? "agent@system" : `client-${clientId}`),
     color: userState?.color ?? (isAgent ? "#00B5FF" : "#94a3b8"),
     ...(avatarUrl ? { avatarUrl } : {}),
   };

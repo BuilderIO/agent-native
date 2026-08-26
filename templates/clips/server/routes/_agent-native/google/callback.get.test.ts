@@ -37,6 +37,7 @@ import { persistGoogleProfileImage } from "./callback.get.js";
 describe("persistGoogleProfileImage", () => {
   beforeEach(() => {
     putSetting.mockReset();
+    putSetting.mockResolvedValue(undefined);
     vi.restoreAllMocks();
   });
 

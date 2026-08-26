@@ -9,13 +9,13 @@ import {
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { ClipsAvatar } from "@/components/clips-avatar";
 import { cn } from "@/lib/utils";
 
 import { SpaceDialogs } from "./space-dialogs";

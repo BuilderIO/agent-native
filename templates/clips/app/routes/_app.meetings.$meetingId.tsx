@@ -28,8 +28,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import { PageHeader } from "@/components/library/page-header";
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { PageHeader } from "@/components/library/page-header";
 import {
   AttendeeStack,
   attendeeInitials,

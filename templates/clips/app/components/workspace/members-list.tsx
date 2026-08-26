@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,7 +33,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ClipsAvatar } from "@/components/clips-avatar";
 
 export type MemberRole = "owner" | "admin" | "member";
 

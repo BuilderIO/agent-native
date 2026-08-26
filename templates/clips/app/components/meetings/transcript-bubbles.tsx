@@ -651,7 +651,9 @@ export function TranscriptBubbles({
                             ? t("transcriptBubbles.me")
                             : t("transcriptBubbles.them"))
                         }
-                        fallback={attendeeInitials(group.speaker.initialsSource)}
+                        fallback={attendeeInitials(
+                          group.speaker.initialsSource,
+                        )}
                         className={cn(
                           "size-6 shrink-0",
                           group.speaker.accentClass,

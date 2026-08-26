@@ -17,9 +17,9 @@ import {
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { AgentViewCount } from "@/components/player/recording-views-badge";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
-import { ClipsAvatar } from "@/components/clips-avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
