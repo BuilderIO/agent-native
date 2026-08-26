@@ -205,6 +205,18 @@ body {
   overflow: visible !important;
 }
 
+/* Radix dialogs lock scroll through react-remove-scroll, which sets
+   `overflow: hidden` on <body> and then adds a `margin-right` equal to the
+   scrollbar it assumes that removed. It does not remove anything here: the
+   `overflow-x: clip` above promotes <html> to the scroll container, so the
+   viewport scrollbar comes from the root and body's overflow is ignored. The
+   margin is left over as a pure 15px squeeze, which slides centered content
+   left every time a modal opens. */
+body[data-scroll-locked] {
+  margin-right: 0 !important;
+  padding-right: 0 !important;
+}
+
 body {
   margin: 0;
   color: var(--fg);
