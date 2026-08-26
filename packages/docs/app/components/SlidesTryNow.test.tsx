@@ -12,6 +12,30 @@ afterEach(() => {
 });
 
 describe("SlidesTryNow", () => {
+  it("updates the prompt link href on contenteditable input before click", () => {
+    render(
+      <AgentNativeI18nProvider
+        catalog={docsI18nCatalog}
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <SlidesTryNow />
+      </AgentNativeI18nProvider>,
+    );
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    promptBox.innerHTML = "Customer roadmap<br>For enterprise teams";
+    fireEvent.input(promptBox);
+
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+    expect(submitLink.getAttribute("href")).toBe(
+      "https://slides.agent-native.com/?initialPrompt=Customer%20roadmap%0AFor%20enterprise%20teams",
+    );
+  });
+
   it("encodes typed prompt text into the initialPrompt URL parameter", () => {
     render(
       <AgentNativeI18nProvider
@@ -28,6 +52,7 @@ describe("SlidesTryNow", () => {
       name: "Presentation generation prompt",
     });
     promptBox.textContent = "A quarterly review deck for board members";
+    fireEvent.input(promptBox);
 
     const submitLink = screen.getByRole("link", { name: "Generate my deck" });
     fireEvent.click(submitLink);

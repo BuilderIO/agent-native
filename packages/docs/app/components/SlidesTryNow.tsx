@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowRight, IconInfoCircle } from "@tabler/icons-react";
-import { useRef } from "react";
+import { useState } from "react";
 
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { trackEvent } from "./TemplateCard";
@@ -26,7 +26,8 @@ export function extractPromptText(node: Node): string {
 export function SlidesTryNow() {
   const t = useT();
   const tn = (key: string) => t(`templateLanding.slides.tryNow.${key}`);
-  const editorRef = useRef<HTMLDivElement>(null);
+  const [promptText, setPromptText] = useState("");
+  const promptHref = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
 
   return (
     <div className="w-full min-w-0 text-start">
@@ -58,7 +59,6 @@ export function SlidesTryNow() {
           </div>
         </div>
         <div
-          ref={editorRef}
           id="slides-try-now-prompt"
           role="textbox"
           aria-labelledby="slides-try-now-prompt-label"
@@ -66,20 +66,18 @@ export function SlidesTryNow() {
           contentEditable
           suppressContentEditableWarning
           data-placeholder={tn("promptPlaceholder")}
+          onInput={(event) => {
+            setPromptText(extractPromptText(event.currentTarget).trim());
+          }}
           className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition-colors empty:before:inline-block empty:before:text-[var(--fg-secondary)] empty:before:content-[attr(data-placeholder)] focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
         />
         <div className="flex justify-end">
           <a
-            href="https://slides.agent-native.com/?initialPrompt="
+            href={promptHref}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[var(--fg)] px-6 text-sm font-semibold text-[var(--bg)] outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
             onClick={(event) => {
-              const promptText = editorRef.current
-                ? extractPromptText(editorRef.current).trim()
-                : "";
-              const targetUrl = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
-              event.currentTarget.href = targetUrl;
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("generate deck", {
                 template: "slides",
