@@ -1431,21 +1431,24 @@ describe("resolveSecretPair", () => {
 
   it("skips a stale personal pair for shared OAuth clients", async () => {
     mockGetRequestUserEmail.mockReturnValue("user@b.com");
-    mockReadAppSecrets.mockImplementation(async ({ scope }: any) => {
-      if (scope === "user") {
-        return new Map([
-          ["GOOGLE_CLIENT_ID", { value: "stale-user-client" }],
-          ["GOOGLE_CLIENT_SECRET", { value: "stale-user-secret" }],
-        ]);
-      }
-      if (scope === "workspace") {
-        return new Map([
-          ["GOOGLE_CLIENT_ID", { value: "workspace-client" }],
-          ["GOOGLE_CLIENT_SECRET", { value: "workspace-secret" }],
-        ]);
-      }
-      return new Map();
-    });
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+        if (scope === "user") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "stale-user-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "stale-user-secret" }],
+          ]);
+        }
+        if (scope === "workspace" && scopeId !== "solo:user@b.com") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "workspace-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "workspace-secret" }],
+          ]);
+        }
+        return new Map();
+      },
+    );
 
     await expect(
       resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], {
@@ -1455,6 +1458,28 @@ describe("resolveSecretPair", () => {
     expect(
       mockReadAppSecrets.mock.calls.map(([args]) => args.scope),
     ).not.toContain("user");
+  });
+
+  it("skips a stale solo workspace pair for shared OAuth clients", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) =>
+        scope === "workspace" && scopeId === "solo:user@b.com"
+          ? new Map([
+              ["GOOGLE_CLIENT_ID", { value: "stale-solo-client" }],
+              ["GOOGLE_CLIENT_SECRET", { value: "stale-solo-secret" }],
+            ])
+          : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], {
+        allowUserScope: false,
+      }),
+    ).resolves.toBeNull();
+    expect(
+      mockReadAppSecrets.mock.calls.map(([args]) => args.scopeId),
+    ).not.toContain("solo:user@b.com");
   });
 
   it("falls back to a complete environment pair instead of mixing sources", async () => {

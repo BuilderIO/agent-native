@@ -1758,8 +1758,10 @@ export async function resolveSecretPair(
       if (pair) return pair;
     }
 
-    pair = await readPair("workspace", `solo:${email}`);
-    if (pair) return pair;
+    if (allowUserScope) {
+      pair = await readPair("workspace", `solo:${email}`);
+      if (pair) return pair;
+    }
 
     const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
     if (vaultOrgId && vaultOrgId !== orgId) {
