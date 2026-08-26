@@ -464,6 +464,8 @@ export interface OAuthStatePayload {
   app?: string;
   /** Optional signed scope for provider-specific OAuth flows. */
   scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   /**
    * Same-origin path to redirect to after a successful web-flow sign-in.
    * Threaded through the (HMAC-signed) state so it survives the round trip
@@ -544,6 +546,8 @@ export interface EncodeOAuthStateOptions {
   addAccount?: boolean;
   app?: string;
   scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   returnUrl?: string;
   flowId?: string;
   desktopVerifierHash?: string;
@@ -628,6 +632,7 @@ export function encodeOAuthState(
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
   if (opts.scope) payload.s = opts.scope;
+  if (opts.provider) payload.p = opts.provider;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
@@ -685,6 +690,7 @@ export function decodeOAuthState(
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,
         scope: typeof parsed.s === "string" ? parsed.s : undefined,
+        provider: typeof parsed.p === "string" ? parsed.p : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
         // consumer (oauthCallbackResponse → safeReturnPath). The state is
         // HMAC-signed, but we still validate at consumption as defence in

@@ -5,7 +5,10 @@ export {
   type AgentChatResponse,
 } from "./agent-chat.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
-export { extractOAuthStateAppId } from "./oauth-state.js";
+export {
+  extractOAuthStateAppId,
+  extractOAuthStateProvider,
+} from "./oauth-state.js";
 export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,

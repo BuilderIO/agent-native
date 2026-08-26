@@ -291,8 +291,10 @@ function parseRunDiagStage(raw: string | null | undefined): string | null {
  * generated wrapper fails to import/hand off to the route, the worker never
  * reaches `claimBackgroundRun` and the run is reaped as "worker never claimed".
  *
- * So after a successful dispatch we poll briefly for the worker to CLAIM the run:
+ * So after a successful dispatch we poll briefly for the worker to CLAIM the run
+ * or prove that it has entered the route:
  *   - claimed within grace        → "stream"    (subscribe to the worker)
+ *   - alive in setup (when enabled) → "stream"  (subscribe while it finishes setup)
  *   - dispatch failed OR no claim  → recover inline by atomically claiming the
  *       run ourselves: if we win → "inline"; if a (delayed) worker already won
  *       it → "subscribe" (never double-run).
@@ -316,6 +318,8 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   reaperGraceMs?: number;
   /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
   reaperSafetyMarginMs?: number;
+  /** Return the durable stream as soon as the worker proves it entered setup. */
+  streamWhenWorkerAlive?: boolean;
   pollIntervalMs: number;
   readClaim: (runId: string) => Promise<{
     dispatchMode: string | null;
@@ -394,6 +398,9 @@ export async function resolveBackgroundDispatchOutcome(opts: {
         claim?.status === "running" &&
         !!stage &&
         ALIVE_IN_SETUP.has(stage);
+      if (aliveInSetup && opts.streamWhenWorkerAlive) {
+        return { action: "stream" };
+      }
       if (elapsedNow >= baseDeadline && !aliveInSetup) break;
       await sleep(opts.pollIntervalMs);
     }
@@ -9859,13 +9866,16 @@ export function createProductionAgentHandler(
       // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
       // row sits at `dispatch_mode='background'` until the reaper errors it
       // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
-      // polls briefly for the claim and decides:
-      //   - "stream":    a worker claimed the run → subscribe to it.
+      // polls briefly for the claim or a live setup marker and decides:
+      //   - "stream":    a worker claimed or entered setup → subscribe to it.
       //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
       //                  run a second copy.
       //   - "inline":    dispatch failed OR no worker claimed within grace → we
       //                  atomically own the run; recover by running it inline so a
       //                  dead worker degrades to a working synchronous turn.
+      // Once the worker has entered setup, the SQL stream opens immediately and
+      // the worker continues setup in the background. The reaper owns recovery
+      // if that worker later fails before claiming the run.
       const backgroundOutcome = await resolveBackgroundDispatchOutcome({
         dispatched,
         backgroundRowInserted,
@@ -9875,6 +9885,7 @@ export function createProductionAgentHandler(
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,
+        streamWhenWorkerAlive: true,
       });
 
       if (

@@ -93,7 +93,10 @@ import {
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
-import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  extractOAuthStateAppId,
+  extractOAuthStateProvider,
+} from "../shared/oauth-state.js";
 import {
   PASSWORD_MIN_LENGTH,
   PASSWORD_MAX_LENGTH,
@@ -2377,9 +2380,16 @@ function workspaceOAuthCallbackRelayResponse(
     search.startsWith("?") ? search.slice(1) : search,
   ).get("state");
   const appId = extractOAuthStateAppId(state);
+  const provider = extractOAuthStateProvider(state);
+  const providerCallbackPath =
+    normalizedPath === "/_agent-native/google/callback" &&
+    isWorkspaceGoogleOAuthProvider(provider)
+      ? `/_agent-native/connections/oauth/${provider}/callback`
+      : normalizedPath;
   if (
     !appId ||
-    appId === getOAuthStateAppId() ||
+    (appId === getOAuthStateAppId() &&
+      providerCallbackPath === normalizedPath) ||
     !isValidWorkspaceAppIdFormat(appId)
   ) {
     return undefined;
@@ -2387,8 +2397,27 @@ function workspaceOAuthCallbackRelayResponse(
 
   return new Response("", {
     status: 302,
-    headers: { Location: `/${appId}${normalizedPath}${search}` },
+    headers: { Location: `/${appId}${providerCallbackPath}${search}` },
   });
+}
+
+function isWorkspaceGoogleOAuthProvider(
+  provider: string | undefined,
+): provider is
+  | "gmail"
+  | "google_calendar"
+  | "google_docs"
+  | "google_drive"
+  | "google_sheets"
+  | "google_slides" {
+  return (
+    provider === "gmail" ||
+    provider === "google_calendar" ||
+    provider === "google_docs" ||
+    provider === "google_drive" ||
+    provider === "google_sheets" ||
+    provider === "google_slides"
+  );
 }
 
 function verifiedBuilderConnectOwnerFromUrl(url: string): string | null {
