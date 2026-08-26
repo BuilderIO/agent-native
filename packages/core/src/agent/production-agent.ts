@@ -3085,7 +3085,7 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   // read when its payload is unavailable so a continuation can restore vision.
   if (
     !part.images?.length &&
-    /\[image(?:\s+#\d+|\s*:)[^\n\]]*\battached(?:\s+#\d+)?\]/i.test(
+    /\[image(?:\s+#\d+|\s*:)[^\n\]]*\battached(?:\s+#\d+|:)[^\n\]]*\]/i.test(
       part.content,
     )
   ) {
