@@ -141,5 +141,15 @@ describe("npm package release workflow", () => {
     );
     assert(restore);
     assert.match(String(restore.if), /always\(\)/);
+
+    const validateIndex = releaseSteps.findIndex(
+      (step) => step.name === "Validate changesets",
+    );
+    const holdIndex = releaseSteps.indexOf(hold);
+    const changesetsIndex = releaseSteps.indexOf(changesets);
+    const restoreIndex = releaseSteps.indexOf(restore);
+    assert(holdIndex < validateIndex);
+    assert(holdIndex < changesetsIndex);
+    assert(changesetsIndex < restoreIndex);
   });
 });

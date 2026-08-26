@@ -287,20 +287,10 @@ jobs:
           RELEASE_TYPE: ${{ inputs.releaseType }}
         run: pnpm exec tsx scripts/create-release-changeset.ts "$RELEASE_TYPE"
 
-      - name: Validate changesets
-        run: node scripts/check-changeset.mjs
-
-      # The dispatch only prepares a Version Packages PR. Build everything
-      # once on the marked PR merge so stable publication does not rebuild per
-      # package. The publish wrapper also packs each package independently.
-      - name: Build all packages
-        if: github.event_name == 'push'
-        run: pnpm -r build
-
       # A stable merge can race with another PR's pending changeset. Keep
-      # those changesets out of this publish decision so this merge publishes
-      # its already-versioned packages; the files remain in the checkout for
-      # the next release train.
+      # those changesets out of validation and publication so this merge
+      # publishes its already-versioned packages; the files remain in the
+      # checkout for the next release train.
       - name: Hold pending changesets for stable publication
         if: github.event_name == 'push'
         run: |
@@ -314,6 +304,16 @@ jobs:
             fi
             mv "$file" "$hold/"
           done
+
+      - name: Validate changesets
+        run: node scripts/check-changeset.mjs
+
+      # The dispatch only prepares a Version Packages PR. Build everything
+      # once on the marked PR merge so stable publication does not rebuild per
+      # package. The publish wrapper also packs each package independently.
+      - name: Build all packages
+        if: github.event_name == 'push'
+        run: pnpm -r build
 
       - name: Create stable Release PR or publish to npm
         id: changesets
