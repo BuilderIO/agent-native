@@ -476,7 +476,11 @@ export default function Index() {
             ? { designSystemId: linkedDesignSystemId }
             : {}),
         } as any)
-        .then(() => undefined)
+        .then(() => {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-designs"],
+          });
+        })
         .catch((error) => {
           clearPendingGeneration(id);
           queryClient.invalidateQueries({
@@ -879,6 +883,11 @@ export default function Index() {
     );
 
     updateMutation.mutate({ id, title: next } as any, {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
+      },
       onError: () => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
