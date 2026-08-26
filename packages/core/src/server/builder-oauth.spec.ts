@@ -38,11 +38,13 @@ import {
   BUILDER_OAUTH_SCOPE,
   BUILDER_OAUTH_SCOPES,
   deleteBuilderOAuthSession,
+  exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
+  saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
 } from "./builder-oauth.js";
 
@@ -144,6 +146,39 @@ describe("Builder hosted user OAuth", () => {
       scope: BUILDER_OAUTH_SCOPES.join(" "),
       resourceMetadataUrl:
         "https://mcp.builder.io/.well-known/oauth-protected-resource/api",
+    });
+  });
+
+  it("separates PKCE exchange from credential persistence", async () => {
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    const exchanged = await exchangeBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(exchanged).toEqual(finished);
+    expect(saveMock).not.toHaveBeenCalled();
+
+    await saveBuilderOAuthCredentials({
+      ownerEmail,
+      orgId: DEFAULT_ORG,
+      credentials: exchanged,
+    });
+    expect(saveMock).toHaveBeenCalledWith({
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+      credentials: finished,
     });
   });
 
