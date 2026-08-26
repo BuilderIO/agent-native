@@ -84,6 +84,7 @@ export interface RibbonFieldSettings {
   contrast: number;
   glow: number;
   brightness: number;
+  dotScale: number;
   intensity: number;
   seed: number;
   vignette: number;
@@ -91,22 +92,23 @@ export interface RibbonFieldSettings {
 }
 
 export const DEFAULT_RIBBON_FIELD_SETTINGS: RibbonFieldSettings = {
-  ribbonCount: 3,
-  density: 1,
-  flowAngle: -35,
-  warp: 0.35,
-  speed: 1,
-  pointerAmount: 1,
-  smoothing: 0.035,
-  focusX: 0.6,
+  ribbonCount: 2,
+  density: 7.5,
+  flowAngle: 21,
+  warp: 0.8,
+  speed: 0.8,
+  pointerAmount: 0.45,
+  smoothing: 0.09,
+  focusX: 0,
   focusY: -0.55,
-  spread: 1,
-  contrast: 0.5,
-  glow: 0.3,
-  brightness: 1.4,
-  intensity: 0.7,
-  seed: 0,
-  vignette: 1.1,
+  spread: 0.55,
+  contrast: 0.75,
+  glow: 1,
+  brightness: 3,
+  dotScale: 0.45,
+  intensity: 0.35,
+  seed: 56,
+  vignette: 0.9,
   paused: false,
 };
 
@@ -127,6 +129,7 @@ export const RIBBON_FIELD_FIELD_CONFIG: Record<
   contrast: { kind: "range", min: 0, max: 1, step: 0.05 },
   glow: { kind: "range", min: 0, max: 1, step: 0.05 },
   brightness: { kind: "range", min: 0, max: 3, step: 0.1 },
+  dotScale: { kind: "range", min: 0.1, max: 2, step: 0.05 },
   intensity: { kind: "range", min: 0.1, max: 1, step: 0.05 },
   seed: { kind: "range", min: 0, max: 100, step: 1 },
   vignette: { kind: "range", min: 0, max: 2, step: 0.1 },

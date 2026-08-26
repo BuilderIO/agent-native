@@ -673,6 +673,7 @@ uniform float uSpread;
 uniform float uContrast;
 uniform float uGlow;
 uniform float uBrightness;
+uniform float uDotScale;
 uniform float uSeed;
 uniform float uVignette;
 uniform vec3 uFgColor;
@@ -760,7 +761,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float core = exp(-2.2 * cellDistFromFocus * cellDistFromFocus);
   value = 1. - (1. - value) * (1. - core * core);
 
-  float radius = mix(0.05, 0.44, value);
+  float radius = mix(0.05, 0.44, value) * uDotScale;
   float edge = mix(0.28, 0.03, uContrast) * max(radius, 0.04);
   float dotShape = 1. - S(radius - edge, radius + edge, length(cellUv));
 
@@ -818,6 +819,7 @@ function RibbonFieldShaderBackground({
   contrast,
   glow,
   brightness,
+  dotScale,
   intensity,
   seed,
   vignette,
@@ -846,6 +848,7 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
+    dotScale,
     seed,
     vignette,
     paused,
@@ -865,6 +868,7 @@ function RibbonFieldShaderBackground({
       contrast,
       glow,
       brightness,
+      dotScale,
       seed,
       vignette,
       paused,
@@ -883,6 +887,7 @@ function RibbonFieldShaderBackground({
     contrast,
     glow,
     brightness,
+    dotScale,
     seed,
     vignette,
     paused,
@@ -966,6 +971,7 @@ function RibbonFieldShaderBackground({
     const uContrast = gl.getUniformLocation(program, "uContrast");
     const uGlow = gl.getUniformLocation(program, "uGlow");
     const uBrightness = gl.getUniformLocation(program, "uBrightness");
+    const uDotScale = gl.getUniformLocation(program, "uDotScale");
     const uSeed = gl.getUniformLocation(program, "uSeed");
     const uVignette = gl.getUniformLocation(program, "uVignette");
     const uFgColor = gl.getUniformLocation(program, "uFgColor");
@@ -1038,6 +1044,7 @@ function RibbonFieldShaderBackground({
       gl.uniform1f(uContrast, settingsRef.current.contrast);
       gl.uniform1f(uGlow, settingsRef.current.glow);
       gl.uniform1f(uBrightness, settingsRef.current.brightness);
+      gl.uniform1f(uDotScale, settingsRef.current.dotScale);
       gl.uniform1f(uSeed, settingsRef.current.seed);
       gl.uniform1f(uVignette, settingsRef.current.vignette);
       gl.uniform3f(uFgColor, fgColor[0], fgColor[1], fgColor[2]);
