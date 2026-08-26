@@ -34,9 +34,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc84c29ecfc904f61ae96e028288c9a3f?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F53ab0a006ca6460c801b3520d3cee3c6?format=webp&width=800",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15234ab94a404c9cb51607c10c46df4e?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8c58fe985404b36aba808247d419757?format=webp&width=800",
     href: "/apps/clips",
   },
   {
@@ -45,9 +45,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa9829305c75e4164a0f589fc86e866d1?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd803cdb0e1714fae8ecccbc49c048d3c?format=webp&width=800",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f612ed381042b49f29eec5cbbf450b?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F731521261daf4044b1ebcec808002a35?format=webp&width=800",
     href: "/apps/design",
   },
   {
@@ -56,9 +56,9 @@ const APPS: ShowcaseApp[] = [
     description:
       "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F24ea8488612743fcb2db79970d4eb7cd?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff9ad9cbac8dd4f2ca719a398fe4d8112?format=webp&width=800",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8776a7006922445ab2f4ebf4f0c6d083?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8268ac325c8d42f1ab9bc29da763a236?format=webp&width=800",
     href: "/apps/slides",
   },
   {
