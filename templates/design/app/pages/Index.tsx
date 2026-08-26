@@ -825,17 +825,13 @@ export default function Index() {
     setBulkDeleteOpen(false);
     setSelectedDesignIds(new Set());
 
-    void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
-      .then(() =>
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-designs"],
-        }),
-      )
-      .catch(() => {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-designs"],
-        });
+    void Promise.allSettled(
+      ids.map((id) => deleteMutation.mutateAsync({ id } as any)),
+    ).then(() => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-designs"],
       });
+    });
   }, [listDesignsParams, selectedDesignIds, queryClient, deleteMutation]);
 
   const handleDuplicate = useCallback(
