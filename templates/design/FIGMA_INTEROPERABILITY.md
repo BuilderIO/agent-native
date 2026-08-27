@@ -381,15 +381,31 @@ already punished three changes on this branch that looked correct in isolation.
   pattern rather than approximated — Positivus **3.415% -> 2.871%**, Untitled UI
   mobile 6.577% -> 6.310%, export mean **3.082% -> 3.053%**. `TILE` still tiles
   at the browser's intrinsic size, which SVG cannot ask for, and keeps its note.
-- **Skew and non-uniform scale are dropped on export — now reproduced.**
-  `effects-transforms` gained four boxes (`scale(1.18)`, `skewX(-12deg)`,
-  `scaleX(-1)`, `scale(1.3, .72)`) and a rotated child inside a rotated parent.
-  The skewed box exports as a plain RECTANGLE: at 1:1 the design draws a
-  parallelogram and the export draws a rectangle. The case moved 1.371% ->
-  1.810% and its ceiling was raised to 1.85% to record that honestly rather than
-  leave CI red on a fixture that now covers something the exporter cannot do.
-  Fixing it means carrying a full 2x2 matrix through a scene model that is
-  rect-plus-rotation everywhere, which is its own change.
+- **Skew and non-uniform scale are dropped on export — reproduced, attempted,
+  and reverted.** `effects-transforms` gained four boxes (`scale(1.18)`,
+  `skewX(-12deg)`, `scaleX(-1)`, `scale(1.3, .72)`) and a rotated child inside a
+  rotated parent. The skewed box exports as a plain RECTANGLE: at 1:1 the design
+  draws a parallelogram and the export draws a rectangle. 1.371% -> 1.810%, and
+  the ceiling is 1.85% to record that rather than leave CI red.
+
+  The fix was built and it works on the thing it targets: decompose the CSS
+  matrix as R(theta) . M, carry M to the renderer, apply it after the rotation.
+  The skewed box becomes a parallelogram and `effects-transforms` falls
+  **1.810% -> 1.530%**. It was still **reverted**, because the corpus says no:
+  `fills-effects` goes **1.052% -> 7.49%** and the export mean 3.053% -> 3.288%.
+
+  The reason is worth writing down, because it is the actual blocker. A node's
+  exported rect is built as `centre +/- size/2`, where the centre comes from the
+  TRANSFORMED box and the size from `offsetWidth/offsetHeight`. That assumes a
+  transform preserves the box's centre — true for a rotation, and true for a
+  centre-origin scale, but false for any other origin. The importer scales its
+  angular-gradient overlay from `transform-origin: 0 0`, so the reconstructed
+  rect lands in the wrong place and the tile exports as a strip. Honouring
+  `transform-origin` in the renderer alone does not fix it (measured: 7.49%
+  either way) — the RECT has to be reconstructed from the origin too.
+
+  So the order is: make the rect origin-aware first, then carry the matrix. Not
+  the other way round, which is what this attempt did.
 - ~~**Nested rotation composition order.**~~ **Measured, not a defect.** The
   concern was that `composeAffine(rotationAbout(...), toLocal)` composes two
   operations that do not commute. Both orders were measured on the new nested
