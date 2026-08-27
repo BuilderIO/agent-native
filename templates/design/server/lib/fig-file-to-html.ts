@@ -1219,6 +1219,20 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       return `radial-gradient(${stops})`;
     }
     if (p.type === "GRADIENT_ANGULAR") {
+      // Figma sweeps an angular gradient in the node's NORMALIZED space — the
+      // box treated as a unit square, then stretched — while CSS
+      // `conic-gradient()` sweeps at a true uniform angular rate in real
+      // pixels. The two agree only on the axes, so on a non-square box the
+      // mid-sweep colours land early. The REST walker draws the sweep into a
+      // square and scales that square, which needs an overlay element rather
+      // than a background layer; here it is reported instead of silently off.
+      if (box && Math.abs(box.width - box.height) > 0.5) {
+        recordApproximation(
+          node,
+          ctx,
+          "GRADIENT_ANGULAR on a non-square box swept in pixel space; Figma sweeps it in the node's normalized space, so mid-sweep colours land early",
+        );
+      }
       if (geometry) {
         return `conic-gradient(from ${num(geometry.fromDeg)}deg at ${num(geometry.center.x)}px ${num(geometry.center.y)}px, ${stops})`;
       }
@@ -1228,7 +1242,7 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       recordApproximation(
         node,
         ctx,
-        "GRADIENT_DIAMOND approximated as radial-gradient",
+        "GRADIENT_DIAMOND approximated as an ellipse; its falloff is an L1 distance, so Figma draws a four-pointed star. The REST walker reproduces it exactly with four quadrant-tiled linear gradients",
       );
       return `radial-gradient(${stops})`;
     }
@@ -1283,6 +1297,19 @@ function backgroundShorthand(
   for (const f of fills) {
     const image = paintToBackground(f, node, ctx);
     if (!image) continue;
+    // A CSS background LAYER has no opacity of its own. `colorToCss` folds a
+    // solid's or a gradient's opacity into its alpha, but an image URL has
+    // nowhere to carry one, so a half-transparent photo would paint solid and
+    // hide whatever it is stacked over. Rare — zero of the four real designs
+    // measured, one synthetic fixture — but silent is what made it worth
+    // saying rather than fixing with an overlay element nothing needs yet.
+    if (f.type === "IMAGE" && (f.opacity ?? 1) < 1) {
+      recordApproximation(
+        node,
+        ctx,
+        `IMAGE fill opacity ${f.opacity} dropped: a CSS background layer carries no opacity, so this image paints solid over the fills beneath it`,
+      );
+    }
     bgImages.push(image);
     bgBlends.push(blendModeCss(f.blendMode) ?? "normal");
     if (f.type !== "IMAGE") {
