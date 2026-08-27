@@ -1203,9 +1203,11 @@ export async function withBetterAuthActionSession<T>(
     return action(new Headers(requestHeaders));
   }
 
-  const session = overrides?.createSession
-    ? await overrides.createSession(email)
-    : await createBetterAuthSessionForEmail(email);
+  const createSession =
+    overrides?.createSession ?? createBetterAuthSessionForEmail;
+  const session = await createSession(email, undefined, {
+    expiresAt: new Date(Date.now() + BRIDGED_SESSION_TTL_MS),
+  });
   if (!session) throw new Error("Better Auth session is unavailable.");
 
   let outcome: { ok: true; value: T } | { ok: false; error: unknown };
@@ -1217,31 +1219,40 @@ export async function withBetterAuthActionSession<T>(
           authCookies: {
             sessionToken: { name: string };
             sessionData?: { name: string };
+            dontRememberToken: { name: string };
           };
           secret: string;
         }>;
       }
     ).$context;
-    const signature = crypto
-      .createHmac("sha256", authContext.secret)
-      .update(session.token)
-      .digest("base64");
+    const signCookieValue = (value: string) =>
+      crypto
+        .createHmac("sha256", authContext.secret)
+        .update(value)
+        .digest("base64");
     const sessionCookieName = authContext.authCookies.sessionToken.name;
     const sessionDataCookieName = authContext.authCookies.sessionData?.name;
-    const sessionCookie = `${sessionCookieName}=${encodeURIComponent(`${session.token}.${signature}`)}`;
+    const dontRememberTokenCookieName =
+      authContext.authCookies.dontRememberToken.name;
+    const sessionCookie = `${sessionCookieName}=${encodeURIComponent(`${session.token}.${signCookieValue(session.token)}`)}`;
+    const dontRememberTokenCookie = `${dontRememberTokenCookieName}=${encodeURIComponent(`true.${signCookieValue("true")}`)}`;
     const existingCookies = (headers.get("cookie") ?? "")
       .split(";")
       .filter((part) => {
         const cookieName = part.split("=", 1)[0]?.trim() ?? "";
         return (
           cookieName !== sessionCookieName &&
+          cookieName !== dontRememberTokenCookieName &&
           (!sessionDataCookieName ||
             (cookieName !== sessionDataCookieName &&
               !cookieName.startsWith(`${sessionDataCookieName}.`)))
         );
       })
       .filter(Boolean);
-    headers.set("cookie", [...existingCookies, sessionCookie].join("; "));
+    headers.set(
+      "cookie",
+      [...existingCookies, sessionCookie, dontRememberTokenCookie].join("; "),
+    );
     outcome = { ok: true, value: await action(headers) };
   } catch (error) {
     outcome = { ok: false, error };
@@ -1280,6 +1291,7 @@ export async function withBetterAuthActionSession<T>(
 export async function createBetterAuthSessionForEmail(
   email: string,
   config?: BetterAuthConfig,
+  options?: { expiresAt?: Date },
 ): Promise<{ email: string; token: string; userId: string } | null> {
   const adapter = await getBetterAuthInternalAdapter(config);
   if (!adapter) return null;
@@ -1287,12 +1299,9 @@ export async function createBetterAuthSessionForEmail(
     includeAccounts: false,
   });
   if (!existing) return null;
-  const session = await adapter.createSession(
-    existing.user.id,
-    true,
-    { expiresAt: new Date(Date.now() + BRIDGED_SESSION_TTL_MS) },
-    true,
-  );
+  const session = options
+    ? await adapter.createSession(existing.user.id, true, options, true)
+    : await adapter.createSession(existing.user.id);
   return {
     email: existing.user.email,
     token: session.token,

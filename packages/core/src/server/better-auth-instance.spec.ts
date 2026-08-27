@@ -409,6 +409,7 @@ describe("withBetterAuthActionSession", () => {
     authCookies: {
       sessionToken: { name: "better-auth.session_token" },
       sessionData: { name: "better-auth.session_data" },
+      dontRememberToken: { name: "better-auth.dont_remember" },
     },
     secret: "better-auth-action-session-test-secret",
   };
@@ -478,16 +479,27 @@ describe("withBetterAuthActionSession", () => {
     );
     const testAuthContext = await instance.auth.$context;
     const internalAdapter = testAuthContext.internalAdapter;
-    const deleteSession = vi.fn(async (token: string) =>
-      internalAdapter.deleteSession(token),
-    );
+    let bridgeExpiresAt: number | undefined;
+    const deleteSession = vi.fn(async (token: string) => {
+      const storedSession = await internalAdapter.findSession(token);
+      expect(bridgeExpiresAt).toBeDefined();
+      expect(storedSession?.session.expiresAt.getTime()).toBe(bridgeExpiresAt);
+      return internalAdapter.deleteSession(token);
+    });
     const adapter = { ...internalAdapter, deleteSession } as any;
-    const createSession = async (email: string) => {
+    const createSession = async (
+      email: string,
+      _config?: unknown,
+      options?: { expiresAt?: Date },
+    ) => {
       const existing = await adapter.findUserByEmail(email, {
         includeAccounts: false,
       });
       if (!existing) return null;
-      const session = await adapter.createSession(existing.user.id);
+      bridgeExpiresAt = options?.expiresAt?.getTime();
+      const session = options
+        ? await adapter.createSession(existing.user.id, true, options, true)
+        : await adapter.createSession(existing.user.id);
       return {
         email: existing.user.email,
         token: session.token,
@@ -529,6 +541,9 @@ describe("withBetterAuthActionSession", () => {
       }),
       (headers) => {
         expect(headers.get("cookie")).not.toContain(sessionDataCookieName);
+        expect(headers.get("cookie")).toContain(
+          `${testAuthContext.authCookies.dontRememberToken.name}=`,
+        );
         return instance.auth.api.changePassword({
           body: {
             currentPassword: "old-password",
