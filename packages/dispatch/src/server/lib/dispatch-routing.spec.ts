@@ -81,6 +81,21 @@ describe("dispatchIntegrationRoutingHint", () => {
     ).toMatchObject({ targetAgent: "plan" });
   });
 
+  it.each([
+    "Do not create a one-pager",
+    "Do not create an interactive visual plan",
+  ])("does not route negated requests: %s", (text) => {
+    expect(dispatchIntegrationRoutingHint(text)).toBeUndefined();
+  });
+
+  it("lets an affirmative one-pager override a negated Plan mention", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Do not create an interactive visual plan; instead create a one-pager",
+      ),
+    ).toMatchObject({ targetAgent: "content" });
+  });
+
   it("lets unrelated domain questions use normal agent discovery", () => {
     expect(
       dispatchIntegrationRoutingHint(
