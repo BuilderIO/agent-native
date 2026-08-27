@@ -214,7 +214,11 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void | Promise<void>;
+  onSubmit: (
+    prompt: string,
+    files: UploadedFile[],
+    context?: string,
+  ) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -342,16 +346,17 @@ export default function PromptPopover({
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
-      const enrichedText = [text.trim(), googleDocContext]
-        .filter(Boolean)
-        .join("\n\n");
-      if (files.length > 0 && onBeforeUpload?.(enrichedText, files) === false) {
+      if (files.length > 0 && onBeforeUpload?.(text, files) === false) {
         return;
       }
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
-        await onSubmit(enrichedText, uploaded);
+        if (googleDocContext) {
+          await onSubmit(text, uploaded, googleDocContext);
+        } else {
+          await onSubmit(text, uploaded);
+        }
         setSubmitting(false);
       } catch (error) {
         setSubmitting(false);

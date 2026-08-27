@@ -66,7 +66,10 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
-import { isSourceImprovementRequest } from "@/lib/create-deck-generation";
+import {
+  isSourceImprovementRequest,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+} from "@/lib/create-deck-generation";
 import {
   readStoredDeckFilter,
   resolveDeckFilter,
@@ -280,6 +283,7 @@ export default function Index() {
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
+    context?: string;
   } | null>(null);
   const [showNewDeckReferenceStep, setShowNewDeckReferenceStep] =
     useState(false);
@@ -586,6 +590,7 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
     referenceSelection: NewDeckReferenceSelection = {},
+    additionalContext = "",
   ) => {
     // Pre-flight auth check. The add-deck action returns 403 silently
     // when unauthenticated, leaving the user stuck on a deck page that
@@ -697,7 +702,9 @@ export default function Index() {
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
     const trimmedPrompt = prompt.trim();
-    const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");
+    const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
+      (value) => value.includes("<google-doc "),
+    );
     const googleDocUrls = hasImportedGoogleDocContext
       ? []
       : extractGoogleDocUrls(trimmedPrompt);
@@ -706,16 +713,19 @@ export default function Index() {
       deckId,
       importedSourceDeck,
     );
-    const googleDocContext =
+    const googleDocContext = [
+      additionalContext,
       googleDocUrls.length > 0
         ? [
-            "",
             "The request includes Google Docs URL(s):",
             ...googleDocUrls.map((url) => `- ${url}`),
             "Before adding slides, call `import-google-doc` for each URL and use the returned text as source material.",
             "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
           ].join("\n")
-        : "";
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const [referenceDeckContext, hydratedDesignSystemContext] =
       await Promise.all([
         loadReferenceDeckGenerationContext(referenceDeckId),
@@ -792,6 +802,7 @@ export default function Index() {
       referenceDeckContext,
       designSystemContext,
       referenceSourceContext,
+      WEBSITE_STYLE_REFERENCE_DIRECTIVE,
       sourceDeckContext,
       "",
       "Before generating, if the request or selected references leave a meaningful choice unresolved, use the `ask-question` tool to ask one concise, prompt-specific question in the inline guided-question flow. Generate the question wording and 2 to 4 options from the user's request and selected references, like Claude's design-question flow; do not use a fixed generic questionnaire. Ask only a choice that materially affects the deck, such as audience, tone, structure, or length. If the prompt already makes the choice clear, do not ask it again. Wait for the user's answer or skip before adding slides.",
@@ -811,7 +822,7 @@ export default function Index() {
     ).catch(() => {});
     deleteClientAppState("guided-questions").catch(() => {});
 
-    agentSubmit(createDeckAgentMessage(trimmedPrompt), context, {
+    agentSubmit(createDeckAgentMessage(prompt), context, {
       newTab: true,
       reuseEmptyTab: true,
       openSidebar: true,
@@ -819,9 +830,9 @@ export default function Index() {
   };
 
   const handlePromptSubmit = useCallback(
-    (prompt: string, files: UploadedFile[]) => {
+    (prompt: string, files: UploadedFile[], context?: string) => {
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      setPendingDeck({ prompt, files });
+      setPendingDeck({ prompt, files, context });
       setShowNewDeckReferenceStep(true);
     },
     [setNewDeckPromptOpen],
@@ -978,6 +989,7 @@ export default function Index() {
         pending.prompt,
         pending.files,
         selection,
+        pending.context,
       );
     },
     [
@@ -1183,10 +1195,15 @@ export default function Index() {
       handleCreateDeckBlank();
       return;
     }
-    void handleCreateDeckWithPrompt(pending.prompt, pending.files, {
-      designSystemId: null,
-      referenceDeckId: null,
-    });
+    void handleCreateDeckWithPrompt(
+      pending.prompt,
+      pending.files,
+      {
+        designSystemId: null,
+        referenceDeckId: null,
+      },
+      pending.context,
+    );
   }, [
     forgetReference,
     handleCreateDeckBlank,

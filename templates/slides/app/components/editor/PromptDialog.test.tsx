@@ -26,7 +26,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
       disabled={props.disabled}
       onClick={() =>
         void props.onSubmit(
-          "make a deck",
+          "  make a deck  \n",
           [new File(["pdf"], "large.pdf", { type: "application/pdf" })],
           [],
           {},
@@ -313,7 +313,7 @@ describe("PromptPopover import mode", () => {
       ),
     );
     await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledWith("make a deck", [
+      expect(onSubmit).toHaveBeenCalledWith("  make a deck  \n", [
         expect.objectContaining({ originalName: "large.pdf" }),
       ]);
     });

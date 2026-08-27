@@ -141,9 +141,10 @@ export default function ImageGenPanel({
       referenceImageUrls: activeRefs,
     });
 
-    const label = prompt.trim()
-      ? `Generate 3 image variations: ${prompt}`
-      : `Generate image for slide ${slideContext ? slideContext.slideIndex + 1 : ""}`;
+    const label =
+      prompt.length > 0
+        ? prompt
+        : `Generate image for slide ${slideContext ? slideContext.slideIndex + 1 : ""}`;
 
     agentSubmit(label, context);
     setPrompt("");

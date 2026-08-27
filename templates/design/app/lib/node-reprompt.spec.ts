@@ -20,7 +20,7 @@ describe("formatNodeRepromptSubmission", () => {
       subtreeHtml: '<section data-node-id="hero">Hero</section>',
     });
 
-    expect(submission.message).toBe("Give this a better background");
+    expect(submission.message).toBe("  Give this a better background  ");
     expect(submission.message).not.toContain("repromptId");
     expect(submission.context).toContain("[Reprompt selection]");
     expect(submission.context).toContain("repromptId: reprompt-1");

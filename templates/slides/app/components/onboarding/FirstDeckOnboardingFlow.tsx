@@ -117,7 +117,7 @@ export function FirstDeckOnboardingFlow({
       setUploading(true);
       try {
         const uploaded = await uploadPromptFiles(files);
-        setPrompt(text.trim());
+        setPrompt(text);
         setPromptFiles(uploaded);
         setStep("references");
       } catch (error) {

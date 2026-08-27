@@ -596,7 +596,7 @@ export default function PromptPopover({
         return;
       }
       try {
-        await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        await onSubmit(text, [...uploaded, ...pickedAssets], options);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
       } catch (error) {

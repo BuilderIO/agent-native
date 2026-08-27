@@ -46,7 +46,7 @@ describe("new deck generation flow", () => {
       "navigate(`/deck/${deck.id}?generating=1`",
     );
     const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(trimmedPrompt)",
+      "agentSubmit(createDeckAgentMessage(prompt)",
     );
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);

@@ -174,7 +174,6 @@ export function AddSlidePopover({
         }
       }
 
-      const trimmedText = text.trim();
       const googleDocSourceForContext =
         truncateSourceForContext(googleDocContext);
       const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
@@ -212,7 +211,7 @@ export function AddSlidePopover({
             "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
           ].join("\n");
 
-      agentSubmit(addSlideAgentMessage(trimmedText), context);
+      agentSubmit(addSlideAgentMessage(text), context);
       onOpenChange(false);
     },
     [

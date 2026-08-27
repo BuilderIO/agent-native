@@ -107,6 +107,11 @@ describe("startDeckGeneration", () => {
       expect.anything(),
     );
     expect(agentSubmit).toHaveBeenCalledOnce();
+    expect(agentSubmit.mock.calls[0]?.[0]).toBe(
+      "Create a new deck using this PDF as reference material",
+    );
+    expect(agentSubmit.mock.calls[0]?.[0]).not.toContain("Create deck:");
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain("import-from-url");
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "Attachments are context for the agent by default",
     );

@@ -51,8 +51,8 @@ export function buildImageDropAgentPayload(args: {
   dataUrl?: string;
 }): ImageDropAgentPayload {
   const intentLine =
-    args.intent.trim().length > 0
-      ? args.intent.trim()
+    args.intent.length > 0
+      ? args.intent
       : "Use this image on the current slide.";
   const contextLines: string[] = [];
   if (args.contextHint && args.contextHint.trim().length > 0) {
