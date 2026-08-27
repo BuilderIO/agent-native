@@ -29,14 +29,15 @@ export function meta() {
  * `No routes matched location "/inbox"` because the navigation fired during
  * hydration, before the route tree was fully attached. A `loader` runs as
  * part of the server response and the navigation completes before the app
- * hydrates. The app opens to the inbox so saved tab preferences can apply.
+ * hydrates. The app opens to the default Important triage view on first use;
+ * direct /inbox visits still let InboxPage honor an explicit saved pin list.
  */
 export function loader() {
-  throw withSsrHtmlContentType(redirect("/inbox"));
+  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
 }
 
 export function clientLoader() {
-  throw withSsrHtmlContentType(redirect("/inbox"));
+  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
 }
 
 export function HydrateFallback() {
