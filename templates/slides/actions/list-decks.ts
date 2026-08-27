@@ -364,6 +364,7 @@ export default defineAction({
         id: row.id,
         title: row.title,
         url: getDeckUrl(row.id),
+        appUrl: getDeckAppUrl(row.id, ctx?.requestHeaders),
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,

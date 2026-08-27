@@ -77,12 +77,18 @@ describe("list-decks", () => {
   it("returns canonical deck URLs for A2A artifact verification", async () => {
     const result = await action.run({});
 
-    expect(result.decks[0]).toMatchObject({
-      id: "deck_123",
-      title: "Roadmap",
-      url: "https://slides.agent.test/deck/deck_123",
-      appUrl: "https://slides.agent.test/deck/deck_123",
+    expect(result).toMatchObject({
+      count: 1,
+      decks: [
+        {
+          id: "deck_123",
+          title: "Roadmap",
+          url: "https://slides.agent.test/deck/deck_123",
+          appUrl: "https://slides.agent.test/deck/deck_123",
+        },
+      ],
     });
+    expect(result).not.toHaveProperty("nextCursor");
     expect(selectFn).toHaveBeenCalledWith({
       id: "id_col",
       title: "title_col",

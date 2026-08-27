@@ -122,6 +122,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
     async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-action-route-e2e");
+      vi.stubEnv("BETTER_AUTH_URL", "http://127.0.0.1:8080");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
@@ -138,6 +139,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       const { getOwnerFromEvent, resolveOrgId } = await buildOwnerResolver();
 
       const seen: { userEmail?: string; orgId?: string } = {};
+      const getOwnerFromEventSpy = vi.fn(getOwnerFromEvent);
       const actions: Record<string, ActionEntry> = {
         "import-visual-plan-source": {
           run: vi.fn(async () => {
@@ -153,7 +155,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
         use: (path: string, handler: any) => mounted.push({ path, handler }),
       };
       mountActionRoutes(nitroApp, actions, {
-        getOwnerFromEvent,
+        getOwnerFromEvent: getOwnerFromEventSpy,
         resolveOrgId,
       });
 
@@ -177,6 +179,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       expect(
         actions["import-visual-plan-source"].run as any,
       ).toHaveBeenCalled();
+      expect(getOwnerFromEventSpy).not.toHaveBeenCalled();
       // The plan is created as the token's owner/org — identical scoping to MCP.
       expect(seen).toEqual({
         userEmail: "owner@plans.test",
