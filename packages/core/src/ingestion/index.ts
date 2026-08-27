@@ -90,6 +90,7 @@ export {
   collectFallbackNodeIds,
   collectFontUsage,
   collectImageFillRefs,
+  figmaDrawnText,
   gradientAngleDegrees,
   mapFigmaNodeToHtml,
   type FidelityEntry,

@@ -13,6 +13,7 @@ import * as path from "node:path";
 
 import {
   cssBlendMode,
+  figmaDrawnText,
   gradientAngleDegreesFromHandles,
   gradientGeometryFromTransform,
   remapLinearStopPosition,
@@ -161,6 +162,9 @@ export interface FigNode {
   textAlignVertical?: string;
   textData?: {
     characters?: string;
+    // One entry per line Figma laid out — its own count, which is not the same
+    // as counting break characters in `characters`.
+    lines?: unknown[];
     // Per-character style index (one entry per UTF-16 code unit); the index
     // keys into `styleOverrideTable`. Absent/0 means the node's base style.
     characterStyleIDs?: number[];
@@ -662,16 +666,16 @@ interface TextRun {
 }
 
 /**
- * Figma's stored text, minus a trailing paragraph break.
- *
- * Figma does not RENDER a trailing break as an extra line, but turning it into
- * a `<br>` does, so every such label comes out one line taller and pushes its
- * siblings down with it. Trailing whitespace after the break goes too: Figma
- * renders neither. Verified on the REST path, where two Whitepace labels then
- * matched Figma's own heights exactly (40px and 46px, from 60 and 69).
+ * The text Figma draws. `textData.lines` is the kiwi twin of REST `lineTypes`:
+ * one entry per line Figma actually laid out, and the only reliable statement
+ * of how many of the stored break characters are real. It differs from the
+ * break count on 17 of the 18 break-bearing nodes in one real file.
  */
 function textCharacters(node: FigNode): string {
-  return (node.textData?.characters ?? "").replace(/[\r\n][ \t]*$/, "");
+  return figmaDrawnText(
+    node.textData?.characters ?? "",
+    node.textData?.lines?.length,
+  );
 }
 
 /**

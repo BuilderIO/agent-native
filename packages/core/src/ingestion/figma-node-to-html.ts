@@ -1941,7 +1941,7 @@ function needsImageFallback(
     // community landing page it turned 116 of 146 text nodes into PNGs, one of
     // them the single word "Home". Only escalate when the property can actually
     // affect this node's rendering.
-    const paragraphCount = (node.characters ?? "").split("\n").length;
+    const paragraphCount = node.lineTypes?.length ?? 1;
     const hasList = node.lineTypes?.some((type) => type !== "NONE") ?? false;
     const hasAdvancedTypography = styles.some(
       (style) =>
@@ -2135,6 +2135,50 @@ function textOverrideCss(
       ? (colorToCss(solidFill.color, solidFill.opacity ?? 1) ?? undefined)
       : undefined,
   };
+}
+
+const FIGMA_TEXT_BREAK = /\r\n|[\n\r\u2028\u2029]/g;
+
+/**
+ * The text Figma draws, which is not always the text `characters` spells.
+ *
+ * Figma's stored text can carry break characters it does not lay out as
+ * breaks. A real footer stores "Get started for free.\rAdd your whole team as
+ * your needs grow." and draws it as ONE flowing paragraph, breaking at the
+ * width instead. Both formats state the truth: REST `lineTypes` and kiwi
+ * `textData.lines` hold one entry per line Figma actually laid out, so
+ * `laidOutLines` says how many of the breaks are real. Measured over every
+ * break-bearing text node in the corpus that count is never wrong, while
+ * trusting each break character overstates it on 8 of 20 REST nodes and 17 of
+ * 18 kiwi ones — which made that footer a line taller and moved 61 nodes.
+ *
+ * Figma draws a break it did not lay out as a space (a heading storing
+ * "Customise it\rto your needs" renders "Customise it to / your needs", wrapped
+ * at the width), and draws a trailing one as nothing at all.
+ */
+export function figmaDrawnText(
+  text: string,
+  laidOutLines: number | undefined,
+): string {
+  const breaks = [...text.matchAll(FIGMA_TEXT_BREAK)];
+  if (laidOutLines === undefined) {
+    // No line count to check against. A trailing break is the one case still
+    // settleable without it: Figma never draws one, `pre-wrap` always does.
+    return text.replace(/(?:\r\n|[\n\r\u2028\u2029])[ \t]*$/, "");
+  }
+  if (breaks.length + 1 <= laidOutLines) return text;
+  // Figma laid out fewer lines than there are breaks, so the later ones are
+  // not paragraph breaks. Substitute per character rather than collapsing, so
+  // every index still lines up with `characterStyleOverrides`.
+  let drawn = text;
+  for (const match of breaks.slice(Math.max(0, laidOutLines - 1))) {
+    const at = match.index ?? 0;
+    drawn =
+      drawn.slice(0, at) +
+      " ".repeat(match[0].length) +
+      drawn.slice(at + match[0].length);
+  }
+  return drawn.replace(/[ \t]+$/, "");
 }
 
 /** Render contiguous Figma character-style override runs as inline spans. */
@@ -2644,13 +2688,10 @@ function buildNode(
     );
     tracker.record(node, "exact", "Text styling mapped from TypeStyle fields.");
 
-    // Figma stores paragraph breaks as CR, and its `characters` very often ends
-    // with one. Figma does NOT render a trailing break as an extra line, but
-    // `white-space: pre-wrap` does — every such label came out one line taller
-    // and pushed its siblings down with it (67 nodes on the Whitepace page
-    // alone, 20px each). Trailing whitespace after the break goes too: Figma
-    // renders neither.
-    const characters = (node.characters ?? "").replace(/[\r\n][ \t]*$/, "");
+    const characters = figmaDrawnText(
+      node.characters ?? "",
+      node.lineTypes?.length,
+    );
     const textHtml = buildMixedTextHtml(node, characters, tracker);
     const spanAttr = styleAttr(spanStyles);
     const spanOpen = spanAttr ? `<span style="${spanAttr}">` : "<span>";

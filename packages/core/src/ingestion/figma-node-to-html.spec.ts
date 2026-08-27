@@ -637,34 +637,79 @@ describe("a FILL child may shrink below its content", () => {
   });
 });
 
-describe("Figma's trailing line break", () => {
-  // Figma stores paragraph breaks as CR and its `characters` very often ends
-  // with one, but it does not render a trailing break as an extra line.
-  // `white-space: pre-wrap` does, so every such label came out one line taller
-  // and pushed its siblings down — 67 nodes on one page, 20px each.
-  function label(characters: string): FigmaNode {
+describe("which break characters Figma actually lays out", () => {
+  // `characters` can carry breaks Figma does not draw as breaks: a real footer
+  // stores "Get started for free.\rAdd your whole team…" and renders it as one
+  // flowing paragraph. `lineTypes` has one entry per line Figma laid out, so it
+  // says how many are real — measured across the corpus it is never wrong,
+  // while trusting each break character overstates the count on 8 of 20 nodes.
+  function label(characters: string, lineTypes?: string[]): FigmaNode {
     return {
       id: "1:1",
       name: "Point",
       type: "TEXT",
       absoluteBoundingBox: box(0, 0, 312, 40),
       characters,
+      lineTypes,
       style: { fontFamily: "Inter", fontSize: 16, lineHeightPx: 20 },
     } as FigmaNode;
   }
 
-  it("drops a trailing carriage return", () => {
-    const { html } = mapFigmaNodeToHtml(label("Connect the account\r"), {});
+  it("keeps a break Figma counted as a line", () => {
+    const { html } = mapFigmaNodeToHtml(
+      label("First\rSecond", ["NONE", "NONE"]),
+      {},
+    );
+    expect(html).toMatch(/First[\r\n]Second/);
+  });
+
+  it("draws a break Figma did NOT count as the space it renders", () => {
+    const { html } = mapFigmaNodeToHtml(
+      label("Get started for free.\rAdd your whole team.", ["NONE"]),
+      {},
+    );
+    expect(html).toContain("Get started for free. Add your whole team.");
+  });
+
+  it("drops a trailing break Figma did not count", () => {
+    const { html } = mapFigmaNodeToHtml(
+      label("Connect the account\r", ["NONE"]),
+      {},
+    );
     expect(html).toContain("Connect the account");
-    expect(html).not.toContain("Connect the account\r");
+    expect(html).not.toMatch(/Connect the account[\r\n ]/);
   });
 
   it("drops trailing spaces that follow the break, which Figma also ignores", () => {
-    const { html } = mapFigmaNodeToHtml(label("Add due dates\r "), {});
-    expect(html).not.toMatch(/Add due dates[\r\n]/);
+    const { html } = mapFigmaNodeToHtml(
+      label("Add due dates\r ", ["NONE"]),
+      {},
+    );
+    expect(html).not.toMatch(/Add due dates[\r\n ]/);
   });
 
-  it("keeps breaks INSIDE the text", () => {
+  it("treats CRLF as one break, not two", () => {
+    const { html } = mapFigmaNodeToHtml(
+      label("First\r\nSecond", ["NONE", "NONE"]),
+      {},
+    );
+    expect(html).toMatch(/First[\r\n]+Second/);
+    expect(html).not.toContain("First\r\n\r\nSecond");
+  });
+
+  it("keeps as many breaks as Figma counted and folds only the extras", () => {
+    const { html } = mapFigmaNodeToHtml(label("a\rb\rc", ["NONE", "NONE"]), {});
+    expect(html).toMatch(/a[\r\n]b c/);
+  });
+
+  it("still drops a trailing break when Figma reports no line count", () => {
+    // Absent `lineTypes` leaves no authority to check against, but a trailing
+    // break is settleable regardless: Figma never draws one, pre-wrap always does.
+    const { html } = mapFigmaNodeToHtml(label("Connect the account\r"), {});
+    expect(html).not.toMatch(/Connect the account[\r\n]/);
+  });
+
+  it("leaves interior breaks alone when Figma reports no line count", () => {
     const { html } = mapFigmaNodeToHtml(label("First\rSecond"), {});
     expect(html).toMatch(/First[\r\n]Second/);
   });
