@@ -577,10 +577,7 @@ import { runVisualDuplicateChange } from "./design-editor/commands/visual-duplic
 import { runVisualStructureChange } from "./design-editor/commands/visual-structure-change";
 import { runWriteFrameGeometrySnapshot } from "./design-editor/commands/write-frame-geometry-snapshot";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
-import {
-  designPrecedentDirectives,
-  loadCreativeContextPrecedent,
-} from "./design-editor/creative-context-precedent";
+import { designPrecedentDirectives } from "./design-editor/creative-context-precedent";
 import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
@@ -697,6 +694,10 @@ import {
   isAbsoluteCodeLayerNode,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
+import {
+  allIntakeTopicsCovered,
+  loadIntakeContext,
+} from "./design-editor/intake-question-topics";
 import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   layerStateIdsForScreen,
@@ -20684,16 +20685,15 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const precedent = shouldExploreVariants
+          const intake = shouldExploreVariants
             ? null
             : await (async () => {
                 await creativeContextPersistRef.current?.catch(() => {});
-                return loadCreativeContextPrecedent(
-                  (await readCreativeContextState()).selectedContextId,
-                );
+                return loadIntakeContext(await readCreativeContextState());
               })();
           const shouldSkipQuestions =
-            shouldExploreVariants || precedent?.status === "strong";
+            shouldExploreVariants ||
+            (intake ? allIntakeTopicsCovered(intake.coverage) : false);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -20706,15 +20706,26 @@ function DesignEditor() {
               : shouldSkipQuestions
                 ? [
                     ...designGenerationDirectives(id, designSystemId),
-                    ...(precedent?.status === "strong"
+                    ...(intake?.precedent.status === "strong"
                       ? designPrecedentDirectives(
-                          precedent.contextId,
-                          precedent.matches,
+                          intake.precedent.contextId,
+                          intake.precedent.matches,
                           id,
                         )
                       : []),
                   ]
-                : designIntakeQuestionDirectives(id, designSystemId)),
+                : designIntakeQuestionDirectives(
+                    id,
+                    designSystemId,
+                    0,
+                    intake
+                      ? {
+                          coverage: intake.coverage,
+                          contextUnavailable: intake.unavailable,
+                          unavailableReason: intake.unavailableReason,
+                        }
+                      : undefined,
+                  )),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);

@@ -3,6 +3,14 @@ import type { TweakDefinition } from "@shared/api";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
+import {
+  coveredIntakeTopics,
+  INTAKE_QUESTION_TOPIC_LABELS,
+  INTAKE_QUESTION_TOPICS,
+  uncoveredIntakeTopics,
+  type IntakeTopicCoverage,
+} from "./intake-question-topics";
+
 export function formatUploadedFileContext(files: UploadedFile[]): string {
   if (files.length === 0) return "";
 
@@ -118,20 +126,41 @@ export async function loadDesignSystemGenerationContext(
   ].join("\n");
 }
 
+export interface IntakeQuestionContextHint {
+  coverage: IntakeTopicCoverage;
+  /** True when the Creative Context lookup itself failed - see loadIntakeContext. */
+  contextUnavailable?: boolean;
+  unavailableReason?: string;
+}
+
 export function designIntakeQuestionDirectives(
   designId: string,
   designSystemId?: string | null,
   referenceImageCount = 0,
+  contextHint?: IntakeQuestionContextHint,
 ): string[] {
+  const covered = contextHint ? coveredIntakeTopics(contextHint.coverage) : [];
+  const uncovered = contextHint
+    ? uncoveredIntakeTopics(contextHint.coverage)
+    : [...INTAKE_QUESTION_TOPICS];
+  const uncoveredLabels = uncovered.map(
+    (topic) => INTAKE_QUESTION_TOPIC_LABELS[topic],
+  );
   return [
     `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount),
     "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
-    "Make the questions feel like Claude Design intake: form factor, aesthetic direction, important features/content, special interactions/polish, and whether to explore variations. Omit or rephrase anything the user's prompt already answered.",
+    covered.length
+      ? `Available Creative Context already answers: ${covered.map((topic) => INTAKE_QUESTION_TOPIC_LABELS[topic]).join(", ")}. Do NOT ask about these - name what you're following from context in your summary instead.`
+      : "",
+    `Make the questions feel like Claude Design intake, covering what's genuinely still open: ${uncoveredLabels.join(", ")}. Omit or rephrase anything the user's prompt already answered.`,
+    contextHint?.contextUnavailable
+      ? `Creative Context could not be checked before this run (${contextHint.unavailableReason ?? "lookup failed"}). That is different from no context existing - do not treat it as "nothing saved". Ask the normal question set above, and mention in your reply that saved context couldn't be verified this time.`
+      : "",
     "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
     "Set a specific title like `Quick questions about your todo app` and a short description. After `show-design-questions` succeeds, wait for the user's answers.",
-  ];
+  ].filter(Boolean);
 }
 
 export function promptRequestsVariantExploration(prompt: string): boolean {

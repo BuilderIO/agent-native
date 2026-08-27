@@ -1,5 +1,6 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { readCreativeContextState } from "@agent-native/creative-context/client";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
@@ -8,6 +9,7 @@ import {
   readPendingGeneration,
   shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
+import { designPrecedentDirectives } from "@/pages/design-editor/creative-context-precedent";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
@@ -18,6 +20,10 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "@/pages/design-editor/generation-prompt-directives";
+import {
+  allIntakeTopicsCovered,
+  loadIntakeContext,
+} from "@/pages/design-editor/intake-question-topics";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
 export interface ResumePendingGenerationArgs {
@@ -103,14 +109,21 @@ export function runResumePendingGeneration({
     // asks. Spending the one turn that can see the image on a questionnaire
     // means the turn that writes HTML never sees it.
     const hasReferenceImages = images.length > 0;
-    const shouldSkipQuestions =
+    const explicitSkip =
       pending.skipQuestions === true ||
       shouldExploreVariants ||
       hasReferenceImages;
-    const designSystemContext = await loadDesignSystemGenerationContext(
-      pendingDesignSystemId,
-    );
+    const usesTemplate = Boolean(pending.templateId);
+    const [designSystemContext, intake] = await Promise.all([
+      loadDesignSystemGenerationContext(pendingDesignSystemId),
+      usesTemplate || shouldExploreVariants
+        ? Promise.resolve(null)
+        : loadIntakeContext(await readCreativeContextState()),
+    ]);
     if (cancelled) return;
+    const shouldSkipQuestions =
+      explicitSkip ||
+      (intake ? allIntakeTopicsCovered(intake.coverage) : false);
     const context = [
       sourceContext,
       `Design id: "${id}"`,
@@ -131,15 +144,31 @@ export function runResumePendingGeneration({
         : shouldExploreVariants
           ? designVariantGenerationDirectives(id, pendingDesignSystemId)
           : shouldSkipQuestions
-            ? designGenerationDirectives(
-                id,
-                pendingDesignSystemId,
-                images.length,
-              )
+            ? [
+                ...designGenerationDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                ),
+                ...(intake?.precedent.status === "strong"
+                  ? designPrecedentDirectives(
+                      intake.precedent.contextId,
+                      intake.precedent.matches,
+                      id,
+                    )
+                  : []),
+              ]
             : designIntakeQuestionDirectives(
                 id,
                 pendingDesignSystemId,
                 images.length,
+                intake
+                  ? {
+                      coverage: intake.coverage,
+                      contextUnavailable: intake.unavailable,
+                      unavailableReason: intake.unavailableReason,
+                    }
+                  : undefined,
               )),
     ].join("\n");
 
