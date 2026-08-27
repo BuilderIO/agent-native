@@ -17,7 +17,9 @@ import type {
 } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
+  expandByParagraphAnimations,
   findLegacyAnimationContainer,
+  getElementAnimationValue,
   getElementPath,
   resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
@@ -47,9 +49,7 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
     // at a unique element in the final HTML. Otherwise disable the reveal
     // layer for this slide instead of counting invisible phantom steps while
     // leaving the rest of the content visible.
-    return root && resolveSlideAnimationTargets(root, slide.animations)
-      ? slide.animations
-      : null;
+    return root ? expandByParagraphAnimations(root, slide.animations) : null;
   }
   // Legacy splitByParagraph: auto-detect and create steps
   if (slide.splitByParagraph) {
@@ -92,20 +92,6 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
   return null;
 }
 
-/** CSS animation string for a given element animation type (for the newly-revealed item). */
-function getElemAnimCss(type: AnimationType): string {
-  switch (type) {
-    case "appear":
-      return "animation: elem-appear 100ms ease both;";
-    case "fade":
-      return "animation: elem-appear 400ms ease both;";
-    case "slide-up":
-      return "animation: elem-slide-up 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
-    case "zoom":
-      return "animation: elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
-  }
-}
-
 /**
  * Return a modified HTML string where content-container children have
  * data-pstep attributes and an injected <style> controls visibility.
@@ -138,7 +124,7 @@ function annotateStepsForPresentation(
         return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: elem-appear 1ms both; }`;
       } else {
         // Newly revealed — animate with its type
-        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; ${getElemAnimCss(target.type)} }`;
+        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: ${getElementAnimationValue(target.type)}; }`;
       }
     })
     .join("\n");

@@ -53,12 +53,17 @@ export function shouldApplyRemotePreviewContent({
   isLocalEdit,
   previousContent,
   nextContent,
+  paintedContent,
 }: {
   isLocalEdit: boolean;
   previousContent: string | null;
   nextContent: string;
+  /** What's actually on the canvas. Latest-active can race ahead of paint. */
+  paintedContent?: string | null;
 }): boolean {
-  return !isLocalEdit && nextContent !== previousContent;
+  if (isLocalEdit) return false;
+  if (paintedContent != null && paintedContent !== nextContent) return true;
+  return nextContent !== previousContent;
 }
 
 const diffMatchPatch = new DiffMatchPatch();

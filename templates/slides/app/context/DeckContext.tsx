@@ -132,6 +132,8 @@ export interface SlideAnimation {
   elementIndex: number;
   /** Preferred target: child-index path from the outer `.fmd-slide` wrapper. */
   elementPath?: number[];
+  /** Reveal each paragraph in a text object as its own click step. */
+  byParagraph?: boolean;
   type: AnimationType;
 }
 
