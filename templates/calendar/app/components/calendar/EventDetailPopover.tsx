@@ -19,6 +19,7 @@ import {
   IconBrandZoom,
   IconPaperclip,
   IconCalendarTime,
+  IconDots,
 } from "@tabler/icons-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -514,6 +515,7 @@ export function EventDetailPopover({
 
   // Inline editing state
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const [editDescription, setEditDescription] = useState(
     event.description || "",
@@ -1428,6 +1430,7 @@ export function EventDetailPopover({
         eventDetailSidebar && !isNewEventRef.current && !isDraft;
       if (newOpen && isPopoverSuppressed) return;
       if (!newOpen && open) {
+        setShowMoreOptions(false);
         const trimmedTitle = editingTitle.trim();
         let savedPendingChange = false;
         // Popover is closing — handle saves
@@ -1519,7 +1522,7 @@ export function EventDetailPopover({
         side={isMobile ? "bottom" : (popoverSide ?? "right")}
         sideOffset={isMobile ? 6 : 8}
         collisionPadding={12}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden p-0"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(18rem,calc(100vw-2rem))] flex-col overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
@@ -1548,8 +1551,8 @@ export function EventDetailPopover({
       >
         <TooltipProvider>
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+            <div className="text-base font-medium text-foreground">
               <span>
                 {isWorkingLocation
                   ? t("eventForm.workingLocation")
@@ -1559,6 +1562,25 @@ export function EventDetailPopover({
               </span>
             </div>
             <div className="flex items-center gap-0.5">
+              {!isOverlay && !isWorkingLocation && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-foreground"
+                      aria-label={t("eventForm.eventOptions")}
+                      aria-expanded={showMoreOptions}
+                      onClick={() => setShowMoreOptions((current) => !current)}
+                    >
+                      <IconDots className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{t("eventForm.eventOptions")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               {!isDraft && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1637,7 +1659,7 @@ export function EventDetailPopover({
                 />
               ) : (
                 <h2
-                  className={`mb-4 -mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
+                  className={`mb-4 -mx-0.5 rounded px-0.5 text-lg font-normal leading-tight text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
                   onClick={() => {
                     if (isOverlay || isWorkingLocation) return;
                     setEditingTitle(getEditableEventTitle(event));
@@ -1974,7 +1996,6 @@ export function EventDetailPopover({
                 </>
               ) : !isOverlay ? (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
                   {editingField === "meetingLink" ? (
                     <div className="px-4 py-1.5">
                       <div className="flex items-center gap-2">
@@ -2002,146 +2023,116 @@ export function EventDetailPopover({
                       </div>
                     </div>
                   ) : (
-                    <div className="px-4 py-1.5">
-                      {pendingVideoProvider ? (
-                        <MeetingLinkSkeleton provider={pendingVideoProvider} />
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                            disabled={updateEvent.isPending}
-                            onClick={handleAddGoogleMeet}
-                          >
-                            <IconVideo className="h-3.5 w-3.5" />
-                            {t("eventForm.meet")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                            disabled={
-                              updateEvent.isPending || connectZoom.isPending
-                            }
-                            onClick={handleAddZoom}
-                          >
-                            <IconBrandZoom className="h-3.5 w-3.5" />
-                            {t("eventForm.zoom")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
-                            onClick={() => setEditingField("meetingLink")}
-                          >
-                            <IconPlus className="h-3.5 w-3.5" />
-                            {t("eventForm.pasteLink")}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-3 rounded-md px-4 py-1.5 text-left text-sm text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
+                      onClick={() => setEditingField("meetingLink")}
+                    >
+                      <IconVideo className="h-4 w-4 shrink-0" />
+                      {t("bookingLinks.conferencing")}
+                    </button>
                   )}
                 </>
               ) : null)}
 
             {/* Attachments */}
-            {!isOverlay && !isWorkingLocation && (
-              <>
-                <div className="mx-4 my-2 border-t border-border/50" />
-                {editingField === "attachments" ? (
-                  <div className="px-4 py-1.5">
-                    <div className="mb-2 flex items-center gap-3">
-                      <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm font-medium text-foreground">
-                        {t("eventForm.attachments")}
-                      </span>
+            {!isOverlay &&
+              !isWorkingLocation &&
+              (showMoreOptions ||
+                editingField === "attachments" ||
+                (event.attachments?.length ?? 0) > 0) && (
+                <>
+                  <div className="mx-4 my-2 border-t border-border/50" />
+                  {editingField === "attachments" ? (
+                    <div className="px-4 py-1.5">
+                      <div className="mb-2 flex items-center gap-3">
+                        <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">
+                          {t("eventForm.attachments")}
+                        </span>
+                      </div>
+                      <AttachmentControls
+                        idPrefix={`event-${event.id}`}
+                        attachments={editAttachments}
+                        onChange={setEditAttachments}
+                      />
+                      <div className="mt-2 flex justify-end gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => {
+                            setEditAttachments(
+                              attachmentsToDrafts(event.attachments),
+                            );
+                            setEditingField(null);
+                          }}
+                        >
+                          {t("eventForm.cancel")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={handleSaveAttachments}
+                        >
+                          {t("eventForm.save")}
+                        </Button>
+                      </div>
                     </div>
-                    <AttachmentControls
-                      idPrefix={`event-${event.id}`}
-                      attachments={editAttachments}
-                      onChange={setEditAttachments}
-                    />
-                    <div className="mt-2 flex justify-end gap-1.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs"
+                  ) : event.attachments && event.attachments.length > 0 ? (
+                    <div className="px-4 py-1.5 space-y-1">
+                      {event.attachments.map((att, i) => (
+                        <a
+                          key={i}
+                          href={att.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                        >
+                          {att.iconLink ? (
+                            <img
+                              src={att.iconLink}
+                              alt=""
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : (
+                            <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="truncate text-foreground">
+                            {att.title}
+                          </span>
+                          <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                        </a>
+                      ))}
+                      <button
+                        type="button"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                         onClick={() => {
                           setEditAttachments(
                             attachmentsToDrafts(event.attachments),
                           );
-                          setEditingField(null);
+                          setEditingField("attachments");
                         }}
                       >
-                        {t("eventForm.cancel")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={handleSaveAttachments}
-                      >
-                        {t("eventForm.save")}
-                      </Button>
+                        <IconPlus className="h-4 w-4" />
+                        {t("eventForm.addAttachment")}
+                      </button>
                     </div>
-                  </div>
-                ) : event.attachments && event.attachments.length > 0 ? (
-                  <div className="px-4 py-1.5 space-y-1">
-                    {event.attachments.map((att, i) => (
-                      <a
-                        key={i}
-                        href={att.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
-                      >
-                        {att.iconLink ? (
-                          <img
-                            src={att.iconLink}
-                            alt=""
-                            className="h-4 w-4 shrink-0"
-                          />
-                        ) : (
-                          <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="truncate text-foreground">
-                          {att.title}
-                        </span>
-                        <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                      </a>
-                    ))}
+                  ) : (
                     <button
                       type="button"
-                      className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      className="flex w-full items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
                       onClick={() => {
-                        setEditAttachments(
-                          attachmentsToDrafts(event.attachments),
-                        );
+                        setEditAttachments([attachmentsToDrafts(undefined)[0]]);
                         setEditingField("attachments");
                       }}
                     >
-                      <IconPlus className="h-4 w-4" />
+                      <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
                       {t("eventForm.addAttachment")}
                     </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
-                    onClick={() => {
-                      setEditAttachments([attachmentsToDrafts(undefined)[0]]);
-                      setEditingField("attachments");
-                    }}
-                  >
-                    <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                    {t("eventForm.addAttachment")}
-                  </button>
-                )}
-              </>
-            )}
+                  )}
+                </>
+              )}
 
             {!isWorkingLocation && (
               <>
@@ -2253,10 +2244,9 @@ export function EventDetailPopover({
               </>
             )}
 
-            {/* Description — always shown for editable events; hidden for overlay events with no description */}
+            {/* Description stays compact until the user opens the empty field. */}
             {!isWorkingLocation && (!isOverlay || event.description) && (
               <>
-                <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="px-4 py-1.5">
                   <div className="flex items-start gap-3">
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -2267,8 +2257,7 @@ export function EventDetailPopover({
                             description={event.description}
                           />
                         ) : null
-                      ) : editingField === "description" ||
-                        !event.description ? (
+                      ) : editingField === "description" ? (
                         <AutoGrowTextarea
                           value={editDescription}
                           onChange={setEditDescription}
@@ -2280,12 +2269,20 @@ export function EventDetailPopover({
                           }}
                           autoFocus={editingField === "description"}
                         />
-                      ) : (
+                      ) : event.description ? (
                         <RenderedDescription
                           description={event.description}
                           editable
                           onClick={() => setEditingField("description")}
                         />
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md text-left text-sm text-muted-foreground/60 transition-colors hover:text-foreground"
+                          onClick={() => setEditingField("description")}
+                        >
+                          {t("eventForm.description")}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -2355,98 +2352,102 @@ export function EventDetailPopover({
             {/* Availability, visibility, and alerts */}
             {!isWorkingLocation &&
               (!isOverlay ? (
-                <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
-                  <div className="px-4 py-1.5">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          {t("eventForm.showAs")}
-                        </span>
-                        <Select
-                          value={availabilityValue}
-                          onValueChange={(value) =>
-                            handleAvailabilityChange(value as AvailabilityValue)
-                          }
-                          disabled={updateEvent.isPending}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="opaque">
-                              {t("eventForm.busy")}
-                            </SelectItem>
-                            <SelectItem value="transparent">
-                              {t("eventForm.free")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          {t("eventForm.visibility")}
-                        </span>
-                        <Select
-                          value={visibilityValue}
-                          onValueChange={(value) =>
-                            handleVisibilityChange(value as VisibilityValue)
-                          }
-                          disabled={updateEvent.isPending}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">
-                              {t("eventForm.default")}
-                            </SelectItem>
-                            <SelectItem value="public">
-                              {t("eventForm.public")}
-                            </SelectItem>
-                            <SelectItem value="private">
-                              {t("eventForm.private")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          {t("eventForm.alerts")}
-                        </span>
-                        <Select
-                          value={reminderValue}
-                          onValueChange={(value) =>
-                            handleReminderChange(value as ReminderValue)
-                          }
-                          disabled={updateEvent.isPending}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">
-                              {t("eventForm.default")}
-                            </SelectItem>
-                            <SelectItem value="none">
-                              {t("eventForm.none")}
-                            </SelectItem>
-                            <SelectItem value="0">
-                              {t("eventForm.atStart")}
-                            </SelectItem>
-                            <SelectItem value="10">10 min</SelectItem>
-                            <SelectItem value="30">30 min</SelectItem>
-                            <SelectItem value="60">1 hour</SelectItem>
-                            <SelectItem value="1440">1 day</SelectItem>
-                            <SelectItem value="custom">
-                              {t("eventForm.customEllipsis")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
+                showMoreOptions ? (
+                  <>
+                    <div className="mx-4 my-2 border-t border-border/50" />
+                    <div className="px-4 py-1.5">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("eventForm.showAs")}
+                          </span>
+                          <Select
+                            value={availabilityValue}
+                            onValueChange={(value) =>
+                              handleAvailabilityChange(
+                                value as AvailabilityValue,
+                              )
+                            }
+                            disabled={updateEvent.isPending}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="opaque">
+                                {t("eventForm.busy")}
+                              </SelectItem>
+                              <SelectItem value="transparent">
+                                {t("eventForm.free")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("eventForm.visibility")}
+                          </span>
+                          <Select
+                            value={visibilityValue}
+                            onValueChange={(value) =>
+                              handleVisibilityChange(value as VisibilityValue)
+                            }
+                            disabled={updateEvent.isPending}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                {t("eventForm.default")}
+                              </SelectItem>
+                              <SelectItem value="public">
+                                {t("eventForm.public")}
+                              </SelectItem>
+                              <SelectItem value="private">
+                                {t("eventForm.private")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("eventForm.alerts")}
+                          </span>
+                          <Select
+                            value={reminderValue}
+                            onValueChange={(value) =>
+                              handleReminderChange(value as ReminderValue)
+                            }
+                            disabled={updateEvent.isPending}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                {t("eventForm.default")}
+                              </SelectItem>
+                              <SelectItem value="none">
+                                {t("eventForm.none")}
+                              </SelectItem>
+                              <SelectItem value="0">
+                                {t("eventForm.atStart")}
+                              </SelectItem>
+                              <SelectItem value="10">10 min</SelectItem>
+                              <SelectItem value="30">30 min</SelectItem>
+                              <SelectItem value="60">1 hour</SelectItem>
+                              <SelectItem value="1440">1 day</SelectItem>
+                              <SelectItem value="custom">
+                                {t("eventForm.customEllipsis")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </>
+                  </>
+                ) : null
               ) : event.status || event.visibility ? (
                 <>
                   <div className="mx-4 my-2 border-t border-border/50" />
