@@ -200,32 +200,66 @@ navigator.clipboard.write = new Proxy(navigator.clipboard.write.bind(navigator.c
 Then save `window.__cap` to `.tmp/figma-fidelity/clipboard/` and add a
 `{"id", "file", "reference"}` entry to `scripts/figma-fidelity/paste-corpus.json`.
 
-## REST import against Figma's own render, on real community designs
+## REST import and export, measured on 23 designs
 
-Measured 2026-08-26, once the clipboard route above got these nodes into the
-paid team. These are the REST path with image fills resolved, each scored
-against Figma's render of the same node — not the clipboard proxy, which scores
-worse only because it cannot resolve images.
+Every case below resolves against a node inside the paid team (see the section
+on getting them there), so the REST path measures again instead of failing on
+Starter-tier limits. `import%` is our HTML against Figma's own render of the
+same node; `export%` is the SVG Figma receives, scored against that same
+reference; `drift%` is what the export hop alone costs.
 
-| case | size | diff | mean∆ |
+Measured 2026-08-27:
+
+| case | size | import% | export% | drift% |
+| --- | --- | --- | --- | --- |
+| dashstack admin | 1440x1070 | **1.20** | 1.20 | 0.01 |
+| untitled UI settings | 1440x2578 | **1.37** | 1.24 | 0.57 |
+| interior eCommerce | 1440x4835 | **2.06** | 2.70 | 2.38 |
+| constraints | fixture | 2.33 | 2.29 | 0.16 |
+| untitled UI landing | 1440x7060 | 2.65 | 2.76 | 0.61 |
+| untitled UI landing alt | 1440x6734 | 2.69 | 2.56 | 0.89 |
+| untitled UI pricing | 1440x4538 | 2.90 | 2.83 | 0.85 |
+| parity-stress | fixture | 2.94 | 3.28 | 0.94 |
+| untitled UI dashboard tall | 1440x1315 | 3.10 | 3.53 | 2.31 |
+| card-grid | fixture | 3.14 | 3.14 | 0.00 |
+| autolayout | fixture | 3.48 | 4.60 | 1.76 |
+| whitepace SaaS | 1440x9631 | 3.62 | 3.35 | 1.69 |
+| ds table variants | 3350x3277 | 3.69 | 3.69 | 0.00 |
+| untitled UI data table | 1216x899 | 3.96 | 4.45 | 0.84 |
+| landify example | 1440x21306 | 3.98 | 3.60 | 1.57 |
+| untitled UI settings mobile | 375x2366 | 4.06 | 4.04 | 0.81 |
+| untitled UI dashboard | 1440x960 | 4.55 | 4.51 | 1.13 |
+| landify tablet | 768x5585 | 4.88 | 4.66 | 1.54 |
+| positivus landing | 1440x8356 | 5.78 | 6.22 | 2.42 |
+| fills-effects | fixture | 5.98 | 6.48 | 0.02 |
+| untitled UI landing mobile | 375x8925 | 6.45 | 6.53 | 1.13 |
+| typography | fixture | 13.27 | 13.19 | 0.19 |
+| shapes | fixture | 0.54 | 0.29 | 0.31 |
+
+The export hop costs under 2.5% on every design, so the number that matters is
+`import%`. Two entries are not converter error: `typography` is dominated by
+Inter's version skew (see above — accepted, not a defect), and every mobile
+case carries more of it because a narrow column reflows on a smaller advance
+difference.
+
+What moved the numbers, in order of size — each was a real defect on a real
+design, not a harness artifact:
+
+| defect | case | before | after |
 | --- | --- | --- | --- |
-| dashstack admin | 1440x1070 | **1.20%** | 1.10 |
-| interior eCommerce | 1440x4835 | **2.06%** | 1.13 |
-| positivus landing | 1440x8356 | 5.94% | 8.43 |
-| landify example | 1440x21306 | 6.84% | 5.55 |
-| whitepace SaaS | 1440x9631 | 8.37% | 11.14 |
-| untitled UI landing | 1440x7060 | 9.34% | 13.60 |
+| render clamped at 16384px, compared against a full-size render | landify | 24.38 | 3.98 |
+| whole-file image map cached by path, so later fills resolved to nothing | untitled UI landing | 9.34 | 2.65 |
+| exported artboard clipped content past the frame | dashboard (export) | 12.05 | 4.51 |
+| ink extent vs frame box: a 2px shadow shifted every pixel | data table | 10.33 | 3.96 |
+| tiled gradient flattened on export | fills-effects (export) | 13.30 | 6.48 |
+| FILL child inside a HUG parent collapsed to zero | landing mobile | 10.65 | 6.45 |
+| diamond gradient approximated as an ellipse | fills-effects | 12.07 | 5.98 |
+| empty hugging frame collapsed to zero | whitepace | 6.23 | 3.62 |
 
-Interior was never tuned for and still lands at 2.06% with mean∆ 1.13, spread
-evenly across the page with no structural outlier — that residual is glyph
-antialiasing and photo resampling, not geometry. It is the clearest evidence so
-far that the mask/auto-layout/constraint fixes generalise rather than fitting
-the three designs they were found on.
-
-Two numbers in the table are lower than they look because a harness bug was
-fixed alongside them, not because the converter changed: Landify read 24.38%
-purely from the 16384px render clamp (see **Safety and scale limits**), and
-Positivus's 8.37% was the image-less clipboard path.
+Three of those eight were defects in the HARNESS rather than the converter —
+it reported a converter defect where the measurement itself was wrong. A
+fidelity number is a claim about the converter, so the harness has to be at
+least as trustworthy as the thing it grades.
 
 ## Measured drift between the three import paths
 
