@@ -438,7 +438,7 @@ const enUS = {
       bodyLine1:
         "Build for AI agents without building a second product for users.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
-      learnMore: "Learn more",
+      tryAnApp: "Try an app",
     },
     install: {
       copyCommand: "Copy install command",
@@ -509,13 +509,6 @@ const enUS = {
       title: "Build your first Agent-Native app",
       body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
     },
-    getStartedModal: {
-      title: "Get started",
-      close: "Close",
-      buildLocally: "Build an app locally",
-      tryAnApp: "Try an app",
-      buildInCloud: "Build in the cloud",
-    },
     footer: {
       tagline: "The agentic application framework.",
       framework: "Framework",
@@ -527,6 +520,15 @@ const enUS = {
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
       saasTerms: "SaaS Terms",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Not building locally?",
+      exploreApp: "Explore a live app",
+      between: "first, or",
+      joinWaitlist: "join the waitlist",
+      end: "to build in the browser instead.",
     },
   },
   templatesPage: {
@@ -554,7 +556,7 @@ const enUS = {
     description: "Use the framework guide or build online with Builder.io.",
     readDocs: "Read the docs",
     buildOnline: "Build online",
-    popoverTitle: "Join the waitlist",
+    popoverTitle: "Build in the browser",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
     emailLabel: "Email",

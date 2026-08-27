@@ -49,6 +49,7 @@ import { badgeBlock } from "./blocks/badge";
 import { bannerBlock } from "./blocks/banner";
 import { cardsBlock } from "./blocks/cards";
 import { comparisonBlock } from "./blocks/comparison";
+import { gettingStartedPathsBlock } from "./blocks/getting-started-paths";
 import { imageBlock } from "./blocks/image";
 import { noticeBlock } from "./blocks/notice";
 import { signatureBlock } from "./blocks/signature";
@@ -85,6 +86,7 @@ function getDocBlockRegistry(): BlockRegistry {
   registry.register(stepsBlock);
   registry.register(cardsBlock);
   registry.register(comparisonBlock);
+  registry.register(gettingStartedPathsBlock);
   registry.register(signatureBlock);
   registry.register(imageBlock);
   registry.register(videoBlock);
