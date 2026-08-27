@@ -1,6 +1,7 @@
 import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
+import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import { defineConfig } from "vite";
 
 import { sitemapPlugin } from "./app/vite-sitemap-plugin";
@@ -13,6 +14,10 @@ const agentNativePlugins = agentNative as unknown as (
 export default defineConfig({
   plugins: [
     tailwindcss(),
+    // Turns the hero ocean's `.wgsl` modules into importable strings. Must run
+    // ahead of the React Router plugins so the shader files are already plain
+    // JS by the time the route graph is walked.
+    wgslVitePlugin(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
     ...agentNativePlugins({
@@ -36,6 +41,13 @@ export default defineConfig({
       // block highlighter runs server-side via preloadDocBlocksContent), and so
       // do yjs/y-protocols/lib0 (core collab uses yjs on the server).
       ssrStubs: [
+        // The hero ocean is WebGPU, so it only ever runs in a browser -- but
+        // the `vgpu` entrypoint pulls @vgpu/adapter-node, which carries a Dawn
+        // native binary. Left unstubbed that lands in the docs server function
+        // and every cold Lambda pays for it. Same mechanism as the entries
+        // below: core classifies browser-only libs, but Vite's SSR build
+        // resolves to relative chunk paths before Nitro sees the specifier.
+        "vgpu",
         "shiki",
         "mermaid",
         "@excalidraw/excalidraw",
