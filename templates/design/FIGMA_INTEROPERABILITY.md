@@ -310,6 +310,42 @@ buried:
   all four sides — a vertical rule between every column of a table that has
   none. Dashboard 4.95% -> 4.33%, flat interior 0.964% -> 0.452%.
 
+### One defect the round trip will not let us fix yet
+
+Figma casts a drop shadow from what a layer PAINTS. A frame with no fill of its
+own paints only what its children paint, so Landify's phone mockup — a frame
+whose whole silhouette is a transparent bezel PNG — casts a phone-shaped
+shadow. CSS `box-shadow` casts from the border box, so ours came out as a
+rectangle poking past the rounded corners; at 3x the phone's bottom reads as a
+hard white block against Figma's rounded edge and soft shadow. This is the
+largest concentrated flat-interior cluster in the corpus: 2247 pixels in one
+80x80 cell, against a corpus norm under 600.
+
+`filter: drop-shadow()` casts from the composited alpha and fixes the import
+exactly — 4.709% -> 4.368%, flat interior 0.412% -> 0.178%, and the phone
+becomes indistinguishable from Figma's. It was still **reverted**, because the
+export hop pays more than the import gains. Figma's SVG importer ignores
+`feDropShadow` entirely, so this exporter paints shadows as a blurred copy of
+the node's own box — which for a fill-less frame is a large rectangle nothing
+else draws. Every route was measured on the same design's export:
+
+| export treatment | export% vs Figma |
+| --- | --- |
+| `box-shadow`, as today (blur 48, spread -12) | **4.505** |
+| `drop-shadow` -> rasterize the subtree | 5.614 |
+| `drop-shadow` -> carried, shadow not painted | 5.544 |
+| `drop-shadow` -> geometry shadow, blur 24 | 6.303 |
+| `drop-shadow` -> geometry shadow, blur 48 | 8.382 |
+
+The import gain is 0.34pp; the cheapest export cost is 1.04pp. What makes
+today's rectangle work is the `-12` spread, which shrinks it to roughly the
+phone's footprint — and `drop-shadow()` has no spread to carry it through.
+
+Taking this needs the exporter to paint a shadow from the CONTENT's silhouette
+rather than the node's box. Until then the rectangle is the better of two wrong
+shadows, and this is recorded so the import-side fix is not refitted on its own
+numbers.
+
 ### The aggregate is not the only instrument
 
 Two defects were found by looking at a render rather than at a number, and
