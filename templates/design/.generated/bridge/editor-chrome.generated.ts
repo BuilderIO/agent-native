@@ -5917,12 +5917,46 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
+    var BRIDGE_REPLACED_TAGS = {
+      img: true,
+      video: true,
+      picture: true,
+      audio: true,
+      canvas: true,
+      svg: true,
+      path: true,
+      input: true,
+      textarea: true,
+      select: true,
+      br: true,
+      hr: true,
+      iframe: true
+    };
+    var BRIDGE_ADOPTING_PRIMITIVES = {
+      frame: true,
+      rectangle: true,
+      rect: true
+    };
     function isAbsolutePrimitiveContainer(el) {
-      if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+      if (!el || el.nodeType !== 1) return false;
+      if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
-      if (primitive !== "frame") return false;
+      if (primitive) {
+        if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+      } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+        return false;
+      }
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
+    }
+    function hasAbsolutePositionedChild(el) {
+      var kids = el.children;
+      for (var i = 0; i < kids.length; i += 1) {
+        if (isOverlayElement(kids[i])) continue;
+        var kidPosition = window.getComputedStyle(kids[i]).position;
+        if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+      }
+      return false;
     }
     function isEmptyDropContainer(container, dragged) {
       for (var i = 0; i < dragged.length; i += 1) {
@@ -10126,6 +10160,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.data.type === "clear-selection") {
         if (activeMarqueeSelection) return;
         clearRuntimeSelection();
+        return;
+      }
+      if (e.data.type === "agent-native:measure-selection") {
+        var measureScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
+        var measureSelector = typeof e.data.selector === "string" ? e.data.selector : "";
+        var measureTarget = null;
+        if (measureSelector) {
+          try {
+            measureTarget = document.querySelector(measureSelector);
+          } catch (_err) {
+            measureTarget = null;
+          }
+        } else {
+          measureTarget = selectedEl;
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:selection-measured",
+            correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            screenId: designCanvasScreenId,
+            payload: measureTarget ? getElementInfo(measureTarget) : null
+          },
+          "*"
+        );
         return;
       }
       if (e.data.type === "agent-native:collect-selectable-rects") {
