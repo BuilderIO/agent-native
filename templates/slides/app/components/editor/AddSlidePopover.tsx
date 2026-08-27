@@ -104,6 +104,8 @@ export function AddSlidePopover({
   // Estimate before the panel has painted so the first frame doesn't hang
   // off the bottom of the viewport; corrected once the real height is known.
   const [panelHeight, setPanelHeight] = useState(320);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
     const response = await fetch(`${appBasePath()}/api/uploads`, {
       method: "DELETE",
@@ -171,77 +173,86 @@ export function AddSlidePopover({
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
-      let uploaded: UploadedFile[] = [];
-      if (files.length > 0) {
-        try {
-          uploaded = await uploadFiles(files);
-        } catch (error) {
-          toast.error(t("editorSidebar.uploadFailed"), {
-            description:
-              error instanceof Error
-                ? error.message
-                : t("editorSidebar.uploadAttachedFileFailed"),
-          });
-          return;
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setSubmitting(true);
+      try {
+        let uploaded: UploadedFile[] = [];
+        if (files.length > 0) {
+          try {
+            uploaded = await uploadFiles(files);
+          } catch (error) {
+            toast.error(t("editorSidebar.uploadFailed"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("editorSidebar.uploadAttachedFileFailed"),
+            });
+            return;
+          }
         }
+
+        const trimmedText = text.trim();
+        const googleDocSourceForContext =
+          truncateSourceForContext(googleDocContext);
+        const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
+        const context = targetSlideId
+          ? [
+              `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
+              "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
+              "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              googleDocSourceForContext.text,
+              googleDocSourceForContext.truncated
+                ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+                : "",
+              fileContext,
+              "",
+              "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep the slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+              "If the user asked for more than one slide's worth of content, update this slide with the first one, then call `add-slide` for the rest, positioned starting right after this slide.",
+            ].join("\n")
+          : [
+              `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
+              `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
+              "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              googleDocSourceForContext.text,
+              googleDocSourceForContext.truncated
+                ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+                : "",
+              fileContext,
+              "",
+              "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
+                deckId +
+                ".",
+              "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+              "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
+                (activeSlideIndex + 1) +
+                " so the new slides land after the active slide in order.",
+              "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
+            ].join("\n");
+
+        const started = await agentSubmit(
+          addSlideAgentMessage(trimmedText),
+          context,
+        );
+        if (!started) return;
+        commitFiles(files);
+        onOpenChange(false);
+      } finally {
+        submittingRef.current = false;
+        setSubmitting(false);
       }
-
-      const trimmedText = text.trim();
-      const googleDocSourceForContext =
-        truncateSourceForContext(googleDocContext);
-      const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
-      const context = targetSlideId
-        ? [
-            `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
-            "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
-            "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-            googleDocSourceForContext.text,
-            googleDocSourceForContext.truncated
-              ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
-              : "",
-            fileContext,
-            "",
-            "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep the slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
-            "If the user asked for more than one slide's worth of content, update this slide with the first one, then call `add-slide` for the rest, positioned starting right after this slide.",
-          ].join("\n")
-        : [
-            `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
-            `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
-            "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-            googleDocSourceForContext.text,
-            googleDocSourceForContext.truncated
-              ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
-              : "",
-            fileContext,
-            "",
-            "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
-              deckId +
-              ".",
-            "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
-            "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
-              (activeSlideIndex + 1) +
-              " so the new slides land after the active slide in order.",
-            "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
-          ].join("\n");
-
-      const started = await agentSubmit(
-        addSlideAgentMessage(trimmedText),
-        context,
-      );
-      if (!started) return;
-      commitFiles(files);
-      onOpenChange(false);
     },
     [
       activeSlideId,
       activeSlideIndex,
       agentSubmit,
+      commitFiles,
       deckId,
       deckTitle,
       googleDocContext,
-      commitFiles,
       onOpenChange,
       slideCount,
+      t,
       targetSlideId,
       uploadFiles,
     ],
@@ -262,12 +273,12 @@ export function AddSlidePopover({
   );
 
   useEffect(() => {
-    if (!open) {
+    if (!open && !submitting) {
       setPromptText("");
       setGoogleDocContext("");
       resetEagerUploads();
     }
-  }, [open, resetEagerUploads]);
+  }, [open, resetEagerUploads, submitting]);
 
   if (!open || !anchorRef.current) return null;
 
@@ -302,6 +313,7 @@ export function AddSlidePopover({
           type="button"
           onClick={() => onOpenChange(false)}
           aria-label={t("editorSidebar.closeAddSlides")}
+          disabled={submitting}
           className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground/70"
         >
           <IconX className="size-3.5" />
@@ -316,6 +328,7 @@ export function AddSlidePopover({
                 onAddEmpty();
                 onOpenChange(false);
               }}
+              disabled={submitting}
               className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
@@ -332,6 +345,7 @@ export function AddSlidePopover({
                 onDuplicateCurrent();
                 onOpenChange(false);
               }}
+              disabled={submitting}
               className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconCopy className="w-4 h-4 text-muted-foreground" />
@@ -350,7 +364,7 @@ export function AddSlidePopover({
         documentAttachmentLimitLabel="Slides reference files"
         placeholder={t("editorSidebar.promptPlaceholder")}
         draftScope={`slides:add-slide:${deckId}`}
-        disabled={uploading}
+        disabled={uploading || submitting}
         onSubmit={handleSubmit}
         onAttachmentsChange={handleAttachmentsChange}
         onTextChange={setPromptText}

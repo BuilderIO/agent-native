@@ -173,6 +173,11 @@ export function FirstDeckOnboardingFlow({
       selection: NewDeckReferenceSelection = {},
     ) => {
       const sourceFiles = promptSourceFilesRef.current;
+      const clearSourceFiles = () => {
+        if (promptSourceFilesRef.current === sourceFiles) {
+          promptSourceFilesRef.current = [];
+        }
+      };
       try {
         const result = await startDeckGeneration({
           session,
@@ -216,15 +221,15 @@ export function FirstDeckOnboardingFlow({
         });
         if (result === "started") {
           commitFiles(sourceFiles);
-          promptSourceFilesRef.current = [];
+          clearSourceFiles();
           onComplete();
           return;
         }
         discardFiles(sourceFiles);
-        promptSourceFilesRef.current = [];
+        clearSourceFiles();
       } catch (error) {
         discardFiles(sourceFiles);
-        promptSourceFilesRef.current = [];
+        clearSourceFiles();
         throw error;
       }
     },
