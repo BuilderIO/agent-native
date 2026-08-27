@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import {
   SSR_HTML_CONTENT_TYPE,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -91,5 +93,18 @@ describe("public docs redirects", () => {
     );
     expectHtmlRedirect(templates, 301, "/apps/mail/?source=docs");
     expect(templates.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
+  });
+});
+
+describe("netlify redirect rules", () => {
+  // `:splat` carries the child path's own trailing slash, so appending one
+  // turns `/templates/calendar/` into `/apps/calendar//`.
+  it("never appends a slash directly after a splat", () => {
+    const toml = readFileSync(
+      new URL("../netlify.toml", import.meta.url),
+      "utf8",
+    );
+
+    expect(toml).not.toMatch(/to\s*=\s*"[^"]*:splat\/"/);
   });
 });

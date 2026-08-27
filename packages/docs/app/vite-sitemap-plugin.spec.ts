@@ -89,4 +89,30 @@ describe("docs agent web generation", () => {
 
     expect(redirected).toEqual([]);
   });
+
+  // The twins are handed to agents verbatim, so a bare link in the body sends
+  // them through a redirect and, for a translation, drops the locale.
+  it("canonicalizes docs links inside the Markdown mirrors", () => {
+    const withLinks = pages.filter(
+      (page) => page.markdown?.includes("](/") && page.path.includes("/docs/"),
+    );
+
+    expect(withLinks.length).toBeGreaterThan(0);
+
+    const bare: string[] = [];
+    for (const page of withLinks) {
+      for (const [, href] of page.markdown!.matchAll(
+        /\]\((\/[a-zA-Z][^)\s]*)\)/g,
+      )) {
+        if (!href.includes("/docs/")) continue;
+        const path = href.split("#")[0]!;
+        if (path.endsWith(".md")) continue;
+        if (!path.endsWith("/") || path !== path.toLowerCase()) {
+          bare.push(`${page.path} -> ${href}`);
+        }
+      }
+    }
+
+    expect(bare).toEqual([]);
+  });
 });

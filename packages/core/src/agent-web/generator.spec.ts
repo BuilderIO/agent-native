@@ -5,6 +5,7 @@ import {
   buildAgentWebStaticFiles,
   buildMarkdownResponseHeaders,
   buildRobotsTxt,
+  buildPageJsonLd,
   buildSitemapXml,
   estimateMarkdownTokens,
   markdownFilePathForPage,
@@ -157,5 +158,34 @@ describe("agent web generators", () => {
     expect(markdownFilePathForPage("/about/")).toBe("about.md");
     expect(markdownFilePathForPage("/about")).toBe("about.md");
     expect(markdownFilePathForPage("/")).toBe("index.md");
+  });
+
+  // Breadcrumb entries are page URLs, so a bare crumb under a slash-terminated
+  // page points structured data at a redirect.
+  it("gives breadcrumb items the page's trailing slash", () => {
+    const jsonLd = buildPageJsonLd({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com",
+      page: { path: "/docs/actions-overview/", title: "Actions" },
+    });
+
+    const urls = JSON.stringify(jsonLd).match(
+      /https:\/\/www\.agent-native\.com\/docs[^"]*/g,
+    );
+
+    expect(urls).not.toBeNull();
+    expect(urls!.filter((url) => !url.endsWith("/"))).toEqual([]);
+  });
+
+  it("leaves breadcrumbs bare for a bare page path", () => {
+    const jsonLd = buildPageJsonLd({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com",
+      page: { path: "/docs/actions-overview", title: "Actions" },
+    });
+
+    expect(JSON.stringify(jsonLd)).toContain(
+      '"https://www.agent-native.com/docs/actions-overview"',
+    );
   });
 });

@@ -22,6 +22,7 @@ import {
 import {
   docsMarkdownPathForSlug,
   docsPathForSlug,
+  localizeDocsMarkdownLinks,
   sitePathForLocale,
   type DocsLocale,
 } from "./components/docs-locale";
@@ -71,7 +72,7 @@ export function sitemapPlugin(): Plugin {
     developerResources: [
       {
         title: "When to use Agent-Native",
-        url: "/docs/external-agents",
+        url: docsPathForSlug("external-agents"),
         description:
           "Use Agent-Native when an agent and a UI need to work against the same actions, SQL state, and application state.",
       },
@@ -83,24 +84,24 @@ export function sitemapPlugin(): Plugin {
       },
       {
         title: "Authentication",
-        url: "/docs/authentication",
+        url: docsPathForSlug("authentication"),
         description: "Browser, MCP OAuth, and hosted-agent authentication.",
       },
       {
         title: "MCP server",
-        url: "/docs/mcp-protocol",
+        url: docsPathForSlug("mcp-protocol"),
         description:
           "Connect an MCP-compatible host to the Streamable HTTP server at /mcp.",
       },
       {
         title: "External agents",
-        url: "/docs/external-agents",
+        url: docsPathForSlug("external-agents"),
         description:
           "Connect Claude, ChatGPT, Codex, Cursor, or another MCP-compatible host.",
       },
       {
         title: "Webhook and messaging integrations",
-        url: "/docs/messaging",
+        url: docsPathForSlug("messaging"),
         description: "Inbound webhook routes and channel integrations.",
       },
       {
@@ -130,7 +131,7 @@ export function sitemapPlugin(): Plugin {
         "@type": "ContactPoint",
         contactType: "customer support",
         email: "support@builder.io",
-        url: "https://www.agent-native.com/contact",
+        url: `${SITE_URL}${sitePathForLocale("/contact")}`,
       },
       address: {
         "@type": "PostalAddress",
@@ -211,7 +212,10 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
       path: docsPathForSlug(slug),
       title: data.title || titleFromSlug(slug),
       description: data.description,
-      markdown: docsBodyToMarkdownMirror(body),
+      markdown: localizeDocsMarkdownLinks(
+        docsBodyToMarkdownMirror(body),
+        DEFAULT_LOCALE,
+      ),
       markdownPath: docsMarkdownPathForSlug(slug),
       lastmod: docsLastmod,
       docSlug: slug,
@@ -241,7 +245,10 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
               path: docsPathForSlug(slug, locale as DocsLocale),
               title: data.title || titleFromSlug(slug),
               description: data.description,
-              markdown: docsBodyToMarkdownMirror(body),
+              markdown: localizeDocsMarkdownLinks(
+                docsBodyToMarkdownMirror(body),
+                locale as DocsLocale,
+              ),
               markdownPath: docsMarkdownPathForSlug(slug, locale as DocsLocale),
               lastmod: docsLastmod,
               docSlug: slug,

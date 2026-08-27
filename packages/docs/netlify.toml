@@ -21,11 +21,13 @@ force = true
 # redirect loader for every request. Targets name the canonical trailing-slash
 # form so each of these is a single hop rather than a redirect into a redirect.
 #
-# The `:locale`-prefixed rules below are the one place that cannot be made
-# single-hop: Netlify cannot lowercase a captured placeholder, so a mixed-case
-# locale still takes a second hop through the host's own normalization. These
-# are legacy, low-traffic paths; the canonical surfaces (canonical tags,
-# alternates, sitemap, internal links) all emit the lowercase form directly.
+# Two cases here cannot be made single-hop, both legacy and low-traffic.
+# Netlify cannot lowercase a captured placeholder, so a mixed-case locale takes
+# a second hop through the host's own normalization. And `:splat` carries the
+# child path's own trailing slash, so the wildcard targets must not append one
+# or `/templates/calendar/` becomes `/apps/calendar//`; the host adds the slash
+# instead. Canonical tags, alternates, sitemap, and internal links all emit the
+# canonical form directly, so no crawler is sent through these.
 [[redirects]]
 from = "/templates"
 to = "/apps/"
@@ -40,7 +42,7 @@ force = true
 
 [[redirects]]
 from = "/templates/*"
-to = "/apps/:splat/"
+to = "/apps/:splat"
 status = 301
 force = true
 
@@ -58,7 +60,7 @@ force = true
 
 [[redirects]]
 from = "/:locale/templates/*"
-to = "/:locale/apps/:splat/"
+to = "/:locale/apps/:splat"
 status = 301
 force = true
 

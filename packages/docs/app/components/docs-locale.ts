@@ -172,22 +172,42 @@ export function sitePathForLocale(
 }
 
 /**
- * Rewrite a same-site `/docs/...` href written in a doc's markdown body so it
- * stays in the given locale, e.g. `/docs/client-data#usedbsync` becomes
- * `/de-de/docs/client-data/#usedbsync` for a non-default locale. Leaves
- * already-locale-prefixed, external, in-page (`#anchor`), and non-docs hrefs
- * untouched.
+ * Rewrite a same-site `/docs/...` href from a doc body to the canonical URL.
+ * An href that already names a locale keeps that locale; otherwise it inherits
+ * the page's. Both forms are rewritten rather than passed through: a body link
+ * written as `/docs/client-data` or `/de-DE/docs/client-data` still resolves,
+ * but only after a redirect, and rendered pages are where most internal links
+ * on the site come from.
+ *
+ * Leaves external, relative, in-page (`#anchor`), file-like (Markdown twins),
+ * and non-docs hrefs alone.
  */
 export function localizeDocsHref(href: string, locale: DocsLocale): string {
-  if (locale === DEFAULT_DOCS_LOCALE) return href;
   const hashIndex = href.indexOf("#");
   const path = hashIndex === -1 ? href : href.slice(0, hashIndex);
   const hash = hashIndex === -1 ? "" : href.slice(hashIndex);
-  if (!path || !isDocsPath(path) || routeLocaleFromPathname(path)) {
-    return href;
-  }
+  if (!path || !path.startsWith("/") || isFileLikePath(path)) return href;
+  if (!isDocsPath(path)) return href;
   const slug = docsSlugFromPathname(path);
-  return slug ? `${docsPathForSlug(slug, locale)}${hash}` : href;
+  if (!slug) return href;
+  const target = routeLocaleFromPathname(path) ?? locale;
+  return `${docsPathForSlug(slug, target)}${hash}`;
+}
+
+/**
+ * Apply `localizeDocsHref` to every same-site link in a Markdown body. The
+ * generated Markdown twins are served to agents verbatim, so without this they
+ * hand out the redirecting form of every internal link.
+ */
+export function localizeDocsMarkdownLinks(
+  markdown: string,
+  locale: DocsLocale,
+): string {
+  return markdown.replace(
+    /(\]\()(\/[^)\s]+)(\))/g,
+    (_match, open: string, href: string, close: string) =>
+      `${open}${localizeDocsHref(href, locale)}${close}`,
+  );
 }
 
 export function browserDocsLocale() {

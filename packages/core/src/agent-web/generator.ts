@@ -422,13 +422,17 @@ function breadcrumbItemsForPath(
   const normalized = normalizePagePath(pagePath);
   if (normalized === "/") return [{ name: "Home", path: "/" }];
   const segments = normalized.split("/").filter(Boolean);
+  // Every crumb is a page URL, so they carry the same trailing slash the page
+  // does. Emitting bare crumbs under a slash-terminated page points structured
+  // data at redirects.
+  const trailing = normalized.endsWith("/") ? "/" : "";
   const items = [{ name: "Home", path: "/" }];
   let current = "";
   for (const segment of segments) {
     current += `/${segment}`;
     items.push({
       name: titleFromSegment(segment),
-      path: current,
+      path: `${current}${trailing}`,
     });
   }
   return items;

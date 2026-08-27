@@ -8,6 +8,7 @@ import {
   docsSlugFromPathname,
   DOCS_LOCALES,
   localizeDocsHref,
+  localizeDocsMarkdownLinks,
   sitePathForLocale,
 } from "./docs-locale";
 
@@ -82,10 +83,65 @@ describe("localizeDocsHref", () => {
     );
   });
 
-  it("leaves an already-prefixed href untouched", () => {
-    expect(localizeDocsHref("/de-DE/docs/client-data", "de-DE")).toBe(
-      "/de-DE/docs/client-data",
+  // Rendered doc bodies are where most internal links on the site come from.
+  // Passing the default locale through untouched left every one of them
+  // pointing at the redirecting form.
+  it("canonicalizes a default-locale href", () => {
+    expect(localizeDocsHref("/docs/client-data", "en-US")).toBe(
+      "/docs/client-data/",
     );
+  });
+
+  it("canonicalizes an already-prefixed href instead of passing it through", () => {
+    expect(localizeDocsHref("/de-DE/docs/client-data", "de-DE")).toBe(
+      "/de-de/docs/client-data/",
+    );
+  });
+
+  it("keeps an href's own locale rather than the page's", () => {
+    expect(localizeDocsHref("/fr-FR/docs/client-data", "de-DE")).toBe(
+      "/fr-fr/docs/client-data/",
+    );
+  });
+
+  it("leaves a Markdown twin link alone", () => {
+    expect(localizeDocsHref("/docs/client-data.md", "de-DE")).toBe(
+      "/docs/client-data.md",
+    );
+  });
+
+  it.each([
+    "https://example.com/docs/client-data",
+    "docs/client-data",
+    "#usedbsync",
+    "/apps/forms",
+  ])("leaves %s alone", (href) => {
+    expect(localizeDocsHref(href, "de-DE")).toBe(href);
+  });
+});
+
+describe("localizeDocsMarkdownLinks", () => {
+  // The twins are served to agents verbatim, so an un-rewritten link hands out
+  // the redirecting URL.
+  it("rewrites same-site docs links in a body", () => {
+    const body =
+      "See [actions](/docs/actions-overview) and [data](/docs/client-data#usedbsync).";
+
+    expect(localizeDocsMarkdownLinks(body, "es-ES")).toBe(
+      "See [actions](/es-es/docs/actions-overview/) and [data](/es-es/docs/client-data/#usedbsync).",
+    );
+  });
+
+  it("canonicalizes default-locale bodies too", () => {
+    expect(
+      localizeDocsMarkdownLinks("[a](/docs/actions-overview)", "en-US"),
+    ).toBe("[a](/docs/actions-overview/)");
+  });
+
+  it("leaves external links and Markdown twins alone", () => {
+    const body = "[x](https://example.com/docs/a) [y](/docs/a.md)";
+
+    expect(localizeDocsMarkdownLinks(body, "es-ES")).toBe(body);
   });
 });
 

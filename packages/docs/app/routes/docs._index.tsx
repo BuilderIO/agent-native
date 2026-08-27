@@ -72,7 +72,7 @@ export default function DocsIndex() {
       markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
     >
       {currentDoc.draft && <DocDraftBanner />}
-      <DocContent markdown={currentDoc.body} />
+      <DocContent markdown={currentDoc.body} locale={locale} />
     </DocsLayout>
   );
 }
