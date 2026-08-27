@@ -1132,14 +1132,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const authMode = opts.authMode ?? "password";
   const magicLinkMode = authMode === "magic-link";
   const simplifiedAuth = opts.initialPrompt === true;
-  // In a Google-only app, Google is the sole sign-in method, so always render
-  // a working button — never gate it on env vars detected at render time. The
-  // login page is a public, CDN-cacheable shell served to everyone (per-user
-  // and per-config state is resolved client-side after load), so baking a
-  // "not configured" message in here would freeze that error into the cache
-  // for every visitor. A genuinely misconfigured server instead surfaces a
-  // clear error at click time via the auth API.
-  const renderGoogleButton = showGoogle || googleOnly;
+  const renderGoogleButton = showGoogle;
   const configuredAppBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
@@ -1212,6 +1205,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const t = (key: keyof typeof EN_AUTH_COPY) => defaultAuthCopy[key];
   const i18nAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n="${key}"` : "";
+  const googleUnavailableHtml =
+    googleOnly && !showGoogle
+      ? `<p class="google-error show" id="google-err" role="status"${i18nAttr("googleNotConfigured")}>${esc(t("googleNotConfigured"))}</p>`
+      : "";
   const i18nAriaAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n-aria-label="${key}"` : "";
   const i18nPlaceholderAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
@@ -2409,6 +2406,7 @@ ${marketingPanelHtml}
 ${identitySsoHtml}
 ${localDevHtml}
 <div id="full-auth-options" class="full-auth-options">
+${googleUnavailableHtml}
 ${
   renderGoogleButton
     ? `
@@ -4095,11 +4093,25 @@ ${
           __anRedirectToSignedInApp();
           return;
         }
+        var loginData;
+        try {
+          loginData = await loginRes.json();
+        } catch (error) {
+          console.warn('[auth] Could not parse sign-in response', error);
+        }
+        var loginError = __anAuthErrorText(loginData, __anT('registrationFailed'));
+        if (loginRes.status === 403 && /not verified|verification/i.test(loginError)) {
           btn.disabled = false;
           btn.textContent = originalLabel;
           showVerificationStep(email, pass);
           return;
         }
+        msg.textContent = loginError;
+        msg.classList.add('show', 'error');
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
       msg.textContent = __anAuthErrorText(data, __anT('registrationFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
