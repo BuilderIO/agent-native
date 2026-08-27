@@ -181,6 +181,71 @@ describe("styled bullet editing", () => {
   );
 
   it.each([
+    [
+      "preceding",
+      "",
+      `<li value="10">First</li><li>${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "12",
+    ],
+    [
+      "exiting",
+      "",
+      `<li>First</li><li value="10">${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "11",
+    ],
+    [
+      "preceding reversed",
+      " reversed",
+      `<li value="10">First</li><li>${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "8",
+    ],
+    [
+      "exiting reversed",
+      " reversed",
+      `<li>First</li><li value="10">${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "9",
+    ],
+  ] as const)(
+    "preserves %s li value numbering after exiting an empty item",
+    (_name, attributes, items, trailingStart) => {
+      document.body.innerHTML = `<div class="slide-content"><ol${attributes}>${items}</ol></div>`;
+      const root = document.querySelector(".slide-content") as HTMLElement;
+      const list = root.firstElementChild as HTMLElement;
+      const emptyText = list.children[1].firstChild as Text;
+      placeCaret(emptyText, emptyText.length);
+
+      const line = exitEmptyBulletAtCaret(list);
+
+      expect(line).not.toBeNull();
+      expect(line?.nextElementSibling?.getAttribute("start")).toBe(
+        trailingStart,
+      );
+    },
+  );
+
+  it.each([
+    [
+      "sibling text",
+      `<li><span>${ZERO_WIDTH_SPACE}</span><span>Keep me</span></li>`,
+    ],
+    [
+      "image",
+      `<li><span>${ZERO_WIDTH_SPACE}</span><img alt="kept image" /></li>`,
+    ],
+  ] as const)("does not treat native items with %s as empty", (_name, item) => {
+    document.body.innerHTML =
+      `<div class="slide-content"><ul><li>First</li>${item}` +
+      "<li>Third</li></ul></div>";
+    const list = document.querySelector("ul") as HTMLElement;
+    const placeholder = list.children[1].firstElementChild?.firstChild as Text;
+    placeCaret(placeholder, placeholder.length);
+
+    expect(exitEmptyBulletAtCaret(list)).toBeNull();
+    expect(removeEmptyBulletAtCaret(list)).toBeNull();
+    expect(list.children.length).toBe(3);
+  });
+
+  it.each([
     ["default", " reversed", "3", "1"],
     ["explicit", ' reversed start="8"', "8", "6"],
   ] as const)(

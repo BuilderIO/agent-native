@@ -248,6 +248,26 @@ function listRows(list: HTMLElement): HTMLElement[] {
   }) as HTMLElement[];
 }
 
+function isNativeListItem(row: HTMLElement): boolean {
+  const parentTag = row.parentElement?.tagName;
+  return row.tagName === "LI" && (parentTag === "UL" || parentTag === "OL");
+}
+
+function hasNonPlaceholderElement(element: Element): boolean {
+  if (element.tagName === "BR") return false;
+  if (element.children.length === 0) {
+    return element.tagName !== "SPAN";
+  }
+  return Array.from(element.children).some(hasNonPlaceholderElement);
+}
+
+function hasNativeListItemContent(row: HTMLElement): boolean {
+  if ((row.textContent ?? "").replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "") {
+    return true;
+  }
+  return Array.from(row.children).some(hasNonPlaceholderElement);
+}
+
 function selectedEmptyBulletRow(list: HTMLElement): HTMLElement | null {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount !== 1 || !sel.isCollapsed) return null;
@@ -263,6 +283,10 @@ function selectedEmptyBulletRow(list: HTMLElement): HTMLElement | null {
     node = node.parentNode;
   }
   if (!row) return null;
+
+  if (isNativeListItem(row)) {
+    return hasNativeListItemContent(row) ? null : row;
+  }
 
   const marker =
     row.firstElementChild && isBulletMarker(row.firstElementChild)
@@ -359,6 +383,24 @@ function effectiveOrderedListStart(
   const parsedStart = Number.parseInt(list.getAttribute("start") ?? "", 10);
   if (Number.isFinite(parsedStart)) return parsedStart;
   return list.hasAttribute("reversed") ? rowCount : 1;
+}
+
+function orderedListContinuation(
+  list: HTMLElement,
+  rows: HTMLElement[],
+  rowIndex: number,
+): number {
+  let value = effectiveOrderedListStart(list, rows.length);
+  const step = list.hasAttribute("reversed") ? -1 : 1;
+  for (let index = 0; index <= rowIndex; index++) {
+    const override = Number.parseInt(
+      rows[index].getAttribute("value") ?? "",
+      10,
+    );
+    if (Number.isFinite(override)) value = override;
+    value += step;
+  }
+  return value;
 }
 
 function listWithNodes(
@@ -474,13 +516,12 @@ export function exitEmptyBulletAtCaret(list: HTMLElement): HTMLElement | null {
   const beforeHasRows = hasBulletRow(beforeNodes);
   const afterHasRows = hasBulletRow(afterNodes);
   const rows = listRows(list);
-  const rowsBeforeExit = rows.indexOf(row) + 1;
+  const rowIndexInList = rows.indexOf(row);
   const orderedStart =
     list.tagName === "OL" ? effectiveOrderedListStart(list, rows.length) : null;
   const trailingStart =
-    orderedStart !== null
-      ? orderedStart +
-        (list.hasAttribute("reversed") ? -rowsBeforeExit : rowsBeforeExit)
+    orderedStart !== null && rowIndexInList >= 0
+      ? orderedListContinuation(list, rows, rowIndexInList)
       : undefined;
 
   if (beforeHasRows) {
