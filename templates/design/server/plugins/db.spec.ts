@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
+import { DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL } from "../lib/design-system-defaults.js";
 
 /**
  * Regression guard for the design template's DB-reliability rollout (mirrors
@@ -170,6 +171,51 @@ describe("design db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("does not remove the v19 design_fusion_edits table migration", () => {
     expect(dbTsSource).toMatch(
       /CREATE TABLE IF NOT EXISTS design_fusion_edits/,
+    );
+  });
+});
+
+/**
+ * The single-default-per-scope unique index is release-time DDL and must go
+ * through the migration runner's connection (the direct, non-pooled Postgres
+ * endpoint), not `getDbExec()` — a plain request-time call to `getDbExec()`
+ * is blocked in hosted production by `assertSchemaMutationAllowed()`. This
+ * guards the wiring itself: that the migration entry heals duplicates before
+ * running the exact SQL `createDesignSystemsOneDefaultIndex` also uses for
+ * its dev/local fallback, so the two paths cannot drift apart.
+ */
+describe("design db.ts installs the single-default-per-scope index through the migration list", () => {
+  it("has a named migration entry for it", () => {
+    expect(dbTsSource).toMatch(
+      /name:\s*"design-systems-one-default-per-scope-index"/,
+    );
+  });
+
+  it("heals duplicate defaults in that entry's run step, before its sql", () => {
+    const entryIdx = dbTsSource.indexOf(
+      '"design-systems-one-default-per-scope-index"',
+    );
+    const runIdx = dbTsSource.indexOf("run:", entryIdx);
+    const healCallIdx = dbTsSource.indexOf(
+      "healDuplicateDesignSystemDefaults()",
+      entryIdx,
+    );
+    const sqlIdx = dbTsSource.indexOf(
+      "DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL",
+      entryIdx,
+    );
+    expect(entryIdx).toBeGreaterThan(-1);
+    expect(runIdx).toBeGreaterThan(entryIdx);
+    expect(healCallIdx).toBeGreaterThan(runIdx);
+    expect(sqlIdx).toBeGreaterThan(healCallIdx);
+  });
+
+  it("uses the same SQL constant the dev/local fallback creates", () => {
+    expect(DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL).toContain(
+      "design_systems_one_default_per_scope_idx",
+    );
+    expect(DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL).toContain(
+      "COALESCE(org_id, '')",
     );
   });
 });

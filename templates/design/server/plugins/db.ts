@@ -5,6 +5,10 @@ import {
 } from "@agent-native/core/db";
 
 import * as schema from "../db/schema.js";
+import {
+  DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL,
+  healDuplicateDesignSystemDefaults,
+} from "../lib/design-system-defaults.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -389,6 +393,28 @@ CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template
       name: "design-files-design-type-index",
       sql: `CREATE INDEX IF NOT EXISTS design_files_design_type_idx ON design_files (design_id, file_type);
 CREATE INDEX IF NOT EXISTS designs_normalized_owner_org_updated_idx ON designs (lower(trim(owner_email)), org_id, updated_at)`,
+    },
+    {
+      version: 25,
+      name: "design-systems-one-default-per-scope-index",
+      // `run` executes before `sql`, on the same connection the migration
+      // runner picked for this entry (the direct endpoint on Postgres, since
+      // this entry carries real DDL). It heals every scope's stray duplicate
+      // defaults left by the create/proxy/set-default race this migration
+      // closes, so the CREATE UNIQUE INDEX below -- which fails outright
+      // against a database that still has duplicates -- actually succeeds.
+      // See server/lib/design-system-defaults.ts for the invariant this
+      // enforces and why request-time DDL alone cannot install it in a
+      // hosted production runtime.
+      run: async () => {
+        const healed = await healDuplicateDesignSystemDefaults();
+        if (healed > 0) {
+          console.info(
+            `[db] healed ${healed} stale duplicate design-system default(s)`,
+          );
+        }
+      },
+      sql: DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL,
     },
   ],
   { table: "design_migrations" },

@@ -14,10 +14,15 @@ export const DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX =
 /**
  * Clear every default in a scope except the earliest-created row, across
  * every owner/org at once. Release-time maintenance, not a per-request
- * helper -- reconciles duplicate defaults left by the pre-fix race so
- * `createDesignSystemsOneDefaultIndex` below can actually be created (a
- * UNIQUE INDEX creation fails outright while duplicates exist). Returns the
- * number of rows healed.
+ * helper -- reconciles duplicate defaults left by the pre-fix race so the
+ * unique index below can actually be created (a UNIQUE INDEX creation fails
+ * outright while duplicates exist). Returns the number of rows healed.
+ *
+ * Called from the `"design-systems-one-default-per-scope-index"` entry in
+ * `server/plugins/db.ts`'s migration list as that entry's `run` step, which
+ * executes before the entry's own `sql` -- see that file for why the DDL
+ * itself must go through the migration runner's connection, not `getDbExec()`
+ * directly.
  *
  * Uses Drizzle's query builder rather than raw SQL specifically to avoid
  * hand-rolling a dialect-portable boolean literal in an UPDATE ... SET
@@ -62,7 +67,7 @@ export async function healDuplicateDesignSystemDefaults(): Promise<number> {
 }
 
 /**
- * Create the unique index enforcing at most one default design system per
+ * SQL for the unique index enforcing at most one default design system per
  * (owner_email, org_id) scope. An application-level read-then-write inside a
  * transaction is not enough on Postgres READ COMMITTED: a SELECT over an
  * empty scope takes no row lock, so two concurrent create/proxy/set-default
@@ -83,28 +88,33 @@ export async function healDuplicateDesignSystemDefaults(): Promise<number> {
  * partial-index predicate, and SQLite treats the same nonzero/zero integer
  * as truthy/falsy in a `WHERE` expression.
  *
- * `CREATE UNIQUE INDEX` fails outright while duplicate defaults exist, so
- * callers that want it to actually stick should call
- * `healDuplicateDesignSystemDefaults` first -- see `scripts/migrate-production.ts`,
- * the release-time authoritative caller, which runs both under
- * `withMigrationRuntime`. Throws on failure; callers decide how to degrade.
+ * The authoritative production install is the
+ * `"design-systems-one-default-per-scope-index"` entry in
+ * `server/plugins/db.ts`'s migration list, which runs this SQL through the
+ * migration runner's own connection (the direct, non-pooled endpoint on
+ * Postgres -- required for DDL, and distinct from the ordinary pooled
+ * connection `getDbExec()` returns) after healing duplicates first.
+ * `createDesignSystemsOneDefaultIndex` below is only the request-time
+ * dev/local fallback; it goes through the pooled connection because it is
+ * not release-time DDL.
  */
+export const DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS ${DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX} ON design_systems (owner_email, COALESCE(org_id, '')) WHERE is_default`;
+
 export async function createDesignSystemsOneDefaultIndex(): Promise<void> {
-  await getDbExec().execute(
-    `CREATE UNIQUE INDEX IF NOT EXISTS ${DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX} ON design_systems (owner_email, COALESCE(org_id, '')) WHERE is_default`,
-  );
+  await getDbExec().execute(DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX_SQL);
 }
 
 let oneDefaultIndexPromise: Promise<void> | null = null;
 
 /**
- * Best-effort, request-time fallback for environments that never run
- * `scripts/migrate-production.ts` (local dev, tests). Hosted production runs
- * schema DDL exclusively through the release migration path -- a normal
- * request/plugin-boot call is blocked there by
- * `assertSchemaMutationAllowed()` (see `packages/core/src/db/client.ts`), so
- * this call fails soft and does nothing in that environment; the release
- * script is what actually creates the index for production.
+ * Best-effort, request-time fallback for environments that never run the
+ * release migration path (local dev, tests). Hosted production installs the
+ * index exclusively through the `"design-systems-one-default-per-scope-index"`
+ * migration entry in `server/plugins/db.ts` -- a normal request/plugin-boot
+ * call is blocked there by `assertSchemaMutationAllowed()` (see
+ * `packages/core/src/db/client.ts`), so this call fails soft and does
+ * nothing in that environment; the migration entry is what actually creates
+ * the index for production, over the correct direct-endpoint connection.
  *
  * Only a successful attempt is memoized. A failure (duplicates not yet
  * healed, transient DB error, the production block above) is logged and the
