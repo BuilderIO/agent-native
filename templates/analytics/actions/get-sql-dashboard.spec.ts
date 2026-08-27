@@ -89,7 +89,11 @@ describe("get-sql-dashboard seed fallback", () => {
   it("returns a saved empty dashboard instead of rehydrating its seed", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
-      config: { name: "Blank", panels: [] },
+      config: {
+        name: "Blank",
+        panels: [],
+        createdBy: "spoof@example.com",
+      },
       ownerEmail: "alice@example.com",
       orgId: null,
       visibility: "private",
@@ -100,6 +104,7 @@ describe("get-sql-dashboard seed fallback", () => {
       hiddenAt: null,
       hiddenBy: null,
       createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "alice@example.com",
       updatedAt: "2026-06-24T00:00:00.000Z",
     });
     mocks.loadDashboardSeed.mockReturnValue({
@@ -112,12 +117,14 @@ describe("get-sql-dashboard seed fallback", () => {
       layout: { panelOrder: string[] };
       name: string;
       ownerEmail: string | null;
+      createdBy: string | null;
     };
 
     expect(result.name).toBe("Blank");
     expect(result.panels).toEqual([]);
     expect(result.layout.panelOrder).toEqual([]);
     expect(result.ownerEmail).toBe("alice@example.com");
+    expect(result.createdBy).toBe("alice@example.com");
   });
 
   it("repairs legacy SQL when reading the persisted first-party dashboard", async () => {
