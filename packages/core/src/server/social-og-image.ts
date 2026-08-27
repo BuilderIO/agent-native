@@ -378,8 +378,12 @@ function resolveAgentNativeOgImageBrand(
     };
   }
 
+  const customAppName =
+    cleanText(process.env.APP_NAME) ||
+    cleanText(app.name) ||
+    packageDisplayName(app.packageName);
   return {
-    appName: resolveAgentNativeOgImageAppName(event),
+    appName: customAppName || resolveAgentNativeOgImageAppName(event),
     logoUrl: sanitizeLogoUrl(app.logoUrl),
     mode,
   };
@@ -429,14 +433,21 @@ async function loadLogoDataUrl(
       },
       { httpsOnly: true, maxRedirects: 2 },
     );
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      await response.body?.cancel();
+      return undefined;
+    }
 
     const contentType =
       response.headers.get("content-type")?.split(";")[0]?.trim() || "";
-    if (!LOGO_CONTENT_TYPE_RE.test(contentType)) return undefined;
+    if (!LOGO_CONTENT_TYPE_RE.test(contentType)) {
+      await response.body?.cancel();
+      return undefined;
+    }
 
     const contentLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(contentLength) && contentLength > MAX_LOGO_BYTES) {
+      await response.body?.cancel();
       return undefined;
     }
 

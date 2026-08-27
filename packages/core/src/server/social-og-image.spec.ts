@@ -3,6 +3,10 @@ import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/store.js";
+import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,
   resolveOgFontFiles,
@@ -16,6 +20,7 @@ import {
 
 describe("social OG image", () => {
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
   });
 
@@ -116,6 +121,16 @@ describe("social OG image", () => {
     expect(svg).not.toContain("Agent-Native");
     expect(svg).not.toContain("100% free and open source");
     expect(svg).not.toContain('<path d="M24.5537');
+  });
+
+  it("preserves a custom app-config name under a built-in path", () => {
+    vi.stubEnv("APP_BASE_PATH", "/analytics");
+    defineAppConfig({ app: { name: "Acme Configured" } });
+
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain("Acme Configured");
+    expect(svg).not.toContain("Agent-Native");
   });
 
   it("uses a custom package name without framework branding", () => {
