@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
@@ -95,7 +97,10 @@ let activeOptions: GoogleDocsPollerOptions | null = null;
 /** How long a watch channel lasts (Google max is ~24h, we use 23h to renew early) */
 const WATCH_CHANNEL_TTL_MS = 23 * 60 * 60 * 1000;
 const WATCH_RETRY_MS = 5 * 60 * 1000;
+const WATCH_STOP_CLAIM_TTL_MS = WATCH_RETRY_MS - 30 * 1000;
 let watchRenewalTimer: ReturnType<typeof setTimeout> | null = null;
+
+type WatchStopResult = "stopped" | "not-owned" | "retry";
 
 /**
  * Register a Google Drive changes.watch channel so Google pushes
@@ -210,26 +215,56 @@ export async function verifyGoogleDocsPushNotification(
 /**
  * Stop an existing watch channel.
  */
-async function stopWatch(): Promise<boolean> {
+async function stopWatch(): Promise<WatchStopResult> {
   const config = await getIntegrationConfig(PLATFORM, "watch-channel");
-  if (!config?.configData?.channelId) return true;
+  if (!config?.configData?.channelId) return "stopped";
 
-  const accessToken = await getServiceAccountAccessToken();
-  if (!accessToken) return false;
+  const claimExpiresAt = config.configData.renewalClaimExpiresAt;
+  if (
+    typeof config.configData.renewalClaimId === "string" &&
+    config.configData.renewalClaimId.length > 0 &&
+    typeof claimExpiresAt === "number" &&
+    claimExpiresAt > Date.now()
+  ) {
+    return "not-owned";
+  }
 
-  const stopped = await stopGoogleDocsWatchChannel(
-    accessToken,
-    config.configData.channelId,
-    config.configData.resourceId,
-  );
-  if (!stopped) return false;
-
-  return saveIntegrationConfigIfUnchanged(
+  const claimId = randomUUID();
+  const claimed = await saveIntegrationConfigIfUnchanged(
     PLATFORM,
-    {},
+    {
+      ...config.configData,
+      renewalClaimId: claimId,
+      renewalClaimExpiresAt: Date.now() + WATCH_STOP_CLAIM_TTL_MS,
+    },
     "watch-channel",
     config,
   );
+  if (!claimed) return "not-owned";
+
+  // Re-read the CAS result so the cleanup below can only clear this claim.
+  const claimedConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
+  if (!claimedConfig || claimedConfig.configData.renewalClaimId !== claimId) {
+    return "not-owned";
+  }
+
+  const accessToken = await getServiceAccountAccessToken();
+  if (!accessToken) return "retry";
+
+  const stopped = await stopGoogleDocsWatchChannel(
+    accessToken,
+    claimedConfig.configData.channelId,
+    claimedConfig.configData.resourceId,
+  );
+  if (!stopped) return "retry";
+
+  const cleared = await saveIntegrationConfigIfUnchanged(
+    PLATFORM,
+    {},
+    "watch-channel",
+    claimedConfig,
+  );
+  return cleared ? "stopped" : "not-owned";
 }
 
 export async function stopGoogleDocsWatchChannel(
@@ -284,10 +319,18 @@ function scheduleWatchRenewal(
 
   watchRenewalTimer = setTimeout(async () => {
     console.log("[google-docs] Renewing watch channel...");
-    if (await stopWatch()) {
-      await registerWatch(webhookUrl);
+    const stopResult = await stopWatch();
+    if (stopResult === "stopped") {
+      if (await registerWatch(webhookUrl)) return;
+
+      console.warn(
+        `[google-docs] Could not register the replacement watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+      );
+      scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS);
       return;
     }
+
+    if (stopResult === "not-owned") return;
 
     console.warn(
       `[google-docs] Could not stop the active watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
