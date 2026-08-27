@@ -74,6 +74,11 @@ import { downloadImage } from "@/lib/image-download";
 import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
+  getElementPath,
+  getElementPreview,
+  type SelectedAnimationTarget,
+} from "@/lib/slide-animation-elements";
+import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
   type SlideImageDropPosition,
@@ -96,6 +101,7 @@ import {
   resolveSlidesCanvasNudge,
   slidesCanvasInteractionCore,
 } from "./canvas-interactions";
+import type { SlideShapeType } from "./EditorActionCluster";
 import ImageOverlay from "./ImageOverlay";
 import {
   shouldPersistInlineEditContent,
@@ -652,6 +658,18 @@ interface SlideEditorProps {
   textBoxMode?: boolean;
   /** Called after a text box is placed (or the tool should otherwise exit) */
   onExitTextBoxMode?: () => void;
+  /** Whether the shape picker has armed a shape for the next canvas click. */
+  shapeType?: SlideShapeType | null;
+  /** Called after a shape is placed (or the tool should otherwise exit). */
+  onExitShapeMode?: () => void;
+  /** Whether the selected-element transitions panel is open. */
+  animationsOpen?: boolean;
+  /** Open transitions for the currently selected canvas element. */
+  onOpenAnimations?: (target: SelectedAnimationTarget) => void;
+  /** Keep the parent in sync with the current canvas selection. */
+  onSelectedAnimationTargetChange?: (
+    target: SelectedAnimationTarget | null,
+  ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
   /** Slide title for pin mode contextLabel */
@@ -1099,6 +1117,11 @@ export default function SlideEditor({
   onExitPinMode,
   textBoxMode,
   onExitTextBoxMode,
+  shapeType,
+  onExitShapeMode,
+  animationsOpen = false,
+  onOpenAnimations,
+  onSelectedAnimationTargetChange,
   slideId,
   slideTitle,
   deckId,
@@ -1823,6 +1846,25 @@ export default function SlideEditor({
     return resolveElementPath(slideContent, selectedElementPath);
   }, [getSlideContent, selectedElementPath, selectedObjectId]);
 
+  const getSelectedAnimationTarget =
+    useCallback((): SelectedAnimationTarget | null => {
+      const element = selectedImg ?? resolveSelectedElement();
+      const root = element?.closest<HTMLElement>(".fmd-slide");
+      if (!element || !root) return null;
+      const elementPath = getElementPath(root, element);
+      if (!elementPath || elementPath.length === 0) return null;
+      const elementIndex = elementPath[elementPath.length - 1] ?? 0;
+      return {
+        elementIndex,
+        elementPath,
+        preview: getElementPreview(element, `Element ${elementIndex + 1}`),
+      };
+    }, [resolveSelectedElement, selectedImg]);
+
+  useEffect(() => {
+    onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
+  }, [getSelectedAnimationTarget, onSelectedAnimationTargetChange]);
+
   const buildSelectionState = useCallback(
     (
       mode: SlidesSelectionMode,
@@ -1838,9 +1880,10 @@ export default function SlideEditor({
         drawMode: Boolean(drawMode),
         pinMode: Boolean(pinMode),
         textBoxMode: Boolean(textBoxMode),
+        shapeMode: Boolean(shapeType),
         activeTool,
       }),
-    [deckId, drawMode, pinMode, slide.id, slideIndex, textBoxMode],
+    [deckId, drawMode, pinMode, shapeType, slide.id, slideIndex, textBoxMode],
   );
 
   const clearSelectedElement = useCallback(() => {
@@ -2490,7 +2533,7 @@ export default function SlideEditor({
       const action = decideSlideEscape({
         editing: Boolean(editing),
         activeGesture: activeGestureCancelRef.current !== null,
-        activeMode: Boolean(drawMode || pinMode || textBoxMode),
+        activeMode: Boolean(drawMode || pinMode || textBoxMode || shapeType),
         multiSelection: multiSelection.size > 0,
         singleSelection: Boolean(selectedElementSelector),
         targetOwnsEscape,
@@ -2507,6 +2550,7 @@ export default function SlideEditor({
       } else if (action === "mode") {
         if (drawMode) onExitDrawMode?.();
         else if (pinMode) onExitPinMode?.();
+        else if (shapeType) onExitShapeMode?.();
         else onExitTextBoxMode?.();
       } else if (action === "multi-selection") {
         clearMultiSelection();
@@ -2525,9 +2569,11 @@ export default function SlideEditor({
     multiSelection.size,
     onExitDrawMode,
     onExitPinMode,
+    onExitShapeMode,
     onExitTextBoxMode,
     pinMode,
     selectedElementSelector,
+    shapeType,
     textBoxMode,
   ]);
 
@@ -2537,7 +2583,7 @@ export default function SlideEditor({
     if (editingEl || multiSelection.size > 0 || selectedElementSelector) {
       return;
     }
-    if (drawMode || pinMode || textBoxMode) {
+    if (drawMode || pinMode || textBoxMode || shapeType) {
       syncSelectionToAppState(buildSelectionState("canvas", []));
     } else {
       syncSelectionToAppState(null);
@@ -2549,6 +2595,7 @@ export default function SlideEditor({
     multiSelection.size,
     pinMode,
     selectedElementSelector,
+    shapeType,
     textBoxMode,
   ]);
 
@@ -3452,6 +3499,68 @@ export default function SlideEditor({
       }
     },
     [enterInlineEdit],
+  );
+
+  const placeShapeAt = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      type: SlideShapeType,
+      target: HTMLElement | null,
+    ) => {
+      const canvas = containerRef.current
+        ? ensureSlideTextBoxCanvas(containerRef.current)
+        : null;
+      if (!canvas) return;
+      const { fmdSlide, positioningLayer } = canvas;
+      const rect = positioningLayer.getBoundingClientRect();
+      const size = type === "circle" ? 144 : { width: 192, height: 144 };
+      const width = typeof size === "number" ? size : size.width;
+      const height = typeof size === "number" ? size : size.height;
+      const point = clientPointToSlideCoordinates(
+        clientX,
+        clientY,
+        rect,
+        positioningLayer.offsetWidth,
+        positioningLayer.offsetHeight,
+      );
+
+      if (getComputedStyle(fmdSlide).position === "static") {
+        fmdSlide.style.position = "relative";
+      }
+
+      const shape = document.createElement("div");
+      const color = getSlideTextBoxDefaultColor(target, positioningLayer);
+      shape.className = `fmd-shape fmd-shape-${type}`;
+      shape.setAttribute("data-slide-shape", type);
+      shape.setAttribute(
+        "aria-label",
+        t(
+          type === "circle"
+            ? "editorToolbar.shapeCircle"
+            : "editorToolbar.shapeRectangle",
+        ),
+      );
+      ensureSlideObjectId(shape);
+      ensureBuilderId(shape);
+      shape.style.position = "absolute";
+      shape.style.left = `${Math.max(0, Math.min(point.x, positioningLayer.offsetWidth - width))}px`;
+      shape.style.top = `${Math.max(0, Math.min(point.y, positioningLayer.offsetHeight - height))}px`;
+      shape.style.width = `${width}px`;
+      shape.style.height = `${height}px`;
+      shape.style.boxSizing = "border-box";
+      shape.style.backgroundColor = color;
+      shape.style.border = `2px solid ${color}`;
+      shape.style.borderRadius = type === "circle" ? "50%" : "4px";
+      shape.style.opacity = "0.85";
+      positioningLayer.appendChild(shape);
+
+      const selector = getBuilderSelector(shape);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (selector) selectElementForStyling(shape, selector);
+    },
+    [readCurrentSlideContentHtml, selectElementForStyling, t],
   );
 
   const getObjectGeometry = useCallback(
@@ -4580,6 +4689,15 @@ export default function SlideEditor({
       if (!slideContent) return;
       const target = e.target as HTMLElement;
 
+      if (shapeType) {
+        e.preventDefault();
+        if (editingEl) exitInlineEdit();
+        suppressNextClickRef.current = true;
+        placeShapeAt(e.clientX, e.clientY, shapeType, target);
+        onExitShapeMode?.();
+        return;
+      }
+
       if (textBoxMode) {
         // Unlike the marquee/select flow below, the text-box tool places a
         // box on the very next click no matter what it lands on (mirroring
@@ -4677,10 +4795,13 @@ export default function SlideEditor({
       getSlideContent,
       isSlideWhitespaceTarget,
       multiSelection,
+      onExitShapeMode,
       applyMultiSelection,
       clearSelectedElement,
       textBoxMode,
+      shapeType,
       exitInlineEdit,
+      placeShapeAt,
       placeTextBoxAt,
       onExitTextBoxMode,
       resolveSelectedElement,
@@ -5413,6 +5534,16 @@ export default function SlideEditor({
         background={slide.background}
         designSystem={designSystem}
         leading={contextToolbarLeading}
+        hasSelectedElement={slideElementSelected}
+        animationsOpen={animationsOpen}
+        onOpenAnimations={
+          onOpenAnimations
+            ? () => {
+                const target = getSelectedAnimationTarget();
+                if (target) onOpenAnimations(target);
+              }
+            : undefined
+        }
         onChange={applySelectedStylePatch}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
@@ -5437,6 +5568,16 @@ export default function SlideEditor({
         background={slide.background}
         designSystem={designSystem}
         leading={contextToolbarLeading}
+        hasSelectedElement={slideElementSelected}
+        animationsOpen={animationsOpen}
+        onOpenAnimations={
+          onOpenAnimations
+            ? () => {
+                const target = getSelectedAnimationTarget();
+                if (target) onOpenAnimations(target);
+              }
+            : undefined
+        }
         onChange={applySelectedStylePatch}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
@@ -5452,7 +5593,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)]"
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
+        animationsOpen ? "rounded-r-lg" : ""
+      }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot

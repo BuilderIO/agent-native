@@ -38,7 +38,10 @@ import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
-import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
+import {
+  EditorActionCluster,
+  type SlideShapeType,
+} from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
 import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
@@ -105,6 +108,7 @@ import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
 } from "@/lib/pending-deck-changes";
+import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import {
   insertDroppedImageIntoSlideHtml,
@@ -302,15 +306,28 @@ export default function DeckEditor() {
   const historyButtonRef = useRef<HTMLButtonElement>(null);
   const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
+  const [animationTarget, setAnimationTarget] =
+    useState<SelectedAnimationTarget | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
+  const [shapeType, setShapeType] = useState<SlideShapeType | null>(null);
+
+  const openAnimationsForTarget = useCallback(
+    (target: SelectedAnimationTarget) => {
+      setAnimationTarget(target);
+      setAnimationsOpen(true);
+    },
+    [],
+  );
+
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
     if (next) {
       setPinMode(false);
       setTextBoxMode(false);
+      setShapeType(null);
     }
     setDrawMode(next);
   }, [drawMode]);
@@ -319,6 +336,7 @@ export default function DeckEditor() {
     if (next) {
       setDrawMode(false);
       setTextBoxMode(false);
+      setShapeType(null);
     }
     setPinMode(next);
   }, [pinMode]);
@@ -327,9 +345,17 @@ export default function DeckEditor() {
     if (next) {
       setDrawMode(false);
       setPinMode(false);
+      setShapeType(null);
     }
     setTextBoxMode(next);
   }, [textBoxMode]);
+
+  const selectShape = useCallback((type: SlideShapeType) => {
+    setDrawMode(false);
+    setPinMode(false);
+    setTextBoxMode(false);
+    setShapeType(type);
+  }, []);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -948,6 +974,7 @@ export default function DeckEditor() {
       event.preventDefault();
       setDrawMode(false);
       setPinMode(false);
+      setShapeType(null);
       setTextBoxMode(true);
     };
 
@@ -1546,8 +1573,6 @@ export default function DeckEditor() {
         }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
-        animationsOpen={animationsOpen}
-        onToggleAnimations={() => setAnimationsOpen((o) => !o)}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
         drawMode={drawMode}
@@ -1623,11 +1648,6 @@ export default function DeckEditor() {
           }
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
-        onChangeSlideTransition={
-          canEdit && currentSlide
-            ? (transition) => updateSlide(id, currentSlide.id, { transition })
-            : undefined
-        }
       />
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
@@ -1766,11 +1786,8 @@ export default function DeckEditor() {
                   onToggleTextBoxMode={toggleTextBoxMode}
                   onAddEmptySlide={handleNewSlideClick}
                   addSlideGenerating={addSlideGenerating}
-                  currentSlideId={currentSlide.id}
-                  slideTransition={currentSlide.transition}
-                  onChangeSlideTransition={(transition) =>
-                    updateSlide(id, currentSlide.id, { transition })
-                  }
+                  shapeType={shapeType}
+                  onSelectShape={selectShape}
                 />
               ) : undefined
             }
@@ -1828,6 +1845,11 @@ export default function DeckEditor() {
             onExitPinMode={() => setPinMode(false)}
             textBoxMode={textBoxMode}
             onExitTextBoxMode={() => setTextBoxMode(false)}
+            shapeType={shapeType}
+            onExitShapeMode={() => setShapeType(null)}
+            animationsOpen={animationsOpen}
+            onOpenAnimations={openAnimationsForTarget}
+            onSelectedAnimationTargetChange={setAnimationTarget}
             slideId={currentSlide.id}
             slideTitle={(() => {
               const m = currentSlide.content?.match(
@@ -1859,6 +1881,7 @@ export default function DeckEditor() {
         {animationsOpen && currentSlide && (
           <AnimationsPanel
             slide={currentSlide}
+            selectedTarget={animationTarget}
             onUpdateSlide={(updates) =>
               updateSlide(id, currentSlide.id, updates)
             }

@@ -47,9 +47,7 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
     // at a unique element in the final HTML. Otherwise disable the reveal
     // layer for this slide instead of counting invisible phantom steps while
     // leaving the rest of the content visible.
-    return root && resolveSlideAnimationTargets(root, slide.animations)
-      ? slide.animations
-      : null;
+    return root ? expandByParagraphAnimations(root, slide.animations) : null;
   }
   // Legacy splitByParagraph: auto-detect and create steps
   if (slide.splitByParagraph) {
@@ -90,6 +88,43 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
     }));
   }
   return null;
+}
+
+function expandByParagraphAnimations(
+  root: Element,
+  animations: readonly SlideAnimation[],
+): SlideAnimation[] | null {
+  const resolved = resolveSlideAnimationTargets(root, animations);
+  if (!resolved) return null;
+
+  const expanded: SlideAnimation[] = [];
+  for (const { target, element } of resolved) {
+    if (!target.byParagraph) {
+      expanded.push(target);
+      continue;
+    }
+
+    const paragraphs = Array.from(
+      element.querySelectorAll("p[data-pptx-paragraph]"),
+    );
+    if (paragraphs.length < 2) {
+      expanded.push(target);
+      continue;
+    }
+
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+      const elementPath = getElementPath(root, paragraph);
+      if (!elementPath) return null;
+      expanded.push({
+        ...target,
+        id: `${target.id}-paragraph-${paragraphIndex}`,
+        elementIndex: paragraphIndex,
+        elementPath,
+        byParagraph: false,
+      });
+    }
+  }
+  return expanded;
 }
 
 /** CSS animation string for a given element animation type (for the newly-revealed item). */

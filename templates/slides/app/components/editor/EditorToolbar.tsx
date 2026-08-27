@@ -23,7 +23,6 @@ import {
   IconMoon,
   IconDotsVertical,
   IconLoader2,
-  IconBolt,
   IconAdjustments,
   IconPencilPlus,
   IconPin,
@@ -100,10 +99,6 @@ interface EditorToolbarProps {
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
   currentUserEmail?: string;
-  /** Whether the animations panel is open */
-  animationsOpen?: boolean;
-  /** Toggle the animations panel */
-  onToggleAnimations?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
@@ -120,9 +115,6 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
-  onChangeSlideTransition?: (
-    transition: NonNullable<Slide["transition"]>,
-  ) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -164,8 +156,6 @@ export default function EditorToolbar({
   onToggleComments,
   unresolvedCommentCount = 0,
   currentUserEmail,
-  animationsOpen,
-  onToggleAnimations,
   tweaksOpen,
   onToggleTweaks,
   drawMode,
@@ -174,7 +164,6 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
-  onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -350,17 +339,6 @@ export default function EditorToolbar({
           run: onOpenAssetLibrary,
         },
       );
-      if (currentSlide && onToggleAnimations) {
-        commands.push({
-          id: "element-animations",
-          group: "slideTools",
-          label: t("editorToolbar.elementAnimations"),
-          keywords: ["animation", "motion"],
-          icon: IconBolt,
-          active: animationsOpen,
-          run: onToggleAnimations,
-        });
-      }
       if (onToggleTweaks) {
         commands.push({
           id: "slide-tweaks",
@@ -485,7 +463,6 @@ export default function EditorToolbar({
     );
     return commands;
   }, [
-    animationsOpen,
     canComment,
     canEdit,
     commentsOpen,
@@ -499,7 +476,6 @@ export default function EditorToolbar({
     onGenerateImage,
     onOpenAssetLibrary,
     onShowHistory,
-    onToggleAnimations,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
@@ -558,9 +534,6 @@ export default function EditorToolbar({
           onToggleTextBoxMode={onToggleTextBoxMode}
           onAddEmptySlide={onAddEmptySlide}
           addSlideGenerating={addSlideGenerating}
-          currentSlideId={currentSlide?.id}
-          slideTransition={currentSlide?.transition}
-          onChangeSlideTransition={onChangeSlideTransition}
         />
       )}
 
@@ -642,8 +615,7 @@ export default function EditorToolbar({
             align="end"
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
-            {((canEdit &&
-              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+            {((canEdit && (onToggleTweaks || onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -651,19 +623,6 @@ export default function EditorToolbar({
                   {t("editorToolbar.slideTools")}
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
-                  {canEdit && currentSlide && onToggleAnimations && (
-                    <DropdownMenuItem
-                      onSelect={onToggleAnimations}
-                      className={
-                        animationsOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconBolt className="size-4" />
-                      {t("editorToolbar.elementAnimations")}
-                    </DropdownMenuItem>
-                  )}
                   {canEdit && onToggleTweaks && (
                     <DropdownMenuItem
                       onSelect={onToggleTweaks}

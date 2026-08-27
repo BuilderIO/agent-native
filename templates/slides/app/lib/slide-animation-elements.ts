@@ -9,6 +9,12 @@ export interface AnimationTarget {
   elementPath?: number[];
 }
 
+export interface SelectedAnimationTarget {
+  elementIndex: number;
+  elementPath: number[];
+  preview: string;
+}
+
 export interface ResolvedAnimationTarget<
   T extends AnimationTarget = AnimationTarget,
 > {
