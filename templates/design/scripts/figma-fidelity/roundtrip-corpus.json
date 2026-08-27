@@ -1,0 +1,92 @@
+[
+  {
+    "id": "rt-paste-positivus-home",
+    "html": ".tmp/figma-fidelity/paste/paste-positivus-home/paste.html",
+    "referencePng": ".tmp/figma-fidelity/import/community-positivus-landing/figma.png",
+    "importPng": ".tmp/figma-fidelity/paste/paste-positivus-home/paste.png",
+    "width": 1440,
+    "height": 8356,
+    "notes": "Clipboard path already emits a full document; exported as stored."
+  },
+  {
+    "id": "rt-paste-untitledui-landing",
+    "html": ".tmp/figma-fidelity/paste/paste-untitledui-landing/paste.html",
+    "referencePng": ".tmp/figma-fidelity/import/community-untitled-ui-landing/figma.png",
+    "importPng": ".tmp/figma-fidelity/paste/paste-untitledui-landing/paste.png",
+    "width": 1440,
+    "height": 7060,
+    "notes": "Clipboard path already emits a full document; exported as stored."
+  },
+  {
+    "id": "rt-autolayout",
+    "html": ".tmp/figma-fidelity/import/autolayout/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/autolayout/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/autolayout/import.png",
+    "width": 420,
+    "height": 285,
+    "notes": "The document the product persists after a REST import, exported back out."
+  },
+  {
+    "id": "rt-card-grid",
+    "html": ".tmp/figma-fidelity/import/card-grid/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/card-grid/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/card-grid/import.png",
+    "width": 560,
+    "height": 460,
+    "notes": "The document the product persists after a REST import, exported back out."
+  },
+  {
+    "id": "rt-community-untitled-ui-landing",
+    "html": ".tmp/figma-fidelity/import/community-untitled-ui-landing/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/community-untitled-ui-landing/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/community-untitled-ui-landing/import.png",
+    "width": 1440,
+    "height": 7060,
+    "notes": "The document the product persists after a REST import, exported back out."
+  },
+  {
+    "id": "rt-constraints",
+    "html": ".tmp/figma-fidelity/import/constraints/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/constraints/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/constraints/import.png",
+    "width": 400,
+    "height": 300,
+    "notes": "The document the product persists after a REST import, exported back out."
+  },
+  {
+    "id": "rt-fills-effects",
+    "html": ".tmp/figma-fidelity/import/fills-effects/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/fills-effects/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/fills-effects/import.png",
+    "width": 420,
+    "height": 540,
+    "notes": "The document the product persists after a REST import, exported back out."
+  },
+  {
+    "id": "rt-parity-stress",
+    "html": ".tmp/figma-fidelity/import/parity-stress/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/parity-stress/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/parity-stress/import.png",
+    "width": 1200,
+    "height": 1266,
+    "notes": "The document the product persists after a REST import, exported back out."
+  },
+  {
+    "id": "rt-shapes",
+    "html": ".tmp/figma-fidelity/import/shapes/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/shapes/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/shapes/import.png",
+    "width": 420,
+    "height": 480,
+    "notes": "The document the product persists after a REST import, exported back out."
+  },
+  {
+    "id": "rt-typography",
+    "html": ".tmp/figma-fidelity/import/typography/stored.html",
+    "referencePng": ".tmp/figma-fidelity/import/typography/figma.png",
+    "importPng": ".tmp/figma-fidelity/import/typography/import.png",
+    "width": 420,
+    "height": 640,
+    "notes": "The document the product persists after a REST import, exported back out."
+  }
+]
