@@ -15,8 +15,14 @@ interface GoogleDocsStatus {
   configured: boolean;
   connected: boolean;
   googleSlidesUrlImportReady?: boolean;
+  googleSlidesUrlImportError?: string;
   error?: string;
   message?: string;
+}
+
+interface GoogleDriveConnectionCtaProps {
+  /** Only query and render for a detected pasted-link intent. */
+  active?: boolean;
 }
 
 type JsonReadResult<T> = { ok: true; data: T } | { ok: false; error: Error };
@@ -48,7 +54,9 @@ function responseError(
   );
 }
 
-export function GoogleDriveConnectionCta() {
+export function GoogleDriveConnectionCta({
+  active = true,
+}: GoogleDriveConnectionCtaProps) {
   const t = useT();
   const [status, setStatus] = useState<GoogleDocsStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,8 +93,18 @@ export function GoogleDriveConnectionCta() {
     }, []);
 
   useEffect(() => {
+    if (!active) {
+      setStatus(null);
+      setError(null);
+      setDismissed(false);
+      setConnecting(false);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setDismissed(false);
     void refreshStatus();
-  }, [refreshStatus]);
+  }, [active, refreshStatus]);
 
   const needsReconnect =
     status?.connected === true && status.googleSlidesUrlImportReady === false;
@@ -101,7 +119,12 @@ export function GoogleDriveConnectionCta() {
     });
   }, [connecting]);
 
-  if (dismissed || loading || (status?.connected && !needsReconnect)) {
+  if (
+    !active ||
+    dismissed ||
+    loading ||
+    (status?.connected && !needsReconnect)
+  ) {
     return null;
   }
 
@@ -125,6 +148,11 @@ export function GoogleDriveConnectionCta() {
             ? t("home.googleSlidesReferenceConnect")
             : t("raw.googleOAuthNotConfigured")}
         </p>
+        {displayStatus.googleSlidesUrlImportError && (
+          <p className="mt-1 text-[11px] text-destructive">
+            {displayStatus.googleSlidesUrlImportError}
+          </p>
+        )}
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
       {displayStatus.configured && (
