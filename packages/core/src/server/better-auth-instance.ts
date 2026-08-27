@@ -1320,6 +1320,16 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
+    try {
+      // This promotion bypasses Better Auth's user-create hook, so reconcile
+      // invitations only after the verified Google identity is committed.
+      await acceptPendingInvitationsForEmail(email);
+    } catch (error) {
+      console.error(
+        "[auth] failed to reconcile pending invitations after Google verification",
+        error,
+      );
+    }
     return false;
   }
   await adapter.linkAccount({

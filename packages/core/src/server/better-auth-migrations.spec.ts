@@ -98,4 +98,15 @@ describe("Better Auth migrations", () => {
     expect(rotation?.sql).toEqual({});
     expect(rotation?.run).toEqual(expect.any(Function));
   });
+
+  it("indexes case-insensitive legacy session verification lookups", () => {
+    const index = BETTER_AUTH_MIGRATIONS.find(
+      (migration) => migration.name === "better-auth-user-lower-email-index",
+    );
+    expect(index?.version).toBe(5);
+    expect(index?.sql).toMatchObject({
+      postgres: expect.stringContaining('ON "user" (LOWER(email))'),
+      sqlite: expect.stringContaining("ON user (LOWER(email))"),
+    });
+  });
 });

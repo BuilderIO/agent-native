@@ -155,6 +155,8 @@ function classifyEmailReadiness(config: EmailTransportConfig): EmailReadiness {
 /**
  * Auth uses one Better Auth instance per process, so its email policy must
  * come from deployment configuration rather than a request-scoped secret.
+ * Scoped email keys still support transactional app mail, but cannot safely
+ * configure unauthenticated magic-link or signup-verification flows.
  */
 export function getDeploymentEmailReadiness(): EmailReadiness {
   const provider = readDeployCredentialEnv("RESEND_API_KEY")
