@@ -210,7 +210,12 @@ export interface FigmaSvgNode {
   /** Children are clipped to this node's rounded box (CSS `overflow: hidden`). */
   clipsContent?: boolean;
   text?: { lines: FigmaSvgTextLine[]; style: FigmaSvgTextStyle };
-  image?: { href: string; fit: "cover" | "contain" | "stretch" };
+  image?: {
+    href: string;
+    fit: "cover" | "contain" | "stretch";
+    /** CSS `object-position`, so the export anchors it as the import did. */
+    position?: string;
+  };
   /** Fully rasterized fallback (video/canvas/iframe/backdrop-blur/other unsupported paint). */
   raster?: { href: string; reason: string };
   /** Sanitized markup of an inline `<svg>`, re-emitted verbatim at this rect. */
@@ -888,10 +893,25 @@ export function resolveRadialGradientGeometry(
  */
 export function objectFitToPreserveAspectRatio(
   fit: "cover" | "contain" | "stretch" | "none" | "scale-down",
+  /** CSS `object-position`; only the top-left anchor differs from the default. */
+  position?: string,
 ): string {
   if (fit === "stretch" || fit === "none") return "none";
-  if (fit === "contain" || fit === "scale-down") return "xMidYMid meet";
-  return "xMidYMid slice"; // cover (default)
+  // The importer anchors a fallback render top-left, because Figma's
+  // `absoluteRenderBounds` states where the ink STARTS. Centring it here
+  // instead moved the artwork back — 1.26 points of round-trip drift on one
+  // product page, where the export no longer reproduced the import.
+  const align = isTopLeftObjectPosition(position) ? "xMinYMin" : "xMidYMid";
+  if (fit === "contain" || fit === "scale-down") return `${align} meet`;
+  return `${align} slice`; // cover (default)
+}
+
+function isTopLeftObjectPosition(position: string | undefined): boolean {
+  if (!position) return false;
+  const [x, y] = position.trim().split(/\s+/);
+  const atStart = (v: string | undefined) =>
+    v === "0px" || v === "0%" || v === "0" || v === "left" || v === "top";
+  return atStart(x) && atStart(y ?? x);
 }
 
 // ---------------------------------------------------------------------------
@@ -1421,7 +1441,10 @@ function renderImage(node: FigmaSvgNode, ctx: RenderCtx): string {
   if (!node.image) return "";
   const rect = node.rect;
   const radii = node.cornerRadii ?? ZERO_RADII;
-  const par = objectFitToPreserveAspectRatio(node.image.fit);
+  const par = objectFitToPreserveAspectRatio(
+    node.image.fit,
+    node.image.position,
+  );
   let clipAttr = "";
   if (!isZeroRadii(radii)) {
     const clipId = ctx.nextId("clip");
@@ -1644,6 +1667,7 @@ export interface RawFigmaSvgNode {
   textStyle?: RawFigmaSvgTextStyle;
   imgSrc?: string;
   imgObjectFit?: string;
+  imgObjectPosition?: string;
   /** Set when this node must be rasterized (video/canvas/iframe/backdrop-blur/other unsupported paint). */
   rasterReason?: string;
   /** Filled in by the orchestrator after a screenshot crop (data: URI or hosted URL). */
@@ -1893,7 +1917,11 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       cornerRadii: isZeroRadii(raw.cornerRadiiRaw)
         ? undefined
         : raw.cornerRadiiRaw,
-      image: { href: raw.imgSrc, fit: objectFitFromRaw(raw.imgObjectFit) },
+      image: {
+        href: raw.imgSrc,
+        fit: objectFitFromRaw(raw.imgObjectFit),
+        position: raw.imgObjectPosition,
+      },
       layout: raw.layout,
     };
   }
@@ -2845,6 +2873,7 @@ export function collectRawFigmaSvgScene(
         ...base,
         imgSrc: img.currentSrc || img.src,
         imgObjectFit: view.getComputedStyle(img).objectFit,
+        imgObjectPosition: view.getComputedStyle(img).objectPosition,
       };
     }
 

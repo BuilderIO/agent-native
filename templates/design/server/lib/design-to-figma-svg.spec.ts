@@ -131,6 +131,32 @@ describe("secure image embedding", () => {
   });
 });
 
+describe("objectFitToPreserveAspectRatio", () => {
+  it("anchors top-left when the element does", async () => {
+    // The importer anchors a fallback render top-left, because Figma's
+    // `absoluteRenderBounds` states where the ink STARTS. Centring it in the
+    // export moved the artwork back — 1.26 points of round-trip drift.
+    const { objectFitToPreserveAspectRatio } =
+      await import("../../shared/figma-svg-scene.js");
+    expect(objectFitToPreserveAspectRatio("contain", "0px 0px")).toBe(
+      "xMinYMin meet",
+    );
+    expect(objectFitToPreserveAspectRatio("cover", "0% 0%")).toBe(
+      "xMinYMin slice",
+    );
+  });
+
+  it("keeps the centred default otherwise", async () => {
+    const { objectFitToPreserveAspectRatio } =
+      await import("../../shared/figma-svg-scene.js");
+    expect(objectFitToPreserveAspectRatio("contain")).toBe("xMidYMid meet");
+    expect(objectFitToPreserveAspectRatio("contain", "50% 50%")).toBe(
+      "xMidYMid meet",
+    );
+    expect(objectFitToPreserveAspectRatio("stretch", "0px 0px")).toBe("none");
+  });
+});
+
 describe("isAllowedFigmaSvgRenderRequest", () => {
   it("allows inert local schemes without DNS and blocks private HTTP targets", async () => {
     const blocked = vi.fn(async (url: string) => url.includes("127.0.0.1"));
