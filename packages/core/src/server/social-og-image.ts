@@ -297,7 +297,8 @@ function textBlock({
 }
 
 export function resolveAgentNativeOgImageAppName(event?: H3Event): string {
-  const explicitAppName = cleanText(process.env.APP_NAME);
+  const app = getAppConfig().app;
+  const explicitAppName = cleanText(app.name);
   if (explicitAppName) {
     return (
       resolveBuiltInAuthMarketingByName(explicitAppName)?.appName ??
@@ -315,7 +316,7 @@ export function resolveAgentNativeOgImageAppName(event?: H3Event): string {
   })?.appName;
   if (builtInAppName) return builtInAppName;
 
-  const appName = getAppConfig().app.name;
+  const appName = app.name;
   if (appName) {
     return resolveBuiltInAuthMarketingByName(appName)?.appName ?? appName;
   }
@@ -339,16 +340,14 @@ function resolveAgentNativeOgImageBrand(
     ? (getHeader(event, "x-forwarded-host") ?? getHeader(event, "host"))
     : undefined;
   const requestPath = event ? getRequestURL(event).pathname : undefined;
-  const explicitMarketing = resolveBuiltInAuthMarketingByName(
-    process.env.APP_NAME,
-  );
+  const explicitMarketing = resolveBuiltInAuthMarketingByName(app.name);
   const configuredMarketing = resolveBuiltInAuthMarketingByName(app.name);
   const configuredFirstParty = Boolean(
     explicitMarketing || configuredMarketing || isFirstPartyApp(app),
   );
   const hasCustomIdentity = Boolean(
     !configuredFirstParty &&
-    (cleanText(process.env.APP_NAME) ||
+    (cleanText(app.name) ||
       cleanText(app.name) ||
       packageDisplayName(app.packageName)),
   );
@@ -379,7 +378,7 @@ function resolveAgentNativeOgImageBrand(
   }
 
   const customAppName =
-    cleanText(process.env.APP_NAME) ||
+    cleanText(app.name) ||
     cleanText(app.name) ||
     packageDisplayName(app.packageName);
   return {
