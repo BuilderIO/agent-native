@@ -808,8 +808,11 @@ function enqueueDeckOp(
  * creation path which already inserts via `add-deck` — it is NOT called for
  * edits any more.
  */
-function saveDeckToAPI(deck: Deck) {
-  enqueueDeckOp(deck.id, { op: "full-replace", deck });
+function saveDeckToAPI(
+  deck: Deck,
+  onSaveSuccess?: (ops: GranularOp[]) => void,
+) {
+  enqueueDeckOp(deck.id, { op: "full-replace", deck }, { onSaveSuccess });
 }
 
 /**
@@ -1439,10 +1442,12 @@ export function mergeServerSlideUpdate(
   server: Deck,
   changedSlideId: string | undefined,
   deckId: string,
+  options?: { shouldMergeServerOnlySlide?: (slide: Slide) => boolean },
 ): Deck {
   const merged = mergeServerAddedSlides(local, server, {
     shouldMergeServerOnlySlide: (slide) =>
-      !hasPendingDeleteForSlide(deckId, slide.id),
+      !hasPendingDeleteForSlide(deckId, slide.id) &&
+      (options?.shouldMergeServerOnlySlide?.(slide) ?? true),
   });
   if (!changedSlideId || hasPendingWriteForSlide(deckId, changedSlideId)) {
     return merged;
@@ -1534,6 +1539,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const slideDeleteGenerationsRef = useRef<Map<string, Map<string, number>>>(
     new Map(),
   );
+  const successfulReplacementTombstoneBoundariesRef = useRef<
+    Map<
+      string,
+      Map<string, { generation: number; omitted: boolean; updatedAt: string }>
+    >
+  >(new Map());
+  const serverSnapshotGenerationRef = useRef(0);
   const deckBaselineRequestIdRef = useRef(0);
   const deckListRequestIdRef = useRef(0);
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
@@ -1568,12 +1580,30 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         new Map<string, number>();
       generations.set(slideId, (generations.get(slideId) ?? 0) + 1);
       slideDeleteGenerationsRef.current.set(deckId, generations);
+      successfulReplacementTombstoneBoundariesRef.current
+        .get(deckId)
+        ?.delete(slideId);
       const tombstones =
         deletedSlideTombstonesRef.current.get(deckId) ?? new Set<string>();
       tombstones.add(slideId);
       deletedSlideTombstonesRef.current.set(deckId, tombstones);
     },
     [],
+  );
+
+  const markReplacedSlideOmissions = useCallback(
+    (current: Deck | undefined, replacement: Deck) => {
+      if (!current) return;
+      const replacementIds = new Set(
+        replacement.slides.map((slide) => slide.id),
+      );
+      for (const slide of current.slides) {
+        if (!replacementIds.has(slide.id)) {
+          markSlideDeleteTombstone(replacement.id, slide.id);
+        }
+      }
+    },
+    [markSlideDeleteTombstone],
   );
 
   const markDeckDirty = useCallback(
@@ -1594,35 +1624,61 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const clearSlideDeleteTombstone = useCallback(
     (deckId: string, slideId: string) => {
       const tombstones = deletedSlideTombstonesRef.current.get(deckId);
-      if (!tombstones) return;
-      tombstones.delete(slideId);
-      if (tombstones.size === 0) {
-        deletedSlideTombstonesRef.current.delete(deckId);
+      if (tombstones) {
+        tombstones.delete(slideId);
+        if (tombstones.size === 0) {
+          deletedSlideTombstonesRef.current.delete(deckId);
+        }
       }
+      successfulReplacementTombstoneBoundariesRef.current
+        .get(deckId)
+        ?.delete(slideId);
     },
     [],
   );
 
   const clearDeckDeleteTombstones = useCallback((deckId: string) => {
     deletedSlideTombstonesRef.current.delete(deckId);
+    successfulReplacementTombstoneBoundariesRef.current.delete(deckId);
   }, []);
 
-  const clearReplacedSlideDeleteTombstones = useCallback(
-    (deckId: string, capturedTombstones: ReadonlyMap<string, number>) => {
+  const recordReplacedSlideDeleteTombstones = useCallback(
+    (
+      deckId: string,
+      capturedTombstones: ReadonlyMap<string, number>,
+      replacementUpdatedAt: string,
+      replacementSlideIds: ReadonlySet<string>,
+    ) => {
       const tombstones = deletedSlideTombstonesRef.current.get(deckId);
-      if (!tombstones) return;
+      if (!tombstones || capturedTombstones.size === 0) return;
       const generations = slideDeleteGenerationsRef.current.get(deckId);
+      const boundary = ++serverSnapshotGenerationRef.current;
+      const boundaries =
+        successfulReplacementTombstoneBoundariesRef.current.get(deckId) ??
+        new Map<
+          string,
+          { generation: number; omitted: boolean; updatedAt: string }
+        >();
       for (const [slideId, generation] of capturedTombstones) {
         if (
           tombstones.has(slideId) &&
           generations?.get(slideId) === generation
         ) {
-          tombstones.delete(slideId);
+          boundaries.set(slideId, {
+            generation: boundary,
+            omitted: !replacementSlideIds.has(slideId),
+            updatedAt: replacementUpdatedAt,
+          });
         }
       }
-      if (tombstones.size === 0) clearDeckDeleteTombstones(deckId);
+      if (boundaries.size > 0) {
+        successfulReplacementTombstoneBoundariesRef.current.set(
+          deckId,
+          boundaries,
+        );
+      }
     },
-    [clearDeckDeleteTombstones],
+    [],
   );
 
   const captureReplacedSlideDeleteTombstones = useCallback(
@@ -1630,16 +1686,21 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const tombstones = deletedSlideTombstonesRef.current.get(deck.id);
       const generations = slideDeleteGenerationsRef.current.get(deck.id);
       const capturedTombstones = new Map<string, number>();
-      for (const slide of deck.slides) {
-        const generation = generations?.get(slide.id);
-        if (tombstones?.has(slide.id) && generation !== undefined) {
-          capturedTombstones.set(slide.id, generation);
+      for (const slideId of tombstones ?? []) {
+        const generation = generations?.get(slideId);
+        if (generation !== undefined) {
+          capturedTombstones.set(slideId, generation);
         }
       }
       return () =>
-        clearReplacedSlideDeleteTombstones(deck.id, capturedTombstones);
+        recordReplacedSlideDeleteTombstones(
+          deck.id,
+          capturedTombstones,
+          deck.updatedAt,
+          new Set(deck.slides.map((slide) => slide.id)),
+        );
     },
-    [clearReplacedSlideDeleteTombstones],
+    [recordReplacedSlideDeleteTombstones],
   );
 
   const nextOpenDeckRequestId = useCallback((deckId: string) => {
@@ -1649,11 +1710,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reconcileServerDeckWithDeleteTombstones = useCallback(
-    (server: Deck): Deck => {
+    (
+      server: Deck,
+      snapshotGeneration = serverSnapshotGenerationRef.current,
+    ): Deck => {
       const tombstones = deletedSlideTombstonesRef.current.get(server.id);
       if (!tombstones?.size) return server;
 
       const serverSlideIds = new Set(server.slides.map((slide) => slide.id));
+      const replacementBoundaries =
+        successfulReplacementTombstoneBoundariesRef.current.get(server.id);
       const failedOps = failedSaveDecks.has(server.id)
         ? (pendingOpsQueue.get(server.id) ?? [])
         : [];
@@ -1670,17 +1736,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         ? new Set(failedFullReplace.deck.slides.map((slide) => slide.id))
         : null;
       for (const slideId of tombstones) {
+        const replacementBoundary = replacementBoundaries?.get(slideId);
+        const replacementSnapshotIsCurrent =
+          replacementBoundary &&
+          replacementBoundary.generation <= snapshotGeneration &&
+          (!replacementBoundary.omitted ||
+            server.updatedAt > replacementBoundary.updatedAt);
         if (
           failedDeleteSlideIds.has(slideId) ||
           (failedFullReplaceSlideIds &&
             !failedFullReplaceSlideIds.has(slideId)) ||
-          !serverSlideIds.has(slideId)
+          !serverSlideIds.has(slideId) ||
+          replacementSnapshotIsCurrent
         ) {
           tombstones.delete(slideId);
+          replacementBoundaries?.delete(slideId);
         }
       }
       if (tombstones.size === 0) {
         deletedSlideTombstonesRef.current.delete(server.id);
+        successfulReplacementTombstoneBoundariesRef.current.delete(server.id);
         return server;
       }
 
@@ -1745,6 +1820,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             discardPendingDeckOps(op.deckId);
             deleteDeckAfterPendingCreate(op.deckId);
           } else if (op.op === "restore-deck" || op.op === "replace-deck") {
+            markReplacedSlideOmissions(
+              decksRef.current.find((deck) => deck.id === op.deckId),
+              op.deck,
+            );
             enqueueDeckOp(
               op.deckId,
               { op: "full-replace", deck: op.deck },
@@ -1911,6 +1990,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       currentOpenId: string,
       options?: { clearPendingWrites?: boolean; changedSlideId?: string },
     ): Promise<Deck | null> => {
+      const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestId = nextOpenDeckRequestId(currentOpenId);
       const fetchedServerDeck = await fetchDeckFromAPI(currentOpenId);
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
@@ -1922,8 +2002,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (options?.clearPendingWrites) {
         clearDeckDeleteTombstones(currentOpenId);
       }
-      const serverDeck =
-        reconcileServerDeckWithDeleteTombstones(fetchedServerDeck);
+      const serverDeck = reconcileServerDeckWithDeleteTombstones(
+        fetchedServerDeck,
+        snapshotGeneration,
+      );
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
       if (options?.clearPendingWrites) {
         lastExternalUpdateRef.current = Date.now();
@@ -1945,6 +2027,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           serverDeck,
           options?.changedSlideId,
           currentOpenId,
+          {
+            shouldMergeServerOnlySlide: (slide) =>
+              !deletedSlideTombstonesRef.current
+                .get(currentOpenId)
+                ?.has(slide.id),
+          },
         );
         if (merged === clientDeck) return serverDeck; // nothing new to surface
         lastExternalUpdateRef.current = Date.now();
@@ -1996,14 +2084,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged]);
 
   const resetDeckBaseline = useCallback(
-    (nextDecks: Deck[], createSeqAtRequest: number) => {
+    (
+      nextDecks: Deck[],
+      createSeqAtRequest: number,
+      snapshotGeneration = serverSnapshotGenerationRef.current,
+    ) => {
       // A baseline snapshot supersedes any in-flight light-list membership
       // diff before it replaces local state.
       ++deckListRequestIdRef.current;
       const reconciledDecks = nextDecks.map((deck) =>
         deck.previewSlide
           ? deck
-          : reconcileServerDeckWithDeleteTombstones(deck),
+          : reconcileServerDeckWithDeleteTombstones(deck, snapshotGeneration),
       );
       const nextIds = new Set(reconciledDecks.map((d) => d.id));
       setDecks((prev) => {
@@ -2032,6 +2124,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     useCallback(async (): Promise<DeckReloadStatus> => {
       const requestId = ++deckBaselineRequestIdRef.current;
       const createSeqAtRequest = localCreateSeqRef.current;
+      const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestedOpenDeckId = currentOpenDeckIdFromWindow();
       const openDeckRequestId = requestedOpenDeckId
         ? nextOpenDeckRequestId(requestedOpenDeckId)
@@ -2054,7 +2147,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         return "failed";
       }
       lastExternalUpdateRef.current = Date.now();
-      resetDeckBaseline(loaded, createSeqAtRequest);
+      resetDeckBaseline(loaded, createSeqAtRequest, snapshotGeneration);
       setLoadError(false);
       setLoading(false);
       return "loaded";
@@ -2072,6 +2165,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     if (orgLoading) return;
     const requestId = ++deckBaselineRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
+    const snapshotGeneration = serverSnapshotGenerationRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     const openDeckRequestId = requestedOpenDeckId
       ? nextOpenDeckRequestId(requestedOpenDeckId)
@@ -2092,7 +2186,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // triggering the save effect (lastExternalUpdateRef is bumped).
       const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
-      resetDeckBaseline(initial, createSeqAtRequest);
+      resetDeckBaseline(initial, createSeqAtRequest, snapshotGeneration);
       setLoadError(loaded === null);
       setLoading(false);
     });
@@ -2227,10 +2321,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       ) {
         const deck = decks.find((d) => d.id === id);
         if (!deck) continue;
-        saveDeckToAPI(deck);
+        markReplacedSlideOmissions(
+          decksRef.current.find((d) => d.id === id),
+          deck,
+        );
+        saveDeckToAPI(deck, captureReplacedSlideDeleteTombstones(deck));
       }
     }
-  }, [decks, loading]);
+  }, [
+    captureReplacedSlideDeleteTombstones,
+    decks,
+    loading,
+    markReplacedSlideOmissions,
+  ]);
 
   // Listen for deck changes through the shared framework sync transport. A
   // separate deck EventSource used to consume another long-lived browser
@@ -2936,6 +3039,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       ) {
         return;
       }
+      if (before && after) {
+        markReplacedSlideOmissions(before, after);
+      }
+      const onSaveSuccess = after
+        ? captureReplacedSlideDeleteTombstones(after)
+        : undefined;
       markDeckDirty(deckId);
       // setDeckSlides replaces ALL slides wholesale (used by AI generation and
       // imports), so its undo entry is a deck-level full replacement instead of
@@ -2951,7 +3060,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           enqueueDeckOp(
             deckId,
             { op: "full-replace", deck: next },
-            { onSaveSuccess: captureReplacedSlideDeleteTombstones(next) },
+            { onSaveSuccess },
           );
           return next;
         }),
@@ -2964,7 +3073,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [captureReplacedSlideDeleteTombstones, markDeckDirty, setDecksLocal],
+    [
+      captureReplacedSlideDeleteTombstones,
+      markDeckDirty,
+      markReplacedSlideOmissions,
+      setDecksLocal,
+    ],
   );
 
   return (
