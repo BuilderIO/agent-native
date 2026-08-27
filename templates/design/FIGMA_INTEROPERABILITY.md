@@ -246,8 +246,10 @@ Measured 2026-08-27:
 
 Read the last three columns together, because they say what is actually wrong:
 
-- **The export hop is nearly free.** Mean drift 0.96%, max 2.92%. Whatever the
-  import hop gets right survives the trip back to Figma.
+- **The export hop is nearly free.** Mean drift 0.85% and max 2.38% across the
+  designs in the table; 0.96% mean and 2.92% max once the two clipboard cases
+  the round-trip also covers are included. Whatever the import hop gets right
+  survives the trip back to Figma.
 - **Most of the import number is glyph rasterisation.** Excluding text boxes
   the mean falls to 0.84%, and `typography` — the fixture built to stress text
   — falls to **0.005%**. Nothing but glyphs is wrong on it.
