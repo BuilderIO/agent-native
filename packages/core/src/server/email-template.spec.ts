@@ -120,6 +120,24 @@ describe("renderEmail", () => {
     expect(text).toContain("Reply to reach alice@example.com directly.");
   });
 
+  it("renders the resource block before the CTA", () => {
+    const { html, text } = renderEmail({
+      heading: "Alice shared a document",
+      paragraphs: [
+        "Alice (alice@example.com) has invited you to view the following document:",
+      ],
+      resourceBlock: { name: "Project plan" },
+      cta: { label: "Open", url: "https://example.com/doc/1" },
+    });
+
+    expect(html).toContain(">Project plan</td>");
+    expect(html.indexOf("Project plan")).toBeLessThan(
+      html.indexOf(">\n              Open\n"),
+    );
+    expect(text).toContain("Project plan\n\nOpen: https://example.com/doc/1");
+    expect(text).not.toContain("Use the button below to open it");
+  });
+
   it("renders a safe treated link block after the CTA", () => {
     const url = "https://clips.example/r/rec-1?view=agent&mode=summary";
     const { html, text } = renderEmail({
