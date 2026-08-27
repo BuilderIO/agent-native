@@ -625,7 +625,19 @@ export async function listPropertiesForDatabase(
   const properties = definitions.map((definition) => {
     const type = definition.type as DocumentPropertyType;
     const storedValue = valueByPropertyId.get(definition.id);
-    const options = parsePropertyOptions(definition.optionsJson);
+    const storedOptions = parsePropertyOptions(definition.optionsJson);
+    const options =
+      !includeContainerDerivedValues && type === "relation"
+        ? { relation: { databaseId: null } }
+        : !includeContainerDerivedValues && type === "rollup"
+          ? {
+              rollup: {
+                relationPropertyId: null,
+                targetPropertyId: null,
+                aggregation: storedOptions.rollup?.aggregation ?? "count",
+              },
+            }
+          : storedOptions;
     const value =
       valueDocument && isComputedPropertyType(type) && type !== "formula"
         ? computedPropertyValue(type, valueDocument, {
@@ -657,7 +669,10 @@ export async function listPropertiesForDatabase(
         updatedAt: definition.updatedAt,
       },
       value:
-        !includeContainerDerivedValues && type === "relation" ? null : value,
+        !includeContainerDerivedValues &&
+        (type === "relation" || isComputedPropertyType(type))
+          ? null
+          : value,
       editable:
         includeContainerDerivedValues &&
         !definition.systemRole &&

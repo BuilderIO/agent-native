@@ -832,7 +832,7 @@ export function PlanDocumentEditor({
    */
   sharedCollabDoc?: Pick<
     UseCollaborativeDocResult,
-    "ydoc" | "awareness" | "isSynced"
+    "ydoc" | "awareness" | "isSynced" | "initialization"
   >;
 }) {
   const t = useT();
@@ -1015,8 +1015,11 @@ export function PlanDocumentEditor({
     ydoc,
     awareness,
     isSynced: collabSyncedRaw,
+    initialization: collabInitialization,
   } = collabEnabled && sharedCollabDoc ? sharedCollabDoc : ownCollabDoc;
   const collabSynced = collabEnabled ? collabSyncedRaw : true;
+  const editorEditable =
+    editable && (!collabEnabled || collabInitialization.status === "ready");
 
   const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
     () =>
@@ -1498,7 +1501,7 @@ export function PlanDocumentEditor({
           value={value}
           onChange={handleChange}
           contentUpdatedAt={contentUpdatedAt}
-          editable={editable}
+          editable={editorEditable}
           dialect="gfm"
           features={{ image: false }}
           extraExtensions={extraExtensions}

@@ -1622,6 +1622,7 @@ describe("content database soft-delete actions and reads", () => {
     const propertyId = nextId("property");
     const relationPropertyId = nextId("relation_property");
     const rollupPropertyId = nextId("rollup_property");
+    const createdByPropertyId = nextId("created_by_property");
 
     await db.insert(schema.contentDatabaseItems).values([
       {
@@ -1686,6 +1687,19 @@ describe("content database soft-delete actions and reads", () => {
           },
         }),
         position: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: createdByPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Created by",
+        type: "created_by",
+        description: "",
+        visibility: "always_show",
+        optionsJson: "{}",
+        position: 3,
         createdAt: now,
         updatedAt: now,
       },
@@ -1769,12 +1783,27 @@ describe("content database soft-delete actions and reads", () => {
           editable: false,
         }),
         expect.objectContaining({
-          definition: expect.objectContaining({ id: relationPropertyId }),
+          definition: expect.objectContaining({
+            id: relationPropertyId,
+            options: { relation: { databaseId: null } },
+          }),
           value: null,
           editable: false,
         }),
         expect.objectContaining({
-          definition: expect.objectContaining({ id: rollupPropertyId }),
+          definition: expect.objectContaining({
+            id: rollupPropertyId,
+            options: expect.objectContaining({
+              rollup: expect.objectContaining({
+                relationPropertyId: null,
+                targetPropertyId: null,
+              }),
+            }),
+          }),
+          value: null,
+        }),
+        expect.objectContaining({
+          definition: expect.objectContaining({ id: createdByPropertyId }),
           value: null,
         }),
       ]),
