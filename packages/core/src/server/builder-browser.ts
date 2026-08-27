@@ -169,7 +169,14 @@ export function isBuilderConnectCallbackUrlAllowed(
   candidate: string,
   event: H3Event,
 ): boolean {
-  if (!isAllowedOAuthRedirectUri(candidate, event)) return false;
+  if (
+    !isAllowedOAuthRedirectUri(
+      candidate,
+      event,
+      getBuilderConnectCallbackOrigin(event),
+    )
+  )
+    return false;
   let url: URL;
   try {
     url = new URL(candidate);
@@ -203,11 +210,12 @@ export function resolveBuilderConnectCallbackUrl(
   state?: string,
 ): string | null {
   const stateSuffix = state ? `?state=${encodeURIComponent(state)}` : "";
-  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
+  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  const withBase = `${callbackOrigin}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
   // Match google-oauth default-redirect behavior when the request is not under
   // APP_BASE_PATH: fall back to the root `/_agent-native/...` callback.
-  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
+  const root = `${callbackOrigin}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
     return root;
   }
@@ -1251,11 +1259,34 @@ function isTrustedBuilderRequestHost(host: string | undefined): boolean {
       hostname === "builder.io" ||
       hostname.endsWith(".builder.io") ||
       hostname === "builder.my" ||
-      hostname.endsWith(".builder.my")
+      hostname.endsWith(".builder.my") ||
+      hostname === "builder.cloud" ||
+      hostname.endsWith(".builder.cloud")
     );
   } catch {
     return false;
   }
+}
+
+function isBuilderCloudRequestHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
+    return hostname === "builder.cloud" || hostname.endsWith(".builder.cloud");
+  } catch {
+    // coercion-ok: malformed hosts cannot be trusted as Builder Cloud origins.
+    return false;
+  }
+}
+
+function getBuilderConnectCallbackOrigin(event: H3Event): string {
+  const headerHost = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-host") ||
+      readEventHeader(event, "host"),
+  );
+  return isBuilderCloudRequestHost(headerHost)
+    ? getBuilderBrowserOriginForEvent(event)
+    : getOrigin(event);
 }
 
 function isLoopbackBuilderRequestHost(host: string | undefined): boolean {

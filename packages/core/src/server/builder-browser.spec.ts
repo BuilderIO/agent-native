@@ -447,6 +447,36 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("keeps Builder-hosted app connect callbacks on the active app origin", () => {
+      process.env.NODE_ENV = "production";
+      process.env.APP_URL = "https://default-template.netlify.app";
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "the-grand-tour.builder.cloud",
+        "x-forwarded-proto": "https",
+      });
+
+      const callbackUrl = resolveBuilderConnectCallbackUrl(
+        event,
+        "<STATE_EXAMPLE>",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://the-grand-tour.builder.cloud/_agent-native/builder/connect",
+      );
+      expect(callbackUrl).toBe(
+        "https://the-grand-tour.builder.cloud/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+      expect(isBuilderConnectCallbackUrlAllowed(callbackUrl!, event)).toBe(
+        true,
+      );
+      expect(
+        isBuilderConnectCallbackUrlAllowed(
+          "https://other.builder.cloud/_agent-native/builder/callback",
+          event,
+        ),
+      ).toBe(false);
+    });
+
     it("recovers state from the callback cookie when Builder omits query state", () => {
       const state = createBuilderConnectState();
       const otherState = createBuilderConnectState();
