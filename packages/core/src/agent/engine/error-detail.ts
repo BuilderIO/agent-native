@@ -122,6 +122,17 @@ export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   );
 }
 
+/** Preserve the canonical code only for the gateway's generic error envelope. */
+export function canonicalizeBuilderGatewayErrorCode(
+  code: string | undefined,
+  message: string,
+): string | undefined {
+  return code === "provider_internal_error" &&
+    isBuilderGatewayInternalErrorMessage(message)
+    ? BUILDER_GATEWAY_INTERNAL_ERROR_CODE
+    : code;
+}
+
 /** The overflow codes a provider or gateway may report instead of prose. */
 export function isContextOverflowCode(code: string | undefined): boolean {
   const normalized = (code ?? "").toLowerCase();

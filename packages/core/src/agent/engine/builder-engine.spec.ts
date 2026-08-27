@@ -1644,6 +1644,71 @@ describe("createBuilderEngine", () => {
     expect(stop?.error?.toLowerCase()).toContain("rate_limit");
   });
 
+  it("canonicalizes coded Builder internal-error envelopes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "provider_internal_error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("canonicalizes coded Builder internal-error HTTP responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(500, {
+          code: "provider_internal_error",
+          message:
+            "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.statusCode).toBe(500);
+  });
+
+  it("preserves provider_internal_error for non-envelope messages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "provider_internal_error",
+            error: "upstream provider failed",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("provider_internal_error");
+    expect(stop?.providerRetryable).toBeUndefined();
+  });
+
   it("maps invalid_request stops into a non-retryable error stop preserving the gateway message and code", async () => {
     vi.stubGlobal(
       "fetch",
