@@ -117,6 +117,7 @@ import {
   assistantMessageRunId,
   UserMessage,
   AssistantMessage,
+  ExternalUserStoppedRunContext,
   SelectionAttachedPill,
   RunningActivityStatus,
   displayableUserMessageText,
@@ -3442,12 +3443,6 @@ const AssistantChatInner = forwardRef<
       matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId),
     [threadId],
   );
-  const resolveUserStoppedRun = useCallback(
-    (runId?: string, turnId?: string): boolean =>
-      externalUserStopped || wasUserStoppedRun(runId, turnId),
-    [externalUserStopped, wasUserStoppedRun],
-  );
-
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
       if (
@@ -6215,31 +6210,35 @@ const AssistantChatInner = forwardRef<
                                       resetKey={messageListResetKey}
                                     >
                                       <UserStoppedRunContext.Provider
-                                        value={resolveUserStoppedRun}
+                                        value={wasUserStoppedRun}
                                       >
-                                        <ExternalTextStreamingContext.Provider
-                                          value={externalStreaming}
+                                        <ExternalUserStoppedRunContext.Provider
+                                          value={externalUserStopped}
                                         >
-                                          <ThreadPrimitive.Messages
-                                            // Deliberately NOT keyed on part structure. Doing that
-                                            // remounted the whole transcript every time a tool call
-                                            // started or a placeholder id was rewritten — a flash and a
-                                            // lost scroll position in the middle of an answer. The
-                                            // error boundary above is the mechanism for assistant-ui's
-                                            // stale tap-resource errors: it catches them, clears, and
-                                            // retries, and its retry signature includes the reset key so
-                                            // a genuinely new structure always gets a fresh budget.
-                                            // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
-                                            // rename and splice through both the import and streaming
-                                            // paths and records that no such error occurs.
-                                            components={{
-                                              UserMessage:
-                                                AssistantChatUserMessageItem,
-                                              AssistantMessage:
-                                                AssistantChatAssistantMessageItem,
-                                            }}
-                                          />
-                                        </ExternalTextStreamingContext.Provider>
+                                          <ExternalTextStreamingContext.Provider
+                                            value={externalStreaming}
+                                          >
+                                            <ThreadPrimitive.Messages
+                                              // Deliberately NOT keyed on part structure. Doing that
+                                              // remounted the whole transcript every time a tool call
+                                              // started or a placeholder id was rewritten — a flash and a
+                                              // lost scroll position in the middle of an answer. The
+                                              // error boundary above is the mechanism for assistant-ui's
+                                              // stale tap-resource errors: it catches them, clears, and
+                                              // retries, and its retry signature includes the reset key so
+                                              // a genuinely new structure always gets a fresh budget.
+                                              // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
+                                              // rename and splice through both the import and streaming
+                                              // paths and records that no such error occurs.
+                                              components={{
+                                                UserMessage:
+                                                  AssistantChatUserMessageItem,
+                                                AssistantMessage:
+                                                  AssistantChatAssistantMessageItem,
+                                              }}
+                                            />
+                                          </ExternalTextStreamingContext.Provider>
+                                        </ExternalUserStoppedRunContext.Provider>
                                       </UserStoppedRunContext.Provider>
                                     </AssistantMessageListErrorBoundary>
                                     {visibleLoopLimit && !showRunningInUI && (

@@ -1350,6 +1350,7 @@ export const ServerRunActiveContext = React.createContext(false);
 export const UserStoppedRunContext = React.createContext<
   (runId?: string, turnId?: string) => boolean
 >(() => false);
+export const ExternalUserStoppedRunContext = React.createContext(false);
 
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
@@ -1728,9 +1729,11 @@ export function AssistantMessage() {
   const messageRunId = assistantMessageRunId(msg);
   const messageTurnId = assistantMessageTurnId(msg);
   const userStoppedRun = React.useContext(UserStoppedRunContext);
+  const externalUserStopped = React.useContext(ExternalUserStoppedRunContext);
   const isUserStoppedRun =
     assistantMessageWasUserStopped(msg) ||
-    userStoppedRun(messageRunId, messageTurnId);
+    userStoppedRun(messageRunId, messageTurnId) ||
+    (externalUserStopped && isLast);
   const thinkingDisplay = useThinkingDisplay();
   const groupWorkParts = useCallback(
     (
