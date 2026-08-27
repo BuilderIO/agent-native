@@ -20,14 +20,14 @@ vi.mock("./json.js", () => ({
 vi.mock("../db/index.js", () => ({
   getDb: getDbMock,
   schema: {
-    assetGenerationPresets: { id: "presets.id" },
+    assetTemplates: { id: "templates.id" },
     assetLibraries: { id: "libraries.id" },
   },
 }));
 
 import { inArray } from "drizzle-orm";
 
-import { preparePresetChatContext } from "./preset-chat-context.js";
+import { prepareTemplateChatContext } from "./template-chat-context.js";
 
 function ref(refId: string) {
   return {
@@ -35,7 +35,7 @@ function ref(refId: string) {
     path: "",
     name: "",
     source: "assets",
-    refType: "preset",
+    refType: "template",
     refId,
   };
 }
@@ -50,13 +50,13 @@ function createDb(rowSets: unknown[][]) {
   return { select };
 }
 
-describe("preparePresetChatContext", () => {
+describe("prepareTemplateChatContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("returns nothing when no preset references are tagged", async () => {
-    const result = await preparePresetChatContext({
+    const result = await prepareTemplateChatContext({
       message: "make a hero",
       references: [
         {
@@ -73,7 +73,7 @@ describe("preparePresetChatContext", () => {
     expect(getDbMock).not.toHaveBeenCalled();
   });
 
-  it("embeds the preset aesthetics and philosophy into the model message", async () => {
+  it("embeds the template aesthetics and philosophy into the model message", async () => {
     getDbMock.mockReturnValue(
       createDb([
         [
@@ -107,7 +107,7 @@ describe("preparePresetChatContext", () => {
       ]),
     );
 
-    const result = await preparePresetChatContext({
+    const result = await prepareTemplateChatContext({
       message: "make a launch hero for the new phone",
       references: [ref("preset-1")],
     });
@@ -115,8 +115,8 @@ describe("preparePresetChatContext", () => {
     const message = (result as { message: string }).message;
     // User's original text is preserved.
     expect(message).toContain("make a launch hero for the new phone");
-    // Preset identity + philosophy embedded.
-    expect(message).toContain('Preset "Campaign Hero" (id: preset-1)');
+    // Template identity + philosophy embedded.
+    expect(message).toContain('Template "Campaign Hero" (id: preset-1)');
     expect(message).toContain(
       "Cinematic, aspirational, product front and center",
     );
@@ -124,14 +124,14 @@ describe("preparePresetChatContext", () => {
     expect(message).toContain("mood: confident");
     expect(message).toContain("dramatic rim light");
     expect(message).toContain("Avoid: clip art; stock smiles.");
-    // Logo intent from preset settings.
+    // Logo intent from template settings.
     expect(message).toContain("canonical logo is composited");
-    // Instruction to internalize before generating + pass presetId.
+    // Instruction to internalize before generating + pass templateId.
     expect(message).toContain("Before generating anything, study");
-    expect(message).toContain("pass the matching presetId");
+    expect(message).toContain("pass the matching templateId");
   });
 
-  it("de-duplicates repeated preset references", async () => {
+  it("de-duplicates repeated template references", async () => {
     getDbMock.mockReturnValue(
       createDb([
         [
@@ -149,12 +149,39 @@ describe("preparePresetChatContext", () => {
       ]),
     );
 
-    await preparePresetChatContext({
+    await prepareTemplateChatContext({
       message: "go",
       references: [ref("preset-1"), ref("preset-1")],
     });
 
-    // First inArray call is the preset lookup; it should get one deduped id.
+    // First inArray call is the template lookup; it should get one deduped id.
     expect(vi.mocked(inArray).mock.calls[0][1]).toEqual(["preset-1"]);
+  });
+
+  it("accepts legacy preset references and omits the brand-kit block for globals", async () => {
+    getDbMock.mockReturnValue(
+      createDb([
+        [
+          {
+            id: "template-1",
+            libraryId: null,
+            title: "Global Social",
+            aspectRatio: "1:1",
+            imageSize: "2K",
+            model: "gemini-3.1-flash-image",
+            settings: "{}",
+          },
+        ],
+      ]),
+    );
+
+    const result = await prepareTemplateChatContext({
+      message: "go",
+      references: [{ ...ref("template-1"), refType: "preset" }],
+    });
+
+    const message = (result as { message: string }).message;
+    expect(message).toContain("<tagged-templates>");
+    expect(message).not.toContain("- Brand kit:");
   });
 });

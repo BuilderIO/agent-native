@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { DEFAULT_GENERATION_PRESET_SEEDS } from "../../shared/generation-presets.js";
@@ -5,26 +6,35 @@ import { schema } from "../db/index.js";
 import { stringifyJson } from "./json.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type InsertDb = {
-  insert: (table: any) => {
-    values: (value: Record<string, unknown>) => Promise<unknown>;
-  };
-};
+type InsertDb = any;
 
-export async function seedDefaultGenerationPresets({
+export async function ensureDefaultTemplates({
   db,
-  libraryId,
+  ownerEmail,
+  orgId,
   now,
 }: {
   db: InsertDb;
-  libraryId: string;
+  ownerEmail: string;
+  orgId: string | null | undefined;
   now: string;
 }) {
+  const existing = await db
+    .select({ settings: schema.assetTemplates.settings })
+    .from(schema.assetTemplates)
+    .where(eq(schema.assetTemplates.ownerEmail, ownerEmail));
+  const existingSeedIds = new Set(
+    existing.flatMap((row: { settings?: string | null }) => {
+      const settings = JSON.parse(row.settings ?? "{}") as { seedId?: unknown };
+      return typeof settings.seedId === "string" ? [settings.seedId] : [];
+    }),
+  );
   let sortOrder = 0;
   for (const preset of DEFAULT_GENERATION_PRESET_SEEDS) {
-    await db.insert(schema.assetGenerationPresets).values({
+    if (existingSeedIds.has(preset.seedId)) continue;
+    await db.insert(schema.assetTemplates).values({
       id: nanoid(),
-      libraryId,
+      libraryId: null,
       collectionId: null,
       title: preset.title,
       description: preset.description,
@@ -42,6 +52,9 @@ export async function seedDefaultGenerationPresets({
         source: "default-generation-preset",
       }),
       sortOrder,
+      ownerEmail,
+      orgId: orgId ?? null,
+      visibility: "private",
       createdAt: now,
       updatedAt: now,
     });

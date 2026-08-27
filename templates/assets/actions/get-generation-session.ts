@@ -6,7 +6,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   requireLibrary,
   serializeAsset,
-  serializeGenerationPreset,
+  serializeTemplate,
   serializeGenerationRun,
   serializeGenerationSession,
 } from "./_helpers.js";
@@ -53,8 +53,8 @@ export default defineAction({
       session.presetId
         ? db
             .select()
-            .from(schema.assetGenerationPresets)
-            .where(eq(schema.assetGenerationPresets.id, session.presetId))
+            .from(schema.assetTemplates)
+            .where(eq(schema.assetTemplates.id, session.presetId))
         : Promise.resolve([]),
       assetIds.length
         ? db
@@ -71,7 +71,7 @@ export default defineAction({
     ]);
     return {
       session: serializeGenerationSession(session),
-      preset: presetRows[0] ? serializeGenerationPreset(presetRows[0]) : null,
+      preset: presetRows[0] ? serializeTemplate(presetRows[0]) : null,
       items,
       assets: assets.map(serializeAsset),
       runs: runs.map(serializeGenerationRun),

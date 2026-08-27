@@ -14,7 +14,6 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client/hooks";
 import {
-  getEmbedAuthToken,
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
 } from "@agent-native/core/client/host";
@@ -100,6 +99,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { assetContentUrl } from "@/lib/asset-urls";
 import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
@@ -445,28 +445,11 @@ function shouldUseContentProxyForPreview(asset: Asset) {
   );
 }
 
-function embedTokenParam() {
-  if (typeof window === "undefined") return null;
-  const externalToken =
-    typeof (window as any).__AGENT_NATIVE_EXTERNAL_EMBED?.token === "string"
-      ? (window as any).__AGENT_NATIVE_EXTERNAL_EMBED.token
-      : null;
-  if (externalToken) return externalToken;
-  return (
-    getEmbedAuthToken() ??
-    new URLSearchParams(window.location.search).get("__an_embed_token")
-  );
-}
-
-function assetContentUrl(asset: Asset, variant?: "thumb") {
-  const params = new URLSearchParams();
-  if (variant === "thumb") params.set("variant", "thumb");
-  const embedToken = embedTokenParam();
-  if (embedToken) params.set("__an_embed_token", embedToken);
-  const query = params.toString();
-  return absoluteAssetUrl(
-    `/api/assets/${asset.id}/content${query ? `?${query}` : ""}`,
-  );
+function assetContentPreviewUrl(asset: Asset, variant?: "thumb") {
+  return assetContentUrl(asset.id, {
+    variant,
+    origin: absoluteAppUrl("/"),
+  });
 }
 
 function uniqueSources(sources: Array<string | undefined>) {
@@ -481,8 +464,8 @@ function uniqueSources(sources: Array<string | undefined>) {
 function assetThumbnailSources(asset: Asset) {
   if (shouldUseContentProxyForPreview(asset)) {
     return uniqueSources([
-      assetContentUrl(asset, asset.thumbnailUrl ? "thumb" : undefined),
-      assetContentUrl(asset),
+      assetContentPreviewUrl(asset, asset.thumbnailUrl ? "thumb" : undefined),
+      assetContentPreviewUrl(asset),
     ]);
   }
   return uniqueSources(
@@ -494,7 +477,7 @@ function assetThumbnailSources(asset: Asset) {
 
 function assetOverlaySources(asset: Asset) {
   if (shouldUseContentProxyForPreview(asset)) {
-    return uniqueSources([assetContentUrl(asset)]);
+    return uniqueSources([assetContentPreviewUrl(asset)]);
   }
   return uniqueSources(
     [asset.previewUrl, asset.downloadUrl, asset.url, asset.thumbnailUrl].map(
@@ -547,7 +530,7 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
   const displayTitle = assetDisplayTitle(asset);
   const fallbackLabel = assetTitle || assetPrompt || displayTitle || asset.id;
   const embeddedContentUrl = shouldUseContentProxyForPreview(asset)
-    ? assetContentUrl(asset)
+    ? assetContentPreviewUrl(asset)
     : undefined;
   const previewUrl = absoluteAssetUrl(embeddedContentUrl ?? asset.previewUrl);
   const url = absoluteAssetUrl(
@@ -2592,16 +2575,17 @@ export function AssetPickerSurface() {
     isLoading: presetsLoading,
     isPending: presetsPending,
   } = useActionQuery(
-    "list-generation-presets",
+    "list-templates",
     { libraryId: selectedLibraryId } as any,
     { enabled: Boolean(selectedLibraryId) && !usingStarterLibrary } as any,
   ) as {
-    data?: { presets?: GenerationPreset[] };
+    data?: { templates?: GenerationPreset[] };
     isLoading?: boolean;
     isPending?: boolean;
   };
   const generationPresets =
-    presetData?.presets?.filter((preset) => preset.mediaType !== "video") ?? [];
+    presetData?.templates?.filter((preset) => preset.mediaType !== "video") ??
+    [];
   const selectedPreset =
     presetId === "none"
       ? null

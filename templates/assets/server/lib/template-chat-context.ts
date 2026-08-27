@@ -6,88 +6,92 @@ import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
 import { normalizePresetReferences } from "./preset-references.js";
 
-const PRESET_REF_TYPE = "preset";
+const TEMPLATE_REF_TYPES = new Set(["template", "preset"]);
 
-type PresetRow = typeof schema.assetGenerationPresets.$inferSelect;
+type TemplateRow = typeof schema.assetTemplates.$inferSelect;
 type LibraryRow = typeof schema.assetLibraries.$inferSelect;
 
 /**
- * When a user tags one or more generation presets with an `@preset` mention,
- * embed each preset's aesthetics and creative philosophy into the model-facing
+ * When a user tags one or more templates (or a legacy `@preset` mention),
+ * embed each template's aesthetics and creative philosophy into the model-facing
  * message so the agent internalizes the brief before it generates. The user's
  * visible message is untouched — only the message the model reads is augmented.
  */
-export async function preparePresetChatContext(args: {
+export async function prepareTemplateChatContext(args: {
   message: string;
   references: AgentChatReference[];
 }): Promise<{ message?: string } | void> {
-  const presetIds = Array.from(
+  const templateIds = Array.from(
     new Set(
       (args.references ?? [])
-        .filter((ref) => ref.refType === PRESET_REF_TYPE && ref.refId)
+        .filter((ref) => TEMPLATE_REF_TYPES.has(ref.refType ?? "") && ref.refId)
         .map((ref) => ref.refId as string),
     ),
   );
-  if (!presetIds.length) return;
+  if (!templateIds.length) return;
 
   const db = getDb();
-  const presets = (await db
+  const templates = (await db
     .select()
-    .from(schema.assetGenerationPresets)
-    .where(
-      inArray(schema.assetGenerationPresets.id, presetIds),
-    )) as PresetRow[];
-  if (!presets.length) return;
+    .from(schema.assetTemplates)
+    .where(inArray(schema.assetTemplates.id, templateIds))) as TemplateRow[];
+  if (!templates.length) return;
 
   const libraryIds = Array.from(
-    new Set(presets.map((preset) => preset.libraryId)),
+    new Set(
+      templates
+        .map((template) => template.libraryId)
+        .filter((libraryId): libraryId is string => Boolean(libraryId)),
+    ),
   );
-  const libraries = (await db
-    .select()
-    .from(schema.assetLibraries)
-    .where(inArray(schema.assetLibraries.id, libraryIds))) as LibraryRow[];
+  const libraries = libraryIds.length
+    ? ((await db
+        .select()
+        .from(schema.assetLibraries)
+        .where(inArray(schema.assetLibraries.id, libraryIds))) as LibraryRow[])
+    : [];
   const libraryById = new Map(
     libraries.map((library) => [library.id, library]),
   );
 
-  const blocks = presets.map((preset) =>
-    describePreset(preset, libraryById.get(preset.libraryId)),
+  const blocks = templates.map((template) =>
+    describeTemplate(template, libraryById.get(template.libraryId ?? "")),
   );
 
   const context = [
-    "<tagged-generation-presets>",
-    "The user tagged the generation preset(s) below. Before generating anything, study each preset's aesthetics and creative philosophy and let it drive your composition, mood, lighting, styling, and subject choices. Treat the preset as the creative brief, not just a set of output dimensions.",
+    "<tagged-templates>",
+    "The user tagged the template(s) below. Before generating anything, study each template's aesthetics and creative philosophy and let it drive your composition, mood, lighting, styling, and subject choices. Treat the template as the creative brief, not just a set of output dimensions.",
     "",
     blocks.join("\n\n"),
     "",
-    "When you call generate-image or generate-image-batch, pass the matching presetId so its saved format, model, tier, logo setting, and prompt template apply automatically — do not restate aspect ratio, size, model, or tier as ad-hoc args. Keep your own prompt focused on the specific subject the user asked for, expressed through the preset's philosophy above.",
-    "</tagged-generation-presets>",
+    "When you call generate-image or generate-image-batch, pass the matching templateId so its saved format, model, tier, logo setting, and prompt template apply automatically — do not restate aspect ratio, size, model, or tier as ad-hoc args. Keep your own prompt focused on the specific subject the user asked for, expressed through the template's philosophy above.",
+    "</tagged-templates>",
   ].join("\n");
 
   return { message: `${args.message}\n\n${context}` };
 }
 
-function describePreset(preset: PresetRow, library?: LibraryRow): string {
+function describeTemplate(template: TemplateRow, library?: LibraryRow): string {
   const settings = parseJson<{
     tier?: string;
     includeLogo?: boolean;
     presetReferences?: unknown;
-  }>(preset.settings, {});
+  }>(template.settings, {});
   const presetReferences = normalizePresetReferences(settings.presetReferences);
   const style = library
     ? parseJson<StyleBrief>(library.styleBrief, {})
     : ({} as StyleBrief);
 
   const lines = [
-    `Preset "${preset.title}" (id: ${preset.id})`,
+    `Template "${template.title}" (id: ${template.id})`,
     library ? `- Brand kit: ${library.title}` : "",
-    preset.description ? `- Intent: ${preset.description}` : "",
-    preset.category ? `- Deliverable type: ${preset.category}` : "",
-    preset.promptTemplate
-      ? `- Prompt philosophy / template: ${preset.promptTemplate}`
+    template.description ? `- Intent: ${template.description}` : "",
+    template.category ? `- Deliverable type: ${template.category}` : "",
+    template.promptTemplate
+      ? `- Prompt philosophy / template: ${template.promptTemplate}`
       : "",
-    preset.textPolicy ? `- Text policy: ${preset.textPolicy}` : "",
-    `- Output: ${preset.aspectRatio}, ${preset.imageSize}, model ${preset.model}${
+    template.textPolicy ? `- Text policy: ${template.textPolicy}` : "",
+    `- Output: ${template.aspectRatio}, ${template.imageSize}, model ${template.model}${
       settings.tier ? `, ${settings.tier} tier` : ""
     }`,
     settings.includeLogo === true

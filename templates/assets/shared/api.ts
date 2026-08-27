@@ -323,6 +323,18 @@ export interface GenerationPresetSummary {
   updatedAt?: string;
 }
 
+export interface TemplateSummary extends Omit<
+  GenerationPresetSummary,
+  "libraryId"
+> {
+  libraryId: string | null;
+  scope: "global" | "library";
+  visibility: "private" | "org" | "public";
+  ownerEmail: string;
+  accessRole?: "viewer" | "commenter" | "editor" | "admin" | "owner";
+  libraryTitle?: string | null;
+}
+
 export interface GenerationSessionSummary {
   id: string;
   libraryId: string;

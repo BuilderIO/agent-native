@@ -356,7 +356,7 @@ export function BrandKitDetailRoute({
   const prepareSessionContinuation = useActionMutation(
     "prepare-generation-session-continuation",
   );
-  const { data: presetData } = useActionQuery("list-generation-presets", {
+  const { data: presetData } = useActionQuery("list-templates", {
     libraryId,
   }) as any;
   const { data: sessionData } = useActionQuery("list-generation-sessions", {
@@ -432,7 +432,7 @@ export function BrandKitDetailRoute({
 
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
-  const generationPresets = ((presetData as any)?.presets ?? []) as any[];
+  const generationPresets = ((presetData as any)?.templates ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
   const serverAssets = (data?.assets ?? []) as any[];
   const assets = serverAssets

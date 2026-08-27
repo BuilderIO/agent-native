@@ -9,6 +9,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  resolveAccess: vi.fn(async () => ({ role: "owner" })),
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -54,6 +55,12 @@ vi.mock("../server/db/index.js", () => ({
       id: "presets.id",
       libraryId: "presets.library_id",
     },
+    assetTemplates: {
+      id: "templates.id",
+      libraryId: "templates.library_id",
+    },
+    assetTemplateShares: {},
+    assetLibraryShares: {},
     assetGenerationSessions: {
       id: "sessions.id",
       presetId: "sessions.preset_id",

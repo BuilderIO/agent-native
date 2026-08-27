@@ -86,8 +86,8 @@ export default defineAction({
     if (run.presetId && boardAssignments) {
       const [preset] = await db
         .select()
-        .from(schema.assetGenerationPresets)
-        .where(eq(schema.assetGenerationPresets.id, run.presetId))
+        .from(schema.assetTemplates)
+        .where(eq(schema.assetTemplates.id, run.presetId))
         .limit(1);
       const presetSettings = parseJson<{ presetReferences?: unknown }>(
         preset?.settings,

@@ -9,6 +9,12 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  resolveAccess: vi.fn(async () => ({ role: "owner" })),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: vi.fn(() => "designer@example.com"),
+  getRequestOrgId: vi.fn(() => "org-1"),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -36,6 +42,7 @@ vi.mock("../server/lib/json.js", () => ({
 // Echo the row back so we can inspect what each action persisted/returned.
 vi.mock("./_helpers.js", () => ({
   serializeGenerationPreset: vi.fn((row: unknown) => row),
+  serializeTemplate: vi.fn((row: unknown) => row),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -51,6 +58,9 @@ vi.mock("../server/db/index.js", () => ({
     },
     assetCollections: { id: "collections.id" },
     assetGenerationPresets: { id: "presets.id" },
+    assetTemplates: { id: "templates.id", libraryId: "templates.libraryId" },
+    assetTemplateShares: {},
+    assetLibraryShares: {},
   },
 }));
 
