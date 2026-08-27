@@ -43,7 +43,9 @@ import {
   type SlideShapeType,
 } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
-import EditorToolbar from "@/components/editor/EditorToolbar";
+import EditorToolbar, {
+  type PresentRequest,
+} from "@/components/editor/EditorToolbar";
 import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
@@ -66,6 +68,7 @@ import {
   clearSlideEditingActive,
   deckIdFromPathname,
   defaultSlideContent,
+  flushPendingSaves,
   hasUnsavedDeckChanges,
   markSlideEditingActive,
   type Slide,
@@ -187,6 +190,17 @@ export default function DeckEditor() {
   // or leaves the shared save queue, so the deck-specific read stays current.
   const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
+  const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
+  const presentNavigationRef = useRef(false);
+  const presentInFlightRef = useRef(false);
+  const presentAttemptRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      presentAttemptRef.current += 1;
+      presentInFlightRef.current = false;
+      presentNavigationRef.current = false;
+    };
+  }, [id]);
   // Inline drafts flush through SlideEditor keepalive handlers. The native
   // prompt only needs to cover queued or in-flight writes now.
   usePendingDeckUnloadGuard(hasPendingDeckWrites);
@@ -197,6 +211,7 @@ export default function DeckEditor() {
           hasPendingEdits: hasPendingDeckEdits,
           currentPathname: currentLocation.pathname,
           nextPathname: nextLocation.pathname,
+          allowPendingEdits: presentNavigationRef.current,
         }),
       [hasPendingDeckEdits],
     ),
@@ -1497,6 +1512,63 @@ export default function DeckEditor() {
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
 
+  const finishPresent = async (
+    attemptId: number,
+    target: Window | null,
+    presentationUrl: string,
+  ) => {
+    try {
+      await flushDeckSave(id);
+      if (presentAttemptRef.current !== attemptId) {
+        if (target && !target.closed) target.close();
+        return;
+      }
+      if (target) {
+        if (!target.closed) target.location.href = presentationUrl;
+        return;
+      }
+      presentNavigationRef.current = true;
+      navigate(presentationUrl);
+    } catch (error) {
+      if (presentAttemptRef.current !== attemptId) {
+        if (target && !target.closed) target.close();
+        return;
+      }
+      if (target && !target.closed) target.close();
+      console.error("[slides-present] failed to flush save:", error);
+      toast.error(t("settings.saveFailed"));
+    } finally {
+      if (presentAttemptRef.current === attemptId) {
+        presentInFlightRef.current = false;
+      }
+    }
+  };
+
+  const handlePresent = (request?: PresentRequest): boolean | void => {
+    if (presentInFlightRef.current || presentNavigationRef.current) {
+      return request?.preserveNativeNavigation ? true : undefined;
+    }
+
+    const hasInlineDraft = inlineEditFlushRef.current?.() ?? false;
+    const hasPendingEdits =
+      hasPendingDeckEdits || hasInlineDraft || hasUnsavedDeckChanges(id);
+    flushPendingSaves();
+    if (request?.preserveNativeNavigation && !hasPendingEdits) return false;
+
+    const presentationUrl = `/deck/${id}/present?slide=${Math.max(0, currentIndex) + 1}`;
+    const target = request?.preserveNativeNavigation
+      ? window.open("", "_blank")
+      : null;
+    if (request?.preserveNativeNavigation && !target) {
+      toast.error(t("settings.saveFailed"));
+      return true;
+    }
+    presentInFlightRef.current = true;
+    const attemptId = ++presentAttemptRef.current;
+    void finishPresent(attemptId, target, presentationUrl);
+    return request?.preserveNativeNavigation ? true : undefined;
+  };
+
   // Editor-wide drag-and-drop catch-all. SlideEditor's own drop handler runs
   // first for drops landing on a slide (it calls stopPropagation), so this
   // only fires for drops that landed in the surrounding chrome. Prevent the
@@ -1567,6 +1639,7 @@ export default function DeckEditor() {
         }}
         onShowHistory={() => setHistoryOpen((open) => !open)}
         historyButtonRef={historyButtonRef}
+        onPresent={handlePresent}
         currentSlide={currentSlide}
         onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
         addSlideGenerating={addSlideGenerating}
@@ -1795,6 +1868,7 @@ export default function DeckEditor() {
           <SlideEditor
             slide={currentSlide}
             deckId={id}
+            flushInlineEditRef={inlineEditFlushRef}
             readOnly={!canEdit}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
