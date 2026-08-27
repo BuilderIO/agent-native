@@ -184,8 +184,15 @@ function cachePath(kind: string, key: string): string {
   return join(CACHE_DIR, `${kind}-${digest}`);
 }
 
-async function figmaJson<T>(path: string, attempt = 0): Promise<T> {
-  const cached = cachePath("json", path);
+async function figmaJson<T>(
+  path: string,
+  attempt = 0,
+  cacheVersion?: string,
+): Promise<T> {
+  const cached = cachePath(
+    "json",
+    cacheVersion ? `${path}@${cacheVersion}` : path,
+  );
   if (existsSync(cached)) return JSON.parse(readFileSync(cached, "utf8")) as T;
   if (offline) {
     throw new Error(
@@ -209,7 +216,7 @@ async function figmaJson<T>(path: string, attempt = 0): Promise<T> {
       `(rate limited, waiting ${Math.round(waitMs / 1000)}s) `,
     );
     await sleep(waitMs);
-    return figmaJson<T>(path, attempt + 1);
+    return figmaJson<T>(path, attempt + 1, cacheVersion);
   }
   if (!response.ok) {
     // Figma's own message names the real cause (bad scope, rate limit, missing
@@ -262,6 +269,8 @@ async function fetchBinary(url: string, attempt = 0): Promise<Buffer> {
 
 interface NodesResponse {
   nodes: Record<string, { document: FigmaNode } | undefined>;
+  /** Changes whenever the file changes; used to expire whole-file cache entries. */
+  lastModified?: string;
 }
 interface ImagesResponse {
   images: Record<string, string | null>;
@@ -284,6 +293,8 @@ interface CaseOutcome {
   renderScale?: number;
   /** Both sizes, so a 1px scaling round-off reads differently from a wrong node. */
   sizes?: { reference: string; candidate: string };
+  /** Image fills the file had no URL for: content missing from the render, never silent. */
+  unresolvedImageFills?: number;
   renderWarnings?: string[];
   error?: string;
 }
@@ -322,14 +333,25 @@ async function runCase(
 
   // Image fills resolve to expiring S3 URLs; the harness renders them directly
   // rather than mirroring them into storage the way the real import does.
+  //
+  // Cache this one per FILE VERSION, not per path. It returns a whole-file map
+  // that grows as the file does, so a path-keyed entry written when the file
+  // held 70 images kept answering for a file that had since grown to 295 —
+  // and every fill added after that resolved to no URL. The converter said so
+  // ("had no resolved URL; layer omitted"), but the run still printed a number,
+  // which is how a design lost the screenshots inside its device mockups and
+  // still scored 9%.
   const imageRefs = collectImageFillRefs(node);
   let imageFillUrls: Record<string, string> = {};
   if (imageRefs.length) {
     const response = await figmaJson<FileImagesResponse>(
       `/files/${fileKey}/images`,
+      0,
+      nodes.lastModified,
     );
     imageFillUrls = response.meta.images ?? {};
   }
+  const unresolvedImageRefs = imageRefs.filter((ref) => !imageFillUrls[ref]);
 
   const fallbackIds = collectFallbackNodeIds(node);
   const fallbackImageUrls: Record<string, string> = {};
@@ -407,7 +429,30 @@ async function runCase(
   // `absoluteRenderBounds`, so render the same region rather than the frame
   // box — otherwise the comparison scores the offset (a 2px table shadow read
   // as 10%, and a dashboard lost the 106px its content overflows by).
-  const ink = node.absoluteRenderBounds ?? box;
+  //
+  // Take the UNION with the frame box rather than `absoluteRenderBounds`
+  // alone. That field is the ink still VISIBLE after ancestor clipping, but
+  // `/images` renders the node in isolation and ignores those ancestors: a
+  // frame sitting inside a clipping parent reports bounds cropped to the
+  // parent, and rendering that region cropped an 8356px page to its parent's
+  // 4835px and scored 66%.
+  const renderBounds = node.absoluteRenderBounds;
+  const ink = renderBounds
+    ? (() => {
+        const x = Math.min(box.x, renderBounds.x);
+        const y = Math.min(box.y, renderBounds.y);
+        return {
+          x,
+          y,
+          width:
+            Math.max(box.x + box.width, renderBounds.x + renderBounds.width) -
+            x,
+          height:
+            Math.max(box.y + box.height, renderBounds.y + renderBounds.height) -
+            y,
+        };
+      })()
+    : box;
   const contentOffset = { left: box.x - ink.x, top: box.y - ink.y };
 
   // Figma clamps a rendered node to 16384px on its longest side and silently
@@ -482,6 +527,7 @@ async function runCase(
     ],
     unrenderableNodes: unrenderable.length || undefined,
     renderScale: renderScale < 1 ? renderScale : undefined,
+    unresolvedImageFills: unresolvedImageRefs.length || undefined,
     sizes: comparison.dimensionMismatch
       ? {
           reference: `${comparison.reference.width}x${comparison.reference.height}`,
@@ -547,6 +593,10 @@ for (const outcome of outcomes) {
     notes.push(`${outcome.renderWarnings.length} render warning(s)`);
   if (outcome.unrenderableNodes)
     notes.push(`${outcome.unrenderableNodes} node(s) Figma could not render`);
+  if (outcome.unresolvedImageFills)
+    notes.push(
+      `${outcome.unresolvedImageFills} image fill(s) UNRESOLVED — content missing from this render`,
+    );
   if (outcome.renderScale)
     notes.push(
       `measured at ${(outcome.renderScale * 100).toFixed(1)}% — too tall for Figma to render 1:1`,
