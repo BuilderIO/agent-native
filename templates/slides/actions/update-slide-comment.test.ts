@@ -93,9 +93,19 @@ vi.mock("../server/db/index.js", () => {
       }),
     }),
   };
-
-  return { getDb: () => db, schema };
+  return {
+    getDb: () => ({
+      ...db,
+      transaction: async (run: (tx: typeof db) => unknown) => run(db),
+    }),
+    schema,
+  };
 });
+
+vi.mock("../server/lib/outbound-webhooks.js", () => ({
+  enqueueWebhookEvent: vi.fn(async () => []),
+  dispatchWebhookDeliveries: vi.fn(async () => undefined),
+}));
 
 import action from "./update-slide-comment";
 

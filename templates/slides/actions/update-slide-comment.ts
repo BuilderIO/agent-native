@@ -7,7 +7,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   dispatchWebhookDeliveries,
-  emitWebhookEvent,
   enqueueWebhookEvent,
 } from "../server/lib/outbound-webhooks.js";
 
@@ -23,11 +22,7 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
     const [comment] = await db
-      .select({
-        deckId: schema.slideComments.deckId,
-        threadId: schema.slideComments.threadId,
-        authorEmail: schema.slideComments.authorEmail,
-      })
+      .select()
       .from(schema.slideComments)
       .where(eq(schema.slideComments.id, args.id))
       .limit(1);
@@ -52,40 +47,26 @@ export default defineAction({
 
     const updatedAt = new Date().toISOString();
 
-    if (args.resolved === true) {
-      await db
-        .update(schema.slideComments)
-        .set({ resolved: true, updatedAt })
-        .where(
-          and(
-            eq(schema.slideComments.deckId, comment.deckId),
-            eq(schema.slideComments.threadId, comment.threadId),
-          ),
+    if (args.resolved === true || args.resolved === false) {
+      const resolved = args.resolved;
+      const deliveryIds = await db.transaction(async (tx) => {
+        await tx
+          .update(schema.slideComments)
+          .set({ resolved, updatedAt })
+          .where(
+            and(
+              eq(schema.slideComments.deckId, comment.deckId),
+              eq(schema.slideComments.threadId, comment.threadId),
+            ),
+          );
+        return enqueueWebhookEvent(
+          "comment.updated",
+          { ...comment, resolved, updatedAt },
+          { db: tx },
         );
-      await emitWebhookEvent("comment.updated", {
-        ...comment,
-        resolved: true,
-        updatedAt,
       });
-      return { ok: true, resolved: true };
-    }
-
-    if (args.resolved === false) {
-      await db
-        .update(schema.slideComments)
-        .set({ resolved: false, updatedAt })
-        .where(
-          and(
-            eq(schema.slideComments.deckId, comment.deckId),
-            eq(schema.slideComments.threadId, comment.threadId),
-          ),
-        );
-      await emitWebhookEvent("comment.updated", {
-        ...comment,
-        resolved: false,
-        updatedAt,
-      });
-      return { ok: true, resolved: false };
+      await dispatchWebhookDeliveries(deliveryIds);
+      return { ok: true, resolved };
     }
 
     // Both resolve and reopen return early above, so only content edits remain.
@@ -93,21 +74,24 @@ export default defineAction({
       return { ok: true };
     }
 
-    await db
-      .update(schema.slideComments)
-      .set({ content: args.content, updatedAt })
-      .where(
-        and(
-          eq(schema.slideComments.id, args.id),
-          eq(schema.slideComments.deckId, comment.deckId),
-        ),
+    const deliveryIds = await db.transaction(async (tx) => {
+      await tx
+        .update(schema.slideComments)
+        .set({ content: args.content, updatedAt })
+        .where(
+          and(
+            eq(schema.slideComments.id, args.id),
+            eq(schema.slideComments.deckId, comment.deckId),
+          ),
+        );
+      return enqueueWebhookEvent(
+        "comment.updated",
+        { ...comment, content: args.content, updatedAt },
+        { db: tx },
       );
-
-    await emitWebhookEvent("comment.updated", {
-      ...comment,
-      content: args.content,
-      updatedAt,
     });
+
+    await dispatchWebhookDeliveries(deliveryIds);
     return { ok: true };
   },
 });

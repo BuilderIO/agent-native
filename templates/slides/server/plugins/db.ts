@@ -333,6 +333,13 @@ WHERE principal_type = 'user'`,
   CREATE INDEX IF NOT EXISTS webhook_subscriptions_owner_org_idx ON webhook_subscriptions (owner_email, org_id);
   CREATE INDEX IF NOT EXISTS webhook_deliveries_status_due_idx ON webhook_deliveries (status, next_attempt_at)`,
     },
+    {
+      version: 27,
+      name: "slides-webhook-delivery-claim-leases",
+      sql: `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS claimed_at TEXT;
+  ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS claim_expires_at TEXT;
+  CREATE INDEX IF NOT EXISTS webhook_deliveries_processing_lease_idx ON webhook_deliveries (status, claim_expires_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );

@@ -32,6 +32,7 @@ function resolvedBuilder<T>(value: T) {
 
 const mockDb = {
   select: vi.fn(() => resolvedBuilder(shareRows)),
+  transaction: async (run: (tx: any) => unknown) => run(mockDb),
   delete: vi.fn((table: unknown) => {
     const rows = table === tables.decks ? [{ id: "deck-1" }] : [];
     const builder = {
@@ -72,6 +73,10 @@ vi.mock("../server/handlers/decks.js", () => ({
 vi.mock("./_deck-write.js", () => ({
   deckHttpError: (status: number, message: string) =>
     Object.assign(new Error(message), { statusCode: status }),
+}));
+vi.mock("../server/lib/outbound-webhooks.js", () => ({
+  enqueueWebhookEvent: vi.fn(async () => []),
+  dispatchWebhookDeliveries: vi.fn(async () => undefined),
 }));
 
 import deleteDeck from "./delete-deck.js";

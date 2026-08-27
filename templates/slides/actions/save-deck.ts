@@ -21,7 +21,6 @@ import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
   dispatchWebhookDeliveries,
-  emitWebhookEvent,
   enqueueWebhookEvent,
 } from "../server/lib/outbound-webhooks.js";
 import {
@@ -124,22 +123,29 @@ export default defineAction({
         assertHumanReadableDeckTitle(title);
         deck.title = title;
         await assertDesignSystemReadable(nextDesignSystemId);
+        let deliveryIds: string[];
         try {
-          await db.insert(schema.decks).values({
-            id: deckId,
-            title,
-            data: JSON.stringify(deck),
-            designSystemId: nextDesignSystemId,
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            createdAt: now,
-            updatedAt: now,
+          deliveryIds = await db.transaction(async (tx) => {
+            await tx.insert(schema.decks).values({
+              id: deckId,
+              title,
+              data: JSON.stringify(deck),
+              designSystemId: nextDesignSystemId,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? null,
+              createdAt: now,
+              updatedAt: now,
+            });
+            return enqueueWebhookEvent("deck.created", deck, { db: tx });
           });
         } catch {
           // Some adapters wrap duplicate-key failures in a generic query error
           // that includes bound params, so never surface the raw error here.
           throw deckHttpError(404, "Deck not found");
         }
+        notifyClients(deckId);
+        await dispatchWebhookDeliveries(deliveryIds);
+        return { ...deck, appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders) };
       } else if (
         access.role === "owner" ||
         access.role === "admin" ||
@@ -154,36 +160,38 @@ export default defineAction({
         assertHumanReadableDeckTitle(title);
         deck.title = title;
         await assertDesignSystemReadable(nextDesignSystemId);
-        if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
-          await createDeckVersionSnapshot(
-            {
-              id: access.resource.id,
-              title: access.resource.title,
-              data: access.resource.data,
-              ownerEmail: access.resource.ownerEmail as string,
-            },
-            { label: "Before editor save" },
-          );
-        }
-        await db
-          .update(schema.decks)
-          .set({
-            title,
-            data: JSON.stringify(deck),
-            designSystemId:
-              nextDesignSystemId ?? access.resource.designSystemId,
-            updatedAt: now,
-          })
-          .where(eq(schema.decks.id, deckId));
+        const deliveryIds = await db.transaction(async (tx) => {
+          if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
+            await createDeckVersionSnapshot(
+              {
+                id: access.resource.id,
+                title: access.resource.title,
+                data: access.resource.data,
+                ownerEmail: access.resource.ownerEmail as string,
+              },
+              { label: "Before editor save", db: tx },
+            );
+          }
+          await tx
+            .update(schema.decks)
+            .set({
+              title,
+              data: JSON.stringify(deck),
+              designSystemId:
+                nextDesignSystemId ?? access.resource.designSystemId,
+              updatedAt: now,
+            })
+            .where(eq(schema.decks.id, deckId));
+          return enqueueWebhookEvent("deck.updated", deck, { db: tx });
+        });
+        notifyClients(deckId);
+        await dispatchWebhookDeliveries(deliveryIds);
+        return { ...deck, appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders) };
       } else {
         // Viewer-only access — same 404 as no-access so we don't leak that the
         // deck exists with restricted permissions.
         throw deckHttpError(404, "Deck not found");
       }
-
-      notifyClients(deckId);
-      await emitWebhookEvent(access ? "deck.updated" : "deck.created", deck);
-      return { ...deck, appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders) };
     }),
 });
 

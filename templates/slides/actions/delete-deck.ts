@@ -14,7 +14,6 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   dispatchWebhookDeliveries,
-  emitWebhookEvent,
   enqueueWebhookEvent,
 } from "../server/lib/outbound-webhooks.js";
 import { deckHttpError } from "./_deck-write.js";
@@ -67,23 +66,26 @@ export default defineAction({
           if (recipient) orgRecipients.add(recipient);
         }
       }
-      await db
-        .delete(schema.deckVersions)
-        .where(
-          and(
-            eq(schema.deckVersions.deckId, id),
-            eq(schema.deckVersions.ownerEmail, owner),
-          ),
-        );
-      const result = await db
-        .delete(schema.decks)
-        .where(eq(schema.decks.id, id))
-        .returning();
+      const deliveryIds = await db.transaction(async (tx) => {
+        await tx
+          .delete(schema.deckVersions)
+          .where(
+            and(
+              eq(schema.deckVersions.deckId, id),
+              eq(schema.deckVersions.ownerEmail, owner),
+            ),
+          );
+        const result = await tx
+          .delete(schema.decks)
+          .where(eq(schema.decks.id, id))
+          .returning();
 
-      if (result.length === 0) {
-        throw deckHttpError(404, "Deck not found");
-      }
-      await emitWebhookEvent("deck.deleted", access.resource);
+        if (result.length === 0) {
+          throw deckHttpError(404, "Deck not found");
+        }
+        return enqueueWebhookEvent("deck.deleted", access.resource, { db: tx });
+      });
+      await dispatchWebhookDeliveries(deliveryIds);
       if (access.resource.visibility === "public") {
         notifyClients(id, { type: "deck-deleted", visibility: "public" });
       } else {

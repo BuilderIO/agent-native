@@ -12,11 +12,28 @@ Slides delivers signed outbound events to HTTPS endpoints. The subscription API 
 | `comment.added` | A slide comment or reply is added. | The created comment entity. |
 | `comment.updated` | Comment text or thread resolution changes. | The changed comment entity. |
 
+## Action-to-event coverage
+
+| Action | Mutation path | Event |
+| --- | --- | --- |
+| `create-deck` | Create a new deck | `deck.created` |
+| `create-deck` | Replace an existing deck | `deck.updated` |
+| `add-deck` | Insert an editor-created deck | `deck.created` |
+| `save-deck` | Create a deck from a full payload | `deck.created` |
+| `save-deck` | Replace an existing full payload | `deck.updated` |
+| `patch-deck` | Apply any deck or slide patch | `deck.updated` |
+| `duplicate-deck` | Create the copied, new deck | `deck.created` |
+| `delete-deck` | Delete a deck | `deck.deleted` |
+| `add-slide-comment` | Add a comment or reply | `comment.added` |
+| `update-slide-comment` | Change comment text or thread resolution | `comment.updated` |
+
 Comment deletion intentionally has no outbound event.
 
 ## Subscription API
 
 `GET /_agent-native/slides/webhooks` lists the caller's subscriptions without secrets.
+
+`GET /_agent-native/slides/webhooks/:id` returns one caller-owned subscription without its secret.
 
 `POST /_agent-native/slides/webhooks` accepts `{ "url": "https://receiver.example/webhooks/slides", "events": ["deck.created"] }`. It returns the created subscription and a generated `secret` exactly once. Save that value securely; later reads never return it.
 
@@ -32,11 +49,19 @@ Every POST has `Content-Type: application/json` and `X-Agent-Native-Signature: s
 
 Verify the raw request body before parsing it. Reject a missing or mismatched signature with a non-2xx response.
 
+```ts
+const expected = createHmac("sha256", webhookSecret)
+  .update(rawBody)
+  .digest("hex");
+const received = request.headers["x-agent-native-signature"];
+if (received !== `sha256=${expected}`) throw new Error("Invalid signature");
+```
+
 ## Reliability
 
-Delivery rows are claimed atomically. Failed requests retry with exponential backoff, up to eight attempts. A subscription is automatically disabled after five consecutive failures or a terminal attempt limit; `disabledReason` is visible in list responses. URLs must be HTTPS and are SSRF-checked both when saved and before delivery.
+Delivery rows are claimed atomically with a five-minute lease. Failed requests retry with exponential backoff, up to eight attempts. A subscription is automatically disabled after five consecutive failures or a terminal attempt limit; `disabledReason` is visible in list responses. URLs must be HTTPS and are SSRF-checked both when saved and before delivery.
 
-The signed processor endpoint is self-dispatched after enqueueing. Self-hosted Node runs a one-minute recovery sweep. Serverless deployments retain the durable outbox and callable processor but require an external signed scheduler to invoke recovery if a self-dispatch is interrupted.
+Every processor invocation first reclaims expired `processing` leases as pending work, then claims due rows. The signed processor endpoint is self-dispatched after enqueueing, so a later processor invocation recovers work stranded by a terminated serverless invocation without requiring an external scheduler. Self-hosted Node retains its one-minute recovery sweep as an optimization.
 
 ## Placement decision
 

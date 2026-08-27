@@ -9,7 +9,7 @@ import {
   encryptSecretValue,
 } from "@agent-native/core/secrets";
 import { fireInternalDispatch } from "@agent-native/core/server";
-import { and, asc, eq, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
@@ -26,6 +26,7 @@ export type SlidesWebhookEvent = (typeof SLIDES_WEBHOOK_EVENTS)[number];
 const MAX_ATTEMPTS = 8;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const RETRY_BASE_MS = 30_000;
+const CLAIM_LEASE_MS = 5 * 60_000;
 
 function now(): string {
   return new Date().toISOString();
@@ -120,7 +121,12 @@ export async function deleteWebhookSubscription(
   if (deleted.length) {
     await db
       .update(schema.webhookDeliveries)
-      .set({ status: "cancelled", updatedAt: now() })
+      .set({
+        status: "cancelled",
+        claimedAt: null,
+        claimExpiresAt: null,
+        updatedAt: now(),
+      })
       .where(
         and(
           eq(schema.webhookDeliveries.subscriptionId, id),
@@ -214,6 +220,28 @@ export async function enqueueWebhookEvent(
   return deliveries.map((delivery) => delivery.id);
 }
 
+async function reclaimExpiredDeliveryLeases() {
+  const claimedAt = now();
+  await getDb()
+    .update(schema.webhookDeliveries)
+    .set({
+      status: "pending",
+      nextAttemptAt: claimedAt,
+      claimedAt: null,
+      claimExpiresAt: null,
+      updatedAt: claimedAt,
+    })
+    .where(
+      and(
+        eq(schema.webhookDeliveries.status, "processing"),
+        or(
+          isNull(schema.webhookDeliveries.claimExpiresAt),
+          lte(schema.webhookDeliveries.claimExpiresAt, claimedAt),
+        ),
+      ),
+    );
+}
+
 async function claimDueDeliveries(limit = 25) {
   const due = await getDb()
     .select()
@@ -228,12 +256,17 @@ async function claimDueDeliveries(limit = 25) {
     .limit(limit);
   const claimed = [];
   for (const delivery of due) {
+    const claimedAt = now();
     const result = await getDb()
       .update(schema.webhookDeliveries)
       .set({
         status: "processing",
         attempts: delivery.attempts + 1,
-        updatedAt: now(),
+        claimedAt,
+        claimExpiresAt: new Date(
+          Date.parse(claimedAt) + CLAIM_LEASE_MS,
+        ).toISOString(),
+        updatedAt: claimedAt,
       })
       .where(
         and(
@@ -266,6 +299,9 @@ export async function emitWebhookEvent(
 }
 
 export async function processDueWebhookDeliveries(limit?: number) {
+  // A later self-dispatch or Node recovery sweep releases work abandoned by a
+  // terminated serverless invocation; this does not rely on a separate scheduler.
+  await reclaimExpiredDeliveryLeases();
   const deliveries = await claimDueDeliveries(limit);
   for (const delivery of deliveries) {
     const [subscription] = await getDb()
@@ -276,7 +312,12 @@ export async function processDueWebhookDeliveries(limit?: number) {
     if (!subscription || !subscription.enabled) {
       await getDb()
         .update(schema.webhookDeliveries)
-        .set({ status: "cancelled", updatedAt: now() })
+        .set({
+          status: "cancelled",
+          claimedAt: null,
+          claimExpiresAt: null,
+          updatedAt: now(),
+        })
         .where(eq(schema.webhookDeliveries.id, delivery.id));
       continue;
     }
@@ -315,6 +356,8 @@ export async function processDueWebhookDeliveries(limit?: number) {
           deliveredAt: now(),
           updatedAt: now(),
           lastError: null,
+          claimedAt: null,
+          claimExpiresAt: null,
         })
         .where(eq(schema.webhookDeliveries.id, delivery.id));
       await getDb()
@@ -347,6 +390,8 @@ async function failDelivery(
       status: terminal ? "failed" : "pending",
       nextAttemptAt: terminal ? null : nextAttempt(delivery.attempts),
       lastError: message,
+      claimedAt: null,
+      claimExpiresAt: null,
       updatedAt: now(),
     })
     .where(eq(schema.webhookDeliveries.id, delivery.id));

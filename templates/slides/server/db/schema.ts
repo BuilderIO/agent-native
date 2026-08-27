@@ -133,6 +133,8 @@ export const webhookDeliveries = table("webhook_deliveries", {
   status: text("status").notNull(),
   attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: text("next_attempt_at"),
+  claimedAt: text("claimed_at"),
+  claimExpiresAt: text("claim_expires_at"),
   lastError: text("last_error"),
   deliveredAt: text("delivered_at"),
   createdAt: text("created_at").notNull().default(now()),
