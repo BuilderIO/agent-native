@@ -182,21 +182,6 @@ export function Footer() {
               {social.icon}
             </a>
           ))}
-          <FeedbackButton
-            url={DOCS_FEEDBACK_URL}
-            label={t("feedback.label")}
-            placeholder={t("feedback.placeholder")}
-            align="start"
-            side="top"
-            trigger={
-              <button
-                type="button"
-                className={`${linkClassName} cursor-pointer border-none bg-transparent p-0 lowercase`}
-              >
-                {t("feedback.label")}
-              </button>
-            }
-          />
         </div>
 
         <div className="flex items-center gap-[var(--spacing-6)]">
@@ -209,6 +194,21 @@ export function Footer() {
             className="h-[13px] w-px bg-[var(--b-border-default)]"
           />
           <div className="flex items-center gap-[var(--spacing-2)]">
+            <FeedbackButton
+              url={DOCS_FEEDBACK_URL}
+              label={t("feedback.label")}
+              placeholder={t("feedback.placeholder")}
+              align="end"
+              side="top"
+              trigger={
+                <button
+                  type="button"
+                  className={`${linkClassName} cursor-pointer border-none bg-transparent p-0`}
+                >
+                  {t("feedback.label")}
+                </button>
+              }
+            />
             <LanguagePicker openUpward />
             <ThemeIconButton />
           </div>
