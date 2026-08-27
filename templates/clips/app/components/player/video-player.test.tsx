@@ -195,6 +195,46 @@ describe("VideoPlayer playback", () => {
     expect(controls.className).not.toContain("pointer-events-none");
   });
 
+  it("hides playback comments while the end CTA is visible", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            comments={[
+              {
+                id: "comment-end",
+                content: "This should stay below the CTA.",
+                videoTimestampMs: 9_900,
+              },
+            ]}
+            cta={{
+              id: "cta-1",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "end",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(9_900);
+    });
+
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).toBeNull();
+    expect(container.textContent).toContain("Visit site");
+  });
+
   it("keeps the pause control visible on mobile after the idle timeout", () => {
     const video = getVideo();
     Object.defineProperty(video, "paused", {

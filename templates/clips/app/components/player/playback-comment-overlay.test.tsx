@@ -144,6 +144,48 @@ describe("PlaybackCommentOverlay", () => {
     container.remove();
   });
 
+  it("keeps highlighted comments inside the player at either timeline edge", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, videoTimestampMs: 0 }]}
+          currentMs={0}
+          durationMs={60_000}
+        />,
+      );
+    });
+
+    const startCard = container.querySelector<HTMLElement>(
+      "[data-player-comment-preview]",
+    );
+    expect(startCard?.parentElement?.className).toContain("left-0");
+    expect(startCard?.parentElement?.style.left).toBe("0%");
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, videoTimestampMs: 60_000 }]}
+          currentMs={60_000}
+          durationMs={60_000}
+        />,
+      );
+    });
+
+    const endCard = container.querySelector<HTMLElement>(
+      "[data-player-comment-preview]",
+    );
+    expect(endCard?.parentElement?.className).toContain("right-0");
+    expect(endCard?.parentElement?.style.right).toBe("0%");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("renders inline Markdown without creating heading elements", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");

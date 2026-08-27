@@ -205,4 +205,57 @@ describe("Scrubber reaction markers", () => {
     expect(groups[0]?.className).toContain("-top-7");
     expect(groups[1]?.className).toContain("-top-14");
   });
+
+  it("keeps hover previews inside the timeline at either edge", () => {
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_000}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          comments={[
+            {
+              id: "comment-start",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "At the start",
+              videoTimestampMs: 0,
+            },
+            {
+              id: "comment-end",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "At the end",
+              videoTimestampMs: 10_000,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const comments = container.querySelectorAll<HTMLButtonElement>(
+      '[aria-label="1 comment"]',
+    );
+    act(() => {
+      comments[0]?.dispatchEvent(
+        new MouseEvent("mouseover", { bubbles: true }),
+      );
+    });
+    let preview = container.querySelector<HTMLElement>(
+      "[data-player-comment-hover]",
+    );
+    expect(preview?.className).not.toContain("-translate-x-1/2");
+    expect(preview?.style.left).toBe("0%");
+
+    act(() => {
+      comments[1]?.dispatchEvent(
+        new MouseEvent("mouseover", { bubbles: true }),
+      );
+    });
+    preview = container.querySelector<HTMLElement>(
+      "[data-player-comment-hover]",
+    );
+    expect(preview?.className).not.toContain("-translate-x-1/2");
+    expect(preview?.style.right).toBe("0%");
+  });
 });

@@ -102,6 +102,8 @@ export function PlaybackCommentOverlay({
     Number.isFinite(markerMs)
       ? Math.min(100, Math.max(0, (markerMs / safeDurationMs) * 100))
       : 50;
+  const positionAlignment =
+    positionPercent <= 0 ? "start" : positionPercent >= 100 ? "end" : "center";
 
   return (
     <div
@@ -111,9 +113,20 @@ export function PlaybackCommentOverlay({
       aria-live="polite"
     >
       <div
-        className="absolute bottom-0 -translate-x-1/2"
+        className={cn(
+          "absolute bottom-0",
+          positionAlignment === "start"
+            ? "left-0"
+            : positionAlignment === "end"
+              ? "right-0"
+              : "-translate-x-1/2",
+        )}
         style={{
-          left: positionPercent + "%",
+          ...(positionAlignment === "start"
+            ? { left: "0%" }
+            : positionAlignment === "end"
+              ? { right: "0%" }
+              : { left: positionPercent + "%" }),
           bottom: markerLane ? "1.75rem" : "0",
         }}
       >

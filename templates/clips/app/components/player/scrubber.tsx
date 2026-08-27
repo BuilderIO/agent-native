@@ -145,6 +145,15 @@ export function Scrubber(props: ScrubberProps) {
     () => new Map(markerTimes.map((ms, index) => [ms, index % 2])),
     [markerTimes],
   );
+  const tooltipPositionPercent = tooltip
+    ? Math.min(100, Math.max(0, (tooltip.ms / Math.max(1, durationMs)) * 100))
+    : 50;
+  const tooltipAlignment =
+    tooltipPositionPercent <= 0
+      ? "start"
+      : tooltipPositionPercent >= 100
+        ? "end"
+        : "center";
 
   return (
     <div
@@ -177,9 +186,16 @@ export function Scrubber(props: ScrubberProps) {
       {tooltip ? (
         <div
           data-player-comment-hover
-          className="pointer-events-none absolute bottom-[calc(100%+1rem)] z-50 -translate-x-1/2"
+          className={cn(
+            "pointer-events-none absolute bottom-[calc(100%+1rem)] z-50",
+            tooltipAlignment === "center" && "-translate-x-1/2",
+          )}
           style={{
-            left: (tooltip.ms / Math.max(1, durationMs)) * 100 + "%",
+            ...(tooltipAlignment === "start"
+              ? { left: "0%" }
+              : tooltipAlignment === "end"
+                ? { right: "0%" }
+                : { left: tooltipPositionPercent + "%" }),
             bottom: `calc(100% + ${1 + tooltip.lane * 1.75}rem)`,
           }}
         >

@@ -2013,7 +2013,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Timestamped comments */}
-        {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
+        {!hideChrome && !isLoomEmbed && hasPlaybackStarted && !showEndCta ? (
           <PlaybackCommentOverlay
             comments={comments}
             currentMs={currentMs}
