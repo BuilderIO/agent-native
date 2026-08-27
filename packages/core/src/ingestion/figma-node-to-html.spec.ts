@@ -734,6 +734,53 @@ describe("which break characters Figma actually lays out", () => {
   });
 });
 
+describe("an image fallback's ink must not take layout space", () => {
+  // Figma stacks siblings against the GEOMETRIC box and paints ink outside it.
+  // The fallback <img> is sized from render bounds so the artwork is not
+  // squished, so in flow it consumed the overflow as real layout: a horizontal
+  // LINE is zero-height and entirely overflow, and every rule on a page pushed
+  // everything below it down a pixel.
+  function ruleInStack(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Card",
+      type: "FRAME",
+      layoutMode: "VERTICAL",
+      absoluteBoundingBox: box(0, 0, 317, 100),
+      children: [
+        {
+          id: "1:2",
+          name: "Line 3",
+          type: "LINE",
+          absoluteBoundingBox: box(0, 40, 317, 0),
+          absoluteRenderBounds: box(0, 39.5, 317, 1),
+          strokeWeight: 1,
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("cancels the overflow with negative margins so the footprint is the box", () => {
+    const { html } = mapFigmaNodeToHtml(ruleInStack(), {
+      fallbackImageUrls: { "1:2": "https://example.invalid/line.png" },
+    });
+    // Drawn at its real 1px, but -0.5px top and bottom leave a 0px footprint.
+    expect(html).toContain("height: 1px");
+    expect(html).toContain("margin-top: -0.5px");
+    expect(html).toContain("margin-bottom: -0.5px");
+  });
+
+  it("leaves an image whose ink matches its box unmargined", () => {
+    const node = ruleInStack();
+    node.children![0]!.absoluteRenderBounds = box(0, 40, 317, 0);
+    const { html } = mapFigmaNodeToHtml(node, {
+      fallbackImageUrls: { "1:2": "https://example.invalid/line.png" },
+    });
+    expect(html).not.toContain("margin-top");
+    expect(html).not.toContain("margin-bottom");
+  });
+});
+
 describe("angular (conic) gradients sweep in Figma's normalized space", () => {
   // Figma treats the box as a unit square and stretches the result; CSS
   // conic-gradient() sweeps at a true uniform angular rate in real pixels. The

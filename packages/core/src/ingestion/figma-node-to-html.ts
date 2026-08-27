@@ -2506,12 +2506,32 @@ function buildNode(
     // OUTSIDE-aligned stroke) is placed at its natural size instead of being
     // squished/cropped into the smaller geometric box.
     const renderBox = frameRelativeRenderBox(node, parentBox);
+    // In flow, that overflow must not take layout space: Figma stacks siblings
+    // against the GEOMETRIC box and paints the ink outside it. Negative margins
+    // for exactly the overflow keep the image at its natural size while its
+    // footprint stays the node's own box. A horizontal LINE is the extreme
+    // case — its box is zero-height and the stroke is entirely overflow, so
+    // every rule on a page was pushing everything below it down a pixel.
+    const overflow = isFlowChild
+      ? {
+          left: box.left - renderBox.left,
+          top: box.top - renderBox.top,
+          right: renderBox.left + renderBox.width - (box.left + box.width),
+          bottom: renderBox.top + renderBox.height - (box.top + box.height),
+        }
+      : null;
+    const negativeMargin = (value: number | undefined) =>
+      value !== undefined && Math.abs(value) > 1e-6 ? px(-value) : undefined;
     const styles: Record<string, string | undefined> = {
       position: isRoot || isFlowChild ? "relative" : "absolute",
       left: isRoot || isFlowChild ? undefined : px(renderBox.left),
       top: isRoot || isFlowChild ? undefined : px(renderBox.top),
       width: px(renderBox.width),
       height: px(renderBox.height),
+      "margin-left": negativeMargin(overflow?.left),
+      "margin-top": negativeMargin(overflow?.top),
+      "margin-right": negativeMargin(overflow?.right),
+      "margin-bottom": negativeMargin(overflow?.bottom),
       opacity:
         typeof node.opacity === "number" && node.opacity !== 1
           ? String(round(node.opacity, 4))
