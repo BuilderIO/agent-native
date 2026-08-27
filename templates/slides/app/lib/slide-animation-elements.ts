@@ -199,6 +199,21 @@ export function getElementPath(
   return current === root ? path : null;
 }
 
+function getPersistedChildren(parent: Element): Element[] {
+  const children: Element[] = [];
+  const append = (child: Element) => {
+    if (child.classList.contains("fmd-layout-spacer")) return;
+    if (child.hasAttribute("data-fmd-autofit-content")) {
+      Array.from(child.children).forEach(append);
+      return;
+    }
+    children.push(child);
+  };
+
+  Array.from(parent.children).forEach(append);
+  return children;
+}
+
 /**
  * Resolve a live editor node against the HTML that will be persisted. The
  * editor's AutoFit layer is transparent in saved markup, so paths through it
@@ -211,23 +226,13 @@ export function getPersistedElementPath(
   if (root === target) return [];
 
   const findPath = (parent: Element, parentPath: number[]): number[] | null => {
-    let persistedIndex = 0;
-    for (const child of Array.from(parent.children)) {
-      const candidates = child.classList.contains("fmd-layout-spacer")
-        ? []
-        : child.hasAttribute("data-fmd-autofit-content")
-          ? Array.from(child.children).filter(
-              (grandchild) =>
-                !grandchild.classList.contains("fmd-layout-spacer"),
-            )
-          : [child];
-      for (const candidate of candidates) {
-        const path = [...parentPath, persistedIndex];
-        if (candidate === target) return path;
-        const nestedPath = findPath(candidate, path);
-        if (nestedPath) return nestedPath;
-        persistedIndex += 1;
-      }
+    for (const [persistedIndex, child] of getPersistedChildren(
+      parent,
+    ).entries()) {
+      const path = [...parentPath, persistedIndex];
+      if (child === target) return path;
+      const nestedPath = findPath(child, path);
+      if (nestedPath) return nestedPath;
     }
     return null;
   };
@@ -243,7 +248,7 @@ export function resolveElementPath(
 
   for (const index of path) {
     if (!current) return null;
-    const next: Element | null = current.children.item(index);
+    const next: Element | null = getPersistedChildren(current)[index] ?? null;
     if (!next) return null;
     current = next;
   }
@@ -316,7 +321,7 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
     }
 
     for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
-      const elementPath = getElementPath(root, paragraph);
+      const elementPath = getPersistedElementPath(root, paragraph);
       if (!elementPath) return null;
       expanded.push({
         ...target,

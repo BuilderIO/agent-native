@@ -129,6 +129,12 @@ describe("slide animation element parsing", () => {
 
     expect(getElementPath(root, target)).toEqual([1, 1, 0]);
     expect(getPersistedElementPath(root, target)).toEqual([1, 0]);
+    expect(
+      resolveSlideAnimationElement(root, {
+        elementIndex: 0,
+        elementPath: [1, 0],
+      }),
+    ).toBe(target);
   });
 
   it("expands paragraph animations from an individually selected paragraph", () => {
