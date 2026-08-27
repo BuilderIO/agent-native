@@ -1232,8 +1232,31 @@ function contentShadowMarkup(
         shadow.blur * 1.5 +
         Math.abs(shadow.spread) +
         2;
+      // From what the subtree actually PAINTS, not the parent's own box: a
+      // transparent, unclipped container whose child overflows casts a shadow
+      // outside that box, and anchoring the region to the box clipped it.
+      // Clipping is respected — a clipping parent's children cannot paint
+      // outside it anyway.
+      const painted = node.clipsContent
+        ? node.rect
+        : (node.children ?? []).reduce(
+            (box, child) => {
+              const right = Math.max(
+                box.x + box.width,
+                child.rect.x + child.rect.width,
+              );
+              const bottom = Math.max(
+                box.y + box.height,
+                child.rect.y + child.rect.height,
+              );
+              const x = Math.min(box.x, child.rect.x);
+              const y = Math.min(box.y, child.rect.y);
+              return { x, y, width: right - x, height: bottom - y };
+            },
+            { ...node.rect },
+          );
       ctx.defs.push(
-        `<filter id="${id}" filterUnits="userSpaceOnUse" x="${n(node.rect.x - bleed)}" y="${n(node.rect.y - bleed)}" width="${n(node.rect.width + bleed * 2)}" height="${n(node.rect.height + bleed * 2)}">` +
+        `<filter id="${id}" filterUnits="userSpaceOnUse" x="${n(painted.x - bleed)}" y="${n(painted.y - bleed)}" width="${n(painted.width + bleed * 2)}" height="${n(painted.height + bleed * 2)}">` +
           morph +
           `<feFlood flood-color="${escapeXmlAttr(rgb)}" flood-opacity="${n(alpha)}" result="fl"/>` +
           `<feComposite in="fl" in2="${morph ? "sp" : "SourceAlpha"}" operator="in" result="tint"/>` +
@@ -1932,7 +1955,15 @@ export function buildFillLayersFromComputedStyle(
           layers.push({
             kind: "image",
             href: hrefMatch[2],
-            ...imageFitFromSize(sizes[layerIndex], positions[layerIndex]),
+            // CSS repeats a shorter `background-size` / `background-position`
+            // list across the layers rather than leaving the tail unset, so a
+            // single `contain` applies to every image, not just the first.
+            ...imageFitFromSize(
+              sizes.length ? sizes[layerIndex % sizes.length] : undefined,
+              positions.length
+                ? positions[layerIndex % positions.length]
+                : undefined,
+            ),
           });
       } else {
         // Conic/repeating gradients and any future background-image syntax have

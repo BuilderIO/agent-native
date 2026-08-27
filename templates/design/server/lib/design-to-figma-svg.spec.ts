@@ -1218,6 +1218,20 @@ describe("background-image sizing on export", () => {
     ]);
   });
 
+  it("repeats a shorter size list across the layers, as CSS does", () => {
+    // One `contain` with two images applies to both; leaving the tail unset
+    // silently exported the second layer as cover.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "contain",
+    );
+    expect(layers.map((l) => (l as { fit: string }).fit)).toEqual([
+      "contain",
+      "contain",
+    ]);
+  });
+
   it("still defaults to cover, which is FILL and the common case", () => {
     expect(
       buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "cover"),
