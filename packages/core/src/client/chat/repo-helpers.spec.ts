@@ -402,6 +402,51 @@ describe("shouldImportServerThreadData", () => {
     );
   });
 
+  it("rejects a same-length snapshot with different attachment descriptors", () => {
+    const currentRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-1",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-2",
+                type: "file",
+                name: "different-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
   it("accepts a same-length snapshot that completes a pending tool call", () => {
     const currentRepo: NormalizedRepo = {
       headId: "assistant-1",

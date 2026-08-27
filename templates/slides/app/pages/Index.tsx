@@ -460,6 +460,7 @@ export default function Index() {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
+          setNewDeckRetryAttachments([]);
         }
       }
     },
@@ -472,6 +473,7 @@ export default function Index() {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryFiles([]);
+      setNewDeckRetryAttachments([]);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setShowSignInDialog(true);

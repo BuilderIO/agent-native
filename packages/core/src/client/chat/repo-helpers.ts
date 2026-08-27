@@ -329,6 +329,34 @@ function repoAttachmentCount(repo: NormalizedRepo | null | undefined): number {
   return count;
 }
 
+function repoAttachmentIdentities(
+  repo: NormalizedRepo | null | undefined,
+): string[] {
+  const identities: string[] = [];
+  for (const entry of getRepoMessages(repo)) {
+    const message = getRepoMessage(entry);
+    const messageId = typeof message?.id === "string" ? message.id : "";
+    const attachments = message?.attachments;
+    if (!Array.isArray(attachments)) continue;
+    attachments.forEach((attachment, index) => {
+      const value =
+        attachment && typeof attachment === "object"
+          ? (attachment as Record<string, unknown>)
+          : {};
+      identities.push(
+        JSON.stringify([
+          messageId,
+          typeof value.id === "string" ? value.id : `index:${index}`,
+          typeof value.type === "string" ? value.type : "",
+          typeof value.name === "string" ? value.name : "",
+          typeof value.contentType === "string" ? value.contentType : "",
+        ]),
+      );
+    });
+  }
+  return identities;
+}
+
 export function shouldImportServerThreadData(
   currentRepo: NormalizedRepo | null | undefined,
   incomingRepo: NormalizedRepo | null | undefined,
@@ -365,6 +393,16 @@ export function shouldImportServerThreadData(
     const currentAttachments = repoAttachmentCount(currentRepo);
     const incomingAttachments = repoAttachmentCount(incomingRepo);
     if (incomingAttachments < currentAttachments) {
+      return false;
+    }
+    const currentAttachmentIdentities = repoAttachmentIdentities(currentRepo);
+    const incomingAttachmentIdentities = repoAttachmentIdentities(incomingRepo);
+    if (
+      currentAttachments > 0 &&
+      currentAttachmentIdentities.some(
+        (identity, index) => incomingAttachmentIdentities[index] !== identity,
+      )
+    ) {
       return false;
     }
   }
