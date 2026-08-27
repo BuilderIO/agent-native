@@ -312,6 +312,9 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(migration).toContain(
       "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
     );
+    expect(migration).toContain(
+      'sqlite: "ALTER TABLE dashboards ADD COLUMN created_by TEXT"',
+    );
   });
 
   it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {

@@ -8,7 +8,7 @@ import {
 } from "@agent-native/core/db/schema";
 import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -750,6 +750,7 @@ export async function migrateAnalyticsArtifacts(
   }
   await db.transaction(async (tx: any) => {
     for (const row of state.dashboards) {
+      const createdBy = row.visibility === "private" ? row.ownerEmail : null;
       await tx
         .insert(schema.dashboards)
         .values({
@@ -761,7 +762,7 @@ export async function migrateAnalyticsArtifacts(
           orgId: row.orgId,
           visibility: row.visibility,
           createdAt: row.createdAt,
-          createdBy: row.visibility === "private" ? row.ownerEmail : null,
+          createdBy,
           updatedAt: row.updatedAt,
           updatedBy: ctx.userEmail,
           archivedAt: row.archivedAt,
@@ -769,6 +770,18 @@ export async function migrateAnalyticsArtifacts(
           hiddenBy: null,
         })
         .onConflictDoNothing();
+      if (createdBy) {
+        await tx
+          .update(schema.dashboards)
+          .set({ createdBy })
+          .where(
+            and(
+              eq(schema.dashboards.id, row.id),
+              eq(schema.dashboards.orgId, row.orgId),
+              isNull(schema.dashboards.createdBy),
+            ),
+          );
+      }
     }
     for (const row of state.analyses) {
       await tx
