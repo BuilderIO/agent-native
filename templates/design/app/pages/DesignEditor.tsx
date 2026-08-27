@@ -20724,6 +20724,8 @@ function DesignEditor() {
             effort: options.effort,
           };
           const startedAt = Date.now();
+          const { attachments: _composerAttachments, ...agentOptions } =
+            options;
           patchPendingGeneration(id, {
             prompt,
             files,
@@ -20735,7 +20737,7 @@ function DesignEditor() {
           });
           setHasPendingGeneration(true);
           const runTabId = agentSubmit(prompt, context, {
-            ...options,
+            ...agentOptions,
             newTab: true,
             images,
           });

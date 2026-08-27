@@ -257,13 +257,16 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: true, applied: false });
+    // Nothing matched, so nothing was written — and that must reach the
+    // runner as a throw. A returned value is stamped `completedSideEffect`
+    // and replayed to a resumed run as work already done.
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
@@ -280,14 +283,14 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      format: true,
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: true, applied: false });
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        format: true,
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(
       JSON.parse(mockDeckRow!.data as string).slides[0].animations,
@@ -342,15 +345,16 @@ describe("update-slide", () => {
       ],
     })) as Record<string, unknown>;
 
-    // The required find/replace matched and the batch is reported applied,
-    // but the optional image insert never found its marker and silently
-    // no-opped -- a caller trusting only the aggregate `applied` boolean has
-    // no way to tell the image was never inserted.
-    expect(result).toMatchObject({ ok: true, applied: true });
+    // The required find/replace matched, but the optional image insert never
+    // found its marker. The aggregate `applied` boolean cannot express that,
+    // so the result flags it explicitly — otherwise the agent reports the
+    // image as inserted.
+    expect(result).toMatchObject({ ok: true, applied: true, partial: true });
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
 
     expect(result.editResults).toEqual(["replace:first", "insert-after:0"]);
+    expect(String(result.message)).toContain("insert-after:0");
   });
 
   it("does not write a partial edit list when a later edit fails", async () => {
@@ -524,16 +528,15 @@ describe("update-slide", () => {
     );
   });
 
-  it("returns ok:false without writing when the find text is missing", async () => {
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+  it("throws without writing when the find text is missing", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "this text does not exist in the slide",
+        replace: "x",
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
@@ -618,16 +621,15 @@ describe("update-slide", () => {
       },
     };
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    // When find is not found, the action returns ok: false BEFORE the
-    // fit-check. layoutOverflow must NOT appear.
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+    // When find is not found the action throws BEFORE the fit-check, so no
+    // overflow measurement is taken or reported.
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "this text does not exist in the slide",
+        replace: "x",
+      }),
+    ).rejects.toThrow("Nothing was written");
   });
 });

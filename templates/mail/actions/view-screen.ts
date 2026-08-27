@@ -94,10 +94,7 @@ async function fetchEmailList(
         ? await readSettings(ownerEmail)
         : undefined;
     const userPinnedLabels = settings?.pinnedLabels;
-    const pinnedLabels =
-      userPinnedLabels === undefined
-        ? resolvePinnedLabels([], googleConnected)
-        : resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(

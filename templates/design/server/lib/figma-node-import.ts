@@ -751,11 +751,21 @@ async function fetchImageFillUrls(
   if (imageRefs.length === 0) return {};
   const envelope = await figmaGet(`/files/${fileKey}/images`);
   const json = providerJson(envelope, "image fills") as {
+    meta?: { images?: Record<string, string | null | undefined> };
     images?: Record<string, string | null | undefined>;
   };
+  // `/files/:key/images` nests its map under `meta`, unlike the sibling
+  // `/images/:key` RENDER endpoint that `fetchFallbackImageUrls` calls, which
+  // returns `images` at the top level. Reading the flat shape here meant
+  // `json.images` was always undefined, so EVERY image fill failed to resolve
+  // and was reported as "could not be fetched from Figma ... deleted images or
+  // very large assets" — a message that named a cause the code had never
+  // checked. The fidelity harness reads `meta.images`, which is why no corpus
+  // number ever moved while the real importer dropped all of them.
+  const images = json.meta?.images ?? json.images;
   const result: Record<string, string> = {};
   for (const ref of imageRefs) {
-    const url = json.images?.[ref];
+    const url = images?.[ref];
     if (typeof url === "string" && url) result[ref] = url;
   }
   return result;
