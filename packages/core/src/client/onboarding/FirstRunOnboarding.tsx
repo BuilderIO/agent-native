@@ -606,7 +606,7 @@ export function FirstRunOnboarding({
               className={primaryButtonClass}
               onClick={() => setScreen("role")}
             >
-              {t("common.continue")}
+              {t("agentChat.common.continue")}
               <IconArrowRight size={15} />
             </button>
           </div>
@@ -781,7 +781,9 @@ export function FirstRunOnboarding({
               onClick={() => void handleRoleContinue()}
               disabled={!selectedRole || savingRole}
             >
-              {savingRole ? t("common.saving") : t("common.continue")}
+              {savingRole
+                ? t("agentChat.common.saving")
+                : t("agentChat.common.continue")}
               {!savingRole && <IconArrowRight size={15} />}
             </button>
           </div>
