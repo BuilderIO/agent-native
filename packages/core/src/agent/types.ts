@@ -145,6 +145,8 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
+  /** Keep a user-visible chip without sending the attachment as model input. */
+  displayOnly?: boolean;
   data?: string;
   /** Stable object-storage URL for this attachment, when uploaded. */
   url?: string;
