@@ -9,19 +9,21 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   isConnected: vi.fn(),
   listEvents: vi.fn(),
+  readBody: vi.fn(),
   runWithRequestContext: vi.fn(
     async (_context: unknown, fn: () => Promise<unknown>) => fn(),
   ),
   registerShareableResource: vi.fn(),
   setResponseStatus: vi.fn(),
+  verifyCaptcha: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: mocks.getSession,
   recordChange: vi.fn(),
-  readBody: vi.fn(),
+  readBody: mocks.readBody,
   runWithRequestContext: mocks.runWithRequestContext,
-  verifyCaptcha: vi.fn(),
+  verifyCaptcha: mocks.verifyCaptcha,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -68,7 +70,7 @@ vi.mock("../lib/google-calendar.js", () => ({
 }));
 
 import { schema } from "../db/index.js";
-import { getAvailableSlots } from "./bookings.js";
+import { createBooking, getAvailableSlots } from "./bookings.js";
 
 const availability = {
   timezone: "UTC",
@@ -89,6 +91,7 @@ const availability = {
 };
 
 const bookingLink = {
+  isActive: true,
   ownerEmail: "owner@example.com",
   slug: "saved-meeting",
   hosts: JSON.stringify([{ email: "old-host@example.com" }]),
@@ -97,6 +100,21 @@ const bookingLink = {
 };
 
 function createDb() {
+  const transaction = vi.fn(async (callback: (tx: unknown) => unknown) =>
+    callback({
+      insert: vi.fn(),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [bookingLink]),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(async () => []),
+        })),
+      })),
+    }),
+  );
   return {
     select: vi.fn(() => ({
       from: vi.fn((table: unknown) => ({
@@ -105,6 +123,7 @@ function createDb() {
         ),
       })),
     })),
+    transaction,
   };
 }
 
@@ -124,6 +143,14 @@ describe("draft booking availability previews", () => {
       key === "calendar-availability" ? availability : { timezone: "UTC" },
     );
     mocks.getDb.mockReturnValue(createDb());
+    mocks.readBody.mockResolvedValue({
+      captchaToken: "captcha-token",
+      email: "guest@example.com",
+      end: "2026-08-17T09:30:00.000Z",
+      name: "Guest",
+      slug: "saved-meeting",
+      start: "2026-08-17T09:00:00.000Z",
+    });
     mocks.isConnected.mockResolvedValue(true);
     mocks.getFreeBusy.mockResolvedValue({
       calendars: {
@@ -133,6 +160,7 @@ describe("draft booking availability previews", () => {
       errors: [],
     });
     mocks.listEvents.mockResolvedValue({ events: [], errors: [] });
+    mocks.verifyCaptcha.mockResolvedValue({ success: true });
   });
 
   afterEach(() => {
@@ -198,5 +226,19 @@ describe("draft booking availability previews", () => {
     );
     expect(mocks.getFreeBusy).not.toHaveBeenCalled();
     expect(mocks.listEvents).not.toHaveBeenCalled();
+  });
+
+  it("returns an unavailable response when a direct booking finds a disconnected owner", async () => {
+    mocks.isConnected.mockResolvedValue(false);
+    const event = {};
+
+    const response = await (createBooking as any)(event);
+
+    expect(response).toEqual({
+      error:
+        "The host's calendar availability could not be checked. Please try again later.",
+      code: "calendar_availability_unavailable",
+    });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 });

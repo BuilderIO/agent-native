@@ -815,7 +815,7 @@ async function requestedSlotIsCurrentlyAvailable({
   start: Date;
   end: Date;
   duration: number;
-}): Promise<boolean> {
+}): Promise<boolean | { unavailableReason: string }> {
   const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
 
@@ -830,7 +830,9 @@ async function requestedSlotIsCurrentlyAvailable({
     rangeEndIso: dateEndIso(date, timezone),
     timezone,
   });
-  if (conflictResult.unavailableReason) return false;
+  if (conflictResult.unavailableReason) {
+    return { unavailableReason: conflictResult.unavailableReason };
+  }
   const slots = generateAvailableSlotsForDate({
     date,
     duration,
@@ -1049,15 +1051,17 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           ? [requestedSlug]
           : [];
 
-      if (
-        !(await requestedSlotIsCurrentlyAvailable({
-          db: tx,
-          slug: requestedSlug,
-          start: requestedRange.start,
-          end: requestedRange.end,
-          duration: requestedRange.duration,
-        }))
-      ) {
+      const slotAvailability = await requestedSlotIsCurrentlyAvailable({
+        db: tx,
+        slug: requestedSlug,
+        start: requestedRange.start,
+        end: requestedRange.end,
+        duration: requestedRange.duration,
+      });
+      if (typeof slotAvailability !== "boolean") {
+        return slotAvailability;
+      }
+      if (!slotAvailability) {
         return { conflict: true } as const;
       }
 
@@ -1102,6 +1106,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { conflict: false } as const;
     });
 
+    if ("unavailableReason" in insertResult) {
+      return unavailableAvailabilityResponse(event);
+    }
     if (insertResult.conflict) {
       setResponseStatus(event, 409);
       return { error: "This time slot is no longer available" };
