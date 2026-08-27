@@ -838,6 +838,12 @@ export async function buildScreenFilesFromFigmaNodes(
   files: ImportedDesignFile[];
   fidelityEntries: FidelityEntry[];
   missingImageFillCount: number;
+  /**
+   * What Figma would not give us, in the caller's own words. Built here rather
+   * than at each call site: an omitted layer is invisible in the result, so a
+   * caller that forgets to describe it reports a partial import as a whole one.
+   */
+  omissionWarnings: string[];
 }> {
   const entries = Object.entries(nodesById);
   const fallbackNodeIds = new Set<string>();
@@ -860,9 +866,13 @@ export async function buildScreenFilesFromFigmaNodes(
   const missingFallbackNodeIds = Array.from(fallbackNodeIds).filter(
     (nodeId) => !fallbackImageUrls[nodeId],
   );
+  const omissionWarnings: string[] = [];
   if (missingFallbackNodeIds.length > 0) {
     console.warn(
       `[figma-import] ${missingFallbackNodeIds.length} fallback layer(s) could not be rendered and will be omitted (${missingFallbackNodeIds.slice(0, 5).join(", ")}${missingFallbackNodeIds.length > 5 ? ", …" : ""}).`,
+    );
+    omissionWarnings.push(
+      `${missingFallbackNodeIds.length} layer${missingFallbackNodeIds.length === 1 ? "" : "s"} could not be rendered by Figma and ${missingFallbackNodeIds.length === 1 ? "was" : "were"} left out — usually a logo, icon or illustration. Re-run the import, or flatten those layers in Figma first.`,
     );
   }
   const missingImageFillRefs = Array.from(imageFillRefs).filter(
@@ -939,5 +949,15 @@ export async function buildScreenFilesFromFigmaNodes(
   const finalMissingCount = missingImageFillRefs.filter(
     (r) => !imageFillUrls[r],
   ).length;
-  return { files, fidelityEntries, missingImageFillCount: finalMissingCount };
+  if (finalMissingCount > 0) {
+    omissionWarnings.push(
+      `${finalMissingCount} image fill${finalMissingCount === 1 ? "" : "s"} could not be fetched from Figma and ${finalMissingCount === 1 ? "was" : "were"} omitted. This can happen for deleted images or very large assets.`,
+    );
+  }
+  return {
+    files,
+    fidelityEntries,
+    missingImageFillCount: finalMissingCount,
+    omissionWarnings,
+  };
 }

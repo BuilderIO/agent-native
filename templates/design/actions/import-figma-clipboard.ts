@@ -159,7 +159,7 @@ export default defineAction({
     try {
       if (selectedNodeIds?.length) {
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
-        const { files, fidelityEntries, missingImageFillCount } =
+        const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
         const saved = await saveImportedDesignFiles({
           designId,
@@ -169,15 +169,13 @@ export default defineAction({
         const selectionWarnings = selectedNodeIdsTruncated
           ? [SELECTION_TRUNCATED_GUIDANCE]
           : [];
-        const fillWarnings =
-          missingImageFillCount > 0
-            ? [
-                `${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted. This can happen for deleted images or very large assets.`,
-              ]
-            : [];
         return {
           ...saved,
-          warnings: [...saved.warnings, ...selectionWarnings, ...fillWarnings],
+          warnings: [
+            ...saved.warnings,
+            ...selectionWarnings,
+            ...omissionWarnings,
+          ],
           strategy: "restNodes" as const,
           figma: {
             fileKey,
@@ -209,22 +207,16 @@ export default defineAction({
       if (matchResult.status === "matched") {
         const nodeIds = matchResult.matches.map((match) => match.id);
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
-        const { files, fidelityEntries, missingImageFillCount } =
+        const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
         const saved = await saveImportedDesignFiles({
           designId,
           sourceType: "figma-clipboard-rest",
           files,
         });
-        const fillWarnings =
-          missingImageFillCount > 0
-            ? [
-                `${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted.`,
-              ]
-            : [];
         return {
           ...saved,
-          warnings: [...(saved.warnings ?? []), ...fillWarnings],
+          warnings: [...(saved.warnings ?? []), ...omissionWarnings],
           strategy: "restNodes" as const,
           figma: {
             fileKey,
