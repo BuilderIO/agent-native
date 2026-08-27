@@ -763,6 +763,9 @@ function enqueueDeckOp(
   }
 
   if (op.op === "full-replace") {
+    // A newer snapshot supersedes any retry budget from the older write.
+    deckSaveRetryAttempts.delete(deckId);
+    failedSaveDecks.delete(deckId);
     const queuedOp = options?.onSaveSuccess
       ? { ...op, onSaveSuccess: options.onSaveSuccess }
       : op;
@@ -1528,6 +1531,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deletedSlideTombstonesRef = useRef<Map<string, Set<string>>>(new Map());
+  const slideDeleteGenerationsRef = useRef<Map<string, Map<string, number>>>(
+    new Map(),
+  );
   const deckBaselineRequestIdRef = useRef(0);
   const deckListRequestIdRef = useRef(0);
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
@@ -1555,29 +1561,34 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const markDeckDirty = useCallback((deckId: string) => {
-    lastExternalUpdateRef.current = 0;
-    dirtyDeckIdsRef.current.add(deckId);
-    if (failedSaveDecks.has(deckId)) {
-      const tombstones =
-        deletedSlideTombstonesRef.current.get(deckId) ?? new Set<string>();
-      for (const op of pendingOpsQueue.get(deckId) ?? []) {
-        if (op.op === "delete-slide") tombstones.add(op.slideId);
-      }
-      if (tombstones.size > 0) {
-        deletedSlideTombstonesRef.current.set(deckId, tombstones);
-      }
-    }
-  }, []);
-
   const markSlideDeleteTombstone = useCallback(
     (deckId: string, slideId: string) => {
+      const generations =
+        slideDeleteGenerationsRef.current.get(deckId) ??
+        new Map<string, number>();
+      generations.set(slideId, (generations.get(slideId) ?? 0) + 1);
+      slideDeleteGenerationsRef.current.set(deckId, generations);
       const tombstones =
         deletedSlideTombstonesRef.current.get(deckId) ?? new Set<string>();
       tombstones.add(slideId);
       deletedSlideTombstonesRef.current.set(deckId, tombstones);
     },
     [],
+  );
+
+  const markDeckDirty = useCallback(
+    (deckId: string) => {
+      lastExternalUpdateRef.current = 0;
+      dirtyDeckIdsRef.current.add(deckId);
+      if (failedSaveDecks.has(deckId)) {
+        for (const op of pendingOpsQueue.get(deckId) ?? []) {
+          if (op.op === "delete-slide") {
+            markSlideDeleteTombstone(deckId, op.slideId);
+          }
+        }
+      }
+    },
+    [markSlideDeleteTombstone],
   );
 
   const clearSlideDeleteTombstone = useCallback(
@@ -1597,10 +1608,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearReplacedSlideDeleteTombstones = useCallback(
-    (deckId: string, capturedTombstones: ReadonlySet<string>) => {
+    (deckId: string, capturedTombstones: ReadonlyMap<string, number>) => {
       const tombstones = deletedSlideTombstonesRef.current.get(deckId);
       if (!tombstones) return;
-      for (const slideId of capturedTombstones) tombstones.delete(slideId);
+      const generations = slideDeleteGenerationsRef.current.get(deckId);
+      for (const [slideId, generation] of capturedTombstones) {
+        if (
+          tombstones.has(slideId) &&
+          generations?.get(slideId) === generation
+        ) {
+          tombstones.delete(slideId);
+        }
+      }
       if (tombstones.size === 0) clearDeckDeleteTombstones(deckId);
     },
     [clearDeckDeleteTombstones],
@@ -1609,11 +1628,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const captureReplacedSlideDeleteTombstones = useCallback(
     (deck: Deck) => {
       const tombstones = deletedSlideTombstonesRef.current.get(deck.id);
-      const capturedTombstones = new Set(
-        deck.slides
-          .map((slide) => slide.id)
-          .filter((slideId) => tombstones?.has(slideId) ?? false),
-      );
+      const generations = slideDeleteGenerationsRef.current.get(deck.id);
+      const capturedTombstones = new Map<string, number>();
+      for (const slide of deck.slides) {
+        const generation = generations?.get(slide.id);
+        if (tombstones?.has(slide.id) && generation !== undefined) {
+          capturedTombstones.set(slide.id, generation);
+        }
+      }
       return () =>
         clearReplacedSlideDeleteTombstones(deck.id, capturedTombstones);
     },
@@ -1632,15 +1654,28 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (!tombstones?.size) return server;
 
       const serverSlideIds = new Set(server.slides.map((slide) => slide.id));
+      const failedOps = failedSaveDecks.has(server.id)
+        ? (pendingOpsQueue.get(server.id) ?? [])
+        : [];
       const failedDeleteSlideIds = new Set(
-        failedSaveDecks.has(server.id)
-          ? (pendingOpsQueue.get(server.id) ?? [])
-              .filter((op) => op.op === "delete-slide")
-              .map((op) => op.slideId)
-          : [],
+        failedOps
+          .filter((op) => op.op === "delete-slide")
+          .map((op) => op.slideId),
       );
+      const failedFullReplace = failedOps.find(
+        (op): op is Extract<GranularOp, { op: "full-replace" }> =>
+          op.op === "full-replace",
+      );
+      const failedFullReplaceSlideIds = failedFullReplace
+        ? new Set(failedFullReplace.deck.slides.map((slide) => slide.id))
+        : null;
       for (const slideId of tombstones) {
-        if (failedDeleteSlideIds.has(slideId) || !serverSlideIds.has(slideId)) {
+        if (
+          failedDeleteSlideIds.has(slideId) ||
+          (failedFullReplaceSlideIds &&
+            !failedFullReplaceSlideIds.has(slideId)) ||
+          !serverSlideIds.has(slideId)
+        ) {
           tombstones.delete(slideId);
         }
       }

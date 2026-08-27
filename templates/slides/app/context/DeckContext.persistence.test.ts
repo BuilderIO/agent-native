@@ -85,6 +85,7 @@ function setupFetch(options?: {
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   patchFailures?: { deckId: string; count: number };
+  putFailures?: { deckId: string; count: number };
 }) {
   let resolveCreate: (response: Response) => void = () => {};
   let resolveDeferredPut: (() => void) | null = null;
@@ -140,6 +141,12 @@ function setupFetch(options?: {
             });
           }
         });
+      }
+      if (
+        deckId === options?.putFailures?.deckId &&
+        attempts <= options.putFailures.count
+      ) {
+        return Promise.reject(new Error("save-deck failed"));
       }
       return Promise.resolve(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
@@ -243,6 +250,7 @@ function setupFetch(options?: {
     rejectDeferredPut: (error: unknown = new Error("late save failure")) =>
       rejectDeferredPut?.(error),
     getFirstPutSignal: () => firstPutSignal,
+    getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
     deferNextGetDeck: () => {
@@ -2398,6 +2406,69 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("does not clear a newer delete when a replacement save succeeds", async () => {
+    window.history.pushState({}, "", "/deck/replacement-same-slide-deck");
+    const initial: Deck = {
+      id: "replacement-same-slide-deck",
+      title: "Replacement same slide deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, resolveDeferredPut, getFirstPutSignal } =
+      setupFetch({ deferredPut: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+    });
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "<h1>Replaced two</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPutSignal()).toBeDefined();
+
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+    });
+    resolveDeferredPut();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-2"]);
+    vi.useRealTimers();
+  });
+
   it("retries the newest replacement after an older replacement fails", async () => {
     window.history.pushState({}, "", "/deck/replacement-retry-deck");
     const initial: Deck = {
@@ -2484,6 +2555,119 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
     ).toEqual(["slide-2", "slide-3"]);
+    vi.useRealTimers();
+  });
+
+  it("resets the retry budget for a newer replacement", async () => {
+    window.history.pushState({}, "", "/deck/replacement-retry-budget-deck");
+    const initial: Deck = {
+      id: "replacement-retry-budget-deck",
+      title: "Replacement retry budget deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getPutAttempts } = setupFetch({
+      putFailures: { deckId: initial.id, count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[0]!, content: "<h1>Replacement one</h1>" },
+        initial.slides[1]!,
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(getPutAttempts(initial.id)).toBe(2);
+
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "<h1>Replacement two</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(getPutAttempts(initial.id)).toBe(4);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("clears tombstones omitted by a permanently failed replacement", async () => {
+    window.history.pushState({}, "", "/deck/failed-replacement-deck");
+    const initial: Deck = {
+      id: "failed-replacement-deck",
+      title: "Failed replacement deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getPutAttempts } = setupFetch({
+      putFailures: { deckId: initial.id, count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+    });
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[1]!, content: "<h1>Replacement two</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getPutAttempts(initial.id)).toBe(3);
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
     vi.useRealTimers();
   });
 
