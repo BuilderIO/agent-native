@@ -74,4 +74,30 @@ describe("useAgentChatGenerating", () => {
 
     expect(hook![0]).toBe(false);
   });
+
+  it("reports an explicit stop separately from a continuation gap", () => {
+    act(() => {
+      hook![1]({
+        message: "Create a presentation",
+        newTab: true,
+      });
+    });
+
+    expect(hook![2]).toBe(null);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "requested-new-tab",
+            reason: "stopped",
+          },
+        }),
+      );
+    });
+
+    expect(hook![0]).toBe(false);
+    expect(hook![2]).toBe("stopped");
+  });
 });
