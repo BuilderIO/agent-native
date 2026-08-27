@@ -1,4 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
@@ -95,6 +96,11 @@ const SOCIAL_LINKS: Array<{
   },
 ];
 
+// Docs, legal, and app routes all render this footer, so it is the one
+// in-site way to report a problem now that the header no longer carries it.
+const DOCS_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+
 const linkClassName =
   "font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)] no-underline hover:text-[var(--b-text-primary)]";
 
@@ -176,6 +182,21 @@ export function Footer() {
               {social.icon}
             </a>
           ))}
+          <FeedbackButton
+            url={DOCS_FEEDBACK_URL}
+            label={t("feedback.label")}
+            placeholder={t("feedback.placeholder")}
+            align="start"
+            side="top"
+            trigger={
+              <button
+                type="button"
+                className={`${linkClassName} cursor-pointer border-none bg-transparent p-0 lowercase`}
+              >
+                {t("feedback.label")}
+              </button>
+            }
+          />
         </div>
 
         <div className="flex items-center gap-[var(--spacing-6)]">

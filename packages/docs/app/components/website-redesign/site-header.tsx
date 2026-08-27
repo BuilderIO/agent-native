@@ -1,8 +1,6 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconBrandGithub,
-  IconSpeakerphone,
   IconMenu2,
   IconMessage,
   IconSearch,
@@ -26,11 +24,6 @@ const SearchModal = lazy(() =>
 );
 
 const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
-
-// Same form as the header this one replaced: dropping it would leave docs,
-// legal, and app routes with no in-site way to report a problem.
-const DOCS_FEEDBACK_URL =
-  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
 const GITHUB_REPO_URL = "https://github.com/BuilderIO/agent-native";
 
@@ -56,27 +49,6 @@ function AskAiIconButton() {
     >
       <IconMessage size={18} stroke={1.5} />
     </IconButton>
-  );
-}
-
-function FeedbackIconButton({ align }: { align: "start" | "end" }) {
-  const t = useT();
-  const label = t("feedback.label");
-  return (
-    <FeedbackButton
-      url={DOCS_FEEDBACK_URL}
-      label={label}
-      placeholder={t("feedback.placeholder")}
-      align={align}
-      side="bottom"
-      trigger={
-        <IconButton dimBorder aria-label={label} title={label}>
-          {/* Not a speech bubble: Ask AI beside it already owns that shape,
-              and two bubbles read as one control duplicated. */}
-          <IconSpeakerphone size={18} stroke={1.5} />
-        </IconButton>
-      }
-    />
   );
 }
 
@@ -220,7 +192,6 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
           <div className="hidden items-stretch gap-3 lg:flex">
             <SearchTrigger onClick={openSearch} label={searchLabel} />
             <GithubStarsButton starCount={starCount} />
-            <FeedbackIconButton align="end" />
             <AskAiIconButton />
           </div>
 
@@ -260,7 +231,6 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             <GithubStarsButton starCount={starCount} className="h-10" />
             <LanguagePicker dimBorder />
             <ThemeIconButton dimBorder />
-            <FeedbackIconButton align="start" />
             <AskAiIconButton />
           </div>
         </div>
