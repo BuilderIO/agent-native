@@ -521,10 +521,11 @@ async function hasConfiguredVideoStorage(
         builderReauthorizationRequired?: boolean;
       } | null;
       if (!body) return "unknown";
+      if (body.configured) return "configured";
       if (body.builderReauthorizationRequired) {
         return "reauthorization-required";
       }
-      return body.configured ? "configured" : "missing";
+      return "missing";
     } catch {
       return "unknown";
     }
