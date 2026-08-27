@@ -5122,6 +5122,7 @@ const AssistantChatInner = forwardRef<
       continuationTurnId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
       }
@@ -5132,7 +5133,6 @@ const AssistantChatInner = forwardRef<
       setDismissedRunErrorKey(null);
       setDismissedProviderAuthErrorKey(null);
       setComposerError(null);
-      userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -5363,6 +5363,11 @@ const AssistantChatInner = forwardRef<
       // hidden reconnect recovery turns must leave the user's viewport alone.
       if (!hideUserMessage) resumeFollowingRef.current();
       reportAgentChatSubmitResult(submitMessageId, true);
+      // A queued immediate submit can abort the previous run after it is
+      // accepted. Preserve that newer stop marker while clearing the old one.
+      if (userStoppedRunRef.current === stoppedRunAtSubmitStart) {
+        userStoppedRunRef.current = null;
+      }
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
