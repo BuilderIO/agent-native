@@ -1217,11 +1217,13 @@ export async function withBetterAuthActionSession<T>(
       .createHmac("sha256", authContext.secret)
       .update(session.token)
       .digest("base64");
-    const sessionCookie = `${authContext.authCookies.sessionToken.name}=${encodeURIComponent(`${session.token}.${signature}`)}`;
-    headers.set(
-      "cookie",
-      [headers.get("cookie"), sessionCookie].filter(Boolean).join("; "),
-    );
+    const sessionCookieName = authContext.authCookies.sessionToken.name;
+    const sessionCookie = `${sessionCookieName}=${encodeURIComponent(`${session.token}.${signature}`)}`;
+    const existingCookies = (headers.get("cookie") ?? "")
+      .split(";")
+      .filter((part) => part.split("=", 1)[0]?.trim() !== sessionCookieName)
+      .filter(Boolean);
+    headers.set("cookie", [...existingCookies, sessionCookie].join("; "));
     outcome = { ok: true, value: await action(headers) };
   } catch (error) {
     outcome = { ok: false, error };

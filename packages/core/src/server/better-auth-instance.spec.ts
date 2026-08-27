@@ -492,7 +492,10 @@ describe("withBetterAuthActionSession", () => {
 
     const result = await withBetterAuthActionSession(
       "bridge@example.com",
-      new Headers({ cookie: "an_session=legacy-session" }),
+      new Headers({
+        cookie:
+          "better-auth.session_token=stale-session; an_session=legacy-session",
+      }),
       (headers) =>
         instance.auth.api.changePassword({
           body: {
