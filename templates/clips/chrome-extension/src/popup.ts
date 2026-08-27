@@ -494,8 +494,10 @@ async function readVideoStorageConfigured(
     const body = response.ok
       ? ((await response.json().catch(() => null)) as {
           configured?: boolean;
+          builderReauthorizationRequired?: boolean;
         } | null)
       : null;
+    if (body?.builderReauthorizationRequired) return false;
     if (body?.configured) return true;
   } catch {
     // Fall through to the Builder status check.
