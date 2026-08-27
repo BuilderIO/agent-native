@@ -120,7 +120,7 @@ export function StorageSetupCard({
       try {
         const r = await fetch(
           new URL(
-            agentNativePath("/_agent-native/builder/status"),
+            agentNativePath("/_agent-native/file-upload/status"),
             window.location.origin,
           ).toString(),
           { signal: controller.signal },
