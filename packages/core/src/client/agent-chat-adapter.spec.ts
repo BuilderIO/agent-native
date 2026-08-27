@@ -381,7 +381,7 @@ describe("createAgentChatAdapter", () => {
 
     try {
       const resultPromise = iterator.next();
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(1_001);
       finishResponse?.();
       const result = await resultPromise;
 

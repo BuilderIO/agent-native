@@ -175,6 +175,109 @@ const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
 const MAX_JSON_RESPONSE_PROBE_BYTES = 8_192;
 const JSON_RESPONSE_PROBE_TIMEOUT_MS = 1_000;
+
+type JsonResponseProbeOutcome =
+  | { type: "json"; body: string }
+  | { type: "not-json" };
+
+function isSseResponsePrefix(prefix: string): boolean {
+  const trimmed = prefix.trimStart();
+  return (
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("event:") ||
+    trimmed.startsWith("id:") ||
+    trimmed.startsWith("retry:") ||
+    trimmed.startsWith(":")
+  );
+}
+
+function classifyJsonResponsePrefix(prefix: string): JsonResponseProbeOutcome {
+  if (isSseResponsePrefix(prefix)) return { type: "not-json" };
+  const firstChar = prefix.trimStart()[0] ?? "";
+  return firstChar === '"' || "{[-0123456789tfn".includes(firstChar)
+    ? { type: "json", body: prefix }
+    : { type: "not-json" };
+}
+
+function jsonResponseError(body?: string): Error {
+  if (body !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        "error" in parsed &&
+        parsed.error
+      ) {
+        return new Error(String(parsed.error));
+      }
+      // coercion-ok: an incomplete timeout probe uses the generic JSON error.
+    } catch {
+      // A timed-out probe may only have received a JSON prefix.
+    }
+  }
+  return new Error(
+    "Agent chat endpoint returned JSON instead of an event stream.",
+  );
+}
+
+async function continueJsonResponseProbe(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  prefix: string,
+  abortSignal: AbortSignal,
+  initialBytes: number,
+  pendingRead?: Promise<ReadableStreamReadResult<Uint8Array>>,
+): Promise<JsonResponseProbeOutcome> {
+  let onAbort: (() => void) | undefined;
+  const abort = new Promise<"abort">((resolve) => {
+    const handleAbort = () => resolve("abort");
+    onAbort = handleAbort;
+    if (abortSignal.aborted) handleAbort();
+    else abortSignal.addEventListener("abort", handleAbort, { once: true });
+  });
+
+  try {
+    let nextRead = pendingRead;
+    let bytes = initialBytes;
+    while (true) {
+      const read = nextRead ?? reader.read();
+      nextRead = undefined;
+      void read.catch(() => {});
+      const chunk = await Promise.race([read, abort]);
+      if (chunk === "abort") {
+        throw abortSignal.reason instanceof Error &&
+          abortSignal.reason.name === "AbortError"
+          ? abortSignal.reason
+          : new DOMException("The operation was aborted.", "AbortError");
+      }
+      if (chunk.done) {
+        const completePrefix = prefix + decoder.decode();
+        return completePrefix.trimStart() === ""
+          ? { type: "json", body: completePrefix }
+          : classifyJsonResponsePrefix(completePrefix);
+      }
+
+      const value = chunk.value.subarray(
+        0,
+        MAX_JSON_RESPONSE_PROBE_BYTES - bytes,
+      );
+      bytes += value.byteLength;
+      prefix += decoder.decode(value, { stream: true });
+      const trimmedPrefix = prefix.trimStart();
+      if (trimmedPrefix !== "") {
+        return classifyJsonResponsePrefix(prefix);
+      }
+      if (bytes >= MAX_JSON_RESPONSE_PROBE_BYTES) {
+        return { type: "json", body: prefix + decoder.decode() };
+      }
+    }
+  } finally {
+    if (onAbort) abortSignal.removeEventListener("abort", onAbort);
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
 // Tools whose entire input IS the artifact being built (extension HTML, etc.).
 // Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
 // the resumed agent — it can no longer refine the artifact because it sees a
@@ -3868,6 +3971,17 @@ export function createAgentChatAdapter(
         };
 
         while (true) {
+          let delayedJsonProbe: Promise<JsonResponseProbeOutcome> | undefined;
+          let delayedJsonProbeOutcome: JsonResponseProbeOutcome | undefined;
+          let delayedJsonProbeReader:
+            | ReadableStreamDefaultReader<Uint8Array>
+            | undefined;
+          const cancelDelayedJsonProbe = () => {
+            if (!delayedJsonProbeReader) return;
+            void delayedJsonProbeReader.cancel().catch(() => {});
+            delayedJsonProbeReader = undefined;
+          };
+
           try {
             runId = null;
             lastSeq = -1;
@@ -3926,6 +4040,10 @@ export function createAgentChatAdapter(
                 if (probeReader) {
                   const decoder = new TextDecoder();
                   let probeAborted = false;
+                  let probeReaderTransferred = false;
+                  let timedOutRead:
+                    | Promise<ReadableStreamReadResult<Uint8Array>>
+                    | undefined;
                   let onAbort: (() => void) | undefined;
                   let timeoutId: ReturnType<typeof setTimeout> | undefined;
                   const abort = new Promise<"abort">((resolve) => {
@@ -3961,6 +4079,8 @@ export function createAgentChatAdapter(
                       }
                       if (chunk === "timeout") {
                         probeTimedOut = true;
+                        probeReaderTransferred = true;
+                        timedOutRead = read;
                         // The timeout only releases the diagnostic clone; the
                         // original body remains available for SSE parsing.
                         break;
@@ -3989,17 +4109,31 @@ export function createAgentChatAdapter(
                     if (onAbort) {
                       abortSignal.removeEventListener("abort", onAbort);
                     }
-                    void probeReader.cancel().catch(() => {});
-                    probeReader.releaseLock();
+                    if (!probeReaderTransferred) {
+                      void probeReader.cancel().catch(() => {});
+                      probeReader.releaseLock();
+                    }
                   }
 
-                  const trimmedProbePrefix = probePrefix.trimStart();
-                  looksLikeSSE =
-                    trimmedProbePrefix.startsWith("data:") ||
-                    trimmedProbePrefix.startsWith("event:") ||
-                    trimmedProbePrefix.startsWith("id:") ||
-                    trimmedProbePrefix.startsWith("retry:") ||
-                    trimmedProbePrefix.startsWith(":");
+                  if (probeReaderTransferred) {
+                    delayedJsonProbeReader = probeReader;
+                    delayedJsonProbe = continueJsonResponseProbe(
+                      probeReader,
+                      decoder,
+                      probePrefix,
+                      abortSignal,
+                      probeBytes,
+                      timedOutRead,
+                    );
+                    void delayedJsonProbe.then(
+                      (outcome) => {
+                        delayedJsonProbeOutcome = outcome;
+                      },
+                      () => {},
+                    );
+                  }
+
+                  looksLikeSSE = isSseResponsePrefix(probePrefix);
                 }
               }
 
@@ -4013,18 +4147,7 @@ export function createAgentChatAdapter(
                       "{[-0123456789tfn".includes(firstChar))));
               if (!looksLikeSSE && looksLikeJson) {
                 const body = await res.text();
-                const parsed: unknown = JSON.parse(body);
-                if (
-                  parsed !== null &&
-                  typeof parsed === "object" &&
-                  "error" in parsed &&
-                  parsed.error
-                ) {
-                  throw new Error(String(parsed.error));
-                }
-                throw new Error(
-                  "Agent chat endpoint returned JSON instead of an event stream.",
-                );
+                throw jsonResponseError(body);
               }
             }
 
@@ -4296,9 +4419,29 @@ export function createAgentChatAdapter(
             return;
           } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
+              cancelDelayedJsonProbe();
               // User-initiated abort (Stop button) — clear active run
               clearOwnedActiveRun();
               return;
+            }
+
+            let delayedJsonOutcome = delayedJsonProbeOutcome;
+            if (
+              !delayedJsonOutcome &&
+              delayedJsonProbe &&
+              err instanceof AgentAutoContinueSignal &&
+              err.reason === "stream_ended"
+            ) {
+              try {
+                delayedJsonOutcome = await delayedJsonProbe;
+              } catch {
+                delayedJsonOutcome = undefined;
+              }
+            }
+            if (delayedJsonOutcome?.type === "json") {
+              err = jsonResponseError(delayedJsonOutcome.body);
+            } else {
+              cancelDelayedJsonProbe();
             }
 
             if (err instanceof AgentAutoContinueSignal) {
