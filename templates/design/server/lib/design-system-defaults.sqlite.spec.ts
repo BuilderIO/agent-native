@@ -272,6 +272,25 @@ describe("design system default claim with real SQLite", () => {
     expect(next.isDefault).toBe(false);
     expect(defaultsFor(OWNER, ORG)).toEqual(["older_default"]);
   });
+
+  it("leaves exactly one default when several creates race in the null-org (private) scope", async () => {
+    identity.orgId = null;
+    seed({
+      id: "teammate_private_default",
+      ownerEmail: "teammate@example.com",
+      orgId: null,
+      isDefault: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const results = await Promise.all([create("Alpha"), create("Beta")]);
+
+    expect(defaultsFor(OWNER, null)).toHaveLength(1);
+    expect(results.filter((result) => result.isDefault)).toHaveLength(1);
+    expect(defaultsFor("teammate@example.com", null)).toEqual([
+      "teammate_private_default",
+    ]);
+  });
 });
 
 describe("healDuplicateDesignSystemDefaults", () => {
@@ -360,6 +379,39 @@ describe("createDesignSystemsOneDefaultIndex against a real connection", () => {
   it("survives being created twice (IF NOT EXISTS)", async () => {
     await createDesignSystemsOneDefaultIndex();
     await expect(createDesignSystemsOneDefaultIndex()).resolves.toBeUndefined();
+  });
+
+  it("also rejects a second default in the null-org (private) scope for the same owner", async () => {
+    // A plain UNIQUE(owner_email, org_id) would NOT catch this: standard SQL
+    // unique constraints treat every NULL as distinct from every other NULL,
+    // so two NULL-org rows for the same owner would not collide. This is
+    // exactly what COALESCE(org_id, '') in the index definition is for.
+    await createDesignSystemsOneDefaultIndex();
+    seed({
+      id: "first_private_default",
+      orgId: null,
+      isDefault: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(() =>
+      // guard:allow-unscoped — asserting the installed index rejects a raw
+      // insert that bypasses the app-level claim logic entirely
+      localDb.sqlite
+        ?.prepare(
+          `INSERT INTO design_systems (id, title, data, is_default, owner_email, org_id, visibility, created_at, updated_at)
+           VALUES (?, ?, ?, 1, ?, NULL, ?, ?, ?)`,
+        )
+        .run(
+          "second_private_default",
+          "second_private_default",
+          "{}",
+          OWNER,
+          "private",
+          "2026-01-02T00:00:00.000Z",
+          "2026-01-02T00:00:00.000Z",
+        ),
+    ).toThrow(/UNIQUE constraint failed/);
   });
 });
 
