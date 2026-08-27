@@ -11,7 +11,6 @@ import {
   createWebhookSubscription,
   deleteWebhookSubscription,
   listWebhookSubscriptions,
-  updateWebhookSubscription,
 } from "../../../../lib/outbound-webhooks.js";
 
 const createSchema = z.object({
@@ -25,9 +24,6 @@ const createSchema = z.object({
   events: z.array(z.enum(SLIDES_WEBHOOK_EVENTS)).min(1),
 });
 const deleteSchema = z.object({ id: z.string().min(1) });
-const updateSchema = createSchema
-  .partial()
-  .extend({ id: z.string().min(1), enabled: z.boolean().optional() });
 
 export default defineEventHandler(async (event) => {
   const ownerEmail = getRequestUserEmail();
@@ -44,18 +40,6 @@ export default defineEventHandler(async (event) => {
       ownerEmail,
       orgId,
     });
-    return subscription;
-  }
-  if (getMethod(event) === "PATCH") {
-    const subscription = await updateWebhookSubscription({
-      ...updateSchema.parse(await readBody(event)),
-      ownerEmail,
-      orgId,
-    });
-    if (!subscription) {
-      setResponseStatus(event, 404);
-      return { error: "Webhook subscription not found" };
-    }
     return subscription;
   }
   if (getMethod(event) === "DELETE") {

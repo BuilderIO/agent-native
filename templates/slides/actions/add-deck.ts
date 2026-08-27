@@ -16,7 +16,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
+import {
+  dispatchWebhookDeliveries,
+  enqueueWebhookEvent,
+} from "../server/lib/outbound-webhooks.js";
 import { assertHumanReadableDeckTitle } from "../shared/deck-title.js";
 import {
   ensureUniqueSlideIds,
@@ -77,9 +80,8 @@ export default defineAction({
     const designSystemId = deckDesignSystemId(deck);
     await assertDesignSystemReadable(designSystemId);
 
-    await getDb()
-      .insert(schema.decks)
-      .values({
+    const deliveryIds = await getDb().transaction(async (tx) => {
+      await tx.insert(schema.decks).values({
         id,
         title: deckTitle(deck),
         data: JSON.stringify(deck),
@@ -89,9 +91,11 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+      return enqueueWebhookEvent("deck.created", deck, { db: tx });
+    });
 
     notifyClients(id);
-    await emitWebhookEvent("deck.created", deck);
+    await dispatchWebhookDeliveries(deliveryIds);
     return deck;
   },
 });

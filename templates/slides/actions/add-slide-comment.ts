@@ -9,7 +9,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
-import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
+import {
+  dispatchWebhookDeliveries,
+  enqueueWebhookEvent,
+} from "../server/lib/outbound-webhooks.js";
 
 function displayNameFromEmail(email: string): string {
   const local = email.split("@")[0] || email;
@@ -46,7 +49,7 @@ export default defineAction({
       : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
-    await db.insert(schema.slideComments).values({
+    const commentEvent = {
       id,
       deckId,
       slideId,
@@ -56,6 +59,21 @@ export default defineAction({
       quotedText: quotedText ?? null,
       authorEmail,
       authorName,
+      resolved: false,
+    };
+    const deliveryIds = await db.transaction(async (tx) => {
+      await tx.insert(schema.slideComments).values({
+        id,
+        deckId,
+        slideId,
+        threadId,
+        parentId: parentId ?? null,
+        content,
+        quotedText: quotedText ?? null,
+        authorEmail,
+        authorName,
+      });
+      return enqueueWebhookEvent("comment.added", commentEvent, { db: tx });
     });
 
     const notified = await notifyDeckComment({
@@ -68,18 +86,7 @@ export default defineAction({
       isReply: Boolean(parentId ?? args.threadId),
     });
 
-    await emitWebhookEvent("comment.added", {
-      id,
-      deckId,
-      slideId,
-      threadId,
-      parentId: parentId ?? null,
-      content,
-      quotedText: quotedText ?? null,
-      authorEmail,
-      authorName,
-      resolved: false,
-    });
+    await dispatchWebhookDeliveries(deliveryIds);
     return { id, threadId, notified };
   },
 });

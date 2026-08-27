@@ -26,7 +26,10 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
+import {
+  dispatchWebhookDeliveries,
+  enqueueWebhookEvent,
+} from "../server/lib/outbound-webhooks.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
@@ -840,7 +843,7 @@ export default defineAction({
         }
       }
 
-      await db.transaction(async (tx: any) => {
+      const deliveryIds = await db.transaction(async (tx: any) => {
         await tx
           .update(schema.decks)
           .set({
@@ -861,6 +864,7 @@ export default defineAction({
             { db: tx },
           );
         }
+        return enqueueWebhookEvent("deck.updated", deck, { db: tx });
       });
 
       // Start the freshness window right after the SQL write and before
@@ -910,7 +914,7 @@ export default defineAction({
       ];
       const finalSlides: Array<{ id?: unknown; content?: unknown }> =
         Array.isArray(deck.slides) ? deck.slides : [];
-      await emitWebhookEvent("deck.updated", deck);
+      await dispatchWebhookDeliveries(deliveryIds);
 
       const fitResults: SlideFitResult[] = await Promise.all(
         contentChangedSlideIds.map((slideId) => {

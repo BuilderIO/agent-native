@@ -20,8 +20,6 @@ Comment deletion intentionally has no outbound event.
 
 `POST /_agent-native/slides/webhooks` accepts `{ "url": "https://receiver.example/webhooks/slides", "events": ["deck.created"] }`. It returns the created subscription and a generated `secret` exactly once. Save that value securely; later reads never return it.
 
-`PATCH /_agent-native/slides/webhooks` accepts an `id` plus one or more of `url`, `events`, and `enabled`. It returns the updated subscription without a secret.
-
 `DELETE /_agent-native/slides/webhooks` accepts `{ "id": "wh_..." }`. Deletion is immediate: queued deliveries for that subscription are cancelled before any request is sent.
 
 ## Delivery and verification

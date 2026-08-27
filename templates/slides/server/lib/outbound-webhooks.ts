@@ -90,6 +90,15 @@ export async function listWebhookSubscriptions(
     .orderBy(asc(schema.webhookSubscriptions.createdAt));
 }
 
+export async function getWebhookSubscription(
+  id: string,
+  ownerEmail: string,
+  orgId: string | null,
+) {
+  const rows = await listWebhookSubscriptions(ownerEmail, orgId);
+  return rows.find((subscription) => subscription.id === id) ?? null;
+}
+
 export async function deleteWebhookSubscription(
   id: string,
   ownerEmail: string,
@@ -167,12 +176,14 @@ export async function updateWebhookSubscription(input: {
 export async function enqueueWebhookEvent(
   event: SlidesWebhookEvent,
   data: unknown,
+  options?: { db?: any },
 ) {
-  const db = getDb();
-  const subscriptions = await db
-    .select()
-    .from(schema.webhookSubscriptions)
-    .where(eq(schema.webhookSubscriptions.enabled, true));
+  const db = options?.db ?? getDb();
+  const subscriptions: Array<typeof schema.webhookSubscriptions.$inferSelect> =
+    await db
+      .select()
+      .from(schema.webhookSubscriptions)
+      .where(eq(schema.webhookSubscriptions.enabled, true));
   const createdAt = now();
   const payload = JSON.stringify({
     id: `evt_${nanoid()}`,
@@ -200,7 +211,7 @@ export async function enqueueWebhookEvent(
     updatedAt: createdAt,
   }));
   await db.insert(schema.webhookDeliveries).values(deliveries);
-  return deliveries.map(({ id }) => id);
+  return deliveries.map((delivery) => delivery.id);
 }
 
 async function claimDueDeliveries(limit = 25) {
@@ -236,16 +247,21 @@ async function claimDueDeliveries(limit = 25) {
   return claimed;
 }
 
+export async function dispatchWebhookDeliveries(ids: string[]) {
+  if (!ids.length) return;
+  await fireInternalDispatch({
+    path: "/_agent-native/slides/webhooks/process",
+    taskId: ids[0],
+  });
+}
+
+/** Compatibility helper for writes that cannot share the caller transaction. */
 export async function emitWebhookEvent(
   event: SlidesWebhookEvent,
   data: unknown,
 ) {
   const ids = await enqueueWebhookEvent(event, data);
-  if (ids.length)
-    await fireInternalDispatch({
-      path: "/_agent-native/slides/webhooks/process",
-      taskId: ids[0],
-    });
+  await dispatchWebhookDeliveries(ids);
   return ids;
 }
 
