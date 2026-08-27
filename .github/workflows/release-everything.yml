@@ -132,6 +132,14 @@ jobs:
                   repo,
                   ref: `tags/${tag}`,
                 });
+                if (response.data.object.type === "tag") {
+                  const annotatedTag = await github.rest.git.getTag({
+                    owner,
+                    repo,
+                    tag_sha: response.data.object.sha,
+                  });
+                  return annotatedTag.data.object.sha;
+                }
                 return response.data.object.sha;
               } catch (error) {
                 if (error.status === 404) return null;

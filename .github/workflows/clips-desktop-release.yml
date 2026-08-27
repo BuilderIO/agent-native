@@ -61,7 +61,8 @@ jobs:
             echo "::error::source_ref must be a full 40-character commit SHA."
             exit 1
           fi
-          echo "source_ref=${RELEASE_SOURCE_REF_INPUT:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          SOURCE_REF="${RELEASE_SOURCE_REF_INPUT:-$GITHUB_SHA}"
+          echo "source_ref=${SOURCE_REF,,}" >> "$GITHUB_OUTPUT"
 
   build-tauri:
     needs: resolve-source-ref
