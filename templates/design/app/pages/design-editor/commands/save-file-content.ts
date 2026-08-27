@@ -12,6 +12,8 @@ import { shouldClearLatestUnloadSave } from "@/pages/design-editor/editor-state"
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  isDesignSaveSuccessConflict,
+  patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
 
 export interface SaveFileContentArgs {
@@ -25,6 +27,10 @@ export interface SaveFileContentArgs {
   journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
   lastAckedFileContentHashRef: RefObject<Record<string, string>>;
   latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
+  clearPendingLocalFileContent: (
+    fileId: string,
+    expectedContent?: string,
+  ) => void;
   markPendingLocalFileContent: (
     fileId: string,
     content: string,
@@ -48,6 +54,7 @@ export function runSaveFileContent(
     journalOutboxEntry,
     lastAckedFileContentHashRef,
     latestFileSaveForUnloadRef,
+    clearPendingLocalFileContent,
     markPendingLocalFileContent,
     queryClient,
     setPatchProof,
@@ -141,10 +148,19 @@ export function runSaveFileContent(
           await acknowledgeOutboxEntry(outboxEntry);
         } else if (!persistedContentMatches) {
           // A stale/no-op save result is a source conflict, not a lost
-          // connection. Refetch below rebases the editor; never promise
-          // that simply reconnecting will save this obsolete snapshot.
+          // connection. Drop the rejected overlay before refetch — leaving
+          // it active keeps painting the skipped snapshot and can write it
+          // back into Yjs when newer remote content arrives. expectedContent
+          // keeps a newer in-flight overlay (the user kept typing).
+          clearPendingLocalFileContent(pending.id, pending.content);
           queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
+          });
+        }
+        if (isDesignSaveSuccessConflict(persistedContentMatches)) {
+          toast.error(t("designEditor.toasts.saveConflict"), {
+            id: `design-save-conflict:${pending.id}`,
+            duration: 4000,
           });
         }
         if (
@@ -156,11 +172,23 @@ export function runSaveFileContent(
         ) {
           delete latestFileSaveForUnloadRef.current[pending.id];
         }
-        setPatchProof((prev) =>
-          prev && prev.fileId === pending.id && prev.status === "queued"
-            ? { ...prev, status: "applied" }
-            : prev,
-        );
+        setPatchProof((prev) => {
+          if (
+            !(prev && prev.fileId === pending.id && prev.status === "queued")
+          ) {
+            return prev;
+          }
+          const status = patchProofStatusAfterPersistedSave(
+            persistedContentMatches,
+          );
+          return status === "failed"
+            ? {
+                ...prev,
+                status,
+                error: t("designEditor.toasts.saveConflict"),
+              }
+            : { ...prev, status };
+        });
       } catch (error) {
         // Drop the (evidently wrong) acked hash so the failure is
         // one-shot: the DB-reconcile effect pulls the fresh server
@@ -173,12 +201,14 @@ export function runSaveFileContent(
         const failureKind = classifyDesignSaveFailure(error, navigator.onLine);
         if (failureKind === "offline") {
           warnChangesWillRetry();
-        } else if (
-          failureKind !== "intentional-abort" &&
-          failureKind !== "conflict"
-        ) {
-          // Conflicts already rebased above (acked-hash reset + get-design
-          // invalidation); a red toast for a routine rebase is just noise.
+        } else if (failureKind === "conflict") {
+          // Rebase still happens (acked-hash reset + get-design invalidation),
+          // but a silent 409 looks like the last edit saved.
+          clearPendingLocalFileContent(pending.id, pending.content);
+          toast.error(t("designEditor.toasts.saveConflict"), {
+            id: `design-save-conflict:${pending.id}`,
+          });
+        } else if (failureKind !== "intentional-abort") {
           toast.error(
             designSaveErrorMessage(error) ?? t("common.genericError"),
             { id: `design-save-error:${pending.id}` },

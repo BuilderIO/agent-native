@@ -138,6 +138,7 @@ export function runObserveCollabText({
         isLocalEdit,
         previousContent: previousActiveContent,
         nextContent: next,
+        paintedContent: lastLocalContentRef.current,
       })
     ) {
       // Holistic flash pipeline: a remote (peer/agent) edit arriving mid-
@@ -154,6 +155,7 @@ export function runObserveCollabText({
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
+      lastLocalContentRef.current = next;
     }
     // Only advance the DB reconcile watermark when the live CRDT text
     // actually matches the current SQL snapshot. Otherwise an intermediate
