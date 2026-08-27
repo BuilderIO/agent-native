@@ -263,7 +263,10 @@ describe("update-slide", () => {
       edits: [{ find: "Missing", replace: "Never written", required: false }],
     })) as Record<string, unknown>;
 
-    expect(result).toMatchObject({ ok: true, applied: false });
+    expect(result).toMatchObject({ ok: false, applied: false });
+    // The slide is unchanged, so the result must say so — `applied: false`
+    // paired with `ok: true` read as success and was reported as done.
+    expect(String(result.message)).toContain("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
@@ -287,7 +290,10 @@ describe("update-slide", () => {
       edits: [{ find: "Missing", replace: "Never written", required: false }],
     })) as Record<string, unknown>;
 
-    expect(result).toMatchObject({ ok: true, applied: false });
+    expect(result).toMatchObject({ ok: false, applied: false });
+    // The slide is unchanged, so the result must say so — `applied: false`
+    // paired with `ok: true` read as success and was reported as done.
+    expect(String(result.message)).toContain("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(
       JSON.parse(mockDeckRow!.data as string).slides[0].animations,
@@ -342,15 +348,16 @@ describe("update-slide", () => {
       ],
     })) as Record<string, unknown>;
 
-    // The required find/replace matched and the batch is reported applied,
-    // but the optional image insert never found its marker and silently
-    // no-opped -- a caller trusting only the aggregate `applied` boolean has
-    // no way to tell the image was never inserted.
-    expect(result).toMatchObject({ ok: true, applied: true });
+    // The required find/replace matched, but the optional image insert never
+    // found its marker. The aggregate `applied` boolean cannot express that,
+    // so the result flags it explicitly — otherwise the agent reports the
+    // image as inserted.
+    expect(result).toMatchObject({ ok: true, applied: true, partial: true });
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
 
     expect(result.editResults).toEqual(["replace:first", "insert-after:0"]);
+    expect(String(result.message)).toContain("insert-after:0");
   });
 
   it("does not write a partial edit list when a later edit fails", async () => {

@@ -495,14 +495,25 @@ export default defineAction({
     }
 
     const { applied, editResults } = rmw;
+    // An optional edit whose marker matched nothing writes nothing. Reporting
+    // that only as `applied: false` (or, for a partly-applied batch, only in
+    // `editResults`) left "nothing was written" indistinguishable from
+    // success, and the agent told users their deck had changed when it had
+    // not. Say which edits found no match, in the result the model reads.
+    const unmatched = (editResults ?? []).filter((entry) =>
+      entry.endsWith(":0"),
+    );
     if (!applied) {
       return {
-        ok: true,
+        ok: false,
         deckId,
         slideId,
         applied: false,
         editResults,
         contentHash: rmw.contentHash,
+        message: unmatched.length
+          ? `Nothing was written: ${unmatched.join(", ")} matched no text in the slide. Call get-deck with this slideId and rebase the patch against the current HTML.`
+          : "Nothing was written: the result is identical to the current slide content.",
         deepLink: deckDeepLink(deckId),
       };
     }
@@ -547,6 +558,12 @@ export default defineAction({
       slideId,
       applied,
       editResults,
+      ...(unmatched.length
+        ? {
+            partial: true,
+            message: `Applied, but ${unmatched.join(", ")} matched no text and was skipped — do not report those parts as done.`,
+          }
+        : {}),
       contentHash: rmw.contentHash,
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode
@@ -569,7 +586,11 @@ export default defineAction({
           viewportWidth: fit.measurement.viewportWidth,
           viewportHeight: fit.measurement.viewportHeight,
         },
-        message: formatOverflowForTool(deckId, fit.measurement),
+        // Keep the skipped-edit warning: an overflow report must not be the
+        // only thing the model sees when part of the patch never landed.
+        message: [base.message, formatOverflowForTool(deckId, fit.measurement)]
+          .filter(Boolean)
+          .join("\n\n"),
       };
     }
 

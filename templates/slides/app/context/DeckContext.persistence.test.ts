@@ -23,6 +23,7 @@ import {
   hasUncommittedDeckChanges,
   markSlideEditingActive,
   mergeServerAddedSlides,
+  mergeServerSlideUpdate,
   useDecks,
   type Deck,
   type DeckReloadStatus,
@@ -3035,8 +3036,11 @@ describe("DeckContext deck creation persistence", () => {
       expect(result.current.getDeck("live-dirty-deck")?.slides).toHaveLength(1),
     );
 
+    // The human is typing in slide-1. That — not a deck-wide dirty flag — is
+    // what must hold the agent's copy of slide-1 back.
     act(() => {
       result.current.markDeckDirty("live-dirty-deck");
+      markSlideEditingActive("live-dirty-deck", "slide-1");
     });
     setAccessibleDeck({
       ...initial,
@@ -3073,6 +3077,21 @@ describe("DeckContext deck creation persistence", () => {
     const deck = result.current.getDeck("live-dirty-deck")!;
     expect(deck.slides[0]?.content).toBe("<h1>Local draft</h1>");
     expect(deck.slides[1]?.content).toBe("<h1>Agent added slide</h1>");
+
+    // Once the user stops typing, the next reconcile delivers the edit that
+    // was held back. Sync events never replay, so the poll has to heal this;
+    // the reconcile is therefore idempotent rather than event-triggered once.
+    act(() => {
+      clearSlideEditingActive("live-dirty-deck", "slide-1");
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(
+        result.current.getDeck("live-dirty-deck")?.slides[0]?.content,
+      ).toBe("<h1>Agent rewrote local slide</h1>"),
+    );
   });
 
   it("adopts a targeted agent edit while an unrelated local write is in flight", async () => {
@@ -3353,9 +3372,12 @@ describe("DeckContext deck creation persistence", () => {
         expect(result.current.getDeck("dirty-deck")?.slides.length).toBe(1),
       );
 
-      // Human is mid-edit: the exact state that used to suppress the refetch.
+      // Human is mid-edit on slide-1: the exact state that used to suppress
+      // the refetch. Only slide-1 is protected — a dirty deck is not a reason
+      // to hide agent work on any other slide.
       act(() => {
         result.current.markDeckDirty("dirty-deck");
+        markSlideEditingActive("dirty-deck", "slide-1");
       });
 
       const source = MockEventSource.lastInstance!;
@@ -3558,6 +3580,58 @@ describe("DeckContext deck creation persistence", () => {
       expect([...merged.slides.map((s) => s.id)].sort()).toEqual(
         ["a", "b", "local-only"].sort(),
       );
+    });
+  });
+
+  describe("mergeServerSlideUpdate", () => {
+    const slide = (id: string, content: string): Slide => ({
+      id,
+      content,
+      notes: "",
+      layout: "content",
+    });
+    const deckOf = (slides: Slide[]): Deck => ({
+      id: "dirty-deck",
+      title: "t",
+      createdAt: "",
+      updatedAt: "",
+      slides,
+    });
+
+    afterEach(() => {
+      clearSlideEditingActive("dirty-deck", "a");
+    });
+
+    // The regression this guards: an agent edit used to be adopted only for
+    // the single slide id carried in the SSE payload, so an edit announced
+    // without one — patch-deck over several slides, or any fallback poll —
+    // stayed invisible while the deck had unrelated local edits.
+    it("adopts server content for every slide with no pending local write", () => {
+      const local = deckOf([slide("a", "LOCAL a"), slide("b", "LOCAL b")]);
+      const server = deckOf([slide("a", "AGENT a"), slide("b", "AGENT b")]);
+      const merged = mergeServerSlideUpdate(local, server, "dirty-deck");
+      expect(merged.slides.map((s) => s.content)).toEqual([
+        "AGENT a",
+        "AGENT b",
+      ]);
+    });
+
+    it("holds back a slide the user is mid inline-edit", () => {
+      markSlideEditingActive("dirty-deck", "a");
+      const local = deckOf([slide("a", "TYPING a"), slide("b", "LOCAL b")]);
+      const server = deckOf([slide("a", "AGENT a"), slide("b", "AGENT b")]);
+      const merged = mergeServerSlideUpdate(local, server, "dirty-deck");
+      expect(merged.slides.map((s) => s.content)).toEqual([
+        "TYPING a",
+        "AGENT b",
+      ]);
+    });
+
+    // Runs on every poll, so an unchanged deck must not churn React state.
+    it("returns the same local reference when the server matches", () => {
+      const local = deckOf([slide("a", "a"), slide("b", "b")]);
+      const server = deckOf([slide("a", "a"), slide("b", "b")]);
+      expect(mergeServerSlideUpdate(local, server, "dirty-deck")).toBe(local);
     });
   });
 });
