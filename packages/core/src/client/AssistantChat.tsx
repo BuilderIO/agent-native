@@ -490,14 +490,15 @@ export function reconnectProgressTimedOut(args: {
 }
 
 export function matchesUserStoppedRun(
-  stopped: { runId?: string; threadId?: string } | null,
+  stopped: { runId?: string; threadId?: string; turnId?: string } | null,
   threadId?: string,
   runId?: string,
+  turnId?: string,
 ): boolean {
+  if (!stopped || stopped.threadId !== threadId) return false;
   return Boolean(
-    stopped &&
-    stopped.threadId === threadId &&
-    (!stopped.runId || !runId || stopped.runId === runId),
+    (stopped.runId && runId && stopped.runId === runId) ||
+    (stopped.turnId && turnId && stopped.turnId === turnId),
   );
 }
 
@@ -2852,6 +2853,7 @@ const AssistantChatInner = forwardRef<
   const userStoppedRunRef = useRef<{
     runId?: string;
     threadId?: string;
+    turnId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
@@ -3423,8 +3425,8 @@ const AssistantChatInner = forwardRef<
   }, [cacheCurrentThreadSnapshot]);
 
   const wasUserStoppedRun = useCallback(
-    (runId?: string): boolean =>
-      matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId),
+    (runId?: string, turnId?: string): boolean =>
+      matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId),
     [threadId],
   );
 
@@ -3439,7 +3441,7 @@ const AssistantChatInner = forwardRef<
         return false;
       }
       const runId = String(runInfo.runId);
-      if (wasUserStoppedRun(runId)) return false;
+      if (wasUserStoppedRun(runId, runInfo.turnId)) return false;
       if (reconnectRunIdRef.current === runId) return true;
       // SINGLE-READER OWNERSHIP: never start a second reader while the
       // adapter's own stream is live (or mid auto-continuation) for this
@@ -4229,7 +4231,10 @@ const AssistantChatInner = forwardRef<
       forceStopped ||
       isReconnecting ||
       runErrorInfo ||
-      wasUserStoppedRun()
+      wasUserStoppedRun(
+        activeChatRunId ?? undefined,
+        activeChatTurnId ?? undefined,
+      )
     ) {
       return;
     }
@@ -4551,7 +4556,9 @@ const AssistantChatInner = forwardRef<
         return;
       }
       const stopped = userStoppedRunRef.current;
-      if (matchesUserStoppedRun(stopped, threadId, detail.runId)) {
+      if (
+        matchesUserStoppedRun(stopped, threadId, detail.runId, detail.turnId)
+      ) {
         return;
       }
       // A terminal adapter error wins over any read-only reconnect reader that
@@ -5008,9 +5015,14 @@ const AssistantChatInner = forwardRef<
       const activeRun = getActiveRun();
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
       const pendingTurn = threadId ? getPendingTurn(threadId) : null;
+      const turnIdToAbort =
+        pendingTurn?.turnId ??
+        reconnectTurnIdRef.current ??
+        (activeRun?.runId === runIdToAbort ? activeRun?.turnId : undefined);
       userStoppedRunRef.current = {
         ...(threadId ? { threadId } : {}),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+        ...(turnIdToAbort ? { turnId: turnIdToAbort } : {}),
       };
       trackStoppedRun(runIdToAbort);
       setRunErrorInfo(null);
@@ -5707,6 +5719,7 @@ const AssistantChatInner = forwardRef<
       userStoppedRunRef.current,
       threadId,
       visibleRunError.runId,
+      visibleRunError.turnId,
     );
   const providerAuthErrorKey =
     visibleRunError &&

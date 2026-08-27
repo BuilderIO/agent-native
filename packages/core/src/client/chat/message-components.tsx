@@ -1346,7 +1346,7 @@ export function shouldShowAssistantMessageFooter({
  */
 export const ServerRunActiveContext = React.createContext(false);
 export const UserStoppedRunContext = React.createContext<
-  (runId?: string) => boolean
+  (runId?: string, turnId?: string) => boolean
 >(() => false);
 
 export function shouldShowMissingFinalResponse({
@@ -1727,7 +1727,8 @@ export function AssistantMessage() {
   const messageTurnId = assistantMessageTurnId(msg);
   const userStoppedRun = React.useContext(UserStoppedRunContext);
   const isUserStoppedRun =
-    assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
+    assistantMessageWasUserStopped(msg) ||
+    userStoppedRun(messageRunId, messageTurnId);
   const thinkingDisplay = useThinkingDisplay();
   const groupWorkParts = useCallback(
     (
