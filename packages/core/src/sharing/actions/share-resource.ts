@@ -447,7 +447,7 @@ export default defineAction({
         }
         const resourceLabel = reg.displayName.toLowerCase();
         const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
-        const subject = `${reg.displayName} shared with you: "${resourceTitle}"`;
+        const subject = `${senderDisplayName} shared with you: "${resourceTitle}"`;
         const messageParagraph = args.message?.trim()
           ? emailQuote(args.message)
           : null;
@@ -456,7 +456,9 @@ export default defineAction({
             ? "view"
             : args.role === "commenter"
               ? "comment on"
-              : "edit";
+              : args.role === "admin"
+                ? "edit and manage access to"
+                : "edit";
         const defaultParagraphs = [
           `${emailStrong(senderDisplayName)} (${emailStrong(actor)}) has invited you to ${roleVerb} the following ${resourceLabel}:`,
           ...(messageParagraph ? [messageParagraph] : []),
