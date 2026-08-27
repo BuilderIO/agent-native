@@ -505,8 +505,42 @@ export function freezeSlideElementForFreeform(
   return spacer;
 }
 
+/** Preserve a flow element's measured slot after its content is deleted. */
+function preserveSlideElementLayoutSlot(element: HTMLElement): void {
+  const computed = window.getComputedStyle(element);
+  const spacer = freezeSlideElementForFreeform(
+    element,
+    {
+      x: 0,
+      y: 0,
+      width: element.offsetWidth,
+      height: element.offsetHeight,
+    },
+    {
+      display: computed.display,
+      flexGrow: computed.flexGrow,
+      flexShrink: computed.flexShrink,
+      flexBasis: computed.flexBasis,
+      alignSelf: computed.alignSelf,
+    },
+  );
+  spacer.removeAttribute("data-slide-layout-spacer-for");
+  spacer.setAttribute("data-slide-layout-preserved", "true");
+  element.remove();
+}
+
 /** Remove a freeform object and the invisible layout slot that anchors it. */
-export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
+export function removeSlideObjectAndLayoutSpacer(
+  element: HTMLElement,
+  { preserveLayoutSlot = false }: { preserveLayoutSlot?: boolean } = {},
+): void {
+  if (
+    preserveLayoutSlot &&
+    window.getComputedStyle(element).position !== "absolute"
+  ) {
+    preserveSlideElementLayoutSlot(element);
+    return;
+  }
   const objectId = element.getAttribute("data-slide-object-id");
   if (objectId) {
     const owner = element.parentElement ?? element.ownerDocument;

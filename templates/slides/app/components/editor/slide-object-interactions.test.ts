@@ -901,6 +901,28 @@ describe("isDeletableSlideElement", () => {
     expect(root.contains(sibling)).toBe(true);
   });
 
+  it("preserves a deleted flow element's layout slot when requested", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    const sibling = document.createElement("div");
+    Object.defineProperties(rectangle, {
+      offsetWidth: { configurable: true, value: 420 },
+      offsetHeight: { configurable: true, value: 96 },
+    });
+    root.append(rectangle, sibling);
+
+    removeSlideObjectAndLayoutSpacer(rectangle, { preserveLayoutSlot: true });
+
+    const spacer = root.firstElementChild as HTMLElement;
+    expect(root.contains(rectangle)).toBe(false);
+    expect(root.contains(sibling)).toBe(true);
+    expect(spacer.classList.contains("fmd-layout-spacer")).toBe(true);
+    expect(spacer.dataset.slideLayoutPreserved).toBe("true");
+    expect(spacer.dataset.slideLayoutSpacerFor).toBeUndefined();
+    expect(spacer.style.width).toBe("420px");
+    expect(spacer.style.height).toBe("96px");
+  });
+
   it("keeps renderer shells and layout spacers protected", () => {
     const shell = document.createElement("div");
     shell.className = "fmd-slide";
