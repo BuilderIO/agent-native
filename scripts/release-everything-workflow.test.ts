@@ -119,10 +119,11 @@ describe("release everything workflow", () => {
     assert.match(desktopSourceText, /get_tag_sha\(\)/);
     assert.match(desktopSourceText, /\.draft/);
     assert.match(
-      clipsSourceText,
-      /EXISTING_TAG_SHA[\s\S]*RELEASE_SOURCE_REF/,
+      desktopSourceText,
+      /EXISTING_TAG_SHA[\s\S]*needs\.resolve-version/,
     );
     assert.match(clipsSourceText, /get_tag_sha\(\)/);
+    assert.match(clipsSourceText, /EXISTING_TAG_SHA[\s\S]*RELEASE_SOURCE_REF/);
     assert.match(clipsSourceText, /SOURCE_REF,,/);
     assert.match(desktopSource, /source_ref.*steps\.v\.outputs\.source_ref/);
     assert.match(desktopSource, /full 40-character commit SHA/);
