@@ -1175,3 +1175,66 @@ describe("parseComputedDropShadowFilter", () => {
     expect(parseComputedDropShadowFilter("blur(4px)")).toEqual([]);
   });
 });
+
+describe("background-image sizing on export", () => {
+  // Figma's four image scale modes reach the DOM only through
+  // `background-size`: FILL is cover, FIT is contain, STRETCH is 100% 100%,
+  // and a CROP is an explicit pixel size with an offset. Every layer used to
+  // export as cover, which crops the three that are not.
+  const url = 'url("https://img.example/a.png")';
+
+  it("keeps FIT as contain rather than cropping it", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "contain"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "contain" },
+    ]);
+  });
+
+  it("keeps STRETCH from being cropped like cover", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "100% 100%"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "stretch" },
+    ]);
+  });
+
+  it("carries a CROP's own size and offset", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "1193.32px 706px",
+        "-40px -12px",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 1193.32, height: 706 },
+        offsetPx: { x: -40, y: -12 },
+      },
+    ]);
+  });
+
+  it("still defaults to cover, which is FILL and the common case", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "cover"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+  });
+
+  it("matches each layer to its own size in a multi-layer background", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "contain, cover",
+    );
+    expect(layers.map((l) => (l as { fit: string }).fit)).toEqual([
+      "contain",
+      "cover",
+    ]);
+  });
+});

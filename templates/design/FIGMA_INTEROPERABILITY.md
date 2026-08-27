@@ -344,14 +344,15 @@ buried:
 Raised in review on this branch. None is blind-fixed, because the export hop has
 already punished three changes on this branch that looked correct in isolation.
 
-- **`background-size` / `position` / `repeat` are discarded on export.** Every
-  `url()` background layer is recorded as `fit: "cover"`, so a Figma FIT or TILE
-  fill round-trips cropped. It is reported rather than silent — the export
-  records `Background-image fill approximated via an objectBoundingBox pattern`
-  against each one. The measurement to move already exists: the four Interior
-  designs share one header photo and show identical structural clusters, 3093
-  and 2363 pixels in the same two cells, where the import sits 1.9 grey levels
-  from Figma and the export 7.5.
+- ~~**`background-size` is discarded on export.**~~ **Fixed.** Every `url()`
+  background layer was recorded as `fit: "cover"`, and Figma's four scale modes
+  reach the DOM only through `background-size`: FILL is `cover`, FIT is
+  `contain`, STRETCH is `100% 100%`, and a CROP is an explicit pixel size with
+  an offset. Three of the four were being cropped like the first. Each layer now
+  takes its own size, and a CROP is placed exactly with a `userSpaceOnUse`
+  pattern rather than approximated — Positivus **3.415% -> 2.871%**, Untitled UI
+  mobile 6.577% -> 6.310%, export mean **3.082% -> 3.053%**. `TILE` still tiles
+  at the browser's intrinsic size, which SVG cannot ask for, and keeps its note.
 - **Non-rotation transforms are not preserved.** The exporter reads only
   rotation, while the importer emits `matrix()` for mirrored and skewed nodes.
   No corpus case shows the cost: `parity-stress`, the fixture built to carry

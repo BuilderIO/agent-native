@@ -92,6 +92,10 @@ export type FigmaSvgFillLayer =
       kind: "image";
       href: string;
       fit: "cover" | "contain" | "stretch";
+      /** An explicit `background-size` in px, i.e. a Figma CROP. */
+      sizePx?: { width: number; height: number };
+      /** The matching `background-position` in px, when the size is explicit. */
+      offsetPx?: { x: number; y: number };
     }
   /** A background-image layer with no SVG equivalent (conic, repeating, …). */
   | { kind: "unsupported"; css: string };
@@ -1109,6 +1113,20 @@ function resolveFillPaint(
   }
   const id = ctx.nextId("img-fill");
   const par = objectFitToPreserveAspectRatio(fill.fit);
+  // An explicit pixel size is Figma's CROP: the image is drawn at that size at
+  // that offset, not fitted to the box. `objectBoundingBox` cannot express it,
+  // so place the image in user space instead — exactly, with no approximation
+  // note, because there is nothing approximate about it.
+  if (fill.sizePx) {
+    const offset = fill.offsetPx ?? { x: 0, y: 0 };
+    ctx.defs.push(
+      `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${n(node.rect.x)}" y="${n(node.rect.y)}" width="${n(node.rect.width)}" height="${n(node.rect.height)}">` +
+        `<image href="${escapeXmlAttr(fill.href)}" x="${n(offset.x)}" y="${n(offset.y)}" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}" preserveAspectRatio="none"${
+          node.imageRendering ? ` image-rendering="${node.imageRendering}"` : ""
+        }/></pattern>`,
+    );
+    return `url(#${id})`;
+  }
   // Figma magnifies an image fill with nearest-neighbour sampling and the
   // importer asks for it with `image-rendering`; dropping it here would smooth
   // on the way back out what the import deliberately kept crisp.
@@ -1746,6 +1764,15 @@ export interface RawFigmaSvgNode {
   backgroundColor: string;
   /** Computed `background-image`, e.g. "none" or a comma-separated gradient/url list. */
   backgroundImage: string;
+  /**
+   * Computed `background-size` / `background-position`, one entry per layer.
+   * Figma's four image scale modes reach the DOM only through these: FILL is
+   * `cover`, FIT is `contain`, STRETCH is `100% 100%`, and a CROP is an
+   * explicit pixel size with an offset. Exporting every layer as `cover`
+   * cropped the three that are not.
+   */
+  backgroundSize?: string;
+  backgroundPosition?: string;
   /** Computed `box-shadow`, e.g. "none" or a Chromium-normalized shadow list. */
   boxShadow: string;
   /**
@@ -1815,14 +1842,57 @@ function objectFitFromRaw(raw?: string): "cover" | "contain" | "stretch" {
  * order (index 0 = topmost), followed by `background-color` as the implicit
  * bottommost layer when it isn't fully transparent.
  */
+/**
+ * `background-size` for one layer, as Figma's scale modes reach the DOM:
+ * `cover` (FILL), `contain` (FIT), `100% 100%` (STRETCH), or an explicit pixel
+ * pair (CROP). Anything else falls back to cover, which is what every layer
+ * used to get unconditionally.
+ */
+function imageFitFromSize(
+  size: string | undefined,
+  position: string | undefined,
+): {
+  fit: "cover" | "contain" | "stretch";
+  sizePx?: { width: number; height: number };
+  offsetPx?: { x: number; y: number };
+} {
+  const value = (size ?? "").trim();
+  if (value === "contain") return { fit: "contain" };
+  if (value === "cover" || value === "" || value === "auto") {
+    return { fit: "cover" };
+  }
+  if (/^100%\s+100%$/.test(value)) return { fit: "stretch" };
+  const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
+    Number(m[1]),
+  );
+  if (px.length === 2 && px[0]! > 0 && px[1]! > 0) {
+    const offsets = Array.from((position ?? "").matchAll(/(-?[\d.]+)px/g)).map(
+      (m) => Number(m[1]),
+    );
+    return {
+      fit: "stretch",
+      sizePx: { width: px[0]!, height: px[1]! },
+      offsetPx:
+        offsets.length === 2 ? { x: offsets[0]!, y: offsets[1]! } : undefined,
+    };
+  }
+  return { fit: "cover" };
+}
+
 export function buildFillLayersFromComputedStyle(
   backgroundColor: string,
   backgroundImage: string,
+  backgroundSize?: string,
+  backgroundPosition?: string,
 ): FigmaSvgFillLayer[] {
   const layers: FigmaSvgFillLayer[] = [];
+  const sizes = splitTopLevelCommas(backgroundSize ?? "");
+  const positions = splitTopLevelCommas(backgroundPosition ?? "");
 
   if (backgroundImage && backgroundImage !== "none") {
+    let layerIndex = -1;
     for (const part of splitTopLevelCommas(backgroundImage)) {
+      layerIndex += 1;
       // `background: <gradient>, <color>` computes to "<gradient>, none": the
       // colour layer contributes no image. That per-layer "none" is not an
       // unsupported paint, and reporting it as one made every layered
@@ -1849,7 +1919,11 @@ export function buildFillLayersFromComputedStyle(
       } else if (part.startsWith("url(")) {
         const hrefMatch = part.match(/url\((["']?)(.*?)\1\)/);
         if (hrefMatch)
-          layers.push({ kind: "image", href: hrefMatch[2], fit: "cover" });
+          layers.push({
+            kind: "image",
+            href: hrefMatch[2],
+            ...imageFitFromSize(sizes[layerIndex], positions[layerIndex]),
+          });
       } else {
         // Conic/repeating gradients and any future background-image syntax have
         // no SVG equivalent. Recording the layer keeps it visible in the export
@@ -1974,6 +2048,8 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
     const textBoxFills = buildFillLayersFromComputedStyle(
       raw.backgroundColor,
       raw.backgroundImage,
+      raw.backgroundSize,
+      raw.backgroundPosition,
     );
     const textBoxShadows = parseComputedBoxShadow(raw.boxShadow);
     return {
@@ -2047,6 +2123,8 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
   const fills = buildFillLayersFromComputedStyle(
     raw.backgroundColor,
     raw.backgroundImage,
+    raw.backgroundSize,
+    raw.backgroundPosition,
   );
   const shadows = [
     ...parseComputedBoxShadow(raw.boxShadow),
@@ -2846,6 +2924,8 @@ export function collectRawFigmaSvgScene(
       })(),
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
+      backgroundSize: style.backgroundSize,
+      backgroundPosition: style.backgroundPosition,
       boxShadow: style.boxShadow,
       contentShadow: style.getPropertyValue("--figma-content-shadow").trim(),
       borderWidthPx: Math.max(
