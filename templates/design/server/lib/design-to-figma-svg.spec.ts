@@ -1333,6 +1333,56 @@ describe("background-image sizing on export", () => {
     ]);
   });
 
+  it("reports `round` and `space` repeats instead of dropping them", () => {
+    // An SVG pattern repeats at the tile's own size: no `round` rescaling to a
+    // whole number of tiles, no `space` distribution. Chromium keeps both
+    // verbatim in the computed value, including two-value forms.
+    for (const repeat of ["round", "space", "repeat space"]) {
+      const [layer] = buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "0% 0%",
+        repeat,
+      );
+      expect(layer).toMatchObject({ fit: "cover", repeatAxis: repeat });
+    }
+  });
+
+  it("reports a background-size that computed to one length", () => {
+    // Chromium computes `16px auto` — and a bare `16px` — to a single value,
+    // meaning that width with a proportional height. Without the image's
+    // intrinsic ratio the size cannot be reproduced, so it is reported.
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px",
+      "0% 0%",
+      "no-repeat",
+    );
+    expect(layer).toMatchObject({ fit: "cover", singleAxisSize: "16px" });
+  });
+
+  it("catches a calc() stop position, which survives into computed styles", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, rgb(255, 0, 0) calc(50% - 10px), rgb(0, 0, 255) 100%)",
+      ).map((l) => l.kind),
+    ).toEqual(["unsupported"]);
+  });
+
+  it("keeps an ordinary transparent-to-colour fade readable", () => {
+    // The commonest real gradient in the corpus. Over-catching this would
+    // rasterize a large share of every design.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgb(0, 0, 0) 100%)",
+      ).map((l) => l.kind),
+    ).toEqual(["linear-gradient"]);
+  });
+
   it("does not treat a one-axis repeat as a two-axis tile", () => {
     // An SVG pattern repeats on both axes and has no one-axis form, so
     // `repeat-x` coming back tiled vertically would cover rows the design

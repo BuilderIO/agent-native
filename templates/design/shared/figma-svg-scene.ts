@@ -103,9 +103,12 @@ export type FigmaSvgFillLayer =
        * rather than drawn as a single stretched copy.
        */
       repeat?: boolean;
-      /** `repeat-x` / `repeat-y`: tiles on one axis, which an SVG pattern
-       *  cannot express — reported rather than silently repeated on both. */
+      /** `repeat-x` / `repeat-y` / `round` / `space`: a repetition an SVG
+       *  pattern cannot express — reported rather than silently dropped. */
       repeatAxis?: string;
+      /** A `background-size` that computed to a single length, i.e. that width
+       *  with a proportional height. Reported: the ratio is not known here. */
+      singleAxisSize?: string;
     }
   /** A background-image layer with no SVG equivalent (conic, repeating, …). */
   | { kind: "unsupported"; css: string };
@@ -1145,13 +1148,23 @@ function resolveFillPaint(
   // branch below, which would otherwise claim the same explicit pixel size and
   // draw one copy.
   if (fill.repeatAxis) {
-    // An SVG pattern repeats on both axes; there is no one-axis form. Saying
-    // so beats emitting a full tiling that covers rows the design leaves bare.
+    // An SVG pattern repeats on both axes at the tile's own size: there is no
+    // one-axis form, no `round` rescaling and no `space` distribution. Saying
+    // so beats emitting a tiling that covers rows the design leaves bare.
     ctx.report.approximated.push({
       node: node.name || node.id,
       note:
-        `Image fill repeats on one axis (background-repeat: ${fill.repeatAxis}), ` +
-        `which an SVG pattern cannot express; exported as a single non-repeating image.`,
+        `Image fill uses background-repeat: ${fill.repeatAxis}, which an SVG ` +
+        `pattern cannot express; exported as a single non-repeating image.`,
+    });
+  }
+  if (fill.singleAxisSize) {
+    ctx.report.approximated.push({
+      node: node.name || node.id,
+      note:
+        `Image fill has a one-dimensional background-size (${fill.singleAxisSize}), ` +
+        `meaning that width with a proportional height; the image's intrinsic ` +
+        `ratio is not known at export time, so it was fitted to the box instead.`,
     });
   }
   if (fill.repeat) {
@@ -1969,6 +1982,7 @@ function imageFitFromSize(
   offsetPx?: { x: number; y: number };
   repeat?: boolean;
   repeatAxis?: string;
+  singleAxisSize?: string;
 } {
   const value = (size ?? "").trim();
   // `background-repeat` cannot be read as intent: `repeat` is the CSS INITIAL
@@ -1985,6 +1999,13 @@ function imageFitFromSize(
   const repeatValue = (repeat ?? "").trim();
   const oneAxisRepeat =
     repeatValue === "repeat-x" || repeatValue === "repeat-y";
+  // `round` rescales tiles to fit a whole number of them and `space`
+  // distributes them with gaps; an SVG pattern does neither, and Chromium
+  // keeps both verbatim in the computed value (including two-value forms like
+  // `repeat space`). Neither was recognised, so they exported non-tiled with
+  // nothing said about it.
+  const unsupportedRepeat =
+    /\b(round|space)\b/.test(repeatValue) && repeatValue !== "";
   const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
     Number(m[1]),
   );
@@ -1992,6 +2013,11 @@ function imageFitFromSize(
     px.length === 2 && px[0]! > 0 && px[1]! > 0
       ? { width: px[0]!, height: px[1]! }
       : undefined;
+  // Chromium computes `background-size: 16px auto` — and a bare `16px` — down
+  // to a SINGLE value, meaning that width with a proportional height. There is
+  // no second number to read, so the size cannot be reproduced without the
+  // image's intrinsic ratio; it is reported rather than silently covered.
+  const singleAxisPx = px.length === 1 && px[0]! > 0;
   const fillsBox = value === "cover" || /^100%\s+100%$/.test(value);
   // An empty value means the collector read no background-size at all, which
   // is not the same fact as `auto`; it cannot be shown to repeat.
@@ -2017,12 +2043,13 @@ function imageFitFromSize(
     // fit and let `imageFillMarkup` report the tiling it could not draw.
     return { fit: value === "contain" ? "contain" : "cover", repeat: true };
   }
-  if (oneAxisRepeat && canShowRepeat) {
+  if ((oneAxisRepeat || unsupportedRepeat) && canShowRepeat) {
     return {
       fit: value === "contain" ? "contain" : "cover",
       repeatAxis: repeatValue,
     };
   }
+  if (singleAxisPx) return { fit: "cover", singleAxisSize: value };
   if (value === "contain") return { fit: "contain" };
   if (value === "cover" || value === "" || value === "auto") {
     return { fit: "cover" };
@@ -2067,14 +2094,21 @@ function gradientLayerHasUnreadableStop(layer: string): boolean {
       if (i === 0) continue;
       return true;
     }
-    const withoutPosition = part.replace(/\s*(-?[\d.]+)%\s*$/, "").trim();
-    if (!withoutPosition) return true;
-    if (
-      /(^|\s)-?[\d.]+(%|px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
-        withoutPosition,
+    // Take the COLOUR out and see what is left. `parseColorStop` keeps one
+    // trailing percentage and treats everything before it as the colour, so
+    // whatever still stands once the colour and that one percentage are
+    // removed is a position it will glue onto `stop-color` and paint black.
+    // Asking it this way round covers forms an enumerated list misses:
+    // `calc(50% - 10px)` survives into computed styles, and so does a
+    // second position.
+    const residue = part
+      .replace(
+        /rgba?\([^)]*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
+        "",
       )
-    )
-      return true;
+      .replace(/\s*(-?[\d.]+)%\s*$/, "")
+      .trim();
+    if (residue) return true;
   }
   return false;
 }
@@ -2629,22 +2663,21 @@ export function collectRawFigmaSvgScene(
           // equivalent — the raster fallback preserves it exactly.
           return true;
         }
-        // The parser strips ONE trailing percentage and treats the rest as the
-        // colour, so checking only "ends in %" passes `<colour> 0 50%` — the
-        // two-position form — and leaves `<colour> 0` as the colour. Strip the
-        // same one position the parser does, then ask whether what remains is
-        // still carrying a number.
-        const withoutPosition = part.replace(/\s*(-?[\d.]+)%\s*$/, "").trim();
-        if (!withoutPosition) return true;
-        // A bare colour with no position at all is fine — the stop normalizer
-        // spreads those. A residual length or number still glued to the colour
-        // is not: it becomes an invalid `stop-color`.
-        if (
-          /(^|\s)-?[\d.]+(%|px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
-            withoutPosition,
+        // Take the COLOUR out and see what is left. `parseColorStop` keeps one
+        // trailing percentage and treats everything before it as the colour, so
+        // whatever still stands once the colour and that one percentage are
+        // removed is a position it will glue onto `stop-color` and paint black.
+        // Asking it this way round covers forms an enumerated list misses:
+        // `calc(50% - 10px)` survives into computed styles, and so does a
+        // second position.
+        const residue = part
+          .replace(
+            /rgba?\([^)]*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
+            "",
           )
-        )
-          return true;
+          .replace(/\s*(-?[\d.]+)%\s*$/, "")
+          .trim();
+        if (residue) return true;
       }
     }
     return false;
