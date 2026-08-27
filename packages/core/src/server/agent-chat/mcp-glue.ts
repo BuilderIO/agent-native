@@ -19,14 +19,26 @@ import { getH3App } from "../framework-request-handler.js";
 // ---------------------------------------------------------------------------
 
 let _globalMcpManager: McpClientManager | null = null;
+let _globalMcpManagerReady: (() => Promise<void>) | null = null;
 
-export function setGlobalMcpManager(manager: McpClientManager): void {
+export function setGlobalMcpManager(
+  manager: McpClientManager | null,
+  ready?: (() => Promise<void>) | null,
+): void {
   _globalMcpManager = manager;
+  _globalMcpManagerReady = manager ? (ready ?? null) : null;
 }
 
 /** Internal: access the current process's MCP client manager, if any. */
 export function getGlobalMcpManager(): McpClientManager | null {
   return _globalMcpManager;
+}
+
+/** Wait for lazy serverless MCP hydration before an app-visible call. */
+export async function waitForGlobalMcpManager(): Promise<McpClientManager | null> {
+  const manager = getGlobalMcpManager();
+  if (manager) await _globalMcpManagerReady?.();
+  return manager;
 }
 
 /** Internal: reload the process's MCP client manager after persisted settings change. */
