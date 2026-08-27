@@ -97,7 +97,10 @@ describe("social OG image", () => {
   it("expands built-in app names before rendering the default title", () => {
     vi.stubEnv("APP_NAME", "Design");
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");
-    expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Design");
+    const designSvg = renderAgentNativeOgImageSvg();
+    expect(designSvg).toContain("Agent-Native Design");
+    expect(designSvg).toContain("100% free and open source");
+    expect(designSvg).toContain('<path d="M24.5537');
 
     vi.stubEnv("APP_NAME", "slides");
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Slides");
@@ -107,7 +110,34 @@ describe("social OG image", () => {
   it("preserves explicit custom app names in the default title", () => {
     vi.stubEnv("APP_NAME", "Acme Workspace");
     expect(resolveAgentNativeOgImageAppName()).toBe("Acme Workspace");
-    expect(renderAgentNativeOgImageSvg()).toContain("Acme Workspace");
+    const svg = renderAgentNativeOgImageSvg();
+    expect(svg).toContain("Acme Workspace");
+    expect(svg).not.toContain("Agent-Native");
+    expect(svg).not.toContain("100% free and open source");
+    expect(svg).not.toContain('<path d="M24.5537');
+  });
+
+  it("uses a custom package name without framework branding", () => {
+    vi.stubEnv("npm_package_name", "try-marisco");
+
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain("Try Marisco");
+    expect(svg).not.toContain("Agent-Native");
+    expect(svg).not.toContain("100% free and open source");
+  });
+
+  it("uses a custom logo instead of the framework mark", () => {
+    const svg = renderAgentNativeOgImageSvg({
+      appName: "Acme Workspace",
+      logoUrl: "https://cdn.example.com/acme.svg",
+    });
+
+    expect(svg).toContain(
+      '<image x="0" y="0" width="114" height="66" href="https://cdn.example.com/acme.svg"',
+    );
+    expect(svg).not.toContain('<path d="M24.5537');
+    expect(svg).not.toContain("Agent-Native");
   });
 
   it("can return SVG fallback headers", () => {
