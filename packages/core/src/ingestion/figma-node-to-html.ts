@@ -1440,6 +1440,56 @@ function hasContentToHug(node: FigmaNode): boolean {
   return (node.children?.length ?? 0) > 0 || node.type === "TEXT";
 }
 
+/**
+ * The overlap Figma actually draws for a negative `itemSpacing`.
+ *
+ * Figma clamps it so the children still fill a fixed-size container: the
+ * Positivus CTA row asks for -715px between a 1240px card and a 494px
+ * illustration inside a 1240px content box, and Figma lays the illustration
+ * flush with the card's right edge (-494), not 221px further left. Where the
+ * request does NOT overflow — the same page's contact block asks -367 between
+ * children that would need -692 to close up — the literal value stands.
+ *
+ * This is the same rule, and the same reasoning, as `overlapSpacing` in the
+ * .fig walker. Two walkers reading the same Figma semantics must not carry two
+ * different rules; a per-child variant considered here agreed with this one on
+ * every row in the corpus, so it would have been an unverified second rule for
+ * no measured gain.
+ */
+function resolveNegativeItemSpacing(node: FigmaNode): number {
+  const spacing = node.itemSpacing ?? 0;
+  if (spacing >= 0) return spacing;
+  const horizontal = node.layoutMode === "HORIZONTAL";
+  const mainSizing = horizontal
+    ? node.layoutSizingHorizontal
+    : node.layoutSizingVertical;
+  // Only a fixed primary axis has a container to fill.
+  if (mainSizing !== undefined && mainSizing !== "FIXED") return spacing;
+  const box = node.absoluteBoundingBox;
+  if (!box) return spacing;
+  const total = horizontal ? box.width : box.height;
+  const padStart = (horizontal ? node.paddingLeft : node.paddingTop) ?? 0;
+  const padEnd = (horizontal ? node.paddingRight : node.paddingBottom) ?? 0;
+  const children = (node.children ?? []).filter(
+    (child) =>
+      child.visible !== false &&
+      child.layoutPositioning !== "ABSOLUTE" &&
+      child.absoluteBoundingBox,
+  );
+  if (children.length < 2) return spacing;
+  let sum = 0;
+  for (const child of children) {
+    const size = horizontal
+      ? child.absoluteBoundingBox!.width
+      : child.absoluteBoundingBox!.height;
+    // An unknown child size makes the clamp meaningless; do not guess at it.
+    if (typeof size !== "number") return spacing;
+    sum += size;
+  }
+  const fill = (total - padStart - padEnd - sum) / (children.length - 1);
+  return Math.max(spacing, fill);
+}
+
 function buildChildSizingStyles(
   node: FigmaNode,
   parentLayoutMode: "NONE" | "HORIZONTAL" | "VERTICAL",
@@ -1466,23 +1516,11 @@ function buildChildSizingStyles(
     ? node.layoutSizingHorizontal
     : node.layoutSizingVertical;
   if (mainAxisSizing !== "FILL") styles["flex-shrink"] = "0";
-  // Reproduce a negative itemSpacing as an overlap, since `gap` cannot.
-  //
-  // Figma CLAMPS that overlap to the following child's own size — a child
-  // never slides further back than its own extent. Positivus' CTA row asks for
-  // -715 against a 494px illustration and Figma draws it at -494; its team
-  // cards ask for -67 against a 34px social icon and Figma draws -34. Taking
-  // the stated value literally dragged both across their neighbours. A row
-  // whose overlap already fits (the contact block's -367 against a 692px
-  // illustration) is untouched, which is how the clamp was confirmed rather
-  // than fitted.
+  // Reproduce a negative itemSpacing as an overlap, since `gap` cannot. The
+  // value arriving here is already resolved by `resolveNegativeItemSpacing`.
   if (parentItemSpacing < 0 && !isFirstChild) {
-    const ownMainAxis = parentIsHorizontal
-      ? (node.absoluteBoundingBox?.width ?? 0)
-      : (node.absoluteBoundingBox?.height ?? 0);
-    styles[parentIsHorizontal ? "margin-left" : "margin-top"] = px(
-      Math.max(parentItemSpacing, -ownMainAxis),
-    );
+    styles[parentIsHorizontal ? "margin-left" : "margin-top"] =
+      px(parentItemSpacing);
   }
   if (node.layoutSizingHorizontal === "FILL") {
     if (parentIsHorizontal) {
@@ -2595,7 +2633,7 @@ function buildNode(
             options,
             tracker,
             false,
-            hasAutoLayout ? (node.itemSpacing ?? 0) : 0,
+            hasAutoLayout ? resolveNegativeItemSpacing(node) : 0,
             index === 0,
             hasAutoLayout && hugsMainAxis(node),
           ),

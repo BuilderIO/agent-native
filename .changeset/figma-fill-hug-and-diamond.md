@@ -28,8 +28,9 @@ Three auto-layout rules now match Figma's own resolution rather than the raw
 field values. A row aligned SPACE_BETWEEN no longer also emits `itemSpacing` as
 a CSS gap — Figma ignores that field in this mode but still reports it, and CSS
 distributes space on top of a gap rather than instead of it. A negative
-`itemSpacing` is clamped to the following child's own size, which is where
-Figma stops an overlap. And a rotated auto-layout child now occupies its
+`itemSpacing` is clamped so the children still fill a fixed-size container,
+which is where Figma stops an overlap — the same rule the `.fig` walker already
+used, rather than a second one. And a rotated auto-layout child now occupies its
 rotated footprint: a CSS transform does not change layout size, so a vertical
 rule stored as a wide line turned 90 degrees was taking its full pre-rotation
 width out of the row.

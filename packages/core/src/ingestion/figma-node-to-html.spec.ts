@@ -394,10 +394,11 @@ describe("space-between rows ignore itemSpacing, as Figma does", () => {
   });
 });
 
-describe("negative itemSpacing is clamped to the child's own size", () => {
-  // Figma never slides a child further back than its own extent: a -715
-  // overlap against a 494px illustration draws at -494. Taking the stated
-  // value literally dragged Positivus' CTA illustration across its card.
+describe("negative itemSpacing is clamped so the children still fill the box", () => {
+  // Figma clamps the overlap to whatever closes the container up: -715 between
+  // a 1240px card and a 494px illustration in a 1240px content box draws at
+  // -494, flush with the card's right edge. Taking the stated value literally
+  // dragged Positivus' CTA illustration 221px across its card.
   function overlapRow(spacing: number, secondWidth: number): FigmaNode {
     return {
       id: "1:1",
@@ -405,6 +406,9 @@ describe("negative itemSpacing is clamped to the child's own size", () => {
       type: "FRAME",
       absoluteBoundingBox: box(0, 0, 1440, 394),
       layoutMode: "HORIZONTAL",
+      layoutSizingHorizontal: "FIXED",
+      paddingLeft: 100,
+      paddingRight: 100,
       itemSpacing: spacing,
       children: [
         {
@@ -423,13 +427,13 @@ describe("negative itemSpacing is clamped to the child's own size", () => {
     } as FigmaNode;
   }
 
-  it("clamps an overlap deeper than the child", () => {
+  it("clamps an overlap that would overshoot the container", () => {
     const { html } = mapFigmaNodeToHtml(overlapRow(-715, 494), {});
     expect(html).toContain("margin-left: -494px");
     expect(html).not.toContain("margin-left: -715px");
   });
 
-  it("leaves an overlap the child can absorb alone", () => {
+  it("leaves an overlap that does not close the container up", () => {
     const { html } = mapFigmaNodeToHtml(overlapRow(-367, 692), {});
     expect(html).toContain("margin-left: -367px");
   });
