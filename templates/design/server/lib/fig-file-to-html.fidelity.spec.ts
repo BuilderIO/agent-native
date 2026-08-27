@@ -1171,6 +1171,56 @@ describe("auto line height", () => {
   });
 });
 
+describe("a hugging TEXT box takes the size Figma resolved", () => {
+  // The same rule the REST walker carries, as a MINIMUM only. Figma rounds
+  // these to whole pixels and lays siblings out against the rounded number;
+  // where our advances differ by a hair a line wraps on one side and not the
+  // other, and a 40px two-line label came out 20px and pulled everything under
+  // it up. This took the .fig path from 93 nodes off by more than 1.5px on one
+  // page to 3. Kiwi `size` is the STORED size, not REST's resolved layout box,
+  // so it is never pinned — see the source for what pinning cost.
+  const textNode = (autoResize: string) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 80, {
+        type: "TEXT",
+        name: "Point",
+        size: { x: 312, y: 40 },
+        textAutoResize: autoResize,
+        textData: { characters: "Connect primary Google Calendar account" },
+        fontSize: 16,
+      }),
+    );
+    return doc;
+  };
+
+  it("takes a hugged height as a minimum where the text can still wrap", () => {
+    const html = renderFrame(textNode("HEIGHT"));
+    expect(html).toContain("min-height: 40px");
+  });
+
+  it("takes a hugged width as a minimum", () => {
+    expect(renderFrame(textNode("WIDTH_AND_HEIGHT"))).toContain(
+      "min-width: 312px",
+    );
+  });
+
+  it("gives text that hugs BOTH axes no height minimum", () => {
+    // A minimum guards against our line count differing from Figma's, and
+    // text hugging both axes cannot wrap — so it has nothing to guard, while a
+    // stale stored size would push its siblings. It dropped Positivus'
+    // service headings 30px before this was narrowed to wrapping text.
+    expect(renderFrame(textNode("WIDTH_AND_HEIGHT"))).not.toContain(
+      "min-height",
+    );
+  });
+
+  it("leaves a FIXED text box to its stated size", () => {
+    const html = renderFrame(textNode("NONE"));
+    expect(html).not.toContain("min-height");
+  });
+});
+
 describe("dashed strokes", () => {
   // REST hands over dashes already outlined into `strokeGeometry`, so that path
   // gets them for free. A .fig or clipboard payload carries the pattern as

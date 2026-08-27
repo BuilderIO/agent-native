@@ -2053,6 +2053,50 @@ function buildCss(
     if (h !== null && emitHeight && !suppressHeight) css.height = `${h}px`;
   }
 
+  // A hugging TEXT box takes the size Figma resolved for it, the same way the
+  // REST walker does. Figma rounds these to whole pixels and lays the siblings
+  // out against the rounded number, and where our advances differ by a hair a
+  // line wraps on one side and not the other — a 40px two-line label came out
+  // 20px and pulled everything under it up. As a MINIMUM on an axis the text
+  // can still grow along; text hugging BOTH axes cannot wrap, so its height is
+  // fixed by the break characters and is taken outright.
+  // A hugging TEXT box takes the size Figma resolved for it as a MINIMUM, the
+  // same way the REST walker does: Figma rounds these to whole pixels and lays
+  // the siblings out against the rounded number, and where our advances differ
+  // by a hair a line wraps on one side and not the other. A 40px two-line label
+  // came out 20px and pulled everything under it up — 90 of the 93 nodes this
+  // walker had off by more than 1.5px on one page.
+  //
+  // A minimum, never a fixed size — this is where the two walkers genuinely
+  // differ. REST reads `absoluteBoundingBox`, Figma's RESOLVED layout box,
+  // which is always current. Kiwi `size` is the STORED size, and for a
+  // descendant of an instance this walker could not fully resolve it is the
+  // master's, not the instance's. Pinning that is a hard error: it dropped
+  // Positivus' service headings 30px (4.25% -> 4.53%). As a minimum the same
+  // stale number degrades instead of dictating, and both paths improve.
+  if (node.type === "TEXT" && node.size) {
+    const hugsWidth = sizing.horizontal === "HUG";
+    const hugsHeight = sizing.vertical === "HUG";
+    const w = num(node.size.x);
+    const h = num(node.size.y);
+    if (hugsWidth && w !== null && !suppressWidth && !css.width) {
+      css.minWidth = `${w}px`;
+    }
+    // Only where the text can WRAP. A minimum here guards against our line
+    // count differing from Figma's; text hugging both axes cannot wrap, so it
+    // has nothing to guard — and giving it one lets a stale stored size push
+    // its siblings, which is exactly what dropped Positivus' headings 30px.
+    if (
+      !hugsWidth &&
+      hugsHeight &&
+      h !== null &&
+      !suppressHeight &&
+      !css.height
+    ) {
+      css.minHeight = `${h}px`;
+    }
+  }
+
   // Line vectors (horizontal/vertical strokes) have a 0-size axis. A 0-size
   // <svg> viewport is dropped by the browser even with `overflow: visible`, so
   // give the degenerate axis a minimal non-zero size; the stroke, arrowheads,
@@ -2999,6 +3043,13 @@ function buildAttrs(
   // figma-plugin's smart-export, which always carries the layer name when
   // present).
   if (node.name) attrs.push(`layer-name="${escapeHtmlAttr(node.name)}"`);
+
+  // The node's own Figma id, in the same `sessionID:localID` spelling the REST
+  // importer emits — so a design imported this way is traceable back to Figma
+  // the same way, and so a per-node audit can line this walker's output up
+  // against the REST references frame for frame.
+  const nodeId = guidKey(node.guid);
+  if (nodeId) attrs.push(`data-figma-node-id="${escapeHtmlAttr(nodeId)}"`);
 
   // Component metadata: pulled from the SYMBOL master that an INSTANCE renders,
   // or from the SYMBOL itself when emitting a master directly.
