@@ -1,4 +1,5 @@
 import {
+  builderDesignSystemUrl,
   builderProjectBranchUrl,
   fetchBuilderDesignSystemRecord,
   getSession,
@@ -12,9 +13,9 @@ import { defineEventHandler, getQuery, setResponseStatus } from "h3";
  * Builder-backed design system. The UI calls this when opening the design
  * system's details modal. `builderUrl` is frozen at index time and often
  * falls back to the Builder DSI docs page because the branch isn't cut yet,
- * so this resolves the real project/branch link once it exists. Only calls
- * out to Builder when the project id or branch name isn't already cached
- * locally on the design system's data.
+ * so this reads `design-systems/v1/:id` for the real project/branch link once
+ * it exists. Always resolves to some Builder destination, since the UI links
+ * out unconditionally instead of waiting for the branch to be cut.
  */
 export const designSystemBuilderLink = defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
@@ -64,28 +65,16 @@ export const designSystemBuilderLink = defineEventHandler(async (event) => {
         typeof parsed.builderProjectId === "string"
           ? parsed.builderProjectId
           : undefined;
-      const cachedBranchName =
-        typeof parsed.builderBranchName === "string"
-          ? parsed.builderBranchName
-          : undefined;
-
-      if (cachedProjectId && cachedBranchName) {
-        return {
-          builderUrl: builderProjectBranchUrl(
-            cachedProjectId,
-            cachedBranchName,
-          ),
-        };
-      }
-
+      // Only the project id is persisted at index time, so the branch always
+      // has to come from Builder.
       const record = await fetchBuilderDesignSystemRecord(
         builderDesignSystemId,
       );
       const builderUrl =
         builderProjectBranchUrl(
           record?.projectId ?? cachedProjectId,
-          record?.branchName ?? cachedBranchName,
-        ) ?? null;
+          record?.branchName,
+        ) ?? builderDesignSystemUrl(builderDesignSystemId);
 
       return { builderUrl };
     },

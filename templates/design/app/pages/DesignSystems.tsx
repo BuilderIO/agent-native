@@ -1,8 +1,8 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
@@ -1015,13 +1015,13 @@ function DesignSystemPreviewLink({
   data: DesignSystemData;
 }) {
   const t = useT();
-  const [resolvedBuilderUrl, setResolvedBuilderUrl] = useState<
-    string | null | undefined
-  >(undefined);
+  const [resolvedBuilderUrl, setResolvedBuilderUrl] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
-    setResolvedBuilderUrl(undefined);
+    setResolvedBuilderUrl(null);
     void fetch(
       appApiPath(
         `/api/design-system-builder-link?id=${encodeURIComponent(id)}`,
@@ -1029,10 +1029,10 @@ function DesignSystemPreviewLink({
     )
       .then((res) => (res.ok ? res.json() : null))
       .then((json: { builderUrl?: string | null } | null) => {
-        if (!cancelled) setResolvedBuilderUrl(json?.builderUrl ?? undefined);
+        if (!cancelled) setResolvedBuilderUrl(json?.builderUrl ?? null);
       })
       .catch(() => {
-        if (!cancelled) setResolvedBuilderUrl(undefined);
+        if (!cancelled) setResolvedBuilderUrl(null);
       });
     return () => {
       cancelled = true;
@@ -1043,6 +1043,9 @@ function DesignSystemPreviewLink({
     data.builderUrl && isTrustedBuilderPreviewUrl(data.builderUrl)
       ? data.builderUrl
       : undefined;
+  // The stored URL is the project/branch link for every source that returns a
+  // branch from indexing, so it renders straight away; the resolve only
+  // upgrades a `.fig` import whose branch was cut after the row was written.
   const trustedBuilderUrl =
     (resolvedBuilderUrl && isTrustedBuilderPreviewUrl(resolvedBuilderUrl)
       ? resolvedBuilderUrl
@@ -1072,11 +1075,7 @@ function DesignSystemPreviewLink({
             {"Open in Builder" /* i18n-ignore Builder link action */}
           </a>
         </Button>
-      ) : (
-        <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          {t("designSystems.preview.pending")}
-        </p>
-      )}
+      ) : null}
     </section>
   );
 }

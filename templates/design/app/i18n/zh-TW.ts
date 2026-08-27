@@ -1471,7 +1471,6 @@ const messages = {
       title: "預覽",
       description:
         "此設計系統由 Builder 設計系統智慧管理。開啟連結的專案即可查看完整的設計系統，包括所有代符、元件和使用指南。",
-      pending: "Builder 仍在為此設計系統建立索引。索引完成後即可查看預覽。",
     },
     tokenPreview: {
       title: "代幣預覽",
