@@ -260,12 +260,10 @@ export async function stopGoogleDocsWatchChannel(
       return true;
     }
 
-    if (!res.ok) {
-      console.warn(
-        `[google-docs] Failed to stop watch channel ${channelId} (HTTP ${res.status})`,
-      );
-      return false;
-    }
+    console.warn(
+      `[google-docs] Failed to stop watch channel ${channelId} (HTTP ${res.status})`,
+    );
+    return false;
   } catch (err) {
     console.warn(
       `[google-docs] Failed to stop watch channel ${channelId}`,
