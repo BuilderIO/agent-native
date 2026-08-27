@@ -1,4 +1,4 @@
-import { getEmailReadiness, type EmailReadiness } from "./email.js";
+import { getDeploymentEmailReadiness, type EmailReadiness } from "./email.js";
 
 export type AuthLoginMode = "magic-link" | "password";
 
@@ -23,7 +23,7 @@ export function resolveAuthLoginModeFromReadiness(
   return resolveAuthLoginMode(isEmailReadyForMagicLink(emailReadiness));
 }
 
-/** Resolve the browser mode from the same scoped email transport used to send. */
+/** Resolve browser auth mode from the deployment-wide email transport. */
 export async function getAuthLoginMode(): Promise<AuthLoginMode> {
-  return resolveAuthLoginModeFromReadiness(await getEmailReadiness());
+  return resolveAuthLoginModeFromReadiness(getDeploymentEmailReadiness());
 }

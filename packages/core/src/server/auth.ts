@@ -15,6 +15,7 @@ import {
 import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -140,10 +141,7 @@ import {
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
 } from "./attribution.js";
-import {
-  getAuthLoginMode,
-  isEmailReadyForMagicLink,
-} from "./auth-login-mode.js";
+import { getAuthLoginMode } from "./auth-login-mode.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
@@ -172,7 +170,7 @@ import {
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
-import { getEmailReadiness } from "./email.js";
+import { getDeploymentEmailReadiness } from "./email.js";
 import type { GoogleAuthMode } from "./google-auth-mode.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
@@ -1042,6 +1040,12 @@ async function ensureEmailVerifiedForRedirect(
       sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
       args: [email],
     });
+
+    const verified = await db.execute({
+      sql: 'SELECT 1 FROM "user" WHERE email = ? AND email_verified = TRUE LIMIT 1',
+      args: [email],
+    });
+    if (verified.rows.length === 0) return;
   } catch (error) {
     // Better Auth already handled the verification route, so this repair
     // staying best-effort (never blocking the response) is correct. But a
@@ -1052,6 +1056,15 @@ async function ensureEmailVerifiedForRedirect(
     // 2026-07-31 and 2026-08-05) — this UPDATE is the only place that would
     // show whether Better Auth's own write is failing too.
     captureAuthError(error, { route: "verify-email", email });
+    return;
+  }
+  try {
+    await acceptPendingInvitationsForEmail(email);
+  } catch (error) {
+    console.error(
+      "[auth] failed to reconcile pending invitations after email verification",
+      error,
+    );
   }
 }
 
@@ -4739,6 +4752,10 @@ async function mountBetterAuthRoutes(
   app.use(
     DESKTOP_MAGIC_LINK_LANDING_PATH,
     defineEventHandler(async (event) => {
+      if (getDeploymentEmailReadiness().status !== "ready") {
+        setResponseStatus(event, 503);
+        return { error: AUTH_MAGIC_LINK_UNAVAILABLE };
+      }
       if (getMethod(event) === "POST") {
         const body = await readBody<Record<string, unknown>>(event);
         const verificationURL = desktopMagicLinkVerificationUrl(event, body);
@@ -4972,7 +4989,7 @@ async function mountBetterAuthRoutes(
         reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
       if (
         (isMagicLinkRequest || isMagicLinkVerification) &&
-        !isEmailReadyForMagicLink(await getEmailReadiness())
+        getDeploymentEmailReadiness().status !== "ready"
       ) {
         return new Response(
           JSON.stringify({ error: AUTH_MAGIC_LINK_UNAVAILABLE }),
@@ -5397,7 +5414,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/magic-link",
     defineEventHandler(async (event) => {
-      if (!isEmailReadyForMagicLink(await getEmailReadiness())) {
+      if (getDeploymentEmailReadiness().status !== "ready") {
         setResponseStatus(event, 503);
         return { error: AUTH_MAGIC_LINK_UNAVAILABLE };
       }

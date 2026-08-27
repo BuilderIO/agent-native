@@ -316,7 +316,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./email.js", async (importOriginal) => ({
         ...(await importOriginal<typeof import("./email.js")>()),
-        getEmailReadiness: vi.fn(async () => MISSING_EMAIL_READINESS),
+        getDeploymentEmailReadiness: vi.fn(() => MISSING_EMAIL_READINESS),
       }));
 
       const { autoMountAuth } = await import("./auth.js");
@@ -349,6 +349,19 @@ describe("server/auth", () => {
         error: "Magic-link sign-in requires a configured email provider.",
       });
       expect(signInMagicLink).not.toHaveBeenCalled();
+
+      const desktopLandingHandler = app.use.mock.calls.find(
+        (call: any[]) =>
+          call[0] === "/_agent-native/auth/magic-link/desktop-landing",
+      )?.[1];
+      const desktopLandingEvent = createMockEvent({
+        path: "/_agent-native/auth/magic-link/desktop-landing",
+        query: { token: "should-not-be-consumed" },
+      });
+      await expect(desktopLandingHandler(desktopLandingEvent)).resolves.toEqual(
+        { error: "Magic-link sign-in requires a configured email provider." },
+      );
+      expect(desktopLandingEvent.res.status).toBe(503);
     });
 
     it("normalizes the email and uses absolute same-origin callbacks", async () => {
@@ -4616,14 +4629,24 @@ describe("server/auth", () => {
         if (query.sql.includes('FROM "session"')) {
           return { rows: [{ email: "SessionUser@Example.COM" }] };
         }
+        if (query.sql.includes('FROM "user"')) {
+          return { rows: [{ verified: 1 }] };
+        }
         return { rows: [] };
       });
+      const acceptPendingInvitationsForEmail = vi.fn(async () => ({
+        accepted: [],
+        activeOrgId: null,
+      }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isPostgres: () => false,
         intType: () => "INTEGER",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
+      }));
+      vi.doMock("../org/accept-pending.js", () => ({
+        acceptPendingInvitationsForEmail,
       }));
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
@@ -4703,6 +4726,9 @@ describe("server/auth", () => {
         sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
         args: ["sessionuser@example.com"],
       });
+      expect(acceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+        "sessionuser@example.com",
+      );
     });
 
     it("reports (never silently swallows) a failure repairing the verified-email row", async () => {

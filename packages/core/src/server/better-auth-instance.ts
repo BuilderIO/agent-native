@@ -75,7 +75,6 @@ import {
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
-import { isEmailReadyForMagicLink } from "./auth-login-mode.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
@@ -83,7 +82,11 @@ import {
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { getEmailReadiness, sendEmail, type EmailReadiness } from "./email.js";
+import {
+  getDeploymentEmailReadiness,
+  sendEmail,
+  type EmailReadiness,
+} from "./email.js";
 import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
@@ -513,7 +516,7 @@ export function resolveEmailPasswordAuthPolicy(
   requireEmailVerification: boolean;
   disableSignUp: boolean;
 } {
-  const emailConfigured = isEmailReadyForMagicLink(emailReadiness);
+  const emailConfigured = emailReadiness.status === "ready";
   const emailProviderMissing = emailReadiness.status === "not-configured";
   const declared = getAppConfig().auth.requireEmailVerification;
   if (declared !== undefined) {
@@ -1440,7 +1443,7 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
-  const emailReadiness = await getEmailReadiness();
+  const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
     resolveEmailPasswordAuthPolicy(emailReadiness);
 
@@ -1745,7 +1748,7 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
-      ...(isEmailReadyForMagicLink(emailReadiness) ? [magicLinkPlugin] : []),
+      magicLinkPlugin,
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {
