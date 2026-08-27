@@ -20,6 +20,7 @@ import { getH3App } from "../framework-request-handler.js";
 
 let _globalMcpManager: McpClientManager | null = null;
 let _globalMcpManagerReady: (() => Promise<void>) | null = null;
+let _globalMcpRefreshQueue: Promise<void> = Promise.resolve();
 
 export function setGlobalMcpManager(
   manager: McpClientManager | null,
@@ -27,6 +28,7 @@ export function setGlobalMcpManager(
 ): void {
   _globalMcpManager = manager;
   _globalMcpManagerReady = manager ? (ready ?? null) : null;
+  _globalMcpRefreshQueue = Promise.resolve();
 }
 
 /** Internal: access the current process's MCP client manager, if any. */
@@ -38,23 +40,33 @@ export function getGlobalMcpManager(): McpClientManager | null {
 export async function waitForGlobalMcpManager(): Promise<McpClientManager | null> {
   const manager = getGlobalMcpManager();
   if (manager) await _globalMcpManagerReady?.();
-  return manager;
+  return getGlobalMcpManager();
 }
 
 /** Internal: reload the process's MCP client manager after persisted settings change. */
 export async function refreshGlobalMcpManager(): Promise<boolean> {
-  const manager = getGlobalMcpManager();
-  if (!manager) return false;
-  try {
-    await manager.reconfigure(await buildMergedConfig());
-    return true;
-  } catch (err) {
-    if (err instanceof McpConfigUnreadableError) {
-      console.warn(`[mcp-client] global refresh skipped: ${err.message}`);
-      return false;
+  const refresh = _globalMcpRefreshQueue.then(async () => {
+    const manager = getGlobalMcpManager();
+    if (!manager) return false;
+    try {
+      await _globalMcpManagerReady?.();
+      const currentManager = getGlobalMcpManager();
+      if (!currentManager) return false;
+      await currentManager.reconfigure(await buildMergedConfig());
+      return true;
+    } catch (err) {
+      if (err instanceof McpConfigUnreadableError) {
+        console.warn(`[mcp-client] global refresh skipped: ${err.message}`);
+        return false;
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
+  _globalMcpRefreshQueue = refresh.then(
+    () => undefined,
+    () => undefined,
+  );
+  return refresh;
 }
 
 export function mountMcpHubStatusRoute(nitroApp: any): void {
