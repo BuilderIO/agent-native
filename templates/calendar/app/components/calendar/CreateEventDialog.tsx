@@ -33,7 +33,6 @@ import {
   DatePickerPopover,
   RepeatPicker,
   TimePickerPopover,
-  TimezonePickerPopover,
 } from "@/components/calendar/InlineEventPickers";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";

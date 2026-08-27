@@ -559,6 +559,7 @@ export function EventDetailPopover({
   const [zoomAfterConnectEventId, setZoomAfterConnectEventId] = useState<
     string | null
   >(() => getStoredZoomAfterConnectEventId());
+  const [showConferencingOptions, setShowConferencingOptions] = useState(false);
   const isOverlay = !!event.overlayEmail;
   const ownerLabel = event.ownerName || event.overlayEmail;
 
@@ -851,7 +852,7 @@ export function EventDetailPopover({
         },
       );
     })();
-  }, [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent]);
+  }, [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent]);
 
   const addZoomToConnectedEvent = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -1431,6 +1432,7 @@ export function EventDetailPopover({
       if (newOpen && isPopoverSuppressed) return;
       if (!newOpen && open) {
         setShowMoreOptions(false);
+        setShowConferencingOptions(false);
         const trimmedTitle = editingTitle.trim();
         let savedPendingChange = false;
         // Popover is closing — handle saves
@@ -1996,37 +1998,82 @@ export function EventDetailPopover({
                 </>
               ) : !isOverlay ? (
                 <>
-                  {editingField === "meetingLink" ? (
-                    <div className="px-4 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <IconVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <input
-                          ref={meetingLinkRef}
-                          value={editMeetingLink}
-                          onChange={(e) => setEditMeetingLink(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              handleSaveMeetingLink();
-                            }
-                            if (e.key === "Escape") {
-                              e.preventDefault();
-                              setEditMeetingLink("");
-                              setEditingField(null);
-                            }
-                            e.stopPropagation();
-                          }}
-                          onBlur={handleSaveMeetingLink}
-                          placeholder={t("eventForm.pasteMeetingLink")}
-                          className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
-                        />
+                  {showConferencingOptions ? (
+                    pendingVideoProvider ? (
+                      <div className="px-4 py-1.5">
+                        <MeetingLinkSkeleton provider={pendingVideoProvider} />
                       </div>
-                    </div>
+                    ) : editingField === "meetingLink" ? (
+                      <div className="px-4 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <IconVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <input
+                            ref={meetingLinkRef}
+                            value={editMeetingLink}
+                            onChange={(e) => setEditMeetingLink(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveMeetingLink();
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                setEditMeetingLink("");
+                                setEditingField(null);
+                              }
+                              e.stopPropagation();
+                            }}
+                            onBlur={handleSaveMeetingLink}
+                            placeholder={t("eventForm.pasteMeetingLink")}
+                            className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                            disabled={updateEvent.isPending}
+                            onClick={handleAddGoogleMeet}
+                          >
+                            <IconVideo className="h-3.5 w-3.5" />
+                            {t("eventForm.meet")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                            disabled={
+                              updateEvent.isPending || connectZoom.isPending
+                            }
+                            onClick={handleAddZoom}
+                          >
+                            <IconBrandZoom className="h-3.5 w-3.5" />
+                            {t("eventForm.zoom")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
+                            onClick={() => setEditingField("meetingLink")}
+                          >
+                            <IconPlus className="h-3.5 w-3.5" />
+                            {t("eventForm.pasteLink")}
+                          </Button>
+                        </div>
+                      </div>
+                    )
                   ) : (
                     <button
                       type="button"
                       className="flex w-full items-center gap-3 rounded-md px-4 py-1.5 text-left text-sm text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
-                      onClick={() => setEditingField("meetingLink")}
+                      onClick={() => setShowConferencingOptions(true)}
                     >
                       <IconVideo className="h-4 w-4 shrink-0" />
                       {t("bookingLinks.conferencing")}
