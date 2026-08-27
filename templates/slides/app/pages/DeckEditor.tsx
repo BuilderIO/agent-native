@@ -187,6 +187,7 @@ export default function DeckEditor() {
   // or leaves the shared save queue, so the deck-specific read stays current.
   const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
+  const presentNavigationRef = useRef(false);
   // Inline drafts flush through SlideEditor keepalive handlers. The native
   // prompt only needs to cover queued or in-flight writes now.
   usePendingDeckUnloadGuard(hasPendingDeckWrites);
@@ -197,6 +198,7 @@ export default function DeckEditor() {
           hasPendingEdits: hasPendingDeckEdits,
           currentPathname: currentLocation.pathname,
           nextPathname: nextLocation.pathname,
+          allowPendingEdits: presentNavigationRef.current,
         }),
       [hasPendingDeckEdits],
     ),
@@ -1489,6 +1491,19 @@ export default function DeckEditor() {
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
 
+  const handlePresent = useCallback(async () => {
+    if (presentNavigationRef.current) return;
+    presentNavigationRef.current = true;
+    try {
+      await flushDeckSave(id);
+      navigate(`/deck/${id}/present?slide=${Math.max(0, currentIndex) + 1}`);
+    } catch (error) {
+      presentNavigationRef.current = false;
+      console.error("[slides-present] failed to flush save:", error);
+      toast.error(t("settings.saveFailed"));
+    }
+  }, [currentIndex, flushDeckSave, id, navigate, t]);
+
   // Editor-wide drag-and-drop catch-all. SlideEditor's own drop handler runs
   // first for drops landing on a slide (it calls stopPropagation), so this
   // only fires for drops that landed in the surrounding chrome. Prevent the
@@ -1559,6 +1574,7 @@ export default function DeckEditor() {
         }}
         onShowHistory={() => setHistoryOpen((open) => !open)}
         historyButtonRef={historyButtonRef}
+        onPresent={handlePresent}
         currentSlide={currentSlide}
         onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
         addSlideGenerating={addSlideGenerating}

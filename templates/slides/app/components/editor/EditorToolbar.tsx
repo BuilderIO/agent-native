@@ -125,6 +125,8 @@ interface EditorToolbarProps {
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
+  /** Flush local edits before entering the full-screen presentation view. */
+  onPresent?: () => Promise<void> | void;
   /** Inserts a blank slide directly below the active slide. Threaded through
    *  to the fallback action cluster below so an empty deck (no current
    *  slide, so the primary element-controls toolbar never mounts) still has
@@ -180,6 +182,7 @@ export default function EditorToolbar({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  onPresent,
   onAddEmptySlide,
   addSlideGenerating,
   canEdit = true,
@@ -841,6 +844,14 @@ export default function EditorToolbar({
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
         to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+        onClick={
+          onPresent
+            ? (event) => {
+                event.preventDefault();
+                void onPresent();
+              }
+            : undefined
+        }
         className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <IconPlayerPlay className="w-3.5 h-3.5" />
