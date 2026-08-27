@@ -468,7 +468,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('toggleSection("favorites")');
     expect(sidebar).toContain("!collapsedSections.favorites &&");
     expect(sidebar).toContain("aria-expanded={!collapsedSections.favorites}");
-    expect(sidebar).toContain("<IconStar");
+    expect(sidebar).toContain("<IconPin");
     expect(sidebar).toContain("group-hover/favorites:opacity-0");
     expect(sidebar).toContain("group-hover/favorites:opacity-100");
     expect(sidebar).toContain('!collapsedSections.favorites && "rotate-90"');
