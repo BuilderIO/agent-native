@@ -3,7 +3,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import { sitePathForLocale } from "./docs-locale";
+import { docsPathForSlug, sitePathForLocale } from "./docs-locale";
 
 type TemplateLinkTarget = {
   slug: string;
@@ -14,7 +14,7 @@ export function getTemplateDocsSlug(template: TemplateLinkTarget | string) {
 }
 
 export function getTemplateDocsPath(template: TemplateLinkTarget | string) {
-  return `/docs/template-${getTemplateDocsSlug(template)}`;
+  return docsPathForSlug(`template-${getTemplateDocsSlug(template)}`);
 }
 
 export function TemplateDocsLink({

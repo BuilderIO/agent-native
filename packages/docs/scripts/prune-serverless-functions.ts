@@ -115,10 +115,15 @@ function assertPrerendered(keys: string[]): string[] {
     const locale = localeFromKey(key);
     const slug = slugFromKey(key);
     if (!locale) continue;
+    // Prerendered pages land at the canonical route path, whose locale segment
+    // is lowercase (see `docsPathForSlug`). Looking them up under the cased
+    // locale from the source filename finds nothing, and this script would then
+    // report every translated doc as un-prerendered and refuse to prune at all.
+    const localeDir = locale.toLowerCase();
     const candidates =
       slug === "getting-started"
-        ? [path.join(PUBLISH_DIR, locale, "docs", "index.html")]
-        : [path.join(PUBLISH_DIR, locale, "docs", slug, "index.html")];
+        ? [path.join(PUBLISH_DIR, localeDir, "docs", "index.html")]
+        : [path.join(PUBLISH_DIR, localeDir, "docs", slug, "index.html")];
     if (!candidates.some((file) => existsSync(file)))
       missing.push(`${locale}/${slug}`);
   }
