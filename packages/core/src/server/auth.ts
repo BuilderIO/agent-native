@@ -4752,10 +4752,6 @@ async function mountBetterAuthRoutes(
   app.use(
     DESKTOP_MAGIC_LINK_LANDING_PATH,
     defineEventHandler(async (event) => {
-      if (getDeploymentEmailReadiness().status !== "ready") {
-        setResponseStatus(event, 503);
-        return { error: AUTH_MAGIC_LINK_UNAVAILABLE };
-      }
       if (getMethod(event) === "POST") {
         const body = await readBody<Record<string, unknown>>(event);
         const verificationURL = desktopMagicLinkVerificationUrl(event, body);
@@ -4988,7 +4984,7 @@ async function mountBetterAuthRoutes(
       const isMagicLinkVerification =
         reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
       if (
-        (isMagicLinkRequest || isMagicLinkVerification) &&
+        isMagicLinkRequest &&
         getDeploymentEmailReadiness().status !== "ready"
       ) {
         return new Response(
@@ -5414,7 +5410,10 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/magic-link",
     defineEventHandler(async (event) => {
-      if (getDeploymentEmailReadiness().status !== "ready") {
+      if (
+        getMethod(event) === "POST" &&
+        getDeploymentEmailReadiness().status !== "ready"
+      ) {
         setResponseStatus(event, 503);
         return { error: AUTH_MAGIC_LINK_UNAVAILABLE };
       }

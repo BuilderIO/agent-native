@@ -293,9 +293,10 @@ describe("server/auth", () => {
   describe("magic-link login", () => {
     it("rejects magic-link endpoints when email delivery is unavailable", async () => {
       const signInMagicLink = vi.fn();
+      const authHandler = vi.fn(async () => new Response("{}"));
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
-          handler: vi.fn(async () => new Response("{}")),
+          handler: authHandler,
           api: {
             getSession: vi.fn(async () => null),
             signInEmail: vi.fn(),
@@ -350,18 +351,59 @@ describe("server/auth", () => {
       });
       expect(signInMagicLink).not.toHaveBeenCalled();
 
+      const verificationEvent = createMockEvent({
+        path: "/_agent-native/auth/ba/magic-link/verify",
+        query: { token: "already-issued-token" },
+      });
+      verificationEvent.req = new Request(
+        "http://localhost/_agent-native/auth/ba/magic-link/verify?token=already-issued-token",
+      );
+      verificationEvent.headers = verificationEvent.req.headers;
+      const verificationResponse = await betterAuthHandler(verificationEvent);
+      expect(verificationResponse).toBeInstanceOf(Response);
+      expect(verificationResponse.status).toBe(200);
+      expect(authHandler).toHaveBeenCalled();
+
+      const legacyVerificationResponse = await legacyHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link",
+          query: {
+            token: "already-issued-token",
+            callbackURL: "/welcome",
+          },
+        }),
+      );
+      expect(legacyVerificationResponse).toBeInstanceOf(Response);
+      expect(legacyVerificationResponse.status).toBe(302);
+
       const desktopLandingHandler = app.use.mock.calls.find(
         (call: any[]) =>
           call[0] === "/_agent-native/auth/magic-link/desktop-landing",
       )?.[1];
+      const desktopCallbackURL = encodeURIComponent(
+        "/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-123&verifier=desktop-verifier-123456789012345678901234567890",
+      );
       const desktopLandingEvent = createMockEvent({
         path: "/_agent-native/auth/magic-link/desktop-landing",
-        query: { token: "should-not-be-consumed" },
+        query: {
+          token: "already-issued-token",
+          callbackURL: desktopCallbackURL,
+        },
       });
-      await expect(desktopLandingHandler(desktopLandingEvent)).resolves.toEqual(
-        { error: "Magic-link sign-in requires a configured email provider." },
+      const desktopLandingResponse =
+        await desktopLandingHandler(desktopLandingEvent);
+      expect(desktopLandingResponse).toBeInstanceOf(Response);
+      expect(desktopLandingResponse.status).toBe(200);
+
+      const desktopVerificationResponse = await desktopLandingHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link/desktop-landing", {
+          token: "already-issued-token",
+          callbackURL:
+            "/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-123&verifier=desktop-verifier-123456789012345678901234567890",
+        }),
       );
-      expect(desktopLandingEvent.res.status).toBe(503);
+      expect(desktopVerificationResponse).toBeInstanceOf(Response);
+      expect(desktopVerificationResponse.status).toBe(200);
     });
 
     it("normalizes the email and uses absolute same-origin callbacks", async () => {
