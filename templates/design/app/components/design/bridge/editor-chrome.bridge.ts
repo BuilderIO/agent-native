@@ -13701,6 +13701,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             );
           }
         });
+        return;
+      }
+      // A paste carrying nothing importable stays silent, unless it plainly
+      // came from Figma — the user expected a screen and must be told why they
+      // got nothing. The parent applies the same rule to its own listener, but
+      // a paste inside the iframe never reaches it, so relay the strings and
+      // let that one rule decide both.
+      var pastedHtml = e.clipboardData
+        ? e.clipboardData.getData("text/html") || ""
+        : "";
+      var pastedText = e.clipboardData
+        ? e.clipboardData.getData("text/plain") || ""
+        : "";
+      if (/figma/i.test(pastedHtml) || /figma/i.test(pastedText)) {
+        (window.parent as Window).postMessage(
+          {
+            type: "figma-clipboard-paste",
+            content: "",
+            html: pastedHtml,
+            text: pastedText,
+          },
+          "*",
+        );
       }
     },
     true,
