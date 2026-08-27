@@ -918,6 +918,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
       appDir,
@@ -1959,6 +1960,7 @@ function postProcessStandalone(
     ...resolution,
     shape: "standalone",
   });
+  ensureScaffoldEmailBrandingConfig(targetDir, name, templateName);
   ensureGuardedScaffold(targetDir);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
@@ -3353,6 +3355,27 @@ function fixPackageJsonName(
     }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
+}
+
+function ensureScaffoldEmailBrandingConfig(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  if (!templateName || appName === templateName) return;
+  const pluginsDir = path.join(appDir, "server", "plugins");
+  const configPath = path.join(pluginsDir, "agent-native-email-branding.ts");
+  if (fs.existsSync(configPath)) return;
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const appTitle = JSON.stringify(appTitleForScaffold(appName));
+  const sourceTemplate = JSON.stringify(
+    trackingTemplateName(templateName) ?? templateName,
+  );
+
+  fs.writeFileSync(
+    configPath,
+    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
+  );
 }
 
 function scaffoldGuidanceForTemplate(
