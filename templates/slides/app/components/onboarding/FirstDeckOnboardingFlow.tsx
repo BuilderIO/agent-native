@@ -69,6 +69,7 @@ export function FirstDeckOnboardingFlow({
     [],
   );
   const promptSourceFilesRef = useRef<File[]>([]);
+  const generationInFlightRef = useRef(false);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const workspaceDesignSystemId =
@@ -90,6 +91,12 @@ export function FirstDeckOnboardingFlow({
   const initialDesignSystemId =
     lastUsedDesignSystemId ?? workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (!generationInFlightRef.current) discard();
+    },
+    [],
+  );
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
     const response = await fetch(`${appBasePath()}/api/uploads`, {
       method: "DELETE",
@@ -101,10 +108,17 @@ export function FirstDeckOnboardingFlow({
       throw new Error(`Upload cleanup failed (${response.status})`);
     }
   }, []);
-  const { commitFiles, discardFiles, syncFiles, uploadFiles, uploading } =
-    useEagerFileUploads(uploadPromptFiles, {
-      onDiscard: deleteUploadedFile,
-    });
+  const {
+    commitFiles,
+    discardFiles,
+    retainFiles,
+    syncFiles,
+    uploadFiles,
+    uploading,
+  } = useEagerFileUploads(uploadPromptFiles, {
+    onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
+  });
 
   useEffect(() => {
     const result = readRecentReferences();
@@ -146,6 +160,7 @@ export function FirstDeckOnboardingFlow({
     ) => {
       try {
         const uploaded = await uploadFiles(files);
+        retainFiles(files);
         promptSourceFilesRef.current = files;
         const chatAttachments = await createPromptChatAttachments(
           options?.attachments,
@@ -165,7 +180,7 @@ export function FirstDeckOnboardingFlow({
         });
       }
     },
-    [discardFiles, t, uploadFiles],
+    [discardFiles, retainFiles, t, uploadFiles],
   );
 
   const handlePromptAttachmentsChange = useCallback(
@@ -195,6 +210,7 @@ export function FirstDeckOnboardingFlow({
           promptSourceFilesRef.current = [];
         }
       };
+      generationInFlightRef.current = true;
       try {
         const result = await startDeckGeneration({
           session,
@@ -249,6 +265,8 @@ export function FirstDeckOnboardingFlow({
         discardFiles(sourceFiles);
         clearSourceFiles();
         throw error;
+      } finally {
+        generationInFlightRef.current = false;
       }
     },
     [
@@ -459,10 +477,10 @@ export function FirstDeckOnboardingFlow({
     [callAction, reloadDecks, t],
   );
 
-  const handleReferenceSkip = useCallback(() => {
+  const handleReferenceSkip = useCallback(async () => {
     forgetReference("design-system");
     forgetReference("deck");
-    void startGeneration(promptFiles, {
+    await startGeneration(promptFiles, {
       designSystemId: null,
       referenceDeckId: null,
     });
@@ -487,7 +505,7 @@ export function FirstDeckOnboardingFlow({
         onImportSource={handleReferenceSourceImport}
         onSkip={handleReferenceSkip}
         onOpenChange={(open) => {
-          if (!open) {
+          if (!open && !generationInFlightRef.current) {
             discardFiles(promptSourceFilesRef.current);
             promptSourceFilesRef.current = [];
             setStep("prompt");

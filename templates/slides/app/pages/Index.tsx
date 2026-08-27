@@ -596,6 +596,12 @@ export default function Index() {
     [],
   );
 
+  const handlePendingDeckAttachmentsAbandoned = useCallback(() => {
+    if (!pendingDeckGenerationRef.current) {
+      settlePendingDeckAttachments("discard");
+    }
+  }, [settlePendingDeckAttachments]);
+
   const handleCreateDeckWithPrompt = async (
     prompt: string,
     files: UploadedFile[],
@@ -1557,6 +1563,7 @@ export default function Index() {
         draftScope={NEW_DECK_DRAFT_SCOPE}
         initialText={newDeckInitialPrompt?.text}
         initialTextKey={newDeckInitialPrompt?.key}
+        onRetainedAttachmentsAbandoned={handlePendingDeckAttachmentsAbandoned}
       />
 
       <NewDeckReferenceStep

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 interface EagerUploadOptions<T> {
   onDiscard?: (result: T) => Promise<void> | void;
+  onRetainedFilesAbandoned?: (
+    files: readonly File[],
+    discard: () => void,
+  ) => void;
 }
 
 interface UploadEntry<T> {
@@ -143,12 +147,24 @@ export function useEagerFileUploads<T>(
     syncUploading();
   }, [discardFile, syncUploading]);
 
+  const abandonRetainedFiles = useCallback(() => {
+    const files = [...retainedFilesRef.current];
+    if (files.length === 0) return;
+    const discard = () => discardFiles(files);
+    if (options.onRetainedFilesAbandoned) {
+      options.onRetainedFilesAbandoned(files, discard);
+    } else {
+      discard();
+    }
+  }, [discardFiles, options.onRetainedFilesAbandoned]);
+
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      abandonRetainedFiles();
       reset();
     };
-  }, [reset]);
+  }, [abandonRetainedFiles, reset]);
 
   return {
     commitFiles,

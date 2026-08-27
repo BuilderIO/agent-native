@@ -117,6 +117,12 @@ export function AddSlidePopover({
       throw new Error(`Upload cleanup failed (${response.status})`);
     }
   }, []);
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (!submittingRef.current) discard();
+    },
+    [],
+  );
   const {
     commitFiles,
     discardFiles,
@@ -127,6 +133,7 @@ export function AddSlidePopover({
     reset: resetEagerUploads,
   } = useEagerFileUploads(uploadPromptFiles, {
     onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
 
   useLayoutEffect(() => {

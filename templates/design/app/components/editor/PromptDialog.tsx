@@ -460,6 +460,7 @@ export default function PromptPopover({
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const composerFilesRef = useRef<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   // Restores a typed prompt into the composer after a failed submit. The
@@ -584,6 +585,12 @@ export default function PromptPopover({
       throw new Error(`Upload cleanup failed (${response.status})`);
     }
   }, []);
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (!submittingRef.current) discard();
+    },
+    [],
+  );
   const {
     commitFiles,
     discardFiles,
@@ -594,6 +601,7 @@ export default function PromptPopover({
     reset: resetEagerUploads,
   } = useEagerFileUploads(uploadFilesToServer, {
     onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
 
   useEffect(() => {
@@ -647,12 +655,14 @@ export default function PromptPopover({
       options: PromptComposerSubmitOptions,
     ) => {
       const allFiles = [...files, ...selectedUploadFiles];
+      submittingRef.current = true;
       setSubmitting(true);
       let uploaded: UploadedFile[];
       try {
         uploaded = await uploadFiles(allFiles);
       } catch (error) {
         setSubmitting(false);
+        submittingRef.current = false;
         restorePromptText(text);
         toast.error(
           error instanceof Error
@@ -668,9 +678,11 @@ export default function PromptPopover({
         setPickedAssets([]);
         setSelectedUploadFiles([]);
         setSubmitting(false);
+        submittingRef.current = false;
       } catch (error) {
         discardFiles(allFiles);
         setSubmitting(false);
+        submittingRef.current = false;
         restorePromptText(text);
         toast.error(
           error instanceof Error

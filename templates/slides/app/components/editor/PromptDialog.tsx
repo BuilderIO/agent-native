@@ -371,6 +371,7 @@ interface PromptPopoverProps {
   initialText?: string;
   initialTextKey?: string | number;
   onBeforeUpload?: (prompt: string, files: File[]) => boolean | void;
+  onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (
     selection: PromptImportSelection,
   ) => Promise<boolean | void> | boolean | void;
@@ -394,6 +395,7 @@ export default function PromptPopover({
   initialText,
   initialTextKey,
   onBeforeUpload,
+  onRetainedAttachmentsAbandoned,
   onImport,
   importFromLabel,
   importingLabel = "Importing...",
@@ -401,6 +403,7 @@ export default function PromptPopover({
 }: PromptPopoverProps) {
   const t = useT();
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
   const retainingAttachmentsRef = useRef(false);
   const [promptText, setPromptText] = useState("");
@@ -478,6 +481,21 @@ export default function PromptPopover({
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
 
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (retainingAttachmentsRef.current) {
+        if (onRetainedAttachmentsAbandoned) {
+          onRetainedAttachmentsAbandoned();
+        } else {
+          discard();
+        }
+        return;
+      }
+      if (!submittingRef.current) discard();
+    },
+    [onRetainedAttachmentsAbandoned],
+  );
+
   const {
     commitFiles,
     discardFiles,
@@ -488,6 +506,7 @@ export default function PromptPopover({
     syncFiles,
   } = useEagerFileUploads(uploadPromptFiles, {
     onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
 
   const handleAttachmentsChange = useCallback(
@@ -524,6 +543,7 @@ export default function PromptPopover({
       if (files.length > 0 && onBeforeUpload?.(enrichedText, files) === false) {
         return;
       }
+      submittingRef.current = true;
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
@@ -556,9 +576,11 @@ export default function PromptPopover({
           retainingAttachmentsRef.current = false;
         }
         setSubmitting(false);
+        submittingRef.current = false;
       } catch (error) {
         discardFiles(files);
         setSubmitting(false);
+        submittingRef.current = false;
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
