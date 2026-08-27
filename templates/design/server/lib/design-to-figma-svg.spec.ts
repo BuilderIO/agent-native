@@ -1415,6 +1415,33 @@ describe("background-image sizing on export", () => {
     ).toEqual(["unsupported"]);
   });
 
+  it("reads modern CSS colour functions as colours, not as hints", () => {
+    // `oklch()`, `color()` and `lab()` survive into computed values verbatim
+    // (only `hsl()` is converted to `rgb()`). Not recognising them made a
+    // valid gradient look like a standalone colour hint and rasterized it.
+    for (const color of [
+      "oklch(0.7 0.1 200)",
+      "color(display-p3 1 0 0)",
+      "lab(50 20 -30)",
+    ]) {
+      expect(
+        buildFillLayersFromComputedStyle(
+          "rgba(0, 0, 0, 0)",
+          `linear-gradient(90deg, ${color}, rgb(0, 0, 255))`,
+        ).map((l) => l.kind),
+      ).toEqual(["linear-gradient"]);
+    }
+  });
+
+  it("still catches an unreadable position on a modern colour function", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, oklch(0.7 0.1 200) calc(50% - 4px), rgb(0, 0, 255))",
+      ).map((l) => l.kind),
+    ).toEqual(["unsupported"]);
+  });
+
   it("keeps an ordinary transparent-to-colour fade readable", () => {
     // The commonest real gradient in the corpus. Over-catching this would
     // rasterize a large share of every design.

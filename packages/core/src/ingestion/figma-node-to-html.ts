@@ -846,6 +846,22 @@ function imageScaleModeCss(
       // non-text difference left on that page.
       const a = transform?.[0][0];
       const d = transform?.[1][1];
+      // Negative scales are a FLIP, which `background-size` cannot express —
+      // it has no negative form, and flipping needs a transform on an overlay.
+      // Falling through to the plain stretch is the same answer this walker
+      // has always given; saying so is the part that was missing.
+      if (
+        isAxisAligned &&
+        typeof a === "number" &&
+        typeof d === "number" &&
+        (a < -1e-6 || d < -1e-6)
+      ) {
+        tracker.record(
+          node,
+          "approximated",
+          `Image fill's crop transform flips the artwork (${a < 0 ? "horizontally" : ""}${a < 0 && d < 0 ? " and " : ""}${d < 0 ? "vertically" : ""}); CSS background-size has no negative form, so the crop was approximated without the flip.`,
+        );
+      }
       if (
         isAxisAligned &&
         typeof a === "number" &&

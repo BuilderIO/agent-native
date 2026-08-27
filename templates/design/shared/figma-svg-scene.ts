@@ -2127,7 +2127,9 @@ function gradientLayerHasUnreadableStop(layer: string): boolean {
     // A stop contains a colour; radial geometry like `90% 40% at 50% 0%` does
     // not, and matching geometry by shape missed exactly that form.
     const hasColor =
-      /rgba?\(/i.test(part) ||
+      /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i.test(
+        part,
+      ) ||
       /(^|\s)(transparent|currentcolor)(\s|$)/i.test(part) ||
       /#[0-9a-f]{3,8}(\s|$)/i.test(part);
     if (!hasColor) {
@@ -2143,7 +2145,7 @@ function gradientLayerHasUnreadableStop(layer: string): boolean {
     // second position.
     const residue = part
       .replace(
-        /rgba?\([^)]*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
+        /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\([^()]*(?:\([^()]*\)[^()]*)*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
         "",
       )
       .replace(/\s*(-?[\d.]+)%\s*$/, "")
@@ -2693,7 +2695,9 @@ export function collectRawFigmaSvgScene(
         // as a colour with a position glued on — the whole gradient was
         // dropped. Computed styles always spell colours as rgb()/rgba().
         const hasColor =
-          /rgba?\(/i.test(part) ||
+          /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i.test(
+            part,
+          ) ||
           /(^|\s)(transparent|currentcolor)(\s|$)/i.test(part) ||
           /#[0-9a-f]{3,8}(\s|$)/i.test(part);
         if (!hasColor) {
@@ -2712,7 +2716,7 @@ export function collectRawFigmaSvgScene(
         // second position.
         const residue = part
           .replace(
-            /rgba?\([^)]*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
+            /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\([^()]*(?:\([^()]*\)[^()]*)*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor)\b/gi,
             "",
           )
           .replace(/\s*(-?[\d.]+)%\s*$/, "")

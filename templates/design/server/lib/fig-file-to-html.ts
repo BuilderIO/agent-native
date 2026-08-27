@@ -1635,6 +1635,15 @@ function imageScaleModeCss(
         ctx,
         "Image fill has a non-axis-aligned paint transform (rotated/skewed crop); approximated with the scale-mode-only CSS mapping, without the transform matrix",
       );
+    } else if (t && (t.m00 < -1e-6 || t.m11 < -1e-6)) {
+      // A negative scale is a FLIP. `background-size` has no negative form, so
+      // the crop falls through to the plain stretch as it always has; the
+      // omission is now stated rather than silent.
+      recordApproximation(
+        node,
+        ctx,
+        "Image fill's crop transform flips the artwork; CSS background-size has no negative form, so the crop was approximated without the flip",
+      );
     }
     return { size: "100% 100%", position: "center", repeat: "no-repeat" };
   }
