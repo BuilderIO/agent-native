@@ -6,8 +6,10 @@ const getUserProfileMock = vi.fn();
 const updateUserProfileMock = vi.fn();
 const getBetterAuthMock = vi.fn();
 const getBetterAuthInternalAdapterMock = vi.fn();
+const createBetterAuthSessionForEmailMock = vi.fn();
 let auth: {
   api: {
+    getSession: ReturnType<typeof vi.fn>;
     listUserAccounts: ReturnType<typeof vi.fn>;
     setPassword: ReturnType<typeof vi.fn>;
     changePassword: ReturnType<typeof vi.fn>;
@@ -22,6 +24,9 @@ vi.mock("../store.js", () => ({
   updateUserProfile: (...args: unknown[]) => updateUserProfileMock(...args),
 }));
 vi.mock("../../server/better-auth-instance.js", () => ({
+  getAuthSecret: () => "test-auth-secret",
+  createBetterAuthSessionForEmail: (...args: unknown[]) =>
+    createBetterAuthSessionForEmailMock(...args),
   getBetterAuth: (...args: unknown[]) => getBetterAuthMock(...args),
   getBetterAuthInternalAdapter: (...args: unknown[]) =>
     getBetterAuthInternalAdapterMock(...args),
@@ -46,6 +51,9 @@ describe("user profile actions", () => {
     });
     auth = {
       api: {
+        getSession: vi.fn().mockResolvedValue({
+          user: { email: "alice@example.com" },
+        }),
         listUserAccounts: vi
           .fn()
           .mockResolvedValue([
@@ -57,6 +65,11 @@ describe("user profile actions", () => {
       },
     };
     getBetterAuthMock.mockResolvedValue(auth);
+    createBetterAuthSessionForEmailMock.mockResolvedValue({
+      email: "alice@example.com",
+      token: "ba-session-token",
+      userId: "user-1",
+    });
     internalAdapter = {
       findUserByEmail: vi.fn().mockResolvedValue({
         user: { id: "user-1", email: "alice@example.com" },
@@ -225,6 +238,55 @@ describe("user profile actions", () => {
     expect(changePassword.agentTool).toBe(false);
     expect(changePassword.toolCallable).toBe(false);
     expect(JSON.stringify(setPassword)).not.toContain("new-password");
+  });
+
+  it("supports legacy sessions without coupling password changes to email delivery", async () => {
+    auth.api.getSession.mockResolvedValue(null);
+    const headers = new Headers({ cookie: "an_session=legacy-session-token" });
+
+    await expect(
+      setPassword.run(
+        { newPassword: "new-password" },
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          requestHeaders: headers,
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+    await expect(
+      changePassword.run(
+        { currentPassword: "old-password", newPassword: "new-password" },
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          requestHeaders: headers,
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+
+    expect(createBetterAuthSessionForEmailMock).toHaveBeenCalledWith(
+      "alice@example.com",
+    );
+    expect(auth.api.setPassword).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: { newPassword: "new-password" },
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(auth.api.changePassword).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: { currentPassword: "old-password", newPassword: "new-password" },
+        headers: expect.any(Headers),
+      }),
+    );
+
+    const bridgedHeaders = auth.api.setPassword.mock.calls[0][0].headers;
+    expect(bridgedHeaders.get("cookie")).toBe(headers.get("cookie"));
+    expect(bridgedHeaders.get("authorization")).toMatch(
+      /^Bearer ba-session-token\.[A-Za-z0-9_-]+$/,
+    );
+    expect(headers.get("authorization")).toBeNull();
   });
 
   it("enforces the 12-character minimum before calling Better Auth", async () => {
