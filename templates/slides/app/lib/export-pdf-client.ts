@@ -20,6 +20,7 @@ import {
 
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
 import { importExportModule } from "./dynamic-import";
+import { sanitizeSlideUrl } from "./sanitize-slide-html";
 
 /** Same-origin URL that re-serves a remote image, bypassing its missing CORS. */
 export function imageProxyUrl(src: string): string {
@@ -279,6 +280,46 @@ function drawSelectableTextLayer(
   }
 }
 
+function drawLinkAnnotations(
+  pdf: import("jspdf").jsPDF,
+  source: HTMLElement,
+  dims: { width: number; height: number },
+): void {
+  const sourceRect = source.getBoundingClientRect();
+  if (sourceRect.width <= 0 || sourceRect.height <= 0) return;
+
+  const positionScale = dims.width / sourceRect.width;
+  for (const link of source.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    const safeHref = sanitizeSlideUrl(
+      link.getAttribute("href") ?? undefined,
+      "link",
+    );
+    if (!safeHref) continue;
+
+    let url: string;
+    try {
+      url = new URL(safeHref, window.location.href).href;
+    } catch {
+      continue;
+    }
+
+    const rects = Array.from(link.getClientRects()).filter(
+      (rect) => rect.width > 0 && rect.height > 0,
+    );
+    const measuredRects = rects.length ? rects : [link.getBoundingClientRect()];
+    for (const rect of measuredRects) {
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      pdf.link(
+        (rect.left - sourceRect.left) * positionScale,
+        (rect.top - sourceRect.top) * positionScale,
+        rect.width * positionScale,
+        rect.height * positionScale,
+        { url },
+      );
+    }
+  }
+}
+
 /**
  * One entry per line the browser actually laid this text node out on, with the
  * substring that sits on it.
@@ -427,6 +468,7 @@ export async function exportDeckAsPdf(
     if (i > 0) pdf.addPage([dims.width, dims.height], orientation);
     pdf.addImage(dataUrl, "JPEG", 0, 0, dims.width, dims.height);
     drawSelectableTextLayer(pdf, source, dims);
+    drawLinkAnnotations(pdf, source, dims);
   }
 
   // Carried so `import-file` can hand back the deck that was exported instead
