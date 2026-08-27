@@ -2,9 +2,9 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconBrandGithub,
+  IconSpeakerphone,
   IconMenu2,
   IconMessage,
-  IconMessage2,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
@@ -71,7 +71,9 @@ function FeedbackIconButton({ align }: { align: "start" | "end" }) {
       side="bottom"
       trigger={
         <IconButton dimBorder aria-label={label} title={label}>
-          <IconMessage2 size={18} stroke={1.5} />
+          {/* Not a speech bubble: Ask AI beside it already owns that shape,
+              and two bubbles read as one control duplicated. */}
+          <IconSpeakerphone size={18} stroke={1.5} />
         </IconButton>
       }
     />
@@ -217,7 +219,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
           </div>
 
           <div className="flex items-center gap-2 lg:hidden">
-            <IconButton onClick={openSearch} aria-label={searchLabel}>
+            <IconButton dimBorder onClick={openSearch} aria-label={searchLabel}>
               <IconSearch size={18} stroke={1.5} />
             </IconButton>
             <button
@@ -250,8 +252,8 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
           ))}
           <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
             <GithubStarsButton starCount={starCount} />
-            <LanguagePicker />
-            <ThemeIconButton />
+            <LanguagePicker dimBorder />
+            <ThemeIconButton dimBorder />
             <FeedbackIconButton align="start" />
             <AskAiIconButton />
           </div>
