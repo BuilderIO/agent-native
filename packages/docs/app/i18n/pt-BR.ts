@@ -58,6 +58,10 @@ const ptBR = {
     draftLabel: "Rascunho",
     draftDescription:
       "Esta página está em andamento. O conteúdo pode estar incompleto ou sujeito a alterações antes da publicação.",
+    translationLabel: "Traduzido automaticamente",
+    translationDescription:
+      "Esta página foi traduzida automaticamente e pode não ser totalmente precisa.",
+    translationViewOriginal: "Ver o original em inglês",
   },
   search: {
     dialogLabel: "Pesquisar documentação",
