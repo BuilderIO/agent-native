@@ -2850,6 +2850,12 @@ export default function SlideEditor({
           el = el.parentElement;
           continue;
         }
+        const textBox = el.closest<HTMLElement>(
+          ".fmd-text-box[data-slide-object-id]",
+        );
+        if (textBox && slideContent.contains(textBox)) {
+          return textBox.getAttribute("data-builder-id");
+        }
         const id = el.getAttribute("data-builder-id");
         if (id) return id;
         el = el.parentElement;
@@ -2879,6 +2885,10 @@ export default function SlideEditor({
           el = el.parentElement;
           continue;
         }
+        const textBox = el.closest<HTMLElement>(
+          ".fmd-text-box[data-slide-object-id]",
+        );
+        if (textBox && slideContent.contains(textBox)) return textBox;
         if (el.getAttribute("data-builder-id")) return el;
         el = el.parentElement;
       }
@@ -4983,7 +4993,9 @@ export default function SlideEditor({
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
       // style dock targets the same block being edited.
       if (!readOnly && slideContent) {
-        const block = findSmartBlock(target, slideContent);
+        const block = findSmartBlock(target, slideContent, {
+          includeTextBoxes: false,
+        });
         if (
           block &&
           slidesCanvasInteractionCore.textActivation({
