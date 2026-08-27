@@ -614,6 +614,7 @@ const enUS = {
         "Imported without token — geometry and text only",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
+      figmaPasteImagesDontShowAgain: "Don't show again",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
@@ -12471,6 +12472,7 @@ const designImportOverrides = {
         figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
         figmaPasteImagesNeedToken:
           "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+        figmaPasteImagesDontShowAgain: "不再顯示",
         figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
         figmaHydrationDialogDescription:
           "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
@@ -12537,6 +12539,7 @@ const designImportOverrides = {
         figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
         figmaPasteImagesNeedToken:
           "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
+        figmaPasteImagesDontShowAgain: "不再显示",
         figmaHydrationDialogTitle: "连接 Figma 以加载图片",
         figmaHydrationDialogDescription:
           "输入您的 Figma 访问令牌，以加载已导入屏幕{{screensPlural}}中缺少的 {{count}} 张图片{{plural}}。",
@@ -12606,6 +12609,7 @@ const designImportOverrides = {
           "Importado sin token — solo geometría y texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
+        figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
         figmaHydrationDialogTitle: "Conectar Figma para cargar imágenes",
         figmaHydrationDialogDescription:
           "Introduce tu token de acceso de Figma para cargar {{count}} imagen{{plural}} faltante{{plural}} en la pantalla{{screensPlural}} importada{{screensPlural}}.",
@@ -12677,6 +12681,7 @@ const designImportOverrides = {
           "Importé sans token — géométrie et texte uniquement",
         figmaPasteImagesNeedToken:
           "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
+        figmaPasteImagesDontShowAgain: "Ne plus afficher",
         figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
         figmaHydrationDialogDescription:
           "Saisissez votre token d'accès Figma pour charger {{count}} image{{plural}} manquante{{plural}} dans l'écran{{screensPlural}} importé{{screensPlural}}.",
@@ -12748,6 +12753,7 @@ const designImportOverrides = {
           "Ohne Token importiert — nur Geometrie und Text",
         figmaPasteImagesNeedToken:
           "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
+        figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
         figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
         figmaHydrationDialogDescription:
           "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
@@ -12818,6 +12824,7 @@ const designImportOverrides = {
           "トークンなしでインポート — ジオメトリとテキストのみ",
         figmaPasteImagesNeedToken:
           "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
+        figmaPasteImagesDontShowAgain: "今後は表示しない",
         figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
         figmaHydrationDialogDescription:
           "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
@@ -12888,6 +12895,7 @@ const designImportOverrides = {
         figmaPasteLocalKiwiLabel: "토큰 없이 가져옴 — 기하학적 구조와 텍스트만",
         figmaPasteImagesNeedToken:
           "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
+        figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
         figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
         figmaHydrationDialogDescription:
           "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
@@ -12960,6 +12968,7 @@ const designImportOverrides = {
           "Importado sem token — apenas geometria e texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
+        figmaPasteImagesDontShowAgain: "Não mostrar novamente",
         figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
         figmaHydrationDialogDescription:
           "Insira seu token de acesso do Figma para carregar {{count}} imagem{{plural}} ausente{{plural}} na tela{{screensPlural}} importada{{screensPlural}}.",
@@ -13031,6 +13040,7 @@ const designImportOverrides = {
           "बिना token के आयात किया गया — केवल geometry और text",
         figmaPasteImagesNeedToken:
           "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
+        figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
         figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
         figmaHydrationDialogDescription:
           "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
@@ -13101,6 +13111,7 @@ const designImportOverrides = {
           "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
         figmaPasteImagesNeedToken:
           "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
+        figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
         figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
         figmaHydrationDialogDescription:
           "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",

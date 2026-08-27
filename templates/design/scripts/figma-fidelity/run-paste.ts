@@ -246,7 +246,24 @@ async function runCase(
   writeFileSync(
     join(dir, "stats.json"),
     JSON.stringify(
-      { ...result.stats, warnings: result.warnings, selectedNodeIds },
+      {
+        ...result.stats,
+        // After hydration the decoder's own counts and warnings describe a
+        // document that no longer exists; leaving them would have this file
+        // report 12 unloadable images beside a render that has all 12.
+        ...(hydration
+          ? {
+              unresolvedImageCount: hydration.missing,
+              hydratedImageCount: hydration.resolved,
+            }
+          : {}),
+        warnings: hydration
+          ? result.warnings.filter(
+              (warning) => !/images could not be loaded/i.test(warning),
+            )
+          : result.warnings,
+        selectedNodeIds,
+      },
       null,
       2,
     ),

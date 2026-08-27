@@ -238,6 +238,7 @@ import {
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
 import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
+import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import {
   beginEyedropperPick,
@@ -399,6 +400,10 @@ import {
 } from "@/lib/design-save-outbox";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
+import {
+  dismissFigmaPasteImageNotice,
+  figmaPasteImageNoticeDismissed,
+} from "@/lib/figma-paste-image-notice";
 import {
   exportDesignAsFigmaSvg,
   type LiveFigmaSvgSnapshot,
@@ -2418,7 +2423,6 @@ function DesignEditor() {
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
     [],
   );
-  const [figmaHydrationImageCount, setFigmaHydrationImageCount] = useState(0);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -10567,14 +10571,41 @@ function DesignEditor() {
           id,
           navigate,
           queryClient,
-          setFigmaHydrationFileIds,
-          setFigmaHydrationImageCount,
-          setFigmaHydrationOpen,
+          showPastedImagesNotice,
           t,
         },
         content,
       ),
     [canEditDesign, id, navigate, queryClient, t],
+  );
+
+  // One prompt for every path that can leave image placeholders behind: the
+  // clipboard paste and the import panel both land here, so they cannot drift
+  // into two different explanations of the same state.
+  const showPastedImagesNotice = useCallback(
+    ({ count, fileIds }: { count: number; fileIds: string[] }) => {
+      if (figmaPasteImageNoticeDismissed()) return;
+      toast.custom(
+        (toastId) => (
+          <FigmaPasteImagesNotice
+            count={count}
+            designId={id ?? ""}
+            fileIds={fileIds}
+            onConnect={() => {
+              setFigmaHydrationFileIds(fileIds);
+              setFigmaHydrationOpen(true);
+            }}
+            onDismissForever={dismissFigmaPasteImageNotice}
+            onHydrated={() => {
+              void queryClient.invalidateQueries({ queryKey: ["action"] });
+            }}
+            onClose={() => toast.dismiss(toastId)}
+          />
+        ),
+        { duration: Infinity },
+      );
+    },
+    [id, queryClient],
   );
 
   const handleCanvasFigmaClipboardPaste = useCallback(
@@ -19307,9 +19338,10 @@ function DesignEditor() {
                     onImport={(result) => {
                       const count = result.unresolvedImageRefCount ?? 0;
                       if (count > 0 && result.files?.length) {
-                        setFigmaHydrationFileIds(result.files.map((f) => f.id));
-                        setFigmaHydrationImageCount(count);
-                        setFigmaHydrationOpen(true);
+                        showPastedImagesNotice({
+                          count,
+                          fileIds: result.files.map((f) => f.id),
+                        });
                       }
                     }}
                   />
@@ -20523,7 +20555,6 @@ function DesignEditor() {
         onOpenChange={setFigmaHydrationOpen}
         designId={id ?? ""}
         fileIds={figmaHydrationFileIds}
-        imageCount={figmaHydrationImageCount}
         onHydrated={() => {
           void queryClient.invalidateQueries({ queryKey: ["action"] });
         }}

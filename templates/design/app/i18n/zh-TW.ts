@@ -674,6 +674,7 @@ const messages = {
       figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
       figmaPasteImagesNeedToken:
         "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+      figmaPasteImagesDontShowAgain: "不再顯示",
       figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
       figmaHydrationDialogDescription:
         "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
