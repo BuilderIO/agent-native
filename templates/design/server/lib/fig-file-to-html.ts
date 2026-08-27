@@ -1027,6 +1027,20 @@ function isFullTurnArc(arc: FigNode["arcData"]): boolean {
 function parametricShapePath(node: FigNode): string | null {
   const w = node.size?.x;
   const h = node.size?.y;
+  // A Figma LINE is always the straight segment (0,0) -> (size.x, 0) in its
+  // own space, so its shape is fully known without any geometry at all. The
+  // clipboard ships neither flattened geometry nor a vector network for one,
+  // and every rule on the page was being dropped as "no decodable geometry" —
+  // ten of them on the Positivus page, including the divider under each
+  // process step. Its zero height is also why the `!w || !h` guard below has
+  // to come after this.
+  if (node.type === "LINE") {
+    const length = w ?? h;
+    if (!length) return null;
+    return h === 0 || h === undefined
+      ? `M0 0 L${num(length)} 0`
+      : `M0 0 L0 ${num(h)}`;
+  }
   if (!w || !h) return null;
   const cx = w / 2;
   const cy = h / 2;
@@ -2049,6 +2063,35 @@ function buildCss(
   if (mergedBoxShadows.length > 0) css.boxShadow = mergedBoxShadows.join(", ");
   // Rotation
   Object.assign(css, transformStyle(node));
+  // A CSS transform does not change an element's LAYOUT size, but Figma lays a
+  // rotated auto-layout child out by its rotated footprint. A vertical rule is
+  // the common case: Figma stores it as a 186x0 line turned 90 degrees, so it
+  // takes no width in the row — ours took the full 186px and shoved every
+  // later sibling across. Flex children pivot about their centre so the
+  // margins below keep the visual in place; an absolutely positioned node
+  // keeps `top left`, which is what pairs with its transform's translation.
+  if (parentFlex && node.stackPositioning !== "ABSOLUTE" && css.transform) {
+    const t = node.transform;
+    const w = num(node.size?.x) ?? 0;
+    const h = num(node.size?.y) ?? 0;
+    if (t && w >= 0 && h >= 0) {
+      const spanX = Math.abs(t.m00) * w + Math.abs(t.m01) * h;
+      const spanY = Math.abs(t.m10) * w + Math.abs(t.m11) * h;
+      const marginX = (spanX - w) / 2;
+      const marginY = (spanY - h) / 2;
+      if (Math.abs(marginX) > 0.01 || Math.abs(marginY) > 0.01) {
+        css.transformOrigin = "center";
+        if (Math.abs(marginX) > 0.01) {
+          css.marginLeft = `${num(marginX)}px`;
+          css.marginRight = `${num(marginX)}px`;
+        }
+        if (Math.abs(marginY) > 0.01) {
+          css.marginTop = `${num(marginY)}px`;
+          css.marginBottom = `${num(marginY)}px`;
+        }
+      }
+    }
+  }
   // Text styling
   Object.assign(css, textStyles(node, ctx));
   // Autolayout (flex)
