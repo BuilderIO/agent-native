@@ -108,6 +108,12 @@ type WatchStopResult =
 type WatchChannel = { id: string; resourceId?: string };
 const watchCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer === "object" && timer !== null && "unref" in timer) {
+    (timer as { unref: () => void }).unref();
+  }
+}
+
 function getWatchClaim(
   config: IntegrationConfig | null,
 ): { id: string; expiresAt: number } | null {
@@ -166,6 +172,7 @@ function scheduleOrphanedWatchCleanup(
 
     scheduleOrphanedWatchCleanup(channel);
   }, delayMs);
+  unrefTimer(timer);
   watchCleanupTimers.set(channel.id, timer);
 }
 
@@ -175,7 +182,10 @@ function scheduleOrphanedWatchCleanup(
  *
  * Returns true if the watch was registered successfully.
  */
-export async function registerWatch(webhookUrl: string): Promise<boolean> {
+export async function registerWatch(
+  webhookUrl: string,
+  expectedChannelId?: string,
+): Promise<boolean> {
   const accessToken = await getServiceAccountAccessToken();
   if (!accessToken) return false;
 
@@ -196,6 +206,12 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
     // Keep the active channel until Google accepts the replacement. A failed
     // registration must not take down a still-valid channel.
     const currentConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
+    if (
+      expectedChannelId !== undefined &&
+      currentConfig?.configData?.channelId !== expectedChannelId
+    ) {
+      return false;
+    }
 
     const res = await fetch(
       "https://www.googleapis.com/drive/v3/changes/watch",
@@ -290,7 +306,7 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
     );
 
     // Schedule renewal before expiration
-    scheduleWatchRenewal(webhookUrl);
+    scheduleWatchRenewal(webhookUrl, undefined, data.id);
 
     return true;
   } catch (err) {
@@ -427,7 +443,7 @@ export async function stopGoogleDocsWatchChannel(
 function scheduleWatchRenewal(
   webhookUrl: string,
   delayMs = WATCH_CHANNEL_TTL_MS - 60 * 60 * 1000,
-  expectedClaimId?: string,
+  expectedChannelId?: string,
 ): void {
   if (watchRenewalTimer) clearTimeout(watchRenewalTimer);
 
@@ -435,40 +451,31 @@ function scheduleWatchRenewal(
     watchRenewalTimer = null;
     try {
       console.log("[google-docs] Renewing watch channel...");
-      const stopResult = await stopWatch(expectedClaimId);
-      if (stopResult.status === "stopped") {
-        if (await registerWatch(webhookUrl)) return;
+      if (await registerWatch(webhookUrl, expectedChannelId)) return;
 
-        console.warn(
-          `[google-docs] Could not register the replacement watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+      if (expectedChannelId !== undefined) {
+        const currentConfig = await getIntegrationConfig(
+          PLATFORM,
+          "watch-channel",
         );
-        scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS);
-        return;
-      }
-
-      if (stopResult.status === "not-owned") {
-        if (stopResult.claimId && stopResult.retryAt) {
-          scheduleWatchRenewal(
-            webhookUrl,
-            retryDelay(stopResult.retryAt),
-            stopResult.claimId,
-          );
+        if (currentConfig?.configData?.channelId !== expectedChannelId) {
+          return;
         }
-        return;
       }
 
       console.warn(
-        `[google-docs] Could not stop the active watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+        `[google-docs] Could not register the replacement watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
       );
-      scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS, stopResult.claimId);
+      scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS, expectedChannelId);
     } catch (err) {
       console.warn(
         `[google-docs] Watch renewal failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
         err,
       );
-      scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS, expectedClaimId);
+      scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS, expectedChannelId);
     }
   }, delayMs);
+  unrefTimer(watchRenewalTimer);
 }
 
 function scheduleWatchCleanupRetry(
@@ -502,6 +509,7 @@ function scheduleWatchCleanupRetry(
       scheduleWatchCleanupRetry(expectedClaimId);
     }
   }, delayMs);
+  unrefTimer(watchRenewalTimer);
 }
 
 // ─── Page Token Management ──────────────────────────────────────────────────
