@@ -1017,14 +1017,6 @@ export function useBuilderConnectFlow(
           setError(
             `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`,
           );
-        } else {
-          // A known non-configured response means the callback completed but
-          // credentials were not persisted. Unknown status stays on polling.
-          connectStartedAtRef.current = null;
-          setConnecting(false);
-          setError(
-            "Couldn't start Builder connect. Refresh this page and try again.",
-          );
         }
         return;
       }

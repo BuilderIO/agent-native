@@ -579,7 +579,7 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
-  it("surfaces an error when the callback succeeds but status never confirms credentials", async () => {
+  it("keeps polling when the callback status remains not configured", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -623,8 +623,17 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
 
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder connect",
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    });
+
     expect(container.textContent).toContain("not-configured idle");
-    expect(container.textContent).toContain("Couldn't start Builder connect");
+    expect(container.textContent).toContain("Didn't hear back from Builder");
   });
 
   it("keeps polling when the popup closes before status confirms credentials", async () => {
