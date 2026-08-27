@@ -38,6 +38,7 @@ import {
   renderHtmlTemplates,
   type FigNode,
 } from "../../server/lib/fig-file-to-html.js";
+import { bytesToBase64 } from "../../shared/fig-bytes.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../../shared/figma-url.js";
 import { comparePngs } from "./lib/compare.js";
 import { renderHtmlToPng } from "./lib/render.js";
@@ -212,7 +213,7 @@ async function runCase(
     const mime = IMAGE_MIME[image.ext] ?? "application/octet-stream";
     imageMap.set(
       image.hash,
-      `data:${mime};base64,${image.bytes.toString("base64")}`,
+      `data:${mime};base64,${bytesToBase64(image.bytes)}`,
     );
   }
 

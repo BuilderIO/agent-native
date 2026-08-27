@@ -9,8 +9,16 @@
  * figma-plugin smart-export conventions.
  */
 
-import * as path from "node:path";
-
+import {
+  base64ToBytes,
+  hexToBytes,
+  readAscii,
+  readF32LE,
+  readU16BE,
+  readU32BE,
+  readU32LE,
+  utf8ByteLength,
+} from "../../shared/fig-bytes.js";
 import {
   cssBlendMode,
   figmaDrawnText,
@@ -1634,18 +1642,17 @@ function intrinsicImageSize(
   // No try/catch: base64 decoding does not throw in Node, it drops invalid
   // characters — so a short/garbled buffer simply fails the length checks
   // below and reports "cannot tell" rather than a wrong size.
-  const bytes = Buffer.from(match[2]!, "base64");
+  const bytes = base64ToBytes(match[2]!);
   if (match[1] === "png") {
     // 8-byte signature, then the IHDR chunk: length(4) type(4) width(4) height(4).
-    if (bytes.length < 24 || bytes.toString("ascii", 12, 16) !== "IHDR")
-      return null;
-    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+    if (bytes.length < 24 || readAscii(bytes, 12, 16) !== "IHDR") return null;
+    return { width: readU32BE(bytes, 16), height: readU32BE(bytes, 20) };
   }
   // JPEG: walk the marker segments to the frame header, which carries the size.
   let offset = 2;
   while (offset + 9 < bytes.length && bytes[offset] === 0xff) {
     const marker = bytes[offset + 1]!;
-    const length = bytes.readUInt16BE(offset + 2);
+    const length = readU16BE(bytes, offset + 2);
     // SOF0..SOF15, excluding the non-frame markers in that range.
     if (
       marker >= 0xc0 &&
@@ -1655,8 +1662,8 @@ function intrinsicImageSize(
       marker !== 0xcc
     ) {
       return {
-        height: bytes.readUInt16BE(offset + 5),
-        width: bytes.readUInt16BE(offset + 7),
+        height: readU16BE(bytes, offset + 5),
+        width: readU16BE(bytes, offset + 7),
       };
     }
     offset += 2 + length;
@@ -2765,7 +2772,7 @@ interface Ctx {
   modeToSet: Map<string, string>;
   imageRefBase?: string;
   /** Raw blob bytes (for path command decoding). Indexed by blob index. */
-  blobs: Buffer[];
+  blobs: Uint8Array[];
   /** Hex hash -> on-disk filename (e.g. `<hash>` or `<hash>.png`). */
   imageMap: Map<string, string>;
   /**
@@ -2814,7 +2821,7 @@ interface Ctx {
  *   3 = QuadTo     (x1, y1, x, y)
  *   4 = CubicTo    (x1, y1, x2, y2, x, y)
  */
-function decodePathCommands(bytes: Buffer | undefined): string {
+function decodePathCommands(bytes: Uint8Array | undefined): string {
   if (!bytes || bytes.length === 0) return "";
   const out: string[] = [];
   const fmt = (n: number) => {
@@ -2849,8 +2856,7 @@ function decodePathCommands(bytes: Buffer | undefined): string {
     }
     if (i + 1 + n * 4 > bytes.length) break;
     const args: string[] = [];
-    for (let j = 0; j < n; j++)
-      args.push(fmt(bytes.readFloatLE(i + 1 + j * 4)));
+    for (let j = 0; j < n; j++) args.push(fmt(readF32LE(bytes, i + 1 + j * 4)));
     out.push(args.length ? `${letter}${args.join(" ")}` : letter);
     i += 1 + n * 4;
   }
@@ -2875,19 +2881,21 @@ interface DecodedVectorNetwork {
   arrowEnd: boolean;
 }
 
-function decodeVectorNetwork(bytes: Buffer | undefined): DecodedVectorNetwork {
+function decodeVectorNetwork(
+  bytes: Uint8Array | undefined,
+): DecodedVectorNetwork {
   const empty: DecodedVectorNetwork = { d: "", arrowEnd: false };
   if (!bytes || bytes.length < 16) return empty;
-  const vertexCount = bytes.readUInt32LE(0);
-  const segmentCount = bytes.readUInt32LE(4);
+  const vertexCount = readU32LE(bytes, 0);
+  const segmentCount = readU32LE(bytes, 4);
   if (vertexCount > 200_000 || segmentCount > 200_000) return empty;
-  const arrowEnd = bytes.readUInt32LE(12) >= 3;
+  const arrowEnd = readU32LE(bytes, 12) >= 3;
 
   const verts: Array<{ x: number; y: number }> = [];
   for (let i = 0; i < vertexCount; i++) {
     const o = 16 + i * 12;
     if (o + 8 > bytes.length) break;
-    verts.push({ x: bytes.readFloatLE(o), y: bytes.readFloatLE(o + 4) });
+    verts.push({ x: readF32LE(bytes, o), y: readF32LE(bytes, o + 4) });
   }
 
   interface Seg {
@@ -2904,12 +2912,12 @@ function decodeVectorNetwork(bytes: Buffer | undefined): DecodedVectorNetwork {
     const o = segStart + i * 28;
     if (o + 24 > bytes.length) break;
     segs.push({
-      s: bytes.readUInt32LE(o),
-      sx: bytes.readFloatLE(o + 4),
-      sy: bytes.readFloatLE(o + 8),
-      e: bytes.readUInt32LE(o + 12),
-      ex: bytes.readFloatLE(o + 16),
-      ey: bytes.readFloatLE(o + 20),
+      s: readU32LE(bytes, o),
+      sx: readF32LE(bytes, o + 4),
+      sy: readF32LE(bytes, o + 8),
+      e: readU32LE(bytes, o + 12),
+      ex: readF32LE(bytes, o + 16),
+      ey: readF32LE(bytes, o + 20),
     });
   }
   if (segs.length === 0) return empty;
@@ -4216,7 +4224,7 @@ class BudgetedLines extends Array<string> {
 
   override push(...items: string[]): number {
     for (const item of items) {
-      this.bytes += Buffer.byteLength(item, "utf8") + 1;
+      this.bytes += utf8ByteLength(item) + 1;
       if (this.bytes > this.maxBytes) {
         throw new Error(".fig frame exceeded its render output budget.");
       }
@@ -4501,20 +4509,19 @@ export function renderHtmlTemplates(
 ): RenderHtmlResult {
   const doc = document as {
     nodeChanges?: FigNode[];
-    blobs?: Array<{ bytes?: string | Buffer | Uint8Array }>;
+    blobs?: Array<{ bytes?: string | Uint8Array }>;
   };
   const nodes = doc.nodeChanges ?? [];
 
   // Decode blob bytes once. The kiwi document JSON-serializes blob bytes as
   // hex strings; Buffer / Uint8Array values may also appear depending on how
   // the caller decoded the document.
-  const blobs: Buffer[] = (doc.blobs ?? []).map((b) => {
+  const blobs: Uint8Array[] = (doc.blobs ?? []).map((b) => {
     const v = b?.bytes;
-    if (!v) return Buffer.alloc(0);
-    if (Buffer.isBuffer(v)) return v;
-    if (v instanceof Uint8Array) return Buffer.from(v);
-    if (typeof v === "string") return Buffer.from(v, "hex");
-    return Buffer.alloc(0);
+    if (!v) return new Uint8Array(0);
+    if (v instanceof Uint8Array) return v;
+    if (typeof v === "string") return hexToBytes(v);
+    return new Uint8Array(0);
   });
 
   const byGuid = new Map<string, FigNode>();
@@ -4636,7 +4643,7 @@ export function renderHtmlTemplates(
         pageDirName,
         frameName: frame.name ?? `frame-${frameIdx + 1}`,
         fileName,
-        relativePath: path.posix.join(pageDirName, fileName),
+        relativePath: `${pageDirName}/${fileName}`,
         html,
         width: frame.size?.x,
         height: frame.size?.y,
