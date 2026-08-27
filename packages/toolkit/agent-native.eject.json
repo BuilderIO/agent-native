@@ -211,6 +211,7 @@
         "clsx",
         "react",
         "react-dom",
+        "sonner",
         "tailwind-merge"
       ],
       "protectedImports": [
