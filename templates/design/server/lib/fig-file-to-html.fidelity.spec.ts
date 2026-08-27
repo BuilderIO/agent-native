@@ -1326,6 +1326,50 @@ describe("a hugging TEXT box takes the size Figma resolved", () => {
   });
 });
 
+describe("Figma's own casing and decoration", () => {
+  // Dropped entirely by this walker: the typography fixture's underlined link
+  // rendered plain, its strikethrough price rendered without the line, and its
+  // uppercase label rendered lower-case.
+  const label = (fields: Record<string, unknown>) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 130, {
+        type: "TEXT",
+        name: "Label",
+        size: { x: 200, y: 20 },
+        fontSize: 16,
+        textData: { characters: "Underlined inline link text" },
+        ...fields,
+      }),
+    );
+    return doc;
+  };
+
+  it("underlines what Figma underlines", () => {
+    expect(renderFrame(label({ textDecoration: "UNDERLINE" }))).toContain(
+      "text-decoration: underline",
+    );
+  });
+
+  it("strikes through what Figma strikes through", () => {
+    expect(renderFrame(label({ textDecoration: "STRIKETHROUGH" }))).toContain(
+      "text-decoration: line-through",
+    );
+  });
+
+  it("applies Figma's text case", () => {
+    expect(renderFrame(label({ textCase: "UPPER" }))).toContain(
+      "text-transform: uppercase",
+    );
+  });
+
+  it("adds nothing when Figma asks for nothing", () => {
+    const html = renderFrame(label({}));
+    expect(html).not.toContain("text-decoration");
+    expect(html).not.toContain("text-transform");
+  });
+});
+
 describe("glyph rasterisation", () => {
   it("renders text on exact outlines, the way Figma lays it out", () => {
     // The browser hints glyphs by default, snapping stems to the pixel grid

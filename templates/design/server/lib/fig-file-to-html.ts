@@ -17,6 +17,8 @@ import {
   gradientAngleDegreesFromHandles,
   gradientGeometryFromTransform,
   remapLinearStopPosition,
+  textDecorationCss,
+  textTransformCss,
 } from "./figma-node-to-html.js";
 
 export interface Guid {
@@ -177,6 +179,10 @@ export interface FigNode {
     }>;
   };
   textAutoResize?: string;
+  /** ORIGINAL / UPPER / LOWER / TITLE — Figma's own casing, applied at render. */
+  textCase?: string;
+  /** NONE / UNDERLINE / STRIKETHROUGH. */
+  textDecoration?: string;
   symbolData?: {
     symbolID?: Guid;
     symbolOverrides?: SymbolOverride[];
@@ -1812,6 +1818,15 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (ls !== null && ls !== undefined) out.letterSpacing = ls;
   if (textAlignHorizontal)
     out.textAlign = TEXT_ALIGN[textAlignHorizontal] ?? "left";
+  // Figma's own casing and decoration, which this walker was dropping: the
+  // typography fixture's underline, strikethrough and uppercase label all
+  // rendered as plain lower-case text. Same mappings the REST walker uses.
+  const textCase = styleNode?.textCase ?? node.textCase;
+  const textDecoration = styleNode?.textDecoration ?? node.textDecoration;
+  const transform = textTransformCss(textCase as never);
+  if (transform) out.textTransform = transform;
+  const decoration = textDecorationCss(textDecoration as never);
+  if (decoration) out.textDecoration = decoration;
   const fills = (
     ctx ? effectiveFillPaints(node, ctx) : node.fillPaints
   )?.filter((fill) => fill.visible !== false);

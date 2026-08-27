@@ -1271,7 +1271,7 @@ function resolveLineHeight(style: FigmaTypeStyle): string | undefined {
   return undefined;
 }
 
-function textTransformCss(
+export function textTransformCss(
   textCase: FigmaTypeStyle["textCase"],
 ): string | undefined {
   switch (textCase) {
@@ -1286,7 +1286,7 @@ function textTransformCss(
   }
 }
 
-function textDecorationCss(
+export function textDecorationCss(
   decoration: FigmaTypeStyle["textDecoration"],
 ): string | undefined {
   switch (decoration) {

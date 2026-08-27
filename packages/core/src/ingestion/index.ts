@@ -93,6 +93,8 @@ export {
   figmaDrawnText,
   gradientAngleDegrees,
   mapFigmaNodeToHtml,
+  textDecorationCss,
+  textTransformCss,
   type FidelityEntry,
   type FidelityLevel,
   type FidelityReport,
