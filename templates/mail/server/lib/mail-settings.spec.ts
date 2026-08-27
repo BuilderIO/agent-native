@@ -28,4 +28,24 @@ describe("mergePinnedLabels", () => {
       mergePinnedLabels(["important", "travel"], ["important"], ["important"]),
     ).toEqual(["important", "travel"]);
   });
+
+  it("preserves an explicit reorder while merging concurrent additions", () => {
+    expect(
+      mergePinnedLabels(
+        ["inbox", "travel", "sent"],
+        ["sent", "inbox"],
+        ["inbox", "sent"],
+      ),
+    ).toEqual(["sent", "inbox", "travel"]);
+  });
+
+  it("preserves the latest order for membership-only updates", () => {
+    expect(
+      mergePinnedLabels(
+        ["sent", "travel", "inbox"],
+        ["inbox", "sent", "archive"],
+        ["inbox", "sent"],
+      ),
+    ).toEqual(["sent", "travel", "inbox", "archive"]);
+  });
 });

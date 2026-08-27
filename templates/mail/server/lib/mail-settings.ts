@@ -42,21 +42,60 @@ export function mergePinnedLabels(
   if (next === undefined) return current ? [...current] : undefined;
   if (base === undefined) return [...next];
 
-  const baseSet = new Set(base);
-  const currentSet = new Set(current ?? []);
-  const nextSet = new Set(next);
-  const merged = new Set<string>();
+  const unique = (labels: readonly string[]) => [...new Set(labels)];
+  const baseList = unique(base);
+  const currentList = unique(current ?? []);
+  const nextList = unique(next);
+  const baseSet = new Set(baseList);
+  const nextSet = new Set(nextList);
+  const finalLabels = new Set<string>();
 
-  for (const label of base) {
-    if (currentSet.has(label) && nextSet.has(label)) merged.add(label);
+  for (const label of currentList) {
+    if (baseSet.has(label) ? nextSet.has(label) : !nextSet.has(label)) {
+      finalLabels.add(label);
+    }
   }
-  for (const label of current ?? []) {
-    if (!baseSet.has(label)) merged.add(label);
+  for (const label of nextList) {
+    if (!baseSet.has(label)) finalLabels.add(label);
   }
-  for (const label of next) {
-    if (!baseSet.has(label)) merged.add(label);
+
+  const baseRetained = baseList.filter((label) => nextSet.has(label));
+  const nextRetained = nextList.filter((label) => baseSet.has(label));
+  const explicitReorder =
+    baseRetained.length !== nextRetained.length ||
+    baseRetained.some((label, index) => label !== nextRetained[index]);
+
+  if (explicitReorder) {
+    return [
+      ...nextList.filter((label) => finalLabels.has(label)),
+      ...currentList.filter(
+        (label) => finalLabels.has(label) && !baseSet.has(label),
+      ),
+    ];
   }
-  return [...merged];
+
+  const rebased = currentList.filter(
+    (label) =>
+      finalLabels.has(label) && !(nextSet.has(label) && !baseSet.has(label)),
+  );
+  for (const [index, label] of nextList.entries()) {
+    if (baseSet.has(label)) continue;
+
+    const following = nextList
+      .slice(index + 1)
+      .find(
+        (candidate) => baseSet.has(candidate) && finalLabels.has(candidate),
+      );
+    if (following) {
+      const position = rebased.indexOf(following);
+      if (position >= 0) {
+        rebased.splice(position, 0, label);
+        continue;
+      }
+    }
+    rebased.push(label);
+  }
+  return rebased;
 }
 
 export function normalizeMailSettings(
