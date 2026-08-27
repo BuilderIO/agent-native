@@ -1225,23 +1225,37 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       return `radial-gradient(${stops})`;
     }
     if (p.type === "GRADIENT_ANGULAR") {
+      // CSS `conic-gradient` starts its sweep at 12 o'clock; Figma's angular
+      // gradient aims along the centre->vertex ray, which for an identity
+      // transform points EAST. `rotationDeg` is that ray, and `fromDeg` was
+      // neither it nor corrected for the quarter turn — the fixture's sweep
+      // came out 90 degrees off, green at the top where Figma puts it right.
+      if (geometry) {
+        // Everything in NORMALIZED space, which is where Figma computes the
+        // sweep — and it has to be, because a non-square box renders this
+        // through an overlay that draws into a SQUARE and scales. A pixel
+        // centre would land at the wrong height inside that square.
+        const { start, end } = geometry.handles;
+        const centerX = (start.x + end.x) / 2;
+        const centerY = (start.y + end.y) / 2;
+        const from =
+          ((((Math.atan2(end.y - centerY, end.x - centerX) * 180) / Math.PI +
+            90) %
+            360) +
+            360) %
+          360;
+        return (
+          `conic-gradient(from ${num(from)}deg ` +
+          `at ${num(centerX * 100)}% ${num(centerY * 100)}%, ${stops})`
+        );
+      }
       // Figma sweeps an angular gradient in the node's NORMALIZED space — the
       // box treated as a unit square, then stretched — while CSS
       // `conic-gradient()` sweeps at a true uniform angular rate in real
       // pixels. The two agree only on the axes, so on a non-square box the
-      // mid-sweep colours land early. The REST walker draws the sweep into a
-      // square and scales that square, which needs an overlay element rather
-      // than a background layer; here it is reported instead of silently off.
-      if (box && Math.abs(box.width - box.height) > 0.5) {
-        recordApproximation(
-          node,
-          ctx,
-          "GRADIENT_ANGULAR on a non-square box swept in pixel space; Figma sweeps it in the node's normalized space, so mid-sweep colours land early",
-        );
-      }
-      if (geometry) {
-        return `conic-gradient(from ${num(geometry.fromDeg)}deg at ${num(geometry.center.x)}px ${num(geometry.center.y)}px, ${stops})`;
-      }
+      // mid-sweep colours land early — which is why a non-square angular fill
+      // renders through `paintOverlayMarkup`, drawn into a square and scaled,
+      // rather than as a background layer. This is the square case.
       return `conic-gradient(${stops})`;
     }
     if (p.type === "GRADIENT_DIAMOND") {
@@ -1266,6 +1280,8 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
 function backgroundShorthand(
   node: FigNode,
   ctx: Ctx,
+  /** Sink for paint layers that must render as a child instead of a layer. */
+  overlays?: string[],
 ): {
   backgroundColor?: string;
   backgroundImage?: string;
@@ -1295,12 +1311,21 @@ function backgroundShorthand(
     if (color) result.backgroundColor = color;
     return result;
   }
+  // The topmost fill can move to an overlay child when CSS cannot express it
+  // in the background stack. Only the topmost: an overlay paints above the
+  // whole stack, so moving a lower layer would reorder the paint.
+  const topMost = fills[fills.length - 1];
+  const overlayMarkup = topMost ? paintOverlayMarkup(topMost, node, ctx) : null;
+  if (overlayMarkup && overlays) overlays.push(overlayMarkup);
+  const movedToOverlay = overlayMarkup && overlays ? topMost : null;
+
   const bgImages: string[] = [];
   const bgSizes: string[] = [];
   const bgPositions: string[] = [];
   const bgRepeats: string[] = [];
   const bgBlends: string[] = [];
   for (const f of fills) {
+    if (f === movedToOverlay) continue;
     // A diamond needs FOUR tiles plus a clamp, not one layer.
     const diamond =
       f.type === "GRADIENT_DIAMOND"
@@ -1433,6 +1458,65 @@ interface BackgroundLayer {
   size: string;
   position: string;
   repeat: string;
+}
+
+/**
+ * Paint layers CSS cannot express in the background stack, as absolutely
+ * positioned children instead. The REST walker does the same, and it is why
+ * that walker scores 0.55% on the fills/effects fixture where this one scored
+ * 15.26% with every node in exactly the right place.
+ *
+ * Only the TOPMOST fill is ever pulled out: an overlay child paints above the
+ * whole background stack, so moving a lower layer would reorder the paint.
+ */
+function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
+  const box = node.size ? { width: node.size.x, height: node.size.y } : null;
+  if (!box || box.width <= 0 || box.height <= 0) return null;
+
+  if (p.type === "GRADIENT_ANGULAR" && Math.abs(box.width - box.height) > 0.5) {
+    // Figma sweeps an angular gradient in the node's NORMALIZED space — the
+    // box treated as a unit square, then stretched — while CSS
+    // `conic-gradient()` sweeps at a true uniform angular rate in real pixels.
+    // The two agree only on the axes. Drawing it into a square and scaling
+    // that square reproduces Figma's definition exactly.
+    const image = paintToBackground(p, node, ctx);
+    if (!image) return null;
+    const side = box.width;
+    const scaleY = side > 0 ? box.height / side : 1;
+    const inner =
+      `position:absolute;left:0;top:0;width:${num(side)}px;height:${num(side)}px;` +
+      `transform:scale(1, ${num(scaleY)});transform-origin:0 0;` +
+      `background-image:${image};background-size:100% 100%;background-repeat:no-repeat`;
+    return (
+      `<div style="position:absolute;inset:0;border-radius:inherit;overflow:hidden;pointer-events:none">` +
+      `<div style="${escapeHtmlAttr(inner)}"></div></div>`
+    );
+  }
+
+  if (p.type === "IMAGE" && (p.opacity ?? 1) < 1) {
+    // A CSS background LAYER has no opacity of its own, so a half-transparent
+    // photo painted solid and hid the fills beneath it.
+    const image = paintToBackground(p, node, ctx);
+    if (!image) return null;
+    const mode = p.imageScaleMode ?? "FILL";
+    const size =
+      mode === "FILL"
+        ? "cover"
+        : mode === "FIT"
+          ? "contain"
+          : mode === "STRETCH"
+            ? "100% 100%"
+            : "auto";
+    const style =
+      `position:absolute;inset:0;border-radius:inherit;pointer-events:none;` +
+      `background-image:${image};background-size:${size};` +
+      `background-position:${mode === "TILE" ? "0% 0%" : "center"};` +
+      `background-repeat:${mode === "TILE" ? "repeat" : "no-repeat"};` +
+      `opacity:${num(p.opacity ?? 1)}`;
+    return `<div style="${escapeHtmlAttr(style)}"></div>`;
+  }
+
+  return null;
 }
 
 function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
@@ -2145,6 +2229,8 @@ function buildCss(
   vectorLike = false,
   hasAbsoluteChild = false,
   shadowAsFilter = false,
+  /** Sink for paint layers that render as a child instead of a layer. */
+  overlays?: string[],
 ): Record<string, unknown> {
   const css: Record<string, unknown> = {};
   // An absolutely-positioned node is out of the parent's flex flow, so it must
@@ -2377,7 +2463,7 @@ function buildCss(
   // Background (TEXT uses fillPaints for color, not background; vector
   // nodes paint via <path fill> inside the <svg>).
   if (node.type !== "TEXT" && !vectorLike && !geometrylessVector) {
-    Object.assign(css, backgroundShorthand(node, ctx));
+    Object.assign(css, backgroundShorthand(node, ctx, overlays));
   }
 
   // Border / outline (skipped for vector nodes — strokes go on <path>).
@@ -3213,6 +3299,7 @@ function buildAttrs(
   vectorLike = false,
   hasAbsoluteChild = false,
   shadowAsFilter = false,
+  overlays?: string[],
 ): string[] {
   const attrs: string[] = [];
 
@@ -3303,6 +3390,7 @@ function buildAttrs(
     vectorLike,
     hasAbsoluteChild,
     shadowAsFilter,
+    overlays,
   );
   if (Object.keys(css).length > 0) {
     attrs.push(`style="${escapeHtmlAttr(formatStyleString(css))}"`);
@@ -3603,6 +3691,9 @@ function emitNode(
   const shadowAsFilter = getChildren(inlinedSymbol ?? node, ctx).some(
     (c) => c.stackPositioning === "ABSOLUTE" && c.visible !== false,
   );
+  // Paint layers CSS cannot express in the background stack render as the
+  // node's first children instead; see `paintOverlayMarkup`.
+  const paintOverlays: string[] = [];
   const attrs = buildAttrs(
     layoutNode,
     parent,
@@ -3612,6 +3703,7 @@ function emitNode(
     vectorLike,
     hasAbsoluteChild,
     shadowAsFilter,
+    paintOverlays,
   );
   if (vectorLike) {
     // viewBox prefers the geometry source node's intrinsic size so the
@@ -3651,7 +3743,7 @@ function emitNode(
   }
 
   if (vectorLike) {
-    emitOpenWithChildren(tag, attrs, indent, lines);
+    emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
     emitSvgBody(vectorSourceNode, ctx, indent, lines);
     lines.push(`${indent}</${tag}>`);
     return;
@@ -3660,11 +3752,11 @@ function emitNode(
   if (node.type === "TEXT") {
     const chars = textCharacters(node);
     if (chars.length === 0) {
-      emitOpenWithChildren(tag, attrs, indent, lines);
+      emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
       lines.push(`${indent}</${tag}>`);
       return;
     }
-    emitOpenWithChildren(tag, attrs, indent, lines);
+    emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
     // Preserve newlines in the source by splitting into <br>-separated lines
     // (HTML otherwise collapses whitespace).
     const runs = textStyleRuns(node);
@@ -3705,11 +3797,11 @@ function emitNode(
 
   try {
     if (children.length === 0) {
-      emitOpenWithChildren(tag, attrs, indent, lines);
+      emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
       lines.push(`${indent}</${tag}>`);
       return;
     }
-    emitOpenWithChildren(tag, attrs, indent, lines);
+    emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
     // When inlining a SYMBOL, its child positions are relative to the SYMBOL's
     // own frame, which now coincides with this INSTANCE's frame. So they keep
     // their original transforms.
@@ -3796,20 +3888,28 @@ function emitOpenWithChildren(
   attrs: string[],
   indent: string,
   lines: string[],
+  /** Absolutely-positioned paint children, emitted before the real ones. */
+  overlays?: string[],
 ): void {
+  const withOverlays = (): void => {
+    for (const overlay of overlays ?? []) lines.push(`${indent}  ${overlay}`);
+  };
   if (attrs.length === 0) {
     lines.push(`${indent}<${tag}>`);
+    withOverlays();
     return;
   }
   // Single-line for short attribute lists; multi-line otherwise.
   const oneLine = `${indent}<${tag} ${attrs.join(" ")}>`;
   if (attrs.length <= 2 && oneLine.length <= 200) {
     lines.push(oneLine);
+    withOverlays();
     return;
   }
   lines.push(`${indent}<${tag}`);
   for (const a of attrs) lines.push(`${indent}  ${a}`);
   lines.push(`${indent}>`);
+  withOverlays();
 }
 
 /**

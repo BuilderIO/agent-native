@@ -1384,6 +1384,66 @@ describe("glyph rasterisation", () => {
   });
 });
 
+describe("paint layers CSS cannot express in a background stack", () => {
+  const fillNode = (
+    fill: Record<string, unknown>,
+    size = { x: 180, y: 90 },
+  ) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 140, {
+        type: "ROUNDED_RECTANGLE",
+        name: "Tile",
+        size,
+        fillPaints: [{ visible: true, ...fill }],
+      }),
+    );
+    return doc;
+  };
+  const angular = {
+    type: "GRADIENT_ANGULAR",
+    transform: { m00: 0.5, m01: 0, m02: 0.25, m10: 0, m11: 0.5, m12: 0.25 },
+    stops: [
+      { position: 0, color: { r: 0.2, g: 0.8, b: 0.6, a: 1 } },
+      { position: 1, color: { r: 0.9, g: 0.2, b: 0.8, a: 1 } },
+    ],
+  };
+
+  it("sweeps an angular gradient from Figma's ray, not from 12 o'clock", () => {
+    // CSS conic starts north; Figma aims along the centre->end handle, which
+    // for an identity transform points EAST. The fixture came out a quarter
+    // turn off — green at the top where Figma puts it on the right.
+    expect(renderFrame(fillNode(angular))).toContain(
+      "conic-gradient(from 90deg",
+    );
+  });
+
+  it("draws a non-square angular sweep into a square and scales it", () => {
+    // Figma sweeps in the node's NORMALIZED space; CSS sweeps at a uniform
+    // angular rate in real pixels, and they agree only on the axes.
+    const html = renderFrame(fillNode(angular));
+    expect(html).toContain("transform:scale(1, 0.5)");
+    expect(html).toContain("at 50% 50%");
+  });
+
+  it("leaves a square angular sweep as a plain background layer", () => {
+    const html = renderFrame(fillNode(angular, { x: 120, y: 120 }));
+    expect(html).not.toContain("transform:scale");
+    expect(html).toContain("conic-gradient");
+  });
+
+  it("carries an image fill's opacity on an overlay, which a layer cannot", () => {
+    const html = renderFrame(
+      fillNode({
+        type: "IMAGE",
+        opacity: 0.5,
+        image: { hash: new Uint8Array(20) },
+      }),
+    );
+    expect(html).toContain("opacity:0.5");
+  });
+});
+
 describe("diamond gradients", () => {
   // A diamond's falloff is an L1 distance, which is LINEAR inside each
   // quadrant — so four quadrant-tiled linear gradients are the same shape

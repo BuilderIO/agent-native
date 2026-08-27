@@ -69,6 +69,7 @@ export {
   cssBlendMode,
   gradientAngleDegreesFromHandles,
   gradientGeometryFromTransform,
+  gradientRayAngleDegreesFromHandles,
   handlePositionsFromArrayTransform,
   handlePositionsFromObjectTransform,
   invert2x3,
