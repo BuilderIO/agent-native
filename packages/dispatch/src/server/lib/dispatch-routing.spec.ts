@@ -67,6 +67,14 @@ describe("dispatchIntegrationRoutingHint", () => {
     });
   });
 
+  it("lets a negated intake qualifier fall through to Content", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Create a one-pager that is not an intake form",
+      ),
+    ).toMatchObject({ targetAgent: "content" });
+  });
+
   it("recognizes a later visual request after a contrastive clause", () => {
     expect(
       dispatchIntegrationRoutingHint(
@@ -81,6 +89,15 @@ describe("dispatchIntegrationRoutingHint", () => {
         "Create a one-pager that is not a visual design",
       ),
     ).toMatchObject({ targetAgent: "content" });
+  });
+
+  it.each([
+    "Create a one-pager without a visual design",
+    "Create a one-pager with no visual design",
+  ])("does not route a visually excluded one-pager to Design: %s", (text) => {
+    expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
+      targetAgent: "content",
+    });
   });
 
   it.each(["Compare these one-page briefs", "Edit the one-pager copy"])(
@@ -126,6 +143,19 @@ describe("dispatchIntegrationRoutingHint", () => {
         targetAgent: "content",
       });
     }
+  });
+
+  it("recognizes affirmative not-only constructions", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Create not only a one-pager but also a launch email",
+      ),
+    ).toMatchObject({ targetAgent: "content" });
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Create not only an interactive visual plan but also a launch email",
+      ),
+    ).toMatchObject({ targetAgent: "plan" });
   });
 
   it("does not route a later negated one-pager action", () => {

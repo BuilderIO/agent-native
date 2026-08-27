@@ -10,7 +10,9 @@ const ONE_PAGER_CREATION_PATTERN =
 const EXPLICIT_PLAN_PATTERN =
   /\b(?:(?:(?:interactive|visual)\s+){1,2}(?:one[-\s]?page(?:r)?s?\s+)?(?:plan|prototype|recap)|one[-\s]?page(?:r)?s?\s+(?:(?:interactive|visual)\s+){1,2}(?:plan|prototype|recap))\b/i;
 const NEGATION_PATTERN =
-  /\b(?:do\s+not|don't|dont|never|not|no\s+need|instead\s+of|rather\s+than)\b/i;
+  /\b(?:do\s+not|don't|dont|never|not(?!\s+only)|no\s+need|instead\s+of|rather\s+than)\b/i;
+const NEGATED_MATCH_PATTERN =
+  /\b(?:without|no)\s+(?:a\s+|an\s+|the\s+)?(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration|design|intake|form|plan|prototype|recap)\b/i;
 const ACTION_CLAUSE_SPLIT_PATTERN =
   /[.!?;,]+|\b(?:but\s+rather|but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
 
@@ -27,11 +29,19 @@ function hasAffirmativeMatch(
 ): boolean {
   return text.split(ACTION_CLAUSE_SPLIT_PATTERN).some((clause) => {
     const match = clause.match(pattern);
+    if (match?.index === undefined) return false;
+
+    const matchPrefix = clause.slice(0, match.index);
+    const matchContext = clause.slice(
+      Math.max(0, match.index - 32),
+      match.index + match[0].length,
+    );
     return (
-      match?.index !== undefined &&
-      !NEGATION_PATTERN.test(clause.slice(0, match.index)) &&
-      (!rejectNegatedMatch || !NEGATION_PATTERN.test(match[0])) &&
-      (!actionPattern || actionPattern.test(clause.slice(0, match.index)))
+      !NEGATION_PATTERN.test(matchPrefix) &&
+      (!rejectNegatedMatch ||
+        (!NEGATION_PATTERN.test(matchContext) &&
+          !NEGATED_MATCH_PATTERN.test(matchContext))) &&
+      (!actionPattern || actionPattern.test(matchPrefix))
     );
   });
 }
@@ -66,7 +76,7 @@ export function dispatchIntegrationRoutingHint(
 
   if (
     STRUCTURED_INTAKE_PATTERNS.some((pattern) =>
-      hasAffirmativeMatch(normalized, pattern),
+      hasAffirmativeMatch(normalized, pattern, undefined, true),
     )
   ) {
     return {
