@@ -13,8 +13,17 @@ export function isEmailDerivedName(
   const name = value?.trim().toLowerCase();
   const normalizedEmail = email.trim().toLowerCase();
   const localPart = normalizedEmail.split("@", 1)[0] ?? "";
+  const formattedLocalPart = localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ")
+    .toLowerCase();
   return (
-    !name || name === normalizedEmail || (!!localPart && name === localPart)
+    !name ||
+    name === normalizedEmail ||
+    (!!localPart && name === localPart) ||
+    (!!formattedLocalPart && name === formattedLocalPart)
   );
 }
 

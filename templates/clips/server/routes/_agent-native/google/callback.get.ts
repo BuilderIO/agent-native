@@ -122,7 +122,7 @@ async function handleGoogleSignInCallback(
     }
     const googleAccountId = typeof user.id === "string" ? user.id.trim() : "";
     if (!googleAccountId) throw new Error("Could not get Google account id");
-    await ensureGoogleAuthIdentity({
+    const isNewUser = await ensureGoogleAuthIdentity({
       email,
       accountId: googleAccountId,
       name: typeof user.name === "string" ? user.name : undefined,
@@ -141,6 +141,7 @@ async function handleGoogleSignInCallback(
         authProvider: "google",
         authUserId: typeof user.id === "string" ? user.id : undefined,
         name: typeof user.name === "string" ? user.name : undefined,
+        isNewUser,
       },
     });
 

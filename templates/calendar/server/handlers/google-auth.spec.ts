@@ -426,4 +426,43 @@ describe("Calendar Google auth-url handler", () => {
       }),
     );
   });
+
+  it("passes the canonical new-user result into Google signup tracking", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.ensureGoogleAuthIdentity.mockResolvedValue(true);
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ access_token: "token" }))
+        .mockResolvedValueOnce(
+          Response.json({
+            email: "new-user@example.com",
+            id: "google-user-1",
+            name: "New User",
+            picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
+            verified_email: true,
+          }),
+        ),
+    );
+
+    await expect(handleGoogleCallback(event as any)).resolves.toBe("ok");
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.objectContaining({
+        trackSignup: expect.objectContaining({ isNewUser: true }),
+      }),
+    );
+  });
 });

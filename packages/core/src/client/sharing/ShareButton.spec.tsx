@@ -904,7 +904,14 @@ describe("ShareButton", () => {
       const url = String(input);
       if (url.includes("/_agent-native/org/members")) {
         return Response.json({
-          members: [{ email: "akash@builder.io", role: "member" }],
+          members: [
+            {
+              email: "akash@builder.io",
+              image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+              name: "Akash",
+              role: "member",
+            },
+          ],
           hasMore: false,
           nextOffset: null,
         });
@@ -940,6 +947,16 @@ describe("ShareButton", () => {
     expect(String(memberSearchCall?.[0])).toContain("search=aka");
     expect(String(memberSearchCall?.[0])).toContain("limit=25");
     expect(container.textContent).toContain("akash@builder.io");
+    expect(
+      container.querySelector(
+        'img[src="https://lh3.googleusercontent.com/a/avatar.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/_agent-native/avatar/"),
+      ),
+    ).toBe(false);
 
     act(() => {
       input.dispatchEvent(

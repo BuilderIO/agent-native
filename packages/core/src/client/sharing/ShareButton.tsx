@@ -642,6 +642,7 @@ function SharePanel(
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
               <Avatar
                 email={data.ownerEmail}
+                image={memberImage(data.ownerEmail, knownMembers)}
                 label={displayName(data.ownerEmail, knownMembers, t)}
               />
               <span className="flex-1 min-w-0 truncate">
@@ -662,6 +663,11 @@ function SharePanel(
             >
               <Avatar
                 email={s.principalType === "user" ? s.principalId : undefined}
+                image={
+                  s.principalType === "user"
+                    ? memberImage(s.principalId, knownMembers)
+                    : undefined
+                }
                 label={principalLabel(s, knownMembers, t)}
                 org={s.principalType === "org"}
                 group={s.principalType === "group"}
@@ -1090,6 +1096,7 @@ function MemberAutocomplete({
                   ) : (
                     <Avatar
                       email={suggestion.email}
+                      image={suggestion.image}
                       label={suggestion.name?.trim() || suggestion.email}
                       className="h-6 w-6 text-[10px]"
                     />
@@ -1369,18 +1376,21 @@ function VisibilitySelect(props: {
 
 function Avatar({
   email,
+  image,
   label,
   org,
   group,
   className,
 }: {
   email?: string;
+  image?: string | null;
   label: string;
   org?: boolean;
   group?: boolean;
   className?: string;
 }) {
-  const avatarUrl = useAvatarUrl(email);
+  const profileImage = image?.trim();
+  const avatarUrl = useAvatarUrl(profileImage ? undefined : email);
   return (
     <span
       aria-hidden
@@ -1391,8 +1401,12 @@ function Avatar({
     >
       {org || group ? (
         <IconUsersGroup size={14} strokeWidth={1.75} />
-      ) : avatarUrl ? (
-        <img src={avatarUrl} alt="" className="size-full object-cover" />
+      ) : profileImage || avatarUrl ? (
+        <img
+          src={profileImage || avatarUrl || undefined}
+          alt=""
+          className="size-full object-cover"
+        />
       ) : (
         initials(label)
       )}
@@ -1441,4 +1455,12 @@ function displayName(
     : t("agentChat.share.unknownPerson", {
         defaultValue: "Unknown person",
       });
+}
+
+function memberImage(email: string, members: OrgMember[]): string | undefined {
+  const normalized = email.trim().toLowerCase();
+  const match = members.find(
+    (member) => member.email.trim().toLowerCase() === normalized,
+  );
+  return match?.image?.trim() || undefined;
 }

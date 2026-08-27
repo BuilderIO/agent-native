@@ -407,7 +407,7 @@ export const handleGoogleCallback = defineEventHandler(
         if (!identity.id) {
           throw new Error("Could not get Google account id");
         }
-        await ensureGoogleAuthIdentity({
+        const isNewUser = await ensureGoogleAuthIdentity({
           email: identity.email,
           accountId: identity.id,
           name: identity.name,
@@ -424,6 +424,7 @@ export const handleGoogleCallback = defineEventHandler(
               authProvider: "google",
               authUserId: identity.id,
               name: identity.name,
+              isNewUser,
             },
           },
         );
