@@ -37,3 +37,18 @@ export async function fetchFirstRunOnboardingStatus(): Promise<boolean> {
     throw error;
   }
 }
+
+/** Save the optional role selected during the shared first-run flow. */
+export async function saveFirstRunOnboardingRole(role: string): Promise<void> {
+  const response = await fetch(
+    agentNativePath("/_agent-native/onboarding/first-run/role"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`first-run role save failed: ${response.status}`);
+  }
+}
