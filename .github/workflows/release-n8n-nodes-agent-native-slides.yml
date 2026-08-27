@@ -1,0 +1,32 @@
+name: Release n8n-nodes-agent-native-slides
+
+on:
+  push:
+    tags:
+      - "n8n-nodes-agent-native-slides@*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    defaults:
+      run:
+        working-directory: integrations/n8n-nodes-agent-native-slides
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm install --ignore-scripts
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+      - run: npm publish --provenance
+      - run: npx @n8n/scan-community-package n8n-nodes-agent-native-slides

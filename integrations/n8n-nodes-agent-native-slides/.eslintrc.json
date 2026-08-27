@@ -1,0 +1,18 @@
+{
+  "overrides": [
+    {
+      "files": ["package.json"],
+      "extends": ["plugin:n8n-nodes-base/community"]
+    },
+    {
+      "files": ["nodes/**/*.ts"],
+      "parser": "@typescript-eslint/parser",
+      "extends": ["plugin:n8n-nodes-base/nodes"]
+    },
+    {
+      "files": ["credentials/**/*.ts"],
+      "parser": "@typescript-eslint/parser",
+      "extends": ["plugin:n8n-nodes-base/credentials"]
+    }
+  ]
+}

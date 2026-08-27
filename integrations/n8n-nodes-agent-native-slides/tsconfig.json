@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "target": "ES2022",
+    "skipLibCheck": true
+  },
+  "include": ["credentials/**/*.ts", "nodes/**/*.ts", "index.ts"]
+}

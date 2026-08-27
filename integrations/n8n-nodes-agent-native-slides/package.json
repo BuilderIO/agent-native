@@ -1,0 +1,51 @@
+{
+  "name": "n8n-nodes-agent-native-slides",
+  "version": "0.1.0",
+  "description": "n8n community node for Agent-Native Slides",
+  "license": "MIT",
+  "keywords": [
+    "n8n-community-node-package",
+    "agent-native",
+    "slides"
+  ],
+  "author": {
+    "name": "Agent Native",
+    "email": "hello@agent-native.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BuilderIO/agent-native.git",
+    "directory": "integrations/n8n-nodes-agent-native-slides"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "icons",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsc && cp icons/*.svg dist/nodes/AgentNativeSlides/",
+    "lint": "eslint credentials nodes --ext .ts",
+    "test": "node --input-type=module -e \"import('./dist/nodes/AgentNativeSlides/AgentNativeSlides.node.js').then(({ AgentNativeSlides, validateSaveDeckPayload }) => { const node = new AgentNativeSlides(); const operations = node.description.properties.find((property) => property.name === 'operation').options; const routes = JSON.stringify(node.description.properties); const required = ['create','delete','duplicate','exportPptx','exportHtml','get','getMany','getVersions','restoreVersion']; if (!required.every((operation) => operations.some((item) => item.value === operation))) throw new Error('Missing deck operation'); if (!routes.includes('save-deck') || !routes.includes('PUT') || !routes.includes('delete-deck') || !routes.includes('DELETE')) throw new Error('Deck routes do not mirror action verbs'); if (!routes.includes('add-slide-comment') || !routes.includes('delete-slide-comment') || !routes.includes('update-slide-comment')) throw new Error('Missing comment routes'); validateSaveDeckPayload({ title: 'Quarterly review', slides: [{ id: 'slide-1', content: '<h1>Review</h1>' }] }); for (const payload of [{ slides: [] }, { title: 'Quarterly review', slides: [{ content: '<h1>Missing ID</h1>' }] }]) { let failed = false; try { validateSaveDeckPayload(payload); } catch { failed = true; } if (!failed) throw new Error('Invalid save payload was accepted'); } })\"",
+    "pack:test": "npm pack --dry-run"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/AgentNativeSlidesApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/AgentNativeSlides/AgentNativeSlides.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^8.68.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-n8n-nodes-base": "1.11.0",
+    "n8n-workflow": "^2.16.0",
+    "typescript": "^5.9.3"
+  }
+}
