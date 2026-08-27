@@ -41,6 +41,14 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // this list independently — see the v75-v83 incident documented on v75 below.
 const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
 
+function isDuplicateColumnError(err: unknown): boolean {
+  const message = (err as { message?: string } | undefined)?.message ?? "";
+  return (
+    /duplicate column name/i.test(message) ||
+    /column .* already exists/i.test(message)
+  );
+}
+
 function getAnalyticsMigrationDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
   const directUrl = appName
@@ -56,6 +64,20 @@ function getAnalyticsMigrationDatabaseUrl(): string {
 
 const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK =
   "hashtext('agent-native:analytics-event-cursor-index-repair')";
+
+async function ensureAnalyticsDashboardCreatedByColumn(): Promise<void> {
+  if (isPostgres()) return;
+
+  const db = getDbExec();
+  const { rows } = await db.execute(`PRAGMA table_info("dashboards")`);
+  if (rows.some((row) => String(row.name) === "created_by")) return;
+
+  try {
+    await db.execute("ALTER TABLE dashboards ADD COLUMN created_by TEXT");
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) throw err;
+  }
+}
 
 async function repairAnalyticsEventCursorIndexes(): Promise<
   void | typeof MIGRATION_DEFERRED
@@ -1803,10 +1825,11 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 147,
       name: "analytics-dashboard-created-by",
+      run: ensureAnalyticsDashboardCreatedByColumn,
       sql: {
         postgres:
           "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
-        sqlite: "ALTER TABLE dashboards ADD COLUMN created_by TEXT",
+        sqlite: "SELECT 1",
       },
     },
   ],

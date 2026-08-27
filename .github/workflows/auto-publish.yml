@@ -345,7 +345,7 @@ jobs:
           # and is required before this workflow can publish stable packages.
           # The custom version script also keeps package CHANGELOG.md files
           # short and archives older sections under changelog/archive/.
-          version: pnpm changeset version && pnpm changelog:compact
+          version: pnpm changeset:release-version
           title: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
           commit: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
         env:
