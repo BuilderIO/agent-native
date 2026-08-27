@@ -60,6 +60,7 @@ function hasBuilderPreviewParams(): boolean {
 }
 
 let builderFrameDetected = false;
+let builderParentOrigin: string | null = null;
 
 /**
  * For *.builder.io / *.builder.my the parent origin alone is sufficient — those
@@ -72,7 +73,7 @@ let builderFrameDetected = false;
  * real Builder editor sessions and `HomeChatPanel` submissions silently fell
  * through to `agentNative.submitChat` (which Builder ignores).
  */
-export function getBuilderParentOrigin(): string | null {
+function detectBuilderParentOrigin(): string | null {
   const frameOrigin = getFrameOrigin();
   if (frameOrigin) {
     if (isStrictBuilderHost(frameOrigin)) return frameOrigin;
@@ -88,6 +89,12 @@ export function getBuilderParentOrigin(): string | null {
     }
   }
   return null;
+}
+
+export function getBuilderParentOrigin(): string | null {
+  const detectedOrigin = detectBuilderParentOrigin();
+  if (detectedOrigin) builderParentOrigin = detectedOrigin;
+  return detectedOrigin ?? builderParentOrigin;
 }
 
 // Capture the initial Builder signal before client-side routing can remove its
@@ -111,6 +118,7 @@ export function isInBuilderFrame(): boolean {
 
 export function _resetBuilderFrameDetectionForTests(): void {
   builderFrameDetected = false;
+  builderParentOrigin = null;
 }
 
 export function shouldParentFrameOwnAgentPanel(): boolean {
