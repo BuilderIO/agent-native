@@ -74,7 +74,7 @@ const JSON_LD = JSON.stringify({
         "@type": "ContactPoint",
         contactType: "customer support",
         email: "support@builder.io",
-        url: "https://www.agent-native.com/contact",
+        url: `${SITE_URL}${sitePathForLocale("/contact")}`,
       },
       address: {
         "@type": "PostalAddress",
