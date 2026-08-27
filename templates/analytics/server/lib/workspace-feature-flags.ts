@@ -4,6 +4,7 @@ import { signA2AToken } from "@agent-native/core/a2a";
 import {
   ActionContractError,
   AgentActionStopError,
+  type ActionRunContext,
 } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import listLocalFeatureFlagsAction from "@agent-native/core/feature-flags/actions/list-feature-flags";
@@ -228,9 +229,11 @@ function localAnalyticsApp(): OrgApp {
 function localActionContext(
   admin: AnalyticsAdminContext,
   actionName: "list-feature-flags" | "set-feature-flag",
+  sourceContext?: ActionRunContext,
 ) {
   return {
-    caller: "http" as const,
+    ...sourceContext,
+    caller: sourceContext?.caller ?? ("http" as const),
     userEmail: admin.userEmail,
     orgId: admin.orgId,
     appId: ANALYTICS_APP_ID,
@@ -246,6 +249,18 @@ async function listLocalAnalyticsFeatureFlags(admin: AnalyticsAdminContext) {
       localActionContext(admin, "list-feature-flags"),
     ),
   });
+}
+
+function unreachableLocalAnalyticsEntry(): FleetFlagApp {
+  const app = localAnalyticsApp();
+  return {
+    appId: app.id,
+    appName: app.name,
+    appOrigin: targetOrigin(app),
+    state: "unreachable",
+    flags: [],
+    reason: "target-execution",
+  };
 }
 
 async function delegatedToken(
@@ -541,7 +556,9 @@ export async function listWorkspaceFeatureFlags(
   admin: AnalyticsAdminContext,
 ): Promise<WorkspaceFeatureFlagsResult> {
   const [localEntry, directoryResult] = await Promise.all([
-    listLocalAnalyticsFeatureFlags(admin),
+    listLocalAnalyticsFeatureFlags(admin).catch(() =>
+      unreachableLocalAnalyticsEntry(),
+    ),
     fetchOrgAppsResult({
       selfId: ANALYTICS_APP_ID,
       includeDirectoryApp: true,
@@ -574,6 +591,7 @@ export async function listWorkspaceFeatureFlags(
 export async function setWorkspaceFeatureFlag(
   admin: AnalyticsAdminContext,
   input: WorkspaceFeatureFlagMutationInput,
+  sourceContext?: ActionRunContext,
 ): Promise<WorkspaceFeatureFlagMutationResult> {
   if (input.appId === ANALYTICS_APP_ID) {
     if (input.operation === "replace-rules" && !input.rules)
@@ -596,7 +614,7 @@ export async function setWorkspaceFeatureFlag(
         : { operation: input.operation, key: input.key };
     const result = await setLocalFeatureFlagAction.run(
       targetInput,
-      localActionContext(admin, "set-feature-flag"),
+      localActionContext(admin, "set-feature-flag", sourceContext),
     );
     const orgDomain = result.scope.orgDomain ?? "";
     let mutation: TargetFeatureFlagMutationResult;

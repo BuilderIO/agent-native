@@ -40,6 +40,6 @@ export default defineAction({
   }),
   run: async (args, ctx) => {
     const admin = await requireAnalyticsAdminContext(ctx);
-    return setWorkspaceFeatureFlag(admin, args);
+    return setWorkspaceFeatureFlag(admin, args, ctx);
   },
 });

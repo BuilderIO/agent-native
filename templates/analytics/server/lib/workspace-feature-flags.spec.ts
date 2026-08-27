@@ -178,6 +178,32 @@ describe("verified fleet feature flag transaction", () => {
     expect(globalThis.fetch).toHaveBeenCalledOnce();
   });
 
+  it("keeps healthy peers visible when the local Analytics list fails", async () => {
+    mocks.listLocalFeatureFlags.mockRejectedValueOnce(
+      new Error("private local store detail"),
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      response(200, {
+        contractVersion: 1,
+        status: "no-definitions",
+        flags: [],
+        canManage: true,
+      }),
+    );
+
+    await expect(listWorkspaceFeatureFlags(admin)).resolves.toMatchObject({
+      directoryStatus: "available",
+      apps: [
+        {
+          appId: "analytics",
+          state: "unreachable",
+          reason: "target-execution",
+        },
+        { appId: "mail", state: "no-definitions" },
+      ],
+    });
+  });
+
   it("mutates and verifies Analytics locally without directory or A2A", async () => {
     const targetFetch = vi.spyOn(globalThis, "fetch");
     const rules = {
@@ -213,6 +239,53 @@ describe("verified fleet feature flag transaction", () => {
     expect(mocks.fetchOrgAppsResult).not.toHaveBeenCalled();
     expect(mocks.signA2AToken).not.toHaveBeenCalled();
     expect(targetFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves agent-run provenance for a local Analytics mutation", async () => {
+    const rules = {
+      mode: "off",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+    };
+    mocks.setLocalFeatureFlag.mockResolvedValue({
+      contractVersion: 2,
+      status: "ready",
+      key: "analytics.resilient-fleet-flag-directory",
+      rules,
+      scope: { orgId: admin.orgId, orgDomain: "example.test" },
+    });
+    mocks.listLocalFeatureFlags.mockResolvedValue(localListBody(rules));
+    const sourceContext = {
+      caller: "tool" as const,
+      threadId: "thread-1",
+      runId: "run-1",
+      turnId: "turn-1",
+    };
+
+    await setWorkspaceFeatureFlag(
+      admin,
+      {
+        appId: "analytics",
+        key: "analytics.resilient-fleet-flag-directory",
+        operation: "off",
+      },
+      sourceContext,
+    );
+
+    expect(mocks.setLocalFeatureFlag).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        caller: "tool",
+        threadId: "thread-1",
+        runId: "run-1",
+        turnId: "turn-1",
+        userEmail: admin.userEmail,
+        orgId: admin.orgId,
+        appId: "analytics",
+        actionName: "set-feature-flag",
+      }),
+    );
   });
 
   it("reads Analytics target state locally without directory or A2A", async () => {
