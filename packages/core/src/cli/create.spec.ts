@@ -149,6 +149,21 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(pkg.name).not.toContain("{{");
   });
 
+  it("gives generated apps editable transactional email branding", async () => {
+    await createApp("try-marisco", { template: "chat" });
+    const configPath = path.join(
+      tmpDir,
+      "try-marisco",
+      "server",
+      "plugins",
+      "config.ts",
+    );
+
+    expect(fs.readFileSync(configPath, "utf-8")).toContain(
+      'name: "Try Marisco"',
+    );
+  });
+
   it("keeps the blank scaffold headless instead of generating UI files", async () => {
     await createApp("my-app", { template: "blank" });
     const root = path.join(tmpDir, "my-app");

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deriveAppIdentity } from "./app-identity.js";
+import { deriveAppIdentity, isFirstPartyApp } from "./app-identity.js";
 import { getAppConfig, resetAppConfigForTests } from "./store.js";
 
 const base = { packageName: undefined } as Parameters<
@@ -41,6 +41,19 @@ describe("deriveAppIdentity", () => {
     expect(app.name).toBe("Acme");
     // ...while still filling the fields that were left unset.
     expect(app.slug).toBe("mail");
+  });
+
+  it("does not treat a custom package as first-party after a template rename", () => {
+    expect(
+      isFirstPartyApp({
+        ...base,
+        packageName: "try-marisco",
+        slug: "chat",
+      }),
+    ).toBe(false);
+    expect(
+      isFirstPartyApp({ ...base, packageName: "slides", slug: "slides" }),
+    ).toBe(true);
   });
 
   it("runs on the resolved config, so APP_NAME still wins", () => {

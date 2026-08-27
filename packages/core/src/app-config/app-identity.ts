@@ -41,3 +41,17 @@ export function deriveAppIdentity(app: AppConfig["app"]): AppConfig["app"] {
     description: app.description ?? template.hint ?? undefined,
   };
 }
+
+/**
+ * A custom app can be generated from a first-party template, so the package
+ * name must still match the derived slug before it gets first-party email
+ * branding or a first-party sender address.
+ */
+export function isFirstPartyApp(app: AppConfig["app"]): boolean {
+  const template = app.slug
+    ? TEMPLATES.find((candidate) => candidate.name === app.slug)
+    : undefined;
+  return Boolean(
+    template && (!app.packageName || app.packageName === template.name),
+  );
+}
