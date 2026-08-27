@@ -118,8 +118,8 @@ const TAB_ID = generateTabId();
 
 type FetchedExplorerDashboard = {
   data: ExplorerDashboardData;
-  ownerEmail: string | null;
   createdAt: string | null;
+  createdBy: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
   archivedAt: string | null;
@@ -152,8 +152,8 @@ async function fetchDashboard(
       name: raw.name ?? "Untitled Dashboard",
       charts: raw.charts ?? [],
     },
-    ownerEmail: typeof raw.ownerEmail === "string" ? raw.ownerEmail : null,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : null,
+    createdBy: typeof raw.createdBy === "string" ? raw.createdBy : null,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
     updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
     archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
@@ -189,7 +189,9 @@ export default function ExplorerDashboardPage() {
   const [dashboard, setDashboard] = useState<ExplorerDashboardData | null>(
     null,
   );
-  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedBy, setDashboardCreatedBy] = useState<string | null>(
+    null,
+  );
   const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
     null,
   );
@@ -345,7 +347,7 @@ export default function ExplorerDashboardPage() {
     if (!dashboardId) return;
     setLoaded(false);
     setDashboard(null);
-    setDashboardOwner(null);
+    setDashboardCreatedBy(null);
     setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
@@ -360,7 +362,7 @@ export default function ExplorerDashboardPage() {
     const d = dashboardQuery.data;
     if (d) {
       setDashboard(d.data);
-      setDashboardOwner(d.ownerEmail);
+      setDashboardCreatedBy(d.createdBy);
       setDashboardCreatedAt(d.createdAt);
       setDashboardUpdatedAt(d.updatedAt);
       setDashboardUpdatedBy(d.updatedBy);
@@ -377,7 +379,7 @@ export default function ExplorerDashboardPage() {
         name: t("explorerDashboard.untitledDashboard"),
         charts: [],
       });
-      setDashboardOwner(null);
+      setDashboardCreatedBy(null);
       setDashboardCreatedAt(null);
       setDashboardUpdatedAt(null);
       setDashboardUpdatedBy(null);
@@ -701,7 +703,7 @@ export default function ExplorerDashboardPage() {
                     <DropdownMenuLabel className="font-normal">
                       <DashboardMetadata
                         createdAt={dashboardCreatedAt}
-                        createdBy={dashboardOwner}
+                        createdBy={dashboardCreatedBy}
                         updatedAt={dashboardUpdatedAt}
                         updatedBy={dashboardUpdatedBy}
                       />
