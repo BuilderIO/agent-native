@@ -354,9 +354,11 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 
 ## インバウンド Webhooks {#webhooks}
 
-受信 Webhook ハンドラー (Resend、SendGrid、Slack、Telegram、WhatsApp、Recall.ai、Deepgram、Zoom、Google Docs Pub/Sub) は、運用環境ではデフォルトで偽装リクエストを拒否します。対応する署名シークレット環境変数が欠落している場合、ハンドラーは受け入れてディスパッチする代わりに 401 を返します。
+受信 Webhook ハンドラー (Resend、SendGrid、Slack、Telegram、WhatsApp、Recall.ai、Deepgram、Zoom) は、運用環境ではデフォルトで偽装リクエストを拒否します。対応する署名シークレット環境変数が欠落している場合、ハンドラーは受け入れてディスパッチする代わりに 401 を返します。
 
 これは以前は「警告して受け入れる」というスタンスでした。さもなければ見逃してしまうシークレットを設定するか、ローカル開発専用の `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` による古い動作にオプトバックします。統合ごとの署名秘密変数については、[Messaging](/docs/messaging#env-vars) を参照してください。
+
+Google Drive の `changes.watch` 通知は、この一般的なアダプター ゲートを通りません。本文のない不透明なリクエストであるため、フレームワークはチャンネルごとにランダムなトークンを登録し、変更を取得する前に `X-Goog-Channel-ID`、`X-Goog-Channel-Token`、`X-Goog-Resource-ID` ヘッダーを検証します。これは Pub/Sub メッセージではなく Drive からの直接通知で、Pub/Sub OIDC ベアラートークンは含まれません。
 
 ## 制作チェックリスト {#production-checklist}
 

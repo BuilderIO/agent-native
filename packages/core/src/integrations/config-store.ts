@@ -102,6 +102,42 @@ export async function saveIntegrationConfig(
   _configWriteEpoch += 1;
 }
 
+/** Save only when the inspected config is still the current config. */
+export async function saveIntegrationConfigIfUnchanged(
+  platform: string,
+  configData: Record<string, unknown>,
+  configKey: string,
+  expected: IntegrationConfig | null,
+  owner?: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const nextRaw = JSON.stringify(configData);
+  const timestamp = Date.now();
+  const result = expected
+    ? await client.execute({
+        sql: `UPDATE integration_configs SET config_data = ?, updated_at = ? WHERE platform = ? AND config_key = ? AND config_data = ? AND updated_at = ?`,
+        args: [
+          nextRaw,
+          timestamp,
+          platform,
+          configKey,
+          JSON.stringify(expected.configData),
+          expected.updatedAt,
+        ],
+      })
+    : await client.execute({
+        sql: isPostgres()
+          ? `INSERT INTO integration_configs (platform, config_key, config_data, owner, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (platform, config_key) DO NOTHING`
+          : `INSERT OR IGNORE INTO integration_configs (platform, config_key, config_data, owner, updated_at) VALUES (?, ?, ?, ?, ?)`,
+        args: [platform, configKey, nextRaw, owner ?? null, timestamp],
+      });
+
+  if (result.rowsAffected === 0) return false;
+  _configWriteEpoch += 1;
+  return true;
+}
+
 /**
  * Delete a platform integration config.
  */
