@@ -255,14 +255,17 @@ export async function stopGoogleDocsWatchChannel(
       },
     );
 
+    // An already-expired or already-stopped channel is safe to replace.
+    if (res.ok || res.status === 404 || res.status === 410) {
+      return true;
+    }
+
     if (!res.ok) {
       console.warn(
         `[google-docs] Failed to stop watch channel ${channelId} (HTTP ${res.status})`,
       );
       return false;
     }
-
-    return true;
   } catch (err) {
     console.warn(
       `[google-docs] Failed to stop watch channel ${channelId}`,

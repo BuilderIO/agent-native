@@ -11,6 +11,7 @@ describe("Google Docs watch channel cleanup", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: false, status: 404 })
       .mockResolvedValueOnce({ ok: false, status: 503 });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -19,6 +20,9 @@ describe("Google Docs watch channel cleanup", () => {
     ).resolves.toBe(true);
     await expect(
       stopGoogleDocsWatchChannel("access-token", "channel-2", "resource-2"),
+    ).resolves.toBe(true);
+    await expect(
+      stopGoogleDocsWatchChannel("access-token", "channel-3", "resource-3"),
     ).resolves.toBe(false);
   });
 
