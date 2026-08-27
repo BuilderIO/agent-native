@@ -339,20 +339,33 @@ numbers: an unmeasured path looks identical to a passing one in a summary.
 | --- | --- | --- | --- |
 | REST node import | `figma-node-to-html.ts` | 26 designs, both hops | `run-import` / `run-roundtrip` |
 | Clipboard paste | `fig-file-to-html.ts` | 3 designs | `run-paste`, against the same references |
-| `.fig` upload | `fig-file-to-html.ts` | **no frame** | `run-fig` — decode/render smoke only |
+| `.fig` upload | `fig-file-to-html.ts` | 3 designs | `run-fig`, against the same references |
 
-The `.fig` case is render-only because measuring it needs a `.fig` OF a design
-we hold a Figma reference for, and Figma's browser UI has no way to produce one
-— `Save local copy` is desktop-only, and the REST API has no `.fig` export. The
-35MB file in the corpus proves the container decodes and every frame renders,
-and a 127MB one proves the size cap refuses loudly rather than truncating.
+**`Save local copy` is in the browser's File menu**, not desktop-only as this
+document previously claimed — and that wrong belief is the only reason the
+`.fig` path went unmeasured for so long. To add a case: open a file whose
+frames the REST corpus already imports, `File → Save local copy…`, drop the
+result in `.tmp/figma-fidelity/fig-files/` and add it to `fig-corpus.json`.
+Frames line up for free, because a `.fig` GUID is `sessionID:localID` — exactly
+the shape of a REST node id. Keep each file under the 50MB decoder cap; a whole
+multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
+46MB.
 
-That gap is narrower than it looks, and it is worth being precise about why:
-the `.fig` path shares its whole walker with the clipboard path, which IS
-measured against Figma on three designs. What stays unmeasured is the container
-around it — the zip decode and image extraction — not the conversion. Do not
-report the `.fig` path as verified against Figma; report it as decoded and
-rendered.
+| case | `.fig` vs Figma | REST, same design |
+| --- | --- | --- |
+| interior single product | **2.59%** | 3.35% |
+| untitled UI pricing | 3.26% | 2.67% |
+| whitepace | 4.94% | 2.96% |
+
+The image-heavy case is the one to read first: the `.fig` path BEATS the REST
+path on it, because **a `.fig` container carries image bytes** where the REST
+path re-fetches renders and a clipboard paste carries only hashes. Each of the
+three reports zero approximated nodes, so none of these numbers is hiding a
+reported hole.
+
+The 35MB scratch file still earns its place as decode/render coverage over 43
+frames with no Figma reference, and the 127MB one still pins that the size cap
+refuses loudly rather than truncating.
 
 ## Measured drift between the three import paths
 
