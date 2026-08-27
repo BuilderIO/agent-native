@@ -1,8 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
 
-import { GetStartedCta } from "./ds/get-started-modal";
 import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
+import { StartCtas } from "./start-ctas";
 
 export function BottomCta() {
   const t = useT();
@@ -19,12 +19,7 @@ export function BottomCta() {
           </p>
         </div>
 
-        {/* Caps come from CSS, not the label: an all-caps string becomes the
-            accessible name and screen readers spell it out letter by letter. */}
-        <GetStartedCta location="bottom_cta" className="uppercase">
-          {t("common.getStarted")}
-        </GetStartedCta>
-
+        <StartCtas location="bottom_cta" />
         <InstallCommand />
       </GridInner>
     </PageSection>
