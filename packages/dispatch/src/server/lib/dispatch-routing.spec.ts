@@ -35,6 +35,7 @@ describe("dispatchIntegrationRoutingHint", () => {
     "Draft a one pager about our new product",
     "Put together a one-page brief for sales",
     "Create one-pagers for sales and marketing",
+    "Create a concise and compelling one-pager",
   ])("routes one-pagers to Content or inline output: %s", (text) => {
     const hint = dispatchIntegrationRoutingHint(text);
 
@@ -80,6 +81,13 @@ describe("dispatchIntegrationRoutingHint", () => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
       targetAgent: "plan",
     });
+  });
+
+  it.each([
+    "Compare interactive visual plan options",
+    "What is an interactive prototype?",
+  ])("does not route informational Plan mentions: %s", (text) => {
+    expect(dispatchIntegrationRoutingHint(text)).toBeUndefined();
   });
 
   it.each([

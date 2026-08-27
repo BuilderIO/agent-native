@@ -12,19 +12,24 @@ const EXPLICIT_PLAN_PATTERN =
 const NEGATION_PATTERN =
   /\b(?:do\s+not|don't|dont|never|not|no\s+need|instead\s+of|rather\s+than)\b/i;
 const ACTION_CLAUSE_SPLIT_PATTERN =
-  /[.!?;,]+|\b(?:but|and|or|then)\b|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
+  /[.!?;,]+|\b(?:but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
 
 const VISUAL_DESIGN_PATTERNS = [
   /\b(?:assemble|build|design|redesign|create|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
   /\b(?:visual|ui|website|product|brand)\s+design\b/i,
 ];
 
-function hasAffirmativeMatch(text: string, pattern: RegExp): boolean {
+function hasAffirmativeMatch(
+  text: string,
+  pattern: RegExp,
+  actionPattern?: RegExp,
+): boolean {
   return text.split(ACTION_CLAUSE_SPLIT_PATTERN).some((clause) => {
     const match = clause.match(pattern);
     return (
       match?.index !== undefined &&
-      !NEGATION_PATTERN.test(clause.slice(0, match.index))
+      !NEGATION_PATTERN.test(clause.slice(0, match.index)) &&
+      (!actionPattern || actionPattern.test(clause.slice(0, match.index)))
     );
   });
 }
@@ -43,7 +48,13 @@ export function dispatchIntegrationRoutingHint(
   // Route by the requested artifact type, not organization-specific names.
   // Exact destinations, schemas, and required fields come from workspace
   // resources such as shared LEARNINGS.md rather than this classifier.
-  if (hasAffirmativeMatch(normalized, EXPLICIT_PLAN_PATTERN)) {
+  if (
+    hasAffirmativeMatch(
+      normalized,
+      EXPLICIT_PLAN_PATTERN,
+      /\b(?:assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b/i,
+    )
+  ) {
     return {
       targetAgent: "plan",
       instruction:
