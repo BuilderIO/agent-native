@@ -4027,13 +4027,12 @@ export function createAgentChatAdapter(
               contentType.includes("application/json") &&
               !contentType.includes("text/event-stream")
             ) {
-              const hasRunId = Boolean(res.headers.get("X-Run-Id"));
-              let looksLikeSSE = hasRunId;
+              let looksLikeSSE = false;
               let probeCompleted = false;
               let probeTimedOut = false;
               let probePrefix = "";
               let probeBytes = 0;
-              if (!hasRunId) {
+              {
                 // Read a bounded prefix so a mislabeled live SSE stream is not
                 // buffered until it closes before the original reader starts.
                 const probeReader = res.clone().body?.getReader();
@@ -4435,10 +4434,28 @@ export function createAgentChatAdapter(
               err instanceof AgentAutoContinueSignal &&
               err.reason === "stream_ended"
             ) {
+              let delayedJsonProbeTimeoutId:
+                | ReturnType<typeof setTimeout>
+                | undefined;
+              const delayedJsonProbeTimeout = new Promise<undefined>(
+                (resolve) => {
+                  delayedJsonProbeTimeoutId = setTimeout(
+                    () => resolve(undefined),
+                    JSON_RESPONSE_PROBE_TIMEOUT_MS,
+                  );
+                },
+              );
               try {
-                delayedJsonOutcome = await delayedJsonProbe;
+                delayedJsonOutcome = await Promise.race([
+                  delayedJsonProbe,
+                  delayedJsonProbeTimeout,
+                ]);
               } catch {
                 delayedJsonOutcome = undefined;
+              } finally {
+                if (delayedJsonProbeTimeoutId !== undefined) {
+                  clearTimeout(delayedJsonProbeTimeoutId);
+                }
               }
             }
             if (delayedJsonOutcome?.type === "json") {

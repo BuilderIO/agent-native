@@ -251,7 +251,13 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("reports primitive JSON responses instead of passing them to SSE parsing", async () => {
-    const response = jsonResponse(null);
+    const response = new Response("null", {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Run-Id": "run-json",
+      },
+    });
     const fetchSpy = vi.fn().mockResolvedValue(response);
     vi.stubGlobal("fetch", fetchSpy);
 
