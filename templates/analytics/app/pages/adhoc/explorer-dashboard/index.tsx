@@ -13,6 +13,7 @@ import {
   callAction,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   DndContext,
@@ -192,6 +193,20 @@ export default function ExplorerDashboardPage() {
   const [dashboardCreatedBy, setDashboardCreatedBy] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      dashboard?.name,
+      "Dashboard",
+    )} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [dashboard?.name]);
+
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
   const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
     null,
   );

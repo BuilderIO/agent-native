@@ -3,6 +3,7 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { FormFieldType } from "@shared/types";
 import {
   IconAlertCircle,
@@ -19,6 +20,7 @@ import {
   IconSlideshow,
   IconList,
 } from "@tabler/icons-react";
+import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +62,18 @@ export default function FormPreviewRoute() {
   const [searchParams] = useSearchParams();
   const id = searchParams.get("id") ?? "";
   const { data: form, isLoading, error } = useForm(id);
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      form?.title,
+      "Form preview",
+    )} — Forms`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [form?.title]);
 
   if (!id) {
     return (

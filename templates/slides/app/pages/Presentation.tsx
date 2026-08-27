@@ -1,5 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { useEffect, useState } from "react";
 import { useParams, Navigate, useSearchParams } from "react-router";
 
@@ -27,6 +28,16 @@ export default function Presentation() {
   const contextDeck = getDeck(id || "");
   const deck = contextDeck ?? fallbackDeck;
   const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+
+  useEffect(() => {
+    if (!deck) return;
+    const nextTitle = `${normalizeDocumentTitle(deck.title, "Presentation")} — Slides`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deck?.title]);
 
   useEffect(() => {
     if (!id || loading || contextDeck) {

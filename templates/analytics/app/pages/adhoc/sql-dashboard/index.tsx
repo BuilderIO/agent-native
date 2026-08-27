@@ -15,6 +15,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
@@ -579,6 +580,19 @@ function SqlDashboardPageContent({
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      dashboard?.name,
+      "Dashboard",
+    )} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [dashboard?.name]);
+
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
   const [dashboardVisibility, setDashboardVisibility] = useState<
