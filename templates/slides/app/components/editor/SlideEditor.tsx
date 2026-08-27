@@ -59,7 +59,11 @@ import {
   CanvasCommentPins,
   MultiSelectChip,
 } from "@/components/visual-editor";
-import type { Slide, UpdateSlideOptions } from "@/context/DeckContext";
+import {
+  flushPendingSaves,
+  type Slide,
+  type UpdateSlideOptions,
+} from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import {
   computeCanvasFitZoom,
@@ -69,6 +73,11 @@ import {
 import { downloadImage } from "@/lib/image-download";
 import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
+import {
+  getElementPreview,
+  getPersistedElementPath,
+  type SelectedAnimationTarget,
+} from "@/lib/slide-animation-elements";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
@@ -92,6 +101,7 @@ import {
   resolveSlidesCanvasNudge,
   slidesCanvasInteractionCore,
 } from "./canvas-interactions";
+import type { SlideShapeType } from "./EditorActionCluster";
 import ImageOverlay from "./ImageOverlay";
 import {
   shouldPersistInlineEditContent,
@@ -648,6 +658,18 @@ interface SlideEditorProps {
   textBoxMode?: boolean;
   /** Called after a text box is placed (or the tool should otherwise exit) */
   onExitTextBoxMode?: () => void;
+  /** Whether the shape picker has armed a shape for the next canvas click. */
+  shapeType?: SlideShapeType | null;
+  /** Called after a shape is placed (or the tool should otherwise exit). */
+  onExitShapeMode?: () => void;
+  /** Whether the selected-element transitions panel is open. */
+  animationsOpen?: boolean;
+  /** Open transitions for the currently selected canvas element. */
+  onOpenAnimations?: (target: SelectedAnimationTarget) => void;
+  /** Keep the parent in sync with the current canvas selection. */
+  onSelectedAnimationTargetChange?: (
+    target: SelectedAnimationTarget | null,
+  ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
   /** Slide title for pin mode contextLabel */
@@ -658,9 +680,8 @@ interface SlideEditorProps {
   deckId?: string;
   /**
    * Called the moment the user enters contentEditable inline edit mode.
-   * The parent should call `markDeckDirty(deckId)` here so the SSE/poll
-   * reconcile path knows not to replace the deck under an active in-progress
-   * edit, even before a `content` update has been flushed.
+   * The parent should mark the slide as actively edited so the SSE/poll
+   * reconcile path knows not to replace it before a `content` update is queued.
    */
   onInlineEditStart?: (slideId: string) => void;
   /** Called after inline edit mode exits and its draft has been handed off.
@@ -1096,6 +1117,11 @@ export default function SlideEditor({
   onExitPinMode,
   textBoxMode,
   onExitTextBoxMode,
+  shapeType,
+  onExitShapeMode,
+  animationsOpen = false,
+  onOpenAnimations,
+  onSelectedAnimationTargetChange,
   slideId,
   slideTitle,
   deckId,
@@ -1549,6 +1575,43 @@ export default function SlideEditor({
   );
   const previousSlideIdRef = useRef(slide.id);
 
+  // Inline editing keeps its latest HTML in the DOM until blur so React does
+  // not rerender the contentEditable on every keystroke. Hand that draft to
+  // the keepalive queue before browser teardown.
+  useEffect(() => {
+    const flushInlineEditDraft = () => {
+      // Input captures already enqueue the current draft. Keep the ref while
+      // the editor remains mounted so the first edit after tab restore queues
+      // against the previous snapshot instead of being mistaken for setup.
+      if (!inlineEditDraftRef.current) return;
+      flushPendingSaves();
+    };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushInlineEditDraft();
+    };
+
+    window.addEventListener("beforeunload", flushInlineEditDraft, {
+      capture: true,
+    });
+    window.addEventListener("pagehide", flushInlineEditDraft, {
+      capture: true,
+    });
+    document.addEventListener("visibilitychange", flushWhenHidden, {
+      capture: true,
+    });
+    return () => {
+      window.removeEventListener("beforeunload", flushInlineEditDraft, {
+        capture: true,
+      });
+      window.removeEventListener("pagehide", flushInlineEditDraft, {
+        capture: true,
+      });
+      document.removeEventListener("visibilitychange", flushWhenHidden, {
+        capture: true,
+      });
+    };
+  }, []);
+
   const readCurrentSlideContentHtml = useCallback(() => {
     const slideContent = containerRef.current?.querySelector(
       ".slide-content",
@@ -1605,13 +1668,21 @@ export default function SlideEditor({
     (slideId = slide.id) => {
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
-        if (
-          !inlineEditInitialContentRef.current ||
-          inlineEditInitialContentRef.current.slideId !== slideId
-        ) {
-          inlineEditInitialContentRef.current = { slideId, content: html };
+        const next = { slideId, content: html };
+        const previous = inlineEditDraftRef.current;
+        const initial = inlineEditInitialContentRef.current;
+        if (!initial || initial.slideId !== slideId) {
+          inlineEditInitialContentRef.current = next;
         }
-        inlineEditDraftRef.current = { slideId, content: html };
+        if (
+          previous?.slideId === slideId &&
+          previous.content !== next.content
+        ) {
+          onUpdateSlideRef.current({ content: html }, slideId, {
+            preserveLocalState: true,
+          });
+        }
+        inlineEditDraftRef.current = next;
       }
     },
     [readCurrentSlideContentHtml, slide.id],
@@ -1775,6 +1846,25 @@ export default function SlideEditor({
     return resolveElementPath(slideContent, selectedElementPath);
   }, [getSlideContent, selectedElementPath, selectedObjectId]);
 
+  const getSelectedAnimationTarget =
+    useCallback((): SelectedAnimationTarget | null => {
+      const element = selectedImg ?? resolveSelectedElement();
+      const root = element?.closest<HTMLElement>(".fmd-slide");
+      if (!element || !root) return null;
+      const elementPath = getPersistedElementPath(root, element);
+      if (!elementPath || elementPath.length === 0) return null;
+      const elementIndex = elementPath[elementPath.length - 1] ?? 0;
+      return {
+        elementIndex,
+        elementPath,
+        preview: getElementPreview(element, `Element ${elementIndex + 1}`),
+      };
+    }, [resolveSelectedElement, selectedImg]);
+
+  useEffect(() => {
+    onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
+  }, [getSelectedAnimationTarget, onSelectedAnimationTargetChange]);
+
   const buildSelectionState = useCallback(
     (
       mode: SlidesSelectionMode,
@@ -1790,9 +1880,10 @@ export default function SlideEditor({
         drawMode: Boolean(drawMode),
         pinMode: Boolean(pinMode),
         textBoxMode: Boolean(textBoxMode),
+        shapeMode: Boolean(shapeType),
         activeTool,
       }),
-    [deckId, drawMode, pinMode, slide.id, slideIndex, textBoxMode],
+    [deckId, drawMode, pinMode, shapeType, slide.id, slideIndex, textBoxMode],
   );
 
   const clearSelectedElement = useCallback(() => {
@@ -1877,14 +1968,18 @@ export default function SlideEditor({
 
     const html = selected ? readCurrentSlideContentHtml() : null;
     const initial = inlineEditInitialContentRef.current;
-    if (
-      html !== null &&
-      shouldPersistInlineEditContent(initial, {
-        slideId: slide.id,
-        content: html,
-      })
-    ) {
-      onUpdateSlideRef.current({ content: html });
+    if (html !== null) {
+      const current = { slideId: slide.id, content: html };
+      if (shouldPersistInlineEditContent(initial, current)) {
+        const latestDraft = inlineEditDraftRef.current;
+        onUpdateSlideRef.current(
+          { content: html },
+          slide.id,
+          shouldPersistInlineEditContent(latestDraft, current)
+            ? undefined
+            : { recordUndoOnly: true },
+        );
+      }
     }
     onInlineEditEnd?.(slide.id);
     inlineEditDraftRef.current = null;
@@ -1923,9 +2018,9 @@ export default function SlideEditor({
       // resize and auto-fit again on the second click.
       setSelectedElementMeasurement(null);
       captureInlineEditDraft(slide.id);
-      // Mark the deck dirty immediately so SSE/poll refreshes do not replace
-      // the deck under an active contentEditable edit, even before the user
-      // types and triggers an onUpdateSlide flush.
+      // Mark the slide active immediately so SSE/poll refreshes do not replace
+      // the live DOM under an active contentEditable edit, even before the
+      // user types and triggers an onUpdateSlide flush.
       onInlineEditStart?.(slide.id);
       // Don't override the selection. The browser's native double-click
       // word-select (or single-click caret) is already on the element from the
@@ -1966,10 +2061,12 @@ export default function SlideEditor({
       draft?.slideId === previousSlideId &&
       shouldPersistInlineEditContent(initial, draft)
     ) {
-      onUpdateSlideRef.current({ content: draft.content }, previousSlideId);
-      inlineEditDraftRef.current = null;
+      onUpdateSlideRef.current({ content: draft.content }, previousSlideId, {
+        recordUndoOnly: true,
+      });
     }
     if (editing || draft) onInlineEditEnd?.(previousSlideId);
+    inlineEditDraftRef.current = null;
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
@@ -1980,9 +2077,20 @@ export default function SlideEditor({
   // otherwise never clear and permanently block live sync for that slide.
   useEffect(() => {
     return () => {
-      if (editingElRef.current || inlineEditDraftRef.current) {
-        onInlineEditEndRef.current?.(previousSlideIdRef.current);
+      const draft = inlineEditDraftRef.current;
+      const initial = inlineEditInitialContentRef.current;
+      if (shouldPersistInlineEditContent(initial, draft) && draft) {
+        onUpdateSlideRef.current({ content: draft.content }, draft.slideId, {
+          recordUndoOnly: true,
+        });
       }
+      if (editingElRef.current || draft) {
+        onInlineEditEndRef.current?.(
+          draft?.slideId ?? previousSlideIdRef.current,
+        );
+      }
+      inlineEditDraftRef.current = null;
+      inlineEditInitialContentRef.current = null;
     };
   }, []);
 
@@ -2425,7 +2533,7 @@ export default function SlideEditor({
       const action = decideSlideEscape({
         editing: Boolean(editing),
         activeGesture: activeGestureCancelRef.current !== null,
-        activeMode: Boolean(drawMode || pinMode || textBoxMode),
+        activeMode: Boolean(drawMode || pinMode || textBoxMode || shapeType),
         multiSelection: multiSelection.size > 0,
         singleSelection: Boolean(selectedElementSelector),
         targetOwnsEscape,
@@ -2442,6 +2550,7 @@ export default function SlideEditor({
       } else if (action === "mode") {
         if (drawMode) onExitDrawMode?.();
         else if (pinMode) onExitPinMode?.();
+        else if (shapeType) onExitShapeMode?.();
         else onExitTextBoxMode?.();
       } else if (action === "multi-selection") {
         clearMultiSelection();
@@ -2460,9 +2569,11 @@ export default function SlideEditor({
     multiSelection.size,
     onExitDrawMode,
     onExitPinMode,
+    onExitShapeMode,
     onExitTextBoxMode,
     pinMode,
     selectedElementSelector,
+    shapeType,
     textBoxMode,
   ]);
 
@@ -2472,7 +2583,7 @@ export default function SlideEditor({
     if (editingEl || multiSelection.size > 0 || selectedElementSelector) {
       return;
     }
-    if (drawMode || pinMode || textBoxMode) {
+    if (drawMode || pinMode || textBoxMode || shapeType) {
       syncSelectionToAppState(buildSelectionState("canvas", []));
     } else {
       syncSelectionToAppState(null);
@@ -2484,6 +2595,7 @@ export default function SlideEditor({
     multiSelection.size,
     pinMode,
     selectedElementSelector,
+    shapeType,
     textBoxMode,
   ]);
 
@@ -2785,6 +2897,12 @@ export default function SlideEditor({
           el = el.parentElement;
           continue;
         }
+        const textBox = el.closest<HTMLElement>(
+          ".fmd-text-box[data-slide-object-id]",
+        );
+        if (textBox && slideContent.contains(textBox)) {
+          return textBox.getAttribute("data-builder-id");
+        }
         const id = el.getAttribute("data-builder-id");
         if (id) return id;
         el = el.parentElement;
@@ -2814,6 +2932,10 @@ export default function SlideEditor({
           el = el.parentElement;
           continue;
         }
+        const textBox = el.closest<HTMLElement>(
+          ".fmd-text-box[data-slide-object-id]",
+        );
+        if (textBox && slideContent.contains(textBox)) return textBox;
         if (el.getAttribute("data-builder-id")) return el;
         el = el.parentElement;
       }
@@ -3377,6 +3499,68 @@ export default function SlideEditor({
       }
     },
     [enterInlineEdit],
+  );
+
+  const placeShapeAt = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+      type: SlideShapeType,
+      target: HTMLElement | null,
+    ) => {
+      const canvas = containerRef.current
+        ? ensureSlideTextBoxCanvas(containerRef.current)
+        : null;
+      if (!canvas) return;
+      const { fmdSlide, positioningLayer } = canvas;
+      const rect = positioningLayer.getBoundingClientRect();
+      const size = type === "circle" ? 144 : { width: 192, height: 144 };
+      const width = typeof size === "number" ? size : size.width;
+      const height = typeof size === "number" ? size : size.height;
+      const point = clientPointToSlideCoordinates(
+        clientX,
+        clientY,
+        rect,
+        positioningLayer.offsetWidth,
+        positioningLayer.offsetHeight,
+      );
+
+      if (getComputedStyle(fmdSlide).position === "static") {
+        fmdSlide.style.position = "relative";
+      }
+
+      const shape = document.createElement("div");
+      const color = getSlideTextBoxDefaultColor(target, positioningLayer);
+      shape.className = `fmd-shape fmd-shape-${type}`;
+      shape.setAttribute("data-slide-shape", type);
+      shape.setAttribute(
+        "aria-label",
+        t(
+          type === "circle"
+            ? "editorToolbar.shapeCircle"
+            : "editorToolbar.shapeRectangle",
+        ),
+      );
+      ensureSlideObjectId(shape);
+      ensureBuilderId(shape);
+      shape.style.position = "absolute";
+      shape.style.left = `${Math.max(0, Math.min(point.x, positioningLayer.offsetWidth - width))}px`;
+      shape.style.top = `${Math.max(0, Math.min(point.y, positioningLayer.offsetHeight - height))}px`;
+      shape.style.width = `${width}px`;
+      shape.style.height = `${height}px`;
+      shape.style.boxSizing = "border-box";
+      shape.style.backgroundColor = color;
+      shape.style.border = `2px solid ${color}`;
+      shape.style.borderRadius = type === "circle" ? "50%" : "4px";
+      shape.style.opacity = "0.85";
+      positioningLayer.appendChild(shape);
+
+      const selector = getBuilderSelector(shape);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (selector) selectElementForStyling(shape, selector);
+    },
+    [readCurrentSlideContentHtml, selectElementForStyling, t],
   );
 
   const getObjectGeometry = useCallback(
@@ -4505,6 +4689,15 @@ export default function SlideEditor({
       if (!slideContent) return;
       const target = e.target as HTMLElement;
 
+      if (shapeType) {
+        e.preventDefault();
+        if (editingEl) exitInlineEdit();
+        suppressNextClickRef.current = true;
+        placeShapeAt(e.clientX, e.clientY, shapeType, target);
+        onExitShapeMode?.();
+        return;
+      }
+
       if (textBoxMode) {
         // Unlike the marquee/select flow below, the text-box tool places a
         // box on the very next click no matter what it lands on (mirroring
@@ -4602,10 +4795,13 @@ export default function SlideEditor({
       getSlideContent,
       isSlideWhitespaceTarget,
       multiSelection,
+      onExitShapeMode,
       applyMultiSelection,
       clearSelectedElement,
       textBoxMode,
+      shapeType,
       exitInlineEdit,
+      placeShapeAt,
       placeTextBoxAt,
       onExitTextBoxMode,
       resolveSelectedElement,
@@ -4918,7 +5114,9 @@ export default function SlideEditor({
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
       // style dock targets the same block being edited.
       if (!readOnly && slideContent) {
-        const block = findSmartBlock(target, slideContent);
+        const block = findSmartBlock(target, slideContent, {
+          includeTextBoxes: false,
+        });
         if (
           block &&
           slidesCanvasInteractionCore.textActivation({
@@ -5336,6 +5534,16 @@ export default function SlideEditor({
         background={slide.background}
         designSystem={designSystem}
         leading={contextToolbarLeading}
+        hasSelectedElement={slideElementSelected}
+        animationsOpen={animationsOpen}
+        onOpenAnimations={
+          onOpenAnimations
+            ? () => {
+                const target = getSelectedAnimationTarget();
+                if (target) onOpenAnimations(target);
+              }
+            : undefined
+        }
         onChange={applySelectedStylePatch}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
@@ -5360,6 +5568,16 @@ export default function SlideEditor({
         background={slide.background}
         designSystem={designSystem}
         leading={contextToolbarLeading}
+        hasSelectedElement={slideElementSelected}
+        animationsOpen={animationsOpen}
+        onOpenAnimations={
+          onOpenAnimations
+            ? () => {
+                const target = getSelectedAnimationTarget();
+                if (target) onOpenAnimations(target);
+              }
+            : undefined
+        }
         onChange={applySelectedStylePatch}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
@@ -5375,7 +5593,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)]"
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
+        animationsOpen ? "rounded-r-lg" : ""
+      }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot

@@ -254,6 +254,23 @@ entradas; migrações nomeadas são rastreadas independentemente do número da v
   parte da etapa de release.
 </Callout>
 
+### Gerar novas migrações do aplicativo com Drizzle Kit {#drizzle-migrations}
+
+Para novas alterações no esquema do aplicativo, use `pnpm db:generate` para criar
+SQL revisável. Isso cria `server/db/migrations/<id_name>.sql`, e
+`runDrizzleMigrations` carrega esses arquivos no runner compartilhado do
+Agent-Native em runtimes Node.js e serverless baseados em Node. A etapa de release
+continua responsável pelas alterações de produção. Mantenha `runMigrations()` para
+SQL específico do dialeto, comportamento do D1, backfills e etapas JavaScript
+adiadas.
+
+O carregador baseado no sistema de arquivos não está disponível no Cloudflare
+Workers/Pages nem em outros runtimes edge sem sistema de arquivos implantável,
+incluindo D1. Nesses ambientes, use `runMigrations()` com entradas SQL embutidas
+no bundle do worker. Uma pasta de saída do Drizzle tem uma única baseline de
+metadados específica do dialeto; gere para o dialeto principal de implantação e
+não alterne a mesma pasta entre SQLite e PostgreSQL.
+
 <Callout tone="risk">
   Nunca execute `drizzle-kit push` contra um banco de dados de produção. Os
   esquemas dos modelos definem apenas tabelas específicas do aplicativo; eles
@@ -263,7 +280,7 @@ entradas; migrações nomeadas são rastreadas independentemente do número da v
   causando perda imediata de dados.
 </Callout>
 
-O `drizzle.config.ts` na raiz de cada aplicativo configura o drizzle-kit para inspeção de esquema em desenvolvimento local:
+O `drizzle.config.ts` na raiz de cada aplicativo configura o drizzle-kit para inspeção de esquema em desenvolvimento local. Se uma pasta de migrações atender a vários backends, informe explicitamente o dialeto principal, por exemplo `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -342,7 +359,7 @@ Veja [Security — Escopo de dados](/docs/security#data-scoping) e [Sharing](/do
 
 ## Sincronização apoiada em SQL {#sync}
 
-O Agent Native não depende de observadores de sistema de arquivos nem de estado fixo em memória. Quando uma action grava no banco de dados, uma versão de sincronização é incrementada. O gancho `useDbSync()` do cliente consulta `/_agent-native/poll` e invalida os caches do React Query quando percebe uma versão mais alta.
+O Agent-Native não depende de observadores de sistema de arquivos nem de estado fixo em memória. Quando uma action grava no banco de dados, uma versão de sincronização é incrementada. O gancho `useDbSync()` do cliente consulta `/_agent-native/poll` e invalida os caches do React Query quando percebe uma versão mais alta.
 
 Isso funciona em implantações serverless e multi-instância porque o banco de dados é o ponto de coordenação. Se você escrever mutações personalizadas fora das actions, use os auxiliares da estrutura ou emita a invalidação de sincronização apropriada para que as UIs abertas se atualizem.
 

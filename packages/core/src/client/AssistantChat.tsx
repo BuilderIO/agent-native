@@ -206,6 +206,7 @@ import {
   ownsRunStream,
   releaseRunStream,
 } from "./run-stream-ownership.js";
+import { signOut } from "./sign-out.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -486,6 +487,19 @@ export function reconnectProgressTimedOut(args: {
 }): boolean {
   const threshold = args.thresholdMs ?? ACTIVE_RUN_STUCK_THRESHOLD_MS;
   return args.now - args.lastProgressAt >= threshold;
+}
+
+export function matchesUserStoppedRun(
+  stopped: { runId?: string; threadId?: string; turnId?: string } | null,
+  threadId?: string,
+  runId?: string,
+  turnId?: string,
+): boolean {
+  if (!stopped || stopped.threadId !== threadId) return false;
+  return Boolean(
+    (stopped.runId && runId && stopped.runId === runId) ||
+    (stopped.turnId && turnId && stopped.turnId === turnId),
+  );
 }
 
 function activeRunMatchesThread(
@@ -1992,7 +2006,8 @@ export interface AssistantChatProps {
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
   /**
-   * Called with the active composer's current plain text as it changes.
+   * Called with the active composer's current plain text when it initializes
+   * and as it changes.
    * Host apps can use this to render contextual, non-destructive affordances
    * beside the shared composer without replacing the composer stack.
    */
@@ -2549,12 +2564,18 @@ const AssistantChatInner = forwardRef<
   // (unsupported format, size cap, body-size rejection, drop errors).
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [composerText, setComposerText] = useState("");
   const composerDraftScope = tabId || threadId;
   const initialComposerText = useMemo(
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
   );
+  const [composerText, setComposerText] = useState(initialComposerText ?? "");
+  useEffect(() => {
+    const restoredText = initialComposerText ?? "";
+    setComposerText(restoredText);
+    if (!isActiveComposer) return;
+    onComposerTextChange?.(restoredText);
+  }, [initialComposerText, isActiveComposer, onComposerTextChange]);
   const handleComposerTextChange = useCallback(
     (text: string) => {
       setComposerText(text);
@@ -2834,9 +2855,12 @@ const AssistantChatInner = forwardRef<
   >(null);
   const [dismissedProviderAuthErrorKey, setDismissedProviderAuthErrorKey] =
     useState<string | null>(null);
+  // Keep an intentional stop until the next explicit submission. The server
+  // may replay the terminal snapshot well after the client cancellation.
   const userStoppedRunRef = useRef<{
-    at: number;
     runId?: string;
+    threadId?: string;
+    turnId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
@@ -3407,14 +3431,11 @@ const AssistantChatInner = forwardRef<
     };
   }, [cacheCurrentThreadSnapshot]);
 
-  const wasRecentlyStoppedRun = useCallback((runId?: string): boolean => {
-    const stopped = userStoppedRunRef.current;
-    return Boolean(
-      stopped &&
-      Date.now() - stopped.at < 10_000 &&
-      (!stopped.runId || !runId || stopped.runId === runId),
-    );
-  }, []);
+  const wasUserStoppedRun = useCallback(
+    (runId?: string, turnId?: string): boolean =>
+      matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId),
+    [threadId],
+  );
 
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
@@ -3427,7 +3448,7 @@ const AssistantChatInner = forwardRef<
         return false;
       }
       const runId = String(runInfo.runId);
-      if (wasRecentlyStoppedRun(runId)) return false;
+      if (wasUserStoppedRun(runId, runInfo.turnId)) return false;
       if (reconnectRunIdRef.current === runId) return true;
       // SINGLE-READER OWNERSHIP: never start a second reader while the
       // adapter's own stream is live (or mid auto-continuation) for this
@@ -3919,14 +3940,7 @@ const AssistantChatInner = forwardRef<
       void streamReconnect();
       return true;
     },
-    [
-      apiUrl,
-      refreshThreadFromServer,
-      t,
-      tabId,
-      threadId,
-      wasRecentlyStoppedRun,
-    ],
+    [apiUrl, refreshThreadFromServer, t, tabId, threadId, wasUserStoppedRun],
   );
 
   const reconnectActiveRunForThread =
@@ -4224,7 +4238,10 @@ const AssistantChatInner = forwardRef<
       forceStopped ||
       isReconnecting ||
       runErrorInfo ||
-      wasRecentlyStoppedRun()
+      wasUserStoppedRun(
+        activeChatRunId ?? undefined,
+        activeChatTurnId ?? undefined,
+      )
     ) {
       return;
     }
@@ -4246,7 +4263,7 @@ const AssistantChatInner = forwardRef<
     reconnectActiveRunForThread,
     runErrorInfo,
     threadId,
-    wasRecentlyStoppedRun,
+    wasUserStoppedRun,
   ]);
 
   // Generate a title when the first user message is sent
@@ -4547,9 +4564,7 @@ const AssistantChatInner = forwardRef<
       }
       const stopped = userStoppedRunRef.current;
       if (
-        stopped &&
-        Date.now() - stopped.at < 10_000 &&
-        (!stopped.runId || !detail.runId || stopped.runId === detail.runId)
+        matchesUserStoppedRun(stopped, threadId, detail.runId, detail.turnId)
       ) {
         return;
       }
@@ -5007,9 +5022,14 @@ const AssistantChatInner = forwardRef<
       const activeRun = getActiveRun();
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
       const pendingTurn = threadId ? getPendingTurn(threadId) : null;
+      const turnIdToAbort =
+        pendingTurn?.turnId ??
+        reconnectTurnIdRef.current ??
+        (activeRun?.runId === runIdToAbort ? activeRun?.turnId : undefined);
       userStoppedRunRef.current = {
-        at: Date.now(),
+        ...(threadId ? { threadId } : {}),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+        ...(turnIdToAbort ? { turnId: turnIdToAbort } : {}),
       };
       trackStoppedRun(runIdToAbort);
       setRunErrorInfo(null);
@@ -5121,6 +5141,7 @@ const AssistantChatInner = forwardRef<
       continuationTurnId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
       }
@@ -5131,7 +5152,6 @@ const AssistantChatInner = forwardRef<
       setDismissedRunErrorKey(null);
       setDismissedProviderAuthErrorKey(null);
       setComposerError(null);
-      userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -5362,6 +5382,11 @@ const AssistantChatInner = forwardRef<
       // hidden reconnect recovery turns must leave the user's viewport alone.
       if (!hideUserMessage) resumeFollowingRef.current();
       reportAgentChatSubmitResult(submitMessageId, true);
+      // A queued immediate submit can abort the previous run after it is
+      // accepted. Preserve that newer stop marker while clearing the old one.
+      if (userStoppedRunRef.current === stoppedRunAtSubmitStart) {
+        userStoppedRunRef.current = null;
+      }
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
@@ -5697,12 +5722,11 @@ const AssistantChatInner = forwardRef<
     !!visibleRunError &&
     !showRunningInUI &&
     visibleRunErrorKey !== dismissedRunErrorKey &&
-    !(
-      userStoppedRunRef.current &&
-      Date.now() - userStoppedRunRef.current.at < 10_000 &&
-      (!userStoppedRunRef.current.runId ||
-        !visibleRunError.runId ||
-        userStoppedRunRef.current.runId === visibleRunError.runId)
+    !matchesUserStoppedRun(
+      userStoppedRunRef.current,
+      threadId,
+      visibleRunError.runId,
+      visibleRunError.turnId,
     );
   const providerAuthErrorKey =
     visibleRunError &&
@@ -6072,23 +6096,8 @@ const AssistantChatInner = forwardRef<
                                       {authError.sessionExpired &&
                                         !authSessionAvailable && (
                                           <button
-                                            onClick={async () => {
-                                              try {
-                                                await fetch(
-                                                  agentNativePath(
-                                                    "/_agent-native/auth/logout",
-                                                  ),
-                                                  {
-                                                    method: "POST",
-                                                  },
-                                                );
-                                              } catch (error) {
-                                                console.error(
-                                                  "Failed to log out before reloading the chat",
-                                                  error,
-                                                );
-                                              }
-                                              window.location.reload();
+                                            onClick={() => {
+                                              void signOut();
                                             }}
                                             className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
                                           >
@@ -6195,7 +6204,7 @@ const AssistantChatInner = forwardRef<
                                       resetKey={messageListResetKey}
                                     >
                                       <UserStoppedRunContext.Provider
-                                        value={wasRecentlyStoppedRun}
+                                        value={wasUserStoppedRun}
                                       >
                                         <ThreadPrimitive.Messages
                                           // Deliberately NOT keyed on part structure. Doing that

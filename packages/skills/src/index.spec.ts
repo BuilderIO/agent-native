@@ -369,7 +369,7 @@ describe("@agent-native/skills", () => {
       else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
     }
 
-    expect(stderr.join("")).toContain("Preparing Agent Native skills");
+    expect(stderr.join("")).toContain("Preparing Agent-Native skills");
   });
 
   it("keeps delegated startup progress out of machine-readable and non-interactive output", async () => {

@@ -12,6 +12,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconArrowLeft,
   IconBookmark,
@@ -21,7 +22,7 @@ import {
   IconTable,
   IconUsers,
 } from "@tabler/icons-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -287,6 +288,15 @@ function SavedViewSurface({
     "save-crm-saved-view" as never,
   );
 
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(view.name, "Saved view")} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [view.name]);
+
   const onGrouping = useCallback(
     (state: {
       statusAttributes: Array<{ id: string; label: string }>;
@@ -551,6 +561,15 @@ function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const mode = params.get("mode") === "table" ? "table" : "board";
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(name, "List")} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [name]);
 
   return (
     <>

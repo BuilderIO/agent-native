@@ -1,7 +1,7 @@
 ---
 name: agent-native-docs
 description: >-
-  How to find version-matched Agent Native framework docs and source bundled in
+  How to find version-matched Agent-Native framework docs and source bundled in
   node_modules. Use before implementing or answering questions about
   @agent-native/core APIs, generated apps, workspaces, templates, or advanced
   features.
@@ -10,11 +10,11 @@ metadata:
   internal: true
 ---
 
-# Agent Native Docs Lookup
+# Agent-Native Docs Lookup
 
 ## Rule
 
-Before implementing or explaining non-trivial Agent Native behavior, read the
+Before implementing or explaining non-trivial Agent-Native behavior, read the
 version-matched docs installed with `@agent-native/core`. When examples,
 imports, or implementation details matter, inspect the packaged source corpus
 too.

@@ -19,7 +19,7 @@ export { schema, getDbExec };
 
 /**
  * Resolve the sharing org's brand logo as an absolute URL for share emails.
- * Returns undefined so `renderEmail` falls back to the Agent Native logo when
+ * Returns undefined so `renderEmail` falls back to the Agent-Native logo when
  * the org has no logo set.
  */
 async function orgBrandLogoUrl(

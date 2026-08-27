@@ -52,7 +52,7 @@ describe("agent web generators", () => {
     const files = buildAgentWebStaticFiles({
       siteName: "Agent-Native",
       siteUrl: "https://www.agent-native.com",
-      description: "Agent-native framework docs.",
+      description: "Agent-Native framework docs.",
       config,
       pages: [
         {

@@ -29,15 +29,12 @@ const mockDb = vi.hoisted(() => ({
   })),
 }));
 const mockWriteAppState = vi.hoisted(() => vi.fn());
-const mockGetSetting = vi.hoisted(() => vi.fn());
-const mockGetUserSetting = vi.hoisted(() => vi.fn());
 const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockExportToBrainRun = vi.hoisted(() => vi.fn());
-const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
 const mockRegenerateTitleRun = vi.hoisted(() => vi.fn());
 const mockRegenerateSummaryRun = vi.hoisted(() => vi.fn());
 const mockQueueTitleRegenerationRequest = vi.hoisted(() => vi.fn());
-const mockResolveHasBuilderPrivateKey = vi.hoisted(() => vi.fn());
+const mockResolveHasBuilderGatewayCredential = vi.hoisted(() => vi.fn());
 const mockTranscribeWithBuilder = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockPrepareAudioOnlyTranscriptionMedia = vi.hoisted(() => vi.fn());
@@ -56,11 +53,6 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("@agent-native/core/settings", () => ({
-  getSetting: (...args: unknown[]) => mockGetSetting(...args),
-  getUserSetting: (...args: unknown[]) => mockGetUserSetting(...args),
-}));
-
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: vi.fn(),
 }));
@@ -69,14 +61,9 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
 
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: vi.fn(() => "owner@example.com"),
-  getCredentialContext: vi.fn(() => null),
-}));
-
 vi.mock("@agent-native/core/server", () => ({
-  resolveHasBuilderPrivateKey: (...args: unknown[]) =>
-    mockResolveHasBuilderPrivateKey(...args),
+  resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
+    mockResolveHasBuilderGatewayCredential(...args),
 }));
 
 vi.mock("@agent-native/core/transcription/builder", () => ({
@@ -147,14 +134,6 @@ vi.mock("./regenerate-summary.js", () => ({
 
 vi.mock("./export-to-brain.js", () => ({
   default: { run: (...args: unknown[]) => mockExportToBrainRun(...args) },
-}));
-
-vi.mock("./cleanup-transcript.js", () => ({
-  default: { run: (...args: unknown[]) => mockCleanupTranscriptRun(...args) },
-}));
-
-vi.mock("./lib/agents-md-context.js", () => ({
-  loadAgentsMdContext: vi.fn(async () => ""),
 }));
 
 vi.mock("./lib/audio-only-transcription.js", () => ({
@@ -454,7 +433,7 @@ describe("requestTranscript regeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
-    mockResolveHasBuilderPrivateKey.mockResolvedValue(true);
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
     mockSsrfSafeFetch.mockResolvedValue(
       new Response(new Blob(["recording"], { type: "video/webm" })),
@@ -474,9 +453,6 @@ describe("requestTranscript regeneration", () => {
   });
 
   it("completes transcript-backed title and summary handoff before returning", async () => {
-    mockGetUserSetting.mockResolvedValue({
-      transcriptCleanupEnabled: false,
-    });
     mockRegenerateTitleRun.mockResolvedValue({
       updated: true,
       summaryQueued: true,
@@ -523,6 +499,37 @@ describe("requestTranscript regeneration", () => {
       cleanupQueued: false,
       titleQueued: true,
       summaryQueued: true,
+    });
+  });
+
+  it("does not run automatic transcript cleanup", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "Saved transcript.",
+          segmentsJson: existingSegments,
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [
+        {
+          title: "Human title",
+          titleSource: "manual",
+          description: "Saved",
+          durationMs: 1200,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({ recordingId: "rec_native" });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_native",
+      status: "ready",
+      cleanupQueued: false,
     });
   });
 
@@ -840,16 +847,10 @@ describe("importLoomTranscriptForRecording", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
-    mockGetSetting.mockResolvedValue({ transcriptCleanupEnabled: true });
-    mockGetUserSetting.mockResolvedValue({ transcriptCleanupEnabled: false });
     mockFetchLoomTranscript.mockRejectedValue(
       new Error("temporary Loom error"),
     );
     mockExportToBrainRun.mockResolvedValue({ status: "skipped" });
-    mockCleanupTranscriptRun.mockResolvedValue({
-      cleanedText: "Saved transcript.",
-      provider: "test",
-    });
   });
 
   it("preserves an existing ready transcript when Loom refresh fails", async () => {
@@ -893,14 +894,6 @@ describe("importLoomTranscriptForRecording", () => {
       shareUrl: "https://www.loom.com/share/abcDEF_123456",
       durationMs: 1200,
     });
-    await vi.waitFor(() =>
-      expect(mockGetUserSetting).toHaveBeenCalledWith(
-        "owner@example.com",
-        "clips-user-prefs",
-      ),
-    );
-    expect(mockGetSetting).not.toHaveBeenCalled();
-    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
     expect(mockInsertValues).not.toHaveBeenCalled();
     expect(mockUpdateSet).not.toHaveBeenCalled();
   });

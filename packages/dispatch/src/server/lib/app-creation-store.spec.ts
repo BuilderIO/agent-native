@@ -372,6 +372,39 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it("projects hosted workspace discovery onto the beta request lane", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify([
+          {
+            id: "private-app",
+            name: "Private app",
+            path: "/private-app",
+          },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "dev@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://beta.agent-workspace.builder.io/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(apps[0]?.url).toBe(
+      "https://beta.agent-workspace.builder.io/private-app",
+    );
+  });
+
   it("does not recursively call the hosted registry action", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

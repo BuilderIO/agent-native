@@ -29,6 +29,7 @@ import {
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  normalizeDocumentTitle,
 } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -2269,6 +2270,19 @@ export function LibraryWorkspace({
         : null,
     [libraries, routeSelectedLibraryId],
   );
+
+  useEffect(() => {
+    if (!currentLibrary?.title) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      currentLibrary.title,
+      "Library",
+    )} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [currentLibrary?.title]);
 
   useEffect(() => {
     if (!routeSelectedLibraryId || !currentLibrary?.title) return;

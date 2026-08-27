@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Authenticate with the Content MCP connector in the host app or use agent-native app-skill ensure to register the URL-only connector. Local File Mode requires a local Content app, Agent Native Desktop, or another trusted local bridge for filesystem access."
+    "setup": "Authenticate with the Content MCP connector in the host app or use agent-native app-skill ensure to register the URL-only connector. Local File Mode requires a local Content app, Agent-Native Desktop, or another trusted local bridge for filesystem access."
   },
   "surfaces": [
     {

@@ -260,7 +260,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **重定向允许列表。** 集线器（调度）在发出令牌之前验证授权端点上的 `redirect_uri`。允许名单在`templates/dispatch/server/lib/identity-sso.ts`中配置：
 
-- **默认值：** 仅允许精确注册的 Agent Native 应用 ID/源对和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
+- **默认值：** 仅允许精确注册的 Agent-Native 应用 ID/源对和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
 - **扩展它：**在 Dispatch 部署上设置 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 环境变量，并使用逗号分隔的其他主机后缀列表：
 
   ```bash

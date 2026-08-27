@@ -318,198 +318,205 @@ export default function DownloadPage() {
   }
 
   return (
-    <main className="mx-auto max-w-[960px] px-6 py-20">
-      <div className="mb-14 text-center">
-        <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          {t("downloadPage.title")}
-          {isNightly && (
-            <>
-              {" "}
-              <span className="text-blue-600 dark:text-blue-400">
-                {t("downloadPage.nightly")}
-              </span>
-            </>
-          )}
-        </h1>
-        <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          {t("downloadPage.body")}
-        </p>
-      </div>
-
-      {/* Platform selector */}
-      <div className="mb-2 flex justify-center gap-2">
-        {(Object.keys(PLATFORMS) as Platform[]).map((p) => {
-          const plt = PLATFORMS[p];
-          const Icon = plt.icon;
-          const active = platform === p;
-          return (
-            <button
-              key={p}
-              onClick={() => handlePlatformChange(p)}
-              aria-label={plt.name}
-              className={`group flex items-center justify-center rounded-lg p-4 ${
-                active
-                  ? "text-[var(--fg)]"
-                  : "text-[var(--fg-secondary)] opacity-40 hover:opacity-65"
-              }`}
-            >
-              <Icon size={24} />
-              <span className="sr-only">{plt.name}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Download section */}
-      <div className="mx-auto mt-8 max-w-2xl text-center">
-        <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-          {isDesktopApp && (
-            <a
-              href={OPEN_DESKTOP_URL}
-              onClick={handleOpenDesktop}
-              className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
-            >
-              <IconAppWindow size={18} />
-              {t("downloadPage.openDesktop")}
-            </a>
-          )}
-
-          {primaryAsset ? (
-            <a
-              href={primaryAsset.url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() =>
-                handleDownload(
-                  primaryAsset,
-                  primaryDownload?.option.labelKey
-                    ? t(primaryDownload.option.labelKey)
-                    : t(info.primary.labelKey),
-                )
-              }
-              className={downloadButtonClass}
-            >
-              {downloadButtonContent}
-            </a>
-          ) : (
-            <button
-              type="button"
-              onClick={manifestError ? handleRetry : undefined}
-              disabled={!manifestError}
-              aria-label={primaryLabel}
-              aria-busy={isManifestLoading}
-              className={`${downloadButtonClass} ${
-                manifestError ? "" : "cursor-not-allowed opacity-60"
-              }`}
-            >
-              {downloadButtonContent}
-            </button>
-          )}
+    <main className="mx-auto w-full max-w-site px-6 py-20">
+      <div className="mx-auto w-full max-w-[960px]">
+        <div className="mb-14 text-center">
+          <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            {t("downloadPage.title")}
+            {isNightly && (
+              <>
+                {" "}
+                <span className="text-blue-600 dark:text-blue-400">
+                  {t("downloadPage.nightly")}
+                </span>
+              </>
+            )}
+          </h1>
+          <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            {t("downloadPage.body")}
+          </p>
         </div>
 
-        {confirmedDownload && (
-          <p
-            aria-live="polite"
-            className="mt-3 text-xs text-[var(--fg-secondary)]"
-          >
-            <span className="sr-only">{t("downloadPage.downloadStarted")}</span>
-            <a
-              href={confirmedDownload.asset.url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() =>
-                handleDownload(confirmedDownload.asset, confirmedDownload.label)
-              }
-              className="text-[var(--fg-secondary)] underline underline-offset-2 hover:text-[var(--fg)]"
-            >
-              {t("downloadPage.downloadAgain")}
-            </a>
-          </p>
-        )}
+        {/* Platform selector */}
+        <div className="mb-2 flex justify-center gap-2">
+          {(Object.keys(PLATFORMS) as Platform[]).map((p) => {
+            const plt = PLATFORMS[p];
+            const Icon = plt.icon;
+            const active = platform === p;
+            return (
+              <button
+                key={p}
+                onClick={() => handlePlatformChange(p)}
+                aria-label={plt.name}
+                className={`group flex items-center justify-center rounded-lg p-4 ${
+                  active
+                    ? "text-[var(--fg)]"
+                    : "text-[var(--fg-secondary)] opacity-40 hover:opacity-65"
+                }`}
+              >
+                <Icon size={24} />
+                <span className="sr-only">{plt.name}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        {alternativeDownloads.length > 0 && (
-          <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
-            {alternativeDownloads.map(({ option, asset }) => (
+        {/* Download section */}
+        <div className="mx-auto mt-8 max-w-2xl text-center">
+          <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+            {isDesktopApp && (
               <a
-                key={option.labelKey}
-                href={asset!.url}
+                href={OPEN_DESKTOP_URL}
+                onClick={handleOpenDesktop}
+                className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
+              >
+                <IconAppWindow size={18} />
+                {t("downloadPage.openDesktop")}
+              </a>
+            )}
+
+            {primaryAsset ? (
+              <a
+                href={primaryAsset.url}
                 target="_blank"
                 rel="noreferrer"
-                onClick={() => handleDownload(asset!, t(option.labelKey))}
-                className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
+                onClick={() =>
+                  handleDownload(
+                    primaryAsset,
+                    primaryDownload?.option.labelKey
+                      ? t(primaryDownload.option.labelKey)
+                      : t(info.primary.labelKey),
+                  )
+                }
+                className={downloadButtonClass}
               >
-                {t(option.labelKey)}
+                {downloadButtonContent}
               </a>
-            ))}
+            ) : (
+              <button
+                type="button"
+                onClick={manifestError ? handleRetry : undefined}
+                disabled={!manifestError}
+                aria-label={primaryLabel}
+                aria-busy={isManifestLoading}
+                className={`${downloadButtonClass} ${
+                  manifestError ? "" : "cursor-not-allowed opacity-60"
+                }`}
+              >
+                {downloadButtonContent}
+              </button>
+            )}
           </div>
-        )}
 
-        <div className="mt-4 min-h-4">
-          {releaseStatus && (
-            <p className="text-xs text-[var(--fg-secondary)]">
-              {releaseStatus}
+          {confirmedDownload && (
+            <p
+              aria-live="polite"
+              className="mt-3 text-xs text-[var(--fg-secondary)]"
+            >
+              <span className="sr-only">
+                {t("downloadPage.downloadStarted")}
+              </span>
+              <a
+                href={confirmedDownload.asset.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() =>
+                  handleDownload(
+                    confirmedDownload.asset,
+                    confirmedDownload.label,
+                  )
+                }
+                className="text-[var(--fg-secondary)] underline underline-offset-2 hover:text-[var(--fg)]"
+              >
+                {t("downloadPage.downloadAgain")}
+              </a>
             </p>
           )}
-        </div>
-        {info.note && (
-          <p className="mt-4 text-xs text-[var(--fg-secondary)]">
-            {t(info.note)}
-          </p>
-        )}
-        <div className="mt-5 flex justify-center">
-          <div className="flex items-center gap-2 text-xs text-[var(--fg-secondary)]">
-            <span>{t("downloadPage.stable")}</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={isNightly}
-              aria-label={t(
-                isNightly
-                  ? "downloadPage.switchToStable"
-                  : "downloadPage.switchToNightly",
-              )}
-              onClick={() =>
-                handleChannelChange(isNightly ? "production" : "nightly")
-              }
-              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-[var(--docs-border)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
-                isNightly ? "bg-[var(--fg)]" : "bg-[var(--sidebar-hover)]"
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className={`block size-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                  isNightly ? "translate-x-[18px]" : "translate-x-[2px]"
+
+          {alternativeDownloads.length > 0 && (
+            <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
+              {alternativeDownloads.map(({ option, asset }) => (
+                <a
+                  key={option.labelKey}
+                  href={asset!.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => handleDownload(asset!, t(option.labelKey))}
+                  className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
+                >
+                  {t(option.labelKey)}
+                </a>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-4 min-h-4">
+            {releaseStatus && (
+              <p className="text-xs text-[var(--fg-secondary)]">
+                {releaseStatus}
+              </p>
+            )}
+          </div>
+          {info.note && (
+            <p className="mt-4 text-xs text-[var(--fg-secondary)]">
+              {t(info.note)}
+            </p>
+          )}
+          <div className="mt-5 flex justify-center">
+            <div className="flex items-center gap-2 text-xs text-[var(--fg-secondary)]">
+              <span>{t("downloadPage.stable")}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isNightly}
+                aria-label={t(
+                  isNightly
+                    ? "downloadPage.switchToStable"
+                    : "downloadPage.switchToNightly",
+                )}
+                onClick={() =>
+                  handleChannelChange(isNightly ? "production" : "nightly")
+                }
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-[var(--docs-border)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
+                  isNightly ? "bg-[var(--fg)]" : "bg-[var(--sidebar-hover)]"
                 }`}
-              />
-            </button>
-            <span
-              className={
-                isNightly
-                  ? "font-medium text-[var(--fg)]"
-                  : "text-[var(--fg-secondary)]"
-              }
-            >
-              {t("downloadPage.nightly")}
-            </span>
+              >
+                <span
+                  aria-hidden="true"
+                  className={`block size-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    isNightly ? "translate-x-[18px]" : "translate-x-[2px]"
+                  }`}
+                />
+              </button>
+              <span
+                className={
+                  isNightly
+                    ? "font-medium text-[var(--fg)]"
+                    : "text-[var(--fg-secondary)]"
+                }
+              >
+                {t("downloadPage.nightly")}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Run from source */}
-      <div className="mt-16 mx-auto max-w-2xl">
-        <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
-          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <IconTerminal2 size={16} />
-            {t("downloadPage.runFromSource")}
-          </h4>
-          <p className="mb-3 text-xs text-[var(--fg-secondary)]">
-            {t("downloadPage.runFromSourceBody")}
-          </p>
-          <pre className="overflow-x-auto rounded-md bg-[var(--docs-code-bg,rgba(0,0,0,0.04))] px-4 py-3 text-xs">
-            <code>{`npx @agent-native/core@latest create my-platform
+        {/* Run from source */}
+        <div className="mt-16 mx-auto max-w-2xl">
+          <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
+            <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+              <IconTerminal2 size={16} />
+              {t("downloadPage.runFromSource")}
+            </h4>
+            <p className="mb-3 text-xs text-[var(--fg-secondary)]">
+              {t("downloadPage.runFromSourceBody")}
+            </p>
+            <pre className="overflow-x-auto rounded-md bg-[var(--docs-code-bg,rgba(0,0,0,0.04))] px-4 py-3 text-xs">
+              <code>{`npx @agent-native/core@latest create my-platform
 cd my-platform
 pnpm install && pnpm dev`}</code>
-          </pre>
+            </pre>
+          </div>
         </div>
       </div>
     </main>

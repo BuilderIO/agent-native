@@ -47,8 +47,10 @@ import {
   applyGeometryHistoryDiff,
   filterFileDeletionHistoryEntry,
   findLastContentHistoryChangeIndex,
-  getAvailableContentHistoryChanges,
+  partitionContentHistoryEntry,
+  contentHistoryEntryFromChanges,
   removeRecentUndoRedoOrderKinds,
+  restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleEdit,
@@ -385,9 +387,7 @@ export function runRedo({
         -1,
       );
       pendingLiveNonStyleUndoStackRef.current = [
-        ...pendingLiveNonStyleUndoStackRef.current.slice(
-          -(MAX_DESIGN_UNDO_STACK - 1),
-        ),
+        ...pendingLiveNonStyleUndoStackRef.current,
         pendingNonStyleRedo,
       ];
       const nextPending = mergePendingLiveNonStyleEdits(
@@ -455,9 +455,7 @@ export function runRedo({
       -1,
     );
     pendingLiveNonStyleUndoStackRef.current = [
-      ...pendingLiveNonStyleUndoStackRef.current.slice(
-        -(MAX_DESIGN_UNDO_STACK - 1),
-      ),
+      ...pendingLiveNonStyleUndoStackRef.current,
       pendingNonStyleRedo,
     ];
     const nextPending = mergePendingLiveNonStyleEdits(
@@ -486,9 +484,7 @@ export function runRedo({
       -1,
     );
     pendingLiveNonStyleUndoStackRef.current = [
-      ...pendingLiveNonStyleUndoStackRef.current.slice(
-        -(MAX_DESIGN_UNDO_STACK - 1),
-      ),
+      ...pendingLiveNonStyleUndoStackRef.current,
       pendingTextRedo,
     ];
     const nextPending = mergePendingLiveNonStyleEdits(
@@ -545,9 +541,7 @@ export function runRedo({
     const nextRedoStack = pendingLiveRedoStack.slice(0, -1);
     pendingVisualStyleRedoStackRef.current = nextRedoStack;
     pendingVisualStyleUndoStackRef.current = [
-      ...pendingVisualStyleUndoStackRef.current.slice(
-        -(MAX_DESIGN_UNDO_STACK - 1),
-      ),
+      ...pendingVisualStyleUndoStackRef.current,
       pendingLiveRedo,
     ];
     const nextPending = mergePendingVisualStyleEdits(
@@ -772,7 +766,7 @@ export function runRedo({
       contentRedoSelectionStackRef.current[
         contentRedoSelectionStackRef.current.length - 1
       ];
-    const changes = getAvailableContentHistoryChanges(
+    const { available: changes, remainder } = partitionContentHistoryEntry(
       entry,
       files.map((file) => file.id),
       activeFile?.id,
@@ -785,9 +779,16 @@ export function runRedo({
     }
     contentRedoStackRef.current.pop();
     contentRedoSelectionStackRef.current.pop();
+    const remainderEntry = contentHistoryEntryFromChanges(remainder);
+    if (remainderEntry) {
+      contentRedoStackRef.current.push(remainderEntry);
+      contentRedoSelectionStackRef.current.push(entrySelection);
+      restoreFileContentHistoryOrderToken(redoOrderRef.current, true);
+    }
+    const appliedEntry = contentHistoryEntryFromChanges(changes)!;
     contentUndoStackRef.current = [
       ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
+      appliedEntry,
     ];
     contentUndoSelectionStackRef.current = [
       ...contentUndoSelectionStackRef.current.slice(

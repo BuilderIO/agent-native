@@ -7,7 +7,14 @@ import {
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import {
   Links,
   Meta,
@@ -22,6 +29,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { getGithubStarCountFromCache } from "../lib/github-star-count";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -35,12 +43,13 @@ import {
   docsAlternateLinksForPath,
   docsMarkdownPathForPath,
 } from "./components/docs-seo";
-import Footer from "./components/Footer";
-import Header from "./components/Header";
+import { Footer } from "./components/website-redesign/footer";
+import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
+import tokensCss from "./components/website-redesign/tokens.css?url";
 import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
@@ -119,6 +128,7 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
     locale,
     preference: { locale },
     messages: await initialMessagesForLocale(locale),
+    starCount: getGithubStarCountFromCache(),
   };
 }
 
@@ -136,6 +146,7 @@ function fallbackRootLocaleData(pathname: string): RootLocaleData {
     locale,
     preference: { locale },
     messages: null,
+    starCount: null,
   };
 }
 
@@ -150,6 +161,13 @@ function useRootLocaleData() {
 
 export const links = () => [
   { rel: "stylesheet", href: appCss },
+  // Every selector in tokens.css is scoped under .builder-brand-tokens, which
+  // the header, the footer, and the homepage opt into. It deliberately stays
+  // off <body>: global.css has `:where(:not(.builder-brand-tokens *))`
+  // exclusions carrying the docs prose chrome, and a body-level opt-in would
+  // silently make all three of them match nothing. The page background is
+  // unified through --bg in global.css instead, which mirrors --b-bg-page.
+  { rel: "stylesheet", href: tokensCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
   { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
 ];
@@ -177,10 +195,17 @@ export const meta = () => [
 ];
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
+  const { starCount } = useRootLocaleData();
+
   return (
-    <div className="w-full min-w-0 overflow-x-clip">
+    // core's `.agent-sidebar-shell` sits between <body> and this chrome and
+    // paints an opaque surface from the shadcn `--sidebar-background` token, so
+    // the background on <body> never shows and every route inherited a color
+    // from a token system the brand palette knows nothing about. Painting --bg
+    // here is what actually decides the page color, on every route.
+    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
       <ScrollManager />
-      <Header />
+      <SiteHeader starCount={starCount} />
       {children}
       <Footer />
     </div>
@@ -205,6 +230,8 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
 }
 
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function SeoLinks() {
   const location = useLocation();
@@ -304,7 +331,7 @@ function ScrollManager() {
   const ref = useRef<HTMLSpanElement>(null);
   const isInitialEffectRef = useRef(true);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const isInitialEffect = isInitialEffectRef.current;
     isInitialEffectRef.current = false;
 

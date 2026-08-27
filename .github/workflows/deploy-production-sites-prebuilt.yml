@@ -1,4 +1,4 @@
-name: Deploy Agent Native production sites from GitHub
+name: Deploy Agent-Native production sites from GitHub
 
 # Manual production cutover lane. It builds the same repository projects from
 # an exact main commit, uploads their prebuilt output to Netlify, publishes it,

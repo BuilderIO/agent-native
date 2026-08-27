@@ -21,7 +21,7 @@ local.
 ### Mesmo workspace: automático
 
 Se o Calendário e o Dispatch foram gerados ou adicionados juntos em um único
-workspace Agent Native (via `create` ou `add-app`) e implantados como uma
+workspace Agent-Native (via `create` ou `add-app`) e implantados como uma
 única unidade, eles já compartilham um `.env`, um `A2A_SECRET` e um registro
 de workspace. A descoberta e as chamadas A2A autenticadas simplesmente
 funcionam, sem nada para configurar, esteja esse workspace em execução na
@@ -30,7 +30,7 @@ real com múltiplos apps construído sobre o Calendário.
 
 ### Implantações separadas: um passo manual
 
-Se o Calendário e o Dispatch são dois projetos Agent Native criados de forma
+Se o Calendário e o Dispatch são dois projetos Agent-Native criados de forma
 independente, eles não compartilham um segredo e ainda não podem se chamar.
 Conectá-los exige um passo manual em cada lado: adicionar um recurso
 `remote-agents/<id>.json` com um segredo compartilhado, a partir de

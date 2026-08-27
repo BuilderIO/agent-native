@@ -166,6 +166,14 @@ Real credential values belong only in local `.env` files, deployment configurati
 
 When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Do not import dialect-specific schema helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`, and do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
 
+Before changing the schema, run `pnpm db:check` to validate the checked-in
+Drizzle metadata baseline, then run `pnpm db:generate` to create the reviewed
+SQL migration. Tasks keeps one PostgreSQL baseline because that is its
+deployment dialect; do not switch this migration folder between dialects.
+Use `pnpm db:push` only for the local SQLite database; it uses the separate
+`drizzle.local.config.ts` so the PostgreSQL generation config does not redirect
+local development to a synthetic Postgres URL.
+
 | Variable              | Required                        | Description                                                                |
 | --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |

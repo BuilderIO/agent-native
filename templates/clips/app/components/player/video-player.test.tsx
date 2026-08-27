@@ -195,6 +195,26 @@ describe("VideoPlayer playback", () => {
     expect(controls.className).not.toContain("pointer-events-none");
   });
 
+  it("keeps the pause control visible on mobile after the idle timeout", () => {
+    const video = getVideo();
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: false,
+    });
+
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).toContain("sm:pointer-events-none");
+    expect(
+      container.querySelector('button[aria-label="Pause"]'),
+    ).not.toBeNull();
+  });
+
   it("keeps owner playback on the same-origin media request path", () => {
     act(() => {
       root.render(
@@ -541,9 +561,14 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
-  it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {
+  it("toggles playback on touch taps and suppresses the synthetic follow-up click", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
+
+    act(() => {
+      surface.click();
+    });
+    expect(video.paused).toBe(false);
 
     act(() => {
       surface.dispatchEvent(
@@ -570,10 +595,8 @@ describe("VideoPlayer playback", () => {
       );
     });
 
-    // A touch tap on the surface only reveals controls (matching native
-    // mobile players) — it must not start playback on its own.
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPause).toHaveBeenCalledTimes(1);
 
     // Real browsers fire a synthetic "click" immediately after a touch tap.
     // The component must swallow exactly that one click rather than treating
@@ -585,7 +608,7 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPlay).toHaveBeenCalledOnce();
 
     // A later, unrelated real click still toggles playback normally — proving
     // the suppression is a one-shot flag consumed by the synthetic click, not
@@ -595,7 +618,7 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(video.paused).toBe(false);
-    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(onPlay).toHaveBeenCalledTimes(2);
   });
 
   it("uses WebKit video fullscreen when the player container cannot enter fullscreen", () => {

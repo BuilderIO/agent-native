@@ -206,7 +206,14 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-스키마 변경은 추가되어야 합니다. `server/plugins/db.ts`에서 `runMigrations()`를 통해 테이블과 열을 추가합니다. 파괴적인 SQL, `drizzle-kit push`, 테이블 이름 바꾸기 또는 열 삭제를 사용하지 마십시오.
+스키마 변경은 추가 방식이어야 합니다. 새 앱 소유 테이블과 열에는
+`drizzle-kit generate`로 `server/db/migrations/<id_name>.sql`에 검토
+가능한 SQL을 만들고 Node.js 배포의 릴리스 단계에서
+`runDrizzleMigrations()`로 로드하세요. Cloudflare Workers/Pages와 D1에는 배포
+가능한 파일 시스템이 없으므로, 생성된 SQL을 worker bundle에 임베드하고
+`runMigrations()`에 전달하세요. 수동으로 작성한 이력과 특수한 경우에는
+`runMigrations()`를 사용하세요. 파괴적인 SQL, `drizzle-kit push`, 테이블 이름
+바꾸기 또는 열 삭제를 사용하지 마십시오.
 
 앱 읽기 및 쓰기의 경우 Drizzle의 쿼리 빌더와 `drizzle-orm`의 이식 가능한 연산자를 사용하세요. Drizzle가 쿼리를 표현할 수 있는 경우 원시 SQL로 제품 코드를 작성하지 말고 템플릿의 `drizzle-orm/sqlite-core` 또는 `drizzle-orm/pg-core`에서 가져오지 마세요.
 
@@ -503,7 +510,7 @@ Templates should fit naturally into [Multi-App Workspaces](/docs/multi-app-works
 4. 필요한 환경 변수 및 온보딩 단계를 문서화하세요.
 5. 추적된 런타임 데이터 파일이 아닌 추가 마이그레이션을 통해 예제 또는 시드 행을 포함합니다.
 
-커뮤니티 템플릿은 공개 GitHub 저장소에서 직접 설치합니다. Agent Native 앱을 저장소 루트에 두세요.
+커뮤니티 템플릿은 공개 GitHub 저장소에서 직접 설치합니다. Agent-Native 앱을 저장소 루트에 두세요.
 
 ```bash
 npx @agent-native/core@latest create my-app --template community:owner/repo

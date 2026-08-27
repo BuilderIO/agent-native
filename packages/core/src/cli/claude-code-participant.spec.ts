@@ -106,7 +106,7 @@ describe("Claude Code participant", () => {
       role: "driver",
       prompt: "Implement.",
       cwd: "/tmp/workspace",
-      command: "/Applications/Agent Native.app/Contents/Resources/claude",
+      command: "/Applications/Agent-Native.app/Contents/Resources/claude",
       preflight: async () => SUBSCRIPTION_STATUS,
       spawnProcess,
     });
@@ -138,7 +138,7 @@ describe("Claude Code participant", () => {
     const spawnProcess = vi.fn<ClaudeCodeParticipantSpawn>(() => child);
     const onEvent = vi.fn();
     const packagedCommand =
-      "/Applications/Agent Native.app/Contents/Resources/claude";
+      "/Applications/Agent-Native.app/Contents/Resources/claude";
     const preflight = vi.fn(
       async (_context: ClaudeCodeParticipantPreflightContext) =>
         SUBSCRIPTION_STATUS,
@@ -173,7 +173,7 @@ describe("Claude Code participant", () => {
     expect(spawnProcess).toHaveBeenCalledOnce();
     const [command, args, options] = spawnProcess.mock.calls[0];
     expect(command).toBe(
-      "/Applications/Agent Native.app/Contents/Resources/claude",
+      "/Applications/Agent-Native.app/Contents/Resources/claude",
     );
     expect(args).not.toContain("Review only.");
     expect(options).toMatchObject({
@@ -285,7 +285,7 @@ describe("Claude Code participant", () => {
     }));
     await expect(
       readClaudeCodeSubscriptionStatus({
-        command: "/Applications/Agent Native.app/Contents/Resources/claude",
+        command: "/Applications/Agent-Native.app/Contents/Resources/claude",
         env: {
           PATH: "/usr/bin",
           ANTHROPIC_API_KEY: "must-not-pass",
@@ -294,7 +294,7 @@ describe("Claude Code participant", () => {
       }),
     ).resolves.toMatchObject(SUBSCRIPTION_STATUS);
     expect(execute).toHaveBeenCalledWith(
-      "/Applications/Agent Native.app/Contents/Resources/claude",
+      "/Applications/Agent-Native.app/Contents/Resources/claude",
       ["auth", "status", "--json"],
       expect.objectContaining({ env: { PATH: "/usr/bin" } }),
     );

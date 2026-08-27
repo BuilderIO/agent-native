@@ -3831,8 +3831,14 @@ impl CustomCaptureResume {
         // timeline. The session stays paused and can be retried — and a retry
         // re-measures `paused_for` from the same (uncleared) pause instant, so
         // advancing the offset here would compound on every failed attempt.
+        // The replacement handler bumps the stream generation so callbacks still
+        // in flight from the paused stream are rejected rather than appended.
+        // `None` for the prefetched content: a resume can land long after the
+        // display topology changed, so it must resolve against fresh content
+        // rather than the snapshot the initial start was sized from.
         let replacement_handler = self.handler.replacement_stream();
-        let new_stream = build_custom_scstream(&self.params, &replacement_handler, &self.watch)?;
+        let new_stream =
+            build_custom_scstream(&self.params, &replacement_handler, &self.watch, None)?;
 
         // Apply the pause gap just before the stream starts delivering, so the
         // first rebased frame already skips it. Roll back if startup fails so
@@ -3907,9 +3913,17 @@ fn build_custom_scstream(
     params: &RestartParams,
     handler: &CustomScreenCaptureOutputHandler,
     watch: &Arc<CaptureWatch>,
+    // The initial start passes the snapshot it already fetched to size the
+    // output, sparing a second multi-second lookup. Watchdog rebuilds and
+    // resume pass `None` — they may run long after the display topology
+    // changed, so they must resolve against fresh content.
+    prefetched_content: Option<SCShareableContent>,
 ) -> Result<SCStream, String> {
-    let content =
-        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    let content = match prefetched_content {
+        Some(content) => content,
+        None => SCShareableContent::get()
+            .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
+    };
     let displays = content.displays();
     let display = params
         .target_display_id
@@ -4196,7 +4210,7 @@ fn spawn_capture_watchdog(
                 return;
             }
 
-            match build_custom_scstream(&params, &replacement_handler, &watch).and_then(|s| {
+            match build_custom_scstream(&params, &replacement_handler, &watch, None).and_then(|s| {
                 s.start_capture()
                     .map(|()| s)
                     .map_err(|e| format!("start_capture failed: {e:?}"))
@@ -4258,10 +4272,16 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
     force_segmented_output: bool,
+    // Popover-open prefetch from `take_prefetched_shareable_content`; `None`
+    // (resume/segment/Rewind callers) keeps the self-contained fresh fetch.
+    prefetched_content: Option<SCShareableContent>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     eprintln!("[clips-tray] starting custom screen capture backend");
-    let content =
-        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    let content = match prefetched_content {
+        Some(content) => content,
+        None => SCShareableContent::get()
+            .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
+    };
     let displays = content.displays();
     let display = target_display_id
         .and_then(|id| displays.iter().find(|d| d.display_id() == id))
@@ -4338,7 +4358,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         watch: Arc::clone(&watch),
     };
 
-    let stream = build_custom_scstream(&params, &handler, &watch)?;
+    let stream = build_custom_scstream(&params, &handler, &watch, Some(content))?;
     if let Err(err) = stream.start_capture() {
         let _ = std::fs::remove_file(output_path);
         return Err(format!("custom capture start failed: {err:?}"));

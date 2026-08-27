@@ -31,7 +31,10 @@ Read the relevant skill before deeper work in that area.
 
 - Resolve templates or prior designs with `list-design-templates` and
   `list-designs`, copy with `create-design-from-template`, then inspect and
-  adapt copied files with `get-design-snapshot` and `edit-design`.
+  adapt copied files with `get-design-snapshot` and `edit-design`. The design
+  list is paginated: pass `page` and `pageSize`, use `createdBy: "me"` for the
+  current user's designs, and pass `search` for a title search. Follow the
+  returned pagination metadata before treating the result as complete.
 - Copied template screens are edited in place. Preserve
   `createdFromTemplate.lockedDimensions`/`lockedFonts` from `view-screen` in
   every edit; `get-design-template` returns the original.

@@ -1,5 +1,13 @@
 import { useEffect, useRef } from "react";
 
+import {
+  clampZoomFactor,
+  normalizeWheelDeltaPx,
+  resolveZoomGestureDevice,
+  zoomFactorForWheelDelta,
+  type ZoomGestureDevice,
+} from "./zoom-gesture.js";
+
 export interface UsePinchZoomOptions {
   /** Scrolling viewport that receives the gesture. The scaled content should
    *  live inside this element. */
@@ -78,6 +86,7 @@ export function usePinchZoom({
     let simScrollLeft = 0;
     let simScrollTop = 0;
     let rafId: number | null = null;
+    let gestureDevice: ZoomGestureDevice | null = null;
 
     const flush = () => {
       rafId = null;
@@ -100,14 +109,28 @@ export function usePinchZoom({
 
     const handleWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
-      e.preventDefault();
+      // Chrome sends non-cancelable wheel events during a fling; cancelling one
+      // is a no-op that logs an Intervention per event and still scrolls.
+      if (e.cancelable) e.preventDefault();
 
+      gestureDevice = resolveZoomGestureDevice({
+        deltaY: e.deltaY,
+        deltaMode: e.deltaMode,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        atMs: e.timeStamp,
+        previous: gestureDevice,
+      });
       // Use the latest not-yet-applied zoom (if a flush is pending) so rapid
       // wheel events within the same frame compound correctly instead of
       // each computing off the last-committed React state.
       const currentZoom = pendingZoom ?? zoomRef.current;
-      const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
-      const factor = Math.exp(-clampedDelta * 0.01);
+      const factor = clampZoomFactor(
+        zoomFactorForWheelDelta(
+          normalizeWheelDeltaPx(e.deltaY, e.deltaMode),
+          gestureDevice.pinch,
+        ),
+      );
       const nextZoom = clamp(currentZoom * factor);
 
       if (nextZoom === currentZoom) return;
@@ -170,7 +193,7 @@ export function usePinchZoom({
           pendingZoom = nextZoom;
           scheduleFlush();
         }
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
       }
     };
 

@@ -1,3 +1,5 @@
+import { resolveEnvironmentTargets } from "@agent-native/core/shared";
+
 import { DISPATCH_WORKSPACE_SSO_FLAG } from "./feature-flags.js";
 
 export { DISPATCH_WORKSPACE_SSO_FLAG };
@@ -29,6 +31,7 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 const APP_ID = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const CLIENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+type WorkspaceSsoEnvironmentLane = "production" | "beta";
 
 export interface WorkspaceSsoAppRegistration {
   appId: string;
@@ -139,6 +142,26 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
+function isCanonicalWorkspaceSsoOrigin(
+  origin: string,
+  canonicalOrigin: string,
+  environmentLane: WorkspaceSsoEnvironmentLane,
+): boolean {
+  if (origin === canonicalOrigin) return true;
+  if (environmentLane !== "beta") return false;
+
+  try {
+    const targets = resolveEnvironmentTargets(
+      new URL(canonicalOrigin).hostname,
+    );
+    return targets ? origin === `https://${targets.betaHost}` : false;
+  } catch {
+    // coercion-ok: canonical origins are static metadata, so malformed values
+    // are rejected as non-canonical.
+    return false;
+  }
+}
+
 /**
  * Keep the server-side app catalog and the browser's action choice on the
  * same exact-origin rules. `registryRaw` is deliberately supplied by the
@@ -146,7 +169,11 @@ function isLoopbackOrigin(origin: string): boolean {
  */
 export function isWorkspaceSsoAppUrl(
   app: { id: string; url?: unknown },
-  options: { nodeEnv?: string; registryRaw?: unknown } = {},
+  options: {
+    nodeEnv?: string;
+    registryRaw?: unknown;
+    environmentLane?: WorkspaceSsoEnvironmentLane;
+  } = {},
 ): boolean {
   const origin = appOrigin(app.url);
   if (!origin) return false;
@@ -156,7 +183,16 @@ export function isWorkspaceSsoAppUrl(
     CANONICAL_WORKSPACE_SSO_APP_ORIGINS[
       appId as keyof typeof CANONICAL_WORKSPACE_SSO_APP_ORIGINS
     ];
-  if (canonicalOrigin === origin) return true;
+  if (
+    canonicalOrigin &&
+    isCanonicalWorkspaceSsoOrigin(
+      origin,
+      canonicalOrigin,
+      options.environmentLane ?? "production",
+    )
+  ) {
+    return true;
+  }
 
   if (
     options.nodeEnv !== "production" &&

@@ -68,7 +68,7 @@ export interface AutomationCapabilities {
   /**
    * `configured-webhook` uses the generic automation runtime after an app
    * owner supplies a workflow URL and credentials. `blueprint-only` has no
-   * generic execution path in Agent Native.
+   * generic execution path in Agent-Native.
    */
   readonly runtime: "configured-webhook" | "blueprint-only";
   readonly invokeWorkflow: boolean;
@@ -130,7 +130,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
     setup: {
       steps: [
         "Create or open a Slack app at api.slack.com/apps.",
-        "Apply the Agent Native Slack manifest to enable Agent View and writable direct messages.",
+        "Apply the Agent-Native Slack manifest to enable Agent View and writable direct messages.",
         "Configure the OAuth client id, client secret, and signing secret.",
         "Enable Event Subscriptions and Interactivity with the documented URLs.",
         "Subscribe to app_home_opened, app_context_changed, app_mention, and message.im, then use Add to Slack.",
@@ -464,7 +464,7 @@ const AUTOMATION_CATALOG = [
     description:
       "Invoke configured n8n Webhook workflows or receive authenticated n8n callbacks through the automation runtime.",
     caveats: [
-      "n8n must be deployed and configured by the workspace owner; Agent Native does not provision or host n8n.",
+      "n8n must be deployed and configured by the workspace owner; Agent-Native does not provision or host n8n.",
       "Configure n8n Webhook authentication and an explicit response mode. Synchronous responses depend on the workflow's Webhook or Respond to Webhook node.",
       "Use a configured webhook URL or n8n credential; never put an n8n URL or credential in an agent prompt.",
     ],
@@ -477,7 +477,7 @@ const AUTOMATION_CATALOG = [
     setup: {
       steps: [
         "Deploy or select an n8n instance and publish a Webhook workflow.",
-        "Choose Header, Basic, or JWT authentication in n8n and save the matching credential in Agent Native.",
+        "Choose Header, Basic, or JWT authentication in n8n and save the matching credential in Agent-Native.",
         "Register the static webhook path and allow-listed n8n origin in the app's automation configuration.",
         "Choose immediate, final-node, or Respond to Webhook behavior and test with a fake event ID.",
       ],
@@ -507,7 +507,7 @@ const AUTOMATION_CATALOG = [
     supportMaturity: "blueprint",
     iconKey: "zapier",
     description:
-      "Blueprint guidance for Zapier webhooks and Zapier MCP; there is no generic Zapier workflow execution runtime in Agent Native.",
+      "Blueprint guidance for Zapier webhooks and Zapier MCP; there is no generic Zapier workflow execution runtime in Agent-Native.",
     caveats: [
       "Zapier is not a chat channel and is not exposed through provider-api.",
       "Zapier REST Hook triggers require an app-owned subscribe and unsubscribe API; a static incoming webhook is not supported for public integrations.",

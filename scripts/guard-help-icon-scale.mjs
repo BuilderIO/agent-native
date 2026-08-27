@@ -20,8 +20,13 @@ const REPO_ROOT = path.resolve(
 
 const SOURCE_ROOTS = ["packages", "templates"];
 const SOURCE_EXTENSIONS = /\.(tsx|ts|jsx|js)$/;
+// `.tmp*` covers the scratch directories test workers create and delete while
+// they run — `packages/core/.tmp-worker-test-*` among them. Without it this
+// walk races them and dies on ENOENT partway through, which reads as a guard
+// violation rather than as the unrelated concurrency it is. `pnpm prep` runs
+// guards and tests together, so the race is the normal case, not a rare one.
 const EXCLUDED_PATH =
-  /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus)(\/|$)/;
+  /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus|\.tmp[^/]*)(\/|$)/;
 const HELP_ELEMENT_RE = /<Icon(?:HelpCircle|CircleHelp|Help)\b[\s\S]*?\/>/g;
 const LOCAL_HELP_GLYPH_RE = /\.local-dev-help-glyph\s*\{[\s\S]*?\}/g;
 const LARGE_GLYPH_RE =

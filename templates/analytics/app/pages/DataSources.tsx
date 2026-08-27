@@ -2096,7 +2096,7 @@ export default function DataSources() {
   const firstPartyAnalyticsSearchText = [
     t("dataSources.firstPartyAnalytics"),
     t("dataSources.firstPartyDescription"),
-    "first-party analytics tracking observability llm ai generation $ai_generation posthog agent native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+    "first-party analytics tracking observability llm ai generation $ai_generation posthog agent-native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
   ]
     .join(" ")
     .toLowerCase();

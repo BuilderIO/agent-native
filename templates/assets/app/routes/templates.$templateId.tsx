@@ -5,6 +5,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconArrowLeft,
   IconCheck,
@@ -518,6 +519,19 @@ export default function TemplateEditorRoute() {
     [assets],
   );
   const preset = template;
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      form?.title ?? preset?.title,
+      "Template",
+    )} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [form?.title, preset?.title]);
+
   // Saved entry ids are durable keys referenced by presetReferenceFills and
   // past runs' boardAssignments; renaming a label must never change them.
   const persistedReferenceIds = useMemo(

@@ -152,7 +152,7 @@ describe("createSlackReader", () => {
     expect(mockedGetChannelHistory).not.toHaveBeenCalled();
   });
 
-  it("treats only the two supported Slack bot handles as Agent Native", () => {
+  it("treats only the two supported Slack bot handles as Agent-Native", () => {
     expect(isAgentNativeSlackUserName("@agent-native")).toBe(true);
     expect(isAgentNativeSlackUserName("agentnative")).toBe(true);
     expect(isAgentNativeSlackUserName("agent--native")).toBe(false);

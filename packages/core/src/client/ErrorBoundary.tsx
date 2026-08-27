@@ -330,7 +330,7 @@ function ErrorScreen({ error }: { error: unknown }) {
                 {copy.reload}
               </button>
               <ErrorReportActions
-                appName="Agent Native"
+                appName="Agent-Native"
                 title={title}
                 details={details}
                 status={status}

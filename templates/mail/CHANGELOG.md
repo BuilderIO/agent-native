@@ -3,6 +3,17 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-22
+
+### Improved
+
+- Gmail can now connect with the shared Google OAuth app in one click
+
+### Fixed
+
+- Gmail Filters in Settings now shows the actual reason for a failure, like needing to connect Google, instead of a generic server error.
+- Visiting an unrecognized mail URL now shows the 404 page instead of silently loading the inbox.
+
 ## 2026-08-18
 
 ### Fixed

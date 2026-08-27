@@ -37,7 +37,7 @@ Andere agentennative Apps entdecken es und rufen es über A2A auf. Verwenden Sie
 
 Die meisten Apps bauen eine separate API-Schicht zwischen Frontend und Datenbank, die nur der Browser aufrufen kann. Ein Agent, der dieselbe Fähigkeit haben möchte, braucht eine eigene, separate Integration, die erneut geschrieben und gepflegt werden muss. Agentennative Apps überspringen diese Trennung. Die UI und der Agent rufen exakt dieselbe Action auf, sodass es nur eine Implementierung zu schreiben gibt und nur einen Ort, an dem sich ein Bug verstecken kann.
 
-<Diagram id="doc-block-actions-overview-2" title="Traditionelles Frontend vs. Agent Native" summary="Ein traditionelles Frontend ruft seine eigene API-Schicht auf, die nur es selbst erreichen kann. In Agent Native rufen app/ und der Agent dieselben Actions auf, sodass jede hier gebaute Fähigkeit kostenlos agentenaufrufbar ist.">
+<Diagram id="doc-block-actions-overview-2" title="Traditionelles Frontend vs. Agent-Native" summary="Ein traditionelles Frontend ruft seine eigene API-Schicht auf, die nur es selbst erreichen kann. In Agent-Native rufen app/ und der Agent dieselben Actions auf, sodass jede hier gebaute Fähigkeit kostenlos agentenaufrufbar ist.">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Die meisten Apps bauen eine separate API-Schicht zwischen Frontend und Datenbank
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React-Frontend)</div>
       <div class="diagram-node">Agent</div>

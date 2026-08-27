@@ -1216,7 +1216,7 @@ const enUS = {
   sessions: {
     title: "Sessions",
     description:
-      "Review first-party browser sessions and replay recordings captured by Agent Native Analytics.",
+      "Review first-party browser sessions and replay recordings captured by Agent-Native Analytics.",
     filters: "Filters",
     segmentFilters: "Segment filters",
     sessionPlaylist: "Session playlist",
@@ -10204,7 +10204,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "配置 S3 存储",
       title: "会话",
       description:
-        "查看 Agent Native Analytics 捕获的第一方浏览器会话和回放记录。",
+        "查看 Agent-Native Analytics 捕获的第一方浏览器会话和回放记录。",
       filters: "筛选器",
       filtersDescription:
         "筛选器保存在 URL 中，因此代理和共享链接会看到同一份会话列表。",
@@ -10326,7 +10326,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "Configurar almacenamiento S3",
       title: "Sesiones",
       description:
-        "Revisa sesiones de navegador propias y grabaciones de reproducción capturadas por Agent Native Analytics.",
+        "Revisa sesiones de navegador propias y grabaciones de reproducción capturadas por Agent-Native Analytics.",
       filters: "Filtros",
       filtersDescription:
         "Los filtros se guardan en la URL para que el agente y los enlaces compartidos vean la misma lista de sesiones.",
@@ -10452,7 +10452,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "Configurer le stockage S3",
       title: "Sessions",
       description:
-        "Consultez les sessions de navigateur first-party et les enregistrements de relecture capturés par Agent Native Analytics.",
+        "Consultez les sessions de navigateur first-party et les enregistrements de relecture capturés par Agent-Native Analytics.",
       filters: "Filtres",
       filtersDescription:
         "Les filtres sont stockés dans l'URL afin que l'agent et les liens partagés voient la même liste de sessions.",
@@ -10581,7 +10581,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3-Speicher konfigurieren",
       title: "Sitzungen",
       description:
-        "Prüfe First-Party-Browsersitzungen und Wiedergabeaufzeichnungen aus Agent Native Analytics.",
+        "Prüfe First-Party-Browsersitzungen und Wiedergabeaufzeichnungen aus Agent-Native Analytics.",
       filters: "Filter",
       filtersDescription:
         "Filter werden in der URL gespeichert, damit Agent und geteilte Links dieselbe Sitzungsliste sehen.",
@@ -10706,7 +10706,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3 ストレージを設定",
       title: "セッション",
       description:
-        "Agent Native Analytics が取得したファーストパーティのブラウザーセッションとリプレイ記録を確認します。",
+        "Agent-Native Analytics が取得したファーストパーティのブラウザーセッションとリプレイ記録を確認します。",
       filters: "フィルター",
       filtersDescription:
         "フィルターは URL に保存されるため、エージェントと共有リンクで同じセッション一覧を表示できます。",
@@ -10832,7 +10832,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3 저장소 구성",
       title: "세션",
       description:
-        "Agent Native Analytics가 캡처한 퍼스트파티 브라우저 세션과 리플레이 기록을 검토합니다.",
+        "Agent-Native Analytics가 캡처한 퍼스트파티 브라우저 세션과 리플레이 기록을 검토합니다.",
       filters: "필터",
       filtersDescription:
         "필터는 URL에 저장되므로 에이전트와 공유 링크가 같은 세션 목록을 봅니다.",
@@ -10957,7 +10957,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "Configurar armazenamento S3",
       title: "Sessões",
       description:
-        "Revise sessões de navegador first-party e gravações de replay capturadas pelo Agent Native Analytics.",
+        "Revise sessões de navegador first-party e gravações de replay capturadas pelo Agent-Native Analytics.",
       filters: "Filtros",
       filtersDescription:
         "Os filtros ficam salvos na URL para que o agente e links compartilhados vejam a mesma lista de sessões.",
@@ -11081,7 +11081,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "S3 स्टोरेज कॉन्फ़िगर करें",
       title: "सत्र",
       description:
-        "Agent Native Analytics द्वारा कैप्चर किए गए प्रथम-पक्ष ब्राउज़र सत्र और रीप्ले रिकॉर्डिंग देखें।",
+        "Agent-Native Analytics द्वारा कैप्चर किए गए प्रथम-पक्ष ब्राउज़र सत्र और रीप्ले रिकॉर्डिंग देखें।",
       filters: "फ़िल्टर",
       filtersDescription:
         "फ़िल्टर URL में सहेजे जाते हैं ताकि एजेंट और साझा लिंक वही सत्र सूची देखें।",
@@ -11202,7 +11202,7 @@ const translatedSessionReplayTranslations = {
       configureS3: "تهيئة تخزين S3",
       title: "الجلسات",
       description:
-        "راجع جلسات المتصفح من الطرف الأول وتسجيلات إعادة التشغيل التي يلتقطها Agent Native Analytics.",
+        "راجع جلسات المتصفح من الطرف الأول وتسجيلات إعادة التشغيل التي يلتقطها Agent-Native Analytics.",
       filters: "عوامل التصفية",
       filtersDescription:
         "تُحفظ عوامل التصفية في URL حتى يرى الوكيل والروابط المشتركة قائمة الجلسات نفسها.",

@@ -17,9 +17,9 @@ import {
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { AgentViewCount } from "@/components/player/recording-views-badge";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -340,12 +340,13 @@ export function RecordingCard({
               </div>
             )}
             <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Avatar className="h-4 w-4 shrink-0">
-                <AvatarImage src="" alt={recording.ownerEmail} />
-                <AvatarFallback className="bg-primary/15 text-[8px] text-primary">
-                  {ownerInitials}
-                </AvatarFallback>
-              </Avatar>
+              <ClipsAvatar
+                email={recording.ownerEmail}
+                alt={recording.ownerEmail}
+                fallback={ownerInitials}
+                className="h-4 w-4 shrink-0"
+                fallbackClassName="bg-primary/15 text-[8px] text-primary"
+              />
               <span className="min-w-0 truncate">{recording.ownerEmail}</span>
               <span aria-hidden>•</span>
               <span className="shrink-0">{relative}</span>

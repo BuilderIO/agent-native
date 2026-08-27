@@ -81,6 +81,26 @@ describe("<GoogleDriveConnectionCta>", () => {
     ).toBeTruthy();
   });
 
+  it("stays quiet until a pasted Slides link is detected", async () => {
+    render(<GoogleDriveConnectionCta active={false} />);
+
+    await waitFor(() => {
+      expect(fetch).not.toHaveBeenCalled();
+    });
+    expect(screen.queryByRole("button", { name: "Connect Google" })).toBeNull();
+  });
+
+  it("checks the connection when a pasted Slides link becomes active", async () => {
+    const { rerender } = render(<GoogleDriveConnectionCta active={false} />);
+
+    rerender(<GoogleDriveConnectionCta active />);
+
+    expect(
+      await screen.findByRole("button", { name: "Connect Google" }),
+    ).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("can be dismissed without starting OAuth", async () => {
     render(<GoogleDriveConnectionCta />);
 
@@ -111,6 +131,31 @@ describe("<GoogleDriveConnectionCta>", () => {
     expect(
       await screen.findByRole("button", { name: "Connect Google" }),
     ).toBeTruthy();
+  });
+
+  it("keeps the reconnect button available when managed OAuth needs repair", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              configured: true,
+              connected: true,
+              googleSlidesUrlImportReady: false,
+              googleSlidesUrlImportError: "Google authorization expired",
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(<GoogleDriveConnectionCta />);
+
+    expect(
+      await screen.findByText("Google authorization expired"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect Google" })).toBeTruthy();
   });
 
   it("starts the managed Drive OAuth flow", async () => {
