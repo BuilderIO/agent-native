@@ -403,7 +403,7 @@ describe("createAgentChatAdapter", () => {
     }
   });
 
-  it("stops a silent JSON probe when the caller aborts", async () => {
+  it("stops a silent JSON probe for a custom caller abort reason", async () => {
     let finishResponse: (() => void) | undefined;
     const response = new Response(
       new ReadableStream<Uint8Array>({
@@ -442,7 +442,10 @@ describe("createAgentChatAdapter", () => {
       } as any)
       [Symbol.asyncIterator]();
 
-    const abortTimer = setTimeout(() => abortController.abort(), 0);
+    const abortTimer = setTimeout(
+      () => abortController.abort(new Error("stop")),
+      0,
+    );
     try {
       const result = await iterator.next();
 

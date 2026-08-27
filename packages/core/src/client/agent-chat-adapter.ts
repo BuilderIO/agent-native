@@ -3949,13 +3949,13 @@ export function createAgentChatAdapter(
                       void read.catch(() => {});
                       const chunk = await Promise.race([read, timeout, abort]);
                       if (chunk === "abort") {
-                        throw (
-                          abortSignal.reason ??
-                          new DOMException(
-                            "The operation was aborted.",
-                            "AbortError",
-                          )
-                        );
+                        throw abortSignal.reason instanceof Error &&
+                          abortSignal.reason.name === "AbortError"
+                          ? abortSignal.reason
+                          : new DOMException(
+                              "The operation was aborted.",
+                              "AbortError",
+                            );
                       }
                       if (chunk === null) {
                         probeTimedOut = true;
