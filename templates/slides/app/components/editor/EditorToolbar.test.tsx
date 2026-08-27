@@ -380,6 +380,11 @@ describe("<EditorToolbar>", () => {
       expect(event.defaultPrevented).toBe(false);
     }
 
+    fireEvent(
+      presentLink!,
+      new MouseEvent("auxclick", { bubbles: true, button: 2 }),
+    );
+
     expect(onPresent).toHaveBeenCalledTimes(2);
     expect(onPresent).toHaveBeenNthCalledWith(1, {
       preserveNativeNavigation: true,

@@ -1559,6 +1559,10 @@ export default function DeckEditor() {
     const target = request?.preserveNativeNavigation
       ? window.open("", "_blank")
       : null;
+    if (request?.preserveNativeNavigation && !target) {
+      toast.error(t("settings.saveFailed"));
+      return true;
+    }
     presentInFlightRef.current = true;
     const attemptId = ++presentAttemptRef.current;
     void finishPresent(attemptId, target, presentationUrl);

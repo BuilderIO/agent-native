@@ -621,12 +621,11 @@ export default function EditorToolbar({
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
   const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 && event.button !== 1) return;
     const preserveNativeNavigation =
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey;
+      event.button === 1 ||
+      (event.button === 0 &&
+        (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
     if (preserveNativeNavigation) {
       if (onPresent?.({ preserveNativeNavigation: true }) === true) {
         event.preventDefault();
