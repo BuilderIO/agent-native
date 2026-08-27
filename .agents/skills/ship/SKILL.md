@@ -2,10 +2,11 @@
 name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes. GitHub Actions auto-deploys
-  beta and the docs site through the prebuilt publisher; other production
-  promotion is manual.
+  babysit it, merge when clean, merge safe Dependabot updates encountered in
+  the queue, then create a fresh branch. Use when the user asks to ship,
+  publish, or hand off local changes. GitHub Actions auto-deploys beta and the
+  docs site through the prebuilt publisher; other production promotion is
+  manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -35,6 +36,16 @@ Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
+
+When a ship run also reviews the open PR queue, it may merge a non-draft PR
+authored by the exact Dependabot bot login when the `review-prs` Dependabot
+merge exception passes. That exception is limited to patch/minor,
+dependency-only manifest/lockfile updates with clean mergeability, all
+required checks successful, no active review blocker, and no ultra-scary
+security, data, or deployment risk. Use the expected head SHA and the normal
+protected merge path, not an admin bypass. Do not auto-merge other external
+PRs or treat this exception as authorization to skip the current branch's
+`/babysit-pr` gates.
 
 ## Branch-wide Push
 
@@ -263,6 +274,11 @@ branch, stay on it.
    requirements are simultaneously true for 10 consecutive minutes:
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
+
+   If this invocation also found a Dependabot PR, apply the dedicated
+   `review-prs` exception above and merge each qualifying update with its
+   expected head SHA. Re-read each PR after merging and record its result;
+   never use this path to bypass a failed or unavailable check.
 
 8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
