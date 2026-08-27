@@ -113,5 +113,20 @@
     "id": "community-landify-tablet",
     "url": "https://www.figma.com/design/KVndBhiFAF6UViuvS5uDpJ/Landify-Tablet?node-id=1-2054",
     "stresses": "768x5585 tablet breakpoint of the Landify example page — the same design as community-landify-example re-laid-out, so the two cases isolate breakpoint-driven layout drift. 32 HORIZONTAL / 50 VERTICAL / 56 NONE, 6 deep, 390 nodes, 151 vectors, 13 image fills, 93 FILL children."
+  },
+  {
+    "id": "community-interior-checkout",
+    "url": "https://www.figma.com/design/VNF3PVGp4FawlkqPFDLKGF/Interior-Checkout?node-id=1-55",
+    "stresses": "Checkout form (1440x3070): labelled inputs, radio groups, an order-summary table and a totals block — the form/field regime the rest of the corpus has none of."
+  },
+  {
+    "id": "community-interior-product-comparison",
+    "url": "https://www.figma.com/design/gjUoAO3nnqAUMSzHnzUWtv/Interior-Product-Comparison?node-id=1-55",
+    "stresses": "Product comparison (1440x3998): a wide spec table of aligned label/value rows across columns, where a per-row height difference compounds down the page."
+  },
+  {
+    "id": "community-interior-single-product",
+    "url": "https://www.figma.com/design/DD5PJlfKgjcyAuvxlZCu5v/Interior-Single-Product?node-id=1-115",
+    "stresses": "Product detail (1440x3107): image gallery with thumbnail rail, swatch chips, star ratings, tabbed description and a related-products grid."
   }
 ]
