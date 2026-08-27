@@ -57,6 +57,7 @@ describe("dispatchIntegrationRoutingHint", () => {
     "Design a visual one-pager for the new feature",
     "Design a one-page website for the launch",
     "Build a one-page website for the launch",
+    "Generate a visual mockup for the campaign",
   ])("preserves visual-design routing for one-pagers: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
       targetAgent: "design",
