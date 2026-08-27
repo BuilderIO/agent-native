@@ -1222,8 +1222,18 @@ function contentShadowMarkup(
         Math.abs(shadow.spread) > 1e-6
           ? `<feMorphology in="SourceAlpha" operator="${shadow.spread > 0 ? "dilate" : "erode"}" radius="${n(Math.abs(shadow.spread))}" result="sp"/>`
           : "";
+      // A percentage region is a fraction of the subtree's own bounds, so a
+      // small icon with a large offset or blur had its shadow clipped. Size the
+      // region in user space from the geometry that actually bleeds: the
+      // offset, the blur (3 standard deviations covers it) and the spread.
+      const bleed =
+        Math.abs(shadow.offsetX) +
+        Math.abs(shadow.offsetY) +
+        shadow.blur * 1.5 +
+        Math.abs(shadow.spread) +
+        2;
       ctx.defs.push(
-        `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%">` +
+        `<filter id="${id}" filterUnits="userSpaceOnUse" x="${n(node.rect.x - bleed)}" y="${n(node.rect.y - bleed)}" width="${n(node.rect.width + bleed * 2)}" height="${n(node.rect.height + bleed * 2)}">` +
           morph +
           `<feFlood flood-color="${escapeXmlAttr(rgb)}" flood-opacity="${n(alpha)}" result="fl"/>` +
           `<feComposite in="fl" in2="${morph ? "sp" : "SourceAlpha"}" operator="in" result="tint"/>` +
@@ -2927,7 +2937,13 @@ export function collectRawFigmaSvgScene(
       backgroundSize: style.backgroundSize,
       backgroundPosition: style.backgroundPosition,
       boxShadow: style.boxShadow,
-      contentShadow: style.getPropertyValue("--figma-content-shadow").trim(),
+      // `el.style`, not the computed value: a custom property INHERITS, so
+      // `getComputedStyle` hands every descendant its ancestor's shadow. The
+      // importer writes this inline, so the own-declaration read is the one
+      // that means "this layer's shadow".
+      contentShadow: (el as HTMLElement).style
+        ?.getPropertyValue("--figma-content-shadow")
+        .trim(),
       borderWidthPx: Math.max(
         ...widths.map((w, i) => (styles[i] === "none" ? 0 : w)),
       ),

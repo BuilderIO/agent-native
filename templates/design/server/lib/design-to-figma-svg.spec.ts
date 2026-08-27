@@ -1238,3 +1238,41 @@ describe("background-image sizing on export", () => {
     ]);
   });
 });
+
+describe("a CROP background at a non-zero origin", () => {
+  // Figma's CROP reaches the DOM as an explicit `background-size` plus a
+  // `background-position` offset. It is placed with a `userSpaceOnUse` pattern
+  // whose TILE sits at the layer's own origin; SVG pattern content is
+  // tile-relative, verified against Chromium — a tile at (100, 100) holding an
+  // `<image>` at x=0 paints, it does not come out blank. So the image carries
+  // only the background-position offset, never the layer origin as well.
+  it("puts the tile at the layer origin and the image at the offset", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Cropped",
+      kind: "box",
+      rect: { x: 240, y: 180, width: 320, height: 200 },
+      fills: [
+        {
+          kind: "image",
+          href: "https://img.example/a.png",
+          fit: "stretch",
+          sizePx: { width: 640, height: 400 },
+          offsetPx: { x: -80, y: -30 },
+        },
+      ],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 900, height: 600, root });
+
+    expect(svg).toContain(
+      '<pattern id="img-fill-1" patternUnits="userSpaceOnUse" x="240" y="180" width="320" height="200">',
+    );
+    expect(svg).toContain(
+      '<image href="https://img.example/a.png" x="-80" y="-30" width="640" height="400" preserveAspectRatio="none"/>',
+    );
+    // The layer origin must NOT be added to the image as well.
+    expect(svg).not.toContain(
+      '<image href="https://img.example/a.png" x="160"',
+    );
+  });
+});

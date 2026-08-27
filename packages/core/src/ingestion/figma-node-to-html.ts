@@ -1231,15 +1231,17 @@ function buildEffects(
   // first one's output, not from the source alpha — so a layer with more than
   // one of these keeps `box-shadow`, which composes each shadow independently
   // the way Figma does.
-  const contentCastShadows = effects.filter(
-    (effect) =>
-      effect.type === "DROP_SHADOW" && effect.showShadowBehindNode === true,
-  );
+  const dropShadows = effects.filter((effect) => effect.type === "DROP_SHADOW");
   const castsFromContentAlpha =
     !isTextNode &&
     !paintsOwnBox &&
     (node.children?.length ?? 0) > 0 &&
-    contentCastShadows.length === 1;
+    // Exactly one drop shadow, and it must ask for this. Two would chain —
+    // CSS feeds the first `drop-shadow()`'s output into the second — and a
+    // second UNFLAGGED one would split the layer's shadows across two
+    // mechanisms that cast from different shapes.
+    dropShadows.length === 1 &&
+    dropShadows[0]?.showShadowBehindNode === true;
 
   for (const effect of effects) {
     if (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW") {
