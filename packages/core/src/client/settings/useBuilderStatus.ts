@@ -1011,6 +1011,15 @@ export function useBuilderConnectFlow(
           setError(
             `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`,
           );
+        } else {
+          // The callback page only broadcasts after the server has completed
+          // the OAuth callback. Do not leave the onboarding surface waiting
+          // for a status response that may never arrive.
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          setError(
+            "Couldn't start Builder connect. Refresh this page and try again.",
+          );
         }
         return;
       }

@@ -3,6 +3,8 @@ import { agentNativePath } from "../api-path.js";
 export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
   "agent-native:first-run-status-resolved";
 
+const FIRST_RUN_STATUS_TIMEOUT_MS = 10_000;
+
 export interface FirstRunOnboardingStatusDetail {
   firstRun: boolean;
 }
@@ -19,10 +21,24 @@ export function dispatchFirstRunOnboardingStatus(firstRun: boolean): void {
 
 /** Fetch the server-owned first-run decision and notify other initial flows. */
 export async function fetchFirstRunOnboardingStatus(): Promise<boolean> {
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<Response>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller?.abort();
+      reject(new Error("first-run status timed out"));
+    }, FIRST_RUN_STATUS_TIMEOUT_MS);
+  });
   try {
-    const response = await fetch(
-      agentNativePath("/_agent-native/onboarding/first-run/status"),
-    );
+    const response = await Promise.race([
+      fetch(agentNativePath("/_agent-native/onboarding/first-run/status"), {
+        cache: "no-store",
+        credentials: "same-origin",
+        ...(controller ? { signal: controller.signal } : {}),
+      }),
+      timeout,
+    ]);
     if (!response.ok) {
       throw new Error(`first-run status: ${response.status}`);
     }
@@ -35,6 +51,8 @@ export async function fetchFirstRunOnboardingStatus(): Promise<boolean> {
     // onboarding. Callers can still surface the error through their own path.
     dispatchFirstRunOnboardingStatus(false);
     throw error;
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
 

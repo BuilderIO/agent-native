@@ -67,4 +67,38 @@ describe("first-run onboarding status", () => {
       listener,
     );
   });
+
+  it("fails closed when the status request hangs", async () => {
+    vi.useFakeTimers();
+    const listener = vi.fn();
+    let requestSignal: AbortSignal | undefined;
+    window.addEventListener(
+      FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+      listener,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+        requestSignal = init?.signal;
+        return new Promise<Response>(() => {});
+      }),
+    );
+
+    const request = fetchFirstRunOnboardingStatus();
+    const requestExpectation = expect(request).rejects.toThrow(
+      "first-run status timed out",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await requestExpectation;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(listener).toHaveBeenCalledOnce();
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      firstRun: false,
+    });
+    window.removeEventListener(
+      FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+      listener,
+    );
+  });
 });
