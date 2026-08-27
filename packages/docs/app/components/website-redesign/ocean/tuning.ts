@@ -177,12 +177,29 @@ const PRESET_C: Overrides = {
   bottomFadeStartPercent: 62,
 };
 
-const OCEAN_PRESETS = { a: PRESET_A, b: PRESET_B, c: PRESET_C } as const;
+/**
+ * D: A, plus the mask. fadePower turned out to be the wrong knob to borrow --
+ * particles.wgsl multiplies both colour and alpha by `fade`, so raising the
+ * exponent thins the entire field rather than just its tail, which is why C
+ * came out lighter than A. bottomFadeStartPercent is the only setting here
+ * that touches the bottom edge alone, so D changes nothing else about A.
+ */
+const PRESET_D: Overrides = {
+  ...PRESET_A,
+  bottomFadeStartPercent: 62,
+};
+
+const OCEAN_PRESETS = {
+  a: PRESET_A,
+  b: PRESET_B,
+  c: PRESET_C,
+  d: PRESET_D,
+} as const;
 
 export type OceanPresetName = keyof typeof OCEAN_PRESETS;
 
 /** The preset that ships. `?ocean=<name>` overrides it in dev only. */
-export const ACTIVE_OCEAN_PRESET: OceanPresetName = "c";
+export const ACTIVE_OCEAN_PRESET: OceanPresetName = "d";
 
 function isPresetName(value: string | null): value is OceanPresetName {
   return value !== null && value in OCEAN_PRESETS;
