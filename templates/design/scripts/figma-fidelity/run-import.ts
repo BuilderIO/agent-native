@@ -135,6 +135,15 @@ interface ImportCase {
   url: string;
   /** Optional note about what this case is meant to stress. */
   stresses?: string;
+  /**
+   * The node's expected "WxH", pinned so the corpus cannot drift underneath a
+   * run. Two cases silently grew a SECOND design inside them — a stray paste
+   * landed in the frame rather than beside it — and went on scoring as though
+   * nothing had happened: one page carried six foreign screens and measured
+   * 21306px tall instead of 4263. A number computed over the wrong content is
+   * worse than no number, so a size that no longer matches fails the case.
+   */
+  expectSize?: string;
 }
 
 /**
@@ -328,6 +337,15 @@ async function runCase(
   if (!box?.width || !box?.height) {
     throw new Error(
       `Node ${nodeId} has no absoluteBoundingBox to render against.`,
+    );
+  }
+  const actualSize = `${Math.round(box.width)}x${Math.round(box.height)}`;
+  if (testCase.expectSize && testCase.expectSize !== actualSize) {
+    throw new Error(
+      `Node ${nodeId} is ${actualSize}, but this case expects ${testCase.expectSize}. ` +
+        `The design under it changed — most likely something was pasted INTO the frame ` +
+        `rather than beside it, which scores a composite of two designs. Re-capture the ` +
+        `node into a file of its own, or update expectSize if the change was intended.`,
     );
   }
 
