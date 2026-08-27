@@ -70,8 +70,10 @@ Read the relevant skill before deeper work:
   break them; record additions in the changelog.
 - `appUrl` is the canonical human-open deck link. Keep legacy `url` and
   `deepLink` compatible; integrations map human links to `appUrl`.
-- Exports return exactly `downloadUrl`, `filename`, and `expiresAt`.
-  `expiresAt` is authoritative: fetch promptly and do not forward the
+- `export-pptx` and `export-html` return exactly `downloadUrl`, `filename`,
+  and `expiresAt`. `export-google-slides` preserves its Google-import dialog
+  metadata while passing through the same signed download fields. `expiresAt`
+  is authoritative: fetch the binary promptly and do not forward the
   short-lived `downloadUrl`.
 - The token-gated public binary route exists solely because action routes are
   authenticated JSON-only; it changes neither sharing nor permissions.

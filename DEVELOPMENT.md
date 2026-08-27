@@ -38,6 +38,13 @@ pnpm --filter @agent-native/docs dev   # run the docs site
 
 Any template action exposed at `/_agent-native/actions/<action-name>` is a versioned public API. Do not silently rename its action name, change its parameter schema, or remove or rename response fields. Additive action or response fields require a user-facing app changelog entry.
 
+For Slides, `export-pptx` and `export-html` return exactly `downloadUrl`,
+`filename`, and `expiresAt`. `export-google-slides` preserves its existing
+Google-import dialog metadata while passing through the same signed download
+fields. `expiresAt` is authoritative, so callers fetch the binary promptly and
+never forward the short-lived `downloadUrl`; `appUrl` remains the canonical
+human link.
+
 ### Electron desktop app
 
 ```bash

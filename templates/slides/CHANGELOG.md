@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Export docs now distinguish the exact PPTX/HTML download contract from Google Slides import-dialog metadata.
 - Clicking a slide thumbnail now keeps arrow keys on slide navigation instead of scrolling the thumbnail pane.
 
 ## 2026-08-24
