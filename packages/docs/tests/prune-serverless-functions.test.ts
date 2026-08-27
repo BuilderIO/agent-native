@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -69,16 +70,21 @@ describe("prune-serverless-functions", () => {
   });
 
   it("accepts a translated doc whose prerendered page exists", () => {
+    // `new URL().pathname` leaves the path percent-encoded, so a checkout whose
+    // path contains a space writes to a literal `%20` directory the script never
+    // reads. `fileURLToPath` is the decoding form.
     const publish = path.resolve(
-      path.dirname(new URL(import.meta.url).pathname),
+      path.dirname(fileURLToPath(import.meta.url)),
       "..",
       "dist",
     );
-    mkdirSync(path.join(publish, "de-DE", "docs", "actions-overview"), {
+    // The build writes the canonical lowercase locale directory, not the cased
+    // locale the source filename uses.
+    mkdirSync(path.join(publish, "de-de", "docs", "actions-overview"), {
       recursive: true,
     });
     writeFileSync(
-      path.join(publish, "de-DE", "docs", "actions-overview", "index.html"),
+      path.join(publish, "de-de", "docs", "actions-overview", "index.html"),
       "<html></html>",
     );
 
