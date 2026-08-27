@@ -522,9 +522,34 @@ describe("slide object interactions", () => {
         '.fmd-layout-spacer[data-slide-layout-preserved="true"]',
       ),
     ).toBeTruthy();
-    expect(persistedRoot.querySelector("[data-slide-layout-spacer-for]")).toBe(
-      null,
+    expect(
+      persistedRoot.querySelector(
+        `[data-slide-layout-spacer-for="${rectangle.dataset.slideObjectId}"]`,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("removes a committed flow object's preserved slot with the object", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    root.append(rectangle);
+
+    freezeSlideElementForFreeform(
+      rectangle,
+      { x: 0, y: 0, width: 120, height: 80 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
     );
+    preserveSlideObjectLayoutSpacer(rectangle);
+
+    removeSlideObjectAndLayoutSpacer(rectangle);
+
+    expect(root.children).toHaveLength(0);
   });
 
   it("sends an object in front of every peer", () => {
@@ -979,7 +1004,9 @@ describe("isDeletableSlideElement", () => {
     expect(root.contains(sibling)).toBe(true);
     expect(spacer.classList.contains("fmd-layout-spacer")).toBe(true);
     expect(spacer.dataset.slideLayoutPreserved).toBe("true");
-    expect(spacer.dataset.slideLayoutSpacerFor).toBeUndefined();
+    expect(spacer.dataset.slideLayoutSpacerFor).toBe(
+      rectangle.dataset.slideObjectId,
+    );
     expect(spacer.style.width).toBe("420px");
     expect(spacer.style.height).toBe("96px");
   });

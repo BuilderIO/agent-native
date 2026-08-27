@@ -532,7 +532,6 @@ export function preserveSlideObjectLayoutSpacer(element: HTMLElement): void {
     if (spacer.getAttribute("data-slide-layout-spacer-for") !== objectId) {
       continue;
     }
-    spacer.removeAttribute("data-slide-layout-spacer-for");
     spacer.setAttribute("data-slide-layout-preserved", "true");
   }
 }
