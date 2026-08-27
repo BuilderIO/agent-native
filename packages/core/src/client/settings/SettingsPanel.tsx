@@ -98,6 +98,7 @@ import {
   type SettingsSectionId,
 } from "./agent-settings-search.js";
 import { AgentsSection } from "./AgentsSection.js";
+import { ApiTokensSettings } from "./ApiTokensSettings.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
@@ -3963,6 +3964,24 @@ export function useAgentSettingsTabs(
         icon: IconPlugConnected,
         group: "integrations",
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
+      },
+      {
+        id: "api-tokens",
+        label: "API Tokens",
+        icon: IconKey,
+        group: "integrations",
+        keywords:
+          "api tokens bearer token personal service n8n make zapier http",
+        searchEntries: [
+          {
+            id: "api-tokens",
+            label: "API Tokens",
+            keywords: "bearer token personal service n8n make zapier http",
+            tabId: "api-tokens",
+            icon: IconKey,
+          },
+        ],
+        content: <ApiTokensSettings />,
       },
       {
         ...usage,

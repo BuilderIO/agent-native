@@ -35,6 +35,7 @@ export {
   type BuilderStatus,
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";
+export { ApiTokensSettings } from "./ApiTokensSettings.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
 export {
   SettingsGroup,

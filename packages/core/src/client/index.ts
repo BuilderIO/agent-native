@@ -55,6 +55,7 @@ export { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js
 export {
   SettingsPanel,
   SettingsTabsPage,
+  ApiTokensSettings,
   SecretsSection,
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,

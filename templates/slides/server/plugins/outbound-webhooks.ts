@@ -1,9 +1,7 @@
-import { defineNitroPlugin } from "@agent-native/core";
-
 import { processDueWebhookDeliveries } from "../lib/outbound-webhooks.js";
 
 /** Self-hosted Node keeps a best-effort wake-up loop. Serverless uses the signed processor handoff. */
-export default defineNitroPlugin(() => {
+export default () => {
   if (!process.env.NITRO_PRESET?.startsWith("node")) return;
   const timer = setInterval(() => {
     void processDueWebhookDeliveries().catch((error) =>
@@ -11,4 +9,4 @@ export default defineNitroPlugin(() => {
     );
   }, 60_000);
   timer.unref?.();
-});
+};
