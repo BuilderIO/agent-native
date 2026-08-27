@@ -586,6 +586,24 @@ function DocumentEditorBody({
     });
   }, [documentId, t]);
   const updateDocument = useUpdateDocument();
+  const handleToggleFavorite = useCallback(
+    (nextFavorite: boolean) => {
+      updateDocument.mutate(
+        { id: documentId, isFavorite: nextFavorite },
+        {
+          onError: (error) => {
+            toast.error(t("sidebar.failedUpdateFavorite"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
+    },
+    [documentId, t, updateDocument],
+  );
   const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
@@ -2143,6 +2161,8 @@ function DocumentEditorBody({
               deleteDocument.isPending || deleteContentDatabase.isPending
             }
             onDelete={handleDeleteDocument}
+            isFavorite={document.isFavorite}
+            onToggleFavorite={handleToggleFavorite}
             utilityPanel={utilityPanel}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
