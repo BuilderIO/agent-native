@@ -1806,7 +1806,8 @@ export const runAnalyticsMigrations = runMigrations(
       sql: {
         postgres:
           "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
-        sqlite: "ALTER TABLE dashboards ADD COLUMN created_by TEXT",
+        sqlite:
+          "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
       },
     },
   ],
