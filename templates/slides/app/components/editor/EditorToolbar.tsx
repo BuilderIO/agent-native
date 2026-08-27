@@ -697,18 +697,19 @@ export default function EditorToolbar({
         />
       )}
 
-      {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
-      <PresenceBar
-        activeUsers={activeUsers ?? []}
-        agentPresent={agentPresent}
-        agentActive={agentActive}
-        showAgentEditingDot={false}
-        currentUserEmail={currentUserEmail}
-        className="flex-shrink-0 mr-0.5 pl-2"
-      />
+      {/* Top-right editor actions */}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
+        <PresenceBar
+          activeUsers={activeUsers ?? []}
+          agentPresent={agentPresent}
+          agentActive={agentActive}
+          showAgentEditingDot={false}
+          currentUserEmail={currentUserEmail}
+          className="flex-shrink-0 pl-2"
+        />
 
-      {/* Consolidated editor menu */}
-      <div className="ml-auto flex-shrink-0">
+        {/* Consolidated editor menu */}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
