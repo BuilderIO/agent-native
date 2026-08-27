@@ -134,16 +134,16 @@ jobs:
               })).data;
             }
 
-            async function hasRemoteTag(tag, expectedSha) {
+            async function getRemoteTagSha(tag) {
               try {
                 const response = await github.rest.git.getRef({
                   owner,
                   repo,
                   ref: `tags/${tag}`,
                 });
-                return response.data.object.sha === expectedSha;
+                return response.data.object.sha;
               } catch (error) {
-                if (error.status === 404) return false;
+                if (error.status === 404) return null;
                 throw error;
               }
             }
@@ -243,7 +243,7 @@ jobs:
               throw new Error(`Stable release PR #${pr.number} did not merge in time: ${pr.html_url}`);
             }
 
-            async function waitForStablePackagePublish(mergeSha, packageTag) {
+            async function waitForStablePackagePublish(mergeSha, packageTag, requireMergeTag) {
               const deadline = Date.now() + 120 * 60_000;
               while (Date.now() < deadline) {
                 const response = await github.rest.actions.listWorkflowRuns({
@@ -266,9 +266,13 @@ jobs:
                     "Stable npm publication",
                     Math.max(60_000, deadline - Date.now()),
                   );
-                  if (!(await hasRemoteTag(packageTag, mergeSha))) {
+                  const tagSha = await getRemoteTagSha(packageTag);
+                  if (!tagSha || (requireMergeTag && tagSha !== mergeSha)) {
+                    const tagDescription = requireMergeTag
+                      ? `remote tag ${packageTag} pointing to ${mergeSha}`
+                      : `remote tag ${packageTag}`;
                     throw new Error(
-                      `Stable npm publication completed without remote tag ${packageTag} pointing to ${mergeSha}: ${run.html_url}`,
+                      `Stable npm publication completed without ${tagDescription}: ${run.html_url}`,
                     );
                   }
                   return completed;
@@ -301,6 +305,10 @@ jobs:
 
             const releasePr = await waitForReleasePullRequest(previousReleaseNumbers);
             const releaseSha = await waitForReleaseMerge(releasePr);
+            const initialCorePackage = await readJsonAt(
+              initialMainSha,
+              "packages/core/package.json",
+            );
             const corePackage = await readJsonAt(
               releaseSha,
               "packages/core/package.json",
@@ -313,9 +321,10 @@ jobs:
             };
             const coreVersion = stableVersion(corePackage.version, "Core package");
             // workflow_dispatch accepts a branch or tag, not a raw commit SHA.
-            // The stable core package tag points at the verified release commit.
+            // Reuse the immutable core package tag when this release did not version core.
             const workflowRef = `@agent-native/core@${coreVersion}`;
-            await waitForStablePackagePublish(releaseSha, workflowRef);
+            const coreVersionChanged = initialCorePackage.version !== corePackage.version;
+            await waitForStablePackagePublish(releaseSha, workflowRef, coreVersionChanged);
 
             const desktopPackage = await readJsonAt(
               releaseSha,

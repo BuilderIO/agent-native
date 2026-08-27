@@ -52,13 +52,17 @@ describe("release everything workflow", () => {
     const source = String((coordinator.with as Workflow).script);
     assert.match(source, /auto-publish\.yml/);
     assert.match(source, /waitForStablePackagePublish/);
-    assert.match(source, /async function hasRemoteTag\(tag, expectedSha\)/);
+    assert.match(source, /async function getRemoteTagSha\(tag\)/);
     assert.match(source, /git\.getRef/);
     assert.match(
       source,
-      /waitForStablePackagePublish\(releaseSha, workflowRef\)/,
+      /waitForStablePackagePublish\(releaseSha, workflowRef, coreVersionChanged\)/,
     );
-    assert.match(source, /object\.sha === expectedSha/);
+    assert.match(source, /tagSha !== mergeSha/);
+    assert.match(
+      source,
+      /initialCorePackage\.version !== corePackage\.version/,
+    );
     assert.match(source, /pointing to \$\{mergeSha\}/);
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
