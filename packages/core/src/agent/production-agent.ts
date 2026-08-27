@@ -21,6 +21,7 @@ import {
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -1557,7 +1558,18 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
-const SOURCE_SWEEP_TOOL_CALL_THRESHOLD = 12;
+/**
+ * Read-only source/search tool calls one turn may make before the convergence
+ * guard tells the agent to stop sweeping and answer from what it gathered.
+ *
+ * Resolved per call rather than captured at module load: the value is declared
+ * config, so a deployment can raise it for research-shaped apps that legitimately
+ * inspect many records, and a module-level read would freeze whichever value was
+ * resolved before the app's config plugin loaded.
+ */
+export function resolveSourceSweepToolCallThreshold(): number {
+  return getAppConfig().agent.sourceSweepToolCallThreshold;
+}
 /**
  * Serialized-byte threshold at which a run reports how much tool schema
  * `expandActiveTools` has loaded on top of its starting set. Expansion is
@@ -3995,7 +4007,7 @@ function hasExhaustedSourceSweepBudget(opts: {
   actions: Record<string, ActionEntry>;
   threshold?: number;
 }): boolean {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   return (
     opts.priorToolCalls.filter((call) =>
       isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
@@ -4074,14 +4086,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
  * tool error, and the breakers key on that text: a message that reports its own
  * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
  * decline that exists to stop a spiral becomes the one thing nothing can count.
- * The fixed threshold below says the same thing without varying.
+ * The threshold is fixed for the turn, so it says the same thing without
+ * varying.
  */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const target =
     opts.scope === "aggregate"
       ? "read-only source/search tools"
@@ -4115,7 +4128,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   threshold?: number;
 }): { toolName: string; priorCalls: number; message: string } | null {
   if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const priorCalls = opts.priorToolCalls.filter(
     (call) => call.name === opts.toolName,
   ).length;
