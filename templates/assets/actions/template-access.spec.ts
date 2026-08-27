@@ -5,6 +5,15 @@ const resolveMock = vi.hoisted(() => vi.fn());
 const targetAccessMock = vi.hoisted(() => vi.fn());
 const accessFilterMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const eqMock = vi.hoisted(() =>
+  vi.fn((column, value) => ({ op: "eq", column, value })),
+);
+const isNullMock = vi.hoisted(() =>
+  vi.fn((column) => ({ op: "isNull", column })),
+);
+const orMock = vi.hoisted(() =>
+  vi.fn((...conditions) => ({ op: "or", conditions })),
+);
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (entry: unknown) => entry,
@@ -12,10 +21,10 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(),
   asc: vi.fn(),
-  eq: vi.fn((column, value) => ({ column, value })),
+  eq: eqMock,
   inArray: vi.fn((column, values) => ({ op: "in", column, values })),
-  isNull: vi.fn(),
-  or: vi.fn((...conditions) => ({ op: "or", conditions })),
+  isNull: isNullMock,
+  or: orMock,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: accessFilterMock,
@@ -118,6 +127,32 @@ describe("list-templates access", () => {
       expect.anything(),
       "library_shares",
     );
+  });
+
+  it("returns only associated templates for explicit library scope", async () => {
+    getDbMock.mockReturnValue(
+      createSequentialDb([
+        [],
+        [
+          {
+            id: "kit-template",
+            libraryId: "kit-1",
+            title: "Kit template",
+          },
+        ],
+        [{ id: "kit-1", title: "Brand Kit" }],
+      ]),
+    );
+
+    await expect(
+      action.run({ scope: "library", libraryId: "kit-1" }),
+    ).resolves.toMatchObject({
+      count: 1,
+      templates: [{ id: "kit-template", libraryId: "kit-1" }],
+    });
+    expect(eqMock).toHaveBeenCalledWith("template.library_id", "kit-1");
+    expect(isNullMock).not.toHaveBeenCalled();
+    expect(orMock).not.toHaveBeenCalled();
   });
 
   it("does not disclose the linked Brand Kit title from get-template", async () => {

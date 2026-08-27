@@ -20,18 +20,18 @@ export default defineAction({
   readOnly: true,
   run: async ({ libraryId, collectionId, scope, query }) => {
     const filters = [await accessibleTemplateFilter()];
-    if (libraryId && scope !== "global") {
+    if (scope === "global") {
+      filters.push(isNull(schema.assetTemplates.libraryId));
+    } else if (scope === "library") {
+      if (!libraryId) return { count: 0, templates: [] };
+      filters.push(eq(schema.assetTemplates.libraryId, libraryId));
+    } else if (libraryId) {
       filters.push(
         or(
           eq(schema.assetTemplates.libraryId, libraryId),
           isNull(schema.assetTemplates.libraryId),
         )!,
       );
-    } else if (scope === "global") {
-      filters.push(isNull(schema.assetTemplates.libraryId));
-    } else if (scope === "library") {
-      if (!libraryId) return { count: 0, templates: [] };
-      filters.push(eq(schema.assetTemplates.libraryId, libraryId));
     }
     if (collectionId)
       filters.push(
