@@ -504,7 +504,6 @@ export function RunErrorRecoveryCard({
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
-  const [providerConnected, setProviderConnected] = useState(false);
   const retryRequestedRef = useRef(false);
   const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
@@ -576,7 +575,6 @@ export function RunErrorRecoveryCard({
   }, [onDismiss, onProviderConnected, onRetry]);
 
   const handleMissingProviderConnected = useCallback(() => {
-    setProviderConnected(true);
     onProviderConnected?.();
   }, [onProviderConnected]);
   const handleMissingProviderRetry = useCallback(() => {
@@ -616,19 +614,30 @@ export function RunErrorRecoveryCard({
           layout="sidebar"
           onConnected={handleMissingProviderConnected}
         />
-        {providerConnected ? (
-          <div className="flex justify-center px-3 pt-1">
-            <button
-              type="button"
-              onClick={handleMissingProviderRetry}
-              disabled={retryRequested}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-            >
-              <IconRefresh size={13} />
-              {t("agentChat.common.retry")}
-            </button>
-          </div>
-        ) : null}
+        {/*
+          Deliberately not gated on `providerConnected`. That gate assumed
+          connecting here is the only route out, which is false for the reader
+          this card now most often reaches: a rejected workspace or deployment
+          credential is skipped for a backing-off window, so the next run can
+          report missing credentials while the actual fix is someone else
+          repairing the shared credential, or simply the window expiring.
+          Withholding retry until they connect a provider they may have no
+          permission to add left an already-connected panel with no action —
+          the same dead end the rejected-credential card was just changed to
+          stop producing, one step later. `handleMissingProviderRetry` fires at
+          most once per card, so offering it cannot loop.
+        */}
+        <div className="flex justify-center px-3 pt-1">
+          <button
+            type="button"
+            onClick={handleMissingProviderRetry}
+            disabled={retryRequested}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          >
+            <IconRefresh size={13} />
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
       </div>
     );
   }
