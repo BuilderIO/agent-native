@@ -669,9 +669,6 @@ const messages = {
     sourceGitHub: "Repositorio de GitHub",
     sourceMixed: "Varias fuentes",
     sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
-    sourceIndexing: "Indexando",
-    sourceIndexed: "Indexado",
-    sourceUnavailable: "Resultados no disponibles",
     sourceIndexingDescription:
       "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
     sourceIndexedDescription:

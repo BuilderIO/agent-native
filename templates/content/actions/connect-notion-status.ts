@@ -7,6 +7,7 @@ import { getCurrentNotionOwner } from "./_notion-action-utils.js";
 
 export default defineAction({
   description: "Check Notion connection status for the current user.",
+  deferLoading: false,
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {

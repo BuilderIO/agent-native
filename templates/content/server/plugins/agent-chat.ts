@@ -11,19 +11,10 @@ import {
   resolvePublicViewerOwner,
 } from "../lib/public-documents.js";
 
-const INITIAL_TOOL_NAMES = [
-  "view-screen",
-  "list-documents",
-  "search-documents",
-  "get-document",
-  "create-document",
-  "edit-document",
-  "update-document",
-  "add-comment",
-  "list-comments",
-  "refresh-list",
-  "navigate",
-  "connect-notion-status",
+// These tools are injected by the framework/provider layer, so they cannot
+// declare `deferLoading` beside a Content action. Content-owned starter tools
+// carry `deferLoading: false` in their own definitions.
+const INJECTED_INITIAL_TOOL_NAMES = [
   "provider-api-catalog",
   "provider-api-docs",
   "provider-api-request",
@@ -35,9 +26,9 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
-  initialToolNames: INITIAL_TOOL_NAMES,
+  initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
-    connectorCatalog: ["list-content-databases", "describe-content-database"],
+    externalAgents: { writes: "allowlisted" },
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
