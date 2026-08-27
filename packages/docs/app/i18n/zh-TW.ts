@@ -55,6 +55,9 @@ const messages = {
     next: "下一頁面",
     draftLabel: "草稿",
     draftDescription: "此頁面仍在製作中。內容在發布前可能不完整或有所變動。",
+    translationLabel: "機器翻譯",
+    translationDescription: "此頁面為自動翻譯，內容可能不完全準確。",
+    translationViewOriginal: "查看英文原文",
   },
   search: {
     dialogLabel: "搜尋檔案",

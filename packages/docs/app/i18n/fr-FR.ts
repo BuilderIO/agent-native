@@ -58,6 +58,10 @@ const frFR = {
     draftLabel: "Brouillon",
     draftDescription:
       "Cette page est en cours de rédaction. Le contenu peut être incomplet ou sujet à modification avant publication.",
+    translationLabel: "Traduction automatique",
+    translationDescription:
+      "Cette page a été traduite automatiquement et peut ne pas être entièrement exacte.",
+    translationViewOriginal: "Voir l'original en anglais",
   },
   search: {
     dialogLabel: "Rechercher la documentation",

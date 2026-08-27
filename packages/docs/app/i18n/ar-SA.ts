@@ -58,6 +58,10 @@ const arSA = {
     draftLabel: "مسودة",
     draftDescription:
       "هذه الصفحة قيد الإنشاء. قد يكون المحتوى غير مكتمل أو عرضة للتغيير قبل النشر.",
+    translationLabel: "مترجمة آليًا",
+    translationDescription:
+      "تمت ترجمة هذه الصفحة تلقائيًا وقد لا تكون دقيقة بشكل كامل.",
+    translationViewOriginal: "عرض النسخة الأصلية بالإنجليزية",
   },
   search: {
     dialogLabel: "البحث في الوثائق",

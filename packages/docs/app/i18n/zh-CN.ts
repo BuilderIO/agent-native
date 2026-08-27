@@ -57,6 +57,9 @@ const zhCN = {
     next: "下一页",
     draftLabel: "草稿",
     draftDescription: "此页面仍在编写中。内容在发布前可能不完整或有所变动。",
+    translationLabel: "机器翻译",
+    translationDescription: "此页面为自动翻译，内容可能不完全准确。",
+    translationViewOriginal: "查看英文原文",
   },
   search: {
     dialogLabel: "搜索文档",

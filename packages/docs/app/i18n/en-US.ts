@@ -56,6 +56,10 @@ const enUS = {
     draftLabel: "Draft",
     draftDescription:
       "This page is a work in progress. Content may be incomplete or subject to change before publication.",
+    translationLabel: "Machine-translated",
+    translationDescription:
+      "This page was translated automatically and may not be fully accurate.",
+    translationViewOriginal: "View the original in English",
   },
   common: {
     copied: "Copied",

@@ -58,6 +58,10 @@ const koKR = {
     draftLabel: "초안",
     draftDescription:
       "이 페이지는 작업 중입니다. 게시 전까지 콘텐츠가 불완전하거나 변경될 수 있습니다.",
+    translationLabel: "기계 번역",
+    translationDescription:
+      "이 페이지는 자동으로 번역되었으며 내용이 완전히 정확하지 않을 수 있습니다.",
+    translationViewOriginal: "영어 원문 보기",
   },
   search: {
     dialogLabel: "문서 검색",
