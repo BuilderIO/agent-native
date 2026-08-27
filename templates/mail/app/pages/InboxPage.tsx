@@ -271,7 +271,6 @@ function ThreadListSidebar({
 // using `[]` inline creates a fresh array on every render, which cascades
 // through memos into EmailThread's props and causes re-render storms.
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
-const EMPTY_LABELS: string[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
 export function InboxPage() {
@@ -343,10 +342,7 @@ export function InboxPage() {
     () => new Set(connectedAccounts.map((a) => a.email.toLowerCase())),
     [connectedAccounts],
   );
-  const userPinnedLabels = useMemo(
-    () => settings?.pinnedLabels ?? EMPTY_LABELS,
-    [settings?.pinnedLabels],
-  );
+  const userPinnedLabels = settings?.pinnedLabels;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],

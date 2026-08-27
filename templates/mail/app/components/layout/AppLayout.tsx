@@ -88,6 +88,7 @@ import {
   OTHER_INBOX_TAB_ID,
   OTHER_INBOX_TAB_PARAM,
   qualifiesForInboxTab,
+  resolvePinnedLabels,
   pinnedTriageLabels,
   augmentSelfSentLabels,
 } from "@/lib/inbox-tabs";
@@ -374,11 +375,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     () => new Set(accounts.map((a) => a.email.toLowerCase())),
     [accounts],
   );
-  // Important is always on and always first when Google is connected
-  const userPinnedLabels = settings?.pinnedLabels ?? [];
-  const pinnedLabels = isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : userPinnedLabels;
+  // Keep the pinned label order exactly as stored so the settings checkbox can
+  // actually turn Important off.
+  const userPinnedLabels = settings?.pinnedLabels;
+  const pinnedLabels = useMemo(
+    () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
+    [isGoogleConnected, userPinnedLabels],
+  );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
   const {
@@ -888,9 +891,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const without = current.filter((id) => id !== dragPinnedId);
     let insertAt: number;
 
-    if (targetTab.pinnedId === "important") {
-      insertAt = 0;
-    } else if (!targetTab.pinnedId) {
+    if (!targetTab.pinnedId) {
       insertAt = without.length;
     } else {
       const targetIdx = without.indexOf(targetTab.pinnedId);
@@ -2377,7 +2378,7 @@ function TabSettingsPopover({
     : systemViews;
 
   // Split labels into Gmail categories and regular user labels
-  // "important" is excluded — it's always on and not toggleable
+  // Keep Important with regular labels so it can be toggled like any other tab.
   const gmailCategoryIds = new Set([
     "note-to-self",
     "promotions",
