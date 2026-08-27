@@ -116,6 +116,10 @@ function compactAnimationSummary(value: unknown, content: string) {
         elementPath: Array.isArray(animation.elementPath)
           ? animation.elementPath
           : null,
+        byParagraph:
+          typeof animation.byParagraph === "boolean"
+            ? animation.byParagraph
+            : false,
         type: typeof animation.type === "string" ? animation.type : null,
         targetPreview: targetSummary?.targetPreview ?? null,
         resolvedPath: targetSummary?.resolvedPath ?? null,

@@ -39,8 +39,10 @@ import {
   MAX_DESIGN_UNDO_STACK,
   applyGeometryHistoryDiff,
   findLastContentHistoryChangeIndex,
-  getAvailableContentHistoryChanges,
+  partitionContentHistoryEntry,
+  contentHistoryEntryFromChanges,
   remapFileDeletionHistoryEntryIds,
+  restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleEdit,
@@ -305,9 +307,7 @@ export function runUndo({
     );
     pendingLiveNonStyleEditsRef.current = nextPending;
     pendingLiveNonStyleRedoStackRef.current = [
-      ...pendingLiveNonStyleRedoStackRef.current.slice(
-        -(MAX_DESIGN_UNDO_STACK - 1),
-      ),
+      ...pendingLiveNonStyleRedoStackRef.current,
       pendingNonStyleUndo,
     ];
     requestPendingLiveNonStyleRevert([
@@ -370,9 +370,7 @@ export function runUndo({
     );
     pendingVisualStyleEditsRef.current = nextPending;
     pendingVisualStyleRedoStackRef.current = [
-      ...pendingVisualStyleRedoStackRef.current.slice(
-        -(MAX_DESIGN_UNDO_STACK - 1),
-      ),
+      ...pendingVisualStyleRedoStackRef.current,
       pendingStyleUndo,
     ];
     requestPendingVisualStyleRevert([
@@ -608,7 +606,7 @@ export function runUndo({
       contentUndoSelectionStackRef.current[
         contentUndoSelectionStackRef.current.length - 1
       ];
-    const changes = getAvailableContentHistoryChanges(
+    const { available: changes, remainder } = partitionContentHistoryEntry(
       entry,
       files.map((file) => file.id),
       activeFile?.id,
@@ -621,9 +619,16 @@ export function runUndo({
     }
     contentUndoStackRef.current.pop();
     contentUndoSelectionStackRef.current.pop();
+    const remainderEntry = contentHistoryEntryFromChanges(remainder);
+    if (remainderEntry) {
+      contentUndoStackRef.current.push(remainderEntry);
+      contentUndoSelectionStackRef.current.push(entrySelection);
+      restoreFileContentHistoryOrderToken(historyOrderRef.current, true);
+    }
+    const appliedEntry = contentHistoryEntryFromChanges(changes)!;
     contentRedoStackRef.current = [
       ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
+      appliedEntry,
     ];
     contentRedoSelectionStackRef.current = [
       ...contentRedoSelectionStackRef.current.slice(
