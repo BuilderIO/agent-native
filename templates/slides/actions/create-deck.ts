@@ -24,7 +24,10 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
-import { ensureUniqueSlideIds } from "../shared/slide-ids.js";
+import {
+  ensureUniqueSlideIds,
+  rebindCreativeContextSlideLabels,
+} from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 
 const ReuseLabelSchema = z
@@ -160,11 +163,15 @@ export default defineAction({
   }) => {
     const db = getDb();
     const now = new Date().toISOString();
-    const { slides } = ensureUniqueSlideIds(
+    const normalizedSlides = ensureUniqueSlideIds(
       rawSlides.map((s) => ({
         ...s,
         content: normalizeSlidePadding(s.content),
       })),
+    );
+    const slides = rebindCreativeContextSlideLabels(
+      normalizedSlides.slides,
+      normalizedSlides.originalIds,
     );
     const validatedCreativeContext = await validateGenerationCreativeContext({
       contextPackId,

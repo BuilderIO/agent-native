@@ -2,7 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -11,8 +11,79 @@ import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
-import { ensureUniqueSlideIds } from "../shared/slide-ids.js";
+import {
+  ensureUniqueSlideIds,
+  repairDeckSlideReferences,
+} from "../shared/slide-ids.js";
 import { withDeckLock } from "./patch-deck.js";
+
+const MAX_REPAIR_ATTEMPTS = 3;
+
+async function readDeck(deckId: string) {
+  const access = await resolveAccess("deck", deckId);
+  if (!access) {
+    // 404 rather than 403/500 so HTTP callers can't probe for decks they
+    // can't see, and so the slide preview can tell "missing" from "broken".
+    throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+  }
+
+  const row = access.resource;
+  const data = JSON.parse(row.data);
+  const normalized = ensureUniqueSlideIds(
+    Array.isArray(data?.slides) ? data.slides : [],
+  );
+  return { row, data, ...normalized };
+}
+
+async function loadDeckWithUniqueSlideIds(deckId: string) {
+  for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
+    const snapshot = await readDeck(deckId);
+    if (!snapshot.changed) return { ...snapshot, repaired: false };
+
+    const repaired = await withDeckLock(deckId, async () => {
+      const lockedSnapshot = await readDeck(deckId);
+      if (!lockedSnapshot.changed) {
+        return { ...lockedSnapshot, repaired: false };
+      }
+
+      const repairedData = {
+        ...repairDeckSlideReferences(
+          lockedSnapshot.data,
+          lockedSnapshot.slides,
+          lockedSnapshot.originalIds,
+        ),
+        updatedAt: new Date().toISOString(),
+      };
+      const versionCondition =
+        lockedSnapshot.row.updatedAt == null
+          ? isNull(schema.decks.updatedAt)
+          : eq(schema.decks.updatedAt, lockedSnapshot.row.updatedAt);
+      await getDb()
+        .update(schema.decks)
+        .set({
+          data: JSON.stringify(repairedData),
+          updatedAt: repairedData.updatedAt,
+        })
+        .where(
+          and(
+            eq(schema.decks.id, lockedSnapshot.row.id),
+            versionCondition,
+            eq(schema.decks.data, lockedSnapshot.row.data),
+          ),
+        );
+
+      const confirmed = await readDeck(deckId);
+      return confirmed.changed ? null : { ...confirmed, repaired: true };
+    });
+
+    if (repaired) {
+      if (repaired.repaired) notifyClients(deckId);
+      return repaired;
+    }
+  }
+
+  throw new Error(`Could not repair duplicate slide IDs for deck ${deckId}.`);
+}
 
 function stripHtml(html: string): string {
   return html
@@ -106,137 +177,109 @@ export default defineAction({
       throw new Error("--id is required.");
     }
 
-    return withDeckLock(args.id, async () => {
-      const access = await resolveAccess("deck", args.id!);
-      if (!access) {
-        // 404 rather than 403/500 so HTTP callers can't probe for decks they
-        // can't see, and so the slide preview can tell "missing" from "broken".
-        throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
-      }
+    const { row, data, slides } = await loadDeckWithUniqueSlideIds(args.id);
+    const ownerEmail = getRequestUserEmail();
+    const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
+    const selectedSlideIndex =
+      args.slideId === undefined
+        ? -1
+        : slides.findIndex((slide: any) => slide?.id === args.slideId);
 
-      const row = access.resource;
-      let data = JSON.parse(row.data);
-      const { slides, changed } = ensureUniqueSlideIds(
-        Array.isArray(data?.slides) ? data.slides : [],
-      );
-      let updatedAt = row.updatedAt;
-      if (changed) {
-        const now = new Date().toISOString();
-        data = {
-          ...(data && typeof data === "object" ? data : {}),
-          slides,
-          updatedAt: now,
-        };
-        await getDb()
-          .update(schema.decks)
-          .set({ data: JSON.stringify(data), updatedAt: now })
-          .where(eq(schema.decks.id, row.id));
-        updatedAt = now;
-        notifyClients(row.id);
-      }
-      const ownerEmail = getRequestUserEmail();
-      const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
-      const selectedSlideIndex =
-        args.slideId === undefined
-          ? -1
-          : slides.findIndex((slide: any) => slide?.id === args.slideId);
+    if (args.slideId !== undefined && selectedSlideIndex < 0) {
+      throw Object.assign(new Error(`Slide not found: ${args.slideId}`), {
+        statusCode: 404,
+      });
+    }
 
-      if (args.slideId !== undefined && selectedSlideIndex < 0) {
-        throw Object.assign(new Error(`Slide not found: ${args.slideId}`), {
-          statusCode: 404,
-        });
-      }
+    const selectedSlide =
+      selectedSlideIndex >= 0 ? slides[selectedSlideIndex] : null;
+    const slideEntries: Array<{ slide: any; index: number }> =
+      selectedSlideIndex >= 0
+        ? [{ slide: selectedSlide, index: selectedSlideIndex }]
+        : slides.map((slide: any, index: number) => ({ slide, index }));
 
-      const selectedSlide =
-        selectedSlideIndex >= 0 ? slides[selectedSlideIndex] : null;
-      const slideEntries: Array<{ slide: any; index: number }> =
-        selectedSlideIndex >= 0
-          ? [{ slide: selectedSlide, index: selectedSlideIndex }]
-          : slides.map((slide: any, index: number) => ({ slide, index }));
+    const compact =
+      args.compact === "true" ||
+      (args.compact === undefined &&
+        ctx?.caller === "tool" &&
+        selectedSlideIndex < 0);
 
-      const compact =
-        args.compact === "true" ||
-        (args.compact === undefined &&
-          ctx?.caller === "tool" &&
-          selectedSlideIndex < 0);
-
-      if (compact) {
-        return {
-          id: row.id,
-          title: row.title || data?.title,
-          visibility: row.visibility,
-          designSystemId: row.designSystemId ?? null,
-          sourceImport: data?.sourceImport
-            ? {
-                mode: data.sourceImport.mode,
-                format: data.sourceImport.format,
-                fidelity: data.sourceImport.fidelity,
-                slideCount: data.sourceImport.slideCount,
-                slideIds: data.sourceImport.slideIds,
-                ...(typeof data.sourceImport.imagesSkipped === "number"
-                  ? { imagesSkipped: data.sourceImport.imagesSkipped }
-                  : {}),
-              }
-            : null,
-          slideCount: slides.length,
-          slideNumbering:
-            'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
-          deepLink: deckDeepLink(row.id),
-          ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
-          slides: slideEntries.map(({ slide: s, index: i }) => ({
-            slideNumber: i + 1,
-            zeroBasedIndex: i,
-            id: s.id,
-            layout: s.layout ?? null,
-            transition: s.transition ?? null,
-            animations: compactAnimationSummary(
-              s.animations,
-              typeof s.content === "string" ? s.content : "",
-            ),
-            textPreview: stripHtml(s.content || "").slice(0, 120),
-          })),
-        };
-      }
-
-      const deckMetadata = { ...data };
-      delete deckMetadata.slides;
-
-      const formatHtml = args.format === "true";
-      const fullSlides = await Promise.all(
-        slideEntries.map(async ({ slide: s, index: i }) => ({
-          ...s,
+    if (compact) {
+      return {
+        id: row.id,
+        title: row.title || data?.title,
+        visibility: row.visibility,
+        designSystemId: row.designSystemId ?? null,
+        sourceImport: data?.sourceImport
+          ? {
+              mode: data.sourceImport.mode,
+              format: data.sourceImport.format,
+              fidelity: data.sourceImport.fidelity,
+              slideCount: data.sourceImport.slideCount,
+              slideIds: data.sourceImport.slideIds,
+              ...(typeof data.sourceImport.imagesSkipped === "number"
+                ? { imagesSkipped: data.sourceImport.imagesSkipped }
+                : {}),
+            }
+          : null,
+        slideCount: slides.length,
+        slideNumbering:
+          'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
+        deepLink: deckDeepLink(row.id),
+        ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+        slides: slideEntries.map(({ slide: s, index: i }) => ({
           slideNumber: i + 1,
           zeroBasedIndex: i,
           id: s.id,
           layout: s.layout ?? null,
-          content: formatHtml
-            ? await formatSlideHtml(String(s.content ?? ""))
-            : s.content,
-          contentHash: hashSlideContent(String(s.content ?? "")),
-          notes: s.notes ?? null,
+          transition: s.transition ?? null,
+          animations: compactAnimationSummary(
+            s.animations,
+            typeof s.content === "string" ? s.content : "",
+          ),
+          textPreview: stripHtml(s.content || "").slice(0, 120),
         })),
-      );
-
-      return {
-        ...deckMetadata,
-        id: row.id,
-        title: row.title || data?.title,
-        visibility: row.visibility,
-        createdByMe:
-          normalizedOwnerEmail !== null &&
-          normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-        designSystemId: row.designSystemId ?? null,
-        slideCount: slides.length,
-        slideNumbering:
-          'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
-        createdAt:
-          typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
-        updatedAt,
-        deepLink: deckDeepLink(row.id),
-        ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
-        slides: fullSlides,
       };
-    });
+    }
+
+    const deckMetadata = { ...data };
+    delete deckMetadata.slides;
+
+    const formatHtml = args.format === "true";
+    const fullSlides = await Promise.all(
+      slideEntries.map(async ({ slide: s, index: i }) => ({
+        ...s,
+        slideNumber: i + 1,
+        zeroBasedIndex: i,
+        id: s.id,
+        layout: s.layout ?? null,
+        content: formatHtml
+          ? await formatSlideHtml(String(s.content ?? ""))
+          : s.content,
+        contentHash: hashSlideContent(String(s.content ?? "")),
+        notes: s.notes ?? null,
+      })),
+    );
+
+    return {
+      ...deckMetadata,
+      id: row.id,
+      title: row.title || data?.title,
+      visibility: row.visibility,
+      createdByMe:
+        normalizedOwnerEmail !== null &&
+        normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+      designSystemId: row.designSystemId ?? null,
+      slideCount: slides.length,
+      slideNumbering:
+        'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
+      createdAt:
+        typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
+      updatedAt: row.updatedAt,
+      deepLink: deckDeepLink(row.id),
+      ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+      slides: fullSlides,
+    };
   },
   link: ({ result, args }) => {
     const id =

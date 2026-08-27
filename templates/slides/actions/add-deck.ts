@@ -17,7 +17,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { assertHumanReadableDeckTitle } from "../shared/deck-title.js";
-import { ensureUniqueSlideIds } from "../shared/slide-ids.js";
+import {
+  ensureUniqueSlideIds,
+  repairDeckSlideReferences,
+} from "../shared/slide-ids.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
@@ -39,9 +42,20 @@ export default defineAction({
   run: async (args) => {
     const deck = args.deck as DeckPayload;
     if (Array.isArray(deck.slides)) {
-      deck.slides = ensureUniqueSlideIds(
+      const normalized = ensureUniqueSlideIds(
         deck.slides as Array<{ id?: unknown }>,
-      ).slides;
+      );
+      deck.slides = normalized.slides;
+      if (normalized.changed) {
+        Object.assign(
+          deck,
+          repairDeckSlideReferences(
+            deck,
+            normalized.slides,
+            normalized.originalIds,
+          ),
+        );
+      }
     }
     const id = deck.id;
     if (typeof id !== "string" || !id) {

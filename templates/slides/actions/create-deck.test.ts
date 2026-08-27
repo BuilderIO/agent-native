@@ -267,4 +267,38 @@ describe("create-deck — aspectRatio", () => {
     expect(result.slides.map((slide) => slide.id)).toEqual(ids);
     expect(data.slides[1].content).toBe("<div>Second</div>");
   });
+
+  it("rebinds slide-scoped Creative Context labels when repairing IDs", async () => {
+    const label = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "slide",
+      label: "Referenced slide",
+      dataRole: "untrusted-reference" as const,
+      elementId: "slide-a",
+    };
+    const result = await action.run({
+      title: "T",
+      slides: [
+        {
+          id: "slide-a",
+          content: "<div>First</div>",
+          creativeContextReuseLabels: [label],
+        },
+        {
+          id: "slide-a",
+          content: "<div>Second</div>",
+          creativeContextReuseLabels: [label],
+        },
+      ],
+    });
+    const ids = result.slides.map((slide) => slide.id);
+
+    expect(result.slides[0].creativeContextReuseLabels?.[0].elementId).toBe(
+      "slide-a",
+    );
+    expect(result.slides[1].creativeContextReuseLabels?.[0].elementId).toBe(
+      ids[1],
+    );
+  });
 });
