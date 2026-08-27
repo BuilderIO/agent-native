@@ -392,3 +392,13 @@ Independent technical review:
   and covered by the final green contract test
 - remaining review findings: none known; the final wording-only repair could
   not receive a third reviewer turn under the frozen review budget
+
+Work handoff:
+
+- implementation commit: `8abc2cd910`
+- draft pull request: https://github.com/BuilderIO/agent-native/pull/3772
+- integration state: not merged; merge and deploy remain prohibited in Work
+- remaining acceptance gates: visible Content UI parity for the persisted
+  comment state, then post-merge beta deployment monitoring and bounded beta
+  discovery/read/write verification
+- natural next stage after the visible UI gate is closed: `/land`
