@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getBetterAuth } from "../../server/better-auth-instance.js";
+import {
+  getBetterAuth,
+  getBetterAuthActionHeaders,
+} from "../../server/better-auth-instance.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -25,6 +28,10 @@ export default defineAction({
     }
 
     const auth = await getBetterAuth();
+    const headers = await getBetterAuthActionHeaders(
+      ctx.userEmail,
+      ctx.requestHeaders,
+    );
     return (
       auth.api as unknown as {
         setPassword: (options: {
@@ -34,7 +41,7 @@ export default defineAction({
       }
     ).setPassword({
       body: { newPassword },
-      headers: ctx.requestHeaders,
+      headers,
     });
   },
 });

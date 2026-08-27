@@ -1165,6 +1165,37 @@ export async function getBetterAuthInternalAdapter(
   return undefined;
 }
 
+/**
+ * Supply Better Auth with a session for password actions invoked through the
+ * framework's legacy session boundary. Those requests have a trusted
+ * `ctx.userEmail`, but may not carry Better Auth's own session cookie.
+ */
+export async function getBetterAuthActionHeaders(
+  email: string,
+  requestHeaders: Headers,
+): Promise<Headers> {
+  const auth = await getBetterAuth();
+  const existingSession = await auth.api.getSession({
+    headers: requestHeaders,
+  });
+  if (existingSession) {
+    if (
+      existingSession.user.email.trim().toLowerCase() !==
+      email.trim().toLowerCase()
+    ) {
+      throw new Error("Authenticated user mismatch.");
+    }
+    return new Headers(requestHeaders);
+  }
+
+  const session = await createBetterAuthSessionForEmail(email);
+  if (!session) throw new Error("Better Auth session is unavailable.");
+
+  const headers = new Headers(requestHeaders);
+  headers.set("authorization", `Bearer ${session.token}`);
+  return headers;
+}
+
 /** Create a real Better Auth session for an existing user without credentials. */
 export async function createBetterAuthSessionForEmail(
   email: string,

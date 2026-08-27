@@ -5,6 +5,7 @@ import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 const getUserProfileMock = vi.fn();
 const updateUserProfileMock = vi.fn();
 const getBetterAuthMock = vi.fn();
+const getBetterAuthActionHeadersMock = vi.fn();
 const getBetterAuthInternalAdapterMock = vi.fn();
 let auth: {
   api: {
@@ -23,6 +24,8 @@ vi.mock("../store.js", () => ({
 }));
 vi.mock("../../server/better-auth-instance.js", () => ({
   getBetterAuth: (...args: unknown[]) => getBetterAuthMock(...args),
+  getBetterAuthActionHeaders: (...args: unknown[]) =>
+    getBetterAuthActionHeadersMock(...args),
   getBetterAuthInternalAdapter: (...args: unknown[]) =>
     getBetterAuthInternalAdapterMock(...args),
 }));
@@ -57,6 +60,9 @@ describe("user profile actions", () => {
       },
     };
     getBetterAuthMock.mockResolvedValue(auth);
+    getBetterAuthActionHeadersMock.mockImplementation(
+      (_email: string, headers: Headers) => headers,
+    );
     internalAdapter = {
       findUserByEmail: vi.fn().mockResolvedValue({
         user: { id: "user-1", email: "alice@example.com" },
@@ -225,6 +231,35 @@ describe("user profile actions", () => {
     expect(changePassword.agentTool).toBe(false);
     expect(changePassword.toolCallable).toBe(false);
     expect(JSON.stringify(setPassword)).not.toContain("new-password");
+  });
+
+  it("passes a Better Auth session bridge to password actions", async () => {
+    const frameworkHeaders = new Headers({
+      cookie: "an_session=legacy-session",
+    });
+    const betterAuthHeaders = new Headers(frameworkHeaders);
+    betterAuthHeaders.set("authorization", "Bearer better-auth-session");
+    getBetterAuthActionHeadersMock.mockResolvedValue(betterAuthHeaders);
+
+    await expect(
+      changePassword.run(
+        { currentPassword: "old-password", newPassword: "new-password" },
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          requestHeaders: frameworkHeaders,
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+
+    expect(getBetterAuthActionHeadersMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      frameworkHeaders,
+    );
+    expect(auth.api.changePassword).toHaveBeenCalledWith({
+      body: { currentPassword: "old-password", newPassword: "new-password" },
+      headers: betterAuthHeaders,
+    });
   });
 
   it("enforces the 12-character minimum before calling Better Auth", async () => {
