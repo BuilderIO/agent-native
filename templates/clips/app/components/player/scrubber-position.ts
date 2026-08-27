@@ -26,6 +26,29 @@ export function timelineMarkerMs(ms: number): number {
   return Math.round(ms / 500) * 500;
 }
 
+export type TimelineMarkerAlignment = "start" | "center" | "end";
+
+export function timelineMarkerAlignment(
+  ms: number,
+  durationMs: number,
+  markerWidth: number,
+  trackWidth: number,
+): TimelineMarkerAlignment {
+  if (ms <= 0) return "start";
+  if (durationMs > 0 && ms >= durationMs) return "end";
+  if (!(trackWidth > 0) || !(durationMs > 0) || !(markerWidth > 0)) {
+    return "center";
+  }
+
+  const markerX = Math.min(
+    trackWidth,
+    Math.max(0, (ms / durationMs) * trackWidth),
+  );
+  if (markerX <= markerWidth / 2) return "start";
+  if (markerX >= trackWidth - markerWidth / 2) return "end";
+  return "center";
+}
+
 export function timelineMarkerLanes(
   markerTimes: number[],
   markerWidths: Map<number, number>,
@@ -41,16 +64,25 @@ export function timelineMarkerLanes(
   return new Map(
     markerTimes.map((ms) => {
       const markerWidth = markerWidths.get(ms) ?? 28;
+      const alignment = timelineMarkerAlignment(
+        ms,
+        durationMs,
+        markerWidth,
+        trackWidth,
+      );
       const markerX = Math.min(
         trackWidth,
         Math.max(0, (ms / durationMs) * trackWidth),
       );
       const markerStart =
-        ms <= 0
+        alignment === "start"
           ? 0
-          : ms >= durationMs
+          : alignment === "end"
             ? Math.max(0, trackWidth - markerWidth)
-            : Math.max(0, markerX - markerWidth / 2);
+            : Math.max(
+                0,
+                Math.min(trackWidth - markerWidth, markerX - markerWidth / 2),
+              );
       const markerEnd = markerStart + markerWidth + 2;
       let lane = laneEnds.findIndex((end) => markerStart >= end);
       if (lane === -1) lane = laneEnds.length;

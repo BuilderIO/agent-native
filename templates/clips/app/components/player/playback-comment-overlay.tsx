@@ -137,7 +137,7 @@ export function PlaybackCommentOverlay({
             : positionAlignment === "end"
               ? { right: "0%" }
               : { left: positionPercent + "%" }),
-          bottom: markerLane ? "1.75rem" : "0",
+          bottom: markerLane ? `${markerLane * 1.75}rem` : "0",
         }}
       >
         <CommentPreview

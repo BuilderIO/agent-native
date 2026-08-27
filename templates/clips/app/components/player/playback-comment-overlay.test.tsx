@@ -144,6 +144,33 @@ describe("PlaybackCommentOverlay", () => {
     container.remove();
   });
 
+  it("keeps highlighted comments aligned with higher marker lanes", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[comment]}
+          currentMs={12_500}
+          durationMs={60_000}
+          getTimelinePositionMs={() => 15_000}
+          getTimelineLane={() => 2}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLElement>("[data-player-comment-preview]")
+        ?.parentElement?.style.bottom,
+    ).toBe("3.5rem");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("keeps highlighted comments inside the player at either timeline edge", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");

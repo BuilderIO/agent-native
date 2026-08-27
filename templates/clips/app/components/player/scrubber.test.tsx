@@ -31,7 +31,10 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 import { Scrubber } from "./scrubber";
-import { timelineMarkerLanes } from "./scrubber-position";
+import {
+  timelineMarkerAlignment,
+  timelineMarkerLanes,
+} from "./scrubber-position";
 
 describe("Scrubber reaction markers", () => {
   let container: HTMLDivElement;
@@ -303,6 +306,22 @@ describe("Scrubber reaction markers", () => {
     expect(
       groups[1]?.querySelector("[data-player-reaction-marker]"),
     ).not.toBeNull();
+  });
+
+  it("anchors near-edge marker groups inward", () => {
+    expect(timelineMarkerAlignment(100, 10_000, 28, 300)).toBe("start");
+    expect(timelineMarkerAlignment(9_900, 10_000, 28, 300)).toBe("end");
+
+    const nearEdgeLanes = timelineMarkerLanes(
+      [100, 9_900],
+      new Map([
+        [100, 28],
+        [9_900, 28],
+      ]),
+      10_000,
+      300,
+    );
+    expect([...nearEdgeLanes.values()]).toEqual([0, 0]);
   });
 
   it("uses a separate lane for each dense marker group", () => {

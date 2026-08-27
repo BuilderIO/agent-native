@@ -10,6 +10,7 @@ import {
 import {
   scrubberFillPercent,
   scrubberPositionFromClientX,
+  timelineMarkerAlignment,
   timelineMarkerLanes,
   timelineMarkerMs,
 } from "./scrubber-position";
@@ -189,12 +190,14 @@ export function Scrubber(props: ScrubberProps) {
   const tooltipPositionPercent = tooltip
     ? Math.min(100, Math.max(0, (tooltip.ms / Math.max(1, durationMs)) * 100))
     : 50;
-  const tooltipAlignment =
-    tooltipPositionPercent <= 0
-      ? "start"
-      : tooltipPositionPercent >= 100
-        ? "end"
-        : "center";
+  const tooltipAlignment = tooltip
+    ? timelineMarkerAlignment(
+        tooltip.ms,
+        durationMs,
+        markerWidths.get(tooltip.ms) ?? MARKER_CONTROL_SIZE_PX,
+        barWidth,
+      )
+    : "center";
 
   return (
     <div
@@ -295,8 +298,12 @@ export function Scrubber(props: ScrubberProps) {
           const commentList = commentsByMs.get(ms);
           const reactionList = reactionsByMs.get(ms);
           const markerLane = markerLanes.get(ms) ?? 0;
-          const markerAlignment =
-            ms <= 0 ? "start" : ms >= durationMs ? "end" : "center";
+          const markerAlignment = timelineMarkerAlignment(
+            ms,
+            durationMs,
+            markerWidths.get(ms) ?? MARKER_CONTROL_SIZE_PX,
+            barWidth,
+          );
 
           return (
             <div
