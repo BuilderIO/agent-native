@@ -98,7 +98,7 @@ describe("server/auth", () => {
       });
       expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
         requireEmailVerification: false,
-        disableSignUp: true,
+        disableSignUp: false,
       });
     }, 15_000);
 
@@ -114,7 +114,7 @@ describe("server/auth", () => {
       });
       expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
         requireEmailVerification: false,
-        disableSignUp: true,
+        disableSignUp: false,
       });
     }, 15_000);
 
@@ -210,7 +210,7 @@ describe("server/auth", () => {
       });
     }, 15_000);
 
-    it("leaves the derived policy alone when it is unset", async () => {
+    it("keeps password signup available when no provider is configured", async () => {
       vi.stubEnv("NODE_ENV", "production");
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
@@ -221,7 +221,7 @@ describe("server/auth", () => {
       });
       expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
         requireEmailVerification: false,
-        disableSignUp: true,
+        disableSignUp: false,
       });
     }, 15_000);
   });

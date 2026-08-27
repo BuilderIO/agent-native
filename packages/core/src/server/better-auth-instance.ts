@@ -526,10 +526,9 @@ export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
   return {
     requireEmailVerification:
       emailConfigured && (hosted || !shouldSkipEmailVerification()),
-    // A hosted deployment without an email provider cannot prove ownership of
-    // an email address. Keeping password signup enabled there turns an email
-    // into an account-claim credential.
-    disableSignUp: hosted && !emailConfigured,
+    // Without a provider, hosted deployments use password signup and skip
+    // email verification instead of disabling account creation.
+    disableSignUp: false,
   };
 }
 
@@ -1451,9 +1450,8 @@ async function createBetterAuthInstance(
       disableSignUp,
       minPasswordLength: PASSWORD_MIN_LENGTH,
       maxPasswordLength: PASSWORD_MAX_LENGTH,
-      // Hosted deployments always require a working email provider before
-      // password signup can create a session. Local dev/test retain the fast
-      // path; hosted deployments without a provider disable password signup.
+      // Email verification is enabled only when a provider is ready. Without
+      // one, hosted deployments keep password signup available.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
