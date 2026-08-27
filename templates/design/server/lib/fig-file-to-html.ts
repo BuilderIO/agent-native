@@ -1873,8 +1873,17 @@ function buildCss(
   // values). Only emit a pixel dimension on a FIXED axis — HUG and FILL both
   // mean "let CSS size it" via flex / intrinsic content.
   const sizing = layoutSizing(node, parent);
-  const emitWidth = sizing.horizontal === "FIXED";
-  const emitHeight = sizing.vertical === "FIXED";
+  // HUG means "size to content", so it only holds when there IS content.
+  // Figma keeps a childless auto-layout frame at the size it resolved rather
+  // than collapsing it, and the baked `node.size` is that size; letting CSS
+  // hug nothing collapses the box to 0x0 and deletes it from the render.
+  const hugsNothing =
+    node.type !== "TEXT" && getChildren(node, ctx).length === 0;
+  const emitWidth =
+    sizing.horizontal === "FIXED" ||
+    (sizing.horizontal === "HUG" && hugsNothing);
+  const emitHeight =
+    sizing.vertical === "FIXED" || (sizing.vertical === "HUG" && hugsNothing);
 
   if (node.size) {
     const w = num(node.size.x);
