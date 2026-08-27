@@ -67,6 +67,22 @@ describe("dispatchIntegrationRoutingHint", () => {
     });
   });
 
+  it("recognizes a later visual request after a contrastive clause", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Don't create a one-pager but rather create a visual mockup",
+      ),
+    ).toMatchObject({ targetAgent: "design" });
+  });
+
+  it("does not route a visually negated one-pager to Design", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Create a one-pager that is not a visual design",
+      ),
+    ).toMatchObject({ targetAgent: "content" });
+  });
+
   it.each(["Compare these one-page briefs", "Edit the one-pager copy"])(
     "leaves non-creation one-pager requests to normal discovery: %s",
     (text) => {
