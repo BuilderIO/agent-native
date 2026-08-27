@@ -326,6 +326,7 @@ What moved the numbers. Each was a real defect on a real design:
 | counter alignment defaulting to CSS stretch, not Figma's MIN | whitepace (.fig) | 4.94 | 3.39 |
 | dashed strokes drawn solid | whitepace (.fig) | 3.39 | 3.37 |
 | hugging text ignoring the size Figma resolved | whitepace (.fig) | 3.37 | 3.18 |
+| a wrapping auto-layout stack that never wrapped | autolayout (.fig) | 16.79 | 5.20 |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
@@ -342,7 +343,7 @@ numbers: an unmeasured path looks identical to a passing one in a summary.
 | --- | --- | --- | --- |
 | REST node import | `figma-node-to-html.ts` | 26 designs, both hops | `run-import` / `run-roundtrip` |
 | Clipboard paste | `fig-file-to-html.ts` | 3 designs | `run-paste`, against the same references |
-| `.fig` upload | `fig-file-to-html.ts` | 3 designs | `run-fig`, against the same references |
+| `.fig` upload | `fig-file-to-html.ts` | 10 frames | `run-fig`, against the same references |
 
 **`Save local copy` is in the browser's File menu**, not desktop-only as this
 document previously claimed — and that wrong belief is the only reason the
@@ -356,9 +357,16 @@ multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 
 | case | `.fig` vs Figma | nodes off >1.5px | REST, same design |
 | --- | --- | --- | --- |
+| shapes | 1.68% | **0 of 11** | 0.54% |
+| card grid | 2.25% | 3 of 11 | 3.10% |
 | interior single product | **2.59%** | 1 of 136 | 3.35% |
-| untitled UI pricing | 3.29% | **0 of 182** | 2.67% |
+| constraints | 3.04% | **0 of 7** | 2.28% |
 | whitepace | 3.18% | 3 of 1026 | 2.96% |
+| untitled UI pricing | 3.29% | **0 of 182** | 2.67% |
+| auto-layout torture | 5.20% | **0 of 29** | 2.63% |
+| untitled UI landing mobile | 7.65% | **0 of 228** | 6.19% |
+| typography torture | 14.83% | 1 of 9 | 12.67% |
+| fills and effects | 17.90% | **0 of 12** | 0.55% |
 
 The image-heavy case is the one to read first: the `.fig` path BEATS the REST
 path on it, because **a `.fig` container carries image bytes** where the REST
@@ -366,14 +374,29 @@ path re-fetches renders and a clipboard paste carries only hashes. Each of the
 three reports zero approximated nodes, so none of these numbers is hiding a
 reported hole.
 
-The per-node column is the one that moved most. Measuring this path at all
-found three defects the pixel number alone would never have named — an
-auto-layout frame's counter alignment defaulting to CSS `stretch` instead of
-Figma's MIN, dashed strokes drawn solid, and a hugging text box ignoring the
-size Figma resolved — and took Whitepace from **93** nodes off by more than
-1.5px to 3. That was only possible because the walker now emits
-`data-figma-node-id`; without a node id nothing could line its output up
-against Figma's own boxes, and the whole class of defect was invisible.
+The per-node column is the one that moved most, and it is the one to read.
+Measuring this path at all found four layout defects the pixel number alone
+would never have named — an auto-layout frame's counter alignment defaulting to
+CSS `stretch` instead of Figma's MIN, a wrapping stack that never wrapped,
+dashed strokes drawn solid, and a hugging text box ignoring the size Figma
+resolved. Whitepace went from **93** nodes off by more than 1.5px to 3, and the
+auto-layout fixture from 6 to 0 (16.79% to 5.20%). That was only possible
+because the walker now emits `data-figma-node-id`; without a node id nothing
+could line its output up against Figma's own boxes, and the whole class of
+defect was invisible.
+
+Where a case still scores high with ZERO nodes out of place, the difference is
+paint, not layout, and the fixtures say which: `fills and effects` is 17.90%
+with nothing misplaced because this walker drops an IMAGE fill's opacity, sweeps
+an angular gradient in pixel space rather than Figma's normalized space, and
+draws a diamond gradient as an ellipse instead of the four-pointed star its L1
+falloff actually makes. The REST walker fixes all three; each needs an overlay
+element rather than a background layer, and each is now REPORTED here rather
+than rendered silently wrong. `typography torture` is the same story as on the
+REST path — glyph rasterisation, with one node out of place.
+
+Adding the synthetic fixtures is what made this legible: each isolates one
+Figma feature, so a defect in one names itself instead of hiding in a page.
 
 The 35MB scratch file still earns its place as decode/render coverage over 43
 frames with no Figma reference, and the 127MB one still pins that the size cap
