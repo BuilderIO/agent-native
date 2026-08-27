@@ -585,7 +585,7 @@ const CODE_AGENT_RUNTIME_OPTIONS = [
   {
     id: "default",
     label: "Default",
-    description: "Agent Native hosted chat",
+    description: "Agent-Native hosted chat",
   },
   {
     id: "codex",
@@ -1507,7 +1507,7 @@ export default function CodeAgentsApp({
           );
           return;
         }
-        toast("Local sign-in is only available in Agent Native Desktop", {
+        toast("Local sign-in is only available in Agent-Native Desktop", {
           description: "Open Settings to manage hosted providers instead.",
         });
         onOpenSettings?.();
@@ -2035,7 +2035,7 @@ export default function CodeAgentsApp({
     try {
       const result = await host.pairRemoteConnector({
         relayUrl: trimmedRelayUrl,
-        label: "Agent Native Desktop",
+        label: "Agent-Native Desktop",
       });
       setRemoteConnectorStatus(result.status);
       setRemoteConnectorMessage(result.error ?? result.message ?? null);
@@ -3370,7 +3370,7 @@ function AgentCapabilitySummary({
         title={
           desktopReady
             ? "Desktop Accessibility and Screen Recording permissions are ready."
-            : "Enable Accessibility and Screen Recording for Agent Native in System Settings."
+            : "Enable Accessibility and Screen Recording for Agent-Native in System Settings."
         }
         onClick={onOpenComputerSetup}
       >
@@ -3449,7 +3449,7 @@ function ComputerAccessDialog({
           <div>
             <DialogTitle>Computer access</DialogTitle>
             <DialogDescription id="computer-access-description">
-              Agent Native only controls Chrome or your desktop while Agent is
+              Agent-Native only controls Chrome or your desktop while Agent is
               working. Stop releases control immediately.
             </DialogDescription>
           </div>
@@ -3502,7 +3502,7 @@ function ComputerAccessDialog({
             title="Chrome"
             description={
               readiness.chromeReady
-                ? "The Agent Native extension is connected."
+                ? "The Agent-Native extension is connected."
                 : "Opens Chrome Extensions and reveals the bundled extension folder. Turn on Developer mode, choose Load unpacked, then select that folder."
             }
             ready={readiness.chromeReady}
@@ -3524,7 +3524,7 @@ function ComputerAccessDialog({
                   Restart once after enabling it so the new access takes effect.
                 </span>
               </div>
-              {actionButton("restart", "Restart Agent Native")}
+              {actionButton("restart", "Restart Agent-Native")}
             </div>
           )}
       </DialogContent>
@@ -5114,7 +5114,7 @@ function MobileConnectorPanel({
           <IconQrcode size={15} strokeWidth={1.8} />
           Mobile
         </p>
-        <h2>Agent Native mobile</h2>
+        <h2>Agent-Native mobile</h2>
         <p>
           Scan the QR code to open chats on your phone, then pair this Mac to
           start and continue local Agent work from mobile.
@@ -5162,7 +5162,7 @@ function MobileConnectorPanel({
               size={224}
               level="H"
               marginSize={3}
-              title="Open Agent Native mobile chats"
+              title="Open Agent-Native mobile chats"
               bgColor="#ffffff"
               fgColor="#111111"
             />

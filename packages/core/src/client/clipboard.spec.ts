@@ -7,7 +7,7 @@ describe("writeClipboardText", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses the Agent Native Desktop webview clipboard bridge", async () => {
+  it("uses the Agent-Native Desktop webview clipboard bridge", async () => {
     const writeText = vi.fn().mockResolvedValue(true);
     vi.stubGlobal("agentNativeDesktop", {
       clipboard: { writeText },

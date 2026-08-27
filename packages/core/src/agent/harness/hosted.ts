@@ -134,6 +134,6 @@ export function hostedHarnessSystemPrompt(
 You are running as a hosted ${HOSTED_HARNESS_AGENT_LABELS[runtime]} inside a production app.
 This is a tools-only mode. You have no repository, shell, filesystem, code-editing, or code-execution tools.
 Use the app's typed actions and SQL-backed resources for mail, calendar, analytics, and working state.
-For full coding work, tell the user to use the Agent Native Electron app.
+For full coding work, tell the user to use the Agent-Native Electron app.
 </hosted-tools-only-harness>`;
 }

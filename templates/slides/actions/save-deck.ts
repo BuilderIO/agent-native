@@ -24,6 +24,10 @@ import {
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
 import {
+  ensureUniqueSlideIds,
+  repairDeckSlideReferences,
+} from "../shared/slide-ids.js";
+import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
   deckDesignSystemId,
@@ -68,6 +72,22 @@ export default defineAction({
     withDeckLock(args.deckId, async () => {
       const deckId = args.deckId;
       const deck = args.deck as DeckPayload;
+      if (Array.isArray(deck.slides)) {
+        const normalized = ensureUniqueSlideIds(
+          deck.slides as Array<{ id?: unknown }>,
+        );
+        deck.slides = normalized.slides;
+        if (normalized.changed) {
+          Object.assign(
+            deck,
+            repairDeckSlideReferences(
+              deck,
+              normalized.slides,
+              normalized.originalIds,
+            ),
+          );
+        }
+      }
       assertValidAspectRatio(deck);
 
       const db = getDb();

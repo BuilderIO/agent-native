@@ -161,7 +161,7 @@ const databaseStep: OnboardingStep = {
   required: false,
   title: "Database",
   description:
-    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
+    "Agent-Native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
   methods: [
     {
       id: "database-url",
@@ -264,7 +264,7 @@ const emailStep: OnboardingStep = {
           {
             key: "EMAIL_FROM",
             label: "EMAIL_FROM (from address)",
-            placeholder: "Agent Native <noreply@yourdomain.com>",
+            placeholder: "Agent-Native <noreply@yourdomain.com>",
           },
           {
             key: "APP_NAME",
@@ -291,7 +291,7 @@ const emailStep: OnboardingStep = {
           {
             key: "EMAIL_FROM",
             label: "EMAIL_FROM (from address)",
-            placeholder: "Agent Native <noreply@yourdomain.com>",
+            placeholder: "Agent-Native <noreply@yourdomain.com>",
           },
         ],
       },

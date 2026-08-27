@@ -23,7 +23,7 @@ describe("normalizeOpenUrl", () => {
     );
   });
 
-  it("unwraps the Agent Native VS Code URI", () => {
+  it("unwraps the Agent-Native VS Code URI", () => {
     const target =
       "https://mail.agent-native.com/_agent-native/open?view=inbox";
     expect(normalizeOpenUrl(buildVsCodeOpenUri(target))).toBe(target);
@@ -62,7 +62,7 @@ describe("buildVsCodeOpenUri", () => {
 describe("titleForUrl", () => {
   it("uses the host when available", () => {
     expect(titleForUrl("https://mail.agent-native.com/inbox")).toBe(
-      "Agent Native: mail.agent-native.com",
+      "Agent-Native: mail.agent-native.com",
     );
   });
 });

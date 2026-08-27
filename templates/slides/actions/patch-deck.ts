@@ -93,6 +93,12 @@ const SlideAnimationSchema = z.object({
     .describe(
       "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required for agent-created or content-revised animations; re-read final HTML after content edits.",
     ),
+  byParagraph: z
+    .boolean()
+    .optional()
+    .describe(
+      "Reveal each paragraph in this text object as its own click step.",
+    ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
     .describe(
@@ -861,8 +867,6 @@ export default defineAction({
       // fast render landing before this line isn't discarded as stale.
       const fitSince = Date.now();
 
-      notifyClients(deckId);
-
       const updatedSlideIds = [
         ...new Set(
           operations.flatMap((operation) =>
@@ -872,6 +876,20 @@ export default defineAction({
           ),
         ),
       ];
+      const hasMixedStructuralOperation = operations.some(
+        (operation) =>
+          operation.op === "delete-slide" ||
+          operation.op === "reorder-slides" ||
+          operation.op === "patch-deck-fields",
+      );
+      if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
+        notifyClients(deckId, {
+          slideId: updatedSlideIds[0],
+          actor: isAgentCaller ? "agent" : "human",
+        });
+      } else {
+        notifyClients(deckId);
+      }
 
       // Only slides whose HTML actually changed can newly overflow — an
       // add-slide always sets content; a patch-slide only when this batch's

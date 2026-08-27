@@ -51,7 +51,7 @@ Public form submissions can be protected with Cloudflare Turnstile (opt-in). Thi
 
 ## Branding
 
-Public forms display a "Built with Agent Native" badge by default. This can be configured in the form settings.
+Public forms display a "Built with Agent-Native" badge by default. This can be configured in the form settings.
 
 ## Form Settings
 

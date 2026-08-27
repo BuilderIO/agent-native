@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **إعادة توجيه القائمة المسموح بها.** يقوم المحور (Dispatch) بالتحقق من صحة `redirect_uri` على نقطة نهاية التفويض قبل إصدار رمز مميز. تم تكوين القائمة المسموح بها في `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **الافتراضي:** أزواج معرّف/أصل تطبيق Agent Native المسجّلة بدقة والمضيف المحلي فقط (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
+- **الافتراضي:** أزواج معرّف/أصل تطبيق Agent-Native المسجّلة بدقة والمضيف المحلي فقط (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **توسيعها:** قم بتعيين متغير البيئة `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` على نشر Dispatch بقائمة مفصولة بفواصل من لواحق المضيف الإضافية:
 
   ```باش

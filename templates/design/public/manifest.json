@@ -1,7 +1,7 @@
 {
   "name": "Design",
   "short_name": "Design",
-  "description": "Agent-native design and prototyping tool",
+  "description": "Agent-Native design and prototyping tool",
   "start_url": ".",
   "background_color": "#111111",
   "theme_color": "#71717A",

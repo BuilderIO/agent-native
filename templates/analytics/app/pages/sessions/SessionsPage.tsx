@@ -878,7 +878,7 @@ function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
   return t("sessions.pageCountCompact", { count: formatNumber(count) });
 }
 
-const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
+const SESSION_REPLAY_SNIPPET = `// Agent-Native templates already call configureTracking().
 import { configureTracking } from "@agent-native/core/client/observability";
 
 configureTracking({

@@ -148,7 +148,9 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
   dashboardCacheScope,
+  preserveScopedDashboardPlaceholder,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
@@ -162,6 +164,8 @@ import { SidebarLoadError } from "./SidebarLoadError";
 const SIDEBAR_PREVIEW_COUNT = 5;
 const ASK_OPEN_KEY = "analytics-sidebar-ask-open";
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
+const DASHBOARD_VISIBILITY_FILTER_KEY =
+  "analytics-sidebar-dashboard-visibility";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
 const SIDEBAR_COLLAPSE_KEY = "analytics.sidebar.collapsed";
 const SIDEBAR_SKELETON_CLASS =
@@ -228,6 +232,35 @@ function setStoredSortMode(key: string, value: SidebarSortMode): void {
     window.localStorage.setItem(key, value);
   } catch {
     // localStorage unavailable — ignore, sort mode is best-effort.
+  }
+}
+
+export function getStoredVisibilityFilter(
+  key: string,
+): SidebarVisibilityFilter {
+  if (typeof window === "undefined") return "all";
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "all" || raw === "private" || raw === "shared") {
+      return raw;
+    }
+  } catch {
+    // coercion-ok: localStorage is optional; in-memory filter state remains authoritative.
+    // localStorage unavailable; visibility filter is best-effort.
+  }
+  return "all";
+}
+
+export function setStoredVisibilityFilter(
+  key: string,
+  value: SidebarVisibilityFilter,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // coercion-ok: localStorage is optional; in-memory filter state remains authoritative.
+    // localStorage unavailable; visibility filter is best-effort.
   }
 }
 
@@ -516,6 +549,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const pendingRenameRef = useRef(false);
   const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
@@ -749,11 +783,22 @@ function SortableRow({
                 {t("sidebar.itemActions", { name })}
               </TooltipContent>
             </Tooltip>
-            <DropdownMenuContent side="right" align="start" className="w-44">
+            <DropdownMenuContent
+              side="right"
+              align="start"
+              className="w-44"
+              onCloseAutoFocus={(event) => {
+                if (!pendingRenameRef.current) return;
+                event.preventDefault();
+                pendingRenameRef.current = false;
+                setIsRenaming(true);
+              }}
+            >
               <DropdownMenuItem
                 onSelect={() => {
                   setRenameValue(name);
-                  setIsRenaming(true);
+                  pendingRenameRef.current = true;
+                  setMenuOpen(false);
                 }}
               >
                 <IconPencil className="me-2 h-3.5 w-3.5" />
@@ -1513,8 +1558,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
-  const { auth } = useAuth();
-  const dashboardScope = dashboardCacheScope(auth);
+  const { auth, isLoading: authLoading } = useAuth();
+  const dashboardScope = authLoading
+    ? DASHBOARD_SESSION_LOADING_SCOPE
+    : dashboardCacheScope(auth);
 
   const isAskRoute = location.pathname === "/ask";
   const activeDashboardId = useMemo(() => {
@@ -1536,8 +1583,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] =
-    useState<SidebarVisibilityFilter>("private");
+  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>(() =>
+    getStoredVisibilityFilter(DASHBOARD_VISIBILITY_FILTER_KEY),
+  );
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const { data: popularity, isReady: popularityReady } = usePopularity();
@@ -1630,6 +1678,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     setDashboardSortModeState(mode);
   }, []);
 
+  const setDashboardVisibilityFilter = useCallback(
+    (value: SidebarVisibilityFilter) => {
+      setStoredVisibilityFilter(DASHBOARD_VISIBILITY_FILTER_KEY, value);
+      setDashFilter(value);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (getStoredBooleanPreference(ASK_OPEN_KEY) === null) {
       setAskOpen(isAskRoute);
@@ -1700,7 +1756,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   } = useQuery({
     queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
+    enabled: !authLoading,
     staleTime: 30_000,
+    placeholderData: (prev, previousQuery) =>
+      preserveScopedDashboardPlaceholder(prev, previousQuery, dashboardScope),
   });
 
   const {
@@ -2464,7 +2523,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     sortMode={dashboardSortMode}
                     onSortModeChange={setDashboardSortMode}
                     visibilityFilter={dashFilter}
-                    onVisibilityFilterChange={setDashFilter}
+                    onVisibilityFilterChange={setDashboardVisibilityFilter}
                   />
                   <button
                     type="button"

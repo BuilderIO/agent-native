@@ -39,6 +39,7 @@ import {
   type OAuthStatePayload,
 } from "./google-oauth.js";
 import { runWithRequestContext } from "./request-context.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 export type GenericWorkspaceOAuthProvider =
   | "figma"
@@ -179,13 +180,35 @@ export async function handleWorkspaceProviderOAuthStart(
     setResponseStatus(event, 400);
     return { error: "Salesforce environment must be production or sandbox." };
   }
+  const useRootGoogleCallback =
+    isWorkspaceOAuthCallbackRelayEnabled() &&
+    isGoogleWorkspaceOAuthProvider(providerId);
   const redirectUri = resolveOAuthRedirectUri(
     event,
-    workspaceProviderOAuthPath(providerId, "callback"),
+    useRootGoogleCallback
+      ? "/_agent-native/google/callback"
+      : workspaceProviderOAuthPath(providerId, "callback"),
   );
   if (!redirectUri) {
     setResponseStatus(event, 400);
     return { error: "Invalid OAuth redirect URI." };
+  }
+  if (useRootGoogleCallback) {
+    let parsedRedirectUri: URL;
+    try {
+      parsedRedirectUri = new URL(redirectUri);
+    } catch {
+      setResponseStatus(event, 400);
+      return { error: "Invalid OAuth redirect URI." };
+    }
+    if (
+      parsedRedirectUri.pathname !== "/_agent-native/google/callback" ||
+      parsedRedirectUri.search ||
+      parsedRedirectUri.hash
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "Google workspace OAuth must use the shared callback." };
+    }
   }
   return runWithRequestContext(
     { userEmail: session.email, orgId },
@@ -214,6 +237,7 @@ export async function handleWorkspaceProviderOAuthStart(
         orgId,
         app: appId,
         scope: orgContext.oauthScope,
+        ...(useRootGoogleCallback ? { provider: providerId } : {}),
         returnUrl,
         flowId,
       });
@@ -942,6 +966,8 @@ export function isWorkspaceProviderOAuthFlowValid(input: {
     input.state.redirectUri === input.flow.redirectUri &&
     input.state.owner === input.flow.owner &&
     input.state.scope === input.flow.scope &&
+    (input.state.provider === undefined ||
+      input.state.provider === input.provider) &&
     input.sessionEmail === input.flow.owner &&
     input.state.orgId === input.flow.orgId &&
     input.sessionOrgId === input.flow.orgId &&

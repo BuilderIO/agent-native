@@ -15,6 +15,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
   IconDatabase,
@@ -638,6 +639,21 @@ function DocumentEditorBody({
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      localTitle,
+      t("sidebar.untitled"),
+    )} — Content`;
+    const previousTitle = window.document.title;
+    window.document.title = nextTitle;
+    return () => {
+      if (window.document.title === nextTitle) {
+        window.document.title = previousTitle;
+      }
+    };
+  }, [localTitle, t]);
+
   const [databaseExportContext, setDatabaseExportContext] =
     useState<DatabaseExportContext | null>(null);
   const databaseExportContextFingerprintRef = useRef("null");
@@ -2193,7 +2209,7 @@ function DocumentEditorBody({
               data-local-source-read-only
             >
               {t("editor.localFileReadOnlySnapshot", {
-                device: "Agent Native Desktop",
+                device: "Agent-Native Desktop",
                 date: new Date(
                   document.source?.updatedAt ?? document.updatedAt,
                 ).toLocaleString(),

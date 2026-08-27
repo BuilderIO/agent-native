@@ -1481,7 +1481,7 @@ describe("Builder-backed database edit helpers", () => {
 describe("Database bulk multi-select edit helpers", () => {
   it("filters multi-select options by tag name", () => {
     const options = [
-      { id: "agent-native", name: "Agent Native", color: "blue" as const },
+      { id: "agent-native", name: "Agent-Native", color: "blue" as const },
       { id: "open-source", name: "Open Source", color: "green" as const },
       { id: "cms", name: "Headless CMS", color: "purple" as const },
     ];

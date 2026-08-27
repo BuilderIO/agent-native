@@ -5,14 +5,12 @@ import {
   useActionQuery,
   useActionMutation,
   useAvatarUrl,
-  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { useOrgMembers } from "@agent-native/core/client/org";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -27,12 +25,16 @@ import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconChecks,
+  IconChevronLeft,
+  IconChevronRight,
   IconPlus,
   IconSearch,
   IconDots,
   IconTrash,
   IconCopy,
   IconCode,
+  IconStack2,
+  IconUserCircle,
   IconX,
   IconPencil,
 } from "@tabler/icons-react";
@@ -69,14 +71,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
@@ -85,13 +81,10 @@ import {
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
-  ALL_AUTHORS,
-  collectAuthorEmails,
-  filterDesignsByAuthor,
-  MY_DESIGNS,
-  normalizeAuthorEmail,
-  shouldShowAuthors,
-} from "@/lib/design-authors";
+  readStoredDesignFilter,
+  writeStoredDesignFilter,
+  type DesignFilter,
+} from "@/lib/design-filter";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -114,13 +107,28 @@ interface Design {
   previewHtml?: string | null;
 }
 
+interface DesignListResult {
+  count: number;
+  totalCount: number;
+  hasMore: boolean;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  designs: Design[];
+}
+
+const DESIGN_PAGE_SIZE = 12;
+
 export default function Index() {
   const t = useT();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [author, setAuthor] = useState<string>(ALL_AUTHORS);
+  const [designFilter, setDesignFilter] = useState<DesignFilter>(
+    () => readStoredDesignFilter() ?? "mine",
+  );
+  const [page, setPage] = useState(1);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
@@ -151,20 +159,29 @@ export default function Index() {
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
+  const normalizedSearch = search.trim();
+  const listDesignsParams = useMemo(
+    () => ({
+      page,
+      pageSize: DESIGN_PAGE_SIZE,
+      createdBy: designFilter === "mine" ? "me" : "all",
+      search: normalizedSearch || undefined,
+      includePreview: "true",
+    }),
+    [designFilter, normalizedSearch, page],
+  );
+
   const {
     data: designsData,
     isLoading,
     isError,
     isFetching,
     refetch,
-  } = useActionQuery("list-designs", { includePreview: "true" });
+  } = useActionQuery<DesignListResult>("list-designs", listDesignsParams);
   const { data: templatesData, isLoading: templatesLoading } = useActionQuery(
     "list-design-templates",
     { includePreview: "true" },
   );
-  const { session } = useSession();
-  const { data: orgMembersPage } = useOrgMembers();
-
   const createMutation = useActionMutation("create-design");
   const createFromTemplateMutation = useActionMutation(
     "create-design-from-template",
@@ -185,7 +202,10 @@ export default function Index() {
     isLoading: designSystemsLoading,
   } = useDesignSystems();
 
-  const designs = (designsData?.designs ?? []) as Design[];
+  const designs = useMemo(
+    () => designsData?.designs ?? [],
+    [designsData?.designs],
+  );
   const templateOptions = useMemo<PromptTemplateOption[]>(
     () =>
       (templatesData?.templates ?? []).map((template) => ({
@@ -233,32 +253,19 @@ export default function Index() {
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
 
-  const viewerEmail = session?.email ?? null;
-  const authorEmails = useMemo(() => collectAuthorEmails(designs), [designs]);
-  const showAuthors = shouldShowAuthors({
-    orgMemberCount: orgMembersPage?.totalCount,
-    authorEmails,
-  });
-  const normalizedViewerEmail = normalizeAuthorEmail(viewerEmail);
-  const viewerHasDesigns = authorEmails.some(
-    (email) => normalizeAuthorEmail(email) === normalizedViewerEmail,
-  );
-  // One condition for both the control and the filtering it drives — a hidden
-  // control with a live filter leaves an empty grid the user cannot reset.
-  const canFilterByAuthor = authorEmails.length > 1;
-  const byAuthor = canFilterByAuthor
-    ? filterDesignsByAuthor(designs, author, viewerEmail)
-    : designs;
-  const filtered = search
-    ? byAuthor.filter((d) =>
-        d.title.toLowerCase().includes(search.toLowerCase()),
-      )
-    : byAuthor;
+  const showAuthors = designFilter === "all";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
-    filtered.length > 0 &&
-    filtered.every((design) => selectedDesignIds.has(design.id));
+    designs.length > 0 &&
+    designs.every((design) => selectedDesignIds.has(design.id));
+  const totalPages = Math.max(1, designsData?.totalPages ?? 1);
+
+  useEffect(() => {
+    if (!designsData || page <= totalPages) return;
+    setPage(totalPages);
+    setSelectedDesignIds(new Set());
+  }, [designsData, page, totalPages]);
 
   const resolveDefaultDesignSystemId = useCallback(
     () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
@@ -367,9 +374,9 @@ export default function Index() {
     setSelectedDesignIds((current) => {
       const next = new Set(current);
       const shouldClear =
-        filtered.length > 0 && filtered.every((design) => next.has(design.id));
+        designs.length > 0 && designs.every((design) => next.has(design.id));
 
-      filtered.forEach((design) => {
+      designs.forEach((design) => {
         if (shouldClear) {
           next.delete(design.id);
         } else {
@@ -379,23 +386,36 @@ export default function Index() {
 
       return next;
     });
-  }, [filtered]);
+  }, [designs]);
 
   const handleSearchChange = useCallback((query: string) => {
     setSearch(query);
+    setPage(1);
     setSelectedDesignIds((current) =>
       current.size === 0 ? current : new Set(),
     );
   }, []);
 
-  // Bulk actions operate on the visible set, so narrowing the visible set has
-  // to drop selections the user can no longer see.
-  const handleAuthorChange = useCallback((next: string) => {
-    setAuthor(next);
+  const handleDesignFilterChange = useCallback((next: string) => {
+    if (next !== "all" && next !== "mine") return;
+    const nextFilter: DesignFilter = next;
+    setDesignFilter(nextFilter);
+    writeStoredDesignFilter(nextFilter);
+    setPage(1);
     setSelectedDesignIds((current) =>
       current.size === 0 ? current : new Set(),
     );
   }, []);
+
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      setPage(Math.min(Math.max(nextPage, 1), totalPages));
+      setSelectedDesignIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+    },
+    [totalPages],
+  );
 
   const clearSelection = useCallback(() => {
     setSelectedDesignIds(new Set());
@@ -413,8 +433,9 @@ export default function Index() {
 
       // Optimistic update
       queryClient.setQueryData(
-        ["action", "list-designs", { includePreview: "true" }],
+        ["action", "list-designs", listDesignsParams],
         (old: any) => {
+          if (!old) return old;
           const newDesign: Design = {
             id,
             title: finalTitle,
@@ -423,9 +444,25 @@ export default function Index() {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
+          const matchesSearch =
+            !normalizedSearch ||
+            finalTitle.toLowerCase().includes(normalizedSearch.toLowerCase());
+          if (!matchesSearch) return old;
+
+          const totalCount = (old.totalCount ?? old.count ?? 0) + 1;
+          const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
+          const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
+          const nextDesigns =
+            page === 1
+              ? [newDesign, ...(old.designs ?? [])].slice(0, pageSize)
+              : (old.designs ?? []);
           return {
-            count: (old?.count ?? 0) + 1,
-            designs: [newDesign, ...(old?.designs ?? [])],
+            ...old,
+            count: totalCount,
+            totalCount,
+            totalPages,
+            hasMore: page < totalPages,
+            designs: nextDesigns,
           };
         },
       );
@@ -439,7 +476,11 @@ export default function Index() {
             ? { designSystemId: linkedDesignSystemId }
             : {}),
         } as any)
-        .then(() => undefined)
+        .then(() => {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-designs"],
+          });
+        })
         .catch((error) => {
           clearPendingGeneration(id);
           queryClient.invalidateQueries({
@@ -451,7 +492,7 @@ export default function Index() {
       void ready.catch(() => {});
       return { id, title: finalTitle, ready };
     },
-    [queryClient, createMutation],
+    [listDesignsParams, normalizedSearch, page, queryClient, createMutation],
   );
 
   // Mirrors the chat-title flow: the placeholder (derivePromptTitle) shows
@@ -578,14 +619,26 @@ export default function Index() {
         // Full-app designs are backed by a real running container, not a
         // queued inline generation — skip writePendingGeneration and let the
         // fusion app mutation (and its own status/progress banner in the
-        // editor) drive the build instead.
-        void ready
-          .then(() =>
-            createFusionAppMutation.mutateAsync({
-              designId: id,
-              prompt,
-            } as any),
-          )
+        // editor) drive the build instead. Still wait for the design row
+        // before navigating so the first get-design cannot 404 and bounce
+        // home while create is settling.
+        try {
+          await ready;
+        } catch (error) {
+          setNewDesignHandoffPending(false);
+          trace("persist", "create-design-failed", {
+            id,
+            designSystemId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          toast.error(t("home.failedToCreateDesign"));
+          throw error;
+        }
+        void createFusionAppMutation
+          .mutateAsync({
+            designId: id,
+            prompt,
+          } as any)
           .then((result: any) => {
             if (result?.status !== "not-configured") return;
             // Builder isn't connected/configured, so no fusionApp linkage was
@@ -710,23 +763,43 @@ export default function Index() {
 
     // Optimistic update
     queryClient.setQueryData(
-      ["action", "list-designs", { includePreview: "true" }],
-      (old: any) => ({
-        count: Math.max((old?.count ?? 1) - 1, 0),
-        designs: (old?.designs ?? []).filter((d: Design) => d.id !== id),
-      }),
+      ["action", "list-designs", listDesignsParams],
+      (old: any) => {
+        if (!old) return old;
+        const designs = old.designs ?? [];
+        if (!designs.some((design: Design) => design.id === id)) return old;
+        const totalCount = Math.max(
+          (old.totalCount ?? old.count ?? designs.length) - 1,
+          0,
+        );
+        const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
+        const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
+        return {
+          ...old,
+          count: totalCount,
+          totalCount,
+          totalPages,
+          hasMore: page < totalPages,
+          designs: designs.filter((design: Design) => design.id !== id),
+        };
+      },
     );
 
     setDeleteId(null);
 
     deleteMutation.mutate({ id } as any, {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
+      },
       onError: () => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       },
     });
-  }, [deleteId, queryClient, deleteMutation]);
+  }, [deleteId, listDesignsParams, queryClient, deleteMutation]);
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(selectedDesignIds);
@@ -735,29 +808,43 @@ export default function Index() {
     const idsToDelete = new Set(ids);
 
     queryClient.setQueryData(
-      ["action", "list-designs", { includePreview: "true" }],
-      (old: any) => ({
-        count: Math.max(
-          (old?.count ?? (old?.designs ?? []).length) - ids.length,
+      ["action", "list-designs", listDesignsParams],
+      (old: any) => {
+        if (!old) return old;
+        const designs = old.designs ?? [];
+        const nextDesigns = designs.filter(
+          (design: Design) => !idsToDelete.has(design.id),
+        );
+        const deletedCount = designs.length - nextDesigns.length;
+        if (deletedCount === 0) return old;
+        const totalCount = Math.max(
+          (old.totalCount ?? old.count ?? designs.length) - deletedCount,
           0,
-        ),
-        designs: (old?.designs ?? []).filter(
-          (d: Design) => !idsToDelete.has(d.id),
-        ),
-      }),
+        );
+        const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
+        const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
+        return {
+          ...old,
+          count: totalCount,
+          totalCount,
+          totalPages,
+          hasMore: page < totalPages,
+          designs: nextDesigns,
+        };
+      },
     );
 
     setBulkDeleteOpen(false);
     setSelectedDesignIds(new Set());
 
-    void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
-      .then(() => undefined)
-      .catch(() => {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-designs"],
-        });
+    void Promise.allSettled(
+      ids.map((id) => deleteMutation.mutateAsync({ id } as any)),
+    ).then(() => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-designs"],
       });
-  }, [selectedDesignIds, queryClient, deleteMutation]);
+    });
+  }, [listDesignsParams, selectedDesignIds, queryClient, deleteMutation]);
 
   const handleDuplicate = useCallback(
     (id: string) => {
@@ -804,6 +891,11 @@ export default function Index() {
     );
 
     updateMutation.mutate({ id, title: next } as any, {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
+      },
       onError: () => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
@@ -825,66 +917,58 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    designs.length > 0 ? (
-      <div className="flex items-center gap-3">
-        {canFilterByAuthor ? (
-          <Select value={author} onValueChange={handleAuthorChange}>
-            <SelectTrigger
-              aria-label={t("home.createdBy")}
-              className="h-8 w-40 bg-accent/50 border-border text-sm text-foreground/90"
-            >
-              <SelectValue placeholder={t("home.createdBy")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_AUTHORS}>
-                {t("home.allAuthors")}
-              </SelectItem>
-              {viewerHasDesigns ? (
-                <SelectItem value={MY_DESIGNS}>{t("home.me")}</SelectItem>
-              ) : null}
-              {authorEmails
-                .filter(
-                  (email) =>
-                    !(
-                      viewerHasDesigns &&
-                      normalizeAuthorEmail(email) === normalizedViewerEmail
-                    ),
-                )
-                .map((email) => (
-                  <SelectItem key={email} value={email}>
-                    {emailToName(email)}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        ) : null}
-        <div className="relative">
-          <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
-          <Input
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder={t("home.searchPlaceholder")}
-            aria-label={t("home.searchPlaceholder")}
-            className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
-          />
-        </div>
-        <Button
-          size="sm"
-          onClick={openNewDesign}
-          disabled={newDesignHandoffPending}
-          className="cursor-pointer"
+    <div className="flex flex-wrap items-center gap-3">
+      <ToggleGroup
+        type="single"
+        value={designFilter}
+        onValueChange={handleDesignFilterChange}
+        aria-label={t("home.designFilter")}
+        className="w-fit rounded-lg border border-border bg-card p-0.5"
+        size="sm"
+      >
+        <ToggleGroupItem
+          value="mine"
+          aria-label={t("home.showMineDesigns")}
+          className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
         >
-          {newDesignHandoffPending ? (
-            <Spinner className="w-3.5 h-3.5" />
-          ) : (
-            <IconPlus className="w-3.5 h-3.5" />
-          )}
-          {newDesignHandoffPending
-            ? t("home.openingDesign")
-            : t("home.newDesign")}
-        </Button>
+          <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
+          {t("home.mine")}
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="all"
+          aria-label={t("home.showAllDesigns")}
+          className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
+        >
+          <IconStack2 className="me-1.5 h-3.5 w-3.5" />
+          {t("home.all")}
+        </ToggleGroupItem>
+      </ToggleGroup>
+      <div className="relative">
+        <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+        <Input
+          value={search}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          placeholder={t("home.searchPlaceholder")}
+          aria-label={t("home.searchPlaceholder")}
+          className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
+        />
       </div>
-    ) : null,
+      <Button
+        size="sm"
+        onClick={openNewDesign}
+        disabled={newDesignHandoffPending}
+        className="cursor-pointer"
+      >
+        {newDesignHandoffPending ? (
+          <Spinner className="w-3.5 h-3.5" />
+        ) : (
+          <IconPlus className="w-3.5 h-3.5" />
+        )}
+        {newDesignHandoffPending
+          ? t("home.openingDesign")
+          : t("home.newDesign")}
+      </Button>
+    </div>,
   );
 
   return (
@@ -1006,7 +1090,7 @@ export default function Index() {
               </button>
 
               {/* Design cards */}
-              {filtered.map((design) => {
+              {designs.map((design) => {
                 const isSelected = selectedDesignIds.has(design.id);
                 const cardContent = (
                   <>
@@ -1131,6 +1215,42 @@ export default function Index() {
                 );
               })}
             </div>
+            {totalPages > 1 ? (
+              <nav
+                aria-label={t("home.paginationPage", {
+                  page,
+                  totalPages,
+                })}
+                className="mt-6 flex items-center justify-between gap-3 border-t border-border px-1 pt-3"
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={page <= 1 || isFetching}
+                  className="cursor-pointer"
+                >
+                  <IconChevronLeft className="size-3.5" />
+                  {t("home.paginationPrevious")}
+                </Button>
+                <span
+                  aria-live="polite"
+                  className="text-xs text-muted-foreground"
+                >
+                  {t("home.paginationPage", { page, totalPages })}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={page >= totalPages || isFetching}
+                  className="cursor-pointer"
+                >
+                  {t("home.paginationNext")}
+                  <IconChevronRight className="size-3.5" />
+                </Button>
+              </nav>
+            ) : null}
           </>
         )}
       </main>
@@ -1320,6 +1440,7 @@ function DesignThumbnail({ html }: { html: string | null }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
+  const [loaded, setLoaded] = useState(false);
 
   // Designs are generated for a desktop-ish viewport. Render at 1280×720 then
   // shrink — close enough to 16:10 for the aspect-video card without leaving
@@ -1340,6 +1461,10 @@ function DesignThumbnail({ html }: { html: string | null }) {
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    setLoaded(false);
+  }, [html]);
+
   if (!html) {
     return (
       <div className="aspect-video bg-muted/50 flex items-center justify-center">
@@ -1351,8 +1476,13 @@ function DesignThumbnail({ html }: { html: string | null }) {
   return (
     <div
       ref={containerRef}
-      className="aspect-video relative overflow-hidden bg-white"
+      className="relative aspect-video overflow-hidden bg-muted"
     >
+      {!loaded ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted">
+          <IconCode className="h-8 w-8 text-muted-foreground/40" />
+        </div>
+      ) : null}
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         srcDoc={injectSessionReplayIframeBootstrap(withLocalRuntimes(html))}
@@ -1361,6 +1491,8 @@ function DesignThumbnail({ html }: { html: string | null }) {
         tabIndex={-1}
         aria-hidden
         title={t("home.designPreview")}
+        onLoad={() => setLoaded(true)}
+        className="relative bg-muted transition-opacity duration-200"
         style={{
           width: `${NATURAL_WIDTH}px`,
           height: `${NATURAL_HEIGHT}px`,
@@ -1368,6 +1500,7 @@ function DesignThumbnail({ html }: { html: string | null }) {
           transformOrigin: "top left",
           border: 0,
           pointerEvents: "none",
+          opacity: loaded ? 1 : 0,
         }}
       />
     </div>

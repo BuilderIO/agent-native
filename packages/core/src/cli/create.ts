@@ -150,7 +150,7 @@ const HEADLESS_OPTION = {
 const COMMUNITY_OPTION = {
   name: "community",
   label: "Community template",
-  hint: "Install a third-party Agent Native app from a public GitHub repository",
+  hint: "Install a third-party Agent-Native app from a public GitHub repository",
 };
 
 export interface CreateAppOptions {
@@ -918,6 +918,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
       appDir,
@@ -1541,7 +1542,7 @@ function communityTemplateTrustMessage(selection: string): string | undefined {
   const community = parseCommunityTemplateSelection(selection, false);
   if (!community) return undefined;
   return [
-    `${community.repo} is third-party code and is not reviewed or maintained by Agent Native.`,
+    `${community.repo} is third-party code and is not reviewed or maintained by Agent-Native.`,
     "The CLI downloads source only; it does not install dependencies or run template scripts.",
     "Review the generated files before running pnpm install.",
     community.ref
@@ -1959,6 +1960,7 @@ function postProcessStandalone(
     ...resolution,
     shape: "standalone",
   });
+  ensureScaffoldEmailBrandingConfig(targetDir, name, templateName);
   ensureGuardedScaffold(targetDir);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
@@ -2589,7 +2591,7 @@ function assertSafeCommunityArchiveListing(listing: string): void {
   });
   if (unsafeEntry) {
     throw new ValidationError(
-      "Community template archives may only contain Agent Native's canonical internal symlinks (CLAUDE.md and .claude/skills). Remove other symbolic or hard links and try again.",
+      "Community template archives may only contain Agent-Native's canonical internal symlinks (CLAUDE.md and .claude/skills). Remove other symbolic or hard links and try again.",
     );
   }
 }
@@ -2700,7 +2702,7 @@ function assertCommunityTemplateRoot(targetDir: string, repo: string): void {
   const packagePath = path.join(targetDir, "package.json");
   if (!fs.existsSync(packagePath)) {
     throw new ValidationError(
-      `Community template ${repo} is not an Agent Native app at the repository root: package.json was not found. Point to a repository whose root is the app.`,
+      `Community template ${repo} is not an Agent-Native app at the repository root: package.json was not found. Point to a repository whose root is the app.`,
     );
   }
 
@@ -2727,7 +2729,7 @@ function assertCommunityTemplateRoot(targetDir: string, repo: string): void {
   );
   if (!usesAgentNativeCore) {
     throw new ValidationError(
-      `Community template ${repo} is not an Agent Native app at the repository root. Its package.json must directly depend on @agent-native/core in dependencies, devDependencies, or peerDependencies.`,
+      `Community template ${repo} is not an Agent-Native app at the repository root. Its package.json must directly depend on @agent-native/core in dependencies, devDependencies, or peerDependencies.`,
     );
   }
 }
@@ -3353,6 +3355,27 @@ function fixPackageJsonName(
     }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
+}
+
+function ensureScaffoldEmailBrandingConfig(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  if (!templateName || appName === templateName) return;
+  const pluginsDir = path.join(appDir, "server", "plugins");
+  const configPath = path.join(pluginsDir, "agent-native-email-branding.ts");
+  if (fs.existsSync(configPath)) return;
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const appTitle = JSON.stringify(appTitleForScaffold(appName));
+  const sourceTemplate = JSON.stringify(
+    trackingTemplateName(templateName) ?? templateName,
+  );
+
+  fs.writeFileSync(
+    configPath,
+    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
+  );
 }
 
 function scaffoldGuidanceForTemplate(

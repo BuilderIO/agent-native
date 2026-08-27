@@ -35,6 +35,45 @@ import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-e
 import { applyPortableStyleSnapshotToHtml } from "@/pages/design-editor/portable-style";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
 
+/** Empty generated screens strip absolute positioning, so a flow-insert
+ * into an empty body parks the node at 0,0. Drop at the pointer instead. */
+export function shouldAbsolutePlaceOnEmptyScreen({
+  destHtml,
+  targetLocalPoint,
+}: {
+  destHtml: string;
+  targetLocalPoint?: { x: number; y: number } | null;
+}): boolean {
+  if (!targetLocalPoint) return false;
+  if (typeof DOMParser === "undefined") return false;
+  // Live-app destinations store a URL, not HTML — do not treat that as empty.
+  if (!/<body[\s>]/i.test(destHtml)) return false;
+  const doc = new DOMParser().parseFromString(destHtml, "text/html");
+  return (doc.body?.children.length ?? 0) === 0;
+}
+
+function absoluteDropPoint(
+  targetLocalPoint: { x: number; y: number },
+  targetAnchorRect?: { left: number; top: number } | null,
+): { x: number; y: number } {
+  if (!targetAnchorRect) return targetLocalPoint;
+  return {
+    x: targetLocalPoint.x - targetAnchorRect.left,
+    y: targetLocalPoint.y - targetAnchorRect.top,
+  };
+}
+
+/** Empty-screen drops must keep pointer coords. A leftover hit-test rect
+ * would subtract the previous screen's origin and park the layer at 0,0. */
+export function absolutePlacePointForDrop(args: {
+  placeAbsoluteOnEmptyScreen: boolean;
+  targetAnchorRect?: { left: number; top: number } | null;
+  targetLocalPoint: { x: number; y: number };
+}): { x: number; y: number } {
+  if (args.placeAbsoluteOnEmptyScreen) return args.targetLocalPoint;
+  return absoluteDropPoint(args.targetLocalPoint, args.targetAnchorRect);
+}
+
 export interface CrossScreenElementDropArgs {
   applyFileContentUpdate: (
     fileId: string,
@@ -275,17 +314,23 @@ export function runCrossScreenElementDrop(
             subjectNodeId,
             styleSnapshot,
           );
+          const destHtml = getScreenContent(targetScreenId);
+          const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
+            destHtml,
+            targetLocalPoint,
+          });
           const positioned =
-            targetDropMode === "absolute-container" &&
             targetLocalPoint &&
-            targetAnchorRect
+            (placeAbsoluteOnEmptyScreen ||
+              (targetDropMode === "absolute-container" && targetAnchorRect))
               ? setAbsolutePositioningForNodeInHtml(
                   styled,
                   subjectNodeId,
-                  {
-                    x: targetLocalPoint.x - targetAnchorRect.left,
-                    y: targetLocalPoint.y - targetAnchorRect.top,
-                  },
+                  absolutePlacePointForDrop({
+                    placeAbsoluteOnEmptyScreen,
+                    targetAnchorRect,
+                    targetLocalPoint,
+                  }),
                   sourcePointerOffset,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
@@ -498,31 +543,74 @@ export function runCrossScreenElementDrop(
     destNodeAttrId,
     liveDestIframe?.contentDocument ?? null,
   );
-  const nextDestContent = targetAnchorAttrId
-    ? targetDropMode === "absolute-container"
-      ? targetLocalPoint && targetAnchorRect
-        ? setAbsolutePositioningForNodeInHtml(
-            stylePreservedDest,
-            destNodeAttrId,
-            {
-              x: targetLocalPoint.x - targetAnchorRect.left,
-              y: targetLocalPoint.y - targetAnchorRect.top,
-            },
-            sourcePointerOffset,
-          )
-        : stylePreservedDest
-      : removeAbsolutePositioningFromNodeInHtml(
-          stylePreservedDest,
-          destNodeAttrId,
-        )
-    : targetLocalPoint
-      ? setAbsolutePositioningForNodeInHtml(
-          stylePreservedDest,
-          destNodeAttrId,
+  const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
+    destHtml: destContent,
+    targetLocalPoint,
+  });
+  // One decision, one label: the branch name in the trace is the branch that
+  // ran, so a bug report cannot disagree with the code.
+  const placed = ((): { content: string; branch: string } => {
+    const absolute = (point: { x: number; y: number }, branch: string) => ({
+      content: setAbsolutePositioningForNodeInHtml(
+        stylePreservedDest,
+        destNodeAttrId,
+        point,
+        sourcePointerOffset,
+      ),
+      branch,
+    });
+    const flowInsert = {
+      content: removeAbsolutePositioningFromNodeInHtml(
+        stylePreservedDest,
+        destNodeAttrId,
+      ),
+      branch: "anchored-flow-insert",
+    };
+    if (!targetLocalPoint) {
+      // No release point: nothing can be placed. Keeping the layer's previous
+      // position beats writing it with none, which read as lost.
+      if (targetAnchorAttrId && targetDropMode !== "absolute-container") {
+        return flowInsert;
+      }
+      return { content: stylePreservedDest, branch: "rooted-no-point" };
+    }
+    if (placeAbsoluteOnEmptyScreen) {
+      return absolute(targetLocalPoint, "empty-screen-absolute");
+    }
+    if (!targetAnchorAttrId) {
+      return absolute(targetLocalPoint, "rooted-absolute");
+    }
+    if (targetDropMode === "absolute-container") {
+      if (!targetAnchorRect) {
+        return {
+          content: stylePreservedDest,
+          branch: "anchored-absolute-missing-geometry",
+        };
+      }
+      return absolute(
+        absolutePlacePointForDrop({
+          placeAbsoluteOnEmptyScreen,
+          targetAnchorRect,
           targetLocalPoint,
-          sourcePointerOffset,
-        )
-      : stylePreservedDest;
+        }),
+        "anchored-absolute",
+      );
+    }
+    return flowInsert;
+  })();
+  const point = (value: { x: number; y: number } | undefined) =>
+    value ? `${Math.round(value.x)},${Math.round(value.y)}` : "none";
+  // Flat string, not an object: a console paste collapses objects to "{…}".
+  trace(
+    "drop",
+    "placement",
+    `${placed.branch} node=${destNodeAttrId} target=${targetScreenId}` +
+      ` anchor=${targetAnchorAttrId ?? "none"} mode=${targetDropMode ?? "none"}` +
+      ` local=${point(targetLocalPoint)}` +
+      ` anchorRect=${targetAnchorRect ? `${Math.round(targetAnchorRect.left)},${Math.round(targetAnchorRect.top)}` : "none"}` +
+      ` grab=${point(sourcePointerOffset)}`,
+  );
+  const nextDestContent = placed.content;
 
   recordContentHistoryEntry({
     changes: [

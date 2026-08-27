@@ -142,6 +142,8 @@ beforeEach(() => {
   delete process.env.SENDGRID_API_KEY;
   delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.NOTION_CLIENT_ID;
+  delete process.env.NOTION_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
@@ -492,6 +494,37 @@ describe("Builder credential auth failure markers", () => {
         publicKey: "pub-secret",
       }),
     ).toBeNull();
+  });
+
+  // The back-off is exponential, so without a ceiling a credential that failed
+  // enough times would be pinned for weeks and a server-side recovery (plan
+  // upgrade, gateway re-enabled) would never be noticed. A corrupt strike count
+  // must not be a way to pin one forever either.
+  it("never pins a credential beyond the 24h ceiling", async () => {
+    const dayAndAHalfAgo = Date.now() - 36 * 60 * 60 * 1000;
+
+    for (const strikes of [8, 99, Number.MAX_SAFE_INTEGER]) {
+      mockGetSetting.mockResolvedValue({ strikes, at: dayAndAHalfAgo });
+      expect(
+        await getBuilderCredentialAuthFailure({
+          privateKey: "bpk-secret",
+          publicKey: "pub-secret",
+        }),
+      ).toBeNull();
+    }
+
+    // Still armed just inside the ceiling, so the ceiling is real rather than
+    // the back-off silently collapsing to "always expired".
+    mockGetSetting.mockResolvedValue({
+      strikes: 8,
+      at: Date.now() - 23 * 60 * 60 * 1000,
+    });
+    expect(
+      await getBuilderCredentialAuthFailure({
+        privateKey: "bpk-secret",
+        publicKey: "pub-secret",
+      }),
+    ).not.toBeNull();
   });
 
   it("counts a repeat failure on the same credential as another strike", async () => {
@@ -1439,6 +1472,28 @@ describe("resolveSecret (generic)", () => {
     );
     expect(
       canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_SECRET"),
+    ).toBe(true);
+  });
+
+  it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NOTION_CLIENT_ID = "notion-deploy-client-id";
+    process.env.NOTION_CLIENT_SECRET = "notion-deploy-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("NOTION_CLIENT_ID")).toBe(
+      "notion-deploy-client-id",
+    );
+    expect(await resolveSecret("NOTION_CLIENT_SECRET")).toBe(
+      "notion-deploy-secret",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(
+      canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_SECRET"),
     ).toBe(true);
   });
 

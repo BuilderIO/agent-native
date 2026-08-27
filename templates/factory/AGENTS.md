@@ -31,9 +31,9 @@ decisions, feedback, agent runs, and provider audit records.
 - Provider credentials belong to Dispatch/shared workspace integrations, never
   to a Factory or Factory graph. Agents use shared provider APIs and connected
   MCP tools through the workspace grant boundary.
-- Never put provider keys or account identifiers in `.env`, deployment env, or
-  Factory actions/bootstrap. Configure standard integrations and resolve them
-  from the multitenant org/workspace vault.
+- Never put provider keys in hosted deployment env or Factory bootstrap.
+  Hosted Factory reads Slack/GitHub/Sentry from workspace connections or the
+  org vault. Local sqlite may read `.env` Slack/GitHub/Sentry keys as a last resort.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state

@@ -30,9 +30,9 @@ import {
   availableSizingForElement,
   commitElementMinMax,
   commitElementSizing,
-  cssElementSize,
   horizontalToJustify,
   inferElementSizing,
+  measuredElementSize,
   isContainerElement,
   isParentFlex,
   isParentGrid,
@@ -354,8 +354,8 @@ function FlexContainerControls({
     clipContent: styles.overflow === "hidden",
     clipContentMixed: isMixedValue(styles.overflow),
     resolvedSize: {
-      horizontal: cssElementSize(element, "horizontal"),
-      vertical: cssElementSize(element, "vertical"),
+      horizontal: measuredElementSize(element, "horizontal"),
+      vertical: measuredElementSize(element, "vertical"),
     },
     mixedSize: {
       horizontal: isMixedValue(styles.width),
@@ -690,15 +690,21 @@ export function LayoutContextProperties({
     // hug/fill don't have an independent px value to scale. Match Figma: the
     // toggle is disabled (not hidden) otherwise, so its state/affordance stays
     // visible but inert.
-    const canLockAspect = widthSizing === "fixed" && heightSizing === "fixed";
-    const resolvedWidth = cssElementSize(element, "horizontal");
-    const resolvedHeight = cssElementSize(element, "vertical");
+    const resolvedWidth = measuredElementSize(element, "horizontal");
+    const resolvedHeight = measuredElementSize(element, "vertical");
+    const canLockAspect =
+      widthSizing === "fixed" &&
+      heightSizing === "fixed" &&
+      resolvedWidth != null &&
+      resolvedHeight != null;
 
     const toggleAspectLock = () => {
       if (!canLockAspect) return;
       aspectLock.setLocked(
         !aspectLock.locked,
-        resolvedHeight > 0 ? resolvedWidth / resolvedHeight : undefined,
+        resolvedWidth != null && resolvedHeight != null && resolvedHeight > 0
+          ? resolvedWidth / resolvedHeight
+          : undefined,
       );
     };
 

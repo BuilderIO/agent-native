@@ -1,4 +1,4 @@
-name: Deploy Agent Native docs site from GitHub
+name: Deploy Agent-Native docs site from GitHub
 
 # Temporary production-only exception: there is no beta docs Netlify site or
 # beta docs hostname yet. Keep the public docs site on the same prebuilt

@@ -31,7 +31,7 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(html).toContain('id="environment-badge"');
-    expect(html).toContain("You're on Agent Native Beta");
+    expect(html).toContain("You're on Agent-Native Beta");
     expect(html).toContain("Switch to production");
     expect(html).toContain('id="environment-hide-badge"');
     expect(html).toContain("switcher.hidden = true");
@@ -349,6 +349,14 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="signup-form"');
     expect(html).toContain('id="login-form"');
     expect(html).toContain("/_agent-native/auth/login");
+  });
+
+  it("does not autofocus auth inputs on initial load", () => {
+    expect(getOnboardingHtml()).not.toContain("autofocus");
+    expect(getOnboardingHtml({ authMode: "magic-link" })).not.toContain(
+      "autofocus",
+    );
+    expect(getResetPasswordHtml()).not.toContain("autofocus");
   });
 
   it("renders the email-only magic-link view with a progressive password fallback", () => {

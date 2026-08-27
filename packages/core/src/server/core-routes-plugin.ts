@@ -162,6 +162,7 @@ import {
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
 import {
+  BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
@@ -1776,7 +1777,7 @@ export function createCoreRoutesPlugin(
       registerFrameworkSecrets();
       registerBuiltinProviders();
       // Named for the destination it actually reaches: every configured
-      // tracking provider (PostHog, Mixpanel, Amplitude, Agent Native
+      // tracking provider (PostHog, Mixpanel, Amplitude, Agent-Native
       // Analytics, webhook), not just one of them.
       registerErrorCaptureProvider("tracking", (error, context) => {
         // Attribute to the in-flight request's user so server exceptions and
@@ -2932,9 +2933,9 @@ export function createCoreRoutesPlugin(
 
       // Branch-creation waitlist signup. Used by ConnectBuilderCard when the
       // current request has no Builder branch project configured. Hosted
-      // Agent Native deployments submit into the Builder-org Forms waitlist;
+      // Agent-Native deployments submit into the Builder-org Forms waitlist;
       // local/self-hosted deployments keep the analytics signal without
-      // sending private workspace data to Agent Native.
+      // sending private workspace data to Agent-Native.
       getH3App(nitroApp).use(
         `${P}/builder/branch-waitlist`,
         defineEventHandler(async (event: H3Event) => {
@@ -3943,16 +3944,20 @@ export function createCoreRoutesPlugin(
           const userEmail = session?.email;
           const resolveStatus = async () => {
             const active = await getActiveFileUploadProviderForRequest();
-            let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
+            let builderConfigured = false;
+            let builderUploadConfigured = false;
             try {
-              // Must match what provider selection asks, or this reports
-              // storage as unconfigured for an OAuth-only connection whose
-              // uploads actually work.
-              const { hasBuilderApiCredentialCustody } =
-                await import("./builder-api-auth.js");
+              const {
+                canAuthorizeBuilderApiRequest,
+                hasBuilderApiCredentialCustody,
+              } = await import("./builder-api-auth.js");
               builderConfigured = await hasBuilderApiCredentialCustody();
+              builderUploadConfigured = await canAuthorizeBuilderApiRequest(
+                BUILDER_ASSETS_WRITE_SCOPE,
+              );
             } catch {
-              // fall back to env check above
+              builderConfigured = false;
+              builderUploadConfigured = false;
             }
 
             const providers = await Promise.all(
@@ -3973,15 +3978,17 @@ export function createCoreRoutesPlugin(
             // builderConfigured so status reflects this specific request.
             const isBuilderEnvActive = active?.id === "builder";
             const configured = isBuilderEnvActive
-              ? builderConfigured
-              : !!active || builderConfigured;
+              ? builderUploadConfigured
+              : !!active || builderUploadConfigured;
             const activeProvider = isBuilderEnvActive
-              ? builderConfigured
+              ? builderUploadConfigured
                 ? { id: "builder", name: "Builder.io" }
                 : null
               : active
-                ? { id: active.id, name: active.name }
-                : builderConfigured
+                ? active.id === "builder" && !builderUploadConfigured
+                  ? null
+                  : { id: active.id, name: active.name }
+                : builderUploadConfigured
                   ? { id: "builder", name: "Builder.io" }
                   : null;
 
@@ -3990,6 +3997,9 @@ export function createCoreRoutesPlugin(
               activeProvider,
               providers,
               builderConfigured,
+              builderUploadConfigured,
+              builderReauthorizationRequired:
+                builderConfigured && !builderUploadConfigured,
             };
           };
 
@@ -4391,7 +4401,7 @@ export function createCoreRoutesPlugin(
       // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
       // links the verified email into this app's local Better Auth store. The
       // handler fails closed unless direct web SSO is configured or the
-      // packaged Desktop SSO Canary requests a canonical Agent Native app.
+      // packaged Desktop SSO Canary requests a canonical Agent-Native app.
       // Mounting the handler unconditionally lets that request-scoped decision
       // work.
       getH3App(nitroApp).use(

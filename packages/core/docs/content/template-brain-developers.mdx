@@ -287,7 +287,7 @@ A few worth calling out specifically:
 - **`get-brain-health`** backs the [Ops page](/docs/template-brain-sources#ops) and answers "why isn't X in Brain yet" cheaper than inspecting sources by hand: the same per-source health value shown there, plus distillation queue counts, pending proposals, and ordered next setup steps.
 - **`get-pilot-report`** summarizes one source's sync health, capture counts, queue state, published knowledge, and pending proposals without returning raw capture bodies — call it after a Slack safe-pilot sample sync.
 - **`rotate-source-ingest-token`** is reachable from the Sources UI ("Rotate ingest token" on a source card) but is not agent-callable (`agentTool: false`) — it's a deliberately human-only control since the new token is shown once and can't be recovered.
-- **Staged-dataset actions** (`list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset`) let the agent stage a large provider pull with `provider-api-request`'s `stageAs`, then filter/aggregate it without re-fetching — the same pattern used across Agent Native's provider-API surface.
+- **Staged-dataset actions** (`list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset`) let the agent stage a large provider pull with `provider-api-request`'s `stageAs`, then filter/aggregate it without re-fetching — the same pattern used across Agent-Native's provider-API surface.
 
 ## Connecting sources
 
