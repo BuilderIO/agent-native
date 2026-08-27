@@ -2470,7 +2470,13 @@ function buildNode(
     );
     tracker.record(node, "exact", "Text styling mapped from TypeStyle fields.");
 
-    const characters = node.characters ?? "";
+    // Figma stores paragraph breaks as CR, and its `characters` very often ends
+    // with one. Figma does NOT render a trailing break as an extra line, but
+    // `white-space: pre-wrap` does — every such label came out one line taller
+    // and pushed its siblings down with it (67 nodes on the Whitepace page
+    // alone, 20px each). Trailing whitespace after the break goes too: Figma
+    // renders neither.
+    const characters = (node.characters ?? "").replace(/[\r\n][ \t]*$/, "");
     const textHtml = buildMixedTextHtml(node, characters, tracker);
     const spanAttr = styleAttr(spanStyles);
     const spanOpen = spanAttr ? `<span style="${spanAttr}">` : "<span>";

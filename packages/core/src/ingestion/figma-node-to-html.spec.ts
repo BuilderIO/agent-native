@@ -611,3 +611,36 @@ describe("a FILL child may shrink below its content", () => {
     expect(html).toContain("min-width: 0");
   });
 });
+
+describe("Figma's trailing line break", () => {
+  // Figma stores paragraph breaks as CR and its `characters` very often ends
+  // with one, but it does not render a trailing break as an extra line.
+  // `white-space: pre-wrap` does, so every such label came out one line taller
+  // and pushed its siblings down — 67 nodes on one page, 20px each.
+  function label(characters: string): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Point",
+      type: "TEXT",
+      absoluteBoundingBox: box(0, 0, 312, 40),
+      characters,
+      style: { fontFamily: "Inter", fontSize: 16, lineHeightPx: 20 },
+    } as FigmaNode;
+  }
+
+  it("drops a trailing carriage return", () => {
+    const { html } = mapFigmaNodeToHtml(label("Connect the account\r"), {});
+    expect(html).toContain("Connect the account");
+    expect(html).not.toContain("Connect the account\r");
+  });
+
+  it("drops trailing spaces that follow the break, which Figma also ignores", () => {
+    const { html } = mapFigmaNodeToHtml(label("Add due dates\r "), {});
+    expect(html).not.toMatch(/Add due dates[\r\n]/);
+  });
+
+  it("keeps breaks INSIDE the text", () => {
+    const { html } = mapFigmaNodeToHtml(label("First\rSecond"), {});
+    expect(html).toMatch(/First[\r\n]Second/);
+  });
+});

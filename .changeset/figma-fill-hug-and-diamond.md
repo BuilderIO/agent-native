@@ -43,6 +43,11 @@ what Figma's FILL does. And a zero-thickness LINE is placed from its own size
 rather than the already-rotated bounding box — requiring both dimensions to be
 positive pushed every rotated rule onto the fallback and squared its rotation.
 
+A trailing line break in Figma text no longer renders as an extra line. Figma
+stores paragraph breaks as CR and its text very often ends with one, but it
+does not draw a trailing break; `white-space: pre-wrap` does, so every such
+label came out a line taller and pushed its siblings down with it.
+
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
