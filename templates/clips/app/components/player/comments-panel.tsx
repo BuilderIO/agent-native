@@ -664,7 +664,8 @@ function CommentComposer({
       <div
         className={cn(
           "flex gap-2",
-          isSharePresentation && "items-start rounded-md p-3 shadow-sm",
+          isSharePresentation &&
+            "items-start rounded-md border border-border p-3 shadow-sm",
         )}
       >
         {isSharePresentation ? (
