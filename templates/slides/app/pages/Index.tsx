@@ -67,6 +67,7 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
+import { getUploadedImageAgentOptions } from "@/lib/create-deck-generation";
 import {
   readStoredDeckFilter,
   resolveDeckFilter,
@@ -225,7 +226,7 @@ function describeUploadedFilesForAgent(
     "- Do not pass `importIntoDeck: true` for an attached file unless the user explicitly asks to import or preserve the source pages in the current deck. An attached reference is not an instruction to replace or seed the deck.",
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
-    "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
+    "- Image files without a URL are sent as inline visual/reference assets for this run when available; call `upload-image` if a durable embeddable URL is needed.",
     "- Before your final response, verify every uploaded file above was either used as reference or placed as explicitly requested. If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
   ].join("\n");
 }
@@ -780,6 +781,7 @@ export default function Index() {
       newTab: true,
       reuseEmptyTab: true,
       openSidebar: true,
+      ...getUploadedImageAgentOptions(filesForGeneration),
       attachments: attachmentsForGeneration,
     });
   };

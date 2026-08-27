@@ -97,4 +97,56 @@ describe("startDeckGeneration", () => {
       "write presenter-only text into each slide's `notes` field",
     );
   });
+
+  it("passes hosted URLs and inline image bytes through to agentSubmit", async () => {
+    const deck = {
+      id: "deck-image-1",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+    const inlineImage = "data:image/png;base64,aW1hZ2U=";
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Use the attached image as visual source material",
+        files: [
+          {
+            path: "/uploads/hosted.png",
+            url: "https://cdn.example.test/hosted.png",
+            originalName: "hosted.png",
+            filename: "hosted.png",
+            type: "image/png",
+            size: 1024,
+            dataUrl: inlineImage,
+          },
+          {
+            path: "/uploads/inline.jpg",
+            originalName: "inline.jpg",
+            filename: "inline.jpg",
+            type: "image/jpeg",
+            size: 1024,
+            dataUrl: "data:image/jpeg;base64,amBlZw==",
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(agentSubmit.mock.calls[0]?.[2]).toMatchObject({
+      referenceImagePaths: ["https://cdn.example.test/hosted.png"],
+      images: [inlineImage, "data:image/jpeg;base64,amBlZw=="],
+    });
+  });
 });

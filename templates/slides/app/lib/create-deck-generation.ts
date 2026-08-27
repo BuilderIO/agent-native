@@ -108,9 +108,32 @@ function describeUploadedFilesForAgent(
     "- Do not pass `importIntoDeck: true` for an attached file unless the user explicitly asks to import or preserve the source pages in the current deck. An attached reference is not an instruction to replace or seed the deck.",
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
-    "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
+    "- Image files without a URL are sent as inline visual/reference assets for this run when available; call `upload-image` if a durable embeddable URL is needed.",
     "- Before your final response, verify every uploaded file above was either used as reference or placed as explicitly requested. If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
   ].join("\n");
+}
+
+export interface UploadedImageAgentOptions {
+  referenceImagePaths?: string[];
+  images?: string[];
+}
+
+export function getUploadedImageAgentOptions(
+  files: UploadedFile[],
+): UploadedImageAgentOptions {
+  const referenceImagePaths: string[] = [];
+  const images: string[] = [];
+
+  for (const file of files) {
+    if (!file.type.startsWith("image/")) continue;
+    if (file.url) referenceImagePaths.push(file.url);
+    if (file.dataUrl) images.push(file.dataUrl);
+  }
+
+  return {
+    ...(referenceImagePaths.length > 0 ? { referenceImagePaths } : {}),
+    ...(images.length > 0 ? { images } : {}),
+  };
 }
 
 function mergeUploadedFilesForRetry(
@@ -143,6 +166,8 @@ type SubmitAgent = (
     newTab: boolean;
     reuseEmptyTab: boolean;
     openSidebar: boolean;
+    referenceImagePaths?: string[];
+    images?: string[];
     attachments?: ReadonlyArray<unknown>;
   },
 ) => void;
@@ -341,6 +366,7 @@ export async function startDeckGeneration({
     newTab: true,
     reuseEmptyTab: true,
     openSidebar: true,
+    ...getUploadedImageAgentOptions(filesForGeneration),
     attachments,
   });
   return "started";

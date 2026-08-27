@@ -618,6 +618,39 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
+  it("uses inline bytes for vision while retaining URL-only references as text", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Use these image references",
+      attachments: [
+        {
+          type: "image",
+          name: "with-bytes.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+          url: "https://cdn.example.com/with-bytes.png",
+        } as any,
+        {
+          type: "image",
+          name: "url-only.png",
+          contentType: "image/png",
+          url: "https://cdn.example.com/url-only.png",
+        } as any,
+      ],
+    });
+
+    expect(parts).toContainEqual({
+      type: "image",
+      mediaType: "image/png",
+      data: "aW1hZ2U=",
+    });
+    const text = parts
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    expect(text).toContain("https://cdn.example.com/url-only.png");
+    expect(text).toContain("not sent as a vision image");
+  });
+
   it("includes text and file attachments in the text sent to the engine", () => {
     const content = buildUserContentWithAttachments({
       text: "Summarize the attachment",

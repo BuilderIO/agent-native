@@ -117,6 +117,13 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("...attachments");
   });
 
+  it("passes uploaded image references through the home agent submission", () => {
+    expect(flow).toContain(
+      "...getUploadedImageAgentOptions(filesForGeneration)",
+    );
+    expect(source).toContain("getUploadedImageAgentOptions");
+  });
+
   it("routes both prompt submit and prompt skip into the reference step", () => {
     expect(source).toContain("const handlePromptSubmit");
     expect(source).toContain("const handlePromptSkip");

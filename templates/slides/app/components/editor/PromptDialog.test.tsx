@@ -194,6 +194,43 @@ describe("uploadPromptFiles", () => {
     );
   });
 
+  it("adds image bytes for the current turn while preserving hosted URLs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/hosted.png",
+            url: "https://cdn.example.test/hosted.png",
+            originalName: "hosted.png",
+            filename: "hosted.png",
+            type: "image/png",
+            size: 5,
+          },
+          {
+            path: "uploads/inline.jpg",
+            originalName: "inline.jpg",
+            filename: "inline.jpg",
+            type: "image/jpeg",
+            size: 5,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const uploads = await uploadPromptFiles([
+      new File(["hosted"], "hosted.png", { type: "image/png" }),
+      new File(["inline"], "inline.jpg", { type: "image/jpeg" }),
+    ]);
+
+    expect(uploads[0]).toMatchObject({
+      url: "https://cdn.example.test/hosted.png",
+      dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
+    });
+    expect(uploads[1]?.dataUrl).toMatch(/^data:image\/jpeg;base64,/);
+  });
+
   it("preserves selection order across multipart and chunked uploads", async () => {
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = input.toString();
