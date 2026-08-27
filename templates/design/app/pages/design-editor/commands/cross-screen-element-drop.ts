@@ -547,29 +547,70 @@ export function runCrossScreenElementDrop(
     destHtml: destContent,
     targetLocalPoint,
   });
-  const nextDestContent =
-    targetLocalPoint &&
-    (placeAbsoluteOnEmptyScreen ||
-      !targetAnchorAttrId ||
-      (targetDropMode === "absolute-container" && targetAnchorRect))
-      ? setAbsolutePositioningForNodeInHtml(
-          stylePreservedDest,
-          destNodeAttrId,
-          placeAbsoluteOnEmptyScreen || !targetAnchorAttrId
-            ? targetLocalPoint
-            : absolutePlacePointForDrop({
-                placeAbsoluteOnEmptyScreen,
-                targetAnchorRect,
-                targetLocalPoint,
-              }),
-          sourcePointerOffset,
-        )
-      : targetAnchorAttrId && targetDropMode !== "absolute-container"
-        ? removeAbsolutePositioningFromNodeInHtml(
-            stylePreservedDest,
-            destNodeAttrId,
-          )
-        : stylePreservedDest;
+  // One decision, one label: the branch name in the trace is the branch that
+  // ran, so a bug report cannot disagree with the code.
+  const placed = ((): { content: string; branch: string } => {
+    const absolute = (point: { x: number; y: number }, branch: string) => ({
+      content: setAbsolutePositioningForNodeInHtml(
+        stylePreservedDest,
+        destNodeAttrId,
+        point,
+        sourcePointerOffset,
+      ),
+      branch,
+    });
+    const flowInsert = {
+      content: removeAbsolutePositioningFromNodeInHtml(
+        stylePreservedDest,
+        destNodeAttrId,
+      ),
+      branch: "anchored-flow-insert",
+    };
+    if (!targetLocalPoint) {
+      // No release point: nothing can be placed. Keeping the layer's previous
+      // position beats writing it with none, which read as lost.
+      if (targetAnchorAttrId && targetDropMode !== "absolute-container") {
+        return flowInsert;
+      }
+      return { content: stylePreservedDest, branch: "rooted-no-point" };
+    }
+    if (placeAbsoluteOnEmptyScreen) {
+      return absolute(targetLocalPoint, "empty-screen-absolute");
+    }
+    if (!targetAnchorAttrId) {
+      return absolute(targetLocalPoint, "rooted-absolute");
+    }
+    if (targetDropMode === "absolute-container") {
+      if (!targetAnchorRect) {
+        return {
+          content: stylePreservedDest,
+          branch: "anchored-absolute-missing-geometry",
+        };
+      }
+      return absolute(
+        absolutePlacePointForDrop({
+          placeAbsoluteOnEmptyScreen,
+          targetAnchorRect,
+          targetLocalPoint,
+        }),
+        "anchored-absolute",
+      );
+    }
+    return flowInsert;
+  })();
+  const point = (value: { x: number; y: number } | undefined) =>
+    value ? `${Math.round(value.x)},${Math.round(value.y)}` : "none";
+  // Flat string, not an object: a console paste collapses objects to "{…}".
+  trace(
+    "drop",
+    "placement",
+    `${placed.branch} node=${destNodeAttrId} target=${targetScreenId}` +
+      ` anchor=${targetAnchorAttrId ?? "none"} mode=${targetDropMode ?? "none"}` +
+      ` local=${point(targetLocalPoint)}` +
+      ` anchorRect=${targetAnchorRect ? `${Math.round(targetAnchorRect.left)},${Math.round(targetAnchorRect.top)}` : "none"}` +
+      ` grab=${point(sourcePointerOffset)}`,
+  );
+  const nextDestContent = placed.content;
 
   recordContentHistoryEntry({
     changes: [
