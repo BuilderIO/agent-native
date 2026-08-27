@@ -931,7 +931,11 @@ function DesignSystemDetailsSheet({
             </div>
           </section>
 
-          <DesignSystemPreview data={parsed} assets={assets} />
+          <DesignSystemPreview
+            id={designSystem.id}
+            data={parsed}
+            assets={assets}
+          />
 
           <section className="space-y-3 border-t border-border pt-6">
             <div>
@@ -987,25 +991,62 @@ function DesignSystemDetailsSheet({
 }
 
 function DesignSystemPreview({
+  id,
   data,
   assets,
 }: {
+  id: string;
   data: DesignSystemData | null;
   assets: Array<{ name?: string; url?: string; variant?: string }>;
 }) {
   return data?.source === "builder" ? (
-    <DesignSystemPreviewLink data={data} />
+    <DesignSystemPreviewLink id={id} data={data} />
   ) : (
     <TokenPreview data={data} assets={assets} />
   );
 }
 
-function DesignSystemPreviewLink({ data }: { data: DesignSystemData }) {
+type ResolveDesignSystemBuilderLinkResult = { builderUrl: string | null };
+
+function DesignSystemPreviewLink({
+  id,
+  data,
+}: {
+  id: string;
+  data: DesignSystemData;
+}) {
   const t = useT();
-  const trustedBuilderUrl =
+  const resolveLinkMutation = useActionMutation<
+    ResolveDesignSystemBuilderLinkResult,
+    { id: string }
+  >("resolve-design-system-builder-link", {
+    skipActionQueryInvalidation: true,
+  });
+  const resolveLinkRef = useRef(resolveLinkMutation.mutateAsync);
+  resolveLinkRef.current = resolveLinkMutation.mutateAsync;
+  const [resolvedBuilderUrl, setResolvedBuilderUrl] = useState<
+    string | null | undefined
+  >(undefined);
+  const attemptedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (attemptedIdRef.current === id) return;
+    attemptedIdRef.current = id;
+    setResolvedBuilderUrl(undefined);
+    void resolveLinkRef
+      .current({ id })
+      .then((result) => setResolvedBuilderUrl(result.builderUrl))
+      .catch(() => setResolvedBuilderUrl(undefined));
+  }, [id]);
+
+  const persistedBuilderUrl =
     data.builderUrl && isTrustedBuilderPreviewUrl(data.builderUrl)
       ? data.builderUrl
       : undefined;
+  const trustedBuilderUrl =
+    (resolvedBuilderUrl && isTrustedBuilderPreviewUrl(resolvedBuilderUrl)
+      ? resolvedBuilderUrl
+      : undefined) ?? persistedBuilderUrl;
 
   return (
     <section className="space-y-3 border-t border-border pt-6">

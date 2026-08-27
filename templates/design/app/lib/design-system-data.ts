@@ -2,6 +2,7 @@ export interface DesignSystemData {
   source?: string;
   builderJobId?: string;
   builderProjectId?: string;
+  builderBranchName?: string;
   builderUrl?: string;
   builderStatus?: string;
   builderSyncedAt?: string;
