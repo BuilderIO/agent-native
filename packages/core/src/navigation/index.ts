@@ -15,6 +15,7 @@ export const STANDARD_SETTINGS_TABS = {
   providers: "providers",
   connections: "connections",
   secrets: "secrets",
+  mcp: "mcp",
   team: "organization",
   usage: "usage",
   language: "language",
@@ -137,7 +138,7 @@ export function buildLegacyAgentSettingsRoute(
           : legacyTab === "library"
             ? buildSettingsRoute("library")
             : legacyTab === "access"
-              ? buildSettingsRoute("agent")
+              ? buildSettingsRoute(STANDARD_SETTINGS_TABS.mcp)
               : LEGACY_AGENT_SETTINGS_TABS.has(legacyTab)
                 ? buildSettingsRoute(`agent:${legacyTab}`)
                 : buildSettingsRoute("agent");

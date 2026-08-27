@@ -93,7 +93,15 @@ Die Identitätsregel ist das Sicherheitsscharnier: Der Link besteht nur aus `vie
 
 ## Einfache Einrichtung {#easy-setup}
 
-Fügen Sie einen Remote-MCP-Connector zum Host hinzu, auf dem Sie Agent-Native verwenden möchten.
+Jede Agent-Native-App stellt eine kanonische MCP-URL bereit:
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+Öffnen Sie in der App **Settings**, suchen Sie nach **MCP** und kopieren Sie die
+**MCP server URL**. Fügen Sie diese URL in den gewünschten KI-Host ein. Die URL
+ist die App-Quelle plus `/mcp`; Sie müssen keine Entwicklereinstellung suchen.
 
 Für arbeitsplatz- oder app-übergreifendes Arbeiten verwenden Sie Dispatch:
 
@@ -117,15 +125,13 @@ Jede gehostete App verfügt auch über eine Hilfsseite unter
 `https://&lt;app&gt;/mcp/connect` mit dem kopierbaren URL und
 hostspezifische Registerkarten für Claude, ChatGPT, Cursor, Claude-Code, Codex und Andere.
 
-### Der In-App-Tab Access {#access-tab}
+### Die In-App-MCP-Einstellung {#mcp-settings}
 
-Apps, die `AgentTabsPage` einbinden, stellen denselben Verbindungsablauf im Tab
-**Access** bereit. Er zeigt die MCP-URL, bei Verfügbarkeit eine A2A-Agent-Card
-und die gemeinsamen Einrichtungsanleitungen für Claude, ChatGPT, Cursor, Claude
-Code, Codex und andere Clients. Beginnen Sie dort und öffnen Sie `/mcp/connect`
-für den vollständigen Ablauf und den Token-Fallback. Dies ist eine Oberfläche
-für die Verbindungseinrichtung, keine allgemeine Zugriffskonsole; Grants,
-Bereichsänderung und Widerruf werden in diesem Tab noch nicht verwaltet.
+Die Standard-App-Einstellungen enthalten neben **Integrations** einen **MCP**-Tab.
+Er zeigt die kanonische MCP-URL der App, bei Verfügbarkeit eine A2A-Agent-Card
+und dieselben Einrichtungsanleitungen wie die vollständige Verbindungsseite.
+Verwenden Sie **Settings → MCP** als Startpunkt in der App oder öffnen Sie
+`/mcp/connect` direkt für den vollständigen Ablauf und den Token-Fallback.
 
 ### Claude und ChatGPT OAuth {#oauth}
 
@@ -134,10 +140,16 @@ Claude / Claude Desktop: Fügen Sie einen benutzerdefinierten Connector hinzu, f
 und aktivieren Sie den Connector in einem Chat. Der Claude-Code verwendet denselben URL: Fügen Sie ihn als
 Remote-HTTP MCP-Server, führen Sie `/mcp` aus und wählen Sie dann **Authentifizieren**.
 
-ChatGPT: Verwenden Sie einen Arbeitsbereich, in dem sich benutzerdefinierte MCP-Konnektoren oder Entwicklermodus-Apps befinden
-aktiviert, erstellen Sie einen benutzerdefinierten Connector/eine benutzerdefinierte App, fügen Sie denselben MCP URL ein, wählen Sie OAuth,
-Tools scannen/entdecken, sich mit Agent-Native anmelden, die Bereiche genehmigen und aktivieren
-der Connector in einem Chat.
+ChatGPT: Benutzerdefinierte MCP-Apps benötigen einen unterstützten ChatGPT-Web-
+Arbeitsbereich. Wenn Sie Zugriff haben, öffnen Sie **Settings → Apps → Advanced
+settings**, aktivieren Sie bei Bedarf den Entwicklermodus, wählen Sie **Create
+app**, fügen Sie dieselbe MCP-URL ein, wählen Sie OAuth, scannen Sie die Tools,
+melden Sie sich mit Agent-Native an, genehmigen Sie die angeforderten Bereiche
+und aktivieren Sie die App in einem Chat. Business-, Enterprise- und Edu-
+Arbeitsbereiche unterstützen vollständiges MCP einschließlich Schreibaktionen;
+Pro unterstützt Lesen und Abrufen im Entwicklermodus. Wenn **Apps** oder
+**Create app** fehlt, erlaubt Ihr Tarif oder Ihre Workspace-Richtlinie diese
+Einrichtung nicht.
 
 OAuth-Zuschüsse gelten pro Host und pro Benutzer. Der Host speichert die Token und
 vermittelt Tool-/Ressourcenaufrufe, sodass Inline-MCP-App-Vorschauen niemals Rohdaten erhalten

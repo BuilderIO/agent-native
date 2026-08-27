@@ -2,17 +2,14 @@ import {
   IconBook2,
   IconBolt,
   IconChecklist,
-  IconExternalLink,
   IconFolder,
   IconHistory,
-  IconHelpCircle,
   IconHierarchy2,
   IconNotes,
   IconPlugConnected,
   IconTopologyRing2,
   IconSearch,
   IconSettings,
-  IconShieldLock,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -28,16 +25,9 @@ import {
 } from "react";
 
 import { docsUrl } from "../../shared/docs-url.js";
-import {
-  MCP_CONNECT_GUIDES,
-  MCP_CONNECT_MCP_URL_TEMPLATE,
-  MCP_STATIC_TOKEN_FALLBACK,
-  interpolateMcpConnectTemplate,
-  type McpConnectTemplateValues,
-} from "../../shared/mcp-connect-content.js";
-import { appPath } from "../api-path.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
+import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import {
   McpIntegrationDialog,
   // The dialog is intentionally reused here so the Agent page remains a thin
@@ -67,6 +57,8 @@ import { cn } from "../utils.js";
 import { AgentEmptyState } from "./AgentEmptyState.js";
 import { AgentTabFrame } from "./AgentTabFrame.js";
 import type { AgentPageScope, AgentPageTabProps } from "./types.js";
+
+export { MCP_ACCESS_DOCS_HREF as AGENT_ACCESS_DOCS_HREF } from "../resources/McpAccessSettings.js";
 
 const AgentContextTab = lazy(() =>
   import("./AgentContextTab.js").then((module) => ({
@@ -466,278 +458,6 @@ export function ConnectionsTab({
   );
 }
 
-interface AccessUrls {
-  appName: string;
-  appUrl: string;
-  mcpUrl: string;
-  connectUrl: string;
-  agentCardUrl: string;
-}
-
-export const AGENT_ACCESS_DOCS_HREF = {
-  mcp: docsUrl("mcp-protocol"),
-  a2a: docsUrl("a2a-protocol"),
-} as const;
-
-interface CopyFieldProps {
-  label: string;
-  value: string;
-  docsHref?: string;
-  docsLabel?: string;
-}
-
-function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
-  };
-  return (
-    <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/20 p-2">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-          {label}
-          {docsHref && (
-            <a
-              href={docsHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={docsLabel ?? `Open ${label} documentation`}
-              title={docsLabel ?? `Open ${label} documentation`}
-              className="inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <IconHelpCircle className="size-2.5" />
-            </a>
-          )}
-        </div>
-        <code className="mt-1 block truncate text-xs text-foreground">
-          {value}
-        </code>
-      </div>
-      <button
-        type="button"
-        onClick={() => void copy()}
-        className="shrink-0 cursor-pointer rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent"
-      >
-        {copied ? "Copied" : "Copy"}
-      </button>
-    </div>
-  );
-}
-
-function AccessTab({
-  appName: appNameProp,
-}: AgentPageTabProps & { appName?: string }) {
-  const [urls, setUrls] = useState<AccessUrls | null>(null);
-  const [agentCardAvailable, setAgentCardAvailable] = useState(false);
-  const [activeGuide, setActiveGuide] = useState(MCP_CONNECT_GUIDES[0]?.id);
-
-  useEffect(() => {
-    const origin = window.location.origin;
-    const baseUrl = new URL(appPath("/"), origin).toString().replace(/\/$/, "");
-    const hostname = window.location.hostname || "app";
-    const metaSiteName = document
-      .querySelector('meta[property="og:site_name"]')
-      ?.getAttribute("content")
-      ?.trim();
-    const hostnameGuess =
-      hostname !== "localhost" && hostname !== "127.0.0.1"
-        ? hostname.split(".")[0]
-        : "";
-    const appName =
-      appNameProp?.trim() || metaSiteName || hostnameGuess || "this app";
-    const templateValues = {
-      appName,
-      appUrl: baseUrl,
-      mcpUrl: "",
-      serverId: `agent-native-${hostname}`,
-    } satisfies McpConnectTemplateValues;
-    setUrls({
-      appName,
-      appUrl: baseUrl,
-      mcpUrl: interpolateMcpConnectTemplate(
-        MCP_CONNECT_MCP_URL_TEMPLATE,
-        templateValues,
-      ),
-      connectUrl: new URL(appPath("/mcp/connect"), origin).toString(),
-      agentCardUrl: new URL(
-        appPath("/.well-known/agent-card.json"),
-        origin,
-      ).toString(),
-    });
-  }, [appNameProp]);
-
-  useEffect(() => {
-    if (!urls) return;
-    let cancelled = false;
-    fetch(urls.agentCardUrl)
-      .then((response) => {
-        if (!cancelled) setAgentCardAvailable(response.ok);
-      })
-      .catch(() => {
-        if (!cancelled) setAgentCardAvailable(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [urls]);
-
-  const templateValues: McpConnectTemplateValues | null = urls
-    ? {
-        appName: urls.appName,
-        appUrl: urls.appUrl,
-        mcpUrl: urls.mcpUrl,
-        serverId: `agent-native-${window.location.hostname || "app"}`,
-      }
-    : null;
-  const guide =
-    MCP_CONNECT_GUIDES.find((item) => item.id === activeGuide) ??
-    MCP_CONNECT_GUIDES[0];
-
-  return (
-    <AgentTabFrame
-      title="Access"
-      description="Choose which external clients can talk to this app's agent."
-    >
-      <div className="space-y-6">
-        {urls ? (
-          <>
-            <CopyField
-              label="MCP URL"
-              value={urls.mcpUrl}
-              docsHref={AGENT_ACCESS_DOCS_HREF.mcp}
-              docsLabel="Open MCP documentation"
-            />
-            {agentCardAvailable && (
-              <CopyField
-                label="A2A agent card"
-                value={urls.agentCardUrl}
-                docsHref={AGENT_ACCESS_DOCS_HREF.a2a}
-                docsLabel="Open A2A documentation"
-              />
-            )}
-            <section className="space-y-3 border-t border-border/70 pt-6">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">
-                  Client setup
-                </h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  These instructions are also available on the full connect
-                  page.
-                </p>
-              </div>
-              <div
-                className="flex gap-1 overflow-x-auto border-b border-border pb-2"
-                role="tablist"
-                aria-label="Choose your AI assistant"
-              >
-                {MCP_CONNECT_GUIDES.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={item.id === guide?.id}
-                    onClick={() => setActiveGuide(item.id)}
-                    className={cn(
-                      "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
-                      item.id === guide?.id
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              {guide && templateValues && (
-                <div className="space-y-3 pt-1" role="tabpanel">
-                  {guide.steps?.length ? (
-                    <ol className="list-decimal space-y-2 ps-5 text-xs leading-relaxed text-muted-foreground">
-                      {guide.steps.map((step) => (
-                        <li key={step}>
-                          {interpolateMcpConnectTemplate(step, templateValues)}
-                        </li>
-                      ))}
-                    </ol>
-                  ) : null}
-                  {guide.intro && (
-                    <p className="text-xs text-muted-foreground">
-                      {interpolateMcpConnectTemplate(
-                        guide.intro,
-                        templateValues,
-                      )}
-                    </p>
-                  )}
-                  {guide.commandTemplate && (
-                    <CopyField
-                      label="Command"
-                      value={interpolateMcpConnectTemplate(
-                        guide.commandTemplate,
-                        templateValues,
-                      )}
-                    />
-                  )}
-                  {guide.configTemplate && (
-                    <CopyField
-                      label="MCP config"
-                      value={interpolateMcpConnectTemplate(
-                        guide.configTemplate,
-                        templateValues,
-                      )}
-                    />
-                  )}
-                  {guide.action?.kind === "link" && guide.action.href && (
-                    <a
-                      href={guide.action.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-                    >
-                      {guide.action.label}
-                      <IconExternalLink className="size-3.5" />
-                    </a>
-                  )}
-                  {guide.note && (
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      {interpolateMcpConnectTemplate(
-                        guide.note,
-                        templateValues,
-                      )}
-                    </p>
-                  )}
-                </div>
-              )}
-            </section>
-            <section className="border-t border-border/70 pt-6">
-              <h3 className="text-sm font-semibold text-foreground">
-                {MCP_STATIC_TOKEN_FALLBACK.title}
-              </h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {MCP_STATIC_TOKEN_FALLBACK.state}. Open the connect page to
-                create a token for clients that cannot complete OAuth.
-              </p>
-              <a
-                href={urls.connectUrl}
-                className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-              >
-                Open full connect page
-                <IconExternalLink className="size-3.5" />
-              </a>
-            </section>
-          </>
-        ) : (
-          <TabLoading />
-        )}
-      </div>
-    </AgentTabFrame>
-  );
-}
-
 export interface AgentPageExtraTabContext extends AgentPageTabProps {
   scopeControl: ReactNode;
 }
@@ -748,7 +468,7 @@ export type AgentPageExtraTabFactory = (
 
 export interface AgentTabsPageProps {
   /**
-   * Human-readable app name used in the Access tab's connect instructions
+   * Human-readable app name used in the MCP tab's connect instructions
    * (e.g. "name it Mail"). Falls back to the `og:site_name` meta tag, then a
    * hostname-derived guess — never `document.title`, which this page owns.
    */
@@ -942,15 +662,16 @@ export function AgentTabsPage({
       },
       {
         id: "access",
-        label: "Access",
-        icon: IconShieldLock,
+        label: "MCP",
+        icon: IconPlugConnected,
         group: "agent",
-        keywords: "external clients oauth a2a exposure",
+        keywords:
+          "mcp model context protocol server url external clients oauth a2a exposure",
         searchEntries: [
           {
             id: "mcp-connect",
-            label: "External client setup",
-            keywords: "oauth connect",
+            label: "MCP server URL",
+            keywords: "external client oauth connect",
           },
           {
             id: "a2a-agent-card",
@@ -958,13 +679,7 @@ export function AgentTabsPage({
             keywords: "agent card",
           },
         ],
-        content: (
-          <AccessTab
-            scope={scope}
-            canManageOrg={canManageOrg}
-            appName={appName}
-          />
-        ),
+        content: <McpAccessSettings appName={appName} />,
       },
       ...extraTabs,
       ...scopedExtraTabs,

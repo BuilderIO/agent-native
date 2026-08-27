@@ -93,7 +93,14 @@ search: "Claude ChatGPT Claude 程式碼 Codex 游標 Claude Cowork MCP 應用�
 
 ## 輕松設定 {#easy-setup}
 
-將一個遠端 MCP 連線器新增到要使用 Agent-Native 的主機。
+每個 Agent-Native 應用程式都提供一個標準 MCP URL：
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+在應用程式中開啟 **Settings**，搜尋 **MCP**，然後複製 **MCP server URL**。將此 URL
+貼到要使用的 AI 主機即可。URL 是應用程式 origin 加上 `/mcp`，不需要尋找開發人員設定。
 
 對於工作區或跨應用程式工作，請使用 Dispatch：
 
@@ -117,13 +124,11 @@ https://<your-app>.agent-native.com/mcp
 `https://&lt;app&gt;/mcp/connect` 與可複製的 URL 和
 Claude、ChatGPT、游標、Claude 程式碼、Codex 和其他的主機特定分頁。
 
-### 應用程式內的 Access 分頁 {#access-tab}
+### 應用程式內的 MCP 設定 {#mcp-settings}
 
-掛載 `AgentTabsPage` 的應用程式也會在 **Access** 分頁提供相同的連線流程。
-它會顯示 MCP URL、可用時的 A2A 代理卡片，以及 Claude、ChatGPT、Cursor、Claude
-Code、Codex 和其他用戶端的共用設定指南。可將它作為應用程式內的起點，並開啟
-`/mcp/connect` 查看完整流程和權杖備援。這是連線設定介面，不是通用存取控制台；
-此分頁目前還不管理 grants、範圍編輯或撤銷。
+標準應用程式 Settings 在 **Integrations** 旁提供 **MCP** 分頁。它會顯示應用程式的標準
+MCP URL、可用時的 A2A 代理卡片，以及與完整連線頁面相同的設定指南。使用
+**Settings → MCP** 作為應用程式內起點，或直接開啟 `/mcp/connect` 查看完整流程和權杖備援。
 
 ### Claude 和 ChatGPT OAuth {#oauth}
 
@@ -132,10 +137,12 @@ Claude / Claude 桌面：新增自訂連線器，貼上 MCP URL，點選
 並在聊天中啟用連線器。 Claude 程式碼使用相同的 URL：將其新增為
 遠端 HTTP MCP 伺服器，執行`/mcp`，然後選取**驗證**。
 
-ChatGPT：使用自訂 MCP 連線器或開發人員模式應用所在的工作區
-啟用，建立自訂連線器/應用程式，貼上相同的 MCP URL，選取 OAuth，
-掃描/發現工具，使用 Agent-Native 登入，核准範圍並啟用
-聊天中的連線器。
+ChatGPT：自訂 MCP 應用程式需要受支援的 ChatGPT web 工作區。如果你有存取權，請開啟
+**Settings → Apps → Advanced settings**，在需要時啟用開發人員模式，選擇 **Create app**，
+貼上相同的 MCP URL，選擇 OAuth，掃描工具，使用 Agent-Native 登入，核准要求的範圍，
+然後在聊天中啟用應用程式。Business、Enterprise 和 Edu 工作區支援完整 MCP，包括寫入
+操作；Pro 在開發人員模式下支援讀取和擷取。如果沒有 **Apps** 或 **Create app**，你的
+方案或工作區政策不允許此設定。
 
 OAuth 授權針對每個主機和每個使用者。主機儲存權杖並
 調解工具/資源呼叫，因此行內 MCP 應用預覽永遠不會收到原始資料

@@ -85,6 +85,7 @@ import {
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
+import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
@@ -2895,6 +2896,8 @@ export interface SettingsPanelProps {
 }
 
 export interface AgentSettingsTabsOptions {
+  /** Human-readable app name used in MCP connection instructions. */
+  appName?: string;
   /**
    * Include the shared Extensions management tab. Extensions are an optional
    * app capability and stay hidden unless the host opts in.
@@ -3848,6 +3851,7 @@ export function useAgentSettingsTabs(
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
+  const appName = options.appName;
   const agentAdditionalContent = options.agentAdditionalContent;
   const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
   const usageAppId = options.usageAppId ?? null;
@@ -3878,7 +3882,13 @@ export function useAgentSettingsTabs(
   return useMemo<SettingsTabItem[]>(() => {
     const searchTabs = getAgentSettingsSearchTabs();
     const searchTab = (
-      id: "agent" | "integrations" | "usage" | "organization" | "workspace",
+      id:
+        | "agent"
+        | "integrations"
+        | "mcp"
+        | "usage"
+        | "organization"
+        | "workspace",
     ) => {
       const tab = searchTabs.find((candidate) => candidate.id === id);
       if (!tab) throw new Error(`Missing agent workspace tab: ${id}`);
@@ -3886,6 +3896,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const mcp = searchTab("mcp");
     const usage = searchTab("usage");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
@@ -3963,6 +3974,12 @@ export function useAgentSettingsTabs(
         icon: IconPlugConnected,
         group: "integrations",
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
+      },
+      {
+        ...mcp,
+        icon: IconPlugConnected,
+        group: "integrations",
+        content: <McpAccessSettings appName={appName} />,
       },
       {
         ...usage,
@@ -4089,6 +4106,7 @@ export function useAgentSettingsTabs(
   }, [
     agentAdditionalContent,
     additionalTabs,
+    appName,
     baseProps,
     extensionToolsEnabled,
     organizationContent,

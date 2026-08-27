@@ -93,7 +93,15 @@ search: "Claude ChatGPT Claude कोड Codex कर्सर Claude कोव�
 
 ## आसान सेटअप {#easy-setup}
 
-उस होस्ट में एक रिमोट MCP कनेक्टर जोड़ें जहां आप Agent-Native का उपयोग करना चाहते हैं।
+हर Agent-Native ऐप एक canonical MCP URL देता है:
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+ऐप में **Settings** खोलें, **MCP** खोजें और **MCP server URL** कॉपी करें। इस URL
+को उस AI host में पेस्ट करें जिसे आप इस्तेमाल करना चाहते हैं। URL ऐप origin के
+अंत में `/mcp` जोड़कर बनता है; developer setting खोजने की जरूरत नहीं है।
 
 कार्यस्थान या क्रॉस-ऐप कार्य के लिए, डिस्पैच का उपयोग करें:
 
@@ -117,14 +125,12 @@ https://<your-app>.agent-native.com/mcp
 `https://&lt;app&gt;/mcp/connect` प्रतिलिपि योग्य URL और
 Claude, ChatGPT, कर्सर, Claude कोड, Codex और अन्य के लिए होस्ट-विशिष्ट टैब।
 
-### ऐप के अंदर Access टैब {#access-tab}
+### ऐप के अंदर MCP सेटिंग {#mcp-settings}
 
-`AgentTabsPage` माउंट करने वाले ऐप **Access** टैब में यही कनेक्शन फ्लो देते हैं।
-यह MCP URL, उपलब्ध होने पर A2A agent card और Claude, ChatGPT, Cursor, Claude
-Code, Codex तथा अन्य clients के साझा setup guides दिखाता है। इसे ऐप के अंदर
-शुरुआत के रूप में उपयोग करें और पूरे flow तथा token fallback के लिए
-`/mcp/connect` खोलें। यह connection setup UI है, सामान्य access console नहीं;
-टैब अभी grants, scope editing या revocation को manage नहीं करता।
+ऐप की standard Settings में **Integrations** के पास एक **MCP** टैब होता है। इसमें
+ऐप का canonical MCP URL, उपलब्ध होने पर A2A agent card और पूरी connect page
+जैसे setup guides दिखते हैं। ऐप के अंदर शुरुआत करने के लिए **Settings → MCP**
+का उपयोग करें, या पूरे flow और token fallback के लिए `/mcp/connect` सीधे खोलें।
 
 ### Claude और ChatGPT OAuth {#oauth}
 
@@ -133,10 +139,14 @@ Claude / Claude डेस्कटॉप: एक कस्टम कनेक्
 और चैट में कनेक्टर को सक्षम करें। Claude कोड समान URL का उपयोग करता है: इसे a
 दूरस्थ HTTP MCP सर्वर, `/mcp` चलाएं, फिर **प्रमाणित करें** चुनें।
 
-ChatGPT: ऐसे कार्यक्षेत्र का उपयोग करें जहां कस्टम MCP कनेक्टर या डेवलपर-मोड ऐप्स हों
-सक्षम, एक कस्टम कनेक्टर/ऐप बनाएं, वही MCP URL पेस्ट करें, OAuth चुनें,
-उपकरणों को स्कैन/खोजें, Agent-Native के साथ साइन इन करें, स्कोप स्वीकृत करें और सक्षम करें
-चैट में कनेक्टर.
+ChatGPT: कस्टम MCP apps के लिए समर्थित ChatGPT web workspace चाहिए। यदि आपके पास
+access है, तो **Settings → Apps → Advanced settings** खोलें, जरूरत होने पर
+developer mode चालू करें, **Create app** चुनें, वही MCP URL पेस्ट करें, OAuth
+चुनें, tools scan करें, Agent-Native में sign in करें, मांगे गए scopes स्वीकार
+करें और chat में app enable करें। Business, Enterprise और Edu workspaces full
+MCP, including write actions, support करते हैं; Pro developer mode में read और
+fetch support करता है। यदि **Apps** या **Create app** दिखाई नहीं देता, तो आपका
+plan या workspace policy यह setup allow नहीं करता।
 
 OAuth अनुदान प्रति होस्ट और प्रति उपयोगकर्ता है। होस्ट टोकन संग्रहीत करता है और
 टूल/संसाधन कॉल में मध्यस्थता करता है, इसलिए इनलाइन MCP ऐप पूर्वावलोकन कभी भी कच्चा नहीं मिलता है

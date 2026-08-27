@@ -205,6 +205,21 @@ export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
       searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
     },
     {
+      id: "mcp",
+      label: "MCP",
+      keywords:
+        "mcp model context protocol server url external agent host connect claude chatgpt cursor codex",
+      searchEntries: [
+        {
+          id: "mcp-server-url",
+          label: "MCP server URL",
+          keywords:
+            "remote host external agent connect claude chatgpt cursor codex",
+          description: "Connect an AI host to this app",
+        },
+      ],
+    },
+    {
       id: "usage",
       label: "Usage",
       keywords: "usage tokens cost spend billing consumption credits calls",

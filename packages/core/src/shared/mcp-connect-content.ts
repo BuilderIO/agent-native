@@ -2,7 +2,7 @@
  * Shared copy and templates for connecting external MCP clients.
  *
  * Keep this module free of React and server-only imports so the server-rendered
- * connect page and the client Agent access tab use the same instructions.
+ * connect page and the client Agent MCP tab use the same instructions.
  */
 
 export type McpConnectGuideId =
@@ -58,16 +58,16 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
     id: "chatgpt",
     label: "ChatGPT",
     steps: [
-      "In ChatGPT, open Settings → Apps (Business/Enterprise/Edu workspaces with developer mode enabled).",
-      "Scroll to Advanced settings → Create app, paste the MCP URL above, name it {appName}.",
-      "Click Connect, sign in with your Agent-Native account, and approve mcp:read, mcp:write, mcp:apps.",
+      "In ChatGPT web, open Settings → Apps → Advanced settings and enable developer mode if your workspace requires it.",
+      "Choose Create app, paste the MCP URL above, select OAuth, and scan the tools.",
+      "Sign in with your Agent-Native account, approve the requested scopes, and enable the app in a chat.",
     ],
     action: {
       kind: "link",
       label: "Open ChatGPT",
       href: "https://chatgpt.com/",
     },
-    note: 'Got "Connector name already exists" but don\'t see it under Enabled apps? ChatGPT saves a hidden draft the moment you click Create — even if you closed the OAuth popup before approving. In Settings → Apps, scroll past Enabled apps to the Drafts section ("Private apps you\'ve created in developer mode"). Click the draft and either press Connect to finish OAuth, or use the ⋯ → Delete menu and re-create. Workspace admins may also need to enable custom connectors under org settings; each member still authorizes their own account.',
+    note: "Custom MCP apps are available on supported ChatGPT web workspaces. Business, Enterprise, and Edu workspaces support full MCP, including write actions; Pro supports read and fetch in developer mode. If Apps or Create app is missing, your plan or workspace policy does not allow this setup. Workspace admins may need to enable developer mode or publish the app.",
   },
   {
     id: "cursor",

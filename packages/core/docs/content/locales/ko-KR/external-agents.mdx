@@ -93,7 +93,15 @@ search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이�
 
 ## 간편한 설정 {#easy-setup}
 
-Agent-Native를 사용하려는 호스트에 하나의 원격 MCP 커넥터를 추가하세요.
+모든 Agent-Native 앱은 표준 MCP URL을 제공합니다.
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+앱에서 **Settings**를 열고 **MCP**를 검색한 다음 **MCP server URL**을 복사하세요.
+사용할 AI 호스트에 이 URL을 붙여넣으면 됩니다. URL은 앱 origin 뒤에 `/mcp`를 붙인
+형식이며 developer 설정을 찾을 필요가 없습니다.
 
 작업공간 또는 교차 앱 작업의 경우 Dispatch를 사용하세요.
 
@@ -117,14 +125,12 @@ https://<your-app>.agent-native.com/mcp
 복사 가능한 URL가 있는 `https://&lt;app&gt;/mcp/connect` 및
 Claude, ChatGPT, 커서, Claude 코드, Codex 및 기타에 대한 호스트별 탭.
 
-### 앱 내 Access 탭 {#access-tab}
+### 앱 내 MCP 설정 {#mcp-settings}
 
-`AgentTabsPage`를 마운트하는 앱은 **Access** 탭에서 동일한 연결 흐름을
-제공합니다. MCP URL, 가능한 경우 A2A 에이전트 카드, Claude, ChatGPT, Cursor,
-Claude Code, Codex 및 기타 클라이언트를 위한 공통 설정 가이드를 보여줍니다.
-앱 안에서 시작점으로 사용하고 전체 흐름과 토큰 대체 경로는 `/mcp/connect`에서
-여세요. 이 탭은 연결 설정 UI이지 일반 접근 제어 콘솔이 아니며, grants, 범위
-편집, 취소는 아직 관리하지 않습니다.
+표준 앱 Settings에는 **Integrations** 옆에 **MCP** 탭이 있습니다. 앱의 표준 MCP
+URL, 가능한 경우 A2A 에이전트 카드, 전체 연결 페이지와 같은 설정 가이드를 보여줍니다.
+앱에서 시작하려면 **Settings → MCP**를 사용하거나, 전체 흐름과 토큰 대체 경로를
+보려면 `/mcp/connect`를 직접 여세요.
 
 ### Claude 및 ChatGPT OAuth {#oauth}
 
@@ -133,10 +139,14 @@ Claude / Claude 데스크탑: 사용자 정의 커넥터를 추가하고 MCP URL
 채팅에서 커넥터를 활성화합니다. Claude 코드는 동일한 URL를 사용합니다.
 원격 HTTP MCP 서버에서 `/mcp`를 실행한 다음 **인증**을 선택하세요.
 
-ChatGPT: 맞춤 MCP 커넥터 또는 개발자 모드 앱이 있는 작업 공간을 사용하세요.
-활성화, 사용자 정의 커넥터/앱 생성, 동일한 MCP URL 붙여넣기, OAuth 선택,
-도구 검색/발견, Agent-Native로 로그인, 범위 승인 및 활성화
-채팅의 커넥터
+ChatGPT: 맞춤 MCP 앱에는 지원되는 ChatGPT web 작업 공간이 필요합니다. 액세스할 수
+있다면 **Settings → Apps → Advanced settings**를 열고, 필요한 경우 developer mode를
+활성화한 뒤 **Create app**을 선택하세요. 같은 MCP URL을 붙여넣고 OAuth를 선택하여
+도구를 스캔한 다음 Agent-Native에 로그인하고 요청된 범위를 승인한 뒤 채팅에서 앱을
+활성화하세요. Business, Enterprise, Edu 작업 공간은 쓰기 작업을 포함한 전체 MCP를
+지원하며, Pro는 developer mode에서 읽기와 가져오기를 지원합니다. **Apps** 또는
+**Create app**이 보이지 않으면 요금제나 작업 공간 정책에서 이 설정을 허용하지 않는
+것입니다.
 
 OAuth 부여는 호스트별 및 사용자별입니다. 호스트는 토큰을 저장하고
 도구/리소스 호출을 중재하므로 인라인 MCP 앱 미리보기는 원시 수신을 받지 않습니다.

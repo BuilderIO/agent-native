@@ -7,6 +7,7 @@ describe("getAgentSettingsSearchTabs", () => {
     const tabs = getAgentSettingsSearchTabs();
     const agent = tabs.find((tab) => tab.id === "agent");
     const integrations = tabs.find((tab) => tab.id === "integrations");
+    const mcp = tabs.find((tab) => tab.id === "mcp");
 
     expect(agent?.searchEntries).toEqual(
       expect.arrayContaining([
@@ -31,6 +32,15 @@ describe("getAgentSettingsSearchTabs", () => {
       expect.arrayContaining([
         expect.objectContaining({ id: "usage", label: "Usage" }),
       ]),
+    );
+    expect(mcp).toEqual(
+      expect.objectContaining({
+        label: "MCP",
+        keywords: expect.stringContaining("model context protocol"),
+        searchEntries: expect.arrayContaining([
+          expect.objectContaining({ label: "MCP server URL" }),
+        ]),
+      }),
     );
   });
 });
