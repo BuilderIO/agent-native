@@ -206,10 +206,16 @@
   --b-t-label-1: 14px;
   --b-t-label-2: 11px;
 
-  /* The hero shader draws the same greyscale field in both themes, but one
-     opacity cannot serve both: over near-white, 0.15 reads as almost nothing
-     next to what it reads as over near-black. */
+  /* The hero shader draws the same field in both themes, but one opacity
+     cannot serve both: over near-white, 0.15 reads as almost nothing next to
+     what it reads as over near-black. */
   --b-hero-shader-opacity: 0.15;
+  --b-hero-shader-fg: var(--b-text-secondary);
+  /* Overshoot past --b-hero-shader-fg for the brightest dots. Dark mode can
+     push this far because the fg/bg direction points at white; light mode
+     points at black, so the same value crushes the focus into a dark blot
+     behind the headline. */
+  --b-hero-shader-brightness: 3;
 
   background: var(--b-bg-page);
   color: var(--b-text-primary);
@@ -244,7 +250,12 @@
 
   --b-snackbar-bg: #ffffff;
 
-  --b-hero-shader-opacity: 0.28;
+  /* Teal rather than the near-black text color: at light-mode contrast the
+     field reads as a tinted dot grid instead of a grey smudge under the
+     headline. */
+  --b-hero-shader-fg: #00677f;
+  --b-hero-shader-brightness: 1.15;
+  --b-hero-shader-opacity: 0.22;
 
   --b-border-default: #cac9c6;
   --b-border-subtle: #e0e0d7;
