@@ -14,7 +14,7 @@ import { preloadDocBlocksContent } from "./doc-block-renderer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
 import { docSourceLoaders, localizedDocLoaders } from "./docs-source-loaders";
@@ -128,7 +128,7 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
 }
 
 function normalizeDocsLocale(locale: unknown): DocsLocale {
-  return isDocsLocale(locale) ? locale : DEFAULT_DOCS_LOCALE;
+  return docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
 }
 
 function localizedDocKey(locale: DocsLocale, slug: string): string | undefined {
