@@ -4,6 +4,7 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -44,6 +45,7 @@ export default function SlideRoute() {
     undefined,
   );
   const [designSystemId, setDesignSystemId] = useState<string | null>(null);
+  const [deckTitle, setDeckTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const { designSystem } = useDeckDesignSystem(designSystemId);
@@ -57,6 +59,17 @@ export default function SlideRoute() {
         ? parseInt(slideIndexParam, 10)
         : 0;
   const inEmbed = isInAgentEmbed();
+
+  useEffect(() => {
+    const nextTitle = deckTitle
+      ? `${normalizeDocumentTitle(deckTitle, "Slide")} — Slides`
+      : messages.raw.slidePreviewTitle;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deckTitle]);
 
   useEffect(() => {
     if (!deckId) {
@@ -79,6 +92,7 @@ export default function SlideRoute() {
     }
 
     callAction<{
+      title?: string;
       slides?: Slide[];
       aspectRatio?: AspectRatio;
       designSystemId?: string | null;
@@ -90,6 +104,7 @@ export default function SlideRoute() {
         }
         const idx = Math.max(0, Math.min(slideIndex, slides.length - 1));
         setSlide(slides[idx]);
+        setDeckTitle(deck.title ?? null);
         setAspectRatio(deck.aspectRatio);
         setDesignSystemId(deck.designSystemId ?? null);
         setLoading(false);

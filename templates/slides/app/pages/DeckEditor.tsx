@@ -9,6 +9,7 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   DndContext,
   closestCenter,
@@ -339,6 +340,17 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+
+  useEffect(() => {
+    if (!deck) return;
+    const nextTitle = `${normalizeDocumentTitle(deck.title, "Untitled deck")} — Slides`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deck?.title]);
+
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
