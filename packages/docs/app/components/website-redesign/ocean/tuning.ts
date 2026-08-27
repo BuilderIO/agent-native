@@ -159,12 +159,30 @@ const PRESET_B: Overrides = {
   bottomFadeStartPercent: 62,
 };
 
-const OCEAN_PRESETS = { a: PRESET_A, b: PRESET_B } as const;
+/**
+ * C: A's field, B's tail. Keeps A's wave height, particle size and fade range
+ * -- the density that made it read as a lit seascape -- and takes only B's
+ * steeper fade exponent and container mask, which are the two things that
+ * stopped the field ending on a line at the section edge.
+ */
+const PRESET_C: Overrides = {
+  simulation: { worldSize: 700, displacementScale: 0.035 },
+  particles: { pointSize: 1.1, fadeNear: 60, fadeFar: 520, fadePower: 2.6 },
+  camera: {
+    eye: [0, 14, 78],
+    target: [0, 0, -60],
+    pitchDegrees: 21,
+    fovDegrees: 95,
+  },
+  bottomFadeStartPercent: 62,
+};
+
+const OCEAN_PRESETS = { a: PRESET_A, b: PRESET_B, c: PRESET_C } as const;
 
 export type OceanPresetName = keyof typeof OCEAN_PRESETS;
 
 /** The preset that ships. `?ocean=<name>` overrides it in dev only. */
-export const ACTIVE_OCEAN_PRESET: OceanPresetName = "b";
+export const ACTIVE_OCEAN_PRESET: OceanPresetName = "c";
 
 function isPresetName(value: string | null): value is OceanPresetName {
   return value !== null && value in OCEAN_PRESETS;
