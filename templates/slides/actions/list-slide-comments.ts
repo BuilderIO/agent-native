@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
 
 export default defineAction({
   description: "List all comments on a slide, ordered by creation time.",
@@ -36,6 +37,7 @@ export default defineAction({
         parent_id: row.parentId,
         content: row.content,
         quoted_text: row.quotedText,
+        anchor: parseSlideCommentAnchor(row.anchor),
         author_email: row.authorEmail,
         author_name: row.authorName,
         resolved: row.resolved,

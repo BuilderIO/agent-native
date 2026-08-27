@@ -77,6 +77,7 @@ export const slideComments = table("slide_comments", {
   parentId: text("parent_id"),
   content: text("content").notNull(),
   quotedText: text("quoted_text"),
+  anchor: text("anchor"),
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
   resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
