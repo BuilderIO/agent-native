@@ -55,7 +55,7 @@ async function loadDeckWithUniqueSlideIds(deckId: string) {
         updatedAt: new Date().toISOString(),
       };
       const versionCondition =
-        lockedSnapshot.row.updatedAt == null
+        typeof lockedSnapshot.row.updatedAt !== "string"
           ? isNull(schema.decks.updatedAt)
           : eq(schema.decks.updatedAt, lockedSnapshot.row.updatedAt);
       await getDb()
