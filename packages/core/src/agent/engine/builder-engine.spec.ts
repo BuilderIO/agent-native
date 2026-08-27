@@ -1687,6 +1687,25 @@ describe("createBuilderEngine", () => {
     expect(stop?.statusCode).toBe(500);
   });
 
+  it("canonicalizes message-only Builder internal-error HTTP responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(500, {
+          message:
+            "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.statusCode).toBe(500);
+  });
+
   it("preserves provider_internal_error for non-envelope messages", async () => {
     vi.stubGlobal(
       "fetch",

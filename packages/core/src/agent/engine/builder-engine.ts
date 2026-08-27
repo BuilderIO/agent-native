@@ -659,10 +659,8 @@ async function* emitHttpError(
   }
   const message = errBody.message ?? `Builder gateway returned ${status}`;
   const code =
-    canonicalizeBuilderGatewayErrorCode(
-      errBody.code ?? `http_${status}`,
-      message,
-    ) ?? `http_${status}`;
+    canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
+    `http_${status}`;
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
     gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
 

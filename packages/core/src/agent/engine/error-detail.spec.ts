@@ -162,12 +162,15 @@ describe("isProviderConnectionErrorMessage", () => {
     );
   });
 
-  it("canonicalizes only provider_internal_error envelopes", () => {
+  it("canonicalizes coded and message-only Builder envelopes", () => {
     const envelope =
       "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a";
     expect(
       canonicalizeBuilderGatewayErrorCode("provider_internal_error", envelope),
     ).toBe(BUILDER_GATEWAY_INTERNAL_ERROR_CODE);
+    expect(canonicalizeBuilderGatewayErrorCode(undefined, envelope)).toBe(
+      BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+    );
     expect(
       canonicalizeBuilderGatewayErrorCode(
         "provider_internal_error",

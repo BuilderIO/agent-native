@@ -131,7 +131,7 @@ export function canonicalizeBuilderGatewayErrorCode(
   code: string | undefined,
   message: string,
 ): string | undefined {
-  return code === "provider_internal_error" &&
+  return (code === undefined || code === "provider_internal_error") &&
     isBuilderGatewayInternalErrorMessage(message)
     ? BUILDER_GATEWAY_INTERNAL_ERROR_CODE
     : code;
