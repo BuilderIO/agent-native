@@ -17,6 +17,8 @@ import { defineEventHandler, getQuery, setResponseStatus } from "h3";
  * locally on the design system's data.
  */
 export const designSystemBuilderLink = defineEventHandler(async (event) => {
+  // coercion-ok: an errored session lookup is treated as "no session" and
+  // rejected below with 401, not silently accepted.
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
