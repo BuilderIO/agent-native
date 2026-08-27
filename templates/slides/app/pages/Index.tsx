@@ -18,11 +18,10 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
+  IconFilter,
   IconPlus,
   IconRefresh,
   IconSearch,
-  IconStack2,
-  IconUserCircle,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
@@ -55,8 +54,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -1292,16 +1297,22 @@ export default function Index() {
 
   useSetPageTitle(t("home.decksTitle"));
 
-  // Inject "New Deck" into the global header actions slot.
+  // Keep the deck controls in the same compact header row as the primary
+  // create action. The mobile fallback below mirrors them because Header is
+  // intentionally desktop-only.
   useSetHeaderActions(
     useMemo(
       () => (
-        <Button onClick={openNewDeck} size="sm" className="cursor-pointer">
-          <IconPlus className="w-3.5 h-3.5" />
-          {t("home.newDeck")}
-        </Button>
+        <>
+          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+          <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
+          <Button onClick={openNewDeck} size="sm" className="cursor-pointer">
+            <IconPlus className="w-3.5 h-3.5" />
+            {t("home.newDeck")}
+          </Button>
+        </>
       ),
-      [openNewDeck, t],
+      [deckFilter, deckSearch, openNewDeck, setDeckFilter, t],
     ),
   );
 
@@ -1361,42 +1372,13 @@ export default function Index() {
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (
         <>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <ToggleGroup
-              type="single"
-              value={deckFilter}
-              onValueChange={(value) => value && setDeckFilter(value)}
-              className="w-fit rounded-lg border border-border bg-card p-0.5"
-              size="sm"
-            >
-              <ToggleGroupItem
-                value="mine"
-                aria-label={t("home.showMineDecks")}
-                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-              >
-                <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
-                {t("home.mine")}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="all"
-                aria-label={t("home.showAllDecks")}
-                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-              >
-                <IconStack2 className="me-1.5 h-3.5 w-3.5" />
-                {t("home.all")}
-              </ToggleGroupItem>
-            </ToggleGroup>
-            <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground sm:w-60">
-              <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
-              <Input
-                type="search"
-                value={deckSearch}
-                onChange={(event) => setDeckSearch(event.target.value)}
-                placeholder={t("root.searchDecks")}
-                aria-label={t("root.searchDecks")}
-                className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-            </label>
+          <div className="mb-4 flex items-center gap-2 md:hidden">
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="flex-1"
+            />
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -1575,6 +1557,79 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
+  );
+}
+
+function DeckFilterMenu({
+  value,
+  onChange,
+}: {
+  value: DeckFilter;
+  onChange: (value: DeckFilter) => void;
+}) {
+  const t = useT();
+  const currentLabel = value === "mine" ? t("home.mine") : t("home.all");
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={
+            value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")
+          }
+          className="shrink-0 gap-1.5"
+        >
+          <IconFilter className="size-3.5" />
+          {currentLabel}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(nextValue) => {
+            if (nextValue === "mine" || nextValue === "all") {
+              onChange(nextValue);
+            }
+          }}
+        >
+          <DropdownMenuRadioItem value="mine">
+            {t("home.mine")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="all">
+            {t("home.all")}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DeckSearchInput({
+  value,
+  onChange,
+  className = "w-40 lg:w-60",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const t = useT();
+  return (
+    <label
+      className={`flex h-8 min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground ${className}`}
+    >
+      <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
+      <Input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={t("root.searchDecks")}
+        aria-label={t("root.searchDecks")}
+        className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+      />
+    </label>
   );
 }
 
