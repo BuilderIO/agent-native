@@ -345,7 +345,9 @@ export default defineAction({
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
 
-    const connection = await getGoogleDocsAccessToken(owner);
+    const connection = await getGoogleDocsAccessToken(owner, {
+      requireDriveExportScope: true,
+    });
     if (!connection) {
       throw new Error(
         "Google Drive is not connected. Use the Connect Google button in Slides, then try again.",
