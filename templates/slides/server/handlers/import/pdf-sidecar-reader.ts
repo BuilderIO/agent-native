@@ -2,7 +2,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 import {
   isSlidesPdfSidecar,
-  SLIDES_PDF_SIDECAR_MAX_JSON_BYTES,
+  SLIDES_PDF_SIDECAR_MAX_BASE64_BYTES,
   SLIDES_PDF_SIDECAR_NAMESPACE,
   type SlidesPdfSidecar,
 } from "../../../shared/pdf-sidecar.js";
@@ -62,10 +62,11 @@ export async function readSlidesPdfSidecar(
   }
   const payload = raw.slice(open + OPEN_TAG.length, close);
 
-  // The exporter refuses to write more than this; a larger payload did not come
-  // from a Slides export, and decoding it would allocate several copies of an
-  // attacker-chosen size before any validation could reject it.
-  if (payload.length > SLIDES_PDF_SIDECAR_MAX_JSON_BYTES * 2) {
+  // The exporter's cap is a decoded-JSON budget, so the base64 bound has to be
+  // the exact expansion of it — a looser one lets a crafted payload through at
+  // a size this app would never write, and decoding allocates several copies
+  // of it before any validation can reject it.
+  if (payload.length > SLIDES_PDF_SIDECAR_MAX_BASE64_BYTES) {
     return {
       status: "unreadable",
       reason: `payload is ${payload.length} bytes, past anything this app writes`,

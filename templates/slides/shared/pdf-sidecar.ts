@@ -55,6 +55,7 @@ export interface SlidesPdfSidecarSlide {
   excalidrawData?: string;
   transition?: SlideTransition;
   splitByParagraph?: boolean;
+  skipped?: boolean;
   animations?: SlidesPdfSidecarAnimation[];
 }
 
@@ -73,6 +74,11 @@ export interface SlidesPdfSidecar {
  * send.
  */
 export const SLIDES_PDF_SIDECAR_MAX_JSON_BYTES = 4_000_000;
+
+/** Bytes of base64 that decode to `SLIDES_PDF_SIDECAR_MAX_JSON_BYTES`, so both sides police the same budget. */
+export const SLIDES_PDF_SIDECAR_MAX_BASE64_BYTES = Math.ceil(
+  (SLIDES_PDF_SIDECAR_MAX_JSON_BYTES * 4) / 3 + 4,
+);
 
 function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
@@ -124,11 +130,8 @@ export function isSlidesPdfSidecar(value: unknown): value is SlidesPdfSidecar {
     if (typeof entry !== "object" || entry === null) return false;
     const slide = entry as SlidesPdfSidecarSlide;
     if (typeof slide.content !== "string") return false;
-    if (
-      slide.splitByParagraph !== undefined &&
-      typeof slide.splitByParagraph !== "boolean"
-    ) {
-      return false;
+    for (const flag of [slide.splitByParagraph, slide.skipped]) {
+      if (flag !== undefined && typeof flag !== "boolean") return false;
     }
     if (!isAnimationList(slide.animations)) return false;
     return (

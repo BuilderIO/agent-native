@@ -4,6 +4,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { describe, expect, it } from "vitest";
 
 import {
+  SLIDES_PDF_SIDECAR_MAX_BASE64_BYTES,
   SLIDES_PDF_SIDECAR_NAMESPACE,
   type SlidesPdfSidecar,
 } from "../../../shared/pdf-sidecar.js";
@@ -211,6 +212,44 @@ describe("PDF round trip", () => {
           splitByParagraph: true,
           animations: [{ id: "a1", elementIndex: 0, type: "fade" as const }],
         },
+      ],
+    };
+    const pdf = newPdf();
+    pdf.addImage(TINY_JPEG, "JPEG", 0, 0, 1920, 1080);
+    pdf.addMetadata(
+      Buffer.from(JSON.stringify(sidecar), "utf8").toString("base64"),
+      SLIDES_PDF_SIDECAR_NAMESPACE,
+    );
+
+    const doc = await open(pdf);
+    const result = await readSlidesPdfSidecar(doc);
+    await doc.destroy();
+
+    expect(result).toEqual({ status: "found", sidecar });
+  });
+
+  it("refuses a payload larger than anything the exporter would write", async () => {
+    const pdf = newPdf();
+    pdf.addImage(TINY_JPEG, "JPEG", 0, 0, 1920, 1080);
+    // Valid base64, and valid JSON if it were decoded — the point is that the
+    // reader rejects it on size before allocating several copies of it.
+    pdf.addMetadata(
+      "A".repeat(SLIDES_PDF_SIDECAR_MAX_BASE64_BYTES + 4),
+      SLIDES_PDF_SIDECAR_NAMESPACE,
+    );
+
+    const doc = await open(pdf);
+    const result = await readSlidesPdfSidecar(doc);
+    await doc.destroy();
+
+    expect(result.status).toBe("unreadable");
+  });
+
+  it("carries a skipped slide back as skipped", async () => {
+    const sidecar: SlidesPdfSidecar = {
+      v: 1,
+      slides: [
+        { content: '<div class="fmd-slide"><p>One</p></div>', skipped: true },
       ],
     };
     const pdf = newPdf();

@@ -447,6 +447,7 @@ export async function exportDeckAsPdf(
       ...(slide.excalidrawData ? { excalidrawData: slide.excalidrawData } : {}),
       ...(slide.transition ? { transition: slide.transition } : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
+      ...(slide.skipped ? { skipped: true } : {}),
       ...(slide.animations?.length ? { animations: slide.animations } : {}),
     })),
   });
