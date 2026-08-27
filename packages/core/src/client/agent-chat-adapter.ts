@@ -174,7 +174,6 @@ const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
 const MAX_JSON_RESPONSE_PROBE_BYTES = 8_192;
-const JSON_RESPONSE_PROBE_TIMEOUT_MS = 1_000;
 // Tools whose entire input IS the artifact being built (extension HTML, etc.).
 // Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
 // the resumed agent — it can no longer refine the artifact because it sees a
@@ -3916,7 +3915,6 @@ export function createAgentChatAdapter(
               const hasRunId = Boolean(res.headers.get("X-Run-Id"));
               let looksLikeSSE = hasRunId;
               let probeCompleted = false;
-              let probeTimedOut = false;
               let probePrefix = "";
               if (!hasRunId) {
                 // Read a bounded prefix so a mislabeled live SSE stream is not
@@ -3925,14 +3923,7 @@ export function createAgentChatAdapter(
                 if (probeReader) {
                   const decoder = new TextDecoder();
                   let probeBytes = 0;
-                  let timeoutId: ReturnType<typeof setTimeout> | undefined;
                   let onAbort: (() => void) | undefined;
-                  const timeout = new Promise<null>((resolve) => {
-                    timeoutId = setTimeout(
-                      () => resolve(null),
-                      JSON_RESPONSE_PROBE_TIMEOUT_MS,
-                    );
-                  });
                   const abort = new Promise<"abort">((resolve) => {
                     const handleAbort = () => resolve("abort");
                     onAbort = handleAbort;
@@ -3947,7 +3938,7 @@ export function createAgentChatAdapter(
                     while (probeBytes < MAX_JSON_RESPONSE_PROBE_BYTES) {
                       const read = probeReader.read();
                       void read.catch(() => {});
-                      const chunk = await Promise.race([read, timeout, abort]);
+                      const chunk = await Promise.race([read, abort]);
                       if (chunk === "abort") {
                         throw abortSignal.reason instanceof Error &&
                           abortSignal.reason.name === "AbortError"
@@ -3956,10 +3947,6 @@ export function createAgentChatAdapter(
                               "The operation was aborted.",
                               "AbortError",
                             );
-                      }
-                      if (chunk === null) {
-                        probeTimedOut = true;
-                        break;
                       }
 
                       probeCompleted = chunk.done;
@@ -3978,7 +3965,6 @@ export function createAgentChatAdapter(
                     }
                     probePrefix += decoder.decode();
                   } finally {
-                    if (timeoutId !== undefined) clearTimeout(timeoutId);
                     if (onAbort) {
                       abortSignal.removeEventListener("abort", onAbort);
                     }
@@ -3996,19 +3982,12 @@ export function createAgentChatAdapter(
                 }
               }
 
-              if (probeTimedOut) {
-                if (res.body) void res.body.cancel().catch(() => {});
-                throw new Error(
-                  "Agent chat endpoint returned a delayed JSON response instead of an event stream.",
-                );
-              }
-
               const firstChar = probePrefix.trimStart()[0] ?? "";
               const looksLikeJson =
                 probeCompleted ||
                 (firstChar !== "" && '{["-0123456789tfn'.includes(firstChar));
               if (!looksLikeSSE && looksLikeJson) {
-                const body = await res.clone().text();
+                const body = await res.text();
                 const parsed = JSON.parse(body) as { error?: unknown };
                 if (parsed.error) {
                   throw new Error(String(parsed.error));

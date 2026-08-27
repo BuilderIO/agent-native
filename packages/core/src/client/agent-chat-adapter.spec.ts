@@ -217,7 +217,7 @@ describe("createAgentChatAdapter", () => {
     expect(getPendingTurn("thread-pending")).toBeNull();
   });
 
-  it("does not consume a 200 JSON response while checking auth errors", async () => {
+  it("consumes a 200 JSON response while checking auth errors", async () => {
     const response = jsonResponse({ error: "Authentication required" });
     const fetchSpy = vi
       .fn()
@@ -244,7 +244,7 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    expect(response.bodyUsed).toBe(false);
+    expect(response.bodyUsed).toBe(true);
     expect(results[0]).toMatchObject({
       status: { type: "incomplete", reason: "error" },
     });
@@ -272,7 +272,7 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    expect(response.bodyUsed).toBe(false);
+    expect(response.bodyUsed).toBe(true);
     expect(results[0]).toMatchObject({
       content: [
         {
@@ -336,7 +336,7 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
-  it("does not pass a delayed JSON response to SSE parsing after probe timeout", async () => {
+  it("classifies a delayed JSON response after its first body chunk", async () => {
     const encoder = new TextEncoder();
     let finishResponse: (() => void) | undefined;
     const response = new Response(
@@ -344,14 +344,10 @@ describe("createAgentChatAdapter", () => {
         start(controller) {
           finishResponse = () => {
             try {
-              controller.enqueue(
-                encoder.encode(
-                  JSON.stringify({ error: "Authentication required" }),
-                ),
-              );
+              controller.enqueue(encoder.encode(JSON.stringify({ ok: true })));
               controller.close();
             } catch {
-              // The timeout path cancels the response before this delayed body starts.
+              // The iterator cleanup may have already closed the response body.
             }
           };
         },
@@ -392,7 +388,9 @@ describe("createAgentChatAdapter", () => {
         content: [
           {
             type: "text",
-            text: expect.stringContaining("delayed JSON response"),
+            text: expect.stringContaining(
+              "Agent chat endpoint returned JSON instead of an event stream",
+            ),
           },
         ],
         status: { type: "incomplete", reason: "error" },
@@ -453,6 +451,63 @@ describe("createAgentChatAdapter", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     } finally {
       clearTimeout(abortTimer);
+      finishResponse?.();
+      await iterator.return?.();
+    }
+  });
+
+  it("waits for a slow-starting mislabeled SSE response", async () => {
+    vi.useFakeTimers();
+    const encoder = new TextEncoder();
+    let finishResponse: (() => void) | undefined;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "text", text: "first" })}\n\n`,
+              ),
+            );
+            finishResponse = () => controller.close();
+          }, 2_000);
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-mislabeled-sse-delayed",
+    });
+    const iterator = adapter
+      .run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any)
+      [Symbol.asyncIterator]();
+
+    try {
+      const resultPromise = iterator.next();
+      await vi.advanceTimersByTimeAsync(2_001);
+      const result = await resultPromise;
+
+      expect(result.done).toBe(false);
+      expect(result.value).toMatchObject({
+        content: [{ type: "text", text: "first" }],
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
       finishResponse?.();
       await iterator.return?.();
     }
