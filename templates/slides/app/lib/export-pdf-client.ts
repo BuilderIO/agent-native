@@ -11,6 +11,12 @@
  * doesn't shrink the captured pixels.
  */
 import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  SLIDES_PDF_SIDECAR_MAX_JSON_BYTES,
+  SLIDES_PDF_SIDECAR_NAMESPACE,
+  type SlidesPdfSidecar,
+  type SlidesPdfSidecarSlide,
+} from "@shared/pdf-sidecar";
 
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
 import { importExportModule } from "./dynamic-import";
@@ -138,9 +144,130 @@ export function findSlideExportSource(
   });
 }
 
+/** A deck slide as the exporter needs it: its id to find the rendered canvas, and the rest to carry. */
+export type PdfExportSlide = { id: string } & Partial<SlidesPdfSidecarSlide>;
+
+/**
+ * Base64 of the UTF-8 JSON, chunked: `String.fromCharCode(...bytes)` on a
+ * multi-megabyte deck blows the argument limit and throws before any of this
+ * reaches the PDF.
+ */
+function encodeSidecar(sidecar: SlidesPdfSidecar): string | undefined {
+  const bytes = new TextEncoder().encode(JSON.stringify(sidecar));
+  if (bytes.length > SLIDES_PDF_SIDECAR_MAX_JSON_BYTES) {
+    console.warn(
+      `[export-pdf] deck source is ${bytes.length} bytes, over the ${SLIDES_PDF_SIDECAR_MAX_JSON_BYTES}-byte sidecar cap — exporting without it. Re-importing this PDF will reconstruct layers from the page content instead of restoring the original slides.`,
+    );
+    return undefined;
+  }
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/**
+ * CP1252's 0x80–0x9F block — the only characters above Latin-1 that jsPDF's
+ * built-in fonts encode. Written as escapes on purpose: the literal form of this
+ * set once smuggled a NUL into the source and made the whole file diff as binary.
+ */
+const WIN_ANSI_HIGH = new Set(
+  "\u20ac\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u017d\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u017e\u0178",
+);
+
+/**
+ * Whether jsPDF's built-in fonts can write this run. A CJK or Arabic string
+ * would be encoded as replacement bytes, and text that extracts as mojibake is
+ * worse than text that is absent — the XMP sidecar carries the real content
+ * either way.
+ */
+function isWinAnsiEncodable(text: string): boolean {
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code >= 0x20 && code <= 0xff) continue;
+    if (WIN_ANSI_HIGH.has(char)) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Writes every rendered text node a second time as invisible PDF text sitting
+ * over the page raster, the way a scanner's OCR layer does.
+ *
+ * The visible pixels stay the JPEG — this changes nothing about how the export
+ * looks — but the page stops being a picture with no words in it: the text is
+ * selectable, searchable and reachable by a screen reader, and `parsePdfFidelity`
+ * can rebuild positioned text boxes from it if the PDF ever reaches us with its
+ * XMP sidecar stripped.
+ */
+function drawSelectableTextLayer(
+  pdf: import("jspdf").jsPDF,
+  source: HTMLElement,
+  dims: { width: number; height: number },
+): void {
+  const sourceRect = source.getBoundingClientRect();
+  if (sourceRect.width <= 0 || sourceRect.height <= 0) return;
+
+  // Two different scales, because the two inputs live in different spaces.
+  // Every slide canvas renders inside a `scale(var(--slide-scale))` wrapper, so
+  // `getBoundingClientRect()` — which sees through transforms — gives positions
+  // in visual pixels, while `getComputedStyle().fontSize` is untransformed CSS
+  // pixels. Using one factor for both wrote headings at four times their size on
+  // a sidebar thumbnail.
+  const positionScale = dims.width / sourceRect.width;
+  const fontScale = dims.width / (source.clientWidth || sourceRect.width);
+
+  // jsPDF scales coordinates by the unit factor but passes `setFontSize`
+  // straight through as PDF points, so a px-unit document needs the conversion
+  // applied by hand or every run lands at 0.75x the size of the box it sits in.
+  const pointsPerUnit = pdf.internal.scaleFactor;
+
+  const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  pdf.setTextColor(0, 0, 0);
+
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.nodeValue?.replace(/\s+/g, " ").trim();
+    if (!text || !isWinAnsiEncodable(text)) continue;
+    const parent = node.parentElement;
+    if (!parent) continue;
+    // Bullet glyphs the importer marks decorative would otherwise be extracted
+    // as content and re-imported as their own text runs.
+    if (parent.closest('[aria-hidden="true"]')) continue;
+
+    range.selectNodeContents(node);
+    const rect = range.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+
+    const style = window.getComputedStyle(parent);
+    if (style.visibility === "hidden" || style.display === "none") continue;
+    if (style.opacity === "0") continue;
+    const fontSize = parseFloat(style.fontSize) * fontScale * pointsPerUnit;
+    if (!Number.isFinite(fontSize) || fontSize <= 0) continue;
+
+    pdf.setFontSize(fontSize);
+    // Left-aligned on purpose: jsPDF reads `x` as the anchor for whatever
+    // alignment it is given, so a centred run would be drawn half a box to the
+    // right of the line it is meant to sit on. `rect` is already the laid-out
+    // box, so its left edge is the alignment.
+    pdf.text(
+      text,
+      (rect.left - sourceRect.left) * positionScale,
+      (rect.top - sourceRect.top) * positionScale,
+      {
+        baseline: "top",
+        maxWidth: rect.width * positionScale,
+        renderingMode: "invisible",
+      },
+    );
+  }
+}
+
 export async function exportDeckAsPdf(
   deckTitle: string,
-  slideIds: string[],
+  slides: PdfExportSlide[],
   aspectRatio?: AspectRatio,
 ): Promise<void> {
   // modern-screenshot uses <foreignObject> SVG rendering, which delegates
@@ -175,9 +302,9 @@ export async function exportDeckAsPdf(
     format: [dims.width, dims.height],
   });
 
-  for (let i = 0; i < slideIds.length; i++) {
-    const slideId = slideIds[i];
-    const source = findSlideExportSource(slideId, i, slideIds.length);
+  for (let i = 0; i < slides.length; i++) {
+    const slideId = slides[i].id;
+    const source = findSlideExportSource(slideId, i, slides.length);
 
     // Force CORS-enabled re-fetch on every cross-origin <img> before
     // capture — otherwise the canvas tainting check inside modern-screenshot
@@ -218,7 +345,22 @@ export async function exportDeckAsPdf(
 
     if (i > 0) pdf.addPage([dims.width, dims.height], orientation);
     pdf.addImage(dataUrl, "JPEG", 0, 0, dims.width, dims.height);
+    drawSelectableTextLayer(pdf, source, dims);
   }
+
+  // Carried so `import-file` can hand back the deck that was exported instead
+  // of reconstructing one from the page render. Written last: jsPDF holds a
+  // single metadata stream for the whole document, not per page.
+  const sidecar = encodeSidecar({
+    v: 1,
+    title: deckTitle,
+    ...(aspectRatio ? { aspectRatio } : {}),
+    slides: slides.map(({ id: _id, ...slide }) => ({
+      ...slide,
+      content: slide.content ?? "",
+    })),
+  });
+  if (sidecar) pdf.addMetadata(sidecar, SLIDES_PDF_SIDECAR_NAMESPACE);
 
   const safeName = deckTitle.replace(/[^a-zA-Z0-9]/g, "-");
   // Explicit blob + anchor download: jsPDF's pdf.save() can be silently
