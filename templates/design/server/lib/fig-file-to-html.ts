@@ -662,12 +662,25 @@ interface TextRun {
 }
 
 /**
+ * Figma's stored text, minus a trailing paragraph break.
+ *
+ * Figma does not RENDER a trailing break as an extra line, but turning it into
+ * a `<br>` does, so every such label comes out one line taller and pushes its
+ * siblings down with it. Trailing whitespace after the break goes too: Figma
+ * renders neither. Verified on the REST path, where two Whitepace labels then
+ * matched Figma's own heights exactly (40px and 46px, from 60 and 69).
+ */
+function textCharacters(node: FigNode): string {
+  return (node.textData?.characters ?? "").replace(/[\r\n][ \t]*$/, "");
+}
+
+/**
  * Split TEXT into color runs from `characterStyleIDs` + `styleOverrideTable`
  * (how one node holds two colors). Overridden runs carry an explicit color;
  * base-fill runs inherit the element's `color`. One plain run when unstyled.
  */
 function textStyleRuns(node: FigNode): TextRun[] {
-  const chars = node.textData?.characters ?? "";
+  const chars = textCharacters(node);
   const ids = node.textData?.characterStyleIDs;
   const table = node.textData?.styleOverrideTable;
   if (!chars) return [];
@@ -721,6 +734,12 @@ const STACK_ALIGN: Record<string, string> = {
   CENTER: "center",
   MAX: "flex-end",
   BASELINE: "baseline",
+  // Kiwi spells Figma's "Space between" as SPACE_EVENLY; the REST API spells
+  // the same setting SPACE_BETWEEN. Both appear in real files, and an
+  // unmapped value fell through to `flex-start` — 17 rows on the Positivus
+  // page and 98 on the Untitled UI kit packed to the left instead of
+  // distributing.
+  SPACE_EVENLY: "space-between",
   SPACE_BETWEEN: "space-between",
 };
 
@@ -1435,7 +1454,21 @@ function autolayoutStyles(
   // `gap` outright, which drops the declaration and silently falls back to 0,
   // overflowing the stack; the overlap is applied as a negative margin on the
   // children instead (see `buildCss`).
-  if (typeof node.stackSpacing === "number" && node.stackSpacing > 0)
+  //
+  // Under SPACE_BETWEEN, Figma ignores the spacing entirely — the field is
+  // disabled and the gap comes from the free space — but it still stores the
+  // last value set. CSS treats `gap` as a MINIMUM that space-between then
+  // distributes on top of, so emitting both spaces the row by the stale
+  // number: Positivus' logo row came out at 206px instead of its real 96px on
+  // the REST path, pushing the last logo 550px out of the frame.
+  const primaryDistributes =
+    node.stackPrimaryAlignItems === "SPACE_EVENLY" ||
+    node.stackPrimaryAlignItems === "SPACE_BETWEEN";
+  if (
+    typeof node.stackSpacing === "number" &&
+    node.stackSpacing > 0 &&
+    !primaryDistributes
+  )
     out.gap = `${num(node.stackSpacing)}px`;
   // `stackHorizontalPadding` and `stackVerticalPadding` are the LEFT and TOP
   // fields, not symmetric shorthands — the end sides live in
@@ -3061,7 +3094,7 @@ function emitNode(
   }
 
   if (node.type === "TEXT") {
-    const chars = node.textData?.characters ?? "";
+    const chars = textCharacters(node);
     if (chars.length === 0) {
       emitOpenWithChildren(tag, attrs, indent, lines);
       lines.push(`${indent}</${tag}>`);

@@ -1509,3 +1509,50 @@ describe("a resized component instance", () => {
     expect(html).toContain("width: 1200px");
   });
 });
+
+describe("kiwi's own spelling of Figma's settings", () => {
+  // Kiwi spells Figma's "Space between" as SPACE_EVENLY; the REST API spells
+  // the same setting SPACE_BETWEEN. An unmapped value fell through to
+  // flex-start, so 17 rows on the Positivus page and 98 on the Untitled UI kit
+  // packed to the left instead of distributing.
+  const distributedRow = (align: string, stackSpacing: number) => {
+    const doc = makeDocument([
+      {
+        stackMode: "HORIZONTAL",
+        stackPrimaryAlignItems: align,
+        stackPrimarySizing: "FIXED",
+        stackSpacing,
+        size: { x: 1440, y: 48 },
+      },
+    ]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 40, {
+        name: "A",
+        size: { x: 124, y: 48 },
+        parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "a" },
+      }),
+      childNode(10, 41, {
+        name: "B",
+        size: { x: 126, y: 48 },
+        parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "b" },
+      }),
+    );
+    return doc;
+  };
+
+  it("maps SPACE_EVENLY to space-between", () => {
+    expect(renderFrame(distributedRow("SPACE_EVENLY", 0))).toContain(
+      "justify-content: space-between",
+    );
+  });
+
+  it("drops a stale gap under SPACE_EVENLY, as Figma ignores it there", () => {
+    const html = renderFrame(distributedRow("SPACE_EVENLY", 206));
+    expect(html).toContain("justify-content: space-between");
+    expect(html).not.toContain("gap: 206px");
+  });
+
+  it("keeps the gap under ordinary alignment", () => {
+    expect(renderFrame(distributedRow("MIN", 206))).toContain("gap: 206px");
+  });
+});
