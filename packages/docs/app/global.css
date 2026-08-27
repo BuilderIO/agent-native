@@ -832,6 +832,169 @@ hr {
   font-size: 14px;
 }
 
+/* Sequence: a connected chain of short event cards, e.g. how a request flows
+   step by step. Distinct from Steps: no body text alongside each item, just
+   a short phrase per card. Rows cap at three cards (MAX_COLUMNS_PER_ROW in
+   sequence.config.ts) and wrap automatically past that, or at an authored
+   `---` break, rendering an elbow — down on the right, across, down on the
+   left — instead of continuing the arrow. A row that is the sequence's only
+   row, or a full three-card row, stretches to fill the width via
+   `--seq-cols`; a shorter trailing row after a wrap stays naturally sized.
+   Usage in MDX: <Sequence> ### First **thing**\n\n### Then this\n\n---\n\n### Branches here </Sequence> */
+.docs-sequence {
+  display: flex;
+  flex-direction: column;
+  margin: 24px 0;
+}
+
+.docs-sequence-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.docs-sequence-row--grid {
+  display: grid;
+  grid-template-columns: repeat(calc(var(--seq-cols) - 1), 1fr auto) 1fr;
+}
+
+.docs-sequence-card {
+  min-width: 0;
+  border: 1.25px solid var(--docs-border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 14px 18px;
+}
+
+/* The order number is the first word of the card's own sentence, not a
+   separate flex column: .docs-sequence-text and the markdown output inside
+   it are forced inline below so the number and phrase share one line box
+   and wrap together, instead of the number sitting in its own column
+   beside a separately wrapping text block. Neutral muted by default;
+   recolored per accent below so only the card's own accent (e.g. Dispatch's
+   blue) reads as "noticeably different," not every card uniformly. */
+.docs-sequence-number {
+  color: var(--fg-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Accent: distinguishes the one card that matters (e.g. the step where a
+   specific app acts) from the rest, which stay the neutral default above.
+   Same accent keys and tokens as Comparison, so authors reach for the same
+   word and it stays theme-correct instead of a raw hex. Authored as a
+   `:color:` prefix on the card's heading, e.g. `### :blue: Dispatch sees
+   the message`. */
+.docs-sequence-card[data-accent="blue"] {
+  border-color: var(--docs-accent);
+}
+.docs-sequence-card[data-accent="blue"] .docs-sequence-number {
+  color: var(--docs-accent);
+}
+
+.docs-sequence-card[data-accent="green"] {
+  border-color: var(--approaches-good);
+}
+.docs-sequence-card[data-accent="green"] .docs-sequence-number {
+  color: var(--approaches-good);
+}
+
+.docs-sequence-card[data-accent="red"] {
+  border-color: var(--approaches-bad);
+}
+.docs-sequence-card[data-accent="red"] .docs-sequence-number {
+  color: var(--approaches-bad);
+}
+
+.docs-sequence-card[data-accent="yellow"] {
+  border-color: var(--approaches-warn);
+}
+.docs-sequence-card[data-accent="yellow"] .docs-sequence-number {
+  color: var(--approaches-warn);
+}
+
+.docs-sequence-text {
+  display: inline;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.docs-sequence-text .docs-content,
+.docs-sequence-text .docs-content p,
+.docs-sequence-text p {
+  display: inline;
+  margin: 0;
+  font-size: 14px;
+}
+
+/* As a grid item the arrow's box is blockified and stretched to fill its
+   auto-sized track by default, which left-aligns the glyph inside it —
+   center the glyph explicitly so it sits in the middle of its column
+   instead of flush against one edge. */
+.docs-sequence-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-secondary);
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* Both ticks point at a card's horizontal CENTER, not the row's raw edge —
+   treating a row's N equal card columns as evenly dividing the full width,
+   the last column's center sits at 100%/(2N) from the right, and the first
+   column's center sits at 100%/(2N) from the left (ignoring the arrow
+   tracks' own small width, close enough for a decorative connector).
+   `--seq-prev-cols` (set in sequence.tsx) is the row above's actual column
+   count, since only row 0 varies; `6` below is `2 * MAX_COLUMNS_PER_ROW`
+   from sequence.config.ts, since every row past the first is always fixed
+   at that count. */
+.docs-sequence-elbow {
+  position: relative;
+  height: 24px;
+}
+
+.docs-sequence-elbow-down-right,
+.docs-sequence-elbow-down-left {
+  position: absolute;
+  top: 0;
+  width: 1.5px;
+  height: 12px;
+  background: var(--docs-border);
+}
+
+.docs-sequence-elbow-down-right {
+  right: calc(100% / (var(--seq-prev-cols) * 2));
+}
+
+.docs-sequence-elbow-down-left {
+  top: 12px;
+  left: calc(100% / 6);
+}
+
+.docs-sequence-elbow-down-left::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--fg-secondary);
+}
+
+.docs-sequence-elbow-line {
+  position: absolute;
+  top: 12px;
+  left: calc(100% / 6);
+  right: calc(100% / (var(--seq-prev-cols) * 2));
+  height: 1.5px;
+  background: var(--docs-border);
+}
+
 /* Signature: function/hook signature reference — call line + parameter/return
    breakdown, collapsed to the call line until clicked.
    Usage in MDX: <Signature name params={[...]} returns={{...}} /> */
