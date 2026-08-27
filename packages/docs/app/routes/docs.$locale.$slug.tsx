@@ -15,7 +15,7 @@ import {
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
@@ -24,7 +24,8 @@ import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 function requireLocale(value: unknown): DocsLocale {
-  if (isDocsLocale(value)) return value;
+  const locale = docsLocaleFromSegment(value);
+  if (locale) return locale;
   throw new Response("Not Found", { status: 404 });
 }
 
