@@ -25,6 +25,14 @@ export const agentConfig = z.object({
       env: ["AGENT_MODEL"],
       doc: "Model the agent runs with, when the caller does not pass one.",
     }),
+  builtInEngines: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_BUILT_IN_ENGINES"],
+      doc: 'Built-in engines to register, e.g. ["ai-sdk:openai"]. Unset registers every built-in.',
+    }),
   mode: z
     .string()
     .min(1)
@@ -39,6 +47,15 @@ export const agentConfig = z.object({
     .meta({
       env: ["AGENT_ENGINE_PREFER_BYO_KEY"],
       doc: "Skip the Builder-managed engine and select a directly configured provider key first.",
+    }),
+  sourceSweepToolCallThreshold: z
+    .number()
+    .int()
+    .positive()
+    .default(24)
+    .meta({
+      env: ["AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD"],
+      doc: "Read-only source/search tool calls one turn may make before the agent is told to converge and answer from what it gathered.",
     }),
   // These three stay `.optional()` rather than carrying a default: the value
   // that applies when they are unset depends on whether the run is hosted and
