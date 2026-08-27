@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tabler/icons-react", () => ({
-  IconMessage2Filled: () => <span data-icon-comment />,
+  IconMessage2: () => <span data-icon-comment />,
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -58,5 +58,36 @@ describe("Scrubber reaction markers", () => {
       (markers[0] as HTMLButtonElement).click();
     });
     expect(onSeek).toHaveBeenCalledWith(1_000);
+  });
+
+  it("keeps comments and reactions above the track without marker bubbles", () => {
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_000}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          comments={[
+            { id: "comment-1", content: "Nice", videoTimestampMs: 1_000 },
+          ]}
+          reactions={[
+            { id: "reaction-1", emoji: "👍", videoTimestampMs: 1_000 },
+          ]}
+        />,
+      );
+    });
+
+    const comment = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 comment"]',
+    );
+    const reaction = container.querySelector<HTMLButtonElement>(
+      "[data-player-reaction-marker]",
+    );
+
+    expect(comment?.className).toContain("-top-10");
+    expect(comment?.className).not.toContain("rounded-full");
+    expect(comment?.querySelector("[data-icon-comment]")).not.toBeNull();
+    expect(reaction?.className).toContain("-top-8");
+    expect(reaction?.className).not.toContain("rounded-full");
   });
 });

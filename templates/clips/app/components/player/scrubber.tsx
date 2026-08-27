@@ -1,4 +1,4 @@
-import { IconMessage2Filled } from "@tabler/icons-react";
+import { IconMessage2 } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -209,13 +209,13 @@ export function Scrubber(props: ScrubberProps) {
               e.stopPropagation();
               onSeek(ms);
             }}
-            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md ring-2 ring-background transition-transform hover:scale-125"
+            className="absolute -top-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center text-background dark:text-foreground drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:focus-visible:ring-foreground/80"
             style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
             aria-label={`${list.length} comment${list.length > 1 ? "s" : ""}`}
           >
-            <IconMessage2Filled className="h-2.5 w-2.5" />
+            <IconMessage2 className="h-7 w-7 stroke-[1.5]" />
             {list.length > 1 && (
-              <span className="absolute -top-1.5 -right-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-bold leading-none text-primary-foreground ring-2 ring-background">
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground/75 px-0.5 text-[8px] font-bold leading-none text-background shadow-sm dark:bg-background/75 dark:text-foreground">
                 {list.length}
               </span>
             )}
@@ -241,13 +241,13 @@ export function Scrubber(props: ScrubberProps) {
               event.stopPropagation();
               onSeek(ms);
             }}
-            className="absolute -bottom-5 flex h-5 min-w-5 -translate-x-1/2 items-center justify-center rounded-full bg-background/95 px-1 text-sm shadow-md ring-1 ring-primary/40 transition-transform hover:scale-125"
+            className="absolute -top-8 flex h-7 min-w-7 -translate-x-1/2 items-center justify-center px-0.5 text-2xl leading-none text-background drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:text-foreground dark:focus-visible:ring-foreground/80"
             style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
             aria-label={`${list.length} reaction${list.length === 1 ? "" : "s"} at ${msToClock(ms)}`}
           >
             {list[0].emoji}
             {list.length > 1 ? (
-              <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-bold leading-none text-primary-foreground ring-1 ring-background">
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground/75 px-0.5 text-[8px] font-bold leading-none text-background shadow-sm dark:bg-background/75 dark:text-foreground">
                 {list.length}
               </span>
             ) : null}
