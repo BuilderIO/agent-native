@@ -2244,6 +2244,100 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("preserves newer delete tombstones after a replacement save", async () => {
+    window.history.pushState({}, "", "/deck/replacement-delete-race-deck");
+    const initial: Deck = {
+      id: "replacement-delete-race-deck",
+      title: "Replacement delete race deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      resolveDeferredPut,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      resolveDeferredPatch,
+      getPatchAttempts,
+      getFirstPutSignal,
+    } = setupFetch({ deferredPut: true, deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const replacementSlides = [
+      initial.slides[1]!,
+      { ...initial.slides[2]!, content: "<h1>Replaced three</h1>" },
+    ];
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+      result.current.setDeckSlides(initial.id, replacementSlides);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPutSignal()).toBeDefined();
+
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-2");
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+    });
+    deferNextGetDeck();
+    const staleRefresh = result.current.refreshOpenDeck(initial.id);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredPut();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleRefresh;
+    });
+
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-3"]);
+    vi.useRealTimers();
+  });
+
   it("waits for an in-flight granular save before restoring an authoritative version", async () => {
     window.history.pushState({}, "", "/deck/restore-patch-race-deck");
     const initial: Deck = {

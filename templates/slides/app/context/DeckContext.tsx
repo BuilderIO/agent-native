@@ -1593,13 +1593,27 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearReplacedSlideDeleteTombstones = useCallback(
-    (ops: GranularOp[]) => {
-      for (const op of ops) {
-        if (op.op !== "full-replace") continue;
-        clearDeckDeleteTombstones(op.deck.id);
-      }
+    (deckId: string, capturedTombstones: ReadonlySet<string>) => {
+      const tombstones = deletedSlideTombstonesRef.current.get(deckId);
+      if (!tombstones) return;
+      for (const slideId of capturedTombstones) tombstones.delete(slideId);
+      if (tombstones.size === 0) clearDeckDeleteTombstones(deckId);
     },
     [clearDeckDeleteTombstones],
+  );
+
+  const captureReplacedSlideDeleteTombstones = useCallback(
+    (deck: Deck) => {
+      const tombstones = deletedSlideTombstonesRef.current.get(deck.id);
+      const capturedTombstones = new Set(
+        deck.slides
+          .map((slide) => slide.id)
+          .filter((slideId) => tombstones?.has(slideId) ?? false),
+      );
+      return () =>
+        clearReplacedSlideDeleteTombstones(deck.id, capturedTombstones);
+    },
+    [clearReplacedSlideDeleteTombstones],
   );
 
   const nextOpenDeckRequestId = useCallback((deckId: string) => {
@@ -1695,7 +1709,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             enqueueDeckOp(
               op.deckId,
               { op: "full-replace", deck: op.deck },
-              { onSaveSuccess: clearReplacedSlideDeleteTombstones },
+              {
+                onSaveSuccess: captureReplacedSlideDeleteTombstones(op.deck),
+              },
             );
           } else {
             const { deckId, ...granular } = op;
@@ -2893,7 +2909,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           enqueueDeckOp(
             deckId,
             { op: "full-replace", deck: next },
-            { onSaveSuccess: clearReplacedSlideDeleteTombstones },
+            { onSaveSuccess: captureReplacedSlideDeleteTombstones(next) },
           );
           return next;
         }),
@@ -2906,7 +2922,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [clearReplacedSlideDeleteTombstones, markDeckDirty, setDecksLocal],
+    [captureReplacedSlideDeleteTombstones, markDeckDirty, setDecksLocal],
   );
 
   return (
