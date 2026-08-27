@@ -24,6 +24,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
   description:
@@ -119,6 +120,7 @@ export default defineAction({
             summary: triageItems.summary,
             source: triageItems.source,
             sourceUrl: triageItems.sourceUrl,
+            metadataJson: triageItems.metadataJson,
           })
           .from(triageItems)
           .where(
@@ -128,6 +130,14 @@ export default defineAction({
             ),
           )
       : [];
+    const itemSnapshots = itemRows.map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+      source: item.source,
+      sourceUrl: item.sourceUrl,
+      userLabels: readStoredUserLabels(item.metadataJson),
+    }));
     const runRows = itemIds.length
       ? await db
           .select({
@@ -167,7 +177,7 @@ export default defineAction({
         );
         const report = projectFactoryAuditReport(
           mappedEvents,
-          itemRows,
+          itemSnapshots,
           runRows,
           { startedAt: run.startedAt, finishedAt: run.finishedAt },
         );

@@ -189,6 +189,7 @@ const messages = {
       "Choisissez une factory pour examiner son objectif, son flux, ses automatisations et son activité récente. Créez-en une depuis un graphe vierge minimal pour définir un nouveau parcours de revue.",
     inboxTitle: "Boîte de réception des observations",
     inboxTab: "Boîte de réception",
+    inboxBackToList: "Retour à la boîte de réception",
     inboxDescription:
       "Les éléments observés entrent dans la factory avant le travail autonome.",
     selectObservation:

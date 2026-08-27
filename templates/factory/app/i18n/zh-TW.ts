@@ -171,6 +171,7 @@ const messages = {
       "選取工廠以檢視其目的、流程、自動化與最近活動。需要定義新的檢查路徑時，可從最小的空白圖開始。",
     inboxTitle: "觀察收件匣",
     inboxTab: "收件匣",
+    inboxBackToList: "返回收件匣",
     inboxDescription: "自主工作開始前進入工廠的證據。",
     selectObservation: "選取觀察項目以檢查其路徑和回饋。",
     approveAndStart: "核准並開始",

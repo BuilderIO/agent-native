@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
+import { BUILDER_SLACK_MENTION_LABEL } from "@/components/factory/slack-mrkdwn";
 import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
 import {
   TriageRiskPill,
@@ -61,6 +62,7 @@ type InboxListItem = {
   createdAt?: string | null;
   updatedAt?: string | null;
   reason?: string | null;
+  userLabels?: Record<string, string>;
 };
 
 type InboxDecision = {
@@ -103,6 +105,8 @@ type InboxListResponse = {
 type SlackThreadResponse = {
   coverage?: "complete" | "partial";
   sourceUrl?: string | null;
+  builderSlackUserId?: string | null;
+  userLabels?: Record<string, string>;
   messages?: Array<{
     user?: string | null;
     username?: string | null;
@@ -110,6 +114,10 @@ type SlackThreadResponse = {
     text?: string | null;
     ts?: string | null;
   }>;
+};
+
+type TriageConfigResponse = {
+  builderSlackUserId?: string | null;
 };
 
 export function FactoryInboxView({ factoryId }: { factoryId: string }) {
@@ -123,6 +131,7 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
   );
   const [feedbackNote, setFeedbackNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [listReturnMotion, setListReturnMotion] = useState(false);
   const selectedRowRef = useRef<HTMLButtonElement | null>(null);
   const listQuery = useActionQuery<InboxListResponse>("list-triage-items", {
     factoryId,
@@ -130,6 +139,10 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
     ...(status ? { status } : {}),
     ...(cursor ? { cursor } : {}),
   });
+  const configQuery = useActionQuery<TriageConfigResponse>(
+    "get-triage-config",
+    { factoryId },
+  );
   const items = listQuery.data?.items ?? [];
   const selectedListItem =
     items.find((item) => inboxItemId(item) === selectedId) ?? null;
@@ -151,6 +164,15 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
   );
   const feedbackMutation = useActionMutation("record-triage-feedback");
   const approveMutation = useActionMutation("approve-factory-item");
+  const builderSlackUserId =
+    slackQuery.data?.builderSlackUserId ??
+    configQuery.data?.builderSlackUserId ??
+    null;
+  const mentionLabels = mergeUserLabels(
+    selectedListItem?.userLabels,
+    selectedItem?.userLabels,
+    slackQuery.data?.userLabels,
+  );
 
   useEffect(() => {
     setSelectedId(searchParams.get("itemId"));
@@ -165,6 +187,7 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
   }, [selectedId, items.length]);
 
   function selectItem(itemId: string) {
+    setListReturnMotion(false);
     setSelectedId(itemId);
     setVerdict(null);
     setFeedbackNote("");
@@ -172,6 +195,21 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
       (current) => {
         const next = new URLSearchParams(current);
         next.set("itemId", itemId);
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function clearSelection() {
+    setListReturnMotion(true);
+    setSelectedId(null);
+    setVerdict(null);
+    setFeedbackNote("");
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("itemId");
         return next;
       },
       { replace: true },
@@ -193,177 +231,205 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
   }
 
   return (
-    <div className="grid gap-4 p-4 lg:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.4fr)] lg:p-6">
-      <Card>
-        <CardHeader className="flex flex-row items-end justify-between gap-3 space-y-0">
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-status-filter">{t("triage.status")}</Label>
-            <select
-              id="factory-status-filter"
-              className="h-8 w-44 rounded-md border border-input bg-card px-2 text-sm"
-              value={status}
-              onChange={(event) => {
-                const value = event.target.value;
-                setStatus(
-                  INBOX_STATUSES.includes(value as InboxStatus)
-                    ? (value as InboxStatus)
-                    : "",
-                );
-                setCursor(null);
-                setCursorStack([]);
-              }}
-            >
-              <option value="">{t("triage.statusPlaceholder")}</option>
-              {INBOX_STATUSES.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void listQuery.refetch()}
-            disabled={listQuery.isFetching}
-          >
-            {listQuery.isFetching && <IconLoader2 className="animate-spin" />}
-            {t("triage.refresh")}
-          </Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          {listQuery.isError ? (
-            <p className="p-4 text-sm text-destructive">
-              {t("triage.queueError")}
-            </p>
-          ) : listQuery.isLoading ? (
-            <InboxListSkeleton />
-          ) : items.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              {t("triage.empty")}
-            </p>
-          ) : (
-            <div className="grid gap-1.5 p-2">
-              <div
-                className={`hidden px-4 py-2 text-[11px] uppercase tracking-wide text-muted-foreground sm:grid ${inboxListColumns}`}
+    <div className="p-4 lg:p-6">
+      {!selectedId ? (
+        <div
+          className={
+            listReturnMotion ? "factory-inbox-pane-list-return" : undefined
+          }
+        >
+          <Card>
+            <CardHeader className="flex flex-row items-end justify-between gap-3 space-y-0">
+              <div className="grid gap-1.5">
+                <Label htmlFor="factory-status-filter">
+                  {t("triage.status")}
+                </Label>
+                <select
+                  id="factory-status-filter"
+                  className="h-8 w-44 rounded-md border border-input bg-card px-2 text-sm"
+                  value={status}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setStatus(
+                      INBOX_STATUSES.includes(value as InboxStatus)
+                        ? (value as InboxStatus)
+                        : "",
+                    );
+                    setCursor(null);
+                    setCursorStack([]);
+                  }}
+                >
+                  <option value="">{t("triage.statusPlaceholder")}</option>
+                  {INBOX_STATUSES.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void listQuery.refetch()}
+                disabled={listQuery.isFetching}
               >
-                <span />
-                <span>{t("triage.risk")}</span>
-                <span>{t("triage.status")}</span>
-                <span>{t("triage.updatedAt")}</span>
-              </div>
-              {items.map((item) => {
-                const id = inboxItemId(item);
-                const selected = selectedId === id;
-                const snippet = inboxSnippet(item);
-                const updatedAge = formatInboxAge(item.updatedAt);
-                return (
-                  <button
-                    key={id}
-                    ref={selected ? selectedRowRef : undefined}
-                    type="button"
-                    aria-current={selected ? "true" : undefined}
-                    className={`grid rounded-lg px-4 py-3 text-left transition-colors ${inboxListColumns} ${
-                      selected
-                        ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
-                        : "bg-muted/20 hover:bg-muted/50"
-                    }`}
-                    onClick={() => selectItem(id)}
+                {listQuery.isFetching && (
+                  <IconLoader2 className="animate-spin" />
+                )}
+                {t("triage.refresh")}
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              {listQuery.isError ? (
+                <p className="p-4 text-sm text-destructive">
+                  {t("triage.queueError")}
+                </p>
+              ) : listQuery.isLoading ? (
+                <InboxListSkeleton />
+              ) : items.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">
+                  {t("triage.empty")}
+                </p>
+              ) : (
+                <div className="grid gap-1.5 p-2">
+                  <div
+                    className={`hidden px-4 py-2 text-[11px] uppercase tracking-wide text-muted-foreground sm:grid ${inboxListColumns}`}
                   >
-                    <span className="min-w-0">
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        {formatInboxSource(item.source ?? item.sourceName)}
-                      </span>
-                      <span className="mt-0.5 block truncate text-sm font-medium">
-                        {snippet}
-                      </span>
-                    </span>
-                    <span>
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
-                        {t("triage.risk")}
-                      </span>
-                      <TriageRiskPill risk={item.risk} />
-                    </span>
-                    <span>
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
-                        {t("triage.status")}
-                      </span>
-                      <TriageStatusPill status={item.status} />
-                    </span>
-                    <span>
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
-                        {t("triage.updatedAt")}
-                      </span>
-                      {updatedAge && item.updatedAt ? (
-                        <time
-                          className="text-sm tabular-nums text-muted-foreground"
-                          dateTime={item.updatedAt}
-                        >
-                          {updatedAge}
-                        </time>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">-</span>
-                      )}
-                    </span>
-                  </button>
-                );
-              })}
-              <div className="flex items-center justify-between gap-2 px-2 py-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={cursorStack.length === 0 || listQuery.isFetching}
-                  onClick={goToPreviousPage}
-                >
-                  <IconChevronLeft className="size-4" />
-                  {t("triage.previousPage")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={!listQuery.data?.hasMore || listQuery.isFetching}
-                  onClick={goToNextPage}
-                >
-                  {t("triage.nextPage")}
-                  <IconChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="space-y-4 p-4">
-          {!selectedId ? (
-            <p className="text-sm text-muted-foreground">
-              {t("factoryRoute.selectObservation")}
-            </p>
-          ) : detailQuery.isError ? (
-            <p className="text-sm text-destructive">
-              {t("triage.detailError")}
-            </p>
-          ) : detailQuery.isLoading || !selectedItem ? (
-            <InboxDetailSkeleton />
-          ) : (
-            <InboxDetailPane
-              factoryId={factoryId}
-              item={selectedItem}
-              listItem={selectedListItem}
-              slackQuery={slackQuery}
-              t={t}
-              verdict={verdict}
-              setVerdict={setVerdict}
-              feedbackNote={feedbackNote}
-              setFeedbackNote={setFeedbackNote}
-              approveMutation={approveMutation}
-              feedbackMutation={feedbackMutation}
-            />
-          )}
-        </CardContent>
-      </Card>
+                    <span />
+                    <span>{t("triage.risk")}</span>
+                    <span>{t("triage.status")}</span>
+                    <span>{t("triage.updatedAt")}</span>
+                  </div>
+                  {items.map((item) => {
+                    const id = inboxItemId(item);
+                    const snippet = inboxSnippet(item);
+                    const updatedAge = formatInboxAge(item.updatedAt);
+                    return (
+                      <button
+                        key={id}
+                        ref={selectedId === id ? selectedRowRef : undefined}
+                        type="button"
+                        className={`grid rounded-lg bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/50 ${inboxListColumns}`}
+                        onClick={() => selectItem(id)}
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                            {formatInboxSource(item.source ?? item.sourceName)}
+                          </span>
+                          <span className="mt-0.5 block truncate text-sm font-medium">
+                            <SlackMrkdwn
+                              text={snippet}
+                              inline
+                              mentionLabels={item.userLabels}
+                              builderSlackUserId={builderSlackUserId}
+                            />
+                          </span>
+                        </span>
+                        <span>
+                          <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                            {t("triage.risk")}
+                          </span>
+                          <TriageRiskPill risk={item.risk} />
+                        </span>
+                        <span>
+                          <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                            {t("triage.status")}
+                          </span>
+                          <TriageStatusPill status={item.status} />
+                        </span>
+                        <span>
+                          <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                            {t("triage.updatedAt")}
+                          </span>
+                          {updatedAge && item.updatedAt ? (
+                            <time
+                              className="text-sm tabular-nums text-muted-foreground"
+                              dateTime={item.updatedAt}
+                            >
+                              {updatedAge}
+                            </time>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              -
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <div className="flex items-center justify-between gap-2 px-2 py-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={
+                        cursorStack.length === 0 || listQuery.isFetching
+                      }
+                      onClick={goToPreviousPage}
+                    >
+                      <IconChevronLeft className="size-4" />
+                      {t("triage.previousPage")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={
+                        !listQuery.data?.hasMore || listQuery.isFetching
+                      }
+                      onClick={goToNextPage}
+                    >
+                      {t("triage.nextPage")}
+                      <IconChevronRight className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="factory-inbox-pane-detail">
+          <Card>
+            <CardHeader className="flex flex-row items-center gap-2 space-y-0 px-4 py-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("factoryRoute.inboxBackToList")}
+                onClick={clearSelection}
+              >
+                <IconChevronLeft className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4 p-4 pt-0">
+              {detailQuery.isError ? (
+                <p className="text-sm text-destructive">
+                  {t("triage.detailError")}
+                </p>
+              ) : detailQuery.isLoading || !selectedItem ? (
+                <InboxDetailSkeleton />
+              ) : (
+                <InboxDetailPane
+                  factoryId={factoryId}
+                  item={selectedItem}
+                  listItem={selectedListItem}
+                  slackQuery={slackQuery}
+                  mentionLabels={mentionLabels}
+                  builderSlackUserId={builderSlackUserId}
+                  t={t}
+                  verdict={verdict}
+                  setVerdict={setVerdict}
+                  feedbackNote={feedbackNote}
+                  setFeedbackNote={setFeedbackNote}
+                  approveMutation={approveMutation}
+                  feedbackMutation={feedbackMutation}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -373,6 +439,8 @@ function InboxDetailPane({
   item,
   listItem,
   slackQuery,
+  mentionLabels,
+  builderSlackUserId,
   t,
   verdict,
   setVerdict,
@@ -385,6 +453,8 @@ function InboxDetailPane({
   item: InboxDetail;
   listItem: InboxListItem | null;
   slackQuery: ReturnType<typeof useActionQuery<SlackThreadResponse>>;
+  mentionLabels: Record<string, string>;
+  builderSlackUserId: string | null;
   t: ReturnType<typeof useT>;
   verdict: Verdict | null;
   setVerdict: (value: Verdict) => void;
@@ -427,7 +497,12 @@ function InboxDetailPane({
             {formatInboxSource(source)}
           </p>
           <p className="truncate text-sm font-medium">
-            {inboxSnippet(item) || inboxSnippet(listItem)}
+            <SlackMrkdwn
+              text={inboxSnippet(item) || inboxSnippet(listItem)}
+              inline
+              mentionLabels={mentionLabels}
+              builderSlackUserId={builderSlackUserId}
+            />
           </p>
           {(item.sourceUrl || listItem?.sourceUrl) && (
             <a
@@ -460,9 +535,20 @@ function InboxDetailPane({
           </p>
           <div className="mt-2">
             {isSlackSource(source) ? (
-              <SlackThreadPane query={slackQuery} t={t} />
+              <SlackThreadPane
+                query={slackQuery}
+                mentionLabels={mentionLabels}
+                builderSlackUserId={builderSlackUserId}
+                t={t}
+              />
             ) : (
-              <StoredEvidencePane item={item} listItem={listItem} t={t} />
+              <StoredEvidencePane
+                item={item}
+                listItem={listItem}
+                mentionLabels={mentionLabels}
+                builderSlackUserId={builderSlackUserId}
+                t={t}
+              />
             )}
           </div>
         </section>
@@ -578,9 +664,13 @@ function InboxDetailPane({
 
 function SlackThreadPane({
   query,
+  mentionLabels,
+  builderSlackUserId,
   t,
 }: {
   query: ReturnType<typeof useActionQuery<SlackThreadResponse>>;
+  mentionLabels: Record<string, string>;
+  builderSlackUserId: string | null;
   t: ReturnType<typeof useT>;
 }) {
   if (query.isError) {
@@ -606,12 +696,23 @@ function SlackThreadPane({
           {t("triage.threadTruncated")}
         </p>
       ) : null}
-      <div className="max-h-[32rem] space-y-3 overflow-y-auto rounded-md border border-border bg-background p-3">
+      <div className="relative max-h-[32rem] space-y-2 overflow-y-auto ps-4">
+        <div
+          aria-hidden="true"
+          className="absolute bottom-3 start-[5px] top-3 w-px bg-border"
+        />
         {messages.map((message, index) => (
-          <article key={`${message.ts ?? index}`} className="min-w-0">
+          <article
+            key={`${message.ts ?? index}`}
+            className="relative rounded-md border border-border bg-background px-3 py-2"
+          >
+            <span
+              aria-hidden="true"
+              className="absolute start-[-13px] top-3 size-1.5 rounded-full bg-border"
+            />
             <div className="flex items-baseline justify-between gap-2">
               <span className="truncate text-xs font-medium">
-                {message.username || message.user || message.botId || "Slack"}
+                {slackAuthorName(message, mentionLabels, builderSlackUserId)}
               </span>
               {message.ts ? (
                 <time className="shrink-0 text-[11px] text-muted-foreground">
@@ -620,7 +721,11 @@ function SlackThreadPane({
               ) : null}
             </div>
             <div className="mt-1">
-              <SlackMrkdwn text={message.text ?? ""} />
+              <SlackMrkdwn
+                text={message.text ?? ""}
+                mentionLabels={mentionLabels}
+                builderSlackUserId={builderSlackUserId}
+              />
             </div>
           </article>
         ))}
@@ -632,10 +737,14 @@ function SlackThreadPane({
 function StoredEvidencePane({
   item,
   listItem,
+  mentionLabels,
+  builderSlackUserId,
   t,
 }: {
   item: InboxDetail;
   listItem: InboxListItem | null;
+  mentionLabels: Record<string, string>;
+  builderSlackUserId: string | null;
   t: ReturnType<typeof useT>;
 }) {
   const text =
@@ -651,7 +760,11 @@ function StoredEvidencePane({
         <EvidenceIcon source={item.source ?? listItem?.source} />
         {formatInboxSource(item.source ?? listItem?.source)}
       </div>
-      <SlackMrkdwn text={text} />
+      <SlackMrkdwn
+        text={text}
+        mentionLabels={mentionLabels}
+        builderSlackUserId={builderSlackUserId}
+      />
     </div>
   );
 }
@@ -704,6 +817,48 @@ function InboxThreadSkeleton() {
 
 function inboxItemId(item: InboxListItem | InboxDetail | null): string {
   return item?.itemId || item?.id || "";
+}
+
+function mergeUserLabels(
+  ...maps: Array<Record<string, string> | undefined>
+): Record<string, string> {
+  const merged: Record<string, string> = {};
+  for (const map of maps) {
+    if (!map) continue;
+    for (const [id, label] of Object.entries(map)) {
+      if (label.trim()) merged[id] = label;
+    }
+  }
+  return merged;
+}
+
+function slackAuthorName(
+  message: {
+    user?: string | null;
+    username?: string | null;
+    botId?: string | null;
+  },
+  mentionLabels: Record<string, string>,
+  builderSlackUserId: string | null,
+): string {
+  const userId = message.user?.trim();
+  if (
+    userId &&
+    builderSlackUserId &&
+    userId.toUpperCase() === builderSlackUserId.toUpperCase()
+  ) {
+    return BUILDER_SLACK_MENTION_LABEL;
+  }
+  if (userId && mentionLabels[userId]) return mentionLabels[userId];
+  if (message.username && !looksLikeSlackUserId(message.username)) {
+    return message.username;
+  }
+  if (message.username) return message.username;
+  return userId || message.botId || "Slack";
+}
+
+function looksLikeSlackUserId(value: string): boolean {
+  return /^[UW][A-Z0-9]+$/i.test(value.trim());
 }
 
 function inboxSnippet(item: InboxListItem | InboxDetail | null): string {

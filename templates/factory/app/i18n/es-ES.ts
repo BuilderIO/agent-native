@@ -189,6 +189,7 @@ const messages = {
       "Elige una fábrica para revisar su propósito, flujo, automatizaciones y actividad reciente. Inicia una nueva desde un grafo vacío mínimo cuando quieras definir una ruta de revisión.",
     inboxTitle: "Bandeja de observaciones",
     inboxTab: "Bandeja",
+    inboxBackToList: "Volver a la bandeja",
     inboxDescription:
       "Evidencia que entra en la fábrica antes del trabajo autónomo.",
     selectObservation:

@@ -23,6 +23,7 @@ import {
   triageItemStatusSchema,
   triageSourceSchema,
 } from "../server/triage/contracts.js";
+import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
   description:
@@ -113,6 +114,7 @@ export default defineAction({
         headSha: item.headSha,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
+        userLabels: readStoredUserLabels(item.metadataJson),
         reason: latestDecision?.reason ?? null,
         decisionSummary: latestDecision?.reason ?? null,
         latestDecision: latestDecision

@@ -19,6 +19,7 @@ describe("FactoryAuditView outcome-first audit", () => {
       source.indexOf('t("factoryRoute.auditWhy")'),
     );
     expect(source).toContain("SlackMrkdwn");
+    expect(source).toContain("inline");
     expect(source).not.toContain("formatAuditCountLabel");
     expect(source).not.toContain("Slack thread");
   });

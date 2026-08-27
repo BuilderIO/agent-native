@@ -182,6 +182,7 @@ const messages = {
       "ファクトリーの目的、フロー、自動化、最近のアクティビティを確認するファクトリーを選択します。新しいレビュー経路を定義する場合は、最小限の空白グラフから始めます。",
     inboxTitle: "観察インボックス",
     inboxTab: "受信箱",
+    inboxBackToList: "受信箱に戻る",
     inboxDescription: "自律的な作業の前にファクトリーへ入る証拠。",
     selectObservation: "経路とフィードバックを確認する観察を選択します。",
     approveAndStart: "承認して開始",

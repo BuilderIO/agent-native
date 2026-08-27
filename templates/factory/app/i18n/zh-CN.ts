@@ -171,6 +171,7 @@ const messages = {
       "选择一个工厂以查看其目的、流程、自动化和最近活动。需要定义新的审核路径时，可从最小的空白图开始。",
     inboxTitle: "观察收件箱",
     inboxTab: "收件箱",
+    inboxBackToList: "返回收件箱",
     inboxDescription: "自主工作开始前进入工厂的证据。",
     selectObservation: "选择一条观察记录以检查其路径和反馈。",
     approveAndStart: "批准并开始",

@@ -1,3 +1,5 @@
+import { slackEmojiFor } from "./slack-emoji";
+
 export type SlackMrkdwnNode =
   | { type: "text"; value: string }
   | { type: "code"; value: string }
@@ -6,20 +8,31 @@ export type SlackMrkdwnNode =
   | { type: "italic"; value: string }
   | { type: "strike"; value: string }
   | { type: "link"; href: string; label: string }
-  | { type: "mention"; value: string };
+  | { type: "mention"; id: string; value: string }
+  | { type: "emoji"; value: string; shortcode: string };
+
+export type SlackMrkdwnOptions = {
+  mentionLabels?: Record<string, string>;
+  builderSlackUserId?: string | null;
+};
 
 const FENCE_RE = /```(?:[\w-]*\n)?([\s\S]*?)```/;
 const INLINE_RE =
-  /`([^`]+)`|<((?:https?:\/\/|mailto:)[^|>]+)(?:\|([^>]+))?>|<@([A-Z0-9]+)>|\*([^*\n]+)\*|_([^_\n]+)_|~([^~\n]+)~/;
+  /`([^`]+)`|<((?:https?:\/\/|mailto:)[^|>]+)(?:\|([^>]+))?>|:([a-z0-9_+-]+):|<@([UW][A-Z0-9]+)(?:\|([^>]+))?>|\*([^*\n]+)\*|_([^_\n]+)_|~([^~\n]+)~/i;
 
-export function parseSlackMrkdwn(input: string): SlackMrkdwnNode[] {
+export const BUILDER_SLACK_MENTION_LABEL = "@Builder.io";
+
+export function parseSlackMrkdwn(
+  input: string,
+  options: SlackMrkdwnOptions = {},
+): SlackMrkdwnNode[] {
   const nodes: SlackMrkdwnNode[] = [];
   let remaining = input;
   while (remaining.length > 0) {
     const fence = remaining.match(FENCE_RE);
     if (fence && fence.index !== undefined && fence.index >= 0) {
       if (fence.index > 0) {
-        nodes.push(...parseInline(remaining.slice(0, fence.index)));
+        nodes.push(...parseInline(remaining.slice(0, fence.index), options));
       }
       nodes.push({
         type: "codeblock",
@@ -28,13 +41,32 @@ export function parseSlackMrkdwn(input: string): SlackMrkdwnNode[] {
       remaining = remaining.slice(fence.index + fence[0].length);
       continue;
     }
-    nodes.push(...parseInline(remaining));
+    nodes.push(...parseInline(remaining, options));
     break;
   }
   return nodes;
 }
 
-function parseInline(input: string): SlackMrkdwnNode[] {
+export function resolveSlackMentionLabel(
+  userId: string,
+  pipeLabel: string | undefined,
+  options: SlackMrkdwnOptions = {},
+): string {
+  const id = userId.trim();
+  const fromMap = lookupMentionLabel(id, options.mentionLabels);
+  if (fromMap) return formatMentionName(fromMap);
+  const builderId = options.builderSlackUserId?.trim();
+  if (builderId && id.toUpperCase() === builderId.toUpperCase()) {
+    return BUILDER_SLACK_MENTION_LABEL;
+  }
+  if (pipeLabel?.trim()) return formatMentionName(pipeLabel.trim());
+  return `@${id}`;
+}
+
+function parseInline(
+  input: string,
+  options: SlackMrkdwnOptions,
+): SlackMrkdwnNode[] {
   const nodes: SlackMrkdwnNode[] = [];
   let remaining = input;
   while (remaining.length > 0) {
@@ -55,15 +87,36 @@ function parseInline(input: string): SlackMrkdwnNode[] {
         label: match[3] || match[2],
       });
     } else if (match[4] !== undefined) {
-      nodes.push({ type: "mention", value: `@${match[4]}` });
+      const shortcode = match[4];
+      const emoji = slackEmojiFor(shortcode);
+      if (emoji) nodes.push({ type: "emoji", value: emoji, shortcode });
+      else nodes.push({ type: "text", value: `:${shortcode}:` });
     } else if (match[5] !== undefined) {
-      nodes.push({ type: "bold", value: match[5] });
-    } else if (match[6] !== undefined) {
-      nodes.push({ type: "italic", value: match[6] });
+      nodes.push({
+        type: "mention",
+        id: match[5],
+        value: resolveSlackMentionLabel(match[5], match[6], options),
+      });
     } else if (match[7] !== undefined) {
-      nodes.push({ type: "strike", value: match[7] });
+      nodes.push({ type: "bold", value: match[7] });
+    } else if (match[8] !== undefined) {
+      nodes.push({ type: "italic", value: match[8] });
+    } else if (match[9] !== undefined) {
+      nodes.push({ type: "strike", value: match[9] });
     }
     remaining = remaining.slice(match.index + match[0].length);
   }
   return nodes;
+}
+
+function lookupMentionLabel(
+  userId: string,
+  labels: Record<string, string> | undefined,
+): string | undefined {
+  if (!labels) return undefined;
+  return labels[userId] ?? labels[userId.toUpperCase()];
+}
+
+function formatMentionName(name: string): string {
+  return name.startsWith("@") ? name : `@${name}`;
 }

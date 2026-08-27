@@ -17,6 +17,7 @@ export type FactoryAuditItemSnapshot = {
   summary: string | null;
   source: string | null;
   sourceUrl: string | null;
+  userLabels?: Record<string, string>;
 };
 
 export type FactoryAuditRunSnapshot = {
@@ -49,6 +50,7 @@ export type FactoryAuditReportItem = {
   guards: string | null;
   events: FactoryAuditEventRecord[];
   latestAt: string;
+  userLabels?: Record<string, string>;
 };
 
 export type FactoryAuditTraceStep = {
@@ -183,6 +185,7 @@ function projectItem(
     guards: readGuardSummary(decision?.details?.guardResults),
     events,
     latestAt,
+    userLabels: item?.userLabels,
   };
 }
 

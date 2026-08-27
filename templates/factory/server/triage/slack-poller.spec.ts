@@ -195,6 +195,45 @@ describe("pollSlackChannel", () => {
       "Slack user John Smith",
     ]);
     expect(mockedSlackReader.getUserInfo).toHaveBeenCalledTimes(3);
+    expect(result.envelopes[0]?.metadata).toMatchObject({
+      userLabelsJson: expect.stringContaining("U1"),
+    });
+  });
+
+  it("looks up in-text Slack mentions so list titles can resolve them later", async () => {
+    mockedSlackReader.getChannelHistory.mockResolvedValue({
+      messages: [
+        {
+          type: "message",
+          user: "U1",
+          text: "cc <@U9> on this",
+          ts: "60.1",
+        },
+      ],
+      has_more: false,
+    });
+    mockedSlackReader.getUserInfo.mockImplementation(
+      async (_workspace, userId: string) => ({
+        id: userId,
+        name: userId === "U9" ? "ada" : "enzo",
+        displayName: userId === "U9" ? "Ada" : "Enzo",
+      }),
+    );
+
+    const result = await pollSlackChannel({
+      workspace: "primary",
+      channelId: "C888",
+      priorLastSlackTs: "60.0",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(mockedSlackReader.getUserInfo).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(result.envelopes[0]?.metadata?.userLabelsJson)),
+    ).toEqual({
+      U1: "Enzo",
+      U9: "Ada",
+    });
   });
 
   it("resolves Slack profiles with bounded concurrency", async () => {

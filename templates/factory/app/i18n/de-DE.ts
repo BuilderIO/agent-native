@@ -186,6 +186,7 @@ const messages = {
       "Wähle eine Factory aus, um Zweck, Ablauf, Automatisierungen und letzte Aktivitäten zu prüfen. Starte eine neue aus einem minimalen leeren Graphen, wenn du einen neuen Prüfpfad definieren möchtest.",
     inboxTitle: "Beobachtungs-Posteingang",
     inboxTab: "Posteingang",
+    inboxBackToList: "Zurück zum Posteingang",
     inboxDescription: "Eingehende Belege vor autonomer Arbeit.",
     selectObservation:
       "Wähle eine Beobachtung, um ihren Pfad und ihr Feedback zu prüfen.",

@@ -184,6 +184,7 @@ const messages = {
       "Choose a factory to review its purpose, flow, automations, and recent activity. Start a new one from a minimal blank graph when you want to define a fresh review path.",
     inboxTitle: "Observation inbox",
     inboxTab: "Inbox",
+    inboxBackToList: "Back to inbox",
     inboxDescription: "Evidence entering the factory, before autonomous work.",
     selectObservation:
       "Select an observation to inspect its path and feedback.",

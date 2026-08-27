@@ -1,11 +1,17 @@
 import type { SlackMessage, Workspace } from "../connectors/slack.js";
 import type { IngestionEnvelope } from "./contracts";
 import { createSlackReader } from "./slack-client";
+import {
+  collectSlackUserIds,
+  resolveSlackUserLabels,
+  serializeUserLabels,
+  SLACK_USER_INFO_CONCURRENCY,
+} from "./slack-user-labels";
 
 const SLACK_HISTORY_LIMIT = 100;
 const MAX_HISTORY_PAGES = 5;
 const MAX_SUMMARY_LENGTH = 500;
-export const SLACK_USER_INFO_CONCURRENCY = 4;
+export { SLACK_USER_INFO_CONCURRENCY };
 
 export interface SlackPollInput {
   workspace: Workspace;
@@ -45,61 +51,18 @@ function messageLabel(message: SlackMessage, resolvedLabel?: string): string {
   return `Slack user ${resolvedLabel ?? message.user ?? "unknown"}`;
 }
 
-function slackUserLabel(
-  user: { name: string | null; displayName: string | null } | null,
-  userId: string,
-): string {
-  const displayName = user?.displayName?.trim();
-  if (displayName) return displayName;
-  const name = user?.name?.trim();
-  if (name) return name.startsWith("@") ? name : `@${name}`;
-  return userId;
-}
-
-async function resolveUserLabels(
-  slack: ReturnType<typeof createSlackReader>,
-  workspace: Workspace,
-  messages: SlackMessage[],
-): Promise<Map<string, string>> {
-  const userIds = [
-    ...new Set(
-      messages
-        .filter((message) => !message.bot_id && !message.username)
-        .map((message) => message.user?.trim())
-        .filter((userId): userId is string => Boolean(userId)),
-    ),
-  ];
-  const labels = new Map<string, string>();
-  await mapWithConcurrency(
-    userIds,
-    SLACK_USER_INFO_CONCURRENCY,
-    async (userId) => {
-      try {
-        const user = await slack.getUserInfo(workspace, userId);
-        labels.set(userId, slackUserLabel(user, userId));
-      } catch {
-        labels.set(userId, userId);
-      }
-    },
-  );
-  return labels;
-}
-
-async function mapWithConcurrency<T>(
-  values: T[],
-  concurrency: number,
-  mapper: (value: T) => Promise<void>,
-): Promise<void> {
-  let nextIndex = 0;
-  const worker = async () => {
-    while (nextIndex < values.length) {
-      const index = nextIndex++;
-      await mapper(values[index]!);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, values.length) }, worker),
-  );
+function userLabelsForMessage(
+  message: SlackMessage,
+  userLabels?: Map<string, string>,
+): { userLabelsJson: string } | Record<string, never> {
+  if (!userLabels || userLabels.size === 0) return {};
+  const subset = new Map<string, string>();
+  for (const userId of collectSlackUserIds([message])) {
+    const label = userLabels.get(userId);
+    if (label) subset.set(userId, label);
+  }
+  if (subset.size === 0) return {};
+  return { userLabelsJson: serializeUserLabels(subset) };
 }
 
 function toEnvelope(
@@ -129,7 +92,10 @@ function toEnvelope(
     summary: compactText(message.text),
     channelId,
     threadTs,
-    metadata: { messageTs: message.ts },
+    metadata: {
+      messageTs: message.ts,
+      ...userLabelsForMessage(message, userLabels),
+    },
     coverage:
       message.reply_count && message.reply_count > 0 ? "partial" : "complete",
   };
@@ -211,10 +177,9 @@ export async function pollSlackChannel({
     { value: priorTs, raw: priorLastSlackTs },
   );
 
-  const userLabels = await resolveUserLabels(
-    slack,
-    workspace,
-    uniqueNewMessages.map(({ message }) => message),
+  const userLabels = await resolveSlackUserLabels(
+    collectSlackUserIds(uniqueNewMessages.map(({ message }) => message)),
+    (userId) => slack.getUserInfo(workspace, userId),
   );
 
   return {

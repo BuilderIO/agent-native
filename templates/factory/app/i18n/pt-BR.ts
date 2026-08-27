@@ -187,6 +187,7 @@ const messages = {
       "Escolha uma fábrica para revisar seu propósito, fluxo, automações e atividade recente. Inicie uma nova a partir de um grafo em branco mínimo quando quiser definir um novo caminho de revisão.",
     inboxTitle: "Caixa de entrada de observações",
     inboxTab: "Caixa de entrada",
+    inboxBackToList: "Voltar à caixa de entrada",
     inboxDescription:
       "Evidências entrando na fábrica antes do trabalho autônomo.",
     selectObservation:

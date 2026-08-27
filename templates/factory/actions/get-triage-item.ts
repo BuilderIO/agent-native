@@ -24,6 +24,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 const ITEM_ACTION_KINDS = [
   "decision",
@@ -125,6 +126,7 @@ export default defineAction({
     return {
       ...item,
       itemId: item.id,
+      userLabels: readStoredUserLabels(item.metadataJson),
       decisions: decisions.map((decision) => ({
         decisionId: decision.id,
         outcome: decision.outcome,

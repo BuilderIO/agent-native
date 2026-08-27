@@ -182,6 +182,7 @@ const messages = {
       "목적, 흐름, 자동화 및 최근 활동을 검토할 팩토리를 선택하세요. 새로운 검토 경로를 정의하려면 최소한의 빈 그래프에서 시작하세요.",
     inboxTitle: "관찰 받은편지함",
     inboxTab: "받은편지함",
+    inboxBackToList: "받은편지함으로 돌아가기",
     inboxDescription: "자율 작업 전에 팩토리로 들어오는 증거입니다.",
     selectObservation: "경로와 피드백을 확인할 관찰을 선택하세요.",
     approveAndStart: "승인하고 시작",

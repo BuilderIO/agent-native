@@ -52,6 +52,7 @@ type FactoryAuditItem = {
   ownerArea: string | null;
   guards: string | null;
   events: FactoryAuditEvent[];
+  userLabels?: Record<string, string>;
 };
 
 type FactoryAuditTraceStep = {
@@ -106,6 +107,11 @@ export function FactoryAuditView({
           : false,
     },
   );
+  const configQuery = useActionQuery<{ builderSlackUserId?: string | null }>(
+    "get-triage-config",
+    { factoryId },
+  );
+  const builderSlackUserId = configQuery.data?.builderSlackUserId ?? null;
   const refetchAudit = auditQuery.refetch;
   const runs = auditQuery.data?.runs ?? [];
   const selectedRun =
@@ -231,7 +237,11 @@ export function FactoryAuditView({
             </CardHeader>
             <CardContent className="pt-4">
               {selectedRun && (
-                <AuditRunDetail run={selectedRun} factoryId={factoryId} />
+                <AuditRunDetail
+                  run={selectedRun}
+                  factoryId={factoryId}
+                  builderSlackUserId={builderSlackUserId}
+                />
               )}
             </CardContent>
           </Card>
@@ -244,9 +254,11 @@ export function FactoryAuditView({
 function AuditRunDetail({
   run,
   factoryId,
+  builderSlackUserId,
 }: {
   run: FactoryAuditRun;
   factoryId: string;
+  builderSlackUserId: string | null;
 }) {
   const t = useT();
   const items = run.items ?? [];
@@ -292,9 +304,14 @@ function AuditRunDetail({
           {failedItems.map((item) => (
             <p
               key={item.itemId}
-              className="mt-1 break-words text-muted-foreground"
+              className="mt-1 truncate text-sm text-muted-foreground"
             >
-              {item.title}
+              <SlackMrkdwn
+                text={item.title}
+                inline
+                mentionLabels={item.userLabels}
+                builderSlackUserId={builderSlackUserId}
+              />
               {item.dispatchError ? ` — ${item.dispatchError}` : ""}
             </p>
           ))}
@@ -308,7 +325,12 @@ function AuditRunDetail({
           </p>
         ) : (
           items.map((item) => (
-            <AuditItemRow key={item.itemId} item={item} factoryId={factoryId} />
+            <AuditItemRow
+              key={item.itemId}
+              item={item}
+              factoryId={factoryId}
+              builderSlackUserId={builderSlackUserId}
+            />
           ))
         )}
       </div>
@@ -341,9 +363,11 @@ function AuditRunDetail({
 function AuditItemRow({
   item,
   factoryId,
+  builderSlackUserId,
 }: {
   item: FactoryAuditItem;
   factoryId: string;
+  builderSlackUserId: string | null;
 }) {
   const t = useT();
   const sourceLink = resolveAuditSourceLink(item);
@@ -353,7 +377,14 @@ function AuditItemRow({
       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <AuditSourceIcon source={item.source} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{item.title}</p>
+          <p className="truncate text-sm font-medium">
+            <SlackMrkdwn
+              text={item.title}
+              inline
+              mentionLabels={item.userLabels}
+              builderSlackUserId={builderSlackUserId}
+            />
+          </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {formatItemOutcome(item.outcome, t)}
           </p>
@@ -372,7 +403,11 @@ function AuditItemRow({
               hasAuditFacts(item) ? "mt-3" : ""
             }`}
           >
-            <SlackMrkdwn text={item.summary} />
+            <SlackMrkdwn
+              text={item.summary}
+              mentionLabels={item.userLabels}
+              builderSlackUserId={builderSlackUserId}
+            />
           </div>
         ) : null}
         <div className={item.summary || hasAuditFacts(item) ? "mt-3" : ""}>
