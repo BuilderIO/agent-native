@@ -257,16 +257,16 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: false, applied: false });
-    // The slide is unchanged, so the result must say so — `applied: false`
-    // paired with `ok: true` read as success and was reported as done.
-    expect(String(result.message)).toContain("Nothing was written");
+    // Nothing matched, so nothing was written — and that must reach the
+    // runner as a throw. A returned value is stamped `completedSideEffect`
+    // and replayed to a resumed run as work already done.
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
@@ -283,17 +283,14 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      format: true,
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: false, applied: false });
-    // The slide is unchanged, so the result must say so — `applied: false`
-    // paired with `ok: true` read as success and was reported as done.
-    expect(String(result.message)).toContain("Nothing was written");
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        format: true,
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(
       JSON.parse(mockDeckRow!.data as string).slides[0].animations,
@@ -531,16 +528,15 @@ describe("update-slide", () => {
     );
   });
 
-  it("returns ok:false without writing when the find text is missing", async () => {
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+  it("throws without writing when the find text is missing", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "this text does not exist in the slide",
+        replace: "x",
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
@@ -625,16 +621,15 @@ describe("update-slide", () => {
       },
     };
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    // When find is not found, the action returns ok: false BEFORE the
-    // fit-check. layoutOverflow must NOT appear.
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+    // When find is not found the action throws BEFORE the fit-check, so no
+    // overflow measurement is taken or reported.
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "this text does not exist in the slide",
+        replace: "x",
+      }),
+    ).rejects.toThrow("Nothing was written");
   });
 });
