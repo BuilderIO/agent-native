@@ -343,7 +343,7 @@ numbers: an unmeasured path looks identical to a passing one in a summary.
 | --- | --- | --- | --- |
 | REST node import | `figma-node-to-html.ts` | 26 designs, both hops | `run-import` / `run-roundtrip` |
 | Clipboard paste | `fig-file-to-html.ts` | 3 designs | `run-paste`, against the same references |
-| `.fig` upload | `fig-file-to-html.ts` | 10 frames | `run-fig`, against the same references |
+| `.fig` upload | `fig-file-to-html.ts` | 11 frames | `run-fig`, against the same references |
 
 **`Save local copy` is in the browser's File menu**, not desktop-only as this
 document previously claimed — and that wrong belief is the only reason the
@@ -365,6 +365,7 @@ multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 | untitled UI pricing | 3.29% | **0 of 182** | 2.67% |
 | auto-layout torture | 5.20% | **0 of 29** | 2.63% |
 | untitled UI landing mobile | 7.65% | **0 of 228** | 6.19% |
+| untitled UI dashboard | 9.37% | 25 of 201 | 3.68% |
 | typography torture | 14.83% | 1 of 9 | 12.67% |
 | fills and effects | 17.90% | **0 of 12** | 0.55% |
 
@@ -397,6 +398,16 @@ REST path — glyph rasterisation, with one node out of place.
 
 Adding the synthetic fixtures is what made this legible: each isolates one
 Figma feature, so a defect in one names itself instead of hiding in a page.
+
+The dashboard is the one case still carrying real layout error — 25 nodes, in
+two groups. A `Main` frame Figma keeps at 1066px is stretched to its 960px
+parent, because Figma lets a fill child overflow its container while CSS
+`align-self: stretch` pins it; and a table column Figma hugs to 121px hugs to
+103px here, because its cells' text is narrower than Figma's. Taking Figma's
+stored size as a MINIMUM on every hugging axis — the generalisation of the rule
+that works for text — was measured and rejected: it moved the dashboard 0.01pp
+and cost Positivus 0.28pp, because kiwi `size` is the STORED size and goes
+stale on the descendants of an instance this walker cannot fully resolve.
 
 The 35MB scratch file still earns its place as decode/render coverage over 43
 frames with no Figma reference, and the 127MB one still pins that the size cap
