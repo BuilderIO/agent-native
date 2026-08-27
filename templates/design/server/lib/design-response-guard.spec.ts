@@ -54,6 +54,16 @@ describe("Design final response guard", () => {
     expect(looksLikeDesignMutationRequest("move this card")).toBe(true);
     expect(looksLikeDesignMutationRequest("replace the hero image")).toBe(true);
     expect(looksLikeDesignMutationRequest("make it darker")).toBe(true);
+    expect(looksLikeDesignMutationRequest("fix the broken button")).toBe(true);
+    expect(looksLikeDesignMutationRequest("improve the spacing")).toBe(true);
+    expect(looksLikeDesignMutationRequest("polish this screen")).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("change the background to blue"),
+    ).toBe(true);
+    expect(looksLikeDesignMutationRequest("increase the padding")).toBe(true);
+    expect(looksLikeDesignMutationRequest("update the color palette")).toBe(
+      true,
+    );
   });
 
   it("retries prose-only completion for a design mutation", () => {
@@ -119,6 +129,8 @@ describe("Design final response guard", () => {
           appliedTweaks: { "theme-accent": "#0EA5E9" },
         }),
       ],
+      [toolResult("create-design-system", { id: "design-system-1" })],
+      [toolResult("update-file", { id: "file-1", updated: true })],
       [
         toolResult("import-figma-frame", {
           designId: "design-1",
@@ -155,6 +167,30 @@ describe("Design final response guard", () => {
     );
 
     expect(result).not.toBeNull();
+  });
+
+  it("does not accept empty tweaks or a stale mirrored file update", () => {
+    for (const toolResults of [
+      [
+        toolResult("apply-tweaks", {
+          designId: "design-1",
+          appliedTweaks: {},
+        }),
+      ],
+      [
+        toolResult("update-file", {
+          id: "file-1",
+          updated: true,
+          skippedStaleMirror: true,
+        }),
+      ],
+    ]) {
+      expect(
+        designFinalResponseGuard(
+          guardContext("make it darker", { toolResults }),
+        ),
+      ).not.toBeNull();
+    }
   });
 
   it("does not accept a failed mutation result", () => {

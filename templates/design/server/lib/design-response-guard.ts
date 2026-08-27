@@ -11,6 +11,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   "apply-visual-edit",
   "create-design",
   "create-design-from-template",
+  "create-design-system",
   "create-component",
   "create-file",
   "delete-design",
@@ -29,9 +30,9 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 ]);
 
 const DESIGN_MUTATION_VERBS =
-  /\b(?:add|apply|build|change|create|delete|design|duplicate|edit|generate|import|insert|make|modify|move|place|refine|remove|replace|resize|update)\b/i;
+  /\b(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|polish|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:asset|button|canvas|card|component|design|file|hero|image|it|layout|mockup|page|prototype|screen|this|variant|version|wireframe)\b/i;
+  /\b(?:asset|background|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|it|layout|mockup|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|style|styles|text|this|theme|typography|variant|version|width|wireframe)\b/i;
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -121,8 +122,18 @@ function hasSuccessfulMutation(
 
     if (name === "apply-tweaks") {
       return (
-        typeof parsed.designId === "string" && isRecord(parsed.appliedTweaks)
+        typeof parsed.designId === "string" &&
+        isRecord(parsed.appliedTweaks) &&
+        Object.keys(parsed.appliedTweaks).length > 0
       );
+    }
+
+    if (name === "create-design-system") {
+      return typeof parsed.id === "string";
+    }
+
+    if (name === "update-file") {
+      return parsed.updated === true && parsed.skippedStaleMirror !== true;
     }
 
     if (name === "create-file") {
