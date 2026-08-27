@@ -447,6 +447,49 @@ describe("shouldImportServerThreadData", () => {
     );
   });
 
+  it("accepts regenerated message and attachment ids for the same descriptor", () => {
+    const currentRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "local-message",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "local-file",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const persistedRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "server-message",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "server-file",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, persistedRepo)).toBe(true);
+  });
+
   it("accepts a same-length snapshot that completes a pending tool call", () => {
     const currentRepo: NormalizedRepo = {
       headId: "assistant-1",

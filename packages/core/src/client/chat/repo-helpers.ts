@@ -333,27 +333,31 @@ function repoAttachmentIdentities(
   repo: NormalizedRepo | null | undefined,
 ): string[] {
   const identities: string[] = [];
-  for (const entry of getRepoMessages(repo)) {
+  getRepoMessages(repo).forEach((entry, messageIndex) => {
     const message = getRepoMessage(entry);
-    const messageId = typeof message?.id === "string" ? message.id : "";
     const attachments = message?.attachments;
-    if (!Array.isArray(attachments)) continue;
+    if (!Array.isArray(attachments)) return;
     attachments.forEach((attachment, index) => {
       const value =
         attachment && typeof attachment === "object"
           ? (attachment as Record<string, unknown>)
           : {};
+      const metadata =
+        value.metadata && typeof value.metadata === "object"
+          ? (value.metadata as Record<string, unknown>)
+          : {};
       identities.push(
         JSON.stringify([
-          messageId,
-          typeof value.id === "string" ? value.id : `index:${index}`,
+          messageIndex,
+          index,
           typeof value.type === "string" ? value.type : "",
           typeof value.name === "string" ? value.name : "",
           typeof value.contentType === "string" ? value.contentType : "",
+          value.displayOnly === true || metadata.displayOnly === true,
         ]),
       );
     });
-  }
+  });
   return identities;
 }
 
