@@ -246,35 +246,44 @@ Measured 2026-08-27:
 
 Read the last three columns together, because they say what is actually wrong:
 
-The last three were added after every fix above had landed, from regimes the
-corpus had none of — a checkout form, a spec-comparison table, a product
-detail page with a gallery. All three came in at 1.6-3.6%, and all three have
-**zero nodes off by more than 1.5px** on their first measurement. Geometry
-being right on designs no fix was derived from is the evidence that this work
-generalises rather than fitting the pages it was found on.
-
-- **The export hop costs under 2.5% on every design.** Whatever the import hop
-  gets right survives the trip back to Figma.
-- **Two thirds of the import number is glyph rasterisation.** Excluding text
-  boxes the mean falls 3.41% -> 0.94%, and `typography` — the fixture built to
-  stress text — falls to **0.005%**. Nothing but glyphs is wrong on it. Figma
-  and Chromium hint and antialias differently, and one pixel of difference on
-  black-on-white body text scores a full 255 delta. See the Inter section for
-  the measurement ruling out a font-version mismatch as the cause. Mobile
-  cases read highest because a narrow column reflows on a smaller difference.
+- **The export hop is nearly free.** Mean drift 0.96%, max 2.92%. Whatever the
+  import hop gets right survives the trip back to Figma.
+- **Most of the import number is glyph rasterisation.** Excluding text boxes
+  the mean falls to 0.84%, and `typography` — the fixture built to stress text
+  — falls to **0.005%**. Nothing but glyphs is wrong on it.
 - **Most of what remains is photo resampling.** Excluding image fills too, the
-  mean falls to **0.56%**, and the photo-heavy interior storefront — 2.06%
-  overall — is **0.13%**. Figma and Chromium scale a JPEG differently; the
-  layout underneath it is right.
+  mean falls to **0.49%**, and the photo-heavy interior storefront — 1.94%
+  overall — is **0.13%**.
 
-So the converter's own geometry and paint are within about half a percent of
-Figma across the corpus, and the residual is two renderers disagreeing about
-glyphs and bitmaps rather than anything the mapping controls.
+## What "pixel perfect" can and cannot mean here, measured
+
+The residual is text, so it is worth saying exactly what the text residual IS
+rather than asserting it is irreducible. Four measurements, each of which could
+have come out the other way:
+
+| question | method | answer |
+| --- | --- | --- |
+| Is our text in the wrong PLACE? | search whole- and half-pixel shifts for one that improves the match | **No.** No offset helps on any case; 0,0 is already the best. |
+| Do our line BREAKS match Figma's? | compare Figma's height/line-height against the browser's real line boxes | **98.3%** identical (679 of 691). |
+| Is it Inter's version? | render the same HTML against Google Fonts and against Inter 3.19 | **No.** 3.19 is worse on 15 of 17 Inter designs. |
+| Is it hinting? | render with `text-rendering: geometricPrecision` | **Partly** — worth 0.6pp on `typography`, and now shipped. |
+
+What is left after those is the two rasterisers disagreeing about sub-pixel
+coverage on glyph edges, plus a 1.7% tail where a font's Google Fonts variable
+instance is a hair wider than the static face Figma uses (Nunito Sans SemiBold
+is the case in this corpus). Neither is reachable from the mapping: for an
+EDITABLE HTML import the browser lays out and rasterises the text, and it is
+not Figma's text engine.
+
+So the honest ceiling for this representation is roughly half a percent of
+non-text, non-photo difference — which is where the corpus now sits — and the
+number to hold the converter to is the geometry audit below, not the raw pixel
+diff. The raw diff should be watched for REGRESSIONS, not driven to zero.
 
 A per-node geometry audit (every node's laid-out box against its own
 `absoluteBoundingBox`, accepting `absoluteRenderBounds` where a node paints its
 ink) is the sharper instrument for the parts the converter controls, because a
-200px layout error is invisible next to glyph noise. 14 of 26 designs now have
+200px layout error is invisible next to glyph noise. 22 of 26 designs now have
 NO node off by more than 1.5px, and only one design has any node off by more
 than 10px — all of them text boxes that wrap differently.
 
