@@ -15,6 +15,7 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
 import { isLoomEmbedBackedRecording } from "../../shared/loom";
+import { clipsSharePageTitle } from "../../shared/share-meta";
 
 export function meta() {
   return [{ title: "Clip" }];
@@ -135,6 +136,17 @@ export default function EmbedRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+
+  useEffect(() => {
+    if (!recording) return;
+    const nextTitle = clipsSharePageTitle(recording.title);
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [recording?.title]);
+
   const comments = dataQ.data?.data?.comments ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
