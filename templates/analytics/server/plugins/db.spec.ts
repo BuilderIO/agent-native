@@ -309,6 +309,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(migrationStart).toBeGreaterThan(-1);
     expect(migrationEnd).toBeGreaterThan(migrationStart);
     expect(migration).toContain('name: "analytics-dashboard-created-by"');
+    expect(migration).toContain("run: ensureAnalyticsDashboardCreatedByColumn");
     expect(migration).toContain(
       "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
     );
