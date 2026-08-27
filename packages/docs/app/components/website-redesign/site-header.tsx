@@ -80,11 +80,17 @@ function FeedbackIconButton({ align }: { align: "start" | "end" }) {
   );
 }
 
-function GithubStarsButton({ starCount }: { starCount: number | null }) {
+interface GithubStarsButtonProps {
+  starCount: number | null;
+  className?: string;
+}
+
+function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
   return (
     <Button
       variant="secondary"
       dimBorder
+      className={className}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"
@@ -250,8 +256,8 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               {link.label}
             </NavLink>
           ))}
-          <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
-            <GithubStarsButton starCount={starCount} />
+          <div className="mt-[var(--spacing-2)] flex items-center justify-between gap-[var(--spacing-3)]">
+            <GithubStarsButton starCount={starCount} className="grow" />
             <LanguagePicker dimBorder />
             <ThemeIconButton dimBorder />
             <FeedbackIconButton align="start" />
