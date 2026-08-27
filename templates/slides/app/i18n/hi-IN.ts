@@ -649,9 +649,6 @@ const messages = {
     sourceGitHub: "GitHub रिपॉज़िटरी",
     sourceMixed: "कई स्रोत",
     sourceBuilder: "Builder डिज़ाइन सिस्टम इंटेलिजेंस",
-    sourceIndexing: "इंडेक्स बनाया जा रहा है",
-    sourceIndexed: "इंडेक्स बन गया",
-    sourceUnavailable: "परिणाम उपलब्ध नहीं हैं",
     sourceIndexingDescription:
       "Builder अभी इस स्रोत को प्रोसेस कर रहा है। तैयार परिणाम यहां दिखाई देंगे।",
     sourceIndexedDescription: "{{docs}} दस्तावेज़ · {{tokens}} टोकन इंडेक्स किए गए",

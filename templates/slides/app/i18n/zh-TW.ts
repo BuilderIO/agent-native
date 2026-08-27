@@ -634,9 +634,6 @@ const messages = {
     sourceGitHub: "GitHub 儲存庫",
     sourceMixed: "多個來源",
     sourceBuilder: "Builder 設計系統智慧",
-    sourceIndexing: "索引中",
-    sourceIndexed: "已索引",
-    sourceUnavailable: "結果無法使用",
     sourceIndexingDescription:
       "Builder 仍在處理此來源。結果準備好後會顯示於此。",
     sourceIndexedDescription: "已索引 {{docs}} 份文件 · {{tokens}} 個權杖",

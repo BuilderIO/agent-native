@@ -701,9 +701,6 @@ const messages = {
     sourceGitHub: "GitHub repository",
     sourceMixed: "Multiple sources",
     sourceBuilder: "Builder Design System Intelligence",
-    sourceIndexing: "Indexing in progress",
-    sourceIndexed: "Indexed",
-    sourceUnavailable: "Results unavailable",
     sourceIndexingDescription:
       "Builder is still processing this source. Results will appear here as they are ready.",
     sourceIndexedDescription: "{{docs}} docs · {{tokens}} tokens indexed",

@@ -648,9 +648,6 @@ const messages = {
     sourceGitHub: "GitHub 저장소",
     sourceMixed: "여러 소스",
     sourceBuilder: "Builder 디자인 시스템 인텔리전스",
-    sourceIndexing: "색인 생성 중",
-    sourceIndexed: "색인 생성됨",
-    sourceUnavailable: "결과를 사용할 수 없음",
     sourceIndexingDescription:
       "Builder가 이 소스를 처리하고 있습니다. 준비된 결과가 여기에 표시됩니다.",
     sourceIndexedDescription: "문서 {{docs}}개 · 토큰 {{tokens}}개 색인 생성됨",

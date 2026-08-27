@@ -655,9 +655,6 @@ const messages = {
     sourceGitHub: "GitHubリポジトリ",
     sourceMixed: "複数のソース",
     sourceBuilder: "Builderデザインシステムインテリジェンス",
-    sourceIndexing: "インデックス作成中",
-    sourceIndexed: "インデックス済み",
-    sourceUnavailable: "結果を利用できません",
     sourceIndexingDescription:
       "Builderはこのソースを処理中です。準備ができた結果はここに表示されます。",
     sourceIndexedDescription:
