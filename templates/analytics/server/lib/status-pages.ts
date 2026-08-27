@@ -210,7 +210,13 @@ function statusToTone(
 
 /** URL-safe slug: lowercase, `[a-z0-9-]`, collapsed/trimmed dashes. */
 export function normalizeSlug(raw: unknown): string {
-  return (typeof raw === "string" ? raw : (JSON.stringify(raw) ?? ""))
+  return (
+    raw == null
+      ? ""
+      : typeof raw === "string"
+        ? raw
+        : (JSON.stringify(raw) ?? "")
+  )
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, "-")

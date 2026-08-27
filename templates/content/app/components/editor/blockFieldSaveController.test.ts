@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBlockFieldSaveController } from "./blockFieldSaveController";
 
+function flushTicks(): Promise<void> {
+  vi.runAllTicks();
+  return Promise.resolve();
+}
+
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
@@ -15,7 +20,7 @@ describe("blockFieldSaveController", () => {
     expect(c.hasPendingTimer).toBe(true);
 
     vi.advanceTimersByTime(500);
-    vi.runAllTicks();
+    await flushTicks();
     expect(save).toHaveBeenCalledExactlyOnceWith("hello");
   });
 
@@ -55,7 +60,7 @@ describe("blockFieldSaveController", () => {
     expect(c.lastSaved).toBe("");
 
     resolveSave?.();
-    vi.runAllTicks();
+    await flushTicks();
     expect(c.lastSaved).toBe("typed");
   });
 
@@ -67,7 +72,7 @@ describe("blockFieldSaveController", () => {
 
     c.change("typed");
     vi.advanceTimersByTime(500);
-    vi.runAllTicks();
+    await flushTicks();
     // A confirmed local save flips it true — lastSaved is now content we
     // originated that the server may not have echoed yet.
     expect(c.lastSaved).toBe("typed");
@@ -90,7 +95,7 @@ describe("blockFieldSaveController", () => {
 
     c.change("typed");
     vi.advanceTimersByTime(500);
-    vi.runAllTicks();
+    await flushTicks();
     // The save rejected, so the value stayed dirty and nothing was confirmed.
     expect(c.hasSavedLocally).toBe(false);
     expect(c.lastSaved).toBe("");
@@ -175,14 +180,14 @@ describe("blockFieldSaveController", () => {
     // A settles. Its successful completion kicks exactly ONE trailing save for
     // the latest pending content.
     resolvers[0]!();
-    vi.runAllTicks();
+    await flushTicks();
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenNthCalledWith(2, "new");
     expect(c.lastSaved).toBe("old"); // "new" not confirmed until it resolves.
 
     // Trailing save settles → latest content is the final persisted value.
     resolvers[1]!();
-    vi.runAllTicks();
+    await flushTicks();
     expect(c.lastSaved).toBe("new");
 
     // Server saw the writes in issue order: old before new.
@@ -215,11 +220,11 @@ describe("blockFieldSaveController", () => {
 
     // Let the in-flight first save resolve; flush then issues the trailing save.
     resolvers[0]!();
-    vi.runAllTicks();
+    await flushTicks();
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenNthCalledWith(2, "second");
     resolvers[1]!();
-    vi.runAllTicks();
+    await flushTicks();
     await flushed;
 
     // Deterministically the latest content is the last thing written.

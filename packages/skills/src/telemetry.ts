@@ -90,7 +90,14 @@ function boundedExceptionText(value: unknown, max: number): string {
   const text =
     typeof value === "string"
       ? value
-      : (JSON.stringify(value) ?? "Unknown error");
+      : value == null
+        ? "Unknown error"
+        : typeof value === "number" ||
+            typeof value === "boolean" ||
+            typeof value === "bigint" ||
+            typeof value === "symbol"
+          ? String(value)
+          : (JSON.stringify(value) ?? "Unknown error");
   const safe = redactExceptionText(text);
   return safe.length > max ? safe.slice(0, max) : safe;
 }

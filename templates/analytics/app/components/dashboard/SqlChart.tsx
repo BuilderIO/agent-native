@@ -384,7 +384,9 @@ export function formatMetricValue(
         : null;
   return numericRaw !== null
     ? formatYValue(numericRaw, formatter)
-    : stringifyValue(raw) || "-";
+    : raw == null
+      ? "-"
+      : stringifyValue(raw);
 }
 
 function isNumericLikeValue(value: unknown): boolean {

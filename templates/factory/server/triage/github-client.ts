@@ -198,15 +198,14 @@ export function createGitHubClient(options: GitHubClientOptions) {
     init: RequestInit = {},
     options: { allowEmpty?: boolean } = {},
   ): Promise<T> {
-    const headers = new Headers({
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${await token()}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-    });
-    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     const response = (await fetchImpl(`${baseUrl}${path}`, {
       ...init,
-      headers,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${await token()}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...Object.fromEntries(new Headers(init.headers).entries()),
+      },
     })) as JsonResponse;
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 500);
