@@ -429,7 +429,7 @@ const messages = {
       title: "面向 agentic 應用的框架",
       bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
       bodyLine2: "使用你自己的 LLM，隨處部署。",
-      learnMore: "了解更多",
+      tryAnApp: "試用應用程式",
     },
     install: {
       copyCommand: "複製安裝指令",
@@ -499,13 +499,6 @@ const messages = {
       title: "打造你的第一個 Agent-Native 應用",
       body: "為使用者和 AI agent 打造同一個應用。使用你自己的 LLM，隨處部署。",
     },
-    getStartedModal: {
-      title: "開始使用",
-      close: "關閉",
-      buildLocally: "在本機建置應用",
-      tryAnApp: "試用一個應用",
-      buildInCloud: "在雲端建置",
-    },
     footer: {
       tagline: "面向 agentic 應用的框架。",
       framework: "框架",
@@ -517,6 +510,15 @@ const messages = {
       apps: "應用",
       privacyPolicy: "隱私權政策",
       saasTerms: "SaaS 條款",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "不在本機建置？",
+      exploreApp: "先試用線上應用程式",
+      between: "或",
+      joinWaitlist: "加入候補名單",
+      end: "改為在瀏覽器中建置。",
     },
   },
   templatesPage: {
@@ -543,7 +545,7 @@ const messages = {
     description: "從框架指南開始，或使用 Builder.io 的雲端編碼代理在線上建置。",
     readDocs: "閱讀文件",
     buildOnline: "線上建置",
-    popoverTitle: "使用 Builder.io 線上建置",
+    popoverTitle: "在瀏覽器中建置",
     popoverBody:
       "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
     emailLabel: "電子郵件",

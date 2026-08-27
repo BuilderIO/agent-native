@@ -24,6 +24,10 @@ import {
   comparisonSchema,
   comparisonMdx,
 } from "../app/components/blocks/comparison.config";
+import {
+  gettingStartedPathsSchema,
+  gettingStartedPathsMdx,
+} from "../app/components/blocks/getting-started-paths.config";
 import { imageSchema, imageMdx } from "../app/components/blocks/image.config";
 import {
   noticeSchema,
@@ -114,6 +118,11 @@ const DOCS_EXTRA_BLOCKS: Array<{ type: string; schema: any; mdx: any }> = [
   { type: "steps", schema: stepsSchema, mdx: stepsMdx },
   { type: "cards", schema: cardsSchema, mdx: cardsMdx },
   { type: "comparison", schema: comparisonSchema, mdx: comparisonMdx },
+  {
+    type: "getting-started-paths",
+    schema: gettingStartedPathsSchema,
+    mdx: gettingStartedPathsMdx,
+  },
   { type: "signature", schema: signatureSchema, mdx: signatureMdx },
   { type: "image", schema: imageSchema, mdx: imageMdx },
   { type: "video", schema: videoSchema, mdx: videoMdx },
