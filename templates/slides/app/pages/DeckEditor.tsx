@@ -447,6 +447,7 @@ export default function DeckEditor() {
       [
         "The user answered the pre-generation questions.",
         `Deck ID: ${id}`,
+        "Before generating, call get-deck for this deck and recover generationContext. Continue the original brief and target slide count; do not treat these answers as a new unrelated request.",
         "",
         "Answers:",
         formattedAnswers,
