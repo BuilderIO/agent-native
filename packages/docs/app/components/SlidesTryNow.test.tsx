@@ -237,7 +237,7 @@ describe("SlidesTryNow", () => {
     expect(generateLink.textContent).toContain("Generate my deck");
   });
 
-  it("opens the local picker summary without rendering a native select", () => {
+  it("opens detail only after an intentional summary-row click", () => {
     renderSlidesTryNow();
 
     expect(screen.queryByRole("combobox")).toBeNull();
@@ -251,8 +251,18 @@ describe("SlidesTryNow", () => {
 
     fireEvent.click(trigger);
 
-    expect(screen.getByRole("tab", { name: /^Model/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /^Effort/ })).toBeTruthy();
+    const modelRow = screen.getByRole("tab", { name: /^Model/ });
+    const effortRow = screen.getByRole("tab", { name: /^Effort/ });
+    fireEvent.focus(modelRow);
+    fireEvent.mouseEnter(effortRow);
+
+    expect(
+      screen.getByRole("tablist", { name: "Picker sections" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("tabpanel")).toBeNull();
+
+    fireEvent.click(effortRow);
+    expect(screen.getByRole("tabpanel", { name: "Effort" })).toBeTruthy();
   });
 
   it("selects a model from the detail section and closes the popover", () => {

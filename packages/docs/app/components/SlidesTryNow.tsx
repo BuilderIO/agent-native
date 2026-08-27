@@ -251,8 +251,6 @@ export function SlidesTryNow() {
                     role="tab"
                     aria-selected="false"
                     onClick={() => setPickerSection("model")}
-                    onFocus={() => setPickerSection("model")}
-                    onMouseEnter={() => setPickerSection("model")}
                     className="flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
                   >
                     <span className="shrink-0 text-xs font-medium">
@@ -271,8 +269,6 @@ export function SlidesTryNow() {
                     role="tab"
                     aria-selected="false"
                     onClick={() => setPickerSection("effort")}
-                    onFocus={() => setPickerSection("effort")}
-                    onMouseEnter={() => setPickerSection("effort")}
                     className="flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
                   >
                     <span className="shrink-0 text-xs font-medium">
