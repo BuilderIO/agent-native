@@ -7,7 +7,7 @@ import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
 import { IconArrowLeft } from "@tabler/icons-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -62,6 +62,7 @@ export function FirstDeckOnboardingFlow({
   const [recentReferences, setRecentReferences] = useState<RecentReference[]>(
     [],
   );
+  const promptSourceFilesRef = useRef<File[]>([]);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const workspaceDesignSystemId =
@@ -94,7 +95,7 @@ export function FirstDeckOnboardingFlow({
       throw new Error(`Upload cleanup failed (${response.status})`);
     }
   }, []);
-  const { commitFiles, syncFiles, uploadFiles, uploading } =
+  const { commitFiles, discardFiles, syncFiles, uploadFiles, uploading } =
     useEagerFileUploads(uploadPromptFiles, {
       onDiscard: deleteUploadedFile,
     });
@@ -134,10 +135,10 @@ export function FirstDeckOnboardingFlow({
     async (text: string, files: File[]) => {
       try {
         const uploaded = await uploadFiles(files);
+        promptSourceFilesRef.current = files;
         setPrompt(text.trim());
         setPromptFiles(uploaded);
         setStep("references");
-        commitFiles(files);
       } catch (error) {
         toast.error(t("raw.uploadFailed"), {
           description:
@@ -147,7 +148,7 @@ export function FirstDeckOnboardingFlow({
         });
       }
     },
-    [commitFiles, t, uploadFiles],
+    [t, uploadFiles],
   );
 
   const handlePromptAttachmentsChange = useCallback(
@@ -170,52 +171,68 @@ export function FirstDeckOnboardingFlow({
       files: UploadedFile[],
       selection: NewDeckReferenceSelection = {},
     ) => {
-      const result = await startDeckGeneration({
-        session,
-        prompt,
-        files,
-        referenceSelection: selection,
-        selectedDesignSystemId: initialDesignSystemId,
-        selectedReferenceDeckId: initialReferenceDeckId,
-        designSystems,
-        createDeck,
-        ensureDeckPersisted,
-        deleteDeck,
-        navigate,
-        agentSubmit,
-        onPromptClosed: () => undefined,
-        onUnauthenticated: () => {
-          toast.error(t("home.signInTitle"));
-        },
-        onPersistenceFailure: (failedPrompt, _failedFiles, failure) => {
-          setPromptInitialText(failedPrompt);
-          setPromptInitialTextKey(Date.now());
-          setStep("prompt");
-          toast.error(t("home.generationStartFailed"), {
-            description: describeDeckPersistenceFailure(
-              failure,
-              t("home.generationStartFailedDescription"),
-            ),
-          });
-        },
-        onSetupFailure: (failedPrompt, _failedFiles, failure) => {
-          setPromptInitialText(failedPrompt);
-          setPromptInitialTextKey(Date.now());
-          setStep("prompt");
-          toast.error(t("home.generationStartFailed"), {
-            description:
-              failure instanceof Error
-                ? failure.message
-                : t("home.generationStartFailedDescription"),
-          });
-        },
-      });
-      if (result === "started") onComplete();
+      const sourceFiles = promptSourceFilesRef.current;
+      try {
+        const result = await startDeckGeneration({
+          session,
+          prompt,
+          files,
+          referenceSelection: selection,
+          selectedDesignSystemId: initialDesignSystemId,
+          selectedReferenceDeckId: initialReferenceDeckId,
+          designSystems,
+          createDeck,
+          ensureDeckPersisted,
+          deleteDeck,
+          navigate,
+          agentSubmit,
+          onPromptClosed: () => undefined,
+          onUnauthenticated: () => {
+            toast.error(t("home.signInTitle"));
+          },
+          onPersistenceFailure: (failedPrompt, _failedFiles, failure) => {
+            setPromptInitialText(failedPrompt);
+            setPromptInitialTextKey(Date.now());
+            setStep("prompt");
+            toast.error(t("home.generationStartFailed"), {
+              description: describeDeckPersistenceFailure(
+                failure,
+                t("home.generationStartFailedDescription"),
+              ),
+            });
+          },
+          onSetupFailure: (failedPrompt, _failedFiles, failure) => {
+            setPromptInitialText(failedPrompt);
+            setPromptInitialTextKey(Date.now());
+            setStep("prompt");
+            toast.error(t("home.generationStartFailed"), {
+              description:
+                failure instanceof Error
+                  ? failure.message
+                  : t("home.generationStartFailedDescription"),
+            });
+          },
+        });
+        if (result === "started") {
+          commitFiles(sourceFiles);
+          promptSourceFilesRef.current = [];
+          onComplete();
+          return;
+        }
+        discardFiles(sourceFiles);
+        promptSourceFilesRef.current = [];
+      } catch (error) {
+        discardFiles(sourceFiles);
+        promptSourceFilesRef.current = [];
+        throw error;
+      }
     },
     [
       agentSubmit,
+      commitFiles,
       createDeck,
       deleteDeck,
+      discardFiles,
       designSystems,
       ensureDeckPersisted,
       initialDesignSystemId,
@@ -420,6 +437,12 @@ export function FirstDeckOnboardingFlow({
     });
   }, [forgetReference, promptFiles, startGeneration]);
 
+  const handleFirstDeckSkip = useCallback(() => {
+    discardFiles(promptSourceFilesRef.current);
+    promptSourceFilesRef.current = [];
+    onSkip();
+  }, [discardFiles, onSkip]);
+
   if (step === "references") {
     return (
       <NewDeckReferenceStep
@@ -433,7 +456,11 @@ export function FirstDeckOnboardingFlow({
         onImportSource={handleReferenceSourceImport}
         onSkip={handleReferenceSkip}
         onOpenChange={(open) => {
-          if (!open) setStep("prompt");
+          if (!open) {
+            discardFiles(promptSourceFilesRef.current);
+            promptSourceFilesRef.current = [];
+            setStep("prompt");
+          }
         }}
         importing={referenceImporting}
         title={t("home.newDeck")}
@@ -462,7 +489,7 @@ export function FirstDeckOnboardingFlow({
         </div>
         <button
           type="button"
-          onClick={onSkip}
+          onClick={handleFirstDeckSkip}
           className="text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("home.firstDeckSkip")}

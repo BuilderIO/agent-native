@@ -87,7 +87,7 @@ export function AddSlidePopover({
   activeSlideId: string;
   slideCount: number;
   activeSlideIndex: number;
-  agentSubmit: (message: string, context: string) => void;
+  agentSubmit: (message: string, context: string) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
   /** "below" anchors under the trigger button; "right" sits beside a slide thumbnail. */
@@ -224,7 +224,11 @@ export function AddSlidePopover({
             "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
           ].join("\n");
 
-      agentSubmit(addSlideAgentMessage(trimmedText), context);
+      const started = await agentSubmit(
+        addSlideAgentMessage(trimmedText),
+        context,
+      );
+      if (!started) return;
       commitFiles(files);
       onOpenChange(false);
     },
