@@ -60,7 +60,10 @@ describe("release everything workflow", () => {
     assert.match(source, /waitForStablePackagePublish/);
     assert.match(source, /async function getRemoteTagSha\(tag\)/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
-    assert.match(source, /const releaseBaseSha = await getFirstParentSha\(releaseSha\)/);
+    assert.match(
+      source,
+      /const releaseBaseSha = await getFirstParentSha\(releaseSha\)/,
+    );
     assert.match(source, /git\.getRef/);
     assert.match(
       source,
@@ -68,7 +71,10 @@ describe("release everything workflow", () => {
     );
     assert.match(source, /tagSha !== mergeSha/);
     assert.match(source, /readJsonAt\(\s*releaseBaseSha,/);
-    assert.match(source, /initialCorePackage\.version !== corePackage\.version/);
+    assert.match(
+      source,
+      /initialCorePackage\.version !== corePackage\.version/,
+    );
     assert.match(source, /pointing to \$\{mergeSha\}/);
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
