@@ -366,7 +366,7 @@ export function resolveSlideAnimationTargetsWithDiagnostics<
         },
       };
     }
-    const path = getElementPath(root, element);
+    const path = getPersistedElementPath(root, element);
     if (!path) {
       return {
         resolved: null,
@@ -415,7 +415,7 @@ export function getSlideAnimationTargetKey(
   const element = resolveSlideAnimationElement(root, target);
   if (!element) return null;
 
-  const path = getElementPath(root, element);
+  const path = getPersistedElementPath(root, element);
   return path ? animationElementKey(path) : null;
 }
 

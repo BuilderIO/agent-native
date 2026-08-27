@@ -150,6 +150,27 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
+  it("keeps animation identities aligned after preserved layout spacers", () => {
+    const html = `<div class="fmd-slide">
+      <div>First</div>
+      <div class="fmd-layout-spacer" data-slide-layout-preserved="true"></div>
+      <div>Second</div>
+    </div>`;
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const targets = [
+      { elementIndex: 0, elementPath: [0] },
+      { elementIndex: 1, elementPath: [1] },
+    ];
+    expect(
+      resolveSlideAnimationTargets(root, targets)?.map(({ key }) => key),
+    ).toEqual(["0", "1"]);
+    expect(getSlideAnimationTargetKey(html, targets[1]!)).toBe("1");
+  });
+
   it("expands paragraph animations from an individually selected paragraph", () => {
     const doc = new DOMParser().parseFromString(
       `<div class="fmd-slide">
