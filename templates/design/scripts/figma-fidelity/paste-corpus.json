@@ -10,5 +10,11 @@
     "file": ".tmp/figma-fidelity/clipboard/untitledui-1647-376184.html",
     "reference": "community-untitled-ui-landing",
     "notes": "Real Figma copy of the Untitled UI v2 Desktop landing frame (1647:376184, 1440x7060). Vertical auto-layout with Hug height throughout \u2014 the auto-layout counterpart to the absolutely-positioned Positivus case."
+  },
+  {
+    "id": "paste-dashstack-dashboard",
+    "file": ".tmp/figma-fidelity/clipboard/dashstack-0-5991.html",
+    "referencePng": ".tmp/figma-fidelity/ui-refs/dashstack-0-5991.png",
+    "notes": "DashStack admin dashboard (0:5991 'Dashboard # 18', 1440x1070). Data-dense screen built with ZERO auto-layout: 85 strokes, 38 shadows, 13 boolean ops, 12 masks of chart art, an icon webfont, 27 partial opacities. Reference exported from Figma's own Export panel, which costs no API quota."
   }
 ]

@@ -1664,6 +1664,90 @@ function layoutSizing(
 }
 
 /**
+ * Re-lay a master's children for an INSTANCE that was resized.
+ *
+ * An instance can be a different size from the component it came from, and
+ * Figma re-lays the master's children according to each one's constraint. We
+ * inlined them at the MASTER's geometry instead, so a resized instance drew its
+ * contents at the wrong size: DashStack's dashboard has a 1440-wide instance of
+ * a 1202-wide component, and the full-bleed background rectangle inside it
+ * (`horizontalConstraint: SCALE`) painted only the first 1202px, leaving 238px
+ * of bare white down the right edge of every screen.
+ *
+ * Fixing it here, once, at the inline boundary means every downstream consumer
+ * — CSS, masks, auto-layout, the export walk — sees geometry that is already
+ * correct, instead of each of them having to know about the resize.
+ *
+ * Children are shared: the same master is inlined by every instance of it, so
+ * they are cloned rather than mutated.
+ */
+function resizeInlinedSymbolChildren(
+  children: FigNode[],
+  symbol: FigNode,
+  instance: FigNode,
+  ctx: Ctx,
+): FigNode[] {
+  const mw = symbol.size?.x;
+  const mh = symbol.size?.y;
+  const iw = instance.size?.x;
+  const ih = instance.size?.y;
+  if (!mw || !mh || !iw || !ih) return children;
+  const dx = iw - mw;
+  const dy = ih - mh;
+  if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return children;
+  const sx = mw ? iw / mw : 1;
+  const sy = mh ? ih / mh : 1;
+
+  return children.map((child) => {
+    const t = child.transform;
+    const size = child.size;
+    if (!t || !size) return child;
+    // Figma's default when a node carries no constraint is MIN — pinned to the
+    // start edge at its own size — which is what leaving it alone produces.
+    const axis = (
+      constraint: string | undefined,
+      pos: number,
+      extent: number,
+      delta: number,
+      scale: number,
+    ): { pos: number; extent: number; scaled: boolean } => {
+      switch (constraint) {
+        case "SCALE":
+          return { pos: pos * scale, extent: extent * scale, scaled: true };
+        case "STRETCH":
+          return { pos, extent: extent + delta, scaled: false };
+        case "MAX":
+          return { pos: pos + delta, extent, scaled: false };
+        case "CENTER":
+          return { pos: pos + delta / 2, extent, scaled: false };
+        default:
+          return { pos, extent, scaled: false };
+      }
+    };
+    const h = axis(child.horizontalConstraint, t.m02, size.x, dx, sx);
+    const v = axis(child.verticalConstraint, t.m12, size.y, dy, sy);
+    if (
+      (h.scaled || v.scaled) &&
+      (ctx.childrenOf.get(guidKey(child.guid))?.length ?? 0) > 0
+    ) {
+      // SCALE scales the whole subtree in Figma. Scaling only this box leaves
+      // its descendants at the master's geometry inside a resized parent, so
+      // say so rather than let the difference pass as exact.
+      recordApproximation(
+        child,
+        ctx,
+        `SCALE constraint on a container in a resized instance; its descendants keep the component's geometry`,
+      );
+    }
+    return {
+      ...child,
+      transform: { ...t, m02: h.pos, m12: v.pos },
+      size: { x: h.extent, y: v.extent },
+    };
+  });
+}
+
+/**
  * Pin an absolutely-positioned node to the edge(s) implied by its Figma
  * constraint on one axis. MIN keeps the start offset (top/left); MAX anchors
  * to the end edge (bottom/right) so the node stays put when the container is
@@ -2977,7 +3061,12 @@ function emitNode(
   if (inlinedSymbol) {
     symKeyForCycle = guidKey(inlinedSymbol.guid);
     ctx.inliningStack.add(symKeyForCycle);
-    children = getChildren(inlinedSymbol, ctx);
+    children = resizeInlinedSymbolChildren(
+      getChildren(inlinedSymbol, ctx),
+      inlinedSymbol,
+      node,
+      ctx,
+    );
   } else {
     children = getChildren(node, ctx);
   }
@@ -2995,7 +3084,13 @@ function emitNode(
     const childParentIsFlex = inlinedSymbol
       ? !!(inlinedSymbol.stackMode && inlinedSymbol.stackMode !== "NONE")
       : !!isFlex;
-    const childParentNode = inlinedSymbol ?? node;
+    // `resizeInlinedSymbolChildren` puts the master's children into the
+    // INSTANCE's coordinate space, so the parent the constraint code measures
+    // against has to be that size too — otherwise a MAX or STRETCH child
+    // resolves its end edge against the component's width and lands outside.
+    const childParentNode = inlinedSymbol
+      ? { ...inlinedSymbol, size: node.size ?? inlinedSymbol.size }
+      : node;
     // A Figma mask clips the siblings painted after it, up to the next mask,
     // and is never drawn itself. `openMaskRun` tracks the wrapper holding the
     // current run so it closes before the next mask opens one and before the

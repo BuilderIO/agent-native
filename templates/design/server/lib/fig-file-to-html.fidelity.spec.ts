@@ -1406,3 +1406,91 @@ describe("full ellipses", () => {
     ).toBe(true);
   });
 });
+
+describe("a resized component instance", () => {
+  // An instance can be a different size from its component, and Figma re-lays
+  // the master's children by each one's constraint. Inlining them at the
+  // MASTER's geometry left DashStack's 1440-wide instance of a 1202-wide
+  // component with 238px of bare white down the right edge of every screen.
+  const instanceOf = (childOverrides: Record<string, unknown>) => {
+    const doc = makeDocument([{ size: { x: 1440, y: 400 } }]);
+    (doc.nodeChanges as unknown[]).push(
+      {
+        guid: { sessionID: 1, localID: 90 },
+        parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "a" },
+        type: "INSTANCE",
+        name: "Instance",
+        // Wider than its master.
+        size: { x: 1440, y: 400 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+        symbolData: { symbolID: { sessionID: 1, localID: 91 } },
+      },
+      {
+        guid: { sessionID: 1, localID: 91 },
+        parentIndex: { guid: { sessionID: 1, localID: 2 }, position: "z" },
+        type: "SYMBOL",
+        name: "Master",
+        size: { x: 1200, y: 400 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+      },
+      {
+        guid: { sessionID: 1, localID: 92 },
+        parentIndex: { guid: { sessionID: 1, localID: 91 }, position: "a" },
+        type: "ROUNDED_RECTANGLE",
+        name: "Bg",
+        size: { x: 1200, y: 400 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+        fillPaints: [
+          { type: "SOLID", visible: true, color: { r: 1, g: 0, b: 0, a: 1 } },
+        ],
+        ...childOverrides,
+      },
+    );
+    return renderHtmlTemplates(doc).frames[0]!.html;
+  };
+
+  it("scales a SCALE-constrained child to the instance's size", () => {
+    const html = instanceOf({ horizontalConstraint: "SCALE" });
+    expect(html).toContain("width: 1440px");
+    expect(html).not.toContain("width: 1200px");
+  });
+
+  // STRETCH and MAX come out the same with or without the resize: STRETCH pins
+  // both edges and drops the fixed size, and MAX preserves its end offset by
+  // construction. They are pinned here as invariants, not as cover for the fix
+  // — only SCALE and CENTER actually change.
+  it("stretches a STRETCH-constrained child by the size delta", () => {
+    const html = instanceOf({ horizontalConstraint: "STRETCH" });
+    expect(html).toContain("width: 1440px");
+  });
+
+  it("pushes a MAX-constrained child to the new end edge, keeping its size", () => {
+    const html = instanceOf({
+      horizontalConstraint: "MAX",
+      size: { x: 200, y: 400 },
+      transform: { m00: 1, m01: 0, m02: 1000, m10: 0, m11: 1, m12: 0 },
+    });
+    // MAX pins to the end edge rather than baking a left offset, so the child
+    // stays put if the container resizes again. Against the INSTANCE's 1440
+    // (not the component's 1200) that end offset is 0, i.e. an effective left
+    // of 1240 — resolving it against the component would have put it at -240.
+    expect(html).toContain("right: 0px");
+    expect(html).toContain("width: 200px");
+  });
+
+  it("centres a CENTER-constrained child on the new size", () => {
+    const html = instanceOf({
+      horizontalConstraint: "CENTER",
+      size: { x: 200, y: 400 },
+      transform: { m00: 1, m01: 0, m02: 500, m10: 0, m11: 1, m12: 0 },
+    });
+    // 500 + (1440 - 1200) / 2 = 620.
+    expect(html).toContain("left: 620px");
+  });
+
+  // Figma's default with no constraint is MIN: pinned to the start at its size.
+  it("leaves an unconstrained child alone", () => {
+    const html = instanceOf({});
+    expect(html).toContain("width: 1200px");
+  });
+});
