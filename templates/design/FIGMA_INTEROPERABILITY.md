@@ -257,6 +257,33 @@ Read the last three columns together, because they say what is actually wrong:
   mean falls to **0.44%**, and the photo-heavy interior storefront — 1.94%
   overall — is **0.13%**.
 
+## Where the remaining pixels actually are
+
+Every differing pixel was classified by whether Figma's OWN render already
+varies across that pixel's neighbourhood. A pixel on a glyph or shape EDGE is
+two rasterisers disagreeing about partial coverage of the same outline; a pixel
+in a FLAT interior is something genuinely in the wrong place or the wrong
+colour.
+
+| case | differing | on an edge | flat interior |
+| --- | --- | --- | --- |
+| typography | 12.60% | 12.47% (**99.0%** of them) | 0.13% |
+| untitled UI pricing | 2.67% | 2.55% (95.5%) | 0.12% |
+| untitled UI dashboard | 3.68% | 3.47% (94.3%) | 0.21% |
+| whitepace | 2.95% | 2.52% (85.5%) | 0.43% |
+
+**0.12% to 0.43% of the image is a difference that is not glyph-edge coverage**
+— and looking at the worst of those cells (Whitepace's "100% your data"
+heading) they are the INSIDES of thick glyph stems, where a half-pixel
+difference in advance moves the whole stroke and its interior with it. The
+same cause, one step removed.
+
+Text position is not the cause. Comparing Figma's `absoluteRenderBounds` — its
+own ink box for each text node — against the browser's rendered ink puts them
+within 0.4px on ordinary labels, and on the Untitled UI pricing page within
+0.003 em with a spread of 0.0004. Our text is where Figma's text is; the pixels
+along its edges are covered differently.
+
 ## What "pixel perfect" can and cannot mean here, measured
 
 The residual is text, so it is worth saying exactly what the text residual IS
