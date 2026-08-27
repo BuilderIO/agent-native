@@ -1291,6 +1291,25 @@ describe("a CROP background at a non-zero origin", () => {
   });
 });
 
+describe("a skewed layer on export", () => {
+  // A rotation alone cannot express a skew: the box exported as a plain
+  // rectangle where the design drew a parallelogram.
+  it("emits the skew alongside the rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Skewed",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 200, height: 100 },
+      reflection: [1, 0, -0.2126, 1],
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+    expect(svg).toContain(
+      'transform="translate(100 50) matrix(1 0 -0.213 1 0 0) translate(-100 -50)"',
+    );
+  });
+});
+
 describe("a mirrored layer on export", () => {
   // `rotationFromTransform` reduces a matrix to `atan2(b, a)`, which reads
   // `matrix(-1, 0, 0, 1)` as 180 degrees — so a mirror exported as a half turn.

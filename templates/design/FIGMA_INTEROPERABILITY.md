@@ -381,75 +381,30 @@ already punished three changes on this branch that looked correct in isolation.
   pattern rather than approximated — Positivus **3.415% -> 2.871%**, Untitled UI
   mobile 6.577% -> 6.310%, export mean **3.082% -> 3.053%**. `TILE` still tiles
   at the browser's intrinsic size, which SVG cannot ask for, and keeps its note.
-- **Skew and non-uniform scale are dropped on export — reproduced, attempted,
-  and reverted.** `effects-transforms` gained four boxes (`scale(1.18)`,
-  `skewX(-12deg)`, `scaleX(-1)`, `scale(1.3, .72)`) and a rotated child inside a
-  rotated parent. The skewed box exports as a plain RECTANGLE: at 1:1 the design
-  draws a parallelogram and the export draws a rectangle. 1.371% -> 1.810%, and
-  the ceiling is 1.85% to record that rather than leave CI red.
+- ~~**Skew and non-uniform scale are dropped on export.**~~ **Fixed**, after
+  three failed attempts, by a piece the mirror work turned up. It takes four
+  things together and every earlier attempt was missing at least one:
 
-  The fix was built and it works on the thing it targets: decompose the CSS
-  matrix as R(theta) . M, carry M to the renderer, apply it after the rotation.
-  The skewed box becomes a parallelogram and `effects-transforms` falls
-  **1.810% -> 1.530%**. It was still **reverted**, because the corpus says no:
-  `fills-effects` goes **1.052% -> 7.49%** and the export mean 3.053% -> 3.288%.
+  1. **Carry the matrix.** Decompose as `R(theta) . M` and apply M after the
+     rotation.
+  2. **Reconstruct the rect from the origin.** `centre +/- size/2` assumes a
+     transform preserves the centre, which is false for `transform-origin: 0 0`.
+     The untransformed top-left is recoverable: the corners map to
+     `L + O + t + A . (corner - O)`.
+  3. **Leave rasterized nodes alone.** A rasterized node is a SCREENSHOT of its
+     region, so the transform is already in its pixels. The importer's
+     angular-gradient overlay is exactly this — a conic gradient has no SVG
+     equivalent, so it rasterizes — and re-applying the scale squashed it into a
+     strip, 1.052% -> 7.49% on the fills fixture.
+  4. **Un-transform the CHILDREN.** The renderer wraps them in the node's
+     transform too, so they must be measured with it undone or every child is
+     transformed twice. This is the one that had been missing, and it only
+     surfaced because the mirror fix failed the same way first.
 
-  The reason is worth writing down, because it is the actual blocker. A node's
-  exported rect is built as `centre +/- size/2`, where the centre comes from the
-  TRANSFORMED box and the size from `offsetWidth/offsetHeight`. That assumes a
-  transform preserves the box's centre — true for a rotation, and true for a
-  centre-origin scale, but false for any other origin. The importer scales its
-  angular-gradient overlay from `transform-origin: 0 0`, so the reconstructed
-  rect lands in the wrong place and the tile exports as a strip. Honouring
-  `transform-origin` in the renderer alone does not fix it (measured: 7.49%
-  either way) — the RECT has to be reconstructed from the origin too.
+  `effects-transforms` **1.810% -> 1.530%**, the skewed box is a parallelogram
+  again, and the corpus does not move: export mean 3.045% -> **3.044%** with no
+  case shifting more than 0.02pp. The ceiling comes back down to 1.56%.
 
-  The full diagnosis, after building all three pieces:
-
-  1. **Carry the matrix.** Decompose as `R(theta) . M`, apply `M` after the
-     rotation. On its own: `effects-transforms` 1.810% -> **1.530%**, skew
-     preserved, but `fills-effects` 1.052% -> 7.49%.
-  2. **Make the rect origin-aware.** `centre +/- size/2` assumes a transform
-     preserves the centre; it does not for `transform-origin: 0 0`. The
-     untransformed top-left is recoverable from the AABB, the matrix and the
-     origin: the corners map to `L + O + t + A . (corner - O)`.
-  3. **Leave rasterized nodes alone.** This is the piece the first two attempts
-     missed. A rasterized node is a SCREENSHOT of its region, so the transform
-     is already in its pixels — reconstructing its untransformed box and
-     re-applying the matrix squashes it. The importer's angular-gradient overlay
-     is exactly this: a conic gradient has no SVG equivalent, so it rasterizes.
-     With raster nodes given back the transformed rect, `fills-effects` returns
-     to **1.052%**.
-
-  All three together measure **export mean 3.053% -> 3.060%** — noise — while
-  fixing a visibly wrong skew. Untitled UI's dashboard improves 0.08pp and
-  Positivus regresses 0.23pp.
-
-  That Positivus number is no longer a mystery, and it is not about skew at all.
-  Classifying its 38 transformed nodes by determinant: **11 are MIRRORED
-  (det < 0), 27 are pure rotations, and none is a skew.** A mirror decomposes as
-  a rotation plus a reflection, so `rotationFromTransform` reads
-  `matrix(-1, 0, 0, 1)` as `atan2(0, -1)` = **180 degrees** and today's export
-  draws a half turn where Figma draws a mirror. The two are identical on a
-  symmetric shape and differ on every other one — the same conflation the REST
-  importer already fixes on the way IN, quoted in its changeset as "mirrored
-  nodes are no longer rendered as half turns".
-
-  **Fixed.** Those 11 nodes now export as true mirrors. The reflection is
-  emitted alongside the rotation about the same centre, so the pair composes
-  back to the original matrix.
-
-  The first attempt at it made Positivus WORSE by the same 0.23pp, which named
-  the real bug: the renderer wraps a node's CHILDREN in its transform too, and
-  `childToLocal` un-rotated them without un-reflecting them, so every child of a
-  mirrored layer was mirrored twice. A reflection is its own inverse, so the
-  same matrix undoes it. With that, Positivus goes **2.871% -> 2.750%** — past
-  where it started — Untitled UI's dashboard 3.250% -> 3.170%, and no case
-  regresses. Export mean **3.053% -> 3.045%**.
-
-  Scale and skew are still not carried: they move the bounding box, so they need
-  the rect reconstruction above, which mirrors do not — a mirror about the
-  default centre origin leaves the box exactly where it was.
 - ~~**Nested rotation composition order.**~~ **Measured, not a defect.** The
   concern was that `composeAffine(rotationAbout(...), toLocal)` composes two
   operations that do not commute. Both orders were measured on the new nested

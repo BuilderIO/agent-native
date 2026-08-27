@@ -2387,7 +2387,7 @@ export function collectRawFigmaSvgScene(
    */
   function reflectionFromTransform(
     transform: string,
-  ): [number, number, number, number] | null {
+  ): { residual: [number, number, number, number]; mirror: boolean } | null {
     if (!transform || transform === "none") return null;
     const m = transform.match(/matrix\(([^)]+)\)/);
     if (!m) return null;
@@ -2395,16 +2395,19 @@ export function collectRawFigmaSvgScene(
       .split(",")
       .map((v) => Number.parseFloat(v.trim()));
     if (![a, b, c, d].every((v) => Number.isFinite(v))) return null;
-    if (a! * d! - c! * b! >= 0) return null;
     const theta = Math.atan2(b!, a!);
     const cos = Math.cos(-theta);
     const sin = Math.sin(-theta);
-    return [
+    const residual: [number, number, number, number] = [
       cos * a! - sin * b!,
       sin * a! + cos * b!,
       cos * c! - sin * d!,
       sin * c! + cos * d!,
     ];
+    const identity = [1, 0, 0, 1];
+    if (residual.every((v, i) => Math.abs(v - identity[i]!) < 1e-4))
+      return null;
+    return { residual, mirror: a! * d! - c! * b! < 0 };
   }
 
   function rotationFromTransform(transform: string): number {
@@ -2901,8 +2904,13 @@ export function collectRawFigmaSvgScene(
 
     const rect = el.getBoundingClientRect();
     const ownRotation = rotationFromTransform(style.transform);
-    const ownReflection = reflectionFromTransform(style.transform);
-    const rotationActive = rotatedAncestor || ownRotation !== 0;
+    const decomposed = reflectionFromTransform(style.transform);
+    const ownReflection = decomposed?.residual ?? null;
+    // A mirror about the default centre origin preserves the bounding box, so
+    // the existing rect is already right for it. A scale or skew does NOT: it
+    // moves the box, so its geometry has to be reconstructed.
+    const movesBox = !!decomposed && !decomposed.mirror;
+    const rotationActive = rotatedAncestor || ownRotation !== 0 || movesBox;
 
     // A rotation about the default 50%/50% origin preserves the element's
     // centre, so the centre is the one point that survives the transform and
@@ -2927,6 +2935,31 @@ export function collectRawFigmaSvgScene(
       width,
       height,
     };
+    // A rasterized node is a SCREENSHOT of its region, so a box-moving
+    // transform is already in its pixels: it keeps the transformed box and must
+    // not have the matrix applied a second time. The importer's
+    // angular-gradient overlay is exactly this — a conic gradient has no SVG
+    // equivalent, so it rasterizes, and reconstructing its untransformed box
+    // then re-applying the scale squashed it into a strip.
+    const rasterGeometry = movesBox
+      ? (() => {
+          const [tx, ty] = applyAffine(
+            toLocal,
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          );
+          return {
+            rect: {
+              x: tx - rect.width / 2,
+              y: ty - rect.height / 2,
+              width: rect.width,
+              height: rect.height,
+            },
+            reflection: undefined,
+          };
+        })()
+      : {};
+
     const name = el.getAttribute("data-agent-native-layer-name") || undefined;
     const id = el.getAttribute("data-agent-native-node-id") || nextId();
     const tag = el.tagName.toUpperCase();
@@ -3095,12 +3128,14 @@ export function collectRawFigmaSvgScene(
     if (tag === "VIDEO" || tag === "CANVAS" || tag === "IFRAME") {
       return {
         ...base,
+        ...rasterGeometry,
         rasterReason: `<${tag.toLowerCase()}> content has no SVG equivalent — rasterized via screenshot.`,
       };
     }
     if (base.backdropFilter !== "none") {
       return {
         ...base,
+        ...rasterGeometry,
         rasterReason:
           "backdrop-filter cannot be expressed in SVG — rasterized this element's region via screenshot.",
       };
@@ -3129,6 +3164,7 @@ export function collectRawFigmaSvgScene(
     ) {
       return {
         ...base,
+        ...rasterGeometry,
         rasterReason: `CSS filter "${base.filter.slice(0, 60)}" has no SVG equivalent here — rasterized this element's region via screenshot.`,
       };
     }
@@ -3144,6 +3180,7 @@ export function collectRawFigmaSvgScene(
     ) {
       return {
         ...base,
+        ...rasterGeometry,
         rasterReason:
           "clip-path / mask has no SVG equivalent here — rasterized this element's region via screenshot.",
       };
@@ -3162,6 +3199,7 @@ export function collectRawFigmaSvgScene(
     ) {
       return {
         ...base,
+        ...rasterGeometry,
         rasterReason:
           "conic-gradient has no SVG equivalent — rasterized this element's region via screenshot.",
       };
@@ -3179,6 +3217,7 @@ export function collectRawFigmaSvgScene(
     ) {
       return {
         ...base,
+        ...rasterGeometry,
         rasterReason:
           "tiled gradient background (per-layer background-size) has no SVG equivalent — rasterized this element's region via screenshot.",
       };
@@ -3250,7 +3289,13 @@ export function collectRawFigmaSvgScene(
     // layer is mirrored twice. A reflection is its own inverse, so the same
     // matrix undoes it.
     if (ownReflection) {
-      const [a, b, c, d] = ownReflection;
+      const [ra, rb, rc, rd] = ownReflection;
+      const det = ra * rd - rc * rb;
+      // A reflection is its own inverse; a scale or skew is not.
+      const [a, b, c, d] =
+        Math.abs(det) < 1e-9
+          ? [1, 0, 0, 1]
+          : [rd / det, -rb / det, -rc / det, ra / det];
       childToLocal = composeAffine(
         [
           a,
