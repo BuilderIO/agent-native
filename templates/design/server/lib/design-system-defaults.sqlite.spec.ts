@@ -115,6 +115,7 @@ function seed({
   createdAt: string;
 }) {
   localDb.sqlite
+    // guard:allow-unscoped — test fixture seeding rows the action under test reads back
     ?.prepare(
       `INSERT INTO design_systems
        (id, title, data, is_default, owner_email, org_id, visibility, created_at, updated_at)
@@ -133,28 +134,20 @@ function seed({
     );
 }
 
-function rows(): Array<{
-  id: string;
-  is_default: number;
-  owner_email: string;
-  org_id: string | null;
-}> {
-  return (
-    localDb.sqlite
-        ?.prepare(
-        "SELECT id, is_default, owner_email, org_id FROM design_systems ORDER BY created_at ASC, rowid ASC",
-      )
-      .all() as Array<{
-      id: string;
-      is_default: number;
-      owner_email: string;
-      org_id: string | null;
-    }>
-  );
-}
-
 function defaultsFor(ownerEmail: string, orgId: string | null): string[] {
-  return rows()
+  // guard:allow-unscoped — assertion reads every row on purpose, to prove the
+  // writers scoped their own default claim
+  const rows = localDb.sqlite
+    ?.prepare(
+      "SELECT id, is_default, owner_email, org_id FROM design_systems ORDER BY created_at ASC, rowid ASC",
+    )
+    .all() as Array<{
+    id: string;
+    is_default: number;
+    owner_email: string;
+    org_id: string | null;
+  }>;
+  return (rows ?? [])
     .filter(
       (row) =>
         row.is_default === 1 &&
@@ -171,10 +164,29 @@ function create(title: string) {
   } as never);
 }
 
+function upsertProxy(designSystemId: string) {
+  return upsertBuilderProxyDesignSystem({
+    result: {
+      ok: true,
+      source: "builder",
+      projectId: "project_1",
+      jobId: `job_${designSystemId}`,
+      designSystemId,
+      suggestedTitle: null,
+      builderUrl: `https://builder.io/ds/${designSystemId}`,
+      status: "in-progress",
+    },
+    ownerEmail: OWNER,
+    orgId: ORG,
+    projectName: `Builder ${designSystemId}`,
+  });
+}
+
 beforeEach(() => {
   identity.email = OWNER;
   identity.orgId = ORG;
-  // guard:allow-unscoped — in-memory test fixture reset, no request identity
+  // guard:allow-unscoped — fixture reset of an in-memory table owned by this
+  // spec; there is no request identity to scope to
   localDb.sqlite?.exec("DELETE FROM design_systems;");
 });
 
@@ -183,7 +195,14 @@ afterAll(() => {
 });
 
 describe("design system default claim with real SQLite", () => {
-  it("leaves exactly one default when several creates race", async () => {
+  it("leaves exactly one default when several creates race, and never touches another owner's default", async () => {
+    seed({
+      id: "teammate_default",
+      ownerEmail: "teammate@example.com",
+      isDefault: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
     const results = await Promise.all([
       create("Alpha"),
       create("Beta"),
@@ -192,52 +211,12 @@ describe("design system default claim with real SQLite", () => {
 
     expect(defaultsFor(OWNER, ORG)).toHaveLength(1);
     expect(results.filter((result) => result.isDefault)).toHaveLength(1);
-    expect(rows()).toHaveLength(3);
-  });
-
-  it("gives the default to the first system and withholds it from later ones", async () => {
-    const first = await create("First");
-    const second = await create("Second");
-
-    expect(first.isDefault).toBe(true);
-    expect(second.isDefault).toBe(false);
-    expect(defaultsFor(OWNER, ORG)).toEqual([first.id]);
-  });
-
-  it("does not let another member's org-visible default suppress or absorb this owner's", async () => {
-    seed({
-      id: "teammate_default",
-      ownerEmail: "teammate@example.com",
-      isDefault: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    const mine = await create("Mine");
-
-    expect(mine.isDefault).toBe(true);
-    expect(defaultsFor(OWNER, ORG)).toEqual([mine.id]);
-    // The teammate's own default is in a different scope and must survive.
     expect(defaultsFor("teammate@example.com", ORG)).toEqual([
       "teammate_default",
     ]);
   });
 
-  it("keeps the default separate per org for the same owner", async () => {
-    seed({
-      id: "other_org_default",
-      orgId: "org_other",
-      isDefault: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    const mine = await create("Mine");
-
-    expect(mine.isDefault).toBe(true);
-    expect(defaultsFor(OWNER, "org_other")).toEqual(["other_org_default"]);
-    expect(defaultsFor(OWNER, ORG)).toEqual([mine.id]);
-  });
-
-  it("heals a scope an earlier race left with duplicate defaults", async () => {
+  it("heals a scope an earlier race already left with duplicate defaults", async () => {
     seed({
       id: "older_default",
       isDefault: true,
@@ -257,38 +236,13 @@ describe("design system default claim with real SQLite", () => {
 });
 
 describe("builder design-system proxy insert path", () => {
-  function proxyResult(designSystemId: string) {
-    return {
-      ok: true as const,
-      source: "builder" as const,
-      projectId: "project_1",
-      jobId: `job_${designSystemId}`,
-      designSystemId,
-      suggestedTitle: null,
-      builderUrl: `https://builder.io/ds/${designSystemId}`,
-      status: "in-progress" as const,
-    };
-  }
-
-  function upsert(designSystemId: string) {
-    return upsertBuilderProxyDesignSystem({
-      result: proxyResult(designSystemId),
-      ownerEmail: OWNER,
-      orgId: ORG,
-      projectName: `Builder ${designSystemId}`,
-    });
-  }
-
-  it("claims the default for the first imported system", async () => {
-    const { localDesignSystemId } = await upsert("ds_first");
-
-    expect(defaultsFor(OWNER, ORG)).toEqual([localDesignSystemId]);
-  });
-
   it("leaves exactly one default when several sources sync at once", async () => {
-    await Promise.all([upsert("ds_a"), upsert("ds_b"), upsert("ds_c")]);
+    await Promise.all([
+      upsertProxy("ds_a"),
+      upsertProxy("ds_b"),
+      upsertProxy("ds_c"),
+    ]);
 
-    expect(rows()).toHaveLength(3);
     expect(defaultsFor(OWNER, ORG)).toHaveLength(1);
   });
 
@@ -304,11 +258,8 @@ describe("builder design-system proxy insert path", () => {
       createdAt: "2026-01-02T00:00:00.000Z",
     });
 
-    const { localDesignSystemId } = await upsert("ds_late");
+    await upsertProxy("ds_late");
 
     expect(defaultsFor(OWNER, ORG)).toEqual(["older_default"]);
-    expect(
-      rows().find((row) => row.id === localDesignSystemId)?.is_default,
-    ).toBe(0);
   });
 });

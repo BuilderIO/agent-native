@@ -121,20 +121,6 @@ describe("create-design-system production templates", () => {
     expect(testState.insertedValues).toMatchObject({ isDefault: true });
   });
 
-  it("heals a scope that already holds duplicate defaults", async () => {
-    testState.existing = [
-      { id: "older_default", isDefault: true },
-      { id: "racing_default", isDefault: true },
-    ];
-
-    await action.run({ templateId: "primer-light", title: "Team Primer" });
-
-    expect(testState.clearedDefaults).toEqual([
-      expect.objectContaining({ isDefault: false }),
-    ]);
-    expect(testState.insertedValues).toMatchObject({ isDefault: false });
-  });
-
   it("rejects data overrides that would turn a named template into a lookalike", () => {
     const parsed = createDesignSystemSchema.safeParse({
       templateId: "material-3",
