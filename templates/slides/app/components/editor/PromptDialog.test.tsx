@@ -267,6 +267,71 @@ describe("uploadPromptFiles", () => {
       "small.pdf",
     ]);
   });
+
+  it("keeps oversized hosted images URL-only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/large.png",
+            url: "https://cdn.example.test/large.png",
+            originalName: "large.png",
+            filename: "large.png",
+            type: "image/png",
+            size: 750_000,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [upload] = await uploadPromptFiles([
+      new File([new Uint8Array(750_000)], "large.png", {
+        type: "image/png",
+      }),
+    ]);
+
+    expect(upload).toMatchObject({
+      url: "https://cdn.example.test/large.png",
+    });
+    expect(upload.dataUrl).toBeUndefined();
+  });
+
+  it("caps aggregate inline image fallbacks while preserving hosted URLs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify(
+          Array.from({ length: 4 }, (_, index) => ({
+            path: `uploads/image-${index}.png`,
+            url: `https://cdn.example.test/image-${index}.png`,
+            originalName: `image-${index}.png`,
+            filename: `image-${index}.png`,
+            type: "image/png",
+            size: 600_000,
+          })),
+        ),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const uploads = await uploadPromptFiles(
+      Array.from(
+        { length: 4 },
+        (_, index) =>
+          new File([new Uint8Array(600_000)], `image-${index}.png`, {
+            type: "image/png",
+          }),
+      ),
+    );
+
+    expect(uploads.filter((file) => file.dataUrl)).toHaveLength(3);
+    expect(uploads[3]).toMatchObject({
+      url: "https://cdn.example.test/image-3.png",
+    });
+    expect(uploads[3]?.dataUrl).toBeUndefined();
+  });
 });
 
 describe("PromptPopover import mode", () => {
