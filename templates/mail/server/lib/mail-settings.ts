@@ -18,15 +18,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
 
 export async function readSettings(email: string): Promise<UserSettings> {
   const data = await getUserSetting(email, "mail-settings");
-  if (data) {
-    return {
-      ...DEFAULT_SETTINGS,
-      ...(data as Partial<UserSettings>),
-      email: (data as Partial<UserSettings>).email || email,
-      signature: normalizeSignature((data as Partial<UserSettings>).signature),
-    } as UserSettings;
-  }
-  return { ...DEFAULT_SETTINGS, email };
+  return normalizeMailSettings(data, email);
 }
 
 export function mergeSettings(
@@ -40,4 +32,43 @@ export function mergeSettings(
       ? { signature: normalizeSignature(patch.signature) }
       : {}),
   };
+}
+
+export function mergePinnedLabels(
+  current: readonly string[] | undefined,
+  next: readonly string[] | undefined,
+  base?: readonly string[],
+): string[] | undefined {
+  if (next === undefined) return current ? [...current] : undefined;
+  if (base === undefined) return [...next];
+
+  const baseSet = new Set(base);
+  const nextSet = new Set<string>();
+  const merged: string[] = [];
+  for (const label of next) {
+    if (nextSet.has(label)) continue;
+    nextSet.add(label);
+    merged.push(label);
+  }
+  for (const label of current ?? []) {
+    if (baseSet.has(label) || nextSet.has(label)) continue;
+    nextSet.add(label);
+    merged.push(label);
+  }
+  return merged;
+}
+
+export function normalizeMailSettings(
+  data: Partial<UserSettings> | Record<string, unknown> | null,
+  email: string,
+): UserSettings {
+  if (data) {
+    return {
+      ...DEFAULT_SETTINGS,
+      ...(data as Partial<UserSettings>),
+      email: (data as Partial<UserSettings>).email || email,
+      signature: normalizeSignature((data as Partial<UserSettings>).signature),
+    } as UserSettings;
+  }
+  return { ...DEFAULT_SETTINGS, email };
 }

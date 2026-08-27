@@ -7,6 +7,7 @@ import {
   consumeExternalEmailRefresh,
   filterSuppressedThreads,
   markExternalEmailRefresh,
+  rebasePinnedLabelsUpdate,
   suppressThread,
   unsuppressThread,
 } from "./use-emails";
@@ -132,12 +133,31 @@ describe("serializePinnedLabelsUpdate", () => {
   });
 });
 
+describe("rebasePinnedLabelsUpdate", () => {
+  it("drops a failed queued pin from the later payload", () => {
+    expect(
+      rebasePinnedLabelsUpdate([], ["important"], ["important", "travel"]),
+    ).toEqual(["travel"]);
+  });
+
+  it("keeps a later reorder aligned with confirmed pins", () => {
+    expect(
+      rebasePinnedLabelsUpdate(
+        ["inbox", "sent"],
+        ["inbox", "sent"],
+        ["sent", "inbox"],
+      ),
+    ).toEqual(["sent", "inbox"]);
+  });
+});
+
 describe("useUpdateSettings", () => {
   it("serializes pinned-label snapshots without touching other settings writes", () => {
     const source = emailsHookSource();
 
     expect(source).toContain('"pinnedLabels" in data');
     expect(source).toContain("serializePinnedLabelsUpdate(() =>");
+    expect(source).toContain("rebasePinnedLabelsUpdate(");
     expect(source).toContain("requestSource: TAB_ID");
   });
 });

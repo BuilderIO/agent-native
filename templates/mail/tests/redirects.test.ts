@@ -1,11 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clientLoader, loader } from "../app/routes/_index";
 
-function expectInboxRedirect(routeLoader: typeof loader | typeof clientLoader) {
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function mockPreferences(pinnedLabels: string[] | undefined) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ pinnedLabels }), {
+          headers: { "content-type": "application/json" },
+        }),
+    ),
+  );
+}
+
+async function expectInboxRedirect(
+  routeLoader: typeof loader | typeof clientLoader,
+  pinnedLabels: string[] | undefined,
+  expectedLocation: string,
+) {
+  mockPreferences(pinnedLabels);
   let thrown: unknown;
   try {
-    routeLoader({} as never);
+    await routeLoader({ request: new Request("https://mail.test/") } as never);
   } catch (error) {
     thrown = error;
   }
@@ -13,16 +34,24 @@ function expectInboxRedirect(routeLoader: typeof loader | typeof clientLoader) {
   expect(thrown).toBeInstanceOf(Response);
   const response = thrown as Response;
   expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toBe("/inbox?label=important");
+  expect(response.headers.get("location")).toBe(expectedLocation);
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
 }
 
 describe("Mail root route", () => {
-  it("marks the server redirect as cacheable HTML", () => {
-    expectInboxRedirect(loader);
+  it("keeps the server redirect preference-free for the public shell", () => {
+    return expectInboxRedirect(loader, [], "/inbox");
   });
 
-  it("marks the client redirect as cacheable HTML", () => {
-    expectInboxRedirect(clientLoader);
+  it("keeps first-use Important selected on client navigation", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      undefined,
+      "/inbox?label=important",
+    );
+  });
+
+  it("routes an explicitly saved empty pin list on the client", () => {
+    return expectInboxRedirect(clientLoader, [], "/inbox");
   });
 });

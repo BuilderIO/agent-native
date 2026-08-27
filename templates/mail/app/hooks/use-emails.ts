@@ -1484,6 +1484,24 @@ export function useLabels() {
 
 let pinnedLabelsUpdateTail: Promise<void> = Promise.resolve();
 let pinnedLabelsUpdateToken = 0;
+let confirmedPinnedLabels: string[] | undefined;
+const pendingPinnedLabelsIntents: Array<{
+  base: string[];
+  next: string[];
+}> = [];
+
+export function rebasePinnedLabelsUpdate(
+  confirmed: readonly string[],
+  base: readonly string[],
+  next: readonly string[],
+): string[] {
+  const baseSet = new Set(base);
+  const nextSet = new Set(next);
+  const added = new Set(next.filter((id) => !baseSet.has(id)));
+  const ordered = next.filter((id) => confirmed.includes(id) || added.has(id));
+  const extras = confirmed.filter((id) => !baseSet.has(id) && !nextSet.has(id));
+  return [...ordered, ...extras];
+}
 
 export function serializePinnedLabelsUpdate<T>(
   task: () => Promise<T>,
@@ -1507,25 +1525,48 @@ export function useSettings() {
 export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Partial<UserSettings>) =>
-      "pinnedLabels" in data
-        ? serializePinnedLabelsUpdate(() =>
-            callAction(
-              "update-mail-preferences",
-              { ...data, requestSource: TAB_ID },
-              { method: "PUT" },
-            ),
-          )
-        : callAction(
-            "update-mail-preferences",
-            { ...data, requestSource: TAB_ID },
-            { method: "PUT" },
-          ),
+    mutationFn: (data: Partial<UserSettings>) => {
+      if (!("pinnedLabels" in data)) {
+        return callAction(
+          "update-mail-preferences",
+          { ...data, requestSource: TAB_ID },
+          { method: "PUT" },
+        );
+      }
+
+      return serializePinnedLabelsUpdate(() => {
+        const intent = pendingPinnedLabelsIntents.shift();
+        const confirmed = confirmedPinnedLabels ?? intent?.base ?? [];
+        const rebased = intent
+          ? rebasePinnedLabelsUpdate(confirmed, intent.base, intent.next)
+          : (data.pinnedLabels ?? []);
+
+        return callAction(
+          "update-mail-preferences",
+          {
+            ...data,
+            pinnedLabels: rebased,
+            ...(intent && { pinnedLabelsBase: intent.base }),
+            requestSource: TAB_ID,
+          },
+          { method: "PUT" },
+        );
+      });
+    },
     onMutate: async (data) => {
       // Optimistic update: immediately merge into cached settings
       await qc.cancelQueries({ queryKey: ["settings"] });
       const prev = qc.getQueryData<UserSettings>(["settings"]);
       const hasPinnedLabels = "pinnedLabels" in data;
+      if (hasPinnedLabels) {
+        pendingPinnedLabelsIntents.push({
+          base: prev?.pinnedLabels ?? [],
+          next: data.pinnedLabels ?? [],
+        });
+        if (!confirmedPinnedLabels) {
+          confirmedPinnedLabels = prev?.pinnedLabels ?? [];
+        }
+      }
       const token = hasPinnedLabels ? ++pinnedLabelsUpdateToken : undefined;
       if (prev) {
         qc.setQueryData(["settings"], { ...prev, ...data });
@@ -1553,6 +1594,11 @@ export function useUpdateSettings() {
 
       if (!changed) return;
       qc.setQueryData(["settings"], { ...current, ...rollback });
+    },
+    onSuccess: (data, variables) => {
+      if ("pinnedLabels" in variables) {
+        confirmedPinnedLabels = data.pinnedLabels;
+      }
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });

@@ -1,5 +1,6 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { redirect } from "react-router";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { Spinner } from "@/components/ui/spinner";
 
@@ -29,15 +30,35 @@ export function meta() {
  * `No routes matched location "/inbox"` because the navigation fired during
  * hydration, before the route tree was fully attached. A `loader` runs as
  * part of the server response and the navigation completes before the app
- * hydrates. The app opens to the default Important triage view on first use;
- * direct /inbox visits still let InboxPage honor an explicit saved pin list.
+ * hydrates. The server redirect stays preference-free for the public SSR
+ * shell; client navigations can choose the saved preference, and InboxPage
+ * applies the same first-use default after settings load.
  */
-export function loader() {
-  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
+type MailPreferences = {
+  pinnedLabels?: string[];
+};
+
+async function resolveRootInboxHref(): Promise<string> {
+  try {
+    const response = await fetch(
+      agentNativePath("/_agent-native/actions/get-mail-preferences"),
+    );
+    if (!response.ok) return "/inbox?label=important";
+    const settings = (await response.json()) as MailPreferences;
+    return settings.pinnedLabels === undefined
+      ? "/inbox?label=important"
+      : "/inbox";
+  } catch {
+    return "/inbox?label=important";
+  }
 }
 
-export function clientLoader() {
-  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
+export function loader(_args: LoaderFunctionArgs) {
+  throw withSsrHtmlContentType(redirect("/inbox"));
+}
+
+export async function clientLoader(_args: LoaderFunctionArgs) {
+  throw withSsrHtmlContentType(redirect(await resolveRootInboxHref()));
 }
 
 export function HydrateFallback() {
