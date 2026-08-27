@@ -16,9 +16,18 @@ import {
   PROMPT_DELETE_INTERVAL_MS,
   PROMPT_HOLD_MS,
   PROMPT_TYPE_INTERVAL_MS,
-  SLIDES_TRY_NOW_PROMPTS,
   SlidesTryNow,
 } from "./SlidesTryNow";
+
+const ENGLISH_ANIMATED_PROMPTS = [
+  "Launch deck for a running-shoe drop, in the style of nike.com.",
+  "Fundraising deck for a coastal cleanup nonprofit, in the style of Patagonia.",
+  "Nvidia's last four quarters, from their investor filings, in the style of nvidia.com.",
+  "A sales deck for an AI support platform, in the style of stripe.com.",
+  "US housing market snapshot, with Census and Zillow research data.",
+  "Intro to LLMs for MBA students, in the style of apple.com.",
+  "Global EV adoption since 2015, using Our World in Data.",
+] as const;
 
 function slidesTryNowElement() {
   return (
@@ -72,6 +81,20 @@ afterEach(() => {
 });
 
 describe("SlidesTryNow", () => {
+  it("keeps the seven English prompt examples in the requested order", () => {
+    const messages = docsI18nCatalog.messages.templateLanding.slides.tryNow;
+
+    expect([
+      messages.animatedPrompt1,
+      messages.animatedPrompt2,
+      messages.animatedPrompt3,
+      messages.animatedPrompt4,
+      messages.animatedPrompt5,
+      messages.animatedPrompt6,
+      messages.animatedPrompt7,
+    ]).toEqual(ENGLISH_ANIMATED_PROMPTS);
+  });
+
   it("types the first prompt and keeps the Generate href in sync", () => {
     renderSlidesTryNow();
 
@@ -84,7 +107,7 @@ describe("SlidesTryNow", () => {
 
     advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * 5);
 
-    const visiblePrompt = SLIDES_TRY_NOW_PROMPTS[0].slice(0, 5);
+    const visiblePrompt = ENGLISH_ANIMATED_PROMPTS[0].slice(0, 5);
     expect(promptBox.textContent).toBe(visiblePrompt);
     expect(submitLink.getAttribute("href")).toBe(
       `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(visiblePrompt)}`,
@@ -97,7 +120,7 @@ describe("SlidesTryNow", () => {
     const promptBox = screen.getByRole("textbox", {
       name: "Presentation generation prompt",
     });
-    const firstPrompt = SLIDES_TRY_NOW_PROMPTS[0];
+    const firstPrompt = ENGLISH_ANIMATED_PROMPTS[0];
 
     advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * firstPrompt.length);
     expect(promptBox.textContent).toBe(firstPrompt);
@@ -112,7 +135,7 @@ describe("SlidesTryNow", () => {
     expect(promptBox.textContent).toBe("");
 
     advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS);
-    expect(promptBox.textContent).toBe(SLIDES_TRY_NOW_PROMPTS[1][0]);
+    expect(promptBox.textContent).toBe(ENGLISH_ANIMATED_PROMPTS[1][0]);
   });
 
   it("stops permanently on interaction without overwriting user edits", () => {
@@ -166,10 +189,10 @@ describe("SlidesTryNow", () => {
     const promptBox = screen.getByRole("textbox", {
       name: "Presentation generation prompt",
     });
-    expect(promptBox.textContent).toBe(SLIDES_TRY_NOW_PROMPTS[0]);
+    expect(promptBox.textContent).toBe(ENGLISH_ANIMATED_PROMPTS[0]);
 
     advanceTimersByTime(30_000);
-    expect(promptBox.textContent).toBe(SLIDES_TRY_NOW_PROMPTS[0]);
+    expect(promptBox.textContent).toBe(ENGLISH_ANIMATED_PROMPTS[0]);
   });
 
   it("associates the visible prompt label with the editable textbox", () => {

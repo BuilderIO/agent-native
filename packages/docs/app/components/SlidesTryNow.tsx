@@ -5,16 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { trackEvent } from "./TemplateCard";
 
-export const SLIDES_TRY_NOW_PROMPTS = [
-  "Launch deck for a running-shoe drop, in the style of nike.com.",
-  "Fundraising deck for a coastal cleanup nonprofit, in the style of Patagonia.",
-  "Nvidia's last four quarters, from their investor filings, in the style of nvidia.com.",
-  "A sales deck for an AI support platform, in the style of stripe.com.",
-  "US housing market snapshot, with Census and Zillow research data.",
-  "Intro to LLMs for MBA students, in the style of apple.com.",
-  "Global EV adoption since 2015, using Our World in Data.",
-] as const;
-
 export const PROMPT_TYPE_INTERVAL_MS = 24;
 export const PROMPT_DELETE_INTERVAL_MS = 12;
 export const PROMPT_HOLD_MS = 2_000;
@@ -40,6 +30,19 @@ export function extractPromptText(node: Node): string {
 export function SlidesTryNow() {
   const t = useT();
   const tn = (key: string) => t(`templateLanding.slides.tryNow.${key}`);
+  const animatedPromptsRef = useRef<readonly string[] | null>(null);
+  if (animatedPromptsRef.current === null) {
+    animatedPromptsRef.current = [
+      tn("animatedPrompt1"),
+      tn("animatedPrompt2"),
+      tn("animatedPrompt3"),
+      tn("animatedPrompt4"),
+      tn("animatedPrompt5"),
+      tn("animatedPrompt6"),
+      tn("animatedPrompt7"),
+    ];
+  }
+  const animatedPrompts = animatedPromptsRef.current;
   const [promptText, setPromptText] = useState("");
   const promptRef = useRef<HTMLDivElement>(null);
   const animationStoppedRef = useRef(false);
@@ -66,8 +69,8 @@ export function SlidesTryNow() {
     }
 
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      prompt.textContent = SLIDES_TRY_NOW_PROMPTS[0];
-      setPromptText(SLIDES_TRY_NOW_PROMPTS[0]);
+      prompt.textContent = animatedPrompts[0];
+      setPromptText(animatedPrompts[0]);
       return;
     }
 
@@ -82,7 +85,7 @@ export function SlidesTryNow() {
     const advanceAnimation = () => {
       if (animationStoppedRef.current) return;
 
-      const currentPrompt = SLIDES_TRY_NOW_PROMPTS[promptIndex];
+      const currentPrompt = animatedPrompts[promptIndex];
       if (deleting) {
         characterIndex -= 1;
         const nextText = currentPrompt.slice(0, characterIndex);
@@ -90,7 +93,7 @@ export function SlidesTryNow() {
         setPromptText(nextText);
 
         if (characterIndex === 0) {
-          promptIndex = (promptIndex + 1) % SLIDES_TRY_NOW_PROMPTS.length;
+          promptIndex = (promptIndex + 1) % animatedPrompts.length;
           deleting = false;
           scheduleNextStep(PROMPT_TYPE_INTERVAL_MS);
         } else {

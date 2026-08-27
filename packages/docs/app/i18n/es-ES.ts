@@ -1431,6 +1431,20 @@ const esES = {
         composerPlaceholder:
           "Describe la presentación que quieres, o responde a las preguntas de arriba.",
         promptTip: "Consejo para el prompt",
+        animatedPrompt1:
+          "Deck de lanzamiento para unas zapatillas de running, al estilo de nike.com.",
+        animatedPrompt2:
+          "Deck de captación de fondos para una organización sin fines de lucro de limpieza costera, al estilo de Patagonia.",
+        animatedPrompt3:
+          "Los últimos cuatro trimestres de Nvidia, a partir de sus informes para inversores, al estilo de nvidia.com.",
+        animatedPrompt4:
+          "Deck de ventas para una plataforma de soporte con IA, al estilo de stripe.com.",
+        animatedPrompt5:
+          "Panorama del mercado inmobiliario de EE. UU., con datos de investigación de Census y Zillow.",
+        animatedPrompt6:
+          "Introducción a los LLM para estudiantes de MBA, al estilo de apple.com.",
+        animatedPrompt7:
+          "Adopción mundial de vehículos eléctricos desde 2015, con datos de Our World in Data.",
         promptPlaceholder:
           "Reemplaza este prompt: Crea una presentación acorde con la marca para [audiencia] con el fin de [propósito] usando los datos o notas pegados a continuación: [pega aquí los datos o notas].",
         sectionHeading:

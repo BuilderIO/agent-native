@@ -1435,6 +1435,20 @@ const deDE = {
         composerPlaceholder:
           "Beschreiben Sie die gewünschte Präsentation oder beantworten Sie die Fragen oben.",
         promptTip: "Prompt-Tipp",
+        animatedPrompt1:
+          "Launch-Deck für einen neuen Laufschuh im Stil von nike.com.",
+        animatedPrompt2:
+          "Fundraising-Deck für eine gemeinnützige Küstenreinigung im Stil von Patagonia.",
+        animatedPrompt3:
+          "Die letzten vier Quartale von Nvidia aus den Investorenberichten im Stil von nvidia.com.",
+        animatedPrompt4:
+          "Vertriebs-Deck für eine KI-Supportplattform im Stil von stripe.com.",
+        animatedPrompt5:
+          "Momentaufnahme des US-Immobilienmarkts mit Forschungsdaten von Census und Zillow.",
+        animatedPrompt6:
+          "Einführung in LLMs für MBA-Studierende im Stil von apple.com.",
+        animatedPrompt7:
+          "Globale Einführung von Elektrofahrzeugen seit 2015 mit Our World in Data.",
         promptPlaceholder:
           "Ersetzen Sie diesen Prompt: Erstellen Sie für [Zielgruppe] eine markengerechte Präsentation mit dem Ziel [Zweck] aus den unten eingefügten Daten oder Notizen: [Daten oder Notizen hier einfügen].",
         sectionHeading:
