@@ -83,9 +83,14 @@ export function PlaybackCommentOverlay({
     currentMs,
     playbackRate,
   );
-  if (activeComments.length === 0) return null;
+  const visibleComments = getTimelinePositionMs
+    ? activeComments.filter(
+        (activeComment) => getTimelinePositionMs(activeComment) != null,
+      )
+    : activeComments;
+  if (visibleComments.length === 0) return null;
 
-  const [comment, ...rest] = activeComments;
+  const [comment, ...rest] = visibleComments;
   const timelinePositionMs = getTimelinePositionMs?.(comment);
   const positionMs = getTimelinePositionMs
     ? (timelinePositionMs ?? Number.NaN)
@@ -95,7 +100,12 @@ export function PlaybackCommentOverlay({
     ? timelineMarkerMs(positionMs)
     : positionMs;
   const timelineLane = getTimelineLane?.(comment);
-  const markerLane = timelineLane === 1 ? 1 : 0;
+  const markerLane =
+    typeof timelineLane === "number" &&
+    Number.isFinite(timelineLane) &&
+    timelineLane >= 0
+      ? Math.floor(timelineLane)
+      : 0;
   const positionPercent =
     Number.isFinite(safeDurationMs) &&
     safeDurationMs > 0 &&
@@ -162,7 +172,7 @@ export function CommentPreview({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "flex w-fit max-w-[min(36rem,calc(100vw-1.5rem))] flex-col gap-1.5 rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15",
+        "flex w-fit max-w-[min(36rem,100%)] flex-col gap-1.5 rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15",
         onClick &&
           "pointer-events-auto cursor-pointer hover:bg-foreground dark:hover:bg-background",
         className,

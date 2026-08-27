@@ -397,6 +397,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [showControls, setShowControls] = useState(true);
     const [captionsOn, setCaptionsOn] = useState(false);
     const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
+    const [markerLanes, setMarkerLanes] = useState<Map<number, number>>(
+      new Map(),
+    );
     const [isFullscreen, setIsFullscreen] = useState(false);
     const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
@@ -2029,17 +2032,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 ? null
                 : originalToEdited(comment.videoTimestampMs, edits);
               if (editedMs === null) return null;
-              const markerTimes = Array.from(
-                new Set([
-                  ...scrubberTimeline.comments.map((item) =>
-                    timelineMarkerMs(item.videoTimestampMs),
-                  ),
-                  ...scrubberTimeline.reactions.map((item) =>
-                    timelineMarkerMs(item.videoTimestampMs),
-                  ),
-                ]),
-              ).sort((a, b) => a - b);
-              return markerTimes.indexOf(timelineMarkerMs(editedMs)) % 2;
+              return markerLanes.get(timelineMarkerMs(editedMs)) ?? 0;
             }}
             onClick={onCommentClick}
           />
@@ -2047,7 +2040,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         {/* Floating CTA (throughout placement) */}
         {showThroughoutCta ? (
-          <div data-player-ui className="absolute bottom-16 right-4 z-30">
+          <div data-player-ui className="absolute bottom-16 right-4 z-50">
             <CtaButton
               cta={cta!}
               onClick={() => onCtaClick?.(cta!.id)}
@@ -2116,6 +2109,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               comments={scrubberTimeline.comments}
               chapters={scrubberTimeline.chapters}
               reactions={scrubberTimeline.reactions}
+              onMarkerLanesChange={setMarkerLanes}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
                 togglePlayback();

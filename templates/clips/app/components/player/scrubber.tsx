@@ -10,6 +10,7 @@ import {
 import {
   scrubberFillPercent,
   scrubberPositionFromClientX,
+  timelineMarkerLanes,
   timelineMarkerMs,
 } from "./scrubber-position";
 
@@ -22,14 +23,22 @@ export interface ScrubberProps {
   })[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
+  onMarkerLanesChange?: (lanes: Map<number, number>) => void;
 }
 
 const MARKER_CONTROL_SIZE_PX = 28;
 const MARKER_GAP_PX = 2;
 
 export function Scrubber(props: ScrubberProps) {
-  const { currentMs, durationMs, onSeek, comments, chapters, reactions } =
-    props;
+  const {
+    currentMs,
+    durationMs,
+    onSeek,
+    comments,
+    chapters,
+    reactions,
+    onMarkerLanesChange,
+  } = props;
   const barRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const [barWidth, setBarWidth] = useState(0);
@@ -145,39 +154,22 @@ export function Scrubber(props: ScrubberProps) {
     [commentsByMs, reactionsByMs],
   );
 
-  const markerLanes = useMemo(() => {
-    if (!markerTimes.length) return new Map<number, number>();
-    if (!(barWidth > 0) || !(durationMs > 0)) {
-      return new Map(markerTimes.map((ms, index) => [ms, index]));
-    }
-
-    const laneEnds: number[] = [];
-    return new Map(
-      markerTimes.map((ms) => {
-        const hasComment = commentsByMs.has(ms);
-        const hasReaction = reactionsByMs.has(ms);
-        const markerWidth =
-          MARKER_CONTROL_SIZE_PX * (hasComment ? 1 : 0) +
-          MARKER_CONTROL_SIZE_PX * (hasReaction ? 1 : 0) +
-          (hasComment && hasReaction ? MARKER_GAP_PX : 0);
-        const markerX = Math.min(
-          barWidth,
-          Math.max(0, (ms / durationMs) * barWidth),
-        );
-        const markerStart =
-          ms <= 0
-            ? 0
-            : ms >= durationMs
-              ? Math.max(0, barWidth - markerWidth)
-              : Math.max(0, markerX - markerWidth / 2);
-        const markerEnd = markerStart + markerWidth + MARKER_GAP_PX;
-        let lane = laneEnds.findIndex((end) => markerStart >= end);
-        if (lane === -1) lane = laneEnds.length;
-        laneEnds[lane] = markerEnd;
-        return [ms, lane] as const;
-      }),
-    );
-  }, [barWidth, commentsByMs, durationMs, markerTimes, reactionsByMs]);
+  const markerWidths = useMemo(
+    () =>
+      new Map(
+        markerTimes.map((ms) => [
+          ms,
+          MARKER_CONTROL_SIZE_PX *
+            (Number(commentsByMs.has(ms)) + Number(reactionsByMs.has(ms))) +
+            (commentsByMs.has(ms) && reactionsByMs.has(ms) ? MARKER_GAP_PX : 0),
+        ]),
+      ),
+    [commentsByMs, markerTimes, reactionsByMs],
+  );
+  const markerLanes = useMemo(
+    () => timelineMarkerLanes(markerTimes, markerWidths, durationMs, barWidth),
+    [barWidth, durationMs, markerTimes, markerWidths],
+  );
   useEffect(() => {
     const bar = barRef.current;
     if (!bar || typeof ResizeObserver === "undefined") return;
@@ -191,6 +183,9 @@ export function Scrubber(props: ScrubberProps) {
     );
     return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    onMarkerLanesChange?.(markerLanes);
+  }, [markerLanes, onMarkerLanesChange]);
   const tooltipPositionPercent = tooltip
     ? Math.min(100, Math.max(0, (tooltip.ms / Math.max(1, durationMs)) * 100))
     : 50;
@@ -251,7 +246,7 @@ export function Scrubber(props: ScrubberProps) {
               className="animate-in fade-in slide-in-from-bottom-2 duration-200"
             />
           ) : (
-            <div className="max-w-[min(36rem,calc(100vw-1.5rem))] rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-[11px] text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15">
+            <div className="max-w-[min(36rem,100%)] rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-[11px] text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15">
               {tooltip.kind === "reaction" ? tooltip.content : tooltip.title}
             </div>
           )}

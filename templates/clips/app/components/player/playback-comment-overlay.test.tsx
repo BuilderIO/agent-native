@@ -186,6 +186,31 @@ describe("PlaybackCommentOverlay", () => {
     container.remove();
   });
 
+  it("does not render comments mapped into an excluded edit range", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[comment]}
+          currentMs={12_500}
+          durationMs={60_000}
+          getTimelinePositionMs={() => null}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("renders inline Markdown without creating heading elements", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");

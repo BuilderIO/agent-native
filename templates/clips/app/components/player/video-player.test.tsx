@@ -282,6 +282,50 @@ describe("VideoPlayer playback", () => {
     expect(getPlayerControls().className).not.toContain("z-20");
   });
 
+  it("keeps throughout CTAs above playback comments", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-throughout",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+            cta={{
+              id: "cta-throughout",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "throughout",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const cta = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://example.com"]',
+    );
+    expect(cta?.parentElement?.className).toContain("z-50");
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).not.toBeNull();
+  });
+
   it("keeps the pause control visible on mobile after the idle timeout", () => {
     const video = getVideo();
     Object.defineProperty(video, "paused", {

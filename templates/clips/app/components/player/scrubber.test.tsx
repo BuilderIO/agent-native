@@ -31,6 +31,7 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 import { Scrubber } from "./scrubber";
+import { timelineMarkerLanes } from "./scrubber-position";
 
 describe("Scrubber reaction markers", () => {
   let container: HTMLDivElement;
@@ -345,5 +346,20 @@ describe("Scrubber reaction markers", () => {
     expect(groups[0]?.className).toContain("-top-7");
     expect(groups[1]?.className).toContain("-top-14");
     expect(groups[2]?.style.top).toBe("-5.25rem");
+  });
+
+  it("does not reuse a lane while measured marker hit targets overlap", () => {
+    const lanes = timelineMarkerLanes(
+      [1_000, 1_500, 2_000],
+      new Map([
+        [1_000, 28],
+        [1_500, 28],
+        [2_000, 28],
+      ]),
+      60_000,
+      300,
+    );
+
+    expect([...lanes.values()]).toEqual([0, 1, 2]);
   });
 });
