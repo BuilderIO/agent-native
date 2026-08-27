@@ -3828,7 +3828,14 @@ function emitFrameTemplate(frame: FigNode, ctx: Ctx, pageName: string): string {
   // Default CSS content-box would inflate every explicit width/height/min-size
   // by the padding + border, so normalize to border-box.
   lines.push(
-    "  <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; padding: 0; }</style>",
+    // `text-rendering: geometricPrecision` for the same reason the REST import
+    // sets it: Figma lays glyphs out on exact outlines while the browser hints
+    // them by default, snapping stems to the pixel grid and nudging advances.
+    // That is right for body text on a web page and wrong for reproducing a
+    // design tool, and it is why this walker trailed the REST one on every
+    // case that has text even where the geometry already matched node for node.
+    "  <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; padding: 0; }" +
+      " * { text-rendering: geometricPrecision; }</style>",
   );
   // Custom font families used by the frame -> request them from Google
   // Fonts. (Smart-export does the same for design hand-off so the layout

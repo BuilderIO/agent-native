@@ -1260,6 +1260,20 @@ describe("a hugging TEXT box takes the size Figma resolved", () => {
   });
 });
 
+describe("glyph rasterisation", () => {
+  it("renders text on exact outlines, the way Figma lays it out", () => {
+    // The browser hints glyphs by default, snapping stems to the pixel grid
+    // and nudging advances. Right for body text on a web page, wrong for
+    // reproducing a design tool — and its absence is why this walker trailed
+    // the REST one on every case with text even where geometry matched node
+    // for node. Typography's drift from the REST render: 12.49% -> 6.55%.
+    const doc = makeDocument([{}]);
+    expect(renderHtmlTemplates(doc).frames[0]?.html ?? "").toContain(
+      "text-rendering: geometricPrecision",
+    );
+  });
+});
+
 describe("diamond gradients", () => {
   // A diamond's falloff is an L1 distance, which is LINEAR inside each
   // quadrant — so four quadrant-tiled linear gradients are the same shape
