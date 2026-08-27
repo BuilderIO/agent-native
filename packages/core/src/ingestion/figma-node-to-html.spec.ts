@@ -297,3 +297,54 @@ describe("an empty auto-layout frame that hugs", () => {
     expect(html).not.toContain("width: 685px");
   });
 });
+
+describe("mirrored nodes", () => {
+  // Figma's `rotation` is a decomposition, and it cannot tell a mirror from a
+  // half turn: a horizontally flipped node reports rotation = pi, exactly as a
+  // 180-degree one does. Rotating by 180 adds a vertical flip the design does
+  // not have — Positivus' CTA illustration is mirrored this way, and every
+  // element inside it landed on the wrong side of the group.
+  function flippedGroup(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Frame",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 359, 394),
+      children: [
+        {
+          id: "1:2",
+          name: "Illustration",
+          type: "GROUP",
+          absoluteBoundingBox: box(0, 0, 359, 394),
+          size: { x: 359, y: 394 },
+          relativeTransform: [
+            [-1, 0, 359],
+            [0, 1, 0],
+          ],
+          rotation: Math.PI,
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("mirrors rather than rotating a flipped node", () => {
+    const { html } = mapFigmaNodeToHtml(flippedGroup(), {});
+    expect(html).toContain("matrix(-1, 0, 0, 1, 0, 0)");
+    expect(html).not.toContain("rotate(180");
+  });
+
+  it("counts the matrix path as exact, not approximated", () => {
+    const { fidelity } = mapFigmaNodeToHtml(flippedGroup(), {});
+    const entry = fidelity.entries.find((e) => e.nodeId === "1:2");
+    expect(entry?.level).toBe("exact");
+  });
+
+  it("still emits a plain rotate() when there is no relativeTransform", () => {
+    const node = flippedGroup();
+    delete node.children![0]!.relativeTransform;
+    delete node.children![0]!.size;
+    node.children![0]!.rotation = Math.PI / 4;
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("rotate(45");
+  });
+});

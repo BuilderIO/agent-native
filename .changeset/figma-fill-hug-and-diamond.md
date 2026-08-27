@@ -17,6 +17,13 @@ reports real dimensions; mapping that to `width: auto` collapsed it to nothing,
 which deleted a 685x456 image placeholder from a real hero section and let its
 FILL sibling take the whole row, so the heading stopped wrapping too.
 
+Mirrored nodes are no longer rendered as half turns. Figma's `rotation` field
+is a decomposition that cannot tell a flip from a 180-degree rotation — both
+report pi — so a horizontally mirrored group picked up a vertical flip it does
+not have, and everything inside it landed on the wrong side. The transform now
+comes from `relativeTransform`'s own 2x2 block as a CSS `matrix()`, which
+carries mirroring and skew as well as rotation.
+
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce

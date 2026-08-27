@@ -2120,6 +2120,26 @@ function buildNode(
     rotationDeg !== undefined && Math.abs(rotationDeg) > 0.001
       ? rotationDeg
       : undefined;
+  // `rotation` is a decomposition, and it cannot express a mirror: a
+  // horizontally flipped node reports rotation = pi, exactly as a 180-degree
+  // one does. Rotating by 180 then adds a vertical flip the design does not
+  // have — Positivus' CTA illustration is mirrored that way, and every element
+  // inside it landed on the wrong side. `relativeTransform`'s 2x2 block is
+  // already CSS's own matrix in the same y-down space, so consume it directly
+  // whenever the box came from it; this is the exact path the header comment
+  // has always named as the follow-up for when a design surfaces the mismatch.
+  const linear = box.exact ? node.relativeTransform : undefined;
+  const isIdentityLinear =
+    linear !== undefined &&
+    Math.abs(linear[0][0] - 1) < 1e-6 &&
+    Math.abs(linear[0][1]) < 1e-6 &&
+    Math.abs(linear[1][0]) < 1e-6 &&
+    Math.abs(linear[1][1] - 1) < 1e-6;
+  const linearTransformCss =
+    linear !== undefined && !isIdentityLinear
+      ? `matrix(${round(linear[0][0], 6)}, ${round(linear[1][0], 6)}, ` +
+        `${round(linear[0][1], 6)}, ${round(linear[1][1], 6)}, 0, 0)`
+      : undefined;
   if (rotation !== undefined && !box.exact) {
     // `box` fell back to absoluteBoundingBox, which is the rotated shape's
     // AABB; recover the true pre-rotation width/height/position so
@@ -2232,7 +2252,13 @@ function buildNode(
   const boxShadowParts = [...effects.boxShadowLayers];
   if (strokeResult.insetShadow) boxShadowParts.push(strokeResult.insetShadow);
 
-  if (rotation !== undefined) {
+  if (linearTransformCss !== undefined) {
+    tracker.record(
+      node,
+      "exact",
+      "Transform taken from relativeTransform's 2x2 block as a CSS matrix(), so rotation, mirroring and skew all survive.",
+    );
+  } else if (rotation !== undefined) {
     tracker.record(
       node,
       "approximated",
@@ -2283,8 +2309,12 @@ function buildNode(
     "mix-blend-mode": blendMode,
     overflow: node.clipsContent ? "hidden" : undefined,
     transform:
-      rotation !== undefined ? `rotate(${round(rotation, 3)}deg)` : undefined,
-    "transform-origin": rotation !== undefined ? "center" : undefined,
+      linearTransformCss ??
+      (rotation !== undefined ? `rotate(${round(rotation, 3)}deg)` : undefined),
+    "transform-origin":
+      linearTransformCss !== undefined || rotation !== undefined
+        ? "center"
+        : undefined,
     "min-width": px(node.minWidth ?? undefined),
     "max-width": px(node.maxWidth ?? undefined),
     "min-height": px(node.minHeight ?? undefined),

@@ -1224,9 +1224,16 @@ describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    const match = html.match(/rotate\((-?[\d.]+)deg\)/);
+    // The transform now ships as relativeTransform's own 2x2 block, which
+    // carries mirroring and skew that a `rotation` scalar cannot. The
+    // direction still has to be Figma's: CSS matrix(m11, m12, ...) puts cos in
+    // m11 and sin in m12, so atan2(m12, m11) is the angle it rotates by.
+    const match = html.match(
+      /matrix\((-?[\d.]+), (-?[\d.]+), (-?[\d.]+), (-?[\d.]+), 0, 0\)/,
+    );
     expect(match).not.toBeNull();
-    expect(Number(match![1])).toBeCloseTo(-17, 1);
+    const [m11, m12] = [Number(match![1]), Number(match![2])];
+    expect((Math.atan2(m12, m11) * 180) / Math.PI).toBeCloseTo(-17, 1);
   });
 
   it("positions a child of a rotated parent in the parent's own unrotated frame", () => {
