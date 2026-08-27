@@ -1617,6 +1617,18 @@ function buildChildSizingStyles(
       if (node.minHeight === undefined) styles["min-height"] = "0";
     }
   } else if (node.layoutSizingVertical === "HUG") {
+    // Same reasoning as the width above, for the axis that carries line count.
+    // Where our advances differ from Figma's by a hair, a line wraps on one
+    // side and not the other, and the box comes out a whole line short — then
+    // every sibling below it moves. Figma's own resolved height is the number
+    // it laid the page out with, so take it as a MINIMUM: text that genuinely
+    // needs more room still gets it.
+    const roundedTextHeight =
+      node.type === "TEXT" && node.minHeight === undefined
+        ? node.absoluteBoundingBox?.height
+        : undefined;
+    if (roundedTextHeight !== undefined)
+      styles["min-height"] = px(roundedTextHeight);
     styles.height =
       hasContentToHug(node) && !hugIsCircularInCss(node, false)
         ? "auto"

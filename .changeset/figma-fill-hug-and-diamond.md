@@ -78,13 +78,16 @@ it, and it was the largest non-text difference left on that page (4.04% ->
 3.52%). A rotated or skewed crop still takes the raster fallback, which is
 exact where a stretch would be wrong.
 
-A hugging TEXT box now takes Figma's rounded width as a MINIMUM. Figma rounds
+A hugging TEXT box now takes Figma's rounded width AND height as minimums. Figma rounds
 every hugging text box to a whole pixel and lays its siblings out against that;
 hugging to our own fractional width makes each label a fraction narrower, and
 in a row of them the fractions add up — a nav came out 5px short across six
 items, moving every one of them. As a minimum rather than a fixed width: pinning
 the width forces the text to wrap wherever our advances run a hair wider than
-Figma's, which is a different layout entirely.
+Figma's, which is a different layout entirely. The height matters for the same
+reason on the other axis: where advances differ by a hair a line wraps on one
+side and not the other, the box comes out a whole line short, and everything
+below it moves.
 
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
