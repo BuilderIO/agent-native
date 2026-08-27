@@ -208,6 +208,35 @@ export function isContainerElement(element: ElementInfo): boolean {
   return CONTAINER_TAGS.has(tag);
 }
 
+/**
+ * Whether `fit-content` has anything to measure. A deny-list on purpose: an
+ * allow-list of container/text tags silently denied Hug to every tag in
+ * neither list — `button`, `td`, `summary` — and the control then no-oped
+ * indistinguishably from a failed write.
+ */
+export function canHugContent(element: ElementInfo): boolean {
+  const primitiveKind = element.primitiveKind?.trim().toLowerCase();
+  const tag = (element.tagName || "").toLowerCase();
+  // A text layer hugs its own text, and an empty one is mid-authoring.
+  if (primitiveKind === "text" || TEXT_TAGS.has(tag)) return true;
+  if (primitiveKind) {
+    // Drawn shapes other than these are leaves; hug would collapse them.
+    if (!["frame", "rectangle", "rect"].includes(primitiveKind)) return false;
+    return hasMeasurableContent(element);
+  }
+  if (LEAF_TAGS.has(tag)) return false;
+  return hasMeasurableContent(element);
+}
+
+/** Absent signals mean "cannot tell", which must not read as "empty": hug on a
+ *  genuinely empty box resolves to 0 and the layer disappears. */
+function hasMeasurableContent(element: ElementInfo): boolean {
+  const children = element.childElementCount;
+  const text = element.textContent?.trim();
+  if (children === undefined && element.textContent === undefined) return true;
+  return (children ?? 0) > 0 || Boolean(text);
+}
+
 export function isParentFlex(element: ElementInfo): boolean {
   return (
     element.isFlexChild ||
@@ -219,12 +248,16 @@ export function isParentGrid(element: ElementInfo): boolean {
   return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
 }
 
+/** What is unknowable is whether there IS a flex parent, not its direction: a
+ *  flex parent with no authored `flex-direction` is a row per CSS, and
+ *  `<div class="flex">` authors exactly that. */
 export function parentFlexDirection(
   element: ElementInfo,
-): AutoLayoutSizingAxis {
-  return element.parentLayout?.flexDirection?.includes("column")
-    ? "vertical"
-    : "horizontal";
+): AutoLayoutSizingAxis | null {
+  const direction = element.parentLayout?.flexDirection;
+  if (direction)
+    return direction.includes("column") ? "vertical" : "horizontal";
+  return isParentFlex(element) ? "horizontal" : null;
 }
 
 export function isTextElement(element: ElementInfo): boolean {
@@ -270,8 +303,7 @@ export function isTextElement(element: ElementInfo): boolean {
 /**
  * Per-axis sizing availability following the design editor's contextual rules:
  *   - Fixed: always.
- *   - Hug contents: only CONTAINERS (flex/container frames) and TEXT can hug
- *     their content. Leaves like img/svg/input cannot.
+ *   - Hug contents: anything with content to measure — see `canHugContent`.
  *   - Fill container: only when the element is a CHILD of a flex/grid (auto
  *     layout) parent, OR a block-flow child (which fills via width:100%).
  * Hug applies to width and height independently; the same set is offered on
@@ -281,7 +313,7 @@ export function isTextElement(element: ElementInfo): boolean {
 export function availableSizingForElement(
   element: ElementInfo,
 ): Partial<Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>> {
-  const canHug = isContainerElement(element) || isTextElement(element);
+  const canHug = canHugContent(element);
   const isFlexChildEl = isParentFlex(element) || isParentGrid(element);
   // Block-flow children can still "fill" via width:100% on the horizontal axis.
   const isBlockChild = Boolean(element.parentDisplay) && !isFlexChildEl;
@@ -371,11 +403,15 @@ export function inferElementSizing(
   axis: AutoLayoutSizingAxis,
 ): AutoLayoutSizing {
   const styles = element.computedStyles;
-  const size = axis === "horizontal" ? styles.width : styles.height;
+  const property = axis === "horizontal" ? "width" : "height";
+  // A bridge payload's computedStyles resolve fit-content/auto to px (see
+  // cssElementSize below), so only the authored value can report Hug.
+  const size = element.inlineStyles?.[property] ?? styles[property];
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
   const isMainFlexAxis = isFlex && parentDirection === axis;
-  const isCrossFlexAxis = isFlex && parentDirection !== axis;
+  const isCrossFlexAxis =
+    isFlex && parentDirection !== null && parentDirection !== axis;
   const alignSelf = (styles.alignSelf || "").toLowerCase();
 
   if (
@@ -403,6 +439,52 @@ export function inferElementSizing(
  * Falls back to the bounding-rect dimension only when the computed style is
  * missing or unparseable (e.g. the bridge hasn't populated it yet).
  */
+/**
+ * Measured px for the axis, or `null` when this payload cannot report one:
+ * after a keyword commit, `boundingRect` still holds the pre-commit
+ * measurement, so the last known number is not the current one.
+ */
+export function measuredElementSize(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+): number | null {
+  const reported =
+    axis === "horizontal"
+      ? element.computedStyles.width
+      : element.computedStyles.height;
+  const parsed = resolvedPxSize(reported);
+  // A collapsed layer really is 0 wide; blanking that loses a valid value and
+  // disables aspect locking.
+  if (parsed !== null) return parsed;
+  // A relative or intrinsic value the host cannot resolve: unknown, not stale.
+  if (reported?.trim()) return null;
+  const rect =
+    axis === "horizontal"
+      ? element.boundingRect.width
+      : element.boundingRect.height;
+  // 0 here is `elementInfoFromCodeLayerNode`'s placeholder rect rather than a
+  // measurement — the opposite of the computed-style case above.
+  return Number.isFinite(rect) && rect > 0 ? rect : null;
+}
+
+/** px is the only unit a computed-style readout can be trusted as a length in:
+ *  `100%` and `fit-content` both need a measurement from the iframe. */
+export function resolvedPxSize(value: string | undefined): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (!/^-?(?:\d+\.?\d*|\.\d+)(?:px)?$/.test(trimmed)) return null;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Whether a size needs a fresh measurement before it can be shown. */
+export function sizeNeedsMeasurement(styles: Record<string, string>): boolean {
+  return (["width", "height"] as const).some((property) => {
+    const value = styles[property]?.trim();
+    return Boolean(value) && resolvedPxSize(value) === null;
+  });
+}
+
 export function cssElementSize(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
@@ -435,6 +517,10 @@ export function commitElementSizing(
   const isFlex = isParentFlex(element);
   const isGrid = isParentGrid(element);
   const isMainFlexAxis = isFlex && parentDirection === axis;
+  // The self-alignment property that stretches this axis. Fill sets it and
+  // hug clears it, so both must name the same one or hug reads as applied
+  // while a prior Fill's stretch still wins.
+  const stretchProperty = isFlex || !isHorizontal ? "alignSelf" : "justifySelf";
   const patch: Record<string, string> = {};
 
   if (sizing === "fixed") {
@@ -455,6 +541,8 @@ export function commitElementSizing(
       patch.flexGrow = "0";
       patch.flexShrink = "0";
       patch.flexBasis = "auto";
+    } else if (isFlex || isGrid) {
+      patch[stretchProperty] = "auto";
     }
   } else {
     // Fill container.
@@ -465,12 +553,9 @@ export function commitElementSizing(
       patch.flexBasis = "0";
       // Clear any explicit dimension so flex-basis governs.
       patch[sizeProperty] = "auto";
-    } else if (isFlex) {
-      // Parent cross axis → stretch to the parent's cross size.
-      patch.alignSelf = "stretch";
-      patch[sizeProperty] = "auto";
-    } else if (isGrid) {
-      patch[isHorizontal ? "justifySelf" : "alignSelf"] = "stretch";
+    } else if (isFlex || isGrid) {
+      // Cross axis → stretch to the parent's cross size.
+      patch[stretchProperty] = "stretch";
       patch[sizeProperty] = "auto";
     } else {
       // Child of a non-flex (block) parent → fill width with 100%.

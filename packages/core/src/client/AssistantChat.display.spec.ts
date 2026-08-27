@@ -37,6 +37,7 @@ import {
   isAssistantUiStaleIndexError,
   installAssistantUiMessageRepositoryRecovery,
   latestNonRecoveryUserMessageText,
+  matchesUserStoppedRun,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
@@ -1710,6 +1711,35 @@ describe("resolveAssistantChatRunningState", () => {
         isAutoResuming: true,
       }),
     ).toEqual({ isRunning: false, showRunningInUI: false });
+  });
+});
+
+describe("matchesUserStoppedRun", () => {
+  it("keeps a stop effective across delayed terminal updates", () => {
+    const stopped = {
+      threadId: "thread-1",
+      runId: "run-1",
+      turnId: "turn-1",
+    };
+
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-1", "turn-1")).toBe(
+      true,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-2", "turn-1")).toBe(
+      true,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-2", "turn-2")).toBe(
+      false,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-2", "run-1", "turn-1")).toBe(
+      false,
+    );
+    expect(
+      matchesUserStoppedRun({ threadId: "thread-1" }, "thread-1", "run-2"),
+    ).toBe(false);
+    expect(matchesUserStoppedRun(null, "thread-1", "run-1", "turn-1")).toBe(
+      false,
+    );
   });
 });
 
