@@ -336,6 +336,72 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("does not pass a delayed JSON response to SSE parsing after probe timeout", async () => {
+    const encoder = new TextEncoder();
+    let finishResponse: (() => void) | undefined;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          finishResponse = () => {
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  JSON.stringify({ error: "Authentication required" }),
+                ),
+              );
+              controller.close();
+            } catch {
+              // The timeout path cancels the response before this delayed body starts.
+            }
+          };
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.useFakeTimers();
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-delayed",
+    });
+    const iterator = adapter
+      .run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any)
+      [Symbol.asyncIterator]();
+
+    try {
+      const resultPromise = iterator.next();
+      await vi.advanceTimersByTimeAsync(1_001);
+      finishResponse?.();
+      const result = await resultPromise;
+
+      expect(result.done).toBe(false);
+      expect(result.value).toMatchObject({
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("delayed JSON response"),
+          },
+        ],
+        status: { type: "incomplete", reason: "error" },
+      });
+    } finally {
+      await iterator.return?.();
+    }
+  });
+
   it("starts parsing a mislabeled SSE response before it closes", async () => {
     const encoder = new TextEncoder();
     let finishResponse: (() => void) | undefined;

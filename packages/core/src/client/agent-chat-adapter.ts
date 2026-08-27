@@ -3916,6 +3916,7 @@ export function createAgentChatAdapter(
               const hasRunId = Boolean(res.headers.get("X-Run-Id"));
               let looksLikeSSE = hasRunId;
               let probeCompleted = false;
+              let probeTimedOut = false;
               let probePrefix = "";
               if (!hasRunId) {
                 // Read a bounded prefix so a mislabeled live SSE stream is not
@@ -3937,7 +3938,10 @@ export function createAgentChatAdapter(
                       const read = probeReader.read();
                       void read.catch(() => {});
                       const chunk = await Promise.race([read, timeout]);
-                      if (chunk === null) break;
+                      if (chunk === null) {
+                        probeTimedOut = true;
+                        break;
+                      }
 
                       probeCompleted = chunk.done;
                       if (chunk.done) {
@@ -3968,6 +3972,13 @@ export function createAgentChatAdapter(
                     trimmedProbePrefix.startsWith("retry:") ||
                     trimmedProbePrefix.startsWith(":");
                 }
+              }
+
+              if (probeTimedOut) {
+                if (res.body) void res.body.cancel().catch(() => {});
+                throw new Error(
+                  "Agent chat endpoint returned a delayed JSON response instead of an event stream.",
+                );
               }
 
               const firstChar = probePrefix.trimStart()[0] ?? "";
