@@ -670,6 +670,7 @@ interface NavigationState {
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns bounded navigation, document previews, and the current database window; use get-document for full page content.",
+  deferLoading: false,
   schema: z.object({}),
   http: false,
   run: async () => {
