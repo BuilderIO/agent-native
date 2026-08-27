@@ -53,6 +53,11 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // to the Agent / Developer Guide).
   "template-calendar-scheduling": "template-calendar-features",
   "template-calendar-booking-links": "template-calendar-features",
+  // Forms' Building & Publishing and Responses & Insights pages merged into
+  // one Features doc as part of the app-doc-format rework (Overview /
+  // Features / Talk to the Agent / Cross-App Use / Developer Guide).
+  "template-forms-building-publishing": "template-forms-features",
+  "template-forms-responses": "template-forms-features",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */

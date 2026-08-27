@@ -2033,8 +2033,9 @@ const enUS = {
     dispatchDevelopers: "Developer Guide",
     forms: "Forms",
     formsOverview: "Overview",
-    formsBuildingPublishing: "Building & Publishing",
-    formsResponses: "Responses & Insights",
+    formsFeatures: "Features",
+    formsAgent: "Talk to the Agent",
+    formsIntegrations: "Cross-App Use",
     formsDevelopers: "Developer Guide",
   },
 };
