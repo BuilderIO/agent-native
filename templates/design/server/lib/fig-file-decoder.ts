@@ -19,7 +19,6 @@ import {
   sha1Hex,
   utf8ByteLength,
   bytesToHexString,
-  startsWith,
 } from "../../shared/fig-bytes.js";
 import {
   MAX_FIG_DECOMPRESSED_BYTES,
