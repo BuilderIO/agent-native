@@ -8,6 +8,18 @@ import {
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const CredentialStoreUnavailableErrorMock = vi.hoisted(
+  () =>
+    class CredentialStoreUnavailableError extends Error {
+      readonly errorCode = "credential_store_unavailable";
+      readonly retryable = true;
+
+      constructor(cause?: unknown) {
+        super("Credential store unavailable", { cause });
+        this.name = "CredentialStoreUnavailableError";
+      }
+    },
+);
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 
@@ -16,6 +28,7 @@ vi.mock("./builder-oauth.js", () => ({
   hasBuilderOAuthSession: hasBuilderOAuthSessionMock,
 }));
 vi.mock("./credential-provider.js", () => ({
+  CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
 }));
 vi.mock("./request-context.js", () => ({
@@ -74,6 +87,27 @@ describe("resolveBuilderApiAuthorization", () => {
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).rejects.toThrow(
       /access expired/,
     );
+  });
+
+  it("reports a retryable error when the OAuth session read is unavailable", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockRejectedValue({
+      code: "ECHECKOUTTIMEOUT",
+    });
+
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
+  });
+
+  it("reports a retryable error when the OAuth custody read is unavailable", async () => {
+    hasBuilderOAuthSessionMock.mockRejectedValue({
+      code: "ECHECKOUTTIMEOUT",
+    });
+
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
   });
 
   it("uses the legacy private key when there is no OAuth grant", async () => {
