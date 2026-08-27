@@ -36,32 +36,32 @@
   },
   {
     "id": "community-positivus-landing",
-    "url": "https://www.figma.com/design/DTnZipGOXCxDXnFLeg8V7d/Positivus-Landing-Page-Design?node-id=330-762",
+    "url": "https://www.figma.com/design/6BceDwAbhgnA4N2c0FMlue/Untitled?node-id=6-1090",
     "stresses": "A real 8,356px agency marketing page: 180 nested auto-layout frames, 94 vectors with boolean ops and 7 masks, 45 rotated nodes, and a non-clipping root frame that Figma exports 1px wider than its own absoluteBoundingBox."
   },
   {
     "id": "community-untitled-ui-landing",
-    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1647-376184",
+    "url": "https://www.figma.com/design/6BceDwAbhgnA4N2c0FMlue/Untitled?node-id=9-11235",
     "stresses": "The most-used community design system rendered as a real page: 296 component instances over 384 auto-layout frames, 12 gradient fills, two layer blurs, and 146 pixel-locked line heights."
   },
   {
     "id": "community-dashstack-admin",
-    "url": "https://www.figma.com/design/kjEFxl9wYyKM6HdUonZ3YG/DashStack-Admin-Dashboard?node-id=0-2",
+    "url": "https://www.figma.com/design/6BceDwAbhgnA4N2c0FMlue/Untitled?node-id=10-1234",
     "stresses": "Data-dense admin dashboard laid out with zero auto-layout: 85 strokes, 38 shadows, 13 boolean ops and 12 masks of chart art, an icon webfont, 27 partial opacities — and an empty zero-geometry VECTOR inside an instance that Figma refuses to render, which currently aborts the whole import."
   },
   {
     "id": "community-interior-ecommerce",
-    "url": "https://www.figma.com/design/nX0ByDcYY3CQkDIYd1gJCd/Interior-eCommerce-Website?node-id=117-336",
-    "stresses": "Photo-heavy storefront: 97 image fills behind 21 masks and 41 per-corner radii, built from plain groups rather than auto-layout, with uppercase and strikethrough sale-price text."
+    "url": "https://www.figma.com/design/6BceDwAbhgnA4N2c0FMlue/Untitled?node-id=6-20",
+    "stresses": "Photo-heavy storefront (1440x4835): 31 image fills behind 7 masks, sibling sections that bleed past the frame width (Share is 1799 wide inside a 1440 frame), plain groups rather than auto-layout, and a symbol/instance product grid."
   },
   {
     "id": "community-whitepace-saas",
-    "url": "https://www.figma.com/design/BKosHx3DEY52qQ1GGtrT03/Whitepace-SaaS-Landing-Page?node-id=9-6480",
+    "url": "https://www.figma.com/design/6BceDwAbhgnA4N2c0FMlue/Untitled?node-id=11-1295",
     "stresses": "Vector-heavy SaaS page whose node JSON alone is 7 MB: 511 vectors, 112 rotated nodes, 10 dashed strokes, and 14 absolutely-positioned children inside auto-layout."
   },
   {
     "id": "community-landify-example",
-    "url": "https://www.figma.com/design/2cRRdAvm3gvyrPqtdN2p9h/Landify-Landing-Page-UI-Kit-v2?node-id=1973-6580",
+    "url": "https://www.figma.com/design/6BceDwAbhgnA4N2c0FMlue/Untitled?node-id=12-3335",
     "stresses": "UI-kit-built landing page: 79 component instances and 148 vectors nested inside 88 clipping frames, with 12 gradient fills and 18 partially transparent layers."
   },
   {
@@ -106,7 +106,7 @@
   },
   {
     "id": "ds-untitled-ui-table-variants",
-    "url": "https://www.figma.com/design/BMVBD2QX39ShndveIN1teq/Untitled-UI-v2?node-id=1227-110587",
+    "url": "https://www.figma.com/design/6BceDwAbhgnA4N2c0FMlue/Untitled?node-id=22-6337",
     "stresses": "A real design-system variant matrix, not a screen: the 3350x3277 Table COMPONENT_SET with 16 variants. 5,385 nodes, 3,336 nested instances, 2,682 HORIZONTAL / 626 VERTICAL / 533 NONE auto-layout frames, 1,460 FILL and 2,860 HUG children."
   },
   {

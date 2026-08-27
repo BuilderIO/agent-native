@@ -200,6 +200,33 @@ navigator.clipboard.write = new Proxy(navigator.clipboard.write.bind(navigator.c
 Then save `window.__cap` to `.tmp/figma-fidelity/clipboard/` and add a
 `{"id", "file", "reference"}` entry to `scripts/figma-fidelity/paste-corpus.json`.
 
+## REST import against Figma's own render, on real community designs
+
+Measured 2026-08-26, once the clipboard route above got these nodes into the
+paid team. These are the REST path with image fills resolved, each scored
+against Figma's render of the same node — not the clipboard proxy, which scores
+worse only because it cannot resolve images.
+
+| case | size | diff | mean∆ |
+| --- | --- | --- | --- |
+| dashstack admin | 1440x1070 | **1.20%** | 1.10 |
+| interior eCommerce | 1440x4835 | **2.06%** | 1.13 |
+| positivus landing | 1440x8356 | 5.94% | 8.43 |
+| landify example | 1440x21306 | 6.84% | 5.55 |
+| whitepace SaaS | 1440x9631 | 8.37% | 11.14 |
+| untitled UI landing | 1440x7060 | 9.34% | 13.60 |
+
+Interior was never tuned for and still lands at 2.06% with mean∆ 1.13, spread
+evenly across the page with no structural outlier — that residual is glyph
+antialiasing and photo resampling, not geometry. It is the clearest evidence so
+far that the mask/auto-layout/constraint fixes generalise rather than fitting
+the three designs they were found on.
+
+Two numbers in the table are lower than they look because a harness bug was
+fixed alongside them, not because the converter changed: Landify read 24.38%
+purely from the 16384px render clamp (see **Safety and scale limits**), and
+Positivus's 8.37% was the image-less clipboard path.
+
 ## Measured drift between the three import paths
 
 Numbers from the Positivus landing page (`330:762`, 1440x8356) and the Untitled
@@ -377,6 +404,16 @@ apparent export cost (typography 17.32% -> 0.19%, card-grid 2.99% -> 0.000%).
 The caveat that survives is real, though: a family Figma does not have will
 fall back there too.
 
+**Inter's version skew is accepted, not a bug to chase.** Figma renders Inter
+3.x; Google Fonts now serves 4.001, whose advances differ by 0.157–0.249%. Over
+a long line that accumulates into a visible glyph shift and is most of what is
+left in the `typography` case. Self-hosting Inter 3.19 (OFL, so redistributable)
+would recover roughly 3.3 points there and help every Inter design. **Decided
+2026-08-26: keep Google Fonts and its latest version, and accept the
+difference** — shipping and pinning font binaries costs more than the pixels are
+worth. Do not re-open this as a converter defect; it is neither ours nor fixable
+in the mapping.
+
 Three export defects the round trip found, none of which the single-hop export
 harness could see because its own preset designs use none of them:
 
@@ -497,12 +534,48 @@ The earlier "per ACCOUNT" conclusion came from duplicating a Community file and
 seeing the new key 429 too. That test was wrong: the duplicate landed in
 **Drafts**, which is the same Starter space, so it proved nothing.
 
-**To unblock the REST corpus: put the design in a folder inside the paid team.**
-Community originals cannot be moved (they are not yours), so duplicate first,
-then move the copy. Note that the in-editor `Move file` dialog never finished
-loading its project list in testing, and cross-file paste and `Save local copy`
-both wedged as well — doing it by hand from the files browser was faster than
-driving it.
+The same rule governs Figma's own MCP server: `get_screenshot` on a Drafts node
+answers "You've reached the Figma MCP tool call limit on the Starter plan",
+and the same call on a paid-team node returns the render.
+
+**To unblock the REST corpus: get the design into a project inside the paid
+team.** Community originals cannot be moved (they are not yours). Figma's own
+UI routes for this were all dead ends in testing — the in-editor `Move file`
+dialog never finished loading its project list, and cross-file paste,
+`Save local copy`, and file-card context menus each wedged or no-opped.
+
+What works is Figma's own clipboard, driven directly. Figma keeps a hidden
+`div.focus-target` that handles `copy` and `paste`, and it accepts synthetic
+events, so a whole design moves with no clicking and no quota:
+
+1. In the source tab, open `?node-id=<id>` and give the app focus (any inert
+   click, e.g. the `Design` tab). Without focus the copy handler returns
+   nothing.
+2. Dispatch a synthetic `copy` at the focus target with your own
+   `DataTransfer`; Figma fills it in, and `dt.getData("text/html")` is the
+   real clipboard payload.
+3. **Verify what you actually copied.** The payload's `(figmeta)` block is
+   base64 JSON whose `selectedNodeData` names the copied node. Figma's
+   selection lags in-app navigation, so a copy fired too early silently
+   returns the PREVIOUS node — retry until `selectedNodeData` matches the node
+   you asked for. Skipping this check is how a corpus quietly ends up
+   measuring the wrong design.
+4. Hand it to the target tab through `localStorage` (both tabs are
+   `figma.com`, so this costs nothing and avoids re-sending megabytes).
+5. Dispatch a synthetic `paste` there with the same payload.
+
+Two traps on the paste side, both of which corrupt geometry silently:
+
+- **Paste goes INSIDE the current selection.** Reloading the target does not
+  reliably clear it — Figma restores the previous selection, and `?node-id=0-1`
+  (the page) does not clear it either. A frame with auto-layout then absorbs
+  the paste and REFLOWS it; the giveaway is an existing frame whose height
+  grows instead of a new sibling appearing. Paste into a FRESH, empty file —
+  `create_new_file` on the Figma MCP takes a `planKey` and `projectId` and puts
+  it straight in the paid team.
+- **Confirm the node landed before moving on**, by polling REST for a new page
+  child. A paste that reports handled has only reached the local editor; it is
+  not durable until it syncs, and the editor discards it on reload.
 
 ## Figma REST rate limits
 
@@ -516,10 +589,9 @@ driving it.
 - Figma does not expose a requests-remaining counter.
 - **Superseded:** an earlier note here claimed the budget was per ACCOUNT. It
   is per FILE-plan; see the section above for the measurement that settles it.
-- Because the quota is account-wide, an exhausted account blocks every REST
-  case at once. `--offline` replays from the cache so converter work is never
-  gated on it, and the clipboard/`.fig` harnesses need no quota at all — which
-  is why those are where the corpus should grow.
+- An exhausted Starter file blocks every case that reads THAT file, not the
+  corpus. `--offline` replays from the cache so converter work is never gated on
+  it, and the clipboard/`.fig` harnesses need no quota at all.
 - Render cost scales with the number of ids in an `/images` request, so a
   21-id batch is charged as 21. Batch small and pace; retrying after the fact is
   not enough.
@@ -540,6 +612,13 @@ driving it.
   are not stored in SQL.
 - A required fallback or image fill that Figma fails to return aborts the import.
   The importer never reports success after silently deleting visible content.
+- **`/images` clamps a render to 16384px on its longest edge and scales the
+  whole node down to fit — no error, no header, no warning.** A 1440x21306
+  frame comes back as 1108x16384. Anything comparing that against a full-size
+  render is measuring the downscale: it read Landify as a 24.4% converter
+  defect when the real number is 6.8%. Ask `/images` for the scale it would
+  have forced (`scale=16384/longestEdge`) and render your own side at the same
+  factor, so the reference and the candidate are the same pixels.
 - Metadata attributes are capped at 16 KB per property; oversized metadata is
   omitted and reported as an approximation.
 

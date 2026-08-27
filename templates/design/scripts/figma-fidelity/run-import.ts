@@ -68,6 +68,12 @@ const MIN_REQUEST_INTERVAL_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 /** Render cost scales with id count, so keep each request small. */
 const FALLBACK_RENDER_BATCH = 5;
+/**
+ * Longest edge Figma will render. Past it `/images` silently returns the whole
+ * node scaled down instead of erroring, so the caller has to ask for that scale
+ * itself rather than discover it in the pixel dimensions afterwards.
+ */
+const FIGMA_MAX_RENDER_EDGE_PX = 16_384;
 
 let nextRequestAt = 0;
 async function paced<T>(run: () => Promise<T>): Promise<T> {
@@ -86,11 +92,13 @@ function rateLimitWaitMs(response: Response, attempt: number): number {
       throw new Error(
         `Figma rate limit is not a burst: it asked for ${Math.round(retryAfter / 3600)}h ` +
           `(until ${resetsAt}), so waiting would stall this run for days.\n` +
-          `Measured 2026-08-26: this budget is per ACCOUNT, not per file. Every file key ` +
-          `returns 429 with the same, monotonically decreasing reset — including a file ` +
-          `duplicated into a paid team seconds earlier. Duplicating, moving to a team ` +
-          `project, or issuing a second token on the same account does NOT help; only a ` +
-          `different account or the reset does.\n` +
+          `Measured 2026-08-26: the budget follows the FILE's plan, not the account. A file ` +
+          `in a Starter space answers 429 with 'x-figma-plan-tier: starter' however many ` +
+          `tokens you hold; a node in a paid team's project answers 200 with no rate-limit ` +
+          `headers at all — same account, same token, same minute. A second token does not ` +
+          `help; getting the node into a paid team's project does.\n` +
+          `FIGMA_INTEROPERABILITY.md records how to do that without Figma's move/duplicate ` +
+          `UI, which wedges on several of these files.\n` +
           `Until then, run with --offline to replay cases from the cache.`,
       );
     }
@@ -272,6 +280,10 @@ interface CaseOutcome {
   fidelity?: { exact: number; approximated: number; imageFallback: number };
   /** Nodes Figma had nothing to draw for; omitted from the render, never silent. */
   unrenderableNodes?: number;
+  /** <1 when the node was too tall for Figma to render at 1:1; both sides were scaled to match. */
+  renderScale?: number;
+  /** Both sizes, so a 1px scaling round-off reads differently from a wrong node. */
+  sizes?: { reference: string; candidate: string };
   renderWarnings?: string[];
   error?: string;
 }
@@ -389,13 +401,25 @@ async function runCase(
   );
   writeFileSync(join(dir, "fidelity.json"), JSON.stringify(fidelity, null, 2));
 
+  // Figma clamps a rendered node to 16384px on its longest side and silently
+  // scales the WHOLE image down to fit — a 1440x21306 frame comes back as
+  // 1108x16384 with no error and no header saying so. Comparing that against a
+  // full-size render measures the scale factor, not the converter (it read 24%
+  // on Landify, all of it the downscale). Ask for the scale Figma would have
+  // forced anyway and render ours to match, so both sides are the same pixels.
+  const longestEdge = Math.max(box.width, box.height);
+  const renderScale =
+    longestEdge > FIGMA_MAX_RENDER_EDGE_PX
+      ? FIGMA_MAX_RENDER_EDGE_PX / longestEdge
+      : 1;
+
   const rendered = await renderHtmlToPng(
     browser,
     withFigmaBoxModelReset(html),
     {
       width: box.width,
       height: box.height,
-      deviceScaleFactor: 1,
+      deviceScaleFactor: renderScale,
       headHtml: fontsUrl
         ? `<link rel="stylesheet" href="${fontsUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
         : "",
@@ -404,7 +428,7 @@ async function runCase(
   writeFileSync(join(dir, "import.png"), rendered.png);
 
   const reference = await figmaJson<ImagesResponse>(
-    `/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=1`,
+    `/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=${renderScale}`,
   );
   const referenceUrl = reference.images[nodeId];
   if (!referenceUrl) {
@@ -447,6 +471,13 @@ async function runCase(
         : []),
     ],
     unrenderableNodes: unrenderable.length || undefined,
+    renderScale: renderScale < 1 ? renderScale : undefined,
+    sizes: comparison.dimensionMismatch
+      ? {
+          reference: `${comparison.reference.width}x${comparison.reference.height}`,
+          candidate: `${comparison.candidate.width}x${comparison.candidate.height}`,
+        }
+      : undefined,
   };
 }
 
@@ -498,11 +529,18 @@ for (const outcome of outcomes) {
     continue;
   }
   const notes: string[] = [];
-  if (outcome.dimensionMismatch) notes.push("SIZE MISMATCH");
+  if (outcome.sizes)
+    notes.push(
+      `SIZE figma ${outcome.sizes.reference} vs ours ${outcome.sizes.candidate}`,
+    );
   if (outcome.renderWarnings?.length)
     notes.push(`${outcome.renderWarnings.length} render warning(s)`);
   if (outcome.unrenderableNodes)
     notes.push(`${outcome.unrenderableNodes} node(s) Figma could not render`);
+  if (outcome.renderScale)
+    notes.push(
+      `measured at ${(outcome.renderScale * 100).toFixed(1)}% — too tall for Figma to render 1:1`,
+    );
   console.log(
     `  ${outcome.id.padEnd(30)}  ${outcome.diffPercent!.toFixed(3).padStart(7)}  ` +
       `${outcome.meanDelta!.toFixed(2).padStart(7)}  ` +
