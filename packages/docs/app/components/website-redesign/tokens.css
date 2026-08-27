@@ -211,6 +211,11 @@
      next to what it reads as over near-black. */
   --b-hero-shader-opacity: 0.15;
 
+  /* Separate from the halftone's knob above. The ocean's tone is concentrated
+     in thin wave crests rather than spread over a dot grid, so the two need
+     very different blends to land at the same visual weight. */
+  --b-hero-ocean-opacity: 0.32;
+
   background: var(--b-bg-page);
   color: var(--b-text-primary);
   font-family: var(--b-font-sans);
@@ -245,6 +250,7 @@
   --b-snackbar-bg: #ffffff;
 
   --b-hero-shader-opacity: 0.28;
+  --b-hero-ocean-opacity: 0.3;
 
   --b-border-default: #cac9c6;
   --b-border-subtle: #e0e0d7;
