@@ -1301,6 +1301,7 @@ function backgroundShorthand(
     backgroundPosition?: string;
     backgroundRepeat?: string;
     backgroundBlendMode?: string;
+    imageRendering?: string;
   } = {};
   // Optimization: when there is exactly one fill and it's a plain SOLID at the
   // bottom, emit it as `background-color` (cheaper CSS, same visual) and skip
@@ -1375,6 +1376,23 @@ function backgroundShorthand(
     bgPositions.push(mode === "TILE" ? "0% 0%" : "center");
     bgRepeats.push(mode === "TILE" ? "repeat" : "no-repeat");
   }
+  // `image-rendering` is one property for the element, not per layer, so a
+  // single magnified fill switches the whole stack to nearest — which is what
+  // Figma does too. The 1.2 tolerance keeps an effectively 1:1 fill smooth,
+  // and a photo scaled DOWN with nearest aliases badly.
+  const magnified = fills.some((f) => {
+    if (f.type !== "IMAGE" || !node.size) return false;
+    const hex = hashToHex(f.image?.hash);
+    const intrinsic = hex ? intrinsicImageSize(imageUrl(hex, ctx)) : null;
+    if (!intrinsic || intrinsic.width <= 0 || intrinsic.height <= 0)
+      return false;
+    return (
+      node.size.x > intrinsic.width * 1.2 ||
+      node.size.y > intrinsic.height * 1.2
+    );
+  });
+  if (magnified) result.imageRendering = "pixelated";
+
   bgImages.reverse();
   bgSizes.reverse();
   bgPositions.reverse();
@@ -1516,6 +1534,56 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
     return `<div style="${escapeHtmlAttr(style)}"></div>`;
   }
 
+  return null;
+}
+
+/**
+ * An embedded image's intrinsic pixel size, read from its own header.
+ *
+ * Figma magnifies an image fill with NEAREST-neighbour sampling and the
+ * browser smooths, so a small tile scaled up came out blurry where Figma draws
+ * hard edges — the fills/effects checkerboard is a 16px tile stretched to 180.
+ * Returns null when the bytes are not to hand or the format is not one we can
+ * read: "unknown" must not be reported as "not magnified", so the caller only
+ * ever switches sampling on a size it actually measured.
+ */
+function intrinsicImageSize(
+  url: string,
+): { width: number; height: number } | null {
+  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
+    url,
+  );
+  if (!match) return null;
+  // No try/catch: base64 decoding does not throw in Node, it drops invalid
+  // characters — so a short/garbled buffer simply fails the length checks
+  // below and reports "cannot tell" rather than a wrong size.
+  const bytes = Buffer.from(match[2]!, "base64");
+  if (match[1] === "png") {
+    // 8-byte signature, then the IHDR chunk: length(4) type(4) width(4) height(4).
+    if (bytes.length < 24 || bytes.toString("ascii", 12, 16) !== "IHDR")
+      return null;
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  // JPEG: walk the marker segments to the frame header, which carries the size.
+  let offset = 2;
+  while (offset + 9 < bytes.length && bytes[offset] === 0xff) {
+    const marker = bytes[offset + 1]!;
+    const length = bytes.readUInt16BE(offset + 2);
+    // SOF0..SOF15, excluding the non-frame markers in that range.
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 &&
+      marker !== 0xc8 &&
+      marker !== 0xcc
+    ) {
+      return {
+        height: bytes.readUInt16BE(offset + 5),
+        width: bytes.readUInt16BE(offset + 7),
+      };
+    }
+    offset += 2 + length;
+  }
   return null;
 }
 

@@ -1384,6 +1384,56 @@ describe("glyph rasterisation", () => {
   });
 });
 
+describe("magnified image fills", () => {
+  // Figma magnifies an image fill with NEAREST-neighbour sampling; the browser
+  // smooths. The fills/effects checkerboard is a 16px tile stretched to 180 and
+  // came out blurry where Figma draws hard edges.
+  //
+  // A 2x2 PNG, so the header carries a real intrinsic size to read.
+  const tinyPng =
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP8z8Dwn4GBgYEBAA" +
+    "ZuAv7bAo7wAAAAAElFTkSuQmCC";
+  const node = (size: { x: number; y: number }) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 150, {
+        type: "ROUNDED_RECTANGLE",
+        name: "Tile",
+        size,
+        fillPaints: [
+          { type: "IMAGE", visible: true, image: { hash: new Uint8Array(20) } },
+        ],
+      }),
+    );
+    return doc;
+  };
+
+  it("asks for nearest sampling when the fill is magnified", () => {
+    const html = renderHtmlTemplates(node({ x: 180, y: 90 }), {
+      imageMap: new Map([
+        [
+          "0000000000000000000000000000000000000000",
+          `data:image/png;base64,${tinyPng}`,
+        ],
+      ]),
+    } as never).frames[0]!.html;
+    expect(html).toContain("image-rendering: pixelated");
+  });
+
+  it("leaves a fill at or below its intrinsic size smooth", () => {
+    // Nearest aliases badly on a photo scaled DOWN.
+    const html = renderHtmlTemplates(node({ x: 2, y: 2 }), {
+      imageMap: new Map([
+        [
+          "0000000000000000000000000000000000000000",
+          `data:image/png;base64,${tinyPng}`,
+        ],
+      ]),
+    } as never).frames[0]!.html;
+    expect(html).not.toContain("image-rendering");
+  });
+});
+
 describe("paint layers CSS cannot express in a background stack", () => {
   const fillNode = (
     fill: Record<string, unknown>,
