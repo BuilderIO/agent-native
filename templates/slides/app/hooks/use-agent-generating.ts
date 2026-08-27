@@ -26,7 +26,7 @@ type AgentGeneratingSubmitOptions = Pick<
  * fallback so a run that never reports completion can't spin forever.
  */
 export function useAgentGenerating() {
-  const [generating, send] = useAgentChatGenerating();
+  const [generating, send, stopReason] = useAgentChatGenerating();
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,6 +47,13 @@ export function useAgentGenerating() {
   }, []);
 
   useEffect(() => {
+    if (stopReason === "stopped") {
+      clearStopDebounce();
+      clearWatchdog();
+      setRecentlyGenerating(false);
+      setTimedOut(false);
+      return clearStopDebounce;
+    }
     if (generating) {
       clearStopDebounce();
       setRecentlyGenerating(true);
@@ -64,7 +71,13 @@ export function useAgentGenerating() {
     }
 
     return clearStopDebounce;
-  }, [generating, recentlyGenerating, clearStopDebounce, clearWatchdog]);
+  }, [
+    generating,
+    recentlyGenerating,
+    stopReason,
+    clearStopDebounce,
+    clearWatchdog,
+  ]);
 
   useEffect(
     () => () => {
@@ -97,7 +110,10 @@ export function useAgentGenerating() {
   );
 
   return {
-    generating: (generating || recentlyGenerating) && !timedOut,
+    generating:
+      stopReason !== "stopped" &&
+      (generating || recentlyGenerating) &&
+      !timedOut,
     submit,
   };
 }

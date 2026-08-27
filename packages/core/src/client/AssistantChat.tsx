@@ -5016,6 +5016,17 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery(null);
       clearAutoResume();
       resetRunningActivity();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: {
+              isRunning: false,
+              tabId: tabId || threadId,
+              reason: "stopped",
+            },
+          }),
+        );
+      }
       if (!options?.preserveQueuedMessages) {
         queueStopVersionRef.current += 1;
         dequeueInFlightRef.current = false;
@@ -5079,17 +5090,6 @@ const AssistantChatInner = forwardRef<
       settleVisibleInterruptedTools();
       markVisibleRunStopped();
       threadRuntime.cancelRun();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatRunning", {
-            detail: {
-              isRunning: false,
-              tabId: tabId || threadId,
-              reason: "stopped",
-            },
-          }),
-        );
-      }
     },
     [
       apiUrl,
