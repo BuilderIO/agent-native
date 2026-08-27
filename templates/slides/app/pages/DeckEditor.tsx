@@ -1499,7 +1499,7 @@ export default function DeckEditor() {
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
 
-  const handlePresent = useCallback(async () => {
+  const handlePresent = async () => {
     if (presentNavigationRef.current) return;
     presentNavigationRef.current = true;
     try {
@@ -1510,7 +1510,7 @@ export default function DeckEditor() {
       console.error("[slides-present] failed to flush save:", error);
       toast.error(t("settings.saveFailed"));
     }
-  }, [currentIndex, flushDeckSave, id, navigate, t]);
+  };
 
   // Editor-wide drag-and-drop catch-all. SlideEditor's own drop handler runs
   // first for drops landing on a slide (it calls stopPropagation), so this
