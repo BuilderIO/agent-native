@@ -150,6 +150,7 @@ export function AddSlidePopover({
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
+      if (submitting) return;
       if (isInsidePortaledLayer(e.target)) return;
       if (
         panelRef.current &&
@@ -161,7 +162,7 @@ export function AddSlidePopover({
       }
     };
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
+      if (e.key === "Escape" && !submitting) onOpenChange(false);
     };
     document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleKey);
@@ -169,7 +170,7 @@ export function AddSlidePopover({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open, onOpenChange, anchorRef]);
+  }, [anchorRef, onOpenChange, open, submitting]);
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
