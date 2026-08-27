@@ -109,6 +109,10 @@ export type FigmaSvgFillLayer =
       /** A `background-size` that computed to a single length, i.e. that width
        *  with a proportional height. Reported: the ratio is not known here. */
       singleAxisSize?: string;
+      /** The computed `background-position` of a tiled fill when it is not
+       *  plain pixels. A percentage phase is a fraction of the box minus the
+       *  tile, so it can only be resolved where the box is known. */
+      positionRaw?: string;
     }
   /** A background-image layer with no SVG equivalent (conic, repeating, …). */
   | { kind: "unsupported"; css: string };
@@ -1183,7 +1187,28 @@ function resolveFillPaint(
     } else {
       // `background-position` on a repeating background sets the tile phase, so
       // it shifts the pattern's ORIGIN rather than the image inside the tile.
-      const phase = fill.offsetPx ?? { x: 0, y: 0 };
+      // A percentage phase is a fraction of the FREE space (box minus tile),
+      // which is why it can only be resolved here, with the box in hand.
+      let phase = fill.offsetPx ?? { x: 0, y: 0 };
+      if (!fill.offsetPx && fill.positionRaw) {
+        const pcts = Array.from(fill.positionRaw.matchAll(/(-?[\d.]+)%/g)).map(
+          (m) => Number(m[1]) / 100,
+        );
+        if (pcts.length === 2 && !/calc\(/i.test(fill.positionRaw)) {
+          phase = {
+            x: pcts[0]! * (node.rect.width - fill.sizePx.width),
+            y: pcts[1]! * (node.rect.height - fill.sizePx.height),
+          };
+        } else {
+          ctx.report.approximated.push({
+            node: node.name || node.id,
+            note:
+              `Tiled image fill has a background-position this export cannot ` +
+              `resolve (${fill.positionRaw}); the tiling was anchored at the ` +
+              `box origin, so its phase may differ.`,
+          });
+        }
+      }
       ctx.defs.push(
         `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${n(node.rect.x + phase.x)}" y="${n(node.rect.y + phase.y)}" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}">` +
           `<image href="${escapeXmlAttr(fill.href)}" x="0" y="0" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}" preserveAspectRatio="none"${
@@ -1983,6 +2008,7 @@ function imageFitFromSize(
   repeat?: boolean;
   repeatAxis?: string;
   singleAxisSize?: string;
+  positionRaw?: string;
 } {
   const value = (size ?? "").trim();
   // `background-repeat` cannot be read as intent: `repeat` is the CSS INITIAL
@@ -2030,11 +2056,21 @@ function imageFitFromSize(
       const offsets = Array.from(
         (position ?? "").matchAll(/(-?[\d.]+)px/g),
       ).map((m) => Number(m[1]));
+      const raw = (position ?? "").trim();
       return {
         fit: "stretch",
         sizePx: explicitPx,
         offsetPx:
           offsets.length === 2 ? { x: offsets[0]!, y: offsets[1]! } : undefined,
+        // Chromium computes `center` to `50% 50%` and an edge offset to
+        // `calc(100% - 10px)`, neither of which the px scan above sees. A
+        // percentage phase resolves against the box, which only the emitter
+        // knows, so the raw value travels with the layer. `0% 0%` is the CSS
+        // default and means no phase, so it is not worth carrying.
+        positionRaw:
+          raw && offsets.length !== 2 && !/^0%\s+0%$/.test(raw)
+            ? raw
+            : undefined,
         repeat: true,
       };
     }
@@ -2043,7 +2079,11 @@ function imageFitFromSize(
     // fit and let `imageFillMarkup` report the tiling it could not draw.
     return { fit: value === "contain" ? "contain" : "cover", repeat: true };
   }
-  if ((oneAxisRepeat || unsupportedRepeat) && canShowRepeat) {
+  // `round` and `space` are reported whether or not the size could show
+  // repetition: `round` rescales the tile to a whole count even under `cover`,
+  // and deciding it "probably does not matter here" is a judgement the report
+  // should not make silently on the reader's behalf.
+  if (unsupportedRepeat || (oneAxisRepeat && canShowRepeat)) {
     return {
       fit: value === "contain" ? "contain" : "cover",
       repeatAxis: repeatValue,

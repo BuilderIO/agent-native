@@ -1349,6 +1349,49 @@ describe("background-image sizing on export", () => {
     }
   });
 
+  it("reports `round` even when the size already fills the box", () => {
+    // `round` rescales the tile to a whole count even under `cover`. Deciding
+    // it "probably does not matter here" is a judgement the report should not
+    // make silently on the reader's behalf.
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "cover",
+      "50% 50%",
+      "round",
+    );
+    expect(layer).toMatchObject({ repeatAxis: "round" });
+  });
+
+  it("carries a non-pixel tile position for the emitter to resolve", () => {
+    // Chromium computes `center` to `50% 50%`, which the pixel scan cannot
+    // see. A percentage phase is a fraction of the box minus the tile, so it
+    // resolves where the box is known rather than here.
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "50% 50%",
+      "repeat",
+    );
+    expect(layer).toMatchObject({
+      sizePx: { width: 16, height: 16 },
+      positionRaw: "50% 50%",
+      repeat: true,
+    });
+  });
+
+  it("does not carry the default `0% 0%` tile position as a phase", () => {
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "0% 0%",
+      "repeat",
+    );
+    expect((layer as { positionRaw?: string }).positionRaw).toBeUndefined();
+  });
+
   it("reports a background-size that computed to one length", () => {
     // Chromium computes `16px auto` — and a bare `16px` — to a single value,
     // meaning that width with a proportional height. Without the image's
