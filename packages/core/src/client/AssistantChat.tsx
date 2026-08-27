@@ -108,13 +108,17 @@ import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
 } from "./chat/composer-draft.js";
-import { TextStreamingContext } from "./chat/markdown-renderer.js";
+import {
+  ExternalTextStreamingContext,
+  TextStreamingContext,
+} from "./chat/markdown-renderer.js";
 import {
   CheckpointContext,
   MessageActionsContext,
   assistantMessageRunId,
   UserMessage,
   AssistantMessage,
+  ExternalUserStoppedRunContext,
   SelectionAttachedPill,
   RunningActivityStatus,
   displayableUserMessageText,
@@ -2129,6 +2133,10 @@ export interface AssistantChatProps {
   historyReloadKey?: string | number | null;
   /** Smooth the last assistant message while an external transcript is updating. */
   externalStreaming?: boolean;
+  /** Keep stopped-response actions visible for an embedded host's stop action. */
+  externalUserStopped?: boolean;
+  /** Notify an embedded host when the shared composer stop control is used. */
+  onStop?: () => void | Promise<unknown>;
   /**
    * Optional host hooks for the inline `needsApproval` affordance beyond the
    * built-in Approve and action-type policy. Code sessions pass their
@@ -2503,6 +2511,8 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
     historyReloadKey,
     externalStreaming = false,
+    externalUserStopped = false,
+    onStop,
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
@@ -3438,7 +3448,6 @@ const AssistantChatInner = forwardRef<
       matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId),
     [threadId],
   );
-
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
       if (
@@ -5109,6 +5118,19 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
+  const handleComposerStop = useCallback(async () => {
+    let hostStopSucceeded = true;
+    if (onStop) {
+      try {
+        hostStopSucceeded = (await onStop()) !== false;
+      } catch {
+        hostStopSucceeded = false;
+      }
+    }
+    if (!hostStopSucceeded) return;
+    stopActiveRun({ preserveQueuedMessages: true });
+  }, [onStop, stopActiveRun]);
+
   // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
   // front and abort the active run, letting auto-dequeue re-send it once the
   // run clears. Plain Enter still queues — this is the only send-now gesture.
@@ -6208,25 +6230,33 @@ const AssistantChatInner = forwardRef<
                                       <UserStoppedRunContext.Provider
                                         value={wasUserStoppedRun}
                                       >
-                                        <ThreadPrimitive.Messages
-                                          // Deliberately NOT keyed on part structure. Doing that
-                                          // remounted the whole transcript every time a tool call
-                                          // started or a placeholder id was rewritten — a flash and a
-                                          // lost scroll position in the middle of an answer. The
-                                          // error boundary above is the mechanism for assistant-ui's
-                                          // stale tap-resource errors: it catches them, clears, and
-                                          // retries, and its retry signature includes the reset key so
-                                          // a genuinely new structure always gets a fresh budget.
-                                          // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
-                                          // rename and splice through both the import and streaming
-                                          // paths and records that no such error occurs.
-                                          components={{
-                                            UserMessage:
-                                              AssistantChatUserMessageItem,
-                                            AssistantMessage:
-                                              AssistantChatAssistantMessageItem,
-                                          }}
-                                        />
+                                        <ExternalUserStoppedRunContext.Provider
+                                          value={externalUserStopped}
+                                        >
+                                          <ExternalTextStreamingContext.Provider
+                                            value={externalStreaming}
+                                          >
+                                            <ThreadPrimitive.Messages
+                                              // Deliberately NOT keyed on part structure. Doing that
+                                              // remounted the whole transcript every time a tool call
+                                              // started or a placeholder id was rewritten — a flash and a
+                                              // lost scroll position in the middle of an answer. The
+                                              // error boundary above is the mechanism for assistant-ui's
+                                              // stale tap-resource errors: it catches them, clears, and
+                                              // retries, and its retry signature includes the reset key so
+                                              // a genuinely new structure always gets a fresh budget.
+                                              // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
+                                              // rename and splice through both the import and streaming
+                                              // paths and records that no such error occurs.
+                                              components={{
+                                                UserMessage:
+                                                  AssistantChatUserMessageItem,
+                                                AssistantMessage:
+                                                  AssistantChatAssistantMessageItem,
+                                              }}
+                                            />
+                                          </ExternalTextStreamingContext.Provider>
+                                        </ExternalUserStoppedRunContext.Provider>
                                       </UserStoppedRunContext.Provider>
                                     </AssistantMessageListErrorBoundary>
                                     {visibleLoopLimit && !showRunningInUI && (
@@ -6620,11 +6650,7 @@ const AssistantChatInner = forwardRef<
                                         <TooltipTrigger asChild>
                                           <button
                                             type="button"
-                                            onClick={() =>
-                                              stopActiveRun({
-                                                preserveQueuedMessages: true,
-                                              })
-                                            }
+                                            onClick={handleComposerStop}
                                             aria-label={t(
                                               "agentChat.composer.stopResponse",
                                             )}

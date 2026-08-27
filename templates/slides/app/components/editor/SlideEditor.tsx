@@ -35,9 +35,11 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
   convertMarkdownPrefixToBullet,
+  exitEmptyBulletAtCaret,
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletList,
+  removeEmptyBulletAtCaret,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
@@ -101,7 +103,10 @@ import {
   resolveSlidesCanvasNudge,
   slidesCanvasInteractionCore,
 } from "./canvas-interactions";
-import type { SlideShapeType } from "./EditorActionCluster";
+import {
+  SLIDE_SHAPE_LABEL_KEYS,
+  type SlideShapeType,
+} from "./EditorActionCluster";
 import ImageOverlay from "./ImageOverlay";
 import {
   shouldPersistInlineEditContent,
@@ -2209,9 +2214,44 @@ export default function SlideEditor({
       ) {
         return;
       }
+
+      const sel = window.getSelection();
+      const anchor = sel?.anchorNode ?? null;
+      const anchorEl = anchor
+        ? anchor.nodeType === Node.TEXT_NODE
+          ? anchor.parentElement
+          : (anchor as HTMLElement)
+        : null;
+      const liveList =
+        anchorEl && slideContent && slideContent.contains(anchorEl)
+          ? findEnclosingList(anchorEl, slideContent)
+          : null;
+
+      if (
+        e.key === "Backspace" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        liveList
+      ) {
+        const result = removeEmptyBulletAtCaret(liveList);
+        if (result) {
+          e.preventDefault();
+          if (result.editingElement) {
+            liveList.contentEditable = "false";
+            liveList.removeAttribute("data-editing-block");
+            enterInlineEdit(result.editingElement);
+          } else {
+            captureInlineEditDraft(slide.id);
+          }
+          return;
+        }
+      }
+
       if (e.key === "Enter") {
         // Smart Enter:
         //  - Shift+Enter always inserts a <br>.
+        //  - Enter on an empty bullet exits the list into a root-level line.
         //  - Inside a styled bullet list, Enter clones the current row so a
         //    new bullet (marker + empty text) appears — contentEditable's
         //    native split can't recreate the marker glyph.
@@ -2223,17 +2263,16 @@ export default function SlideEditor({
 
         // Re-derive the list from the LIVE caret so a re-render that swapped
         // the edited node can't drop us into native Enter.
-        const sel = window.getSelection();
-        const anchor = sel?.anchorNode ?? null;
-        const anchorEl = anchor
-          ? anchor.nodeType === Node.TEXT_NODE
-            ? anchor.parentElement
-            : (anchor as HTMLElement)
-          : null;
-        const liveList =
-          anchorEl && slideContent && slideContent.contains(anchorEl)
-            ? findEnclosingList(anchorEl, slideContent)
-            : null;
+        if (liveList) {
+          const rootLine = exitEmptyBulletAtCaret(liveList);
+          if (rootLine) {
+            e.preventDefault();
+            liveList.contentEditable = "false";
+            liveList.removeAttribute("data-editing-block");
+            enterInlineEdit(rootLine);
+            return;
+          }
+        }
         if (liveList && insertBulletAfterCaret(liveList)) {
           e.preventDefault();
           captureInlineEditDraft(slide.id);
@@ -2250,6 +2289,7 @@ export default function SlideEditor({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [
     exitInlineEdit,
+    enterInlineEdit,
     editingEl,
     captureInlineEditDraft,
     selectAllEditableText,
@@ -3533,9 +3573,14 @@ export default function SlideEditor({
       if (!canvas) return;
       const { fmdSlide, positioningLayer } = canvas;
       const rect = positioningLayer.getBoundingClientRect();
-      const size = type === "circle" ? 144 : { width: 192, height: 144 };
-      const width = typeof size === "number" ? size : size.width;
-      const height = typeof size === "number" ? size : size.height;
+      const size = {
+        rectangle: { width: 192, height: 144 },
+        circle: { width: 144, height: 144 },
+        arrow: { width: 192, height: 144 },
+        triangle: { width: 144, height: 144 },
+        line: { width: 240, height: 4 },
+      }[type];
+      const { width, height } = size;
       const point = clientPointToSlideCoordinates(
         clientX,
         clientY,
@@ -3552,14 +3597,7 @@ export default function SlideEditor({
       const color = getSlideTextBoxDefaultColor(target, positioningLayer);
       shape.className = `fmd-shape fmd-shape-${type}`;
       shape.setAttribute("data-slide-shape", type);
-      shape.setAttribute(
-        "aria-label",
-        t(
-          type === "circle"
-            ? "editorToolbar.shapeCircle"
-            : "editorToolbar.shapeRectangle",
-        ),
-      );
+      shape.setAttribute("aria-label", t(SLIDE_SHAPE_LABEL_KEYS[type]));
       ensureSlideObjectId(shape);
       ensureBuilderId(shape);
       shape.style.position = "absolute";
@@ -3569,8 +3607,16 @@ export default function SlideEditor({
       shape.style.height = `${height}px`;
       shape.style.boxSizing = "border-box";
       shape.style.backgroundColor = color;
-      shape.style.border = `2px solid ${color}`;
-      shape.style.borderRadius = type === "circle" ? "50%" : "4px";
+      shape.style.border =
+        type === "rectangle" || type === "circle" ? `2px solid ${color}` : "0";
+      shape.style.borderRadius =
+        type === "circle" ? "50%" : type === "line" ? "999px" : "4px";
+      if (type === "arrow") {
+        shape.style.clipPath =
+          "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
+      } else if (type === "triangle") {
+        shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
+      }
       shape.style.opacity = "0.85";
       positioningLayer.appendChild(shape);
 

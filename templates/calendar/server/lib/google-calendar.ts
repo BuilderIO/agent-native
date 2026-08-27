@@ -1173,12 +1173,20 @@ export async function getFreeBusy(
         ?.map((error) => error.reason || error.domain)
         .filter(Boolean)
         .join(", ");
+      const missingCalendarError = calendar
+        ? undefined
+        : "Calendar was omitted from the Google free/busy response";
+      const error = calendarError || missingCalendarError;
       normalized[id] = {
         busy: calendar?.busy ?? [],
-        errors: calendar?.errors,
+        errors:
+          calendar?.errors ||
+          (missingCalendarError
+            ? [{ reason: missingCalendarError }]
+            : undefined),
       };
-      if (calendarError) {
-        calendarErrors.push({ email: id, error: calendarError });
+      if (error) {
+        calendarErrors.push({ email: id, error });
       }
     }
 

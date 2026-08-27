@@ -1306,6 +1306,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal,
   hasUnresolvedTool,
   hasActiveTool,
+  userStoppedRun,
 }: {
   isLast: boolean;
   chatRunning: boolean;
@@ -1317,6 +1318,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
   hasActiveTool?: boolean;
+  userStoppedRun?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
   const ownsActiveTurn =
@@ -1332,10 +1334,10 @@ export function shouldShowAssistantMessageFooter({
     messageRunId != null &&
     activeRunId === messageRunId;
   const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
-  if (chatRunning && ownsActiveRun) return false;
-  if (hasActiveTool) return false;
+  if (chatRunning && ownsActiveRun && !userStoppedRun) return false;
+  if (hasActiveTool && !userStoppedRun) return false;
   if (!isLast) return true;
-  if (hasUnresolvedTool) return false;
+  if (hasUnresolvedTool && !userStoppedRun) return false;
   return statusIsTerminal;
 }
 
@@ -1349,6 +1351,7 @@ export const ServerRunActiveContext = React.createContext(false);
 export const UserStoppedRunContext = React.createContext<
   (runId?: string, turnId?: string) => boolean
 >(() => false);
+export const ExternalUserStoppedRunContext = React.createContext(false);
 
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
@@ -1736,9 +1739,11 @@ export function AssistantMessage() {
   const messageRunId = assistantMessageRunId(msg);
   const messageTurnId = assistantMessageTurnId(msg);
   const userStoppedRun = React.useContext(UserStoppedRunContext);
+  const externalUserStopped = React.useContext(ExternalUserStoppedRunContext);
   const isUserStoppedRun =
     assistantMessageWasUserStopped(msg) ||
-    userStoppedRun(messageRunId, messageTurnId);
+    userStoppedRun(messageRunId, messageTurnId) ||
+    (externalUserStopped && isLast);
   const thinkingDisplay = useThinkingDisplay();
   const groupWorkParts = useCallback(
     (
@@ -1854,6 +1859,7 @@ export function AssistantMessage() {
       statusIsTerminal,
       hasUnresolvedTool,
       hasActiveTool,
+      userStoppedRun: isUserStoppedRun,
     });
   const cpCtx = React.useContext(CheckpointContext);
 
