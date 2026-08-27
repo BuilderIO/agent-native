@@ -6,7 +6,7 @@ import {
 } from "node:crypto";
 
 import type { H3Event } from "h3";
-import { getHeader } from "h3";
+import { getHeader, getRequestIP } from "h3";
 
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
@@ -1249,11 +1249,29 @@ function getBuilderRequestHost(event: H3Event): string | undefined {
   // Only the local proxy boundary may replace the request host with a
   // forwarded Builder preview host. Direct requests keep their own Host so a
   // caller cannot steer OAuth redirects with an arbitrary forwarded header.
-  return forwardedHost &&
+  if (
+    forwardedHost &&
     requestHost &&
     isLoopbackBuilderRequestHost(requestHost)
-    ? forwardedHost
-    : requestHost;
+  ) {
+    return isLoopbackBuilderProxyPeer(event) ? forwardedHost : undefined;
+  }
+  return requestHost;
+}
+
+function isLoopbackBuilderProxyPeer(event: H3Event): boolean {
+  try {
+    const ip = getRequestIP(event, { xForwardedFor: false });
+    return (
+      ip === "127.0.0.1" ||
+      ip === "::1" ||
+      ip === "::ffff:127.0.0.1" ||
+      ip?.startsWith("127.") === true
+    );
+    // coercion-ok: unavailable peer data is not trusted as a proxy.
+  } catch {
+    return false;
+  }
 }
 
 function isTrustedBuilderRequestHost(host: string | undefined): boolean {

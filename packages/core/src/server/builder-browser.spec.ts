@@ -85,13 +85,17 @@ import {
   type BuilderRelayCredentials,
 } from "./builder-browser.js";
 
-function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
+function createBuilderBrowserEvent(
+  headers: Record<string, string>,
+  remoteAddress = "127.0.0.1",
+): H3Event {
   const requestHeaders = new Headers(headers);
   return {
     req: {
       method: "GET",
       url: "https://agent-workspace.builder.io/_agent-native/builder/status",
       headers: requestHeaders,
+      context: { clientAddress: remoteAddress },
     },
     url: new URL(
       "https://agent-workspace.builder.io/_agent-native/builder/status",
@@ -103,6 +107,7 @@ function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
     node: {
       req: {
         headers,
+        socket: { remoteAddress },
         url: "/_agent-native/builder/status",
         method: "GET",
       },
@@ -502,6 +507,26 @@ describe("Builder callback CSRF state", () => {
         "x-forwarded-host": "attacker.builder.cloud",
         "x-forwarded-proto": "https",
       });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://default-template.netlify.app",
+      );
+    });
+
+    it("ignores a forwarded Builder Cloud host from an untrusted loopback host", () => {
+      process.env.NODE_ENV = "production";
+      process.env.APP_URL = "https://default-template.netlify.app";
+      const event = createBuilderBrowserEvent(
+        {
+          host: "127.0.0.1:8080",
+          "x-forwarded-host": "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
 
       expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
         "https://default-template.netlify.app/_agent-native/builder/connect",
