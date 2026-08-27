@@ -32,6 +32,10 @@ export interface EmailLinkBlock {
   placement?: "before-cta" | "after-cta";
 }
 
+export interface EmailResourceBlock {
+  name: string;
+}
+
 export interface RenderEmailArgs {
   /** Short preview text shown by email clients next to the subject. */
   preheader?: string;
@@ -45,6 +49,8 @@ export interface RenderEmailArgs {
   secondaryCta?: EmailCta;
   /** A treated, copyable URL shown before or after the CTA. */
   linkBlock?: EmailLinkBlock;
+  /** Styled resource name shown before the primary CTA. */
+  resourceBlock?: EmailResourceBlock;
   /**
    * Optional trusted HTML injected above the CTA — e.g. a template-owned video
    * thumbnail with a play badge. Injected verbatim, so only pass markup built
@@ -59,7 +65,7 @@ export interface RenderEmailArgs {
   brandName?: string;
   /**
    * Optional absolute `https://` logo URL shown in the brand header. When a
-   * valid URL is provided it replaces the default embedded Agent Native logo;
+   * valid URL is provided it replaces the default embedded Agent-Native logo;
    * anything else (missing, relative, non-https) falls back to that logo.
    */
   brandLogoUrl?: string;
@@ -115,7 +121,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const preheader = args.preheader || "";
   const brand = sanitizeHexColor(args.brandColor);
   const brandName =
-    args.brandName?.trim() || getAppConfig().app.name || "Agent Native";
+    args.brandName?.trim() || getAppConfig().app.name || "Agent-Native";
   const logoSrc =
     sanitizeLogoUrl(args.brandLogoUrl) ??
     `cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`;
@@ -125,6 +131,9 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const ctaBg = brand ?? "#fafafa";
   const ctaFg = brand ? "#ffffff" : "#0a0a0c";
   const linkColor = brand ?? "#a1a1aa";
+  const resourceBorder = "#3f3f46"; // guard:allow-raw-color — email markup must inline colors for clients.
+  const resourceBackground = "#0a0a0c"; // guard:allow-raw-color — email markup must inline colors for clients.
+  const resourceText = "#fafafa"; // guard:allow-raw-color — email markup must inline colors for clients.
 
   // Trusted markup supplied by the caller (template code, not user input),
   // injected as-is so a template can own app-specific previews (e.g. a video
@@ -156,6 +165,12 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
         </tr>
       </table>
     `
+    : "";
+
+  const resourceBlockHtml = args.resourceBlock
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:24px 0 0 0; border:1px solid ${resourceBorder}; border-radius:10px; background:${resourceBackground};">
+        <tr><td style="padding:14px 16px; font-size:15px; line-height:1.5; font-weight:600; color:${resourceText};">${escapeHtml(args.resourceBlock.name)}</td></tr>
+      </table>`
     : "";
 
   const ctaButtonCell = (
@@ -228,8 +243,9 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                   ${escapeHtml(args.heading)}
                 </h1>
                 ${paragraphsHtml}
-                ${heroHtml}
                 ${args.linkBlock?.placement !== "after-cta" ? linkBlockHtml : ""}
+                ${resourceBlockHtml}
+                ${heroHtml}
                 ${ctaHtml}
                 ${args.linkBlock?.placement === "after-cta" ? linkBlockHtml : ""}
                 ${closingParagraphsHtml}
@@ -253,6 +269,10 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   if (args.linkBlock && args.linkBlock.placement !== "after-cta") {
     textLines.push(args.linkBlock.intro);
     textLines.push(args.linkBlock.url);
+    textLines.push("");
+  }
+  if (args.resourceBlock) {
+    textLines.push(args.resourceBlock.name);
     textLines.push("");
   }
   if (args.cta) {

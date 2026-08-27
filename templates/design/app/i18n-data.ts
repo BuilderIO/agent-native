@@ -1128,6 +1128,8 @@ const enUS = {
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
+      saveConflict:
+        "This screen changed elsewhere. Your last edit was not saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
@@ -1365,6 +1367,11 @@ const enUS = {
     createdBy: "Created by",
     allAuthors: "All authors",
     me: "Me",
+    designFilter: "Design filter",
+    mine: "Mine",
+    all: "All",
+    showMineDesigns: "Show my designs",
+    showAllDesigns: "Show all designs",
     openingDesign: "Opening design...",
     skipToEditor: "Skip to editor",
     failedToCreateDesign: "Failed to create design",
@@ -1399,6 +1406,9 @@ const enUS = {
     prototype: "Prototype",
     other: "Other",
     designPreview: "Design preview",
+    paginationPrevious: "Previous",
+    paginationNext: "Next",
+    paginationPage: "Page {{page}} of {{totalPages}}",
   },
   visualEdit: {
     eyebrow: "Visual edit",
@@ -1963,6 +1973,7 @@ const designLocaleOverrides = {
         svgExportError: "无法导出 SVG",
         undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
         redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
+        saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
       },
     },
     designSystemSetup: {
@@ -2389,6 +2400,8 @@ const designLocaleOverrides = {
         svgExportError: "No se pudo exportar SVG",
         undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
         redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
+        saveConflict:
+          "Esta pantalla cambió en otro lugar. Tu última edición no se guardó.",
       },
     },
     designSystemSetup: {
@@ -2840,6 +2853,8 @@ const designLocaleOverrides = {
           "Annulation ignorée : quelqu'un d'autre a déplacé cet élément",
         redoSkippedConcurrentEdit:
           "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
+        saveConflict:
+          "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
       },
     },
     designSystemSetup: {
@@ -3292,6 +3307,8 @@ const designLocaleOverrides = {
           "Rückgängig übersprungen – jemand anderes hat das verschoben",
         redoSkippedConcurrentEdit:
           "Wiederholen übersprungen – jemand anderes hat das verschoben",
+        saveConflict:
+          "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
       },
     },
     designSystemSetup: {
@@ -3743,6 +3760,8 @@ const designLocaleOverrides = {
           "元に戻す操作をスキップしました — 他のユーザーがそれを移動しました",
         redoSkippedConcurrentEdit:
           "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
+        saveConflict:
+          "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
       },
     },
     designSystemSetup: {
@@ -4189,6 +4208,8 @@ const designLocaleOverrides = {
           "실행 취소를 건너뛰었습니다 — 다른 사용자가 이동했습니다",
         redoSkippedConcurrentEdit:
           "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
+        saveConflict:
+          "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
       },
     },
     designSystemSetup: {
@@ -4628,6 +4649,8 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit:
           "Desfazer ignorado — outra pessoa moveu isso",
         redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
+        saveConflict:
+          "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
       },
     },
     designSystemSetup: {
@@ -5074,6 +5097,7 @@ const designLocaleOverrides = {
           "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
         redoSkippedConcurrentEdit:
           "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
+        saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
       },
     },
     designSystemSetup: {
@@ -5508,6 +5532,7 @@ const designLocaleOverrides = {
         svgExportError: "تعذر تصدير SVG",
         undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
         redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
+        saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
       },
     },
     designSystemSetup: {
@@ -15636,6 +15661,14 @@ const designAuthorFilterOverrides = {
       createdBy: "创建者",
       allAuthors: "所有作者",
       me: "我",
+      designFilter: "设计筛选",
+      mine: "我的",
+      all: "全部",
+      showMineDesigns: "显示我的设计",
+      showAllDesigns: "显示所有设计",
+      paginationPrevious: "上一页",
+      paginationNext: "下一页",
+      paginationPage: "第 {{page}} / {{totalPages}} 页",
     },
   },
   "es-ES": {
@@ -15643,6 +15676,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Creado por",
       allAuthors: "Todos los autores",
       me: "Yo",
+      designFilter: "Filtro de diseños",
+      mine: "Míos",
+      all: "Todos",
+      showMineDesigns: "Mostrar mis diseños",
+      showAllDesigns: "Mostrar todos los diseños",
+      paginationPrevious: "Anterior",
+      paginationNext: "Siguiente",
+      paginationPage: "Página {{page}} de {{totalPages}}",
     },
   },
   "fr-FR": {
@@ -15650,6 +15691,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Créé par",
       allAuthors: "Tous les auteurs",
       me: "Moi",
+      designFilter: "Filtre de designs",
+      mine: "Les miens",
+      all: "Tous",
+      showMineDesigns: "Afficher mes designs",
+      showAllDesigns: "Afficher tous les designs",
+      paginationPrevious: "Précédent",
+      paginationNext: "Suivant",
+      paginationPage: "Page {{page}} sur {{totalPages}}",
     },
   },
   "de-DE": {
@@ -15657,6 +15706,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Erstellt von",
       allAuthors: "Alle Autoren",
       me: "Ich",
+      designFilter: "Designfilter",
+      mine: "Meine",
+      all: "Alle",
+      showMineDesigns: "Meine Designs anzeigen",
+      showAllDesigns: "Alle Designs anzeigen",
+      paginationPrevious: "Zurück",
+      paginationNext: "Weiter",
+      paginationPage: "Seite {{page}} von {{totalPages}}",
     },
   },
   "ja-JP": {
@@ -15664,6 +15721,14 @@ const designAuthorFilterOverrides = {
       createdBy: "作成者",
       allAuthors: "すべての作成者",
       me: "自分",
+      designFilter: "デザインのフィルター",
+      mine: "自分のデザイン",
+      all: "すべて",
+      showMineDesigns: "自分のデザインを表示",
+      showAllDesigns: "すべてのデザインを表示",
+      paginationPrevious: "前へ",
+      paginationNext: "次へ",
+      paginationPage: "{{totalPages}}ページ中{{page}}ページ",
     },
   },
   "ko-KR": {
@@ -15671,6 +15736,14 @@ const designAuthorFilterOverrides = {
       createdBy: "만든 사람",
       allAuthors: "모든 작성자",
       me: "나",
+      designFilter: "디자인 필터",
+      mine: "내 디자인",
+      all: "전체",
+      showMineDesigns: "내 디자인 보기",
+      showAllDesigns: "모든 디자인 보기",
+      paginationPrevious: "이전",
+      paginationNext: "다음",
+      paginationPage: "{{totalPages}}페이지 중 {{page}}페이지",
     },
   },
   "pt-BR": {
@@ -15678,6 +15751,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Criado por",
       allAuthors: "Todos os autores",
       me: "Eu",
+      designFilter: "Filtro de designs",
+      mine: "Meus",
+      all: "Todos",
+      showMineDesigns: "Mostrar meus designs",
+      showAllDesigns: "Mostrar todos os designs",
+      paginationPrevious: "Anterior",
+      paginationNext: "Próximo",
+      paginationPage: "Página {{page}} de {{totalPages}}",
     },
   },
   "hi-IN": {
@@ -15685,6 +15766,14 @@ const designAuthorFilterOverrides = {
       createdBy: "द्वारा बनाया गया",
       allAuthors: "सभी लेखक",
       me: "मैं",
+      designFilter: "डिज़ाइन फ़िल्टर",
+      mine: "मेरे",
+      all: "सभी",
+      showMineDesigns: "मेरे डिज़ाइन दिखाएं",
+      showAllDesigns: "सभी डिज़ाइन दिखाएं",
+      paginationPrevious: "पिछला",
+      paginationNext: "अगला",
+      paginationPage: "पृष्ठ {{page}} / {{totalPages}}",
     },
   },
   "ar-SA": {
@@ -15692,6 +15781,14 @@ const designAuthorFilterOverrides = {
       createdBy: "أنشأه",
       allAuthors: "جميع المؤلفين",
       me: "أنا",
+      designFilter: "تصفية التصميمات",
+      mine: "تصميماتي",
+      all: "الكل",
+      showMineDesigns: "عرض تصميماتي",
+      showAllDesigns: "عرض كل التصميمات",
+      paginationPrevious: "السابق",
+      paginationNext: "التالي",
+      paginationPage: "الصفحة {{page}} من {{totalPages}}",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;

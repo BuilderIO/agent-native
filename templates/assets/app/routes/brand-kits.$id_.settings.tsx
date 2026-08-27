@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -81,6 +82,19 @@ export default function BrandKitSettingsRoute() {
   const library = data?.library;
   const assets = (data?.assets ?? []) as any[];
   const generationPresets = ((presetData as any)?.presets ?? []) as any[];
+
+  useEffect(() => {
+    if (!library) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      library.title,
+      "Brand kit",
+    )} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [library?.title]);
 
   const [titleDraft, setTitleDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");

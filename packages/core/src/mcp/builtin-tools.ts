@@ -197,7 +197,8 @@ function agentNativeA2AEndpoint(urlOrOrigin: string): string {
       return value;
     }
   } catch {
-    // Fall through and append the conventional Agent Native endpoint.
+    // coercion-ok: invalid URL input intentionally uses the conventional endpoint fallback.
+    // Fall through and append the conventional Agent-Native endpoint.
   }
   return `${value}/_agent-native/a2a`;
 }
@@ -952,7 +953,7 @@ function openAppTool(
       resource: embedApp({
         title: "Open app",
         description: "Render the requested app route inline.",
-        iframeTitle: "Agent Native app",
+        iframeTitle: "Agent-Native app",
         openLabel: "Open app",
       }),
     },

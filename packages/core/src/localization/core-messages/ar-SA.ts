@@ -31,7 +31,7 @@ const messages: AgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
-  "aboutAgentNative.title": "حول Agent Native",
+  "aboutAgentNative.title": "حول Agent-Native",
   "aboutAgentNative.version": "الإصدار",
   "aboutAgentNative.environment": "البيئة",
   "aboutAgentNative.build": "البنية",
@@ -142,7 +142,7 @@ const messages: AgentChatTranslation = {
   "composer.plan": "تخطيط",
   "composer.planDescription": "بحث للقراءة فقط وموافقة أولًا",
   "composer.planDesktopRequired":
-    "افتح Agent Native Desktop لاستخدام وضع التخطيط.",
+    "افتح Agent-Native Desktop لاستخدام وضع التخطيط.",
   "composer.previewAttachment": "معاينة {{name}}",
   "composer.reasoning": "الاستدلال",
   "composer.reasoningEffort.auto": "تلقائي",

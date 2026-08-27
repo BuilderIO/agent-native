@@ -35,6 +35,45 @@ import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-e
 import { applyPortableStyleSnapshotToHtml } from "@/pages/design-editor/portable-style";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
 
+/** Empty generated screens strip absolute positioning, so a flow-insert
+ * into an empty body parks the node at 0,0. Drop at the pointer instead. */
+export function shouldAbsolutePlaceOnEmptyScreen({
+  destHtml,
+  targetLocalPoint,
+}: {
+  destHtml: string;
+  targetLocalPoint?: { x: number; y: number } | null;
+}): boolean {
+  if (!targetLocalPoint) return false;
+  if (typeof DOMParser === "undefined") return false;
+  // Live-app destinations store a URL, not HTML — do not treat that as empty.
+  if (!/<body[\s>]/i.test(destHtml)) return false;
+  const doc = new DOMParser().parseFromString(destHtml, "text/html");
+  return (doc.body?.children.length ?? 0) === 0;
+}
+
+function absoluteDropPoint(
+  targetLocalPoint: { x: number; y: number },
+  targetAnchorRect?: { left: number; top: number } | null,
+): { x: number; y: number } {
+  if (!targetAnchorRect) return targetLocalPoint;
+  return {
+    x: targetLocalPoint.x - targetAnchorRect.left,
+    y: targetLocalPoint.y - targetAnchorRect.top,
+  };
+}
+
+/** Empty-screen drops must keep pointer coords. A leftover hit-test rect
+ * would subtract the previous screen's origin and park the layer at 0,0. */
+export function absolutePlacePointForDrop(args: {
+  placeAbsoluteOnEmptyScreen: boolean;
+  targetAnchorRect?: { left: number; top: number } | null;
+  targetLocalPoint: { x: number; y: number };
+}): { x: number; y: number } {
+  if (args.placeAbsoluteOnEmptyScreen) return args.targetLocalPoint;
+  return absoluteDropPoint(args.targetLocalPoint, args.targetAnchorRect);
+}
+
 export interface CrossScreenElementDropArgs {
   applyFileContentUpdate: (
     fileId: string,
@@ -275,17 +314,23 @@ export function runCrossScreenElementDrop(
             subjectNodeId,
             styleSnapshot,
           );
+          const destHtml = getScreenContent(targetScreenId);
+          const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
+            destHtml,
+            targetLocalPoint,
+          });
           const positioned =
-            targetDropMode === "absolute-container" &&
             targetLocalPoint &&
-            targetAnchorRect
+            (placeAbsoluteOnEmptyScreen ||
+              (targetDropMode === "absolute-container" && targetAnchorRect))
               ? setAbsolutePositioningForNodeInHtml(
                   styled,
                   subjectNodeId,
-                  {
-                    x: targetLocalPoint.x - targetAnchorRect.left,
-                    y: targetLocalPoint.y - targetAnchorRect.top,
-                  },
+                  absolutePlacePointForDrop({
+                    placeAbsoluteOnEmptyScreen,
+                    targetAnchorRect,
+                    targetLocalPoint,
+                  }),
                   sourcePointerOffset,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
@@ -498,31 +543,33 @@ export function runCrossScreenElementDrop(
     destNodeAttrId,
     liveDestIframe?.contentDocument ?? null,
   );
-  const nextDestContent = targetAnchorAttrId
-    ? targetDropMode === "absolute-container"
-      ? targetLocalPoint && targetAnchorRect
-        ? setAbsolutePositioningForNodeInHtml(
-            stylePreservedDest,
-            destNodeAttrId,
-            {
-              x: targetLocalPoint.x - targetAnchorRect.left,
-              y: targetLocalPoint.y - targetAnchorRect.top,
-            },
-            sourcePointerOffset,
-          )
-        : stylePreservedDest
-      : removeAbsolutePositioningFromNodeInHtml(
-          stylePreservedDest,
-          destNodeAttrId,
-        )
-    : targetLocalPoint
+  const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
+    destHtml: destContent,
+    targetLocalPoint,
+  });
+  const nextDestContent =
+    targetLocalPoint &&
+    (placeAbsoluteOnEmptyScreen ||
+      !targetAnchorAttrId ||
+      (targetDropMode === "absolute-container" && targetAnchorRect))
       ? setAbsolutePositioningForNodeInHtml(
           stylePreservedDest,
           destNodeAttrId,
-          targetLocalPoint,
+          placeAbsoluteOnEmptyScreen || !targetAnchorAttrId
+            ? targetLocalPoint
+            : absolutePlacePointForDrop({
+                placeAbsoluteOnEmptyScreen,
+                targetAnchorRect,
+                targetLocalPoint,
+              }),
           sourcePointerOffset,
         )
-      : stylePreservedDest;
+      : targetAnchorAttrId && targetDropMode !== "absolute-container"
+        ? removeAbsolutePositioningFromNodeInHtml(
+            stylePreservedDest,
+            destNodeAttrId,
+          )
+        : stylePreservedDest;
 
   recordContentHistoryEntry({
     changes: [

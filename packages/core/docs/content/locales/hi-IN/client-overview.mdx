@@ -9,7 +9,7 @@ description: "app/ और public/ डायरेक्टरी: जहां �
 
 एक सामान्य फ्रंटएंड से यही वास्तुशिल्प अंतर है: इस लेयर का अपना कोई बैकएंड-फॉर-फ्रंटएंड नहीं है। यह उन्हीं actions के माध्यम से डेटा पढ़ता और लिखता है जिन्हें एजेंट कॉल करता है, इसलिए यहां वायर की गई कोई भी क्षमता स्वचालित रूप से वह चीज़ बन जाती है जो एजेंट भी कर सकता है।
 
-<Diagram id="doc-block-client-overview-1" title="सामान्य फ्रंटएंड बनाम Agent Native" summary="एक सामान्य फ्रंटएंड अपनी खुद की API लेयर को कॉल करता है, जिसे केवल वही पहुंच सकता है। Agent Native में, app/ और एजेंट दोनों एक ही actions को कॉल करते हैं, इसलिए यहां बनाई गई हर क्षमता मुफ़्त में एजेंट-कॉल करने योग्य है।">
+<Diagram id="doc-block-client-overview-1" title="सामान्य फ्रंटएंड बनाम Agent-Native" summary="एक सामान्य फ्रंटएंड अपनी खुद की API लेयर को कॉल करता है, जिसे केवल वही पहुंच सकता है। Agent-Native में, app/ और एजेंट दोनों एक ही actions को कॉल करते हैं, इसलिए यहां बनाई गई हर क्षमता मुफ़्त में एजेंट-कॉल करने योग्य है।">
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ description: "app/ और public/ डायरेक्टरी: जहां �
   </div>
   <div class="cocmp-vs diagram-muted">बनाम</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React फ्रंटएंड)</div>
       <div class="diagram-node">एजेंट</div>

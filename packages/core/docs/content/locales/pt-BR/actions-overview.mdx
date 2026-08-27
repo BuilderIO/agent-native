@@ -37,7 +37,7 @@ Outros apps nativos do agente descobrem e chamam essa ferramenta via A2A. Use-a 
 
 A maioria dos apps constrói uma camada de API separada entre o frontend e o banco de dados, uma que só o navegador pode chamar. Um agente que quer a mesma capacidade precisa de sua própria integração separada, escrita e mantida de novo. Apps nativos do agente pulam essa divisão. A UI e o agente chamam exatamente a mesma action, então há apenas uma implementação para escrever, e apenas um lugar onde um bug pode se esconder.
 
-<Diagram id="doc-block-actions-overview-2" title="Front-end tradicional vs. Agent Native" summary="Um front-end tradicional chama sua própria camada de API, que só ele pode acessar. No Agent Native, app/ e o agente chamam as mesmas actions, então toda capacidade construída aqui é utilizável pelo agente de graça.">
+<Diagram id="doc-block-actions-overview-2" title="Front-end tradicional vs. Agent-Native" summary="Um front-end tradicional chama sua própria camada de API, que só ele pode acessar. No Agent-Native, app/ e o agente chamam as mesmas actions, então toda capacidade construída aqui é utilizável pelo agente de graça.">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ A maioria dos apps constrói uma camada de API separada entre o frontend e o ban
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (front-end React)</div>
       <div class="diagram-node">Agente</div>

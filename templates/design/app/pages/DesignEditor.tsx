@@ -208,6 +208,7 @@ import {
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
+import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import {
   mergeRotationValue,
@@ -270,6 +271,10 @@ import {
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  designPreviewWindows,
+  requestSelectionMeasurement,
+} from "@/components/design/multi-screen/measure-selection";
 import type {
   CanvasLayerMarqueeSelection,
   CanvasPrimitiveInsert,
@@ -2772,8 +2777,7 @@ function DesignEditor() {
   ]);
 
   const pendingGenerationActive =
-    hasPendingGeneration &&
-    !!readPendingGeneration(id) &&
+    (hasPendingGeneration || Boolean(readPendingGeneration(id))) &&
     !pendingQuestionsVisible;
 
   const { data: designResult, isLoading: designLoading } = useActionQuery<
@@ -3302,6 +3306,7 @@ function DesignEditor() {
           journalOutboxEntry,
           lastAckedFileContentHashRef,
           latestFileSaveForUnloadRef,
+          clearPendingLocalFileContent,
           markPendingLocalFileContent,
           queryClient,
           setPatchProof,
@@ -3315,6 +3320,7 @@ function DesignEditor() {
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
       journalOutboxEntry,
+      clearPendingLocalFileContent,
       markPendingLocalFileContent,
       queryClient,
       t,
@@ -4238,16 +4244,17 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    if (!id || files.length === 0) return;
+    if (!id) return;
     const pending = readPendingGeneration(id);
-    if (pending?.templateId) return;
+    if (!pending || pending.templateId) return;
+    if (!hasPendingGenerationOutput(pending, files)) return;
     clearGenerationCompleteTimer();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
     setGenerationIssue(null);
     setRetryablePrompt(null);
     staleToastShownRef.current = false;
-  }, [clearGenerationCompleteTimer, id, files.length]);
+  }, [clearGenerationCompleteTimer, files, id]);
 
   useEffect(
     () =>
@@ -9403,6 +9410,54 @@ function DesignEditor() {
   );
 
   // ── Style commit ───────────────────────────────────────────────────────────
+  // Hug/Fill resolve to a px width only inside the iframe, so the inspector
+  // has no current number until the bridge measures one. Reacting to the
+  // value rather than hooking each write path covers inspector commits,
+  // agent edits and undo alike.
+  const measureTargetSelector =
+    selectedElement && sizeNeedsMeasurement(selectedElement.computedStyles)
+      ? // The canonical source selector cannot address a live/localhost
+        // document — that is a different node-id namespace.
+        (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
+      : null;
+  const measureTargetScreenId = activeFile?.id ?? "";
+  // Keyed on the sizes themselves: switching an element between two keywords
+  // leaves the selector identical, and a failed measurement must retry.
+  const measureTargetKey = measureTargetSelector
+    ? [
+        measureTargetScreenId,
+        measureTargetSelector,
+        selectedElement?.computedStyles.width ?? "",
+        selectedElement?.computedStyles.height ?? "",
+      ].join("|")
+    : null;
+  useEffect(() => {
+    if (!measureTargetSelector || !measureTargetKey) return;
+    let cancelled = false;
+    void requestSelectionMeasurement({
+      targetWindows: designPreviewWindows,
+      screenId: measureTargetScreenId,
+      selector: measureTargetSelector,
+    }).then((measured) => {
+      if (cancelled || !measured) return;
+      setSelectedElement((prev) =>
+        prev &&
+        (prev.runtimeSelector ?? prev.selector) === measureTargetSelector
+          ? {
+              ...prev,
+              boundingRect: measured.boundingRect,
+              computedStyles: measured.computedStyles,
+              inlineStyles: measured.inlineStyles,
+            }
+          : prev,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measureTargetKey]);
+
   const commitVisualStyles = useCallback(
     (
       selector: string,
@@ -10900,6 +10955,7 @@ function DesignEditor() {
         handlePasteSelection,
         selectedElement,
         selectInsertedLayers,
+        t,
       }),
     [
       activeFile,
@@ -10909,6 +10965,7 @@ function DesignEditor() {
       handlePasteSelection,
       selectInsertedLayers,
       selectedElement,
+      t,
     ],
   );
 

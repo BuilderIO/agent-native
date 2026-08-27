@@ -69,7 +69,7 @@ channel. Use the `clay` provider for its Public API:
   id. The Public API cannot list, create, or update tables.
 
 The optional local Clay CLI/MCP plugin uses a separate browser-login session.
-It is not required for hosted Agent Native provider access. Do not install or
+It is not required for hosted Agent-Native provider access. Do not install or
 vendor that plugin by default; its public repository currently declares no
 license.
 

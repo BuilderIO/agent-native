@@ -281,10 +281,10 @@ Agent-Native is an open source framework for building apps where AI agents and U
     },
     {
       path: "/download",
-      title: "Download Agent Native",
-      description: "Download the Agent Native desktop app.",
+      title: "Download Agent-Native",
+      description: "Download the Agent-Native desktop app.",
       markdown:
-        "# Download Agent Native\n\nDownload the Agent Native desktop app.\n",
+        "# Download Agent-Native\n\nDownload the Agent-Native desktop app.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/download.tsx")),
     },
     {

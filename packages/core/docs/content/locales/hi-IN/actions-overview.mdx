@@ -37,7 +37,7 @@ Actions आपके ऐप द्वारा की जाने वाली 
 
 अधिकतर ऐप्स फ्रंटएंड और डेटाबेस के बीच एक अलग API लेयर बनाते हैं, जिसे केवल ब्राउज़र ही कॉल कर सकता है। जो एजेंट वही क्षमता चाहता है उसे अपना अलग इंटीग्रेशन चाहिए, जिसे फिर से लिखना और मेंटेन करना पड़ता है। एजेंट-नेटिव ऐप्स उस विभाजन को छोड़ देते हैं। UI और एजेंट बिल्कुल वही action कॉल करते हैं, इसलिए लिखने के लिए केवल एक इम्प्लीमेंटेशन है, और किसी बग के छुपने के लिए केवल एक जगह है।
 
-<Diagram id="doc-block-actions-overview-2" title="सामान्य फ्रंटएंड बनाम Agent Native" summary="एक सामान्य फ्रंटएंड अपनी खुद की API लेयर को कॉल करता है, जिसे केवल वही पहुंच सकता है। Agent Native में, app/ और एजेंट दोनों एक ही actions को कॉल करते हैं, इसलिए यहां बनाई गई हर क्षमता मुफ़्त में एजेंट-कॉल करने योग्य है।">
+<Diagram id="doc-block-actions-overview-2" title="सामान्य फ्रंटएंड बनाम Agent-Native" summary="एक सामान्य फ्रंटएंड अपनी खुद की API लेयर को कॉल करता है, जिसे केवल वही पहुंच सकता है। Agent-Native में, app/ और एजेंट दोनों एक ही actions को कॉल करते हैं, इसलिए यहां बनाई गई हर क्षमता मुफ़्त में एजेंट-कॉल करने योग्य है।">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Actions आपके ऐप द्वारा की जाने वाली 
   </div>
   <div class="cocmp-vs diagram-muted">बनाम</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React फ्रंटएंड)</div>
       <div class="diagram-node">एजेंट</div>

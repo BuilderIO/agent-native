@@ -52,6 +52,14 @@ export const appConfig = z.object({
       env: ["APP_NAME"],
       doc: "User-facing display name of this app.",
     }),
+  logoUrl: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["APP_LOGO_URL"],
+      doc: "Absolute HTTPS logo URL used in transactional emails.",
+    }),
   pingMessage: z
     .string()
     .min(1)
@@ -111,8 +119,11 @@ export const appConfig = z.object({
     .optional()
     .meta({
       env: ["VITE_AGENT_NATIVE_TEMPLATE"],
-      doc: "First-party template this app was generated from.",
+      doc: "Runtime app or template identity used by framework integrations.",
     }),
+  sourceTemplate: z.string().min(1).optional().meta({
+    doc: "Source template recorded by scaffolding for first-party identity checks.",
+  }),
 
   // ── package.json-derived branding ───────────────────────────────────────
   //

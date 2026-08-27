@@ -48,7 +48,6 @@ const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
 interface ClipsUserSettings {
   defaultPlaybackSpeed?: string;
   emailNotifications?: boolean;
-  transcriptCleanupEnabled?: boolean;
   includeFullVideoInAi?: boolean;
   defaultRecordingVisibility?: ClipsDefaultVisibility;
 }
@@ -133,9 +132,6 @@ export default function SettingsIndexRoute() {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [defaultVisibility, setDefaultVisibility] =
     useState<ClipsDefaultVisibility>(DEFAULT_CLIPS_RECORDING_VISIBILITY);
-  const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
-    useState(true);
-
   useEffect(() => {
     let cancelled = false;
     loadSettings().then((v) => {
@@ -145,7 +141,6 @@ export default function SettingsIndexRoute() {
       setDefaultVisibility(
         v.defaultRecordingVisibility ?? DEFAULT_CLIPS_RECORDING_VISIBILITY,
       );
-      setTranscriptCleanupEnabled(v.transcriptCleanupEnabled !== false);
       setLoading(false);
     });
     return () => {
@@ -160,8 +155,7 @@ export default function SettingsIndexRoute() {
       connected: Boolean(
         builderConnect.configured ||
         builderStatus.status?.configured ||
-        storageStatus.data?.builderConfigured ||
-        storageStatus.data?.activeProvider?.id === "builder",
+        storageStatus.data?.builderConfigured,
       ),
       loading:
         storageStatus.isLoading ||
@@ -194,7 +188,6 @@ export default function SettingsIndexRoute() {
       await saveSettings({
         defaultPlaybackSpeed: defaultSpeed,
         emailNotifications,
-        transcriptCleanupEnabled,
         defaultRecordingVisibility: defaultVisibility,
       });
       toast.success(t("settings.saved"));
@@ -248,12 +241,6 @@ export default function SettingsIndexRoute() {
         label: t("settings.playback"),
         keywords: "playback speed video default",
         hash: "playback",
-      },
-      {
-        id: "clips-transcript",
-        label: t("settings.transcript"),
-        keywords: "transcript cleanup captions",
-        hash: "transcript",
       },
       {
         id: "clips-sharing",
@@ -354,20 +341,6 @@ export default function SettingsIndexRoute() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                  }
-                />
-                <SettingsRow
-                  id="transcript"
-                  label={t("settings.transcriptCleanup")}
-                  description={t("settings.transcriptCleanupDescription")}
-                  control={
-                    <Switch
-                      id="transcript-cleanup"
-                      aria-label={t("settings.transcriptCleanup")}
-                      checked={transcriptCleanupEnabled}
-                      onCheckedChange={setTranscriptCleanupEnabled}
-                      disabled={loading}
-                    />
                   }
                 />
                 <SettingsRow

@@ -49,6 +49,7 @@ import {
 } from "./credential-errors.js";
 import {
   classifyTerminalErrorCode,
+  canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
@@ -153,7 +154,7 @@ function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
  * `/app/organizations/Nicholas%20kipchumba%20Space/billing` which Builder's
  * router treats as unknown and silently bounces to `/app/projects`. The
  * Builder CLI-auth callback doesn't expose the org slug/id today, so we route
- * to the org-agnostic subscription page. Agent Native attribution lets Builder
+ * to the org-agnostic subscription page. Agent-Native attribution lets Builder
  * skip generic onboarding for new users who land there from an upgrade CTA.
  */
 async function buildUpgradeUrl(): Promise<string> {
@@ -255,7 +256,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    // The Builder gateway has an "auto" fallback mode, but Agent Native owns
+    // The Builder gateway has an "auto" fallback mode, but Agent-Native owns
     // model selection. Always send a concrete model so the gateway cannot
     // select an organization-level override or another fallback model.
     const requestedModel = opts.model.trim();
@@ -656,8 +657,10 @@ async function* emitHttpError(
       errBody.message = normalizeGatewayErrorText(rawText, status);
     }
   }
-  const code = errBody.code ?? `http_${status}`;
   const message = errBody.message ?? `Builder gateway returned ${status}`;
+  const code =
+    canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
+    `http_${status}`;
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
     gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
 
@@ -990,7 +993,10 @@ async function* parseJsonlStream(
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
-            const gatewayErrCode = event.errorCode ?? event.code;
+            const gatewayErrCode = canonicalizeBuilderGatewayErrorCode(
+              event.errorCode ?? event.code,
+              String(errMsg),
+            );
             // The gateway already authenticated this request before streaming,
             // so a bare "Unauthorized" here means the account cannot use this
             // model — not that the connection is broken. Only a message that

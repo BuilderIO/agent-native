@@ -49,7 +49,7 @@ function useBuilderConnected() {
 
 /**
  * Modal shown when a user tries to use a code-requiring feature where local
- * source access is unavailable. Offers two paths: Agent Native Desktop or the
+ * source access is unavailable. Offers two paths: Agent-Native Desktop or the
  * Builder.io agent.
  * Uses inline styles (no Radix/Tailwind dependency).
  */

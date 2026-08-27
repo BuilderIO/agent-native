@@ -5,7 +5,7 @@ description: "Verbinden Sie eine portable SQL-Datenbank mit Ihrer agentennativen
 
 # Datenbank
 
-Agent-native Apps verwenden [Drizzle ORM](https://orm.drizzle.team) und unterstützen portable SQL-Backends. Für alles, was über die lokale Entwicklung hinausgeht, verbinden Sie eine persistente SQL-Datenbank – Postgres, libSQL/Turso oder ein anderes Drizzle-kompatibles Backend – indem Sie `DATABASE_URL` festlegen. Wenn diese Variable nicht gesetzt ist, greift die App auf eine lokale SQLite-Datei ohne Konfiguration zurück, sodass Sie sofort mit der Entwicklung beginnen können.
+Agent-Native Apps verwenden [Drizzle ORM](https://orm.drizzle.team) und unterstützen portable SQL-Backends. Für alles, was über die lokale Entwicklung hinausgeht, verbinden Sie eine persistente SQL-Datenbank – Postgres, libSQL/Turso oder ein anderes Drizzle-kompatibles Backend – indem Sie `DATABASE_URL` festlegen. Wenn diese Variable nicht gesetzt ist, greift die App auf eine lokale SQLite-Datei ohne Konfiguration zurück, sodass Sie sofort mit der Entwicklung beginnen können.
 
 <Diagram id="doc-block-192eiee" title="Ein Schema, viele Backends" summary={"App-Code verwendet die dialektunabhängigen Helfer des Frameworks. Der Dialekt wird zur Laufzeit automatisch von DATABASE_URL erkannt; unset bedeutet eine lokale SQLite-Datei."}>
 

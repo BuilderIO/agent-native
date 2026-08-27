@@ -7,6 +7,7 @@ vi.mock("./credential-provider.js", () => ({
 }));
 
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
+import { decodeOAuthState, encodeOAuthState } from "./google-oauth.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
   canConnectWorkspaceProviderOAuth,
@@ -111,6 +112,7 @@ describe("workspace provider OAuth", () => {
       app: flow.appId,
       scope: flow.scope,
       flowId: flow.flowId,
+      provider: undefined,
     };
     const valid = {
       flow,
@@ -122,6 +124,12 @@ describe("workspace provider OAuth", () => {
     };
 
     expect(isWorkspaceProviderOAuthFlowValid(valid)).toBe(true);
+    expect(
+      isWorkspaceProviderOAuthFlowValid({
+        ...valid,
+        state: { ...state, provider: "google_drive" },
+      }),
+    ).toBe(false);
     expect(
       isWorkspaceProviderOAuthFlowValid({
         ...valid,
@@ -149,6 +157,23 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthFlowValid({ ...valid, now: 2_001 })).toBe(
       false,
     );
+  });
+
+  it("preserves the provider in signed callback state", () => {
+    const state = encodeOAuthState({
+      redirectUri: "https://app.example.com/_agent-native/google/callback",
+      app: "dispatch",
+      scope: "user",
+      flowId: "flow-1",
+      provider: "google_slides",
+    });
+
+    expect(decodeOAuthState(state, "")).toMatchObject({
+      app: "dispatch",
+      scope: "user",
+      flowId: "flow-1",
+      provider: "google_slides",
+    });
   });
 
   it("builds a PKCE-bound Figma authorization request with the catalog scopes", () => {

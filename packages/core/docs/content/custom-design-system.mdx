@@ -1,6 +1,6 @@
 ---
 title: "Custom Design Systems"
-description: "Use your company’s React design system across Agent Native apps and shared Toolkit experiences without replacing Agent Native behavior."
+description: "Use your company’s React design system across Agent-Native apps and shared Toolkit experiences without replacing Agent-Native behavior."
 ---
 
 # Custom Design Systems
@@ -13,7 +13,7 @@ default shadcn-style UI. Most apps use the default UI and don't need this.
 
 </Callout>
 
-Agent Native can render app-owned screens and shared Toolkit experiences with
+Agent-Native can render app-owned screens and shared Toolkit experiences with
 your company’s React components. Register an explicit, typed adapter once; the
 same feature controllers continue to own actions, state, accessibility
 requirements, and agent-visible behavior.
@@ -41,7 +41,7 @@ unit that still needs ownership.
 ## Register an adapter
 
 Customer adapters are ordinary npm packages. Import one explicitly in
-`app/design-system.ts`; Agent Native never scans dependencies, auto-detects a
+`app/design-system.ts`; Agent-Native never scans dependencies, auto-detects a
 library, or loads components from JSON.
 
 Keep the build-time theme in a dependency-light module so Vite does not need to
@@ -102,7 +102,7 @@ export function AppToolkitProvider({
 }
 ```
 
-Partial adapters are supported. Any component you omit uses Agent Native’s
+Partial adapters are supported. Any component you omit uses Agent-Native’s
 default adapter. If one custom component throws while rendering, a
 per-component error boundary logs the failure and renders the default component
 for that control; the rest of the custom system stays active.
@@ -123,9 +123,9 @@ warning.
 ## Build-time theme tokens
 
 `defineTheme` accepts standard CSS colors, including hex, `rgb()`, `hsl()`, and
-OKLCH. The Core Vite plugin validates and normalizes them to Agent Native’s
+OKLCH. The Core Vite plugin validates and normalizes them to Agent-Native’s
 existing semantic variables. Dark colors fall back token-by-token to the light
-palette; Agent Native does not derive a dark palette automatically.
+palette; Agent-Native does not derive a dark palette automatically.
 
 Pass the theme to the Vite plugin:
 
@@ -297,7 +297,7 @@ import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance
 import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
 import { acmeComponents } from "@acme/agent-native-design-system";
 
-describe("Acme Agent Native adapter", () => {
+describe("Acme Agent-Native adapter", () => {
   it("conforms", async () => {
     await assertDesignSystemConformance({
       adapterName: "Acme",
@@ -331,12 +331,12 @@ The [Chat + Material UI example](https://github.com/BuilderIO/agent-native/tree/
 dark `createTheme` values, and the `defineTheme` token source. The app's
 `AppToolkitProvider` keeps the MUI `ThemeProvider` above shared Toolkit
 surfaces, while `vite.config.ts` imports that same `theme` value for build-time
-CSS generation. This keeps Emotion styles, MUI portals, and Agent Native
+CSS generation. This keeps Emotion styles, MUI portals, and Agent-Native
 tokens on one source of truth.
 
 Keep the company theme provider above `AppToolkitProvider`, and adapt semantic
 props at the package boundary. Map `intent`, `emphasis`, and `size` to your
-system’s own vocabulary inside the adapter—not in Agent Native feature code.
+system’s own vocabulary inside the adapter—not in Agent-Native feature code.
 For overlays, forward `portalContainer` to the design system’s container or
 portal prop and implement `initialFocusRef`/`restoreFocusRef` using its focus
 manager.

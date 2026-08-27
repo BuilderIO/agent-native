@@ -496,6 +496,16 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     isFlexChild: node.layout.parentDisplay?.includes("flex") ? true : false,
     isFlexContainer: node.layout.isFlexContainer,
     parentDisplay: node.layout.parentDisplay,
+    // Omitting this leaves every main/cross-axis decision downstream to a
+    // default direction, which inverts sizing on a column parent.
+    parentLayout:
+      node.layout.parentDisplay || node.layout.parentFlexDirection
+        ? {
+            display: node.layout.parentDisplay,
+            flexDirection: node.layout.parentFlexDirection,
+            gap: node.layout.parentGap,
+          }
+        : undefined,
     confidence: node.confidence,
   };
 }

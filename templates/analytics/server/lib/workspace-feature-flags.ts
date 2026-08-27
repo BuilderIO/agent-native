@@ -6,13 +6,21 @@ import {
   AgentActionStopError,
 } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
-import { fetchOrgApps, type OrgApp } from "@agent-native/core/mcp";
+import {
+  fetchOrgApps,
+  fetchOrgAppsResult,
+  type OrgApp,
+} from "@agent-native/core/mcp";
 import { getOrgDomain } from "@agent-native/core/org";
 
-import { VERIFIED_FLEET_FLAG_MUTATIONS } from "../../shared/feature-flags.js";
+import {
+  RESILIENT_FLEET_FLAG_DIRECTORY,
+  VERIFIED_FLEET_FLAG_MUTATIONS,
+} from "../../shared/feature-flags.js";
 import type { AnalyticsAdminContext } from "./db-admin-connections.js";
 
 const TARGET_TIMEOUT_MS = 3_000;
+const DIRECTORY_ATTEMPTS = 2;
 const VERIFICATION_ATTEMPTS = 2;
 const CONCURRENCY = 4;
 
@@ -294,19 +302,42 @@ async function resolveTargetApp(
   admin: AnalyticsAdminContext,
   appId: string,
 ): Promise<OrgApp> {
-  let apps: OrgApp[];
-  try {
-    apps = await fetchOrgApps({
+  const flagContext = {
+    userEmail: admin.userEmail,
+    userKey: admin.userEmail,
+    orgId: admin.orgId,
+  };
+  if (
+    !(await isFeatureFlagEnabled(RESILIENT_FLEET_FLAG_DIRECTORY, flagContext))
+  ) {
+    const apps = await fetchOrgApps({
       selfId: "analytics",
       includeDirectoryApp: true,
       serviceOrgId: admin.orgId,
     });
-  } catch {
+    const app = apps.find((candidate) => candidate.id === appId);
+    if (app) return app;
     throw new WorkspaceFeatureFlagSetupFailure("directory");
   }
-  const app = apps.find((candidate) => candidate.id === appId);
-  if (!app) throw new WorkspaceFeatureFlagSetupFailure("directory");
-  return app;
+  for (let attempt = 0; attempt < DIRECTORY_ATTEMPTS; attempt++) {
+    const result = await fetchOrgAppsResult({
+      selfId: "analytics",
+      includeDirectoryApp: true,
+      serviceOrgId: admin.orgId,
+    });
+    if (result.status === "available") {
+      const app = result.apps.find((candidate) => candidate.id === appId);
+      if (app) return app;
+      throw new WorkspaceFeatureFlagSetupFailure("directory");
+    }
+    if (
+      result.reason !== "timeout" &&
+      result.reason !== "network" &&
+      result.reason !== "server-error"
+    )
+      break;
+  }
+  throw new WorkspaceFeatureFlagSetupFailure("directory");
 }
 
 async function callTarget(

@@ -432,6 +432,101 @@ const hiIN = {
     freeAndOpenSource: "100% मुफ़्त • ओपन सोर्स",
     viewAllApps: "सभी ऐप्स देखें",
   },
+  homepage: {
+    hero: {
+      title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
+      bodyLine1: "उपयोगकर्ताओं के लिए दूसरा प्रोडक्ट बनाए बिना AI एजेंट्स के लिए बनाएं।",
+      bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
+      learnMore: "और जानें",
+    },
+    install: {
+      copyCommand: "इंस्टॉल कमांड कॉपी करें",
+    },
+    actions: {
+      title: "एक Action हर सतह को चलाता है",
+      bodyLine1: "Actions एक Agent-Native ऐप की बुनियादी इकाइयाँ हैं।",
+      bodyLine2:
+        "कार्यक्षमता एक बार परिभाषित करें, फिर उसे अपने UI, एजेंट चैट, HTTP API, MCP, A2A या CLI से उपयोग करें।",
+      diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
+    },
+    builtIn: {
+      title: "हर Agent-Native ऐप में पहले से मौजूद",
+      body: "उपयोगकर्ताओं और AI एजेंट्स को साथ काम करने के लिए जो कुछ चाहिए, वह सब एक ही एप्लिकेशन में पहले से जुड़ा है।",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "उपयोगकर्ताओं को ब्राउज़ करने, संपादित करने और काम की समीक्षा करने के लिए जाने-पहचाने स्क्रीन दें।",
+        },
+        agentChat: {
+          title: "अंतर्निहित एजेंट चैट",
+          body: "उपयोगकर्ता ऐप छोड़े बिना काम सौंप सकते हैं, सवाल पूछ सकते हैं और परिणाम देख सकते हैं।",
+        },
+        sharedState: {
+          title: "साझा एप्लिकेशन स्थिति",
+          body: "एजेंट जानता है कि उपयोगकर्ता क्या देख रहे, चुन रहे और संपादित कर रहे हैं।",
+        },
+        sharedSql: {
+          title: "साझा SQL डेटा",
+          body: "उपयोगकर्ता और एजेंट एक ही विश्वसनीय स्रोत को पढ़ते और अपडेट करते हैं।",
+        },
+        skillsMemory: {
+          title: "स्किल्स और मेमोरी",
+          body: "एजेंट्स को दोबारा उपयोग होने वाली विशेषज्ञता और स्थायी संदर्भ दें।",
+        },
+        automations: {
+          title: "ऑटोमेशन",
+          body: "एजेंट का काम शेड्यूल या एप्लिकेशन इवेंट्स पर स्वचालित रूप से चलाएं।",
+        },
+        agentTeams: {
+          title: "एजेंट टीमें",
+          body: "ऐप के भीतर या कई ऐप्स में विशेषज्ञ एजेंट्स को काम सौंपें।",
+        },
+        auth: {
+          title: "प्रमाणीकरण और संगठन",
+          body: "साइन-इन, उपयोगकर्ता खाते और संगठन सदस्यता पहले से शामिल हैं।",
+        },
+        sharing: {
+          title: "साझाकरण और अनुमतियाँ",
+          body: "नियंत्रित करें कि हर संसाधन को कौन देख, टिप्पणी, संपादित या प्रबंधित कर सकता है।",
+        },
+      },
+    },
+    stack: {
+      title: "आपके स्टैक के साथ काम करता है",
+      body: "अपना LLM, डेटाबेस, टूल्स और इंफ्रास्ट्रक्चर लाएं, Agent-Native ओपन सोर्स TypeScript है, इसलिए आपका एप्लिकेशन आपका ही रहता है।",
+      exploreApps: "Agent-Native से बने ऐप्स देखें",
+    },
+    showcase: {
+      title: "Agent-Native से आप क्या बना सकते हैं?",
+      body: "चैट, किसी केंद्रित आंतरिक टूल, या पूरे ग्राहक-सामने वाले प्रोडक्ट से शुरू करें। हर ऐप उपयोगकर्ताओं को UI और एजेंट्स को वही काम करने के टूल देता है।",
+      browseApps: "ऐप्स देखें",
+      scrollLeft: "ऐप्स बाईं ओर स्क्रॉल करें",
+      scrollRight: "ऐप्स दाईं ओर स्क्रॉल करें",
+    },
+    bottomCta: {
+      title: "अपना पहला Agent-Native ऐप बनाएं",
+      body: "उपयोगकर्ताओं और AI एजेंट्स के लिए एक ही एप्लिकेशन बनाएं। अपना LLM लाएं और कहीं भी डिप्लॉय करें।",
+    },
+    getStartedModal: {
+      title: "शुरू करें",
+      close: "बंद करें",
+      buildLocally: "ऐप स्थानीय रूप से बनाएं",
+      tryAnApp: "कोई ऐप आज़माएं",
+      buildInCloud: "क्लाउड में बनाएं",
+    },
+    footer: {
+      tagline: "एजेंटिक एप्लिकेशन फ्रेमवर्क।",
+      framework: "फ्रेमवर्क",
+      ecosystem: "इकोसिस्टम",
+      community: "कम्युनिटी",
+      legal: "कानूनी",
+      docs: "दस्तावेज़",
+      actions: "एक्शन्स",
+      apps: "ऐप्स",
+      privacyPolicy: "गोपनीयता नीति",
+      saasTerms: "SaaS शर्तें",
+    },
+  },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",
     eyebrow: "एक working app से शुरू करें और agent को इसे evolve करने दें।",
@@ -495,7 +590,7 @@ const hiIN = {
     design: {
       replaces: "Design prototyping tools को बदलता या बढ़ाता है",
       description:
-        "Agent-native HTML प्रोटोटाइपिंग स्टूडियो। Interactive Alpine/Tailwind designs बनाएं, variants compare करें, live controls refine करें और result export करें।",
+        "Agent-Native HTML प्रोटोटाइपिंग स्टूडियो। Interactive Alpine/Tailwind designs बनाएं, variants compare करें, live controls refine करें और result export करें।",
     },
     content: {
       replaces:
@@ -1227,7 +1322,7 @@ const hiIN = {
           "Plan mode आपके terminal में text होता है, एक व्यक्ति को दिखता है और approve करते ही गायब हो जाता है। Plans visual हैं — wireframes, diagrams और annotated diffs — साथ ही shareable और persistent भी: agents feature के पूरे lifecycle में इन्हें बनाते, पढ़ते और update करते हैं।",
         question5: "क्या मैं plans को अपने code के साथ देख सकता हूँ?",
         answer5:
-          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
+          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent-Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
         question6: "क्या Plans मुफ़्त है?",
         answer6:
           "हाँ। मुफ़्त, open source और MIT licensed। Plans में hosted share links मिलते हैं, और आप सब कुछ स्थानीय files में mirror कर सकते हैं।",
@@ -1295,7 +1390,7 @@ const hiIN = {
       s060: "सभी टेम्पलेट देखें",
       s061: "VS Code हैंडऑफ",
       s062: "इससे VS Code साइड पैनल में प्लान लिंक खोलें:",
-      s063: "Agent Native Plans एक्सटेंशन",
+      s063: "Agent-Native Plans एक्सटेंशन",
       s064: "वायरफ्रेम — कंपोनेंट स्लॉट वाला स्केची UI मॉकअप",
       s065: "एनोटेटेड कोड — प्रति-लाइन नोट्स वाली स्रोत फ़ाइल",
       s066: "डायग्राम — फ़्लोचार्ट, सीक्वेंस या आर्किटेक्चर",
@@ -1512,9 +1607,9 @@ const hiIN = {
     },
   },
   downloadPage: {
-    title: "Agent Native डाउनलोड करें",
+    title: "Agent-Native डाउनलोड करें",
     body: "आपके सभी agent-native ऐप एक ही desktop shell में। Production apps built-in हैं, और local development के लिए dev mode toggle है।",
-    openDesktop: "Agent Native खोलें",
+    openDesktop: "Agent-Native खोलें",
     downloadInstaller: "Installer डाउनलोड करें",
     downloadStarted: "डाउनलोड शुरू हो गया",
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",

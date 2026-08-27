@@ -386,7 +386,7 @@ describe("createBuilderEngine", () => {
     ]);
   });
 
-  it("resolves auto to the Agent Native default before posting to the gateway", async () => {
+  it("resolves auto to the Agent-Native default before posting to the gateway", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -792,7 +792,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("monthly AI credits");
   });
 
-  it("routes upgradeUrl to the org-agnostic subscription page with Agent Native attribution", async () => {
+  it("routes upgradeUrl to the org-agnostic subscription page with Agent-Native attribution", async () => {
     credentialState.builderOrgName = "Acme Corp";
     vi.stubEnv("BUILDER_ORG_NAME", "Acme Corp");
     vi.stubGlobal(
@@ -1642,6 +1642,90 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("rate_limited");
     expect(stop?.error?.toLowerCase()).toContain("rate_limit");
+  });
+
+  it("canonicalizes coded Builder internal-error envelopes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "provider_internal_error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("canonicalizes coded Builder internal-error HTTP responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(500, {
+          code: "provider_internal_error",
+          message:
+            "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.statusCode).toBe(500);
+  });
+
+  it("canonicalizes message-only Builder internal-error HTTP responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(500, {
+          message:
+            "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.statusCode).toBe(500);
+  });
+
+  it("preserves provider_internal_error for non-envelope messages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "provider_internal_error",
+            error: "upstream provider failed",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("provider_internal_error");
+    expect(stop?.providerRetryable).toBeUndefined();
   });
 
   it("maps invalid_request stops into a non-retryable error stop preserving the gateway message and code", async () => {
