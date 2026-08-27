@@ -1304,7 +1304,18 @@ function buildAutoLayoutStyles(
   // flex shrink both children (1240px -> 825px, 691px -> 415px), throwing the
   // illustration out of its card. The overlap is reproduced with a negative
   // margin on every child after the first instead; see `buildChildSizingStyles`.
-  if (typeof node.itemSpacing === "number" && node.itemSpacing > 0) {
+  // Figma IGNORES itemSpacing when the primary axis is SPACE_BETWEEN — the
+  // field is disabled in the UI and the spacing is derived from the free space
+  // — but it still reports whatever was last set. CSS treats `gap` as a
+  // MINIMUM that space-between distributes on top of, so emitting both spaced
+  // Positivus' logo row by the stale 206px instead of its real 96px and pushed
+  // the last logo 550px out of the frame.
+  const primaryDistributes = node.primaryAxisAlignItems === "SPACE_BETWEEN";
+  if (
+    typeof node.itemSpacing === "number" &&
+    node.itemSpacing > 0 &&
+    !primaryDistributes
+  ) {
     styles[isHorizontal ? "column-gap" : "row-gap"] = px(node.itemSpacing);
   }
   if (
@@ -1377,9 +1388,22 @@ function buildChildSizingStyles(
     : node.layoutSizingVertical;
   if (mainAxisSizing !== "FILL") styles["flex-shrink"] = "0";
   // Reproduce a negative itemSpacing as an overlap, since `gap` cannot.
+  //
+  // Figma CLAMPS that overlap to the following child's own size — a child
+  // never slides further back than its own extent. Positivus' CTA row asks for
+  // -715 against a 494px illustration and Figma draws it at -494; its team
+  // cards ask for -67 against a 34px social icon and Figma draws -34. Taking
+  // the stated value literally dragged both across their neighbours. A row
+  // whose overlap already fits (the contact block's -367 against a 692px
+  // illustration) is untouched, which is how the clamp was confirmed rather
+  // than fitted.
   if (parentItemSpacing < 0 && !isFirstChild) {
-    styles[parentIsHorizontal ? "margin-left" : "margin-top"] =
-      px(parentItemSpacing);
+    const ownMainAxis = parentIsHorizontal
+      ? (node.absoluteBoundingBox?.width ?? 0)
+      : (node.absoluteBoundingBox?.height ?? 0);
+    styles[parentIsHorizontal ? "margin-left" : "margin-top"] = px(
+      Math.max(parentItemSpacing, -ownMainAxis),
+    );
   }
   if (node.layoutSizingHorizontal === "FILL") {
     if (parentIsHorizontal) {
@@ -2323,6 +2347,40 @@ function buildNode(
     ...strokeResult.styles,
     ...childSizingStyles,
   };
+
+  // A CSS transform does not change an element's LAYOUT size, but Figma lays a
+  // rotated auto-layout child out by its rotated footprint. A vertical rule is
+  // the common case: Figma stores it as a 186x0 line rotated 90deg, so it
+  // occupies no width in the row — ours occupied the full 186px and shoved
+  // every later sibling across (Positivus' case-studies row came out 372px too
+  // wide, exactly its two dividers). Compensate with margins so the footprint
+  // matches, leaving the element's own box and transform untouched: the
+  // transform pivots about the centre, which the margins keep in place.
+  if (
+    isFlexChild &&
+    (linearTransformCss !== undefined || rotation !== undefined)
+  ) {
+    const theta = ((rotation ?? 0) * Math.PI) / 180;
+    const m = linear ?? [
+      [Math.cos(theta), -Math.sin(theta), 0],
+      [Math.sin(theta), Math.cos(theta), 0],
+    ];
+    const spanX =
+      Math.abs(m[0][0]) * box.width + Math.abs(m[0][1]) * box.height;
+    const spanY =
+      Math.abs(m[1][0]) * box.width + Math.abs(m[1][1]) * box.height;
+    const marginX = (spanX - box.width) / 2;
+    const marginY = (spanY - box.height) / 2;
+    const add = (property: string, value: number) => {
+      if (Math.abs(value) < 0.01) return;
+      const existing = Number.parseFloat(baseStyles[property] ?? "0") || 0;
+      baseStyles[property] = px(existing + value);
+    };
+    add("margin-left", marginX);
+    add("margin-right", marginX);
+    add("margin-top", marginY);
+    add("margin-bottom", marginY);
+  }
 
   if (isTextNode) {
     const style = node.style ?? {};

@@ -348,3 +348,150 @@ describe("mirrored nodes", () => {
     expect(html).toContain("rotate(45");
   });
 });
+
+describe("space-between rows ignore itemSpacing, as Figma does", () => {
+  // Figma disables the spacing field under SPACE_BETWEEN and derives the gap
+  // from the free space, but it still REPORTS whatever was last set. CSS
+  // treats `gap` as a minimum that space-between distributes on top of, so
+  // emitting both spaced Positivus' logo row by a stale 206px instead of its
+  // real 96px and pushed the last logo 550px out of frame.
+  function logoRow(align?: string): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Logotypes",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 1440, 48),
+      layoutMode: "HORIZONTAL",
+      layoutSizingHorizontal: "FIXED",
+      itemSpacing: 206,
+      primaryAxisAlignItems: align,
+      children: [
+        {
+          id: "1:2",
+          name: "A",
+          type: "FRAME",
+          absoluteBoundingBox: box(100, 0, 124, 48),
+        },
+        {
+          id: "1:3",
+          name: "B",
+          type: "FRAME",
+          absoluteBoundingBox: box(320, 0, 126, 48),
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("drops the stale gap under SPACE_BETWEEN", () => {
+    const { html } = mapFigmaNodeToHtml(logoRow("SPACE_BETWEEN"), {});
+    expect(html).toContain("justify-content: space-between");
+    expect(html).not.toContain("column-gap: 206px");
+  });
+
+  it("keeps the gap under normal alignment", () => {
+    const { html } = mapFigmaNodeToHtml(logoRow("MIN"), {});
+    expect(html).toContain("column-gap: 206px");
+  });
+});
+
+describe("negative itemSpacing is clamped to the child's own size", () => {
+  // Figma never slides a child further back than its own extent: a -715
+  // overlap against a 494px illustration draws at -494. Taking the stated
+  // value literally dragged Positivus' CTA illustration across its card.
+  function overlapRow(spacing: number, secondWidth: number): FigmaNode {
+    return {
+      id: "1:1",
+      name: "CTA",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 1440, 394),
+      layoutMode: "HORIZONTAL",
+      itemSpacing: spacing,
+      children: [
+        {
+          id: "1:2",
+          name: "Card",
+          type: "FRAME",
+          absoluteBoundingBox: box(100, 0, 1240, 347),
+        },
+        {
+          id: "1:3",
+          name: "Art",
+          type: "FRAME",
+          absoluteBoundingBox: box(846, 0, secondWidth, 394),
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("clamps an overlap deeper than the child", () => {
+    const { html } = mapFigmaNodeToHtml(overlapRow(-715, 494), {});
+    expect(html).toContain("margin-left: -494px");
+    expect(html).not.toContain("margin-left: -715px");
+  });
+
+  it("leaves an overlap the child can absorb alone", () => {
+    const { html } = mapFigmaNodeToHtml(overlapRow(-367, 692), {});
+    expect(html).toContain("margin-left: -367px");
+  });
+});
+
+describe("a rotated auto-layout child occupies its rotated footprint", () => {
+  // A CSS transform does not change layout size, but Figma lays a rotated
+  // child out by its rotated box. Figma stores a vertical rule as a 186x0 line
+  // rotated 90deg: it takes no width in the row, while ours took the full
+  // 186px and shoved every later sibling across.
+  it("compensates a 90-degree turn with margins", () => {
+    const node = {
+      id: "1:1",
+      name: "Row",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 1234, 326),
+      layoutMode: "HORIZONTAL",
+      children: [
+        {
+          id: "1:2",
+          name: "Rule",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(410, 70, 20, 186),
+          size: { x: 186, y: 20 },
+          relativeTransform: [
+            [0, -1, 430],
+            [1, 0, 70],
+          ],
+          rotation: Math.PI / 2,
+        },
+      ],
+    } as FigmaNode;
+    const { html } = mapFigmaNodeToHtml(node, {});
+    // 186x20 before the turn, 20x186 after: hand back 166px of row width and
+    // claim the 166px of height the turn added.
+    expect(html).toContain("margin-left: -83px");
+    expect(html).toContain("margin-top: 83px");
+  });
+
+  it("leaves an unrotated child's footprint alone", () => {
+    const node = {
+      id: "1:1",
+      name: "Row",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 1234, 326),
+      layoutMode: "HORIZONTAL",
+      children: [
+        {
+          id: "1:2",
+          name: "Plain",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 186, 20),
+          size: { x: 186, y: 20 },
+          relativeTransform: [
+            [1, 0, 0],
+            [0, 1, 0],
+          ],
+        },
+      ],
+    } as FigmaNode;
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).not.toContain("margin-left");
+    expect(html).not.toContain("margin-top");
+  });
+});

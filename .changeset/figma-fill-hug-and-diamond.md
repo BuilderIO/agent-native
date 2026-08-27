@@ -24,6 +24,16 @@ not have, and everything inside it landed on the wrong side. The transform now
 comes from `relativeTransform`'s own 2x2 block as a CSS `matrix()`, which
 carries mirroring and skew as well as rotation.
 
+Three auto-layout rules now match Figma's own resolution rather than the raw
+field values. A row aligned SPACE_BETWEEN no longer also emits `itemSpacing` as
+a CSS gap — Figma ignores that field in this mode but still reports it, and CSS
+distributes space on top of a gap rather than instead of it. A negative
+`itemSpacing` is clamped to the following child's own size, which is where
+Figma stops an overlap. And a rotated auto-layout child now occupies its
+rotated footprint: a CSS transform does not change layout size, so a vertical
+rule stored as a wide line turned 90 degrees was taking its full pre-rotation
+width out of the row.
+
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce

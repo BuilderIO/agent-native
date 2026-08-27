@@ -340,12 +340,44 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
     expect(html).toContain("flex-direction: row");
     expect(html).toContain("justify-content: space-between");
     expect(html).toContain("align-items: center");
-    expect(html).toContain("column-gap: 16px");
+    // Figma disables the spacing field under SPACE_BETWEEN and derives the gap
+    // from the free space, though it still reports the last value set. CSS
+    // treats `gap` as a minimum that space-between distributes ON TOP of, so
+    // emitting both spaces the row by the stale number. The gap assertion for
+    // ordinary alignment is the test below.
+    expect(html).not.toContain("column-gap: 16px");
     expect(html).toContain("padding: 4px 8px 4px 8px");
     // Auto-layout children are flex items: no manual left/top.
     expect(html).not.toMatch(/data-figma-node-id="4:1"[^>]*left:/);
     // FILL sizing child grows along the main axis.
     expect(html).toContain("flex-grow: 1");
+  });
+
+  it("maps itemSpacing to a gap when the row is not distributing space", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 400, 100),
+      layoutMode: "HORIZONTAL",
+      itemSpacing: 16,
+      primaryAxisAlignItems: "MIN",
+      children: [
+        {
+          id: "5:1",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 50, 92),
+          layoutSizingHorizontal: "FIXED",
+        },
+        {
+          id: "5:2",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(66, 0, 50, 92),
+          layoutSizingHorizontal: "FIXED",
+        },
+      ],
+    };
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toContain("column-gap: 16px");
   });
 
   it("keeps layoutPositioning ABSOLUTE children out of auto-layout flow", () => {
