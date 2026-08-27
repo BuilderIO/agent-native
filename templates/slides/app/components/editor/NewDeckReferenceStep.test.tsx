@@ -283,6 +283,34 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Last used deck");
   });
 
+  it("keeps the reference step locked until selection handling finishes", async () => {
+    let resolveSelection!: () => void;
+    const selection = new Promise<void>((resolve) => {
+      resolveSelection = resolve;
+    });
+    renderStep({ onSelect: () => selection });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    await act(async () => {
+      resolveSelection();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", false);
+  });
+
   it("does not render an Attached section on the reference step", () => {
     renderStep({ promptSummary: "Some prompt" });
 

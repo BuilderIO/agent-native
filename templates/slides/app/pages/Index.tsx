@@ -284,6 +284,7 @@ export default function Index() {
   } | null>(null);
   const pendingDeckAttachmentActionsRef =
     useRef<PromptAttachmentActions | null>(null);
+  const pendingDeckGenerationRef = useRef<Promise<void> | null>(null);
   const [showNewDeckReferenceStep, setShowNewDeckReferenceStep] =
     useState(false);
   const [isStartingNewDeck, setIsStartingNewDeck] = useState(false);
@@ -834,6 +835,41 @@ export default function Index() {
     settlePendingDeckAttachments("commit");
   };
 
+  const runPendingDeckGeneration = useCallback(
+    (
+      prompt: string,
+      files: UploadedFile[],
+      referenceSelection: NewDeckReferenceSelection,
+    ) => {
+      const generation = Promise.resolve().then(() =>
+        handleCreateDeckWithPrompt(prompt, files, referenceSelection),
+      );
+      pendingDeckGenerationRef.current = generation;
+      void generation.then(
+        () => {
+          if (pendingDeckGenerationRef.current === generation) {
+            pendingDeckGenerationRef.current = null;
+          }
+        },
+        () => {
+          if (pendingDeckGenerationRef.current !== generation) return;
+          pendingDeckGenerationRef.current = null;
+          settlePendingDeckAttachments("discard");
+        },
+      );
+      return generation;
+    },
+    [handleCreateDeckWithPrompt, settlePendingDeckAttachments],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (!pendingDeckGenerationRef.current) {
+        settlePendingDeckAttachments("discard");
+      }
+    };
+  }, [settlePendingDeckAttachments]);
+
   const handlePromptSubmit = useCallback(
     (
       prompt: string,
@@ -995,20 +1031,16 @@ export default function Index() {
           forgetReference("deck");
         }
       }
-      setShowNewDeckReferenceStep(false);
-      setPendingDeck(null);
-      await handleCreateDeckWithPrompt(
+      const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
         selection,
       );
+      setShowNewDeckReferenceStep(false);
+      setPendingDeck(null);
+      await generation;
     },
-    [
-      forgetReference,
-      handleCreateDeckWithPrompt,
-      pendingDeck,
-      rememberReference,
-    ],
+    [forgetReference, pendingDeck, rememberReference, runPendingDeckGeneration],
   );
 
   const handleReferenceImport = useCallback(
@@ -1192,29 +1224,32 @@ export default function Index() {
     [callAction, reloadDecks, t],
   );
 
-  const handleReferenceSkip = useCallback(() => {
+  const handleReferenceSkip = useCallback(async () => {
     const pending = pendingDeck;
     if (!pending) {
       setShowNewDeckReferenceStep(false);
       return;
     }
-    setShowNewDeckReferenceStep(false);
-    setPendingDeck(null);
     forgetReference("design-system");
     forgetReference("deck");
     if (!pending.prompt.trim() && pending.files.length === 0) {
+      setShowNewDeckReferenceStep(false);
+      setPendingDeck(null);
       handleCreateDeckBlank();
       return;
     }
-    void handleCreateDeckWithPrompt(pending.prompt, pending.files, {
+    const generation = runPendingDeckGeneration(pending.prompt, pending.files, {
       designSystemId: null,
       referenceDeckId: null,
     });
+    setShowNewDeckReferenceStep(false);
+    setPendingDeck(null);
+    await generation;
   }, [
     forgetReference,
     handleCreateDeckBlank,
-    handleCreateDeckWithPrompt,
     pendingDeck,
+    runPendingDeckGeneration,
   ]);
 
   const handleConfirmDelete = () => {
@@ -1561,7 +1596,7 @@ export default function Index() {
       <NewDeckReferenceStep
         open={showNewDeckReferenceStep}
         onOpenChange={(open) => {
-          if (!open) {
+          if (!open && !pendingDeckGenerationRef.current) {
             const pending = pendingDeck;
             settlePendingDeckAttachments("discard");
             setShowNewDeckReferenceStep(false);
@@ -1579,7 +1614,7 @@ export default function Index() {
         decks={decks}
         defaultDesignSystemId={initialDesignSystemId}
         defaultReferenceDeckId={initialReferenceDeckId}
-        onSelect={(selection) => void handleReferenceSelect(selection)}
+        onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
         onImportSource={handleReferenceSourceImport}
         onSkip={handleReferenceSkip}
