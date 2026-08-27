@@ -112,7 +112,6 @@ import {
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
 import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
-import { shortcutLabel } from "@/lib/utils";
 
 type EditorSidePanel = "comments" | null;
 
@@ -918,7 +917,7 @@ export default function DeckEditor() {
       })();
       deleteSlide(deckId, slideId);
       toast(`${slideTitle} deleted`, {
-        description: `Press ${shortcutLabel("cmd+z")} or click Undo to restore.`,
+        className: "!bg-background !text-foreground !border-border",
         duration: 6000,
         action: {
           label: "Undo",
