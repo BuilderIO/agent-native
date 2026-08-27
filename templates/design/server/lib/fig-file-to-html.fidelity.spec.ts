@@ -1171,6 +1171,71 @@ describe("auto line height", () => {
   });
 });
 
+describe("dashed strokes", () => {
+  // REST hands over dashes already outlined into `strokeGeometry`, so that path
+  // gets them for free. A .fig or clipboard payload carries the pattern as
+  // numbers and we stroke a live path or set a CSS border, both of which draw
+  // solid without this — ten nodes on one page, every connector between the
+  // feature icons plus the box around the centre one.
+  const dashedNode = (extra: Record<string, unknown>) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 70, {
+        name: "Dashed",
+        dashPattern: [15, 15],
+        strokeWeight: 3,
+        strokePaints: [
+          { type: "SOLID", visible: true, color: { r: 0, g: 0, b: 1, a: 1 } },
+        ],
+        ...extra,
+      }),
+    );
+    return doc;
+  };
+
+  it("emits stroke-dasharray on a LINE, which draws as a path", () => {
+    const html = renderFrame(
+      dashedNode({ type: "LINE", strokeAlign: "CENTER" }),
+    );
+    expect(html).toContain('stroke-dasharray="15 15"');
+  });
+
+  it("dashes a CSS border for a leaf with an INSIDE stroke", () => {
+    // An inset box-shadow cannot be dashed, and a leaf has no content whose
+    // box a real border could shift.
+    const html = renderFrame(
+      dashedNode({ type: "ROUNDED_RECTANGLE", strokeAlign: "INSIDE" }),
+    );
+    expect(html).toContain("border: 3px dashed");
+    expect(html).not.toContain("inset 0 0 0 3px");
+  });
+
+  it("says so rather than drawing solid silently when it cannot dash", () => {
+    const doc = dashedNode({ type: "FRAME", strokeAlign: "INSIDE" });
+    (doc.nodeChanges as Array<Record<string, unknown>>).push({
+      guid: { sessionID: 1, localID: 71 },
+      parentIndex: { guid: { sessionID: 1, localID: 70 }, position: "a" },
+      type: "FRAME",
+      name: "Child",
+      size: { x: 10, y: 10 },
+      transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+    });
+    const result = renderHtmlTemplates(doc);
+    expect(
+      result.approximatedNodes.some((entry) =>
+        entry.notes.some((note) => note.includes("dashed")),
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves an undashed stroke solid", () => {
+    const html = renderFrame(
+      dashedNode({ type: "LINE", strokeAlign: "CENTER", dashPattern: [] }),
+    );
+    expect(html).not.toContain("stroke-dasharray");
+  });
+});
+
 describe("an auto-layout frame's default counter alignment", () => {
   // Figma defaults to MIN, CSS `align-items` to `stretch`. Emitting nothing
   // when Figma says nothing let every child of an unaligned stack grow to the

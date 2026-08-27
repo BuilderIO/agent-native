@@ -218,6 +218,8 @@ export interface FigNode {
     styleID?: number;
   }>;
   strokeJoin?: string;
+  /** Figma's dash/gap lengths, in px. Empty or absent means a solid stroke. */
+  dashPattern?: number[];
   strokeCap?: string;
   strokeDashes?: number[];
   vectorData?: {
@@ -1327,16 +1329,40 @@ function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
 
   const uniformW = node.strokeWeight ?? 0;
 
+  // A dash pattern only reaches CSS through `border-style`/`outline-style`.
+  const dashed = dashArrayAttr(node) !== null;
+  const style = dashed ? "dashed" : "solid";
+
   if (!hasPerSide) {
     if (!uniformW) return {};
     if (node.strokeAlign === "OUTSIDE") {
-      return { outline: `${num(uniformW)}px solid ${color}` };
+      return { outline: `${num(uniformW)}px ${style} ${color}` };
     }
     if (node.strokeAlign === "INSIDE") {
-      // box-shadow keeps the border inside the element without expanding its dimensions
+      // A box-shadow keeps the border inside the element without expanding its
+      // dimensions — but it cannot be dashed. A leaf has no content whose box
+      // an inset border could shift, and `box-sizing: border-box` keeps the
+      // outer size, so a dashed leaf takes a real border instead.
+      if (dashed && getChildren(node, ctx).length === 0) {
+        return { border: `${num(uniformW)}px dashed ${color}` };
+      }
+      if (dashed) {
+        recordApproximation(
+          node,
+          ctx,
+          "dashed INSIDE stroke on a node with children drawn solid; an inset box-shadow cannot be dashed, and a real border would shrink the content box Figma leaves alone",
+        );
+      }
       return { boxShadow: `inset 0 0 0 ${num(uniformW)}px ${color}` };
     }
-    return { border: `${num(uniformW)}px solid ${color}` };
+    return { border: `${num(uniformW)}px ${style} ${color}` };
+  }
+  if (dashed) {
+    recordApproximation(
+      node,
+      ctx,
+      "dashed stroke with per-side weights drawn solid",
+    );
   }
 
   // Per-side stroke weights: fall back to uniformW for unspecified sides
@@ -2701,6 +2727,20 @@ function nodeOutlinePath(
   return parametric ? { d: parametric, scaleX: 1, scaleY: 1 } : null;
 }
 
+/**
+ * Figma's dash pattern as `stroke-dasharray`.
+ *
+ * REST hands us the dashes already outlined into `strokeGeometry`, so that
+ * path gets them for free; a `.fig` or clipboard payload carries the pattern
+ * as numbers and we stroke a live path, which draws solid without this. Ten
+ * nodes on one page — every connector between the feature icons.
+ */
+function dashArrayAttr(node: FigNode): string | null {
+  const pattern = node.dashPattern;
+  if (!pattern?.length || !pattern.some((value) => value > 0)) return null;
+  return `stroke-dasharray="${pattern.map((value) => num(value)).join(" ")}"`;
+}
+
 function emitSvgBody(
   node: FigNode,
   ctx: Ctx,
@@ -2842,6 +2882,8 @@ function emitSvgBody(
         attrs.push(`stroke-linejoin="${node.strokeJoin.toLowerCase()}"`);
       if (node.strokeCap)
         attrs.push(`stroke-linecap="${node.strokeCap.toLowerCase()}"`);
+      const dashes = dashArrayAttr(node);
+      if (dashes) attrs.push(dashes);
       lines.push(`${indent}  <path ${attrs.join(" ")} />`);
     }
   }
@@ -2866,6 +2908,8 @@ function emitSvgBody(
         attrs.push(`stroke-width="${num(strokeWeight)}"`);
         if (strokePaint.opacity !== undefined)
           attrs.push(`stroke-opacity="${num(strokePaint.opacity)}"`);
+        const dashes = dashArrayAttr(node);
+        if (dashes) attrs.push(dashes);
       }
       lines.push(`${indent}  <path ${attrs.join(" ")} />`);
       emittedFlat = true;
@@ -2917,6 +2961,8 @@ function emitSvgBody(
         if (arrowId) a.push(`marker-start="url(#${arrowId})"`);
         if (strokePaint.opacity !== undefined)
           a.push(`stroke-opacity="${strokePaint.opacity}"`);
+        const dashes = dashArrayAttr(node);
+        if (dashes) a.push(dashes);
         lines.push(`${inner}  <path ${a.join(" ")} />`);
       }
       if (scaled) lines.push(`${indent}  </g>`);
