@@ -182,16 +182,15 @@ export function findSlideObjectById(
 
 /**
  * Absolute offsets resolve against the nearest ancestor that establishes a
- * containing block, not necessarily the slide's autofit layer. Keeping the
- * original parent preserves nested layout semantics while this resolver keeps
- * the measured viewport position stable when that child becomes freeform.
+ * containing block, not necessarily the slide's autofit layer. Keep walking
+ * past a static layer so measured and authored coordinates use the same root.
  */
 export function resolveSlideObjectContainingBlock(
   element: HTMLElement,
   slideLayer: HTMLElement,
 ): HTMLElement {
   let ancestor = element.parentElement;
-  while (ancestor && ancestor !== slideLayer) {
+  while (ancestor) {
     const style = window.getComputedStyle(ancestor);
     const position = style.position || "static";
     const hasTransform = Boolean(style.transform && style.transform !== "none");

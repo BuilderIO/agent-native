@@ -195,6 +195,22 @@ describe("slide object interactions", () => {
     expect(resolveSlideObjectContainingBlock(text, layer)).toBe(layer);
   });
 
+  it("uses the positioned slide when its inner autofit layer is static", () => {
+    const slide = document.createElement("div");
+    const layer = document.createElement("div");
+    const layoutGroup = document.createElement("div");
+    const text = document.createElement("p");
+    slide.className = "fmd-slide";
+    slide.style.position = "relative";
+    layer.setAttribute("data-fmd-autofit-content", "true");
+    layoutGroup.append(text);
+    layer.append(layoutGroup);
+    slide.append(layer);
+    document.body.append(slide);
+
+    expect(resolveSlideObjectContainingBlock(text, layer)).toBe(slide);
+  });
+
   it("gives clones a distinct persisted identity and drops runtime ids", () => {
     const object = document.createElement("div");
     object.dataset.builderId = "b-1";
