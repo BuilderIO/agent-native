@@ -310,6 +310,41 @@ buried:
   all four sides — a vertical rule between every column of a table that has
   none. Dashboard 4.95% -> 4.33%, flat interior 0.964% -> 0.452%.
 
+### The export hop carries twice the structural error
+
+The flat-interior classifier had only ever been pointed at four designs, and
+only ever at the IMPORT. Run across all 26 on both hops, the aggregate says
+something the diff percentages do not: **import flat interior averages
+0.127%, export 0.256%**. The export hop roughly doubles the part of the
+difference that is not two rasterisers disagreeing about a glyph edge.
+
+Where they diverge most:
+
+| case | import flat% | export flat% | delta |
+| --- | --- | --- | --- |
+| community-positivus-landing | 0.013 | 0.700 | +0.687 |
+| fills-effects | 0.176 | 0.674 | +0.498 |
+| community-interior-product-comparison | 0.200 | 0.677 | +0.477 |
+| community-interior-checkout | 0.059 | 0.534 | +0.475 |
+| community-untitled-ui-landing-mobile | 0.192 | 0.598 | +0.406 |
+| community-interior-single-product | 0.174 | 0.551 | +0.377 |
+| community-interior-ecommerce | 0.115 | 0.425 | +0.310 |
+| community-landify-tablet | 0.415 | 0.500 | +0.085 |
+| app-untitled-ui-data-table | 0.001 | 0.076 | +0.075 |
+| community-landify-example | 0.390 | 0.443 | +0.053 |
+
+Read the ranking by ABSOLUTE flat interior, never by its share of the diff.
+`fills-effects` shows 64.9% of its differing pixels in flat interiors and looks
+alarming, but it is a text-light fixture: the share is high because there are
+almost no glyph edges in the denominator, and the absolute figure is 0.674% of
+a 420x540 canvas. Ranking by share sends the next hour at the wrong design.
+
+The largest export-only clusters trace to the `objectBoundingBox` pattern that
+carries a `background-image` fill, which the export already records as
+approximated -- the checkout and product-comparison headers share one photo and
+show the identical cluster, 3093 and 2363 pixels in the same two cells. On that
+photo the import sits 1.9 grey levels from Figma and the export 7.5.
+
 ### One defect the round trip will not let us fix yet
 
 Figma casts a drop shadow from what a layer PAINTS. A frame with no fill of its
