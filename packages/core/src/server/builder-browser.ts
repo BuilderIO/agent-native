@@ -21,6 +21,7 @@ import {
   getOrigin,
   getOAuthStateSigningKey,
   isAllowedOAuthRedirectUri,
+  isConfiguredAppOrigin,
 } from "./google-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -1256,6 +1257,13 @@ function getBuilderRequestHost(event: H3Event): string | undefined {
   ) {
     return isLoopbackBuilderProxyPeer(event) ? forwardedHost : undefined;
   }
+  if (
+    requestHost &&
+    isBuilderCloudRequestHost(requestHost) &&
+    !isConfiguredBuilderRequestHost(event, requestHost)
+  ) {
+    return undefined;
+  }
   return requestHost;
 }
 
@@ -1310,6 +1318,13 @@ function isBuilderCloudRequestHost(host: string | undefined): boolean {
     // coercion-ok: malformed hosts cannot be trusted as Builder Cloud origins.
     return false;
   }
+}
+
+function isConfiguredBuilderRequestHost(event: H3Event, host: string): boolean {
+  const proto =
+    firstHeaderValue(readEventHeader(event, "x-forwarded-proto")) ||
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+  return isConfiguredAppOrigin(`${proto}://${host}`);
 }
 
 function getBuilderConnectCallbackOrigin(event: H3Event): string {

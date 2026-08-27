@@ -562,6 +562,28 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("ignores an unconfigured direct Builder Cloud host", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
+      const event = createBuilderBrowserEvent(
+        {
+          host: "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://default-template.netlify.app",
+      );
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+    });
+
     it("does not reuse a rejected forwarded host without a configured origin", () => {
       process.env.NODE_ENV = "production";
       clearBuilderOriginEnv();
