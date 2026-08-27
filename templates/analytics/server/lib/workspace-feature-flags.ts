@@ -626,7 +626,14 @@ export async function setWorkspaceFeatureFlag(
     } catch {
       throw new WorkspaceFeatureFlagFailure("persistence");
     }
-    const verifiedApp = await listLocalAnalyticsFeatureFlags(admin);
+    let verifiedApp: FleetFlagApp;
+    try {
+      verifiedApp = await listLocalAnalyticsFeatureFlags(admin);
+    } catch {
+      throw new WorkspaceFeatureFlagFailure("verification");
+    }
+    if (verifiedApp.state === "forbidden")
+      throw new WorkspaceFeatureFlagFailure("authorization");
     const verifiedFlag = verifiedApp.flags.find(
       (flag) => flag.key === input.key,
     );

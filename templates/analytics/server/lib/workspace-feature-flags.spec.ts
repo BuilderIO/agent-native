@@ -288,6 +288,63 @@ describe("verified fleet feature flag transaction", () => {
     );
   });
 
+  it("classifies local readback authorization loss after persistence", async () => {
+    const rules = {
+      mode: "off",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+    };
+    mocks.setLocalFeatureFlag.mockResolvedValue({
+      contractVersion: 2,
+      status: "ready",
+      key: "analytics.resilient-fleet-flag-directory",
+      rules,
+      scope: { orgId: admin.orgId, orgDomain: "example.test" },
+    });
+    mocks.listLocalFeatureFlags.mockResolvedValue({
+      contractVersion: 1,
+      status: "forbidden",
+      flags: [],
+      canManage: false,
+    });
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "analytics",
+        key: "analytics.resilient-fleet-flag-directory",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase: "authorization" });
+  });
+
+  it("classifies local readback store errors after persistence", async () => {
+    const rules = {
+      mode: "off",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+    };
+    mocks.setLocalFeatureFlag.mockResolvedValue({
+      contractVersion: 2,
+      status: "ready",
+      key: "analytics.resilient-fleet-flag-directory",
+      rules,
+      scope: { orgId: admin.orgId, orgDomain: "example.test" },
+    });
+    mocks.listLocalFeatureFlags.mockRejectedValue(
+      new Error("private local store detail"),
+    );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "analytics",
+        key: "analytics.resilient-fleet-flag-directory",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase: "verification" });
+  });
+
   it("reads Analytics target state locally without directory or A2A", async () => {
     await expect(
       getWorkspaceFlagTarget(admin, "analytics"),
