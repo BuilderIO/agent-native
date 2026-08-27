@@ -76,6 +76,7 @@ import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPath,
   getElementPreview,
+  getPersistedElementPath,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
 import {
@@ -1851,7 +1852,7 @@ export default function SlideEditor({
       const element = selectedImg ?? resolveSelectedElement();
       const root = element?.closest<HTMLElement>(".fmd-slide");
       if (!element || !root) return null;
-      const elementPath = getElementPath(root, element);
+      const elementPath = getPersistedElementPath(root, element);
       if (!elementPath || elementPath.length === 0) return null;
       const elementIndex = elementPath[elementPath.length - 1] ?? 0;
       return {

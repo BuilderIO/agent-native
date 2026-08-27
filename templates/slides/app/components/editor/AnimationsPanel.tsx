@@ -41,6 +41,8 @@ import type {
 } from "@/context/DeckContext";
 import {
   animationElementKey,
+  expandByParagraphAnimations,
+  getElementAnimationValue,
   getSlideAnimationTargetKey,
   getSlideAnimationTargetPreview,
   resolveSlideAnimationTargets,
@@ -334,12 +336,14 @@ export function AnimationsPanel({
     const root = document.querySelector<HTMLElement>(
       "[data-main-slide-canvas] .fmd-slide",
     );
-    const resolved = root
-      ? resolveSlideAnimationTargets(root, animations)
+    const expanded = root
+      ? expandByParagraphAnimations(root, animations)
       : null;
+    const resolved =
+      root && expanded ? resolveSlideAnimationTargets(root, expanded) : null;
     if (!resolved) return;
 
-    const originals = resolved.flatMap(({ element }) => {
+    const originals = resolved.flatMap(({ element, target }) => {
       if (!(element instanceof HTMLElement || element instanceof SVGElement)) {
         return [];
       }
@@ -349,6 +353,8 @@ export function AnimationsPanel({
           opacity: element.style.opacity,
           pointerEvents: element.style.pointerEvents,
           transition: element.style.transition,
+          animation: element.style.animation,
+          type: target.type,
         },
       ];
     });
@@ -361,6 +367,7 @@ export function AnimationsPanel({
         original.element.style.opacity = original.opacity;
         original.element.style.pointerEvents = original.pointerEvents;
         original.element.style.transition = original.transition;
+        original.element.style.animation = original.animation;
       }
     };
     const cleanup = () => {
@@ -382,7 +389,7 @@ export function AnimationsPanel({
         cleanup();
         return;
       }
-      target.element.style.transition = "opacity 300ms ease";
+      target.element.style.animation = getElementAnimationValue(target.type);
       target.element.style.opacity = "1";
       target.element.style.pointerEvents = "auto";
       index += 1;

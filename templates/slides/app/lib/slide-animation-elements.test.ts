@@ -2,6 +2,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  expandByParagraphAnimations,
+  getElementAnimationValue,
+  getElementPath,
+  getPersistedElementPath,
   getSlideAnimationTargetKey,
   getSlideAnimationTargetPreview,
   parseSlideAnimationElements,
@@ -102,6 +106,81 @@ describe("slide animation element parsing", () => {
         { elementIndex: 1, elementPath: [99] },
       ]),
     ).toBeNull();
+  });
+
+  it("flattens the editor-only AutoFit wrapper before persisting a path", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide">
+        <style>.fmd-slide { color: red; }</style>
+        <div data-fmd-autofit-content>
+          <div><span data-target>Target</span></div>
+          <div>Sibling</div>
+        </div>
+        <div>After</div>
+      </div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    const target = doc.querySelector<HTMLElement>("[data-target]");
+    expect(root).not.toBeNull();
+    expect(target).not.toBeNull();
+    if (!root || !target) return;
+
+    expect(getElementPath(root, target)).toEqual([1, 0, 0]);
+    expect(getPersistedElementPath(root, target)).toEqual([1, 0]);
+  });
+
+  it("expands paragraph animations from an individually selected paragraph", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide">
+        <div class="fmd-pptx-text">
+          <p data-pptx-paragraph="0">First</p>
+          <p data-pptx-paragraph="1">Second</p>
+        </div>
+      </div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(
+      expanded?.map(({ id, elementPath, byParagraph, type }) => ({
+        id,
+        elementPath,
+        byParagraph,
+        type,
+      })),
+    ).toEqual([
+      {
+        id: "animation-1-paragraph-0",
+        elementPath: [0, 0],
+        byParagraph: false,
+        type: "slide-up",
+      },
+      {
+        id: "animation-1-paragraph-1",
+        elementPath: [0, 1],
+        byParagraph: false,
+        type: "slide-up",
+      },
+    ]);
+  });
+
+  it("shares the configured effect timing between playback surfaces", () => {
+    expect(getElementAnimationValue("appear")).toContain("elem-appear");
+    expect(getElementAnimationValue("slide-up")).toContain("elem-slide-up");
+    expect(getElementAnimationValue("zoom")).toContain("elem-zoom");
   });
 
   it("resolves every ordered target exactly once", () => {

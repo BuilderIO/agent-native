@@ -17,7 +17,9 @@ import type {
 } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
+  expandByParagraphAnimations,
   findLegacyAnimationContainer,
+  getElementAnimationValue,
   getElementPath,
   resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
@@ -90,57 +92,6 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
   return null;
 }
 
-function expandByParagraphAnimations(
-  root: Element,
-  animations: readonly SlideAnimation[],
-): SlideAnimation[] | null {
-  const resolved = resolveSlideAnimationTargets(root, animations);
-  if (!resolved) return null;
-
-  const expanded: SlideAnimation[] = [];
-  for (const { target, element } of resolved) {
-    if (!target.byParagraph) {
-      expanded.push(target);
-      continue;
-    }
-
-    const paragraphs = Array.from(
-      element.querySelectorAll("p[data-pptx-paragraph]"),
-    );
-    if (paragraphs.length < 2) {
-      expanded.push(target);
-      continue;
-    }
-
-    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
-      const elementPath = getElementPath(root, paragraph);
-      if (!elementPath) return null;
-      expanded.push({
-        ...target,
-        id: `${target.id}-paragraph-${paragraphIndex}`,
-        elementIndex: paragraphIndex,
-        elementPath,
-        byParagraph: false,
-      });
-    }
-  }
-  return expanded;
-}
-
-/** CSS animation string for a given element animation type (for the newly-revealed item). */
-function getElemAnimCss(type: AnimationType): string {
-  switch (type) {
-    case "appear":
-      return "animation: elem-appear 100ms ease both;";
-    case "fade":
-      return "animation: elem-appear 400ms ease both;";
-    case "slide-up":
-      return "animation: elem-slide-up 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
-    case "zoom":
-      return "animation: elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both;";
-  }
-}
-
 /**
  * Return a modified HTML string where content-container children have
  * data-pstep attributes and an injected <style> controls visibility.
@@ -173,7 +124,7 @@ function annotateStepsForPresentation(
         return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: elem-appear 1ms both; }`;
       } else {
         // Newly revealed — animate with its type
-        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; ${getElemAnimCss(target.type)} }`;
+        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: ${getElementAnimationValue(target.type)}; }`;
       }
     })
     .join("\n");

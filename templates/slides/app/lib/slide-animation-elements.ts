@@ -1,3 +1,5 @@
+import type { AnimationType } from "@/context/DeckContext";
+
 export interface ParsedAnimationElement {
   index: number;
   path: number[];
@@ -7,6 +9,8 @@ export interface ParsedAnimationElement {
 export interface AnimationTarget {
   elementIndex: number;
   elementPath?: number[];
+  byParagraph?: boolean;
+  id?: string;
 }
 
 export interface SelectedAnimationTarget {
@@ -195,6 +199,37 @@ export function getElementPath(
   return current === root ? path : null;
 }
 
+/**
+ * Resolve a live editor node against the HTML that will be persisted. The
+ * editor's AutoFit layer is transparent in saved markup, so paths through it
+ * must be flattened before animation metadata is written.
+ */
+export function getPersistedElementPath(
+  root: Element,
+  target: Element,
+): number[] | null {
+  if (root === target) return [];
+
+  const findPath = (parent: Element, parentPath: number[]): number[] | null => {
+    let persistedIndex = 0;
+    for (const child of Array.from(parent.children)) {
+      const candidates = child.hasAttribute("data-fmd-autofit-content")
+        ? Array.from(child.children)
+        : [child];
+      for (const candidate of candidates) {
+        const path = [...parentPath, persistedIndex];
+        if (candidate === target) return path;
+        const nestedPath = findPath(candidate, path);
+        if (nestedPath) return nestedPath;
+        persistedIndex += 1;
+      }
+    }
+    return null;
+  };
+
+  return findPath(root, []);
+}
+
 export function resolveElementPath(
   root: Element,
   path: number[],
@@ -250,6 +285,57 @@ export function resolveSlideAnimationTargets<T extends AnimationTarget>(
   targets: readonly T[],
 ): ResolvedAnimationTarget<T>[] | null {
   return resolveSlideAnimationTargetsWithDiagnostics(root, targets).resolved;
+}
+
+export function expandByParagraphAnimations<T extends AnimationTarget>(
+  root: Element,
+  animations: readonly T[],
+): T[] | null {
+  const resolved = resolveSlideAnimationTargets(root, animations);
+  if (!resolved) return null;
+
+  const expanded: T[] = [];
+  for (const { target, element } of resolved) {
+    if (!target.byParagraph) {
+      expanded.push(target);
+      continue;
+    }
+
+    const textObject = element.closest(".fmd-pptx-text");
+    const paragraphs = textObject
+      ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
+      : [];
+    if (paragraphs.length < 2) {
+      expanded.push(target);
+      continue;
+    }
+
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+      const elementPath = getElementPath(root, paragraph);
+      if (!elementPath) return null;
+      expanded.push({
+        ...target,
+        id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,
+        elementIndex: paragraphIndex,
+        elementPath,
+        byParagraph: false,
+      });
+    }
+  }
+  return expanded;
+}
+
+export function getElementAnimationValue(type: AnimationType): string {
+  switch (type) {
+    case "appear":
+      return "elem-appear 100ms ease both";
+    case "fade":
+      return "elem-appear 400ms ease both";
+    case "slide-up":
+      return "elem-slide-up 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
+    case "zoom":
+      return "elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
+  }
 }
 
 export function resolveSlideAnimationTargetsWithDiagnostics<

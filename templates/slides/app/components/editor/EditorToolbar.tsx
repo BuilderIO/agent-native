@@ -115,6 +115,8 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
+  /** Update the current slide's entrance transition from the overflow menu. */
+  onChangeSlideTransition?: (transition: SlideTransition) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -134,6 +136,15 @@ interface EditorToolbarProps {
 
 const TOOLBAR_ICON_BUTTON_CLASS =
   "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
+
+type SlideTransition = NonNullable<Slide["transition"]>;
+
+const SLIDE_TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
+  { value: "instant", labelKey: "editorToolbar.transition_instant" },
+  { value: "fade", labelKey: "editorToolbar.transition_fade" },
+  { value: "slide", labelKey: "editorToolbar.transition_slide" },
+  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
+];
 
 export default function EditorToolbar({
   deck,
@@ -164,6 +175,7 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
+  onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -231,6 +243,10 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
+  const activeSlideTransition: SlideTransition =
+    !currentSlide?.transition || currentSlide.transition === "none"
+      ? "instant"
+      : currentSlide.transition;
 
   useLayoutEffect(() => {
     const measuredWidth =
@@ -662,6 +678,30 @@ export default function EditorToolbar({
                       {t("editorToolbar.pinComments")}
                     </DropdownMenuItem>
                   )}
+                </DropdownMenuGroup>
+              </>
+            )}
+
+            {canEdit && currentSlide && onChangeSlideTransition && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>
+                  {t("editorToolbar.transition")}
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {SLIDE_TRANSITIONS.map((transition) => (
+                    <DropdownMenuItem
+                      key={transition.value}
+                      onSelect={() => onChangeSlideTransition(transition.value)}
+                      className={
+                        activeSlideTransition === transition.value
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      {t(transition.labelKey)}
+                    </DropdownMenuItem>
+                  ))}
                 </DropdownMenuGroup>
               </>
             )}

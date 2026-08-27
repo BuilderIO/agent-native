@@ -1581,6 +1581,11 @@ export default function DeckEditor() {
         onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
         onToggleTextBoxMode={toggleTextBoxMode}
+        onChangeSlideTransition={
+          canEdit && currentSlide
+            ? (transition) => updateSlide(id, currentSlide.id, { transition })
+            : undefined
+        }
         onDuplicateDeck={async () => {
           const newId = `deck-${nanoid()}`;
           const optimistic = await duplicateDeck(id, newId, undefined, () => {
