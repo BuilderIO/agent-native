@@ -66,6 +66,7 @@ export interface OrgMember {
   email: string;
   role: OrgRole;
   joinedAt: number;
+  name?: string | null;
 }
 
 export interface OrgPendingInvitation {

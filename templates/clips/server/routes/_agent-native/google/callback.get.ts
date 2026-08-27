@@ -1,6 +1,7 @@
 import {
   createOAuthSession,
   decodeOAuthState,
+  ensureGoogleAuthIdentity,
   getAppUrl,
   oauthCallbackResponse,
   oauthErrorPage,
@@ -119,6 +120,14 @@ async function handleGoogleSignInCallback(
         "Google account email is not verified. Please verify your email with Google and try again.",
       );
     }
+    const googleAccountId = typeof user.id === "string" ? user.id.trim() : "";
+    if (!googleAccountId) throw new Error("Could not get Google account id");
+    await ensureGoogleAuthIdentity({
+      email,
+      accountId: googleAccountId,
+      name: typeof user.name === "string" ? user.name : undefined,
+      image: typeof user.picture === "string" ? user.picture : undefined,
+    });
     await persistGoogleProfileImage(email, user.picture);
 
     const { hasProductionSession } = await resolveOAuthOwner(

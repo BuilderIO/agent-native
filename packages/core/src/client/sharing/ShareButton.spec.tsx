@@ -956,22 +956,25 @@ describe("ShareButton", () => {
   });
 
   it("requests the next org-member page from the share autocomplete", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({
-          members: [{ email: "first@builder.io", role: "member" }],
-          hasMore: true,
-          nextOffset: 25,
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          members: [{ email: "second@builder.io", role: "member" }],
-          hasMore: false,
-          nextOffset: null,
-        }),
-      );
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/_agent-native/org/members")) {
+        return Promise.resolve(
+          url.includes("offset=25")
+            ? Response.json({
+                members: [{ email: "second@builder.io", role: "member" }],
+                hasMore: false,
+                nextOffset: null,
+              })
+            : Response.json({
+                members: [{ email: "first@builder.io", role: "member" }],
+                hasMore: true,
+                nextOffset: 25,
+              }),
+        );
+      }
+      return Promise.resolve(Response.json({ image: null }));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await act(async () => {
@@ -1004,7 +1007,10 @@ describe("ShareButton", () => {
       await Promise.resolve();
     });
 
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=25");
+    const loadMoreCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("offset=25"),
+    );
+    expect(String(loadMoreCall?.[0])).toContain("offset=25");
     expect(container.textContent).toContain("second@builder.io");
   });
 

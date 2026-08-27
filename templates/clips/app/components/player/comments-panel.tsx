@@ -81,6 +81,7 @@ export interface CommentsPanelProps {
   comments: Comment[];
   currentMs: number;
   currentUserEmail?: string;
+  currentUserName?: string;
   enableComments: boolean;
   canComment: boolean;
   onSeek: (ms: number) => void;
@@ -118,6 +119,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     comments,
     currentMs,
     currentUserEmail,
+    currentUserName,
     enableComments,
     canComment,
     onSeek,
@@ -157,7 +159,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         threadId: vars.threadId ?? tempId,
         parentId: vars.parentId ?? null,
         authorEmail: currentUserEmail ?? "",
-        authorName: null,
+        authorName: currentUserName ?? null,
         content: vars.content,
         videoTimestampMs: vars.videoTimestampMs ?? 0,
         emojiReactionsJson: "{}",
@@ -355,8 +357,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
           videoTimestampMs: target.videoTimestampMs,
           threadId: target.threadId,
           parentId: target.id,
+          ...(currentUserName ? { authorName: currentUserName } : {}),
         }
-      : { recordingId, content: text, videoTimestampMs: currentMs };
+      : {
+          recordingId,
+          content: text,
+          videoTimestampMs: currentMs,
+          ...(currentUserName ? { authorName: currentUserName } : {}),
+        };
     // Clear composer state before firing the mutation so the UI feels instant —
     // the optimistic cache patch in onMutate puts the comment in the list.
     if (target) {
@@ -406,6 +414,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       draft={draft}
       currentMs={currentMs}
       currentUserEmail={currentUserEmail}
+      currentUserName={currentUserName}
       isSignedIn={isSignedIn}
       isSharePresentation={isSharePresentation}
       enableComments={enableComments}
@@ -586,6 +595,7 @@ function CommentComposer({
   draft,
   currentMs,
   currentUserEmail,
+  currentUserName,
   isSignedIn,
   isSharePresentation,
   enableComments,
@@ -597,6 +607,7 @@ function CommentComposer({
   draft: string;
   currentMs: number;
   currentUserEmail?: string;
+  currentUserName?: string;
   isSignedIn: boolean;
   isSharePresentation: boolean;
   enableComments: boolean;
@@ -606,6 +617,7 @@ function CommentComposer({
   onUnauthenticated?: (intent: "comment" | "react") => void;
 }) {
   const t = useT();
+  const avatarUrl = useAvatarUrl(currentUserEmail);
   if (!enableComments) {
     return (
       <div className="p-3 text-xs text-muted-foreground">
@@ -669,8 +681,14 @@ function CommentComposer({
       >
         {isSharePresentation ? (
           <Avatar className="mt-0.5 size-7 shrink-0">
+            {avatarUrl ? (
+              <AvatarImage
+                src={avatarUrl}
+                alt={currentUserName || currentUserEmail || "Anonymous"}
+              />
+            ) : null}
             <AvatarFallback className="bg-primary/15 text-xs text-primary">
-              {initials(currentUserEmail ?? "Anonymous")}
+              {initials(currentUserName || currentUserEmail || "Anonymous")}
             </AvatarFallback>
           </Avatar>
         ) : null}

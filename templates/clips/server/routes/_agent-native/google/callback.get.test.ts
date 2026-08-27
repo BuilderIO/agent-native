@@ -5,6 +5,7 @@ const putSetting = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/server", () => ({
   createOAuthSession: vi.fn(),
   decodeOAuthState: vi.fn(),
+  ensureGoogleAuthIdentity: vi.fn(),
   getAppUrl: vi.fn(),
   matchesDesktopOAuthBrowserBinding: vi.fn(),
   oauthCallbackResponse: vi.fn(),

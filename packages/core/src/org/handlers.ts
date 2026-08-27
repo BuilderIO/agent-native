@@ -45,6 +45,8 @@ import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
+import { isEmailDerivedName } from "../user-profile/shared.js";
+import { getUserProfiles } from "../user-profile/store.js";
 import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
@@ -319,11 +321,19 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     role: String(r.role) as OrgRole,
     joinedAt: Number(r.joinedAt ?? r.joined_at),
   }));
+  const profiles = await getUserProfiles(members.map((member) => member.email));
+  const membersWithProfiles = members.map((member) => {
+    const name = profiles.get(member.email.toLowerCase())?.name;
+    return {
+      ...member,
+      ...(name && !isEmailDerivedName(name, member.email) ? { name } : {}),
+    };
+  });
   return {
-    members,
+    members: membersWithProfiles,
     totalCount,
     hasMore,
-    nextOffset: hasMore ? offset + members.length : null,
+    nextOffset: hasMore ? offset + membersWithProfiles.length : null,
   };
 });
 

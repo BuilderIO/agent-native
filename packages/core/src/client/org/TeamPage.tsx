@@ -10,6 +10,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@agent-native/toolkit/ui/alert-dialog";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@agent-native/toolkit/ui/avatar";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import { Input } from "@agent-native/toolkit/ui/input";
@@ -91,6 +96,7 @@ import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
 import { useShareOrgMemberSearch } from "../sharing/share-controller-helpers.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
 import {
   useOrg,
@@ -471,6 +477,7 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
 interface MemberListItem {
   email: string;
   role: string;
+  name?: string | null;
 }
 
 interface PendingInviteListItem {
@@ -1218,6 +1225,7 @@ function MembersTableCard({
                 key={m.email}
                 email={m.email}
                 role={m.role}
+                name={m.name}
                 isCurrentUser={m.email === currentUserEmail}
                 currentUserRole={currentUserRole}
                 appRoles={appRoles}
@@ -1556,6 +1564,7 @@ function AppRoleControl({
 function MemberRow({
   email,
   role,
+  name,
   isCurrentUser,
   currentUserRole,
   appRoles,
@@ -1567,6 +1576,7 @@ function MemberRow({
 }: {
   email: string;
   role: string;
+  name?: string | null;
   isCurrentUser: boolean;
   currentUserRole: string | null;
   appRoles?: AppRolesDescriptor;
@@ -1581,6 +1591,8 @@ function MemberRow({
   const changeRole = useChangeMemberRole();
   const [editing, setEditing] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const avatarUrl = useAvatarUrl(email);
+  const displayName = name?.trim() || email;
 
   // Owners can manage admins + members. Admins can only manage members.
   // Owners themselves are immutable through this UI; current user can't
@@ -1601,11 +1613,19 @@ function MemberRow({
             aria-label={`Select ${email}`}
           />
         ) : null}
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground">
-          {memberInitials(email)}
-        </div>
+        <Avatar className="size-8 shrink-0">
+          {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
+          <AvatarFallback className="border border-border bg-background text-xs font-medium text-muted-foreground">
+            {memberInitials(displayName)}
+          </AvatarFallback>
+        </Avatar>
         <div className="min-w-0">
-          <div className="truncate text-sm">{email}</div>
+          <div className="truncate text-sm">{displayName}</div>
+          {displayName !== email ? (
+            <div className="truncate text-xs text-muted-foreground">
+              {email}
+            </div>
+          ) : null}
           {isCurrentUser && (
             <div className="mt-0.5 text-xs text-muted-foreground">
               {t("org.you")}

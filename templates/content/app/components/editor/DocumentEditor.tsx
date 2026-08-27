@@ -861,7 +861,7 @@ function DocumentEditorBody({
   const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = session?.email
     ? {
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
         avatarUrl: currentUserAvatarUrl ?? undefined,

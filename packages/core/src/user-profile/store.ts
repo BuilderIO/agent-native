@@ -5,6 +5,7 @@ import {
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 import {
   normalizeUserProfileName,
+  resolveUserProfileName,
   USER_PROFILE_SETTING_KEY,
   type UserProfile,
 } from "./shared.js";
@@ -21,11 +22,35 @@ export async function getUserProfile(email: string): Promise<UserProfile> {
   const authUser = await getAuthUser(email);
   const authName = authUser?.user.name;
   const storedName = typeof stored?.name === "string" ? stored.name : null;
+  const name = resolveUserProfileName(email, storedName, authName);
 
   return {
     email,
-    name: normalizeUserProfileName(storedName ?? authName, email),
+    name: normalizeUserProfileName(name, email),
   };
+}
+
+export async function getUserProfiles(
+  emails: readonly string[],
+): Promise<Map<string, UserProfile>> {
+  const uniqueEmails = Array.from(
+    new Set(
+      emails
+        .map((email) => email.trim())
+        .filter(Boolean)
+        .map((email) => email.toLowerCase()),
+    ),
+  );
+  const results = await Promise.allSettled(
+    uniqueEmails.map(
+      async (email) => [email, await getUserProfile(email)] as const,
+    ),
+  );
+  return new Map(
+    results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    ),
+  );
 }
 
 export async function updateUserProfile(

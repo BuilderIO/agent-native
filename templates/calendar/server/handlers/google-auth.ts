@@ -11,6 +11,7 @@ import {
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
@@ -109,6 +110,7 @@ async function exchangeIdentityCode(
   email: string;
   id?: string;
   name?: string;
+  picture?: string;
 }> {
   const credentials = resolveGoogleSignInCredentials();
   if (!credentials) {
@@ -151,6 +153,7 @@ async function exchangeIdentityCode(
     email,
     id: typeof user.id === "string" ? user.id : undefined,
     name: typeof user.name === "string" ? user.name : undefined,
+    picture: typeof user.picture === "string" ? user.picture : undefined,
   };
 }
 
@@ -401,6 +404,15 @@ export const handleGoogleCallback = defineEventHandler(
 
       if (!addAccount) {
         const identity = await exchangeIdentityCode(code, redirectUri);
+        if (!identity.id) {
+          throw new Error("Could not get Google account id");
+        }
+        await ensureGoogleAuthIdentity({
+          email: identity.email,
+          accountId: identity.id,
+          name: identity.name,
+          image: identity.picture,
+        });
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,

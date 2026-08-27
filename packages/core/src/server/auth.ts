@@ -145,6 +145,7 @@ import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthInternalAdapter,
   getBetterAuthUserIdForEmail,
   getAuthSecret,
   getBetterAuth,
@@ -519,6 +520,28 @@ function frameworkSessionCookieNamesToClear(): string[] {
   return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
 }
 
+async function enrichLegacySessionIdentity(
+  session: AuthSession,
+): Promise<AuthSession> {
+  if (!getBetterAuthSync() || !session.email) return session;
+  const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
+  if (!adapter) return session;
+  const existing = await adapter
+    .findUserByEmail(session.email, { includeAccounts: false })
+    // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
+    .catch(() => null);
+  if (!existing) return session;
+  return {
+    ...session,
+    ...(!session.name?.trim() && existing.user.name?.trim()
+      ? { name: existing.user.name.trim() }
+      : {}),
+    ...(!session.image?.trim() && existing.user.image?.trim()
+      ? { image: existing.user.image.trim() }
+      : {}),
+  };
+}
+
 function deleteCookieFromEveryScope(event: H3Event, name: string): void {
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
@@ -549,7 +572,7 @@ async function getLegacyCookieSession(
         );
       }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
-      return { email, token: value };
+      return enrichLegacySessionIdentity({ email, token: value });
     }
   }
   return null;
@@ -871,7 +894,9 @@ async function getBearerLegacySession(
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
   const email = await getSessionEmail(bearerToken);
-  return email ? { email, token: bearerToken } : null;
+  return email
+    ? enrichLegacySessionIdentity({ email, token: bearerToken })
+    : null;
 }
 
 /**
@@ -4463,6 +4488,7 @@ async function mountBetterAuthRoutes(
             email,
             accountId: googleAccountId,
             name: typeof user.name === "string" ? user.name : undefined,
+            image: typeof user.picture === "string" ? user.picture : undefined,
           });
           if (isNewGoogleUser === true) {
             setFirstRunOnboardingCookie(event);

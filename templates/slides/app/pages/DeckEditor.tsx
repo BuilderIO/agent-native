@@ -1348,7 +1348,7 @@ export default function DeckEditor() {
   const currentUser = session?.email
     ? {
         email: session.email,
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         color: emailToColor(session.email),
       }
     : undefined;
