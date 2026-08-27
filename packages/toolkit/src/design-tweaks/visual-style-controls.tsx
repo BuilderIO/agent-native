@@ -88,8 +88,11 @@ interface HsvaColor {
   a: number;
 }
 
-const CHECKERBOARD_IMAGE =
-  "linear-gradient(45deg, #d4d4d4 25%, transparent 25%), linear-gradient(-45deg, #d4d4d4 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d4d4d4 75%), linear-gradient(-45deg, transparent 75%, #d4d4d4 75%)";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_A = "#e5e5e5";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_B = "#f5f5f5";
+const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
 const FALLBACK_RGBA: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 
 function normalizeRgba(color: RgbaColor): RgbaColor {
@@ -242,6 +245,7 @@ function swatchBackground(value: string) {
   if (value === "transparent" || value === "rgba(0, 0, 0, 0)") {
     return {
       background: CHECKERBOARD_IMAGE,
+      backgroundColor: CHECKER_B,
       backgroundPosition: "0 0, 0 4px, 4px -4px, -4px 0",
       backgroundSize: "8px 8px",
     };
@@ -359,9 +363,8 @@ export function VisualSwatchControl({
                 "border-foreground/70 ring-2 ring-foreground/40 ring-offset-1 ring-offset-card",
             )}
             style={{
-              background: isTransparent
-                ? "linear-gradient(45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(-45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, hsl(var(--muted)) 75%), linear-gradient(-45deg, transparent 75%, hsl(var(--muted)) 75%)"
-                : swatch,
+              background: isTransparent ? CHECKERBOARD_IMAGE : swatch,
+              backgroundColor: isTransparent ? CHECKER_B : undefined,
               backgroundPosition: isTransparent
                 ? "0 0, 0 4px, 4px -4px, -4px 0"
                 : undefined,
@@ -605,6 +608,7 @@ export function VisualColorPicker({
                 min={0}
                 max={100}
                 backgroundImage={`${CHECKERBOARD_IMAGE}, linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1))`}
+                backgroundColor={CHECKER_B}
                 backgroundSize="8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%"
                 backgroundPosition="0 0, 0 4px, 4px -4px, -4px 0, 0 0"
                 onChange={(nextOpacity) => {
@@ -787,6 +791,7 @@ function VisualColorTrack({
   min,
   max,
   backgroundImage,
+  backgroundColor,
   backgroundSize,
   backgroundPosition,
   onChange,
@@ -796,6 +801,7 @@ function VisualColorTrack({
   min: number;
   max: number;
   backgroundImage: string;
+  backgroundColor?: string;
   backgroundSize?: string;
   backgroundPosition?: string;
   onChange: (value: number) => void;
@@ -860,7 +866,12 @@ function VisualColorTrack({
         draggingRef.current = false;
       }}
       className="relative h-3.5 cursor-pointer rounded-full border border-border/60 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:cursor-grabbing"
-      style={{ backgroundImage, backgroundSize, backgroundPosition }}
+      style={{
+        backgroundImage,
+        backgroundColor,
+        backgroundSize,
+        backgroundPosition,
+      }}
     >
       <span
         className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
