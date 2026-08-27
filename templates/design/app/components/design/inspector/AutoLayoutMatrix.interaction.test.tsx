@@ -108,7 +108,9 @@ describe("AutoLayoutMatrix Flow interactions", () => {
     expect(
       container.querySelector("[data-grid-track-readout]")?.textContent,
     ).toBe("3 × 2");
-    expect(container.querySelector('button[aria-label="2 × 1"]')).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="2 × 1"]'),
+    ).not.toBeNull();
     expect(
       container.querySelector('input[aria-label="Column gap"]'),
     ).not.toBeNull();

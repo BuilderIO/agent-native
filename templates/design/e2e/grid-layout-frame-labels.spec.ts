@@ -77,9 +77,7 @@ test.describe("grid layout and frame labels", () => {
     designId = await createGridFrameDesign(request, baseURL, "E2E Frame Label");
     await gotoEditor(page, designId);
 
-    const labels = designFrame(page).locator(
-      "[data-agent-native-frame-label]",
-    );
+    const labels = designFrame(page).locator("[data-agent-native-frame-label]");
     await expect(labels).toHaveCount(1);
     await expect(labels.first()).toHaveText("Hero Frame");
 
