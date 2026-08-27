@@ -1465,8 +1465,7 @@ function backgroundShorthand(
   // and a photo scaled DOWN with nearest aliases badly.
   const magnified = fills.some((f) => {
     if (f.type !== "IMAGE" || !node.size) return false;
-    const hex = hashToHex(f.image?.hash);
-    const intrinsic = hex ? intrinsicImageSize(imageUrl(hex, ctx)) : null;
+    const intrinsic = fillIntrinsicSize(hashToHex(f.image?.hash), ctx);
     if (!intrinsic || intrinsic.width <= 0 || intrinsic.height <= 0)
       return false;
     return (
@@ -1592,8 +1591,7 @@ function imageScaleModeCss(
     // a tile's dimensions and drew one stretched copy. Stating the intrinsic
     // size is the same pixels here and a recoverable tile there. When it
     // cannot be resolved `auto` stays and the exporter reports the lost tiling.
-    const hex = hashToHex(p.image?.hash);
-    const tile = hex ? intrinsicImageSize(imageUrl(hex, ctx)) : null;
+    const tile = fillIntrinsicSize(hashToHex(p.image?.hash), ctx);
     return {
       size:
         tile && tile.width > 0 && tile.height > 0
@@ -1695,18 +1693,35 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
  * read: "unknown" must not be reported as "not magnified", so the caller only
  * ever switches sampling on a size it actually measured.
  */
-function intrinsicImageSize(
-  url: string,
+/**
+ * An image fill's intrinsic size: the map decoded from bytes at import time
+ * first, then the URL parser for the `data:` URLs the harness supplies. Null
+ * means "cannot tell", which callers must keep distinct from a real size.
+ */
+function fillIntrinsicSize(
+  hashHex: string | null,
+  ctx: Ctx,
 ): { width: number; height: number } | null {
-  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
-    url,
+  if (!hashHex) return null;
+  return (
+    ctx.imageSizes.get(hashHex) ?? intrinsicImageSize(imageUrl(hashHex, ctx))
   );
-  if (!match) return null;
-  // No try/catch: base64 decoding does not throw in Node, it drops invalid
-  // characters — so a short/garbled buffer simply fails the length checks
-  // below and reports "cannot tell" rather than a wrong size.
-  const bytes = base64ToBytes(match[2]!);
-  if (match[1] === "png") {
+}
+
+/**
+ * A PNG or JPEG's intrinsic pixel size, read from its own header.
+ *
+ * Returns null for anything it cannot decode — including WebP and GIF — which
+ * callers must treat as "cannot tell", never as a size of zero. Exported so
+ * the import driver can size images it holds as BYTES: reading the size out of
+ * a URL only ever worked for the `data:` URLs the measurement harness
+ * supplies, and every production caller passes an uploaded https URL.
+ */
+export function imageSizeFromBytes(
+  bytes: Uint8Array,
+  kind: "png" | "jpeg",
+): { width: number; height: number } | null {
+  if (kind === "png") {
     // 8-byte signature, then the IHDR chunk: length(4) type(4) width(4) height(4).
     if (bytes.length < 24 || readAscii(bytes, 12, 16) !== "IHDR") return null;
     return { width: readU32BE(bytes, 16), height: readU32BE(bytes, 20) };
@@ -1732,6 +1747,34 @@ function intrinsicImageSize(
     offset += 2 + length;
   }
   return null;
+}
+
+/** Sniff the container from the first bytes, so a caller with raw bytes and no
+ *  declared MIME type still gets an answer instead of a guess. */
+export function imageSizeFromUnknownBytes(
+  bytes: Uint8Array,
+): { width: number; height: number } | null {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50)
+    return imageSizeFromBytes(bytes, "png");
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8)
+    return imageSizeFromBytes(bytes, "jpeg");
+  return null;
+}
+
+function intrinsicImageSize(
+  url: string,
+): { width: number; height: number } | null {
+  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
+    url,
+  );
+  if (!match) return null;
+  // No try/catch: base64 decoding does not throw in Node, it drops invalid
+  // characters — so a short/garbled buffer simply fails the length checks in
+  // the decoder and reports "cannot tell" rather than a wrong size.
+  return imageSizeFromBytes(
+    base64ToBytes(match[2]!),
+    match[1] === "png" ? "png" : "jpeg",
+  );
 }
 
 function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
@@ -2844,6 +2887,10 @@ interface Ctx {
   blobs: Uint8Array[];
   /** Hex hash -> on-disk filename (e.g. `<hash>` or `<hash>.png`). */
   imageMap: Map<string, string>;
+  /** Intrinsic pixel size per image hash, decoded from the image BYTES at
+   *  import time. Reading it back out of the URL only ever worked for the
+   *  `data:` URLs the harness supplies; production passes uploaded https. */
+  imageSizes: Map<string, { width: number; height: number }>;
   /**
    * `family|style` -> the line-height ratio Figma resolves AUTO to for that
    * font, derived from the document's own boxes. See `deriveAutoLineHeights`.
@@ -4393,6 +4440,8 @@ export interface RenderHtmlOptions {
   imageRefBase?: string;
   /** Pre-built `hash -> filename` map for image references. */
   imageMap?: Map<string, string>;
+  /** Intrinsic pixel size per image hash, from the decoded image bytes. */
+  imageSizes?: Map<string, { width: number; height: number }>;
   /** Safe URL used when an embedded image was omitted (for example no storage provider). */
   missingImageUrl?: string;
   /**
@@ -4692,6 +4741,9 @@ export function renderHtmlTemplates(
     imageRefBase: options.imageRefBase,
     blobs,
     imageMap: options.imageMap ?? new Map<string, string>(),
+    imageSizes:
+      options.imageSizes ??
+      new Map<string, { width: number; height: number }>(),
     autoLineHeight: deriveAutoLineHeights(nodes),
     missingImageUrl: options.missingImageUrl,
     trackUnresolvedImageRefs: options.trackUnresolvedImageRefs,

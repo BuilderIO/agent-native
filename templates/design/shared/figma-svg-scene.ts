@@ -103,6 +103,9 @@ export type FigmaSvgFillLayer =
        * rather than drawn as a single stretched copy.
        */
       repeat?: boolean;
+      /** `repeat-x` / `repeat-y`: tiles on one axis, which an SVG pattern
+       *  cannot express — reported rather than silently repeated on both. */
+      repeatAxis?: string;
     }
   /** A background-image layer with no SVG equivalent (conic, repeating, …). */
   | { kind: "unsupported"; css: string };
@@ -1141,6 +1144,16 @@ function resolveFillPaint(
   // while the tile itself is anchored to the box. This must precede the CROP
   // branch below, which would otherwise claim the same explicit pixel size and
   // draw one copy.
+  if (fill.repeatAxis) {
+    // An SVG pattern repeats on both axes; there is no one-axis form. Saying
+    // so beats emitting a full tiling that covers rows the design leaves bare.
+    ctx.report.approximated.push({
+      node: node.name || node.id,
+      note:
+        `Image fill repeats on one axis (background-repeat: ${fill.repeatAxis}), ` +
+        `which an SVG pattern cannot express; exported as a single non-repeating image.`,
+    });
+  }
   if (fill.repeat) {
     if (!fill.sizePx) {
       // `background-size: auto` leaves the tile size unknown here. Falling
@@ -1952,13 +1965,20 @@ function imageFitFromSize(
   sizePx?: { width: number; height: number };
   offsetPx?: { x: number; y: number };
   repeat?: boolean;
+  repeatAxis?: string;
 } {
   const value = (size ?? "").trim();
-  // Any repeating value means a Figma TILE. `no-repeat` is what the other four
-  // scale modes emit, and an absent value is CSS's `repeat` initial — but an
-  // absent value here means "the collector read no background-repeat at all",
-  // which is not the same fact, so only an explicit repeat tiles.
-  const tiles = /^repeat(-x|-y)?$/.test((repeat ?? "").trim());
+  // Only a TWO-axis `repeat` is a Figma TILE, which is what an SVG pattern
+  // reproduces. `repeat-x` / `repeat-y` tile on one axis and would come back
+  // repeating on both, so they are deliberately excluded here and reported by
+  // `imageFillMarkup` instead. `no-repeat` is what the other four scale modes
+  // emit; an absent value is CSS's `repeat` initial, but absent here means
+  // "the collector read no background-repeat at all", which is a different
+  // fact, so only an explicit value tiles.
+  const repeatValue = (repeat ?? "").trim();
+  const tiles = repeatValue === "repeat";
+  const oneAxisRepeat =
+    repeatValue === "repeat-x" || repeatValue === "repeat-y";
   const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
     Number(m[1]),
   );
@@ -1971,6 +1991,9 @@ function imageFitFromSize(
     // matters is that size. `auto` (the importers' TILE size) leaves it unknown
     // here; `imageFillMarkup` reports that rather than guessing a fit.
     return { fit: "stretch", sizePx: explicitPx, repeat: true };
+  }
+  if (oneAxisRepeat) {
+    return { fit: "cover", repeatAxis: repeatValue };
   }
   if (value === "contain") return { fit: "contain" };
   if (value === "cover" || value === "" || value === "auto") {
@@ -1989,6 +2012,38 @@ function imageFitFromSize(
     };
   }
   return { fit: "cover" };
+}
+
+/**
+ * Server-side twin of the in-page `gradientHasUnreadableStop`, for ONE layer.
+ * The walk's copy must live inside `collectRawFigmaSvgScene` (it is serialized
+ * into the page); this one runs where the fill layers are built. Both answer
+ * the same question: after stripping the single trailing percentage that
+ * `parseColorStop` strips, is a number still glued to the colour?
+ */
+function gradientLayerHasUnreadableStop(layer: string): boolean {
+  const open = layer.indexOf("(");
+  if (open < 0) return false;
+  const inner = layer.slice(open + 1, layer.lastIndexOf(")"));
+  for (const raw of splitTopLevelCommas(inner)) {
+    const part = raw.trim();
+    if (!part) continue;
+    if (
+      /^(to\s|[-\d.]+(deg|rad|grad|turn)\b|circle\b|ellipse\b|at\s|closest|farthest)/i.test(
+        part,
+      )
+    )
+      continue;
+    const withoutPosition = part.replace(/\s*(-?[\d.]+)%\s*$/, "").trim();
+    if (!withoutPosition) return true;
+    if (
+      /(^|\s)-?[\d.]+(px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
+        withoutPosition,
+      )
+    )
+      return true;
+  }
+  return false;
 }
 
 export function buildFillLayersFromComputedStyle(
@@ -2013,6 +2068,16 @@ export function buildFillLayersFromComputedStyle(
       // background export with a phantom omission and a phantom `fill="none"`
       // shape. Only the WHOLE value being "none" short-circuits above.
       if (part === "none") continue;
+      // A stop whose position is not a percentage leaves the length glued to
+      // the colour, and `stop-color` given that is invalid and renders BLACK.
+      // The leaf case is rasterized in the DOM walk, which preserves the
+      // appearance; a container cannot be (it would flatten real children), so
+      // the layer is marked unsupported here and reported. An unpainted layer
+      // and a black one are both wrong, but only one of them is traceable.
+      if (/gradient\(/i.test(part) && gradientLayerHasUnreadableStop(part)) {
+        layers.push({ kind: "unsupported", css: part.trim() });
+        continue;
+      }
       if (part.startsWith("linear-gradient")) {
         const parsed = parseComputedLinearGradient(part);
         if (parsed) {
@@ -2521,12 +2586,21 @@ export function collectRawFigmaSvgScene(
           )
         )
           continue;
-        // A percentage-positioned stop, or a bare colour with no position at
-        // all, are both fine — the latter gets spread by the stop normalizer.
-        if (/(-?[\d.]+)%\s*$/.test(part)) continue;
-        // What is not fine is a residual length still glued to the colour, or
-        // a bare numeric colour hint standing where a colour should be.
-        if (/(^|\s)-?[\d.]+(px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(part))
+        // The parser strips ONE trailing percentage and treats the rest as the
+        // colour, so checking only "ends in %" passes `<colour> 0 50%` — the
+        // two-position form — and leaves `<colour> 0` as the colour. Strip the
+        // same one position the parser does, then ask whether what remains is
+        // still carrying a number.
+        const withoutPosition = part.replace(/\s*(-?[\d.]+)%\s*$/, "").trim();
+        if (!withoutPosition) return true;
+        // A bare colour with no position at all is fine — the stop normalizer
+        // spreads those. A residual length or number still glued to the colour
+        // is not: it becomes an invalid `stop-color`.
+        if (
+          /(^|\s)-?[\d.]+(px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
+            withoutPosition,
+          )
+        )
           return true;
       }
     }

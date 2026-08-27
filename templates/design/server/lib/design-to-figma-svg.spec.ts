@@ -1277,6 +1277,47 @@ describe("background-image sizing on export", () => {
     ]);
   });
 
+  it("does not treat a one-axis repeat as a two-axis tile", () => {
+    // An SVG pattern repeats on both axes and has no one-axis form, so
+    // `repeat-x` coming back tiled vertically would cover rows the design
+    // leaves bare. Figma's TILE is always both axes; a one-axis repeat only
+    // reaches here from agent-authored HTML, and is reported, not guessed.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "0% 0%",
+      "repeat-x",
+    );
+    expect(layers).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "cover",
+        repeatAxis: "repeat-x",
+      },
+    ]);
+  });
+
+  it("reports a two-position gradient stop instead of painting it black", () => {
+    // `<colour> 0 50%` ends in a percentage, so an "ends in %" check passes it
+    // — but the parser strips only `50%` and leaves `<colour> 0` as the
+    // colour, which is an invalid `stop-color` that renders black.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(238, 238, 238) 0 50%, rgb(255, 255, 255) 50% 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
+  });
+
+  it("still reads ordinary percentage-positioned gradient stops", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(238, 238, 238) 0%, rgb(255, 255, 255) 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["linear-gradient"]);
+  });
+
   it("does not treat the other scale modes' `no-repeat` as a tile", () => {
     const layers = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
