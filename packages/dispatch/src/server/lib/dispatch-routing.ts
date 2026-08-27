@@ -5,10 +5,13 @@ const STRUCTURED_INTAKE_PATTERNS = [
 ];
 
 const ONE_PAGER_CREATION_PATTERN =
-  /\b(?:assemble|build|create|design|draft|make|prepare|produce|write|put\s+together)\b.{0,64}\bone[-\s]?page(?:r)?s?\b/i;
+  /\b(?:assemble|build|create|design|draft|generate|make|prepare|produce|write|put\s+together)\b.{0,64}\bone[-\s]?page(?:r)?s?\b/i;
+
+const EXPLICIT_PLAN_PATTERN =
+  /\b(?:interactive|visual)\s+(?:plan|prototype|recap)\b/i;
 
 const VISUAL_DESIGN_PATTERNS = [
-  /\b(?:build|design|redesign|create|make|generate|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
+  /\b(?:assemble|build|design|redesign|create|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
   /\b(?:visual|ui|website|product|brand)\s+design\b/i,
 ];
 
@@ -26,6 +29,14 @@ export function dispatchIntegrationRoutingHint(
   // Route by the requested artifact type, not organization-specific names.
   // Exact destinations, schemas, and required fields come from workspace
   // resources such as shared LEARNINGS.md rather than this classifier.
+  if (EXPLICIT_PLAN_PATTERN.test(normalized)) {
+    return {
+      targetAgent: "plan",
+      instruction:
+        "Use Plan only because the user explicitly requested an interactive or visual plan, prototype, or recap.",
+    };
+  }
+
   if (STRUCTURED_INTAKE_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return {
       instruction:

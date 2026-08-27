@@ -57,6 +57,8 @@ describe("dispatchIntegrationRoutingHint", () => {
     "Design a visual one-pager for the new feature",
     "Design a one-page website for the launch",
     "Build a one-page website for the launch",
+    "Prepare a one-page website for the launch",
+    "Draft a one-page website for the launch",
     "Generate a visual mockup for the campaign",
   ])("preserves visual-design routing for one-pagers: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
@@ -70,6 +72,14 @@ describe("dispatchIntegrationRoutingHint", () => {
       expect(dispatchIntegrationRoutingHint(text)).toBeUndefined();
     },
   );
+
+  it("keeps explicit interactive visual plan requests on Plan", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Create a one-page interactive visual plan for the launch",
+      ),
+    ).toMatchObject({ targetAgent: "plan" });
+  });
 
   it("lets unrelated domain questions use normal agent discovery", () => {
     expect(
