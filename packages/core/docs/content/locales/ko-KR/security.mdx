@@ -350,9 +350,11 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 
 ## 인바운드 Webhooks {#webhooks}
 
-인바운드 웹훅 핸들러(Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub)는 프로덕션에서 기본적으로 위조된 요청을 거부합니다. 해당 서명 비밀 env var가 누락되면 핸들러는 수락 및 전달 대신 401을 반환합니다.
+인바운드 웹훅 핸들러(Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom)는 프로덕션에서 기본적으로 위조된 요청을 거부합니다. 해당 서명 비밀 env var가 누락되면 핸들러는 수락 및 전달 대신 401을 반환합니다.
 
 이것은 이전에는 "경고 및 수락" 입장이었습니다. 그렇지 않으면 놓칠 수 있는 비밀을 설정하거나 로컬 개발자 전용 `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1`를 사용하여 이전 동작을 다시 선택하세요. 통합별 서명 비밀 변수는 [Messaging](/docs/messaging#env-vars)를 참조하세요.
+
+Google Drive `changes.watch` 알림은 이 일반 어댑터 게이트를 통과하지 않습니다. 본문이 없는 불투명한 요청이므로 프레임워크는 채널별로 임의 토큰을 등록하고 변경사항을 가져오기 전에 `X-Goog-Channel-ID`, `X-Goog-Channel-Token`, `X-Goog-Resource-ID` 헤더를 확인합니다. 이는 Pub/Sub 메시지가 아닌 Drive의 직접 알림이며 Pub/Sub OIDC bearer 토큰을 포함하지 않습니다.
 
 ## 제작 체크리스트 {#production-checklist}
 
