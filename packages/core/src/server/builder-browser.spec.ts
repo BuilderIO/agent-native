@@ -118,6 +118,32 @@ function createBuilderBrowserEvent(
   } as unknown as H3Event;
 }
 
+const BUILDER_ORIGIN_ENV_KEYS = [
+  "WORKSPACE_OAUTH_ORIGIN",
+  "VITE_WORKSPACE_OAUTH_ORIGIN",
+  "APP_URL",
+  "VITE_APP_URL",
+  "BETTER_AUTH_URL",
+  "VITE_BETTER_AUTH_URL",
+  "URL",
+  "DEPLOY_URL",
+  "WORKSPACE_GATEWAY_URL",
+  "VITE_WORKSPACE_GATEWAY_URL",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+  "BUILDER_PREVIEW_URL",
+  "VITE_BUILDER_PREVIEW_URL",
+] as const;
+
+function clearBuilderOriginEnv(): void {
+  for (const key of BUILDER_ORIGIN_ENV_KEYS) delete process.env[key];
+}
+
+function setOnlyBuilderAppUrl(origin: string): void {
+  clearBuilderOriginEnv();
+  process.env.APP_URL = origin;
+}
+
 describe("Builder callback CSRF state", () => {
   const originalEnv = { ...process.env };
 
@@ -454,7 +480,7 @@ describe("Builder callback CSRF state", () => {
 
     it("keeps Builder-hosted app connect callbacks on the active app origin", () => {
       process.env.NODE_ENV = "production";
-      process.env.APP_URL = "https://default-template.netlify.app";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
       const event = createBuilderBrowserEvent({
         host: "127.0.0.1:8080",
         "x-forwarded-host": "the-grand-tour.builder.cloud",
@@ -485,7 +511,7 @@ describe("Builder callback CSRF state", () => {
 
     it("ignores a spoofed Builder Cloud forwarded host from a direct request", () => {
       process.env.NODE_ENV = "production";
-      process.env.APP_URL = "https://default-template.netlify.app";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
       const event = createBuilderBrowserEvent({
         host: "app.example.com",
         "x-forwarded-host": "attacker.builder.cloud",
@@ -502,7 +528,7 @@ describe("Builder callback CSRF state", () => {
 
     it("ignores a forwarded Builder Cloud host without a proxy host", () => {
       process.env.NODE_ENV = "production";
-      process.env.APP_URL = "https://default-template.netlify.app";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
       const event = createBuilderBrowserEvent({
         "x-forwarded-host": "attacker.builder.cloud",
         "x-forwarded-proto": "https",
@@ -518,7 +544,7 @@ describe("Builder callback CSRF state", () => {
 
     it("ignores a forwarded Builder Cloud host from an untrusted loopback host", () => {
       process.env.NODE_ENV = "production";
-      process.env.APP_URL = "https://default-template.netlify.app";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
       const event = createBuilderBrowserEvent(
         {
           host: "127.0.0.1:8080",
@@ -538,16 +564,7 @@ describe("Builder callback CSRF state", () => {
 
     it("does not reuse a rejected forwarded host without a configured origin", () => {
       process.env.NODE_ENV = "production";
-      for (const key of [
-        "APP_URL",
-        "VITE_APP_URL",
-        "BETTER_AUTH_URL",
-        "VITE_BETTER_AUTH_URL",
-        "WORKSPACE_GATEWAY_URL",
-        "VITE_WORKSPACE_GATEWAY_URL",
-      ]) {
-        delete process.env[key];
-      }
+      clearBuilderOriginEnv();
       const event = createBuilderBrowserEvent(
         {
           host: "127.0.0.1:8080",
@@ -748,7 +765,7 @@ describe("Builder callback CSRF state", () => {
     it("uses a Builder-accepted gateway callback for preview-host cli-auth redirects", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
-      process.env.APP_URL = "https://agent-workspace.builder.io";
+      setOnlyBuilderAppUrl("https://agent-workspace.builder.io");
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
       process.env.APP_BASE_PATH = "/dispatch";
 
@@ -792,6 +809,7 @@ describe("Builder callback CSRF state", () => {
     it("keeps Builder preview connect URLs on the preview deployment in workspace mode", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
+      clearBuilderOriginEnv();
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
       process.env.APP_BASE_PATH = "/dispatch";
 
@@ -810,6 +828,7 @@ describe("Builder callback CSRF state", () => {
     it("uses Fusion's public preview origin instead of a loopback gateway for Builder connect", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
+      clearBuilderOriginEnv();
       process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
       process.env.FUSION_ENV_ORIGIN =
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz";
@@ -968,7 +987,7 @@ describe("Builder callback CSRF state", () => {
     it("returns users to the preview opener after a gateway callback", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
-      process.env.APP_URL = "https://agent-workspace.builder.io";
+      setOnlyBuilderAppUrl("https://agent-workspace.builder.io");
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
       process.env.APP_BASE_PATH = "/dispatch";
 
@@ -992,6 +1011,7 @@ describe("Builder callback CSRF state", () => {
     it("falls back to the configured public origin for untrusted hosts", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
+      clearBuilderOriginEnv();
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
 
       const event = createBuilderBrowserEvent({
@@ -1011,16 +1031,7 @@ describe("Builder callback CSRF state", () => {
       // Builder redirects to its own dead http://localhost:10110/auth.
       delete process.env.NODE_ENV;
       process.env.PORT = "8080";
-      for (const key of [
-        "APP_URL",
-        "VITE_APP_URL",
-        "BETTER_AUTH_URL",
-        "VITE_BETTER_AUTH_URL",
-        "WORKSPACE_GATEWAY_URL",
-        "VITE_WORKSPACE_GATEWAY_URL",
-      ]) {
-        delete process.env[key];
-      }
+      clearBuilderOriginEnv();
 
       const event = createBuilderBrowserEvent({
         host: "127.0.0.1:8080",
@@ -1036,16 +1047,7 @@ describe("Builder callback CSRF state", () => {
     it("does not use the localhost cli-auth fallback in production", () => {
       process.env.NODE_ENV = "production";
       process.env.PORT = "8080";
-      for (const key of [
-        "APP_URL",
-        "VITE_APP_URL",
-        "BETTER_AUTH_URL",
-        "VITE_BETTER_AUTH_URL",
-        "WORKSPACE_GATEWAY_URL",
-        "VITE_WORKSPACE_GATEWAY_URL",
-      ]) {
-        delete process.env[key];
-      }
+      clearBuilderOriginEnv();
 
       const event = createBuilderBrowserEvent({
         host: "127.0.0.1:8080",
