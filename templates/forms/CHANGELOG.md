@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Forms are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-25
+
+### Fixed
+
+- Forms agents now retry rejected field edits with valid field objects.
+
+## 2026-08-22
+
+### Fixed
+
+- The Extensions link now opens the Extensions tab in Settings instead of silently landing on General.
+
 ## 2026-08-11
 
 ### Improved

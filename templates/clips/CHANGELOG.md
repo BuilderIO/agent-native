@@ -3,6 +3,48 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-26
+
+### Fixed
+
+- Detected Zoom and Teams calls no longer create duplicate meetings or leave a prompt on screen after recording starts
+
+## 2026-08-25
+
+### Fixed
+
+- Skipping to the middle or end of a long recording no longer sticks on buffering
+
+## 2026-08-24
+
+### Improved
+
+- Shared Clips now expose agent-readable transcript and frame metadata from public links.
+
+### Fixed
+
+- Recording from the Chrome extension no longer dead-ends on "Permission dismissed" when Chrome has quietly dropped the extension's microphone or camera access: Clips now reopens the permission page and starts the recording once you allow it again.
+- Muted microphone alerts now return you to recording setup before recording starts.
+
+## 2026-08-23
+
+### Fixed
+
+- Asking the agent what is in your library or shared clips no longer fails on the first request right after the app starts.
+
+## 2026-08-22
+
+### Fixed
+
+- The Chrome extension no longer records tab/system audio when "Include microphone" is turned off.
+- The recordings library no longer returns an error on the first request right after the app starts.
+
+## 2026-08-21
+
+### Fixed
+
+- The camera bubble now recovers on its own when macOS refuses to start its video, instead of sitting as a black circle until you clicked it.
+
 ## 2026-08-20
 
 ### Improved
@@ -21,6 +63,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Clips Nightly builds are available for trying the latest updates.
+
+### Improved
+
+- Desktop Settings is tighter and quicker to scan: General, Recording, Meetings, and Dictation each hold one short card where every setting says what it actually does, permissions and update status moved into General, and rarely-needed controls like the server URL, transcription engine, and region guides now live under a new Advanced tab, and Rewind gets a settings tab of its own.
 
 ### Fixed
 
