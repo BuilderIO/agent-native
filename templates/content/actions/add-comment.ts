@@ -50,6 +50,7 @@ function displayNameFromEmail(email: string): string {
 export default defineAction({
   description:
     "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. For new threads, omit threadId.",
+  deferLoading: false,
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
     content: z.string().optional().describe("Comment text (required)"),

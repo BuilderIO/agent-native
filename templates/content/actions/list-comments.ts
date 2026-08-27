@@ -33,6 +33,7 @@ function parseMentions(value: string | null): Mention[] {
 
 export default defineAction({
   description: "List all comments on a document, grouped by thread.",
+  deferLoading: false,
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
   }),
