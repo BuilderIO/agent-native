@@ -790,6 +790,7 @@ function imageScaleModeCss(
   paint: FigmaPaint,
   node: FigmaNode,
   tracker: FidelityTracker,
+  box: { width: number; height: number },
 ): { size: string; position: string; repeat: string } {
   const transform = paint.imageTransform;
   const isAxisAligned =
@@ -809,8 +810,35 @@ function imageScaleModeCss(
       return { size: "contain", position: "center", repeat: "no-repeat" };
     case "TILE":
       return { size: "auto", position: "top left", repeat: "repeat" };
-    case "STRETCH":
+    case "STRETCH": {
+      // STRETCH plus an `imageTransform` is Figma's CROP mode: the matrix
+      // picks a sub-rectangle of the image — origin (tx, ty), size (a, d) in
+      // the image's own normalized space — and stretches THAT to fill the box.
+      // Ignoring it draws the whole image instead, which reads as the artwork
+      // zoomed out: every illustration on the Positivus services cards came
+      // out visibly smaller than Figma draws it, and it was the largest
+      // non-text difference left on that page.
+      const a = transform?.[0][0];
+      const d = transform?.[1][1];
+      if (
+        isAxisAligned &&
+        typeof a === "number" &&
+        typeof d === "number" &&
+        a > 1e-6 &&
+        d > 1e-6 &&
+        box.width > 0 &&
+        box.height > 0
+      ) {
+        const displayWidth = box.width / a;
+        const displayHeight = box.height / d;
+        return {
+          size: `${round(displayWidth, 2)}px ${round(displayHeight, 2)}px`,
+          position: `${round(-(transform![0][2] ?? 0) * displayWidth, 2)}px ${round(-(transform![1][2] ?? 0) * displayHeight, 2)}px`,
+          repeat: "no-repeat",
+        };
+      }
       return { size: "100% 100%", position: "center", repeat: "no-repeat" };
+    }
     default:
       return { size: "cover", position: "center", repeat: "no-repeat" };
   }
@@ -916,7 +944,7 @@ function buildFills(
         );
         continue;
       }
-      const mode = imageScaleModeCss(fill, node, tracker);
+      const mode = imageScaleModeCss(fill, node, tracker, box);
       layer = { image: `url("${url}")`, ...mode };
       // Only when magnified: `pixelated` is nearest in BOTH directions, and a
       // photo scaled down with nearest aliases badly. A small tolerance keeps

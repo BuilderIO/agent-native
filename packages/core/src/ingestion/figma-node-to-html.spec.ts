@@ -767,3 +767,66 @@ describe("zero-thickness vector geometry", () => {
     expect(html).toContain('viewBox="0 0 20 10"');
   });
 });
+
+describe("Figma's image crop (STRETCH with an imageTransform)", () => {
+  // STRETCH plus an imageTransform is Figma's Crop mode: the matrix picks a
+  // sub-rectangle of the image — origin (tx, ty), size (a, d) in the image's
+  // own normalized space — and stretches THAT to fill the box. Ignoring it
+  // draws the whole image instead, which reads as the artwork zoomed out.
+  // Every illustration on the Positivus services cards came out visibly
+  // smaller than Figma draws it.
+  function cropped(transform?: number[][]): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Illustration",
+      type: "RECTANGLE",
+      absoluteBoundingBox: box(0, 0, 200, 100),
+      fills: [
+        {
+          type: "IMAGE",
+          scaleMode: "STRETCH",
+          imageRef: "abc",
+          ...(transform ? { imageTransform: transform } : {}),
+        },
+      ],
+    } as FigmaNode;
+  }
+  const urls = { imageFillUrls: { abc: "https://example.test/i.png" } };
+
+  it("zooms the box onto the cropped sub-rectangle", () => {
+    // Half the image's width and a quarter of its height, offset a tenth in.
+    const { html } = mapFigmaNodeToHtml(
+      cropped([
+        [0.5, 0, 0.1],
+        [0, 0.25, 0.2],
+      ]),
+      urls,
+    );
+    // 200 / 0.5 = 400 wide, 100 / 0.25 = 400 tall.
+    expect(html).toContain("background-size: 400px 400px");
+    // Origin pulled back by the crop offset in displayed pixels.
+    expect(html).toContain("background-position: -40px -80px");
+  });
+
+  it("stays a plain stretch when there is no transform", () => {
+    const { html } = mapFigmaNodeToHtml(cropped(), urls);
+    expect(html).toContain("background-size: 100% 100%");
+  });
+
+  // A rotated or skewed crop has no background-position equivalent at all, so
+  // it takes the raster fallback rather than being flattened to a stretch —
+  // a rendered PNG of the node is exact where a stretch would be wrong.
+  it("sends a rotated crop to the raster fallback instead of stretching it", () => {
+    const node = cropped([
+      [0.5, 0.3, 0.1],
+      [0.3, 0.25, 0.2],
+    ]);
+    const { html } = mapFigmaNodeToHtml(node, {
+      ...urls,
+      fallbackImageUrls: { "1:1": "https://example.test/rendered.png" },
+    });
+    expect(html).toContain("<img");
+    expect(html).toContain("rendered.png");
+    expect(html).not.toContain("background-size");
+  });
+});

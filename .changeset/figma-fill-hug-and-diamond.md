@@ -69,6 +69,15 @@ whose own box is 20x0 — a horizontal rule, or the arrow inside a "Learn more"
 button — disappeared silently. A collapsed axis now takes the stroke's own
 width, with the geometry centred on it.
 
+Figma's image CROP is now honoured. `scaleMode: STRETCH` with an
+`imageTransform` is Figma's Crop mode: the matrix picks a sub-rectangle of the
+image and stretches that to fill the box. The transform was being discarded and
+the whole image drawn instead, which reads as the artwork zoomed out — every
+illustration on a real services page came out visibly smaller than Figma draws
+it, and it was the largest non-text difference left on that page (4.04% ->
+3.52%). A rotated or skewed crop still takes the raster fallback, which is
+exact where a stretch would be wrong.
+
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
