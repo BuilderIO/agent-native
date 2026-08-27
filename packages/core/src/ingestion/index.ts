@@ -95,6 +95,7 @@ export {
   gradientAngleDegrees,
   mapFigmaNodeToHtml,
   textDecorationCss,
+  textUnderlinePositionCss,
   textTransformCss,
   type FidelityEntry,
   type FidelityLevel,

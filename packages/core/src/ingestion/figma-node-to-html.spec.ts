@@ -637,6 +637,47 @@ describe("a FILL child may shrink below its content", () => {
   });
 });
 
+describe("underline placement", () => {
+  it("puts an underline where Figma puts it, below the descender", () => {
+    // Measured on the typography fixture: Figma draws the rule at row 336
+    // against the browser default's 332 at an 18px font. `under` is the
+    // keyword for "below the descender", which is where Figma draws it.
+    const { html } = mapFigmaNodeToHtml(
+      {
+        id: "1:1",
+        name: "Link",
+        type: "TEXT",
+        absoluteBoundingBox: box(0, 0, 200, 24),
+        characters: "Underlined inline link text",
+        style: {
+          fontFamily: "Inter",
+          fontSize: 18,
+          lineHeightPx: 23,
+          textDecoration: "UNDERLINE",
+        },
+      } as FigmaNode,
+      {},
+    );
+    expect(html).toContain("text-decoration: underline");
+    expect(html).toContain("text-underline-position: under");
+  });
+
+  it("leaves undecorated text alone", () => {
+    const { html } = mapFigmaNodeToHtml(
+      {
+        id: "1:1",
+        name: "Label",
+        type: "TEXT",
+        absoluteBoundingBox: box(0, 0, 200, 24),
+        characters: "Plain",
+        style: { fontFamily: "Inter", fontSize: 18, lineHeightPx: 23 },
+      } as FigmaNode,
+      {},
+    );
+    expect(html).not.toContain("text-underline-position");
+  });
+});
+
 describe("which break characters Figma actually lays out", () => {
   // `characters` can carry breaks Figma does not draw as breaks: a real footer
   // stores "Get started for free.\rAdd your whole team…" and renders it as one

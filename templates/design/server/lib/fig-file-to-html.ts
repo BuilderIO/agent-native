@@ -19,6 +19,7 @@ import {
   remapLinearStopPosition,
   textDecorationCss,
   textTransformCss,
+  textUnderlinePositionCss,
 } from "./figma-node-to-html.js";
 
 export interface Guid {
@@ -2034,6 +2035,8 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (transform) out.textTransform = transform;
   const decoration = textDecorationCss(textDecoration as never);
   if (decoration) out.textDecoration = decoration;
+  const underlinePosition = textUnderlinePositionCss(textDecoration as never);
+  if (underlinePosition) out.textUnderlinePosition = underlinePosition;
   const fills = (
     ctx ? effectiveFillPaints(node, ctx) : node.fillPaints
   )?.filter((fill) => fill.visible !== false);

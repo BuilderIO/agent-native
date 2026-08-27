@@ -1286,6 +1286,22 @@ export function textTransformCss(
   }
 }
 
+/**
+ * Figma draws an underline lower than the browser's default does — measured on
+ * the typography fixture, row 336 against our 332 at an 18px font. `under`
+ * means "below the descender", which is where Figma puts it, and it closes 3
+ * of those 4 pixels.
+ *
+ * A keyword rather than a fitted offset on purpose: the exact position comes
+ * from the font's own `post` table, which is not readable at conversion time,
+ * and a number tuned to one sample would be a guess dressed as a measurement.
+ */
+export function textUnderlinePositionCss(
+  decoration: FigmaTypeStyle["textDecoration"],
+): string | undefined {
+  return decoration === "UNDERLINE" ? "under" : undefined;
+}
+
 export function textDecorationCss(
   decoration: FigmaTypeStyle["textDecoration"],
 ): string | undefined {
@@ -2706,6 +2722,9 @@ function buildNode(
         : undefined;
     baseStyles["text-transform"] = textTransformCss(style.textCase);
     baseStyles["text-decoration"] = textDecorationCss(style.textDecoration);
+    baseStyles["text-underline-position"] = textUnderlinePositionCss(
+      style.textDecoration,
+    );
     baseStyles["text-align"] = textAlignCss(style.textAlignHorizontal);
     const spanStyles: Record<string, string | undefined> = {};
     if (style.textAutoResize === "TRUNCATE") {
