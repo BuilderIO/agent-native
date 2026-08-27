@@ -98,4 +98,17 @@ describe("Better Auth migrations", () => {
     expect(rotation?.sql).toEqual({});
     expect(rotation?.run).toEqual(expect.any(Function));
   });
+
+  it("adds the nullable onboarding role column for Better Auth users", () => {
+    const onboardingRole = BETTER_AUTH_MIGRATIONS.find(
+      (migration) => migration.name === "better-auth-add-onboarding-role",
+    );
+    expect(onboardingRole?.version).toBe(5);
+    expect(onboardingRole?.sql).toMatchObject({
+      postgres: expect.stringContaining('"onboarding_role" TEXT'),
+      sqlite: expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS onboarding_role TEXT",
+      ),
+    });
+  });
 });

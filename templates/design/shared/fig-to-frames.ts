@@ -12,7 +12,10 @@ import {
   type DecodedFig,
   type DecodedFigImage,
 } from "../server/lib/fig-file-decoder.js";
-import { renderHtmlTemplates } from "../server/lib/fig-file-to-html.js";
+import {
+  imageSizeFromUnknownBytes,
+  renderHtmlTemplates,
+} from "../server/lib/fig-file-to-html.js";
 import type { ImportedDesignFile } from "../server/lib/import-design-files.js";
 import { utf8ByteLength } from "./fig-bytes.js";
 
@@ -97,6 +100,7 @@ async function uploadEmbeddedImages(
   uploader: ImageUploader,
 ): Promise<{
   imageMap: Map<string, string>;
+  imageSizes: Map<string, { width: number; height: number }>;
   uploaded: number;
   omitted: number;
   warnings: string[];
@@ -104,6 +108,18 @@ async function uploadEmbeddedImages(
   assertEmbeddedImageBudget(images);
 
   const imageMap = new Map<string, string>();
+  // Sized from the BYTES, here, while we still hold them. The renderer used to
+  // read intrinsic size back out of the fill's URL, which only ever matched a
+  // `data:` URL — and every production caller passes an uploaded https URL, so
+  // TILE sizing and nearest-neighbour magnification were dead outside the
+  // measurement harness. An undecodable container (WebP, GIF) stays absent,
+  // which the renderer reads as "cannot tell" rather than as a size.
+  const imageSizes = new Map<string, { width: number; height: number }>();
+  for (const image of images) {
+    const size = imageSizeFromUnknownBytes(image.bytes);
+    if (size && size.width > 0 && size.height > 0)
+      imageSizes.set(image.hash, size);
+  }
   const warnings: string[] = [];
   let omitted = 0;
   let storageUnavailable = false;
@@ -154,6 +170,7 @@ async function uploadEmbeddedImages(
 
   return {
     imageMap,
+    imageSizes,
     uploaded: imageMap.size,
     omitted,
     warnings,
@@ -217,6 +234,7 @@ export async function convertDecodedFigToEditableHtml(
       ? preliminary
       : renderHtmlTemplates(decoded.document, {
           imageMap: images.imageMap,
+          imageSizes: images.imageSizes,
           // Never persist a data URL or a broken relative link when an image
           // blob could not be uploaded. The warning makes the omission clear.
           missingImageUrl: "about:blank",

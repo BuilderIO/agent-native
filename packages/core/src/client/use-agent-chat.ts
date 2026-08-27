@@ -11,16 +11,19 @@ import {
 /**
  * Hook that wraps sendToAgentChat with a loading state.
  *
- * Returns [isGenerating, send] where:
+ * Returns [isGenerating, send, stopReason] where:
  * - isGenerating: true after send() is called, false when the
  *   agentNative.chatRunning event reports that the run has stopped
  * - send: wrapper around sendToAgentChat that sets isGenerating to true
+ * - stopReason: "stopped" when the user explicitly stopped the run
  */
 export function useAgentChatGenerating(): [
   boolean,
   (opts: AgentChatMessage) => string,
+  "stopped" | null,
 ] {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [stopReason, setStopReason] = useState<"stopped" | null>(null);
   const activeTabRef = useRef<string | null>(null);
   const activeSubmitRef = useRef<string | null>(null);
 
@@ -51,6 +54,9 @@ export function useAgentChatGenerating(): [
       ) {
         return;
       }
+      setStopReason(
+        !detail.isRunning && detail.reason === "stopped" ? "stopped" : null,
+      );
       if (!detail.isRunning && eventTabId === activeTabRef.current) {
         activeTabRef.current = null;
         activeSubmitRef.current = null;
@@ -77,9 +83,10 @@ export function useAgentChatGenerating(): [
     activeSubmitRef.current = submitMessageId;
     const tabId = sendToAgentChat({ ...opts, submitMessageId });
     activeTabRef.current = tabId;
+    setStopReason(null);
     setIsGenerating(true);
     return tabId;
   }, []);
 
-  return [isGenerating, send];
+  return [isGenerating, send, stopReason];
 }
