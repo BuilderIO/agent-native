@@ -422,12 +422,24 @@ already punished three changes on this branch that looked correct in isolation.
      to **1.052%**.
 
   All three together measure **export mean 3.053% -> 3.060%** — noise — while
-  fixing a visibly wrong skew. It is still not merged here: Untitled UI's
-  dashboard improves 0.08pp but Positivus regresses **0.23pp**, and an
-  unexplained regression on a real community design is not something to land
-  unexamined. The remaining question is narrow and named: what in Positivus
-  moves when a transformed node's rect is reconstructed. That is the next
-  session's first measurement, not a fresh investigation.
+  fixing a visibly wrong skew. Untitled UI's dashboard improves 0.08pp and
+  Positivus regresses 0.23pp.
+
+  That Positivus number is no longer a mystery, and it is not about skew at all.
+  Classifying its 38 transformed nodes by determinant: **11 are MIRRORED
+  (det < 0), 27 are pure rotations, and none is a skew.** A mirror decomposes as
+  a rotation plus a reflection, so `rotationFromTransform` reads
+  `matrix(-1, 0, 0, 1)` as `atan2(0, -1)` = **180 degrees** and today's export
+  draws a half turn where Figma draws a mirror. The two are identical on a
+  symmetric shape and differ on every other one — the same conflation the REST
+  importer already fixes on the way IN, quoted in its changeset as "mirrored
+  nodes are no longer rendered as half turns".
+
+  So the change makes those 11 nodes export as true mirrors instead of half
+  turns, and the open question is whether our mirrored PLACEMENT is right, not
+  whether mirroring belongs there. It is one design, eleven nodes, and a
+  yes/no question with a reference render to answer it against. That is where
+  the next pass starts.
 - ~~**Nested rotation composition order.**~~ **Measured, not a defect.** The
   concern was that `composeAffine(rotationAbout(...), toLocal)` composes two
   operations that do not commute. Both orders were measured on the new nested
