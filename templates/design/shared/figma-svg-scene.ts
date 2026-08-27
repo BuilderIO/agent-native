@@ -1501,6 +1501,34 @@ export function createEmptyFigmaSvgReport(): FigmaSvgExportReport {
   };
 }
 
+/**
+ * How far the scene's own boxes reach past the frame's right and bottom edges.
+ *
+ * An SVG root clips to its viewBox, so an artboard sized to the frame silently
+ * cuts off whatever the design draws outside it — a dashboard whose content
+ * runs 106px past its 960px frame shipped to Figma with that strip missing.
+ * Figma sizes its own render to the ink extent for the same reason.
+ *
+ * Only the right/bottom edges are reported. Growing the artboard up or left
+ * would move the viewBox ORIGIN, which shifts every coordinate in the document
+ * at once: doing that scored 63% on a design whose only stray node was a
+ * shadow a few pixels off the left edge. Overflow past those edges stays
+ * clipped, exactly as it is today.
+ */
+export function figmaSvgSceneExtent(node: FigmaSvgNode): {
+  right: number;
+  bottom: number;
+} {
+  let right = node.rect.x + node.rect.width;
+  let bottom = node.rect.y + node.rect.height;
+  for (const child of node.children ?? []) {
+    const b = figmaSvgSceneExtent(child);
+    if (b.right > right) right = b.right;
+    if (b.bottom > bottom) bottom = b.bottom;
+  }
+  return { right, bottom };
+}
+
 export function buildFigmaSvgDocument(args: {
   width: number;
   height: number;

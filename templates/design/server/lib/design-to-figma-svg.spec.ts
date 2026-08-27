@@ -23,6 +23,7 @@ import {
   escapeXmlAttr,
   escapeXmlText,
   fetchImageAsDataUri,
+  figmaSvgSceneExtent,
   type FigmaSvgNode,
   gradientAngleToRotation,
   hydrateRawFigmaSvgNode,
@@ -1032,5 +1033,43 @@ describe("image fills with no resolvable source", () => {
   it("still records an unresolvable source as an image fill for the paint builder to reject", () => {
     const node = imageFillNode("about:blank");
     expect(node.fills?.some((f) => f.kind === "image")).toBe(true);
+  });
+});
+
+describe("figmaSvgSceneExtent", () => {
+  // An SVG root clips to its viewBox, so an artboard sized to the frame drops
+  // whatever the design draws past it. The Untitled UI dashboard runs 106px
+  // below its 960px frame and shipped to Figma with that strip missing.
+  const child = (rect: FigmaSvgNode["rect"]): FigmaSvgNode => ({
+    id: "c",
+    name: "child",
+    kind: "box",
+    rect,
+    fills: [{ kind: "solid", color: "#000000" }],
+  });
+
+  it("reports how far content reaches past the frame's right and bottom", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Screen",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 1440, height: 960 },
+      children: [child({ x: 0, y: 900, width: 1440, height: 166 })],
+    };
+    expect(figmaSvgSceneExtent(root)).toEqual({ right: 1440, bottom: 1066 });
+  });
+
+  // Growing up or left would move the viewBox ORIGIN, shifting every
+  // coordinate in the document at once — that scored 63% on a design whose
+  // only stray node was a shadow just off the left edge.
+  it("never reports past the top or left edge", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Screen",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 400, height: 300 },
+      children: [child({ x: -40, y: -30, width: 100, height: 100 })],
+    };
+    expect(figmaSvgSceneExtent(root)).toEqual({ right: 400, bottom: 300 });
   });
 });

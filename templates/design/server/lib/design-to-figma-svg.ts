@@ -29,6 +29,7 @@ import {
 
 import {
   buildFigmaSvgDocument,
+  figmaSvgSceneExtent,
   collectRawFigmaSvgScene,
   hydrateRawFigmaSvgNode,
   type FigmaSvgExportReport,
@@ -377,9 +378,15 @@ export async function renderDesignToFigmaSvg(
       // gave `<body>` a 1080x1128 box for a 1080x1080 screen, so the export
       // came out over-tall with the artboard inset and overflowing its edge.
       const wholeScreen = !options.rootSelector;
+      const frameWidth = wholeScreen ? options.width : root.rect.width;
+      const frameHeight = wholeScreen ? options.height : root.rect.height;
+      // Cover what the design actually draws past the frame's right/bottom
+      // edges; an SVG root clips to its viewBox, so a frame-sized artboard
+      // dropped that content on the way to Figma.
+      const extent = figmaSvgSceneExtent(root);
       const result = buildFigmaSvgDocument({
-        width: wholeScreen ? options.width : root.rect.width,
-        height: wholeScreen ? options.height : root.rect.height,
+        width: Math.max(frameWidth, extent.right),
+        height: Math.max(frameHeight, extent.bottom),
         title: options.title,
         root,
       });
