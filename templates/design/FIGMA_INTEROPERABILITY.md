@@ -345,72 +345,50 @@ approximated -- the checkout and product-comparison headers share one photo and
 show the identical cluster, 3093 and 2363 pixels in the same two cells. On that
 photo the import sits 1.9 grey levels from Figma and the export 7.5.
 
-### One defect the round trip will not let us fix yet
+### A shadow Figma draws behind the layer
 
-Figma casts a drop shadow from what a layer PAINTS. A frame with no fill of its
-own paints only what its children paint, so Landify's phone mockup — a frame
-whose whole silhouette is a transparent bezel PNG — casts a phone-shaped
-shadow. CSS `box-shadow` casts from the border box, so ours came out as a
-rectangle poking past the rounded corners; at 3x the phone's bottom reads as a
-hard white block against Figma's rounded edge and soft shadow. This is the
-largest concentrated flat-interior cluster in the corpus: 2247 pixels in one
-80x80 cell, against a corpus norm under 600.
+Figma casts a drop shadow from what a layer PAINTS, and `showShadowBehindNode`
+says it is not knocked out from under the layer's own bounds. CSS `box-shadow`
+does neither: it casts from the border box and is always clipped to OUTSIDE it.
 
-`filter: drop-shadow()` casts from the composited alpha and fixes the import
-exactly — 4.709% -> 4.368%, flat interior 0.412% -> 0.178%, and the phone
-becomes indistinguishable from Figma's. It was still **reverted**, because the
-export hop pays more than the import gains. Figma's SVG importer ignores
-`feDropShadow` entirely, so this exporter paints shadows as a blurred copy of
-the node's own box — which for a fill-less frame is a large rectangle nothing
-else draws. Every route was measured on the same design's export:
+Landify's phone mockup is a frame with no fill whose whole silhouette is a
+transparent bezel PNG. Sampled at its rounded corners -- inside the node's box
+but outside what it paints -- Figma renders the shadow at grey 224 and ours
+rendered **255, nothing at all**. That is the largest concentrated
+flat-interior cluster in the corpus, 2247 pixels in one 80x80 cell against a
+norm under 600, and at 3x the phone's bottom reads as a hard white block against
+Figma's rounded edge.
 
-| export treatment | export% vs Figma |
-| --- | --- |
-| `box-shadow`, as today (blur 48, spread -12) | **4.505** |
-| `drop-shadow` -> rasterize the subtree | 5.614 |
-| `drop-shadow` -> carried, shadow not painted | 5.544 |
-| `drop-shadow` -> geometry shadow, blur 24 | 6.303 |
-| `drop-shadow` -> geometry shadow, blur 48 | 8.382 |
+Such a layer now takes `filter: drop-shadow()`, which casts from the composited
+alpha and is not knocked out. Only such a layer: a filled one hides the
+difference, and `box-shadow` carries a spread that `drop-shadow()` cannot.
 
-The import gain is 0.34pp; the cheapest export cost is 1.04pp. What makes
-today's rectangle work is the `-12` spread, which shrinks it to roughly the
-phone's footprint — and `drop-shadow()` has no spread to carry it through.
-
-The exporter CAN paint that shape. It was built: `feMorphology` for spread,
+The spread is the reason this took three attempts. `drop-shadow()` has no
+spread parameter, and the SVG export needs one -- `feMorphology` can erode an
+alpha where CSS cannot. Folding the spread into the blur renders correctly but
+loses it on the way out, and the export paid more than the import gained every
+time (5.54% at best against a 4.51% baseline). The importer now also writes the
+untouched shadow to a `--figma-content-shadow` custom property in `box-shadow`
+syntax, so the exporter parses it with the same parser it uses for the real
+property and gets offset, blur, spread and colour back losslessly. It then
+paints the shadow from the subtree's own alpha: `feMorphology` for spread,
 `feFlood` + `feComposite in=SourceAlpha` for the tint, `feGaussianBlur` for the
-blur, applied to a duplicate of the subtree behind the real one — the same
-bargain the box shadow already makes, with the shape corrected. It renders
-correctly: at 3x the exported phone is indistinguishable from Figma's, rounded
-bottom and shadow included. It still scored **worse**: 4.505% -> 4.631%.
+blur, on a duplicate of the subtree behind the real one -- the same bargain the
+box shadow already makes, with the shape corrected.
 
-Measuring why turned the blocker into a different one. Along a column below the
-phone, our shadow and Figma's reach the background at the same place, so the
-extent is right — but Figma's is darker the whole way, and the ratio GROWS with
-distance:
+Measured over the whole corpus: import **3.043% -> 3.023%**, export **3.163% ->
+3.165%**. Three designs improve on import (Landify tablet 4.709 -> 4.368,
+Landify example 3.467 -> 3.247, Untitled UI mobile 6.185 -> 6.153), 23 are
+untouched, none regress; on export one design moves 0.044 and the rest are
+unchanged.
 
-| distance below the phone | Figma darkness | ours | ratio |
-| --- | --- | --- | --- |
-| 0px | 49 | 39 | 1.26 |
-| 24px | 33 | 23 | 1.43 |
-| 48px | 15 | 9 | 1.67 |
-| 52px | 5 | 2 | 2.50 |
-
-A constant that closes it exists — alpha x1.35 takes the content-cast export to
-**4.222%**, past the 4.505% rectangle — and that is exactly the "shadow blur
-x1.25 and alpha x1.2" experiment this file already records as REJECTED for
-overfitting one phone mockup while doing nothing for DashStack's 38 shadows.
-`color-interpolation-filters="linearRGB"` is a principled part of it and worth
-0.12pp on its own (4.631% -> 4.515%); the rest is not explained yet.
-
-So the box-cast rectangle is not winning because it is right. It covers more
-area than the true silhouette, which compensates for a shadow that is
-independently too weak — right for the wrong reason. **The shape fix is blocked
-on shadow INTENSITY, not on the exporter.**
-
-The way to settle it is on `fills-effects`, the synthetic fixture where the
-stored radius, spread and alpha are ours to choose: sweep one shadow's radius
-and alpha against Figma's own render and derive how Figma interprets them,
-instead of fitting a constant on a community design that carries one shadow.
+Two things measured along the way, recorded so they are not refitted. Our
+shadows are NOT globally too weak -- on `fills-effects`, where the shadows sit
+over flat ground, ours and Figma's agree within 0-3 grey levels. And an alpha
+multiplier does close the phone's remaining gap (x1.35 took an earlier export
+build to 4.222%), which is exactly the "shadow blur x1.25 and alpha x1.2"
+experiment this file already records as rejected for overfitting this same
+mockup. The gap that remains there is the shadow's falloff, not its strength.
 
 ### The aggregate is not the only instrument
 

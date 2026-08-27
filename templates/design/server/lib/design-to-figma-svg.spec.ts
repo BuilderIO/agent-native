@@ -34,6 +34,7 @@ import {
   isZeroRadii,
   objectFitToPreserveAspectRatio,
   parseComputedBoxShadow,
+  parseComputedDropShadowFilter,
   parseComputedLinearGradient,
   parseComputedRadialGradient,
   type RawFigmaSvgNode,
@@ -1106,5 +1107,51 @@ describe("figmaSvgSceneExtent", () => {
       children: [child({ x: -40, y: -30, width: 100, height: 100 })],
     };
     expect(figmaSvgSceneExtent(root)).toEqual({ right: 400, bottom: 300 });
+  });
+});
+
+describe("parseComputedDropShadowFilter", () => {
+  // The REST importer emits `drop-shadow()` for a layer whose shadow Figma
+  // casts from its CONTENT and does not knock out. drop-shadow() has no
+  // spread, so the importer carries the original values in a custom property.
+  it("prefers the importer's exact values, spread included", () => {
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(17, 24, 39, 0.25))",
+        "rgba(17, 24, 39, 0.25) 0px 24px 48px -12px",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 48,
+        spread: -12,
+        color: "rgba(17, 24, 39, 0.25)",
+        inset: false,
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("falls back to the filter alone, doubling the standard deviation", () => {
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(0, 0, 0, 0.5))",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 24,
+        spread: 0,
+        color: "rgba(0, 0, 0, 0.5)",
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("ignores anything that is not a lone drop-shadow", () => {
+    expect(parseComputedDropShadowFilter("none")).toEqual([]);
+    expect(parseComputedDropShadowFilter("blur(4px)")).toEqual([]);
   });
 });

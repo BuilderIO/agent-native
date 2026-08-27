@@ -103,6 +103,11 @@ export interface FigmaSvgShadow {
   spread: number;
   color: string;
   inset?: boolean;
+  /**
+   * Cast from what the subtree paints rather than from the node's box, and not
+   * knocked out under it. Set for a `drop-shadow()` filter.
+   */
+  castFromContent?: boolean;
 }
 
 export interface FigmaSvgBorder {
@@ -598,6 +603,47 @@ const LENGTH_RE = /(-?[\d.]+)px/g;
  * <spread>` with the color first and an optional trailing `inset`, including
  * multiple comma-separated shadows.
  */
+/**
+ * A lone `filter: drop-shadow(<dx> <dy> <stdDeviation> <color>)`. The REST
+ * importer emits it for a layer whose shadow Figma casts from its CONTENT and
+ * does not knock out (`showShadowBehindNode`), which `box-shadow` cannot
+ * express. The stdDeviation is doubled back into a box-shadow blur LENGTH so
+ * the rest of this exporter can treat it like any other shadow.
+ */
+export function parseComputedDropShadowFilter(
+  value: string | null | undefined,
+  exact?: string | null,
+): FigmaSvgShadow[] {
+  if (!value || value === "none") return [];
+  // The importer's own values, with the spread `drop-shadow()` cannot carry.
+  if (exact) {
+    const parsed = parseComputedBoxShadow(exact);
+    if (parsed.length > 0) {
+      return parsed.map((shadow) => ({ ...shadow, castFromContent: true }));
+    }
+  }
+  const match = /^drop-shadow\(\s*(.+?)\s*\)$/.exec(value.trim());
+  if (!match?.[1]) return [];
+  const inner = match[1];
+  const colorMatch = inner.match(/(rgba?\([^)]*\)|#[0-9a-fA-F]{3,8})\s*$/);
+  // guard:allow-raw-color — SVG paint serializer: a literal colour for the exported document, not app UI
+  const color = colorMatch ? colorMatch[1] : "rgb(0, 0, 0)";
+  const lengths = Array.from(
+    (colorMatch ? inner.slice(0, colorMatch.index) : inner).matchAll(LENGTH_RE),
+  ).map((m) => Number(m[1]));
+  if (lengths.length < 2) return [];
+  return [
+    {
+      offsetX: lengths[0] ?? 0,
+      offsetY: lengths[1] ?? 0,
+      blur: (lengths[2] ?? 0) * 2,
+      spread: 0,
+      color,
+      castFromContent: true,
+    },
+  ];
+}
+
 export function parseComputedBoxShadow(
   value: string | null | undefined,
 ): FigmaSvgShadow[] {
@@ -1118,6 +1164,53 @@ export function inflateRadii(
  *
  * Spread is applied to the geometry, so `feMorphology` is no longer needed.
  */
+/**
+ * The shadow of a subtree, cast from the subtree's own alpha: erode/dilate for
+ * spread, flood the shadow colour through that alpha, blur, offset by the
+ * wrapping transform. Not knocked out under the node, which is the half CSS
+ * `box-shadow` cannot do. Figma's SVG importer reads the blur as a LAYER_BLUR
+ * on a duplicated layer behind the real one — the same bargain
+ * `shadowGeometryMarkup` already makes for a box, with the shape corrected.
+ */
+function contentShadowMarkup(
+  node: FigmaSvgNode,
+  ctx: RenderCtx,
+  childrenMarkup: string,
+): string {
+  if (!childrenMarkup) return "";
+  return (node.shadows ?? [])
+    .filter((shadow) => shadow.castFromContent && !shadow.inset)
+    .slice()
+    .reverse()
+    .map((shadow) => {
+      const id = ctx.nextId("cshadow");
+      const parsed = parseCssColorExtended(shadow.color);
+      const rgb = parsed
+        ? // guard:allow-raw-color — SVG paint serializer: a literal colour for the exported document, not app UI
+          `rgb(${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)})`
+        : shadow.color;
+      const alpha = parsed ? parsed.a : 1;
+      const morph =
+        Math.abs(shadow.spread) > 1e-6
+          ? `<feMorphology in="SourceAlpha" operator="${shadow.spread > 0 ? "dilate" : "erode"}" radius="${n(Math.abs(shadow.spread))}" result="sp"/>`
+          : "";
+      ctx.defs.push(
+        `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%">` +
+          morph +
+          `<feFlood flood-color="${escapeXmlAttr(rgb)}" flood-opacity="${n(alpha)}" result="fl"/>` +
+          `<feComposite in="fl" in2="${morph ? "sp" : "SourceAlpha"}" operator="in" result="tint"/>` +
+          `<feGaussianBlur in="tint" stdDeviation="${n(shadow.blur / 2)}"/>` +
+          `</filter>`,
+      );
+      const move =
+        shadow.offsetX || shadow.offsetY
+          ? ` transform="translate(${n(shadow.offsetX)} ${n(shadow.offsetY)})"`
+          : "";
+      return `<g${move} filter="url(#${id})">${childrenMarkup}</g>`;
+    })
+    .join("");
+}
+
 function shadowGeometryMarkup(
   node: FigmaSvgNode,
   ctx: RenderCtx,
@@ -1134,7 +1227,9 @@ function shadowGeometryMarkup(
   const radii = node.cornerRadii ?? ZERO_RADII;
 
   // CSS paints the first-listed shadow on top, so emit in reverse.
-  const outer = shadows.filter((s) => !s.inset);
+  // A content-cast shadow is drawn in `renderBox` from the subtree's own alpha;
+  // painting a copy of the box here too would put a rectangle behind it.
+  const outer = shadows.filter((s) => !s.inset && !s.castFromContent);
   // CSS clips an outer box-shadow to OUTSIDE the border box (CSS Backgrounds 3
   // §7.1.1). Painting the blurred copy under the fill instead let it show
   // through anything non-opaque — a shadow-only card, or any translucent
@@ -1382,7 +1477,8 @@ function renderBox(node: FigmaSvgNode, ctx: RenderCtx): string {
   // A container that also owns direct text (an icon plus its label, a row plus
   // its badge) paints that text alongside its children.
   const ownText = node.text ? renderTextMarkup(node, ctx) : "";
-  return wrapGroup(body + childrenMarkup + ownText, node, ctx);
+  const contentShadow = contentShadowMarkup(node, ctx, childrenMarkup);
+  return wrapGroup(contentShadow + body + childrenMarkup + ownText, node, ctx);
 }
 
 /**
@@ -1636,6 +1732,12 @@ export interface RawFigmaSvgNode {
   backgroundImage: string;
   /** Computed `box-shadow`, e.g. "none" or a Chromium-normalized shadow list. */
   boxShadow: string;
+  /**
+   * `--figma-content-shadow`: the exact shadow behind a `drop-shadow()` filter,
+   * in `box-shadow` syntax. `drop-shadow()` has no spread and this export needs
+   * one, so the importer carries the original values through a custom property.
+   */
+  contentShadow?: string;
   borderWidthPx: number;
   borderColor: string;
   borderStyle: string;
@@ -1930,7 +2032,10 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
     raw.backgroundColor,
     raw.backgroundImage,
   );
-  const shadows = parseComputedBoxShadow(raw.boxShadow);
+  const shadows = [
+    ...parseComputedBoxShadow(raw.boxShadow),
+    ...parseComputedDropShadowFilter(raw.filter, raw.contentShadow),
+  ];
   const border =
     raw.borderWidthPx > 0
       ? {
@@ -2726,6 +2831,7 @@ export function collectRawFigmaSvgScene(
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
       boxShadow: style.boxShadow,
+      contentShadow: style.getPropertyValue("--figma-content-shadow").trim(),
       borderWidthPx: Math.max(
         ...widths.map((w, i) => (styles[i] === "none" ? 0 : w)),
       ),
@@ -2799,9 +2905,20 @@ export function collectRawFigmaSvgScene(
     // LAYER_BLUR. Anything else — a drop-shadow, a saturate, a chain — has no
     // SVG equivalent this exporter builds, so it rasterizes rather than
     // silently losing the effect.
+    // This walk is serialized into the page, so the drop-shadow test is inlined
+    // rather than calling a module-scope helper that is not defined there.
+    const filterText = base.filter.trim();
+    const isLoneDropShadow =
+      filterText.startsWith("drop-shadow(") &&
+      filterText.endsWith(")") &&
+      filterText.indexOf("drop-shadow(", 12) === -1 &&
+      !/\b(?:blur|saturate|brightness|contrast|grayscale|sepia|invert|hue-rotate|opacity)\(/.test(
+        filterText,
+      );
     if (
       base.filter !== "none" &&
-      !/^blur\(\s*[\d.]+px\s*\)$/.test(base.filter.trim())
+      !/^blur\(\s*[\d.]+px\s*\)$/.test(filterText) &&
+      !isLoneDropShadow
     ) {
       return {
         ...base,

@@ -136,6 +136,13 @@ export interface FigmaEffect {
   color?: FigmaColor;
   offset?: { x: number; y: number };
   blendMode?: string;
+  /**
+   * Figma draws the shadow behind the layer instead of knocking it out from
+   * under the layer's own bounds. CSS `box-shadow` always knocks out, so a
+   * layer that does not paint its whole box — a frame whose silhouette is a
+   * transparent PNG — loses the shadow everywhere it is see-through.
+   */
+  showShadowBehindNode?: boolean;
 }
 
 export interface FigmaTypeStyle {
@@ -1143,6 +1150,14 @@ interface EffectResult {
   boxShadowLayers: string[];
   filter?: string;
   backdropFilter?: string;
+  /**
+   * The shadows emitted as `filter: drop-shadow()`, written out in the exact
+   * `box-shadow` syntax they would otherwise have used. `drop-shadow()` has no
+   * spread, and the SVG export needs one — `feMorphology` can erode the alpha
+   * where CSS cannot. Carried as a custom property so anything reading computed
+   * style gets the values back losslessly.
+   */
+  contentShadow?: string;
 }
 
 /**
@@ -1179,6 +1194,20 @@ function buildEffects(
   const boxShadowLayers: string[] = [];
   let filter: string | undefined;
   let backdropFilter: string | undefined;
+  // Measured on Landify's phone mockup, a frame with no fill whose silhouette
+  // is a transparent bezel PNG: at its rounded corners — inside the node's box
+  // but outside what it paints — Figma renders the shadow at grey 224 and CSS
+  // `box-shadow` renders 255, because an outer box-shadow is clipped to
+  // OUTSIDE the border box. `filter: drop-shadow()` casts from the composited
+  // alpha and does not knock out, which is what `showShadowBehindNode` asks
+  // for. Only for a layer that does not paint its own box: a filled layer hides
+  // the difference, and box-shadow carries a spread that drop-shadow cannot.
+  const contentShadowLayers: string[] = [];
+  const paintsOwnBox =
+    (node.fills ?? []).some((fill) => fill.visible !== false) ||
+    (node.strokes ?? []).some((stroke) => stroke.visible !== false);
+  const castsFromContentAlpha =
+    !isTextNode && !paintsOwnBox && (node.children?.length ?? 0) > 0;
 
   for (const effect of effects) {
     if (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW") {
@@ -1190,6 +1219,31 @@ function buildEffects(
         !isTextNode && typeof effect.spread === "number"
           ? ` ${px(effect.spread)}`
           : "";
+      if (
+        effect.type === "DROP_SHADOW" &&
+        castsFromContentAlpha &&
+        effect.showShadowBehindNode !== false
+      ) {
+        // drop-shadow()'s third length is a standard deviation, half the
+        // box-shadow blur LENGTH; spread has no equivalent and is folded in.
+        const stdDev =
+          px(
+            Math.max(0, (effect.radius ?? 0) + (effect.spread ?? 0) * 2) / 2,
+          ) ?? "0px";
+        const cast = `drop-shadow(${x} ${y} ${stdDev} ${color})`;
+        filter = filter ? `${filter} ${cast}` : cast;
+        // Chromium's own `box-shadow` serialization order, so a reader can
+        // parse this with the same parser it uses for the real property.
+        contentShadowLayers.push(
+          `${color} ${x} ${y} ${blur}${spread}`.replace(/\s+/g, " ").trim(),
+        );
+        tracker.record(
+          node,
+          Math.abs(effect.spread ?? 0) > 1e-6 ? "approximated" : "exact",
+          `DROP_SHADOW with showShadowBehindNode rendered as filter: drop-shadow(), which casts from the layer's own alpha and is not knocked out under its bounds${Math.abs(effect.spread ?? 0) > 1e-6 ? `; its ${effect.spread}px spread has no CSS equivalent and was folded into the blur radius` : ""}.`,
+        );
+        continue;
+      }
       const inset = effect.type === "INNER_SHADOW" ? "inset " : "";
       boxShadowLayers.push(`${inset}${x} ${y} ${blur}${spread} ${color}`);
       tracker.record(
@@ -1220,7 +1274,14 @@ function buildEffects(
     }
   }
 
-  return { boxShadowLayers, filter, backdropFilter };
+  return {
+    boxShadowLayers,
+    filter,
+    backdropFilter,
+    contentShadow: contentShadowLayers.length
+      ? contentShadowLayers.join(", ")
+      : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2686,6 +2747,7 @@ function buildNode(
   const blendMode = buildBlendMode(node, tracker);
 
   const boxShadowParts = [...effects.boxShadowLayers];
+  const contentShadowProperty = effects.contentShadow;
   if (strokeResult.insetShadow) boxShadowParts.push(strokeResult.insetShadow);
 
   if (linearTransformCss !== undefined) {
@@ -2735,6 +2797,7 @@ function buildNode(
     "border-radius": cornerRadius,
     "box-shadow":
       boxShadowParts.length > 0 ? boxShadowParts.join(", ") : undefined,
+    "--figma-content-shadow": contentShadowProperty,
     filter: effects.filter,
     "backdrop-filter": effects.backdropFilter,
     "-webkit-backdrop-filter": effects.backdropFilter,

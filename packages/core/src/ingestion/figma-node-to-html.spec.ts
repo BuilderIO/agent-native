@@ -1215,3 +1215,61 @@ describe("icon-font glyphs", () => {
     expect(collectFallbackNodeIds(iconLabel("Dashboard"), {})).toEqual([]);
   });
 });
+
+describe("a drop shadow Figma draws behind the layer", () => {
+  // Landify's phone mockup: a frame with no fill whose silhouette is a
+  // transparent bezel PNG. At its rounded corners — inside the node's box but
+  // outside what it paints — Figma renders the shadow and an outer box-shadow
+  // renders nothing, because CSS clips it to OUTSIDE the border box.
+  function mockup(fills: unknown[]): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Mobile",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 320, 640),
+      fills,
+      children: [
+        {
+          id: "1:2",
+          name: "iPhone X",
+          type: "RECTANGLE",
+          absoluteBoundingBox: box(0, 0, 320, 640),
+          fills: [{ type: "IMAGE", imageRef: "abc" }],
+        },
+      ],
+      effects: [
+        {
+          type: "DROP_SHADOW",
+          visible: true,
+          color: { r: 0, g: 0, b: 0, a: 0.25 },
+          offset: { x: 0, y: 24 },
+          radius: 48,
+          spread: -12,
+          showShadowBehindNode: true,
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("casts from the layer's own alpha instead of its box", () => {
+    const { html } = mapFigmaNodeToHtml(mockup([]), {});
+    expect(html).toContain("drop-shadow(0px 24px 12px");
+    expect(html).not.toContain("box-shadow");
+  });
+
+  it("carries the spread drop-shadow() cannot, for the SVG export", () => {
+    const { html } = mapFigmaNodeToHtml(mockup([]), {});
+    expect(html).toContain(
+      "--figma-content-shadow: rgba(0, 0, 0, 0.25) 0px 24px 48px -12px",
+    );
+  });
+
+  it("leaves a layer that paints its own box on box-shadow", () => {
+    const { html } = mapFigmaNodeToHtml(
+      mockup([{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }]),
+      {},
+    );
+    expect(html).toContain("box-shadow");
+    expect(html).not.toContain("drop-shadow");
+  });
+});
