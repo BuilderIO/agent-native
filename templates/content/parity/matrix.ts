@@ -8,6 +8,7 @@ export const parityMatrix: ParityRow[] = [
     uiEntrypoints: [
       "app/components/sidebar/DocumentSidebar.tsx",
       "app/components/sidebar/DocumentTreeItem.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
       "app/hooks/use-documents.ts",
     ],
     durableEffect:
