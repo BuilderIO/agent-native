@@ -165,6 +165,22 @@ export const hitTestBridgeScript: string = `"use strict";
       rectangle: true,
       rect: true
     };
+    function isFreeformRelativeContainer(el) {
+      if (!el || el === document.body || el === document.documentElement) {
+        return false;
+      }
+      if (window.getComputedStyle(el).position === "static") return false;
+      var children = el.children;
+      if (children.length === 0) return false;
+      for (var i = 0; i < children.length; i += 1) {
+        if (isOverlayElement(children[i])) continue;
+        var childPosition = window.getComputedStyle(children[i]).position;
+        if (childPosition !== "absolute" && childPosition !== "fixed") {
+          return false;
+        }
+      }
+      return true;
+    }
     function isAbsolutePrimitiveContainer(el) {
       if (!el || el.nodeType !== 1) return false;
       if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
@@ -193,7 +209,7 @@ export const hitTestBridgeScript: string = `"use strict";
         var cursor = hits[i];
         var candidate = null;
         while (cursor && cursor !== document.body) {
-          if (isAbsolutePrimitiveContainer(cursor)) {
+          if (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor)) {
             candidate = cursor;
             break;
           }
@@ -424,7 +440,7 @@ export const hitTestBridgeScript: string = `"use strict";
             dropMode: "flow-insert"
           };
         }
-        if (isAbsolutePrimitiveContainer(cursor)) {
+        if (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor)) {
           return {
             anchor: cursor,
             placement: "inside",
@@ -549,6 +565,51 @@ export const hitTestBridgeScript: string = `"use strict";
     } else {
       scheduleReviewLayout();
     }
+    var NON_SELECTABLE_TAGS = [
+      "script",
+      "style",
+      "template",
+      "link",
+      "meta",
+      "title",
+      "noscript",
+      "br"
+    ];
+    var MIN_SELECTABLE_EXTENT_PX = 4;
+    function collectSelectableElementInfos() {
+      var nodes = Array.prototype.slice.call(
+        document.body ? document.body.querySelectorAll("*") : []
+      );
+      var infos = [];
+      nodes.forEach(function(node) {
+        if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 || isEditorInjectedElement(node) || isTemplateCloneElement(node) || node.ownerSVGElement) {
+          return;
+        }
+        var rect = node.getBoundingClientRect();
+        if (rect.width < MIN_SELECTABLE_EXTENT_PX || rect.height < MIN_SELECTABLE_EXTENT_PX) {
+          var cs = window.getComputedStyle(node);
+          if (cs.display === "none" || cs.visibility === "hidden") return;
+        }
+        var padX = rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+        var padY = rect.height < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+        var nodeId = getNodeId(node);
+        infos.push({
+          tagName: node.tagName.toLowerCase(),
+          sourceId: nodeId || void 0,
+          // Not minted here: a whole-document sweep must stay read-only, and the
+          // host resolves an id-less node through this structural selector.
+          selector: nodeId ? void 0 : buildSourceEquivalentSelector(node) || void 0,
+          layerName: node.getAttribute("data-agent-native-layer-name") || void 0,
+          boundingRect: {
+            x: rect.left - padX,
+            y: rect.top - padY,
+            width: rect.width + padX * 2,
+            height: rect.height + padY * 2
+          }
+        });
+      });
+      return infos;
+    }
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
@@ -648,6 +709,20 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:hit-test-preview-clear") {
         hideInsertionGuide();
+        return;
+      }
+      if (e.data.type === "agent-native:collect-selectable-rects") {
+        if (window.__agentNativeEditorChrome) {
+          return;
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:selectable-rects-result",
+            correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            payload: collectSelectableElementInfos()
+          },
+          "*"
+        );
         return;
       }
       if (e.data.type !== "agent-native:hit-test") return;
