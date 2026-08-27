@@ -61,12 +61,14 @@ describe("Scrubber reaction markers", () => {
   });
 
   it("keeps comments and reactions above the track without marker bubbles", () => {
+    const onSeek = vi.fn();
+
     act(() => {
       root.render(
         <Scrubber
           currentMs={2_000}
           durationMs={10_000}
-          onSeek={vi.fn()}
+          onSeek={onSeek}
           comments={[
             { id: "comment-1", content: "Nice", videoTimestampMs: 1_000 },
           ]}
@@ -84,10 +86,17 @@ describe("Scrubber reaction markers", () => {
       "[data-player-reaction-marker]",
     );
 
-    expect(comment?.className).toContain("-top-10");
+    expect(comment?.className).toContain("-top-14");
     expect(comment?.className).not.toContain("rounded-full");
     expect(comment?.querySelector("[data-icon-comment]")).not.toBeNull();
-    expect(reaction?.className).toContain("-top-8");
+    expect(reaction?.className).toContain("-top-7");
     expect(reaction?.className).not.toContain("rounded-full");
+
+    act(() => {
+      comment?.click();
+      reaction?.click();
+    });
+    expect(onSeek).toHaveBeenNthCalledWith(1, 1_000);
+    expect(onSeek).toHaveBeenNthCalledWith(2, 1_000);
   });
 });

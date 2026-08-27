@@ -209,7 +209,7 @@ export function Scrubber(props: ScrubberProps) {
               e.stopPropagation();
               onSeek(ms);
             }}
-            className="absolute -top-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center text-background dark:text-foreground drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:focus-visible:ring-foreground/80"
+            className="absolute -top-14 flex h-8 w-8 -translate-x-1/2 items-center justify-center text-background dark:text-foreground drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:focus-visible:ring-foreground/80"
             style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
             aria-label={`${list.length} comment${list.length > 1 ? "s" : ""}`}
           >
@@ -241,7 +241,7 @@ export function Scrubber(props: ScrubberProps) {
               event.stopPropagation();
               onSeek(ms);
             }}
-            className="absolute -top-8 flex h-7 min-w-7 -translate-x-1/2 items-center justify-center px-0.5 text-2xl leading-none text-background drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:text-foreground dark:focus-visible:ring-foreground/80"
+            className="absolute -top-7 flex h-7 min-w-7 -translate-x-1/2 items-center justify-center px-0.5 text-2xl leading-none text-background drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:text-foreground dark:focus-visible:ring-foreground/80"
             style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
             aria-label={`${list.length} reaction${list.length === 1 ? "" : "s"} at ${msToClock(ms)}`}
           >
