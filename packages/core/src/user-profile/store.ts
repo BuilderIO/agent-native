@@ -3,6 +3,7 @@ import {
   getBetterAuthSync,
 } from "../server/better-auth-instance.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   normalizeUserProfileName,
   resolveUserProfileName,
@@ -17,17 +18,35 @@ async function getAuthUser(email: string) {
   return adapter.findUserByEmail(email, { includeAccounts: false });
 }
 
-export async function getUserProfile(email: string): Promise<UserProfile> {
+function profileFromAuthUser(
+  email: string,
+  user: { name?: string | null; image?: string | null },
+): UserProfile {
+  const image = isGoogleProfileImageUrl(user.image)
+    ? user.image.trim()
+    : undefined;
+  return {
+    email,
+    name: normalizeUserProfileName(user.name, email),
+    ...(image ? { image } : {}),
+  };
+}
+
+async function getStoredUserProfile(email: string): Promise<UserProfile> {
   const stored = await getUserSetting(email, USER_PROFILE_SETTING_KEY);
-  const authUser = await getAuthUser(email);
-  const authName = authUser?.user.name;
   const storedName = typeof stored?.name === "string" ? stored.name : null;
-  const name = resolveUserProfileName(email, storedName, authName);
+  const name = resolveUserProfileName(email, storedName);
 
   return {
     email,
     name: normalizeUserProfileName(name, email),
   };
+}
+
+export async function getUserProfile(email: string): Promise<UserProfile> {
+  const authUser = await getAuthUser(email);
+  if (authUser) return profileFromAuthUser(email, authUser.user);
+  return getStoredUserProfile(email);
 }
 
 export async function getUserProfiles(
@@ -41,16 +60,56 @@ export async function getUserProfiles(
         .map((email) => email.toLowerCase()),
     ),
   );
+  if (uniqueEmails.length === 0) return new Map();
+
+  const adapter = getBetterAuthSync()
+    ? await getBetterAuthInternalAdapter().catch(() => undefined)
+    : undefined;
+  const profiles = new Map<string, UserProfile>();
+  let batchLookupSucceeded = false;
+
+  if (adapter?.listUsers) {
+    try {
+      const users = await adapter.listUsers(
+        uniqueEmails.length,
+        undefined,
+        undefined,
+        [
+          {
+            field: "email",
+            operator: "in",
+            value: uniqueEmails,
+            mode: "insensitive",
+          },
+        ],
+      );
+      for (const user of users) {
+        const email = user.email.trim().toLowerCase();
+        if (email) profiles.set(email, profileFromAuthUser(email, user));
+      }
+      batchLookupSucceeded = true;
+    } catch {
+      // coercion-ok: older or custom adapters use the established per-user fallback.
+      // Fall back to the single-profile path for older/custom adapters.
+    }
+  }
+
+  const missingEmails = uniqueEmails.filter((email) => !profiles.has(email));
   const results = await Promise.allSettled(
-    uniqueEmails.map(
-      async (email) => [email, await getUserProfile(email)] as const,
+    missingEmails.map(
+      async (email) =>
+        [
+          email,
+          batchLookupSucceeded
+            ? await getStoredUserProfile(email)
+            : await getUserProfile(email),
+        ] as const,
     ),
   );
-  return new Map(
-    results.flatMap((result) =>
-      result.status === "fulfilled" ? [result.value] : [],
-    ),
-  );
+  for (const result of results) {
+    if (result.status === "fulfilled") profiles.set(...result.value);
+  }
+  return profiles;
 }
 
 export async function updateUserProfile(

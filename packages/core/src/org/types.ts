@@ -67,6 +67,7 @@ export interface OrgMember {
   role: OrgRole;
   joinedAt: number;
   name?: string | null;
+  image?: string | null;
 }
 
 export interface OrgPendingInvitation {

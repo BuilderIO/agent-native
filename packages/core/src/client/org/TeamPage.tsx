@@ -96,7 +96,6 @@ import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
 import { useShareOrgMemberSearch } from "../sharing/share-controller-helpers.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
-import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
 import {
   useOrg,
@@ -478,6 +477,7 @@ interface MemberListItem {
   email: string;
   role: string;
   name?: string | null;
+  image?: string | null;
 }
 
 interface PendingInviteListItem {
@@ -1226,6 +1226,7 @@ function MembersTableCard({
                 email={m.email}
                 role={m.role}
                 name={m.name}
+                image={m.image}
                 isCurrentUser={m.email === currentUserEmail}
                 currentUserRole={currentUserRole}
                 appRoles={appRoles}
@@ -1565,6 +1566,7 @@ function MemberRow({
   email,
   role,
   name,
+  image,
   isCurrentUser,
   currentUserRole,
   appRoles,
@@ -1577,6 +1579,7 @@ function MemberRow({
   email: string;
   role: string;
   name?: string | null;
+  image?: string | null;
   isCurrentUser: boolean;
   currentUserRole: string | null;
   appRoles?: AppRolesDescriptor;
@@ -1591,7 +1594,7 @@ function MemberRow({
   const changeRole = useChangeMemberRole();
   const [editing, setEditing] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const avatarUrl = useAvatarUrl(email);
+  const avatarUrl = image?.trim() || null;
   const displayName = name?.trim() || email;
 
   // Owners can manage admins + members. Admins can only manage members.

@@ -323,10 +323,12 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   }));
   const profiles = await getUserProfiles(members.map((member) => member.email));
   const membersWithProfiles = members.map((member) => {
-    const name = profiles.get(member.email.toLowerCase())?.name;
+    const profile = profiles.get(member.email.toLowerCase());
+    const name = profile?.name;
     return {
       ...member,
       ...(name && !isEmailDerivedName(name, member.email) ? { name } : {}),
+      image: profile?.image ?? null,
     };
   });
   return {

@@ -192,7 +192,10 @@ import {
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
-import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
+import {
+  resolveCanonicalUserForLegacySession,
+  type CanonicalLegacyUser,
+} from "./legacy-auth-migration.js";
 import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -522,14 +525,18 @@ function frameworkSessionCookieNamesToClear(): string[] {
 
 async function enrichLegacySessionIdentity(
   session: AuthSession,
+  canonicalUser?: CanonicalLegacyUser | null,
 ): Promise<AuthSession> {
   if (!getBetterAuthSync() || !session.email) return session;
-  const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
-  if (!adapter) return session;
-  const existing = await adapter
-    .findUserByEmail(session.email, { includeAccounts: false })
-    // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
-    .catch(() => null);
+  let existing = canonicalUser;
+  if (existing === undefined) {
+    const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
+    if (!adapter) return session;
+    existing = await adapter
+      .findUserByEmail(session.email, { includeAccounts: false })
+      // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
+      .catch(() => null);
+  }
   if (!existing) return session;
   return {
     ...session,
@@ -563,8 +570,9 @@ async function getLegacyCookieSession(
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
     const email = await getSessionEmail(value);
     if (email) {
+      let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
-        await ensureCanonicalUserForLegacySession(email);
+        canonicalUser = await resolveCanonicalUserForLegacySession(email);
       } catch (error) {
         console.warn(
           "[auth] legacy session canonical-user backfill failed:",
@@ -572,7 +580,10 @@ async function getLegacyCookieSession(
         );
       }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
-      return enrichLegacySessionIdentity({ email, token: value });
+      return enrichLegacySessionIdentity(
+        { email, token: value },
+        canonicalUser,
+      );
     }
   }
   return null;

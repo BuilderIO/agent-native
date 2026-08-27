@@ -987,6 +987,36 @@ export interface BetterAuthInternalAdapter {
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
+  listUsers?: (
+    limit?: number,
+    offset?: number,
+    sortBy?: { field: string; direction: "asc" | "desc" },
+    where?: Array<{
+      field: string;
+      value: string | number | boolean | string[] | number[] | Date | null;
+      operator?:
+        | "eq"
+        | "ne"
+        | "lt"
+        | "lte"
+        | "gt"
+        | "gte"
+        | "in"
+        | "not_in"
+        | "contains"
+        | "starts_with"
+        | "ends_with";
+      connector?: "AND" | "OR";
+      mode?: "sensitive" | "insensitive";
+    }>,
+  ) => Promise<
+    Array<{
+      id: string;
+      email: string;
+      name?: string;
+      image?: string | null;
+    }>
+  >;
   linkAccount: (account: {
     userId: string;
     providerId: string;

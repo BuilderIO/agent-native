@@ -3,6 +3,7 @@ export const USER_PROFILE_SETTING_KEY = "user-profile";
 export interface UserProfile {
   email: string;
   name: string;
+  image?: string | null;
 }
 
 export function isEmailDerivedName(
