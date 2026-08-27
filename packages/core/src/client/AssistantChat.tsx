@@ -47,6 +47,7 @@ import React, {
   useImperativeHandle,
 } from "react";
 
+import type { AgentChatAttachment } from "../agent/types.js";
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { ThinkingDisplay } from "../shared/thinking-display.js";
@@ -295,6 +296,7 @@ export type AgentRecoveryAction = "continue" | "retry";
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
+  attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
 }
@@ -5023,6 +5025,17 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery(null);
       clearAutoResume();
       resetRunningActivity();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: {
+              isRunning: false,
+              tabId: tabId || threadId,
+              reason: "stopped",
+            },
+          }),
+        );
+      }
       if (!options?.preserveQueuedMessages) {
         queueStopVersionRef.current += 1;
         dequeueInFlightRef.current = false;
@@ -5086,17 +5099,6 @@ const AssistantChatInner = forwardRef<
       settleVisibleInterruptedTools();
       markVisibleRunStopped();
       threadRuntime.cancelRun();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatRunning", {
-            detail: {
-              isRunning: false,
-              tabId: tabId || threadId,
-              reason: "stopped",
-            },
-          }),
-        );
-      }
     },
     [
       apiUrl,
@@ -5504,7 +5506,7 @@ const AssistantChatInner = forwardRef<
           text,
           images,
           undefined,
-          undefined,
+          options?.attachments,
           options?.requestMode,
           "queued",
           undefined,

@@ -20724,6 +20724,8 @@ function DesignEditor() {
             effort: options.effort,
           };
           const startedAt = Date.now();
+          const { attachments: _composerAttachments, ...agentOptions } =
+            options;
           patchPendingGeneration(id, {
             prompt,
             files,
@@ -20739,7 +20741,7 @@ function DesignEditor() {
               ? `Generate design for "${design.title}": ${prompt}`
               : `Prepare design questions for "${design.title}": ${prompt}`,
             context,
-            { ...options, newTab: true, images },
+            { ...agentOptions, newTab: true, images },
           );
           setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {

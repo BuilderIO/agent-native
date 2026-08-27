@@ -1190,6 +1190,26 @@ describe("groupAssistantWorkParts", () => {
       "group-work",
     ]);
   });
+
+  it("collapses older tool calls while keeping the newest three visible", () => {
+    const parts = [
+      { type: "tool-call", toolName: "docs-search" },
+      { type: "tool-call", toolName: "framework-search" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([
+      ["group-work", "group-ran-tools"],
+      ["group-work", "group-ran-tools"],
+      ["group-work"],
+      ["group-work"],
+      ["group-work"],
+    ]);
+  });
 });
 
 describe("isHiddenUserMessage", () => {
