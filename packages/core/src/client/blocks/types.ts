@@ -105,6 +105,12 @@ export interface BlockRenderContext {
    * hide it by default and let individual blocks opt back in.
    */
   visualFrame?: Exclude<BlockVisualFrame, "auto">;
+  /**
+   * Rewrite a host-relative link. Block fields such as a card `href` go
+   * straight to the router, so without this a host that canonicalizes its URLs
+   * (locale prefix, trailing slash) cannot reach them.
+   */
+  localizeHref?: (href: string) => string;
   /** Resolve an asset id → displayable URL. */
   resolveAssetSrc?: (assetId: string) => string | undefined;
   /** Open the shared asset picker (returns the chosen asset). */

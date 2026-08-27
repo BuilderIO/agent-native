@@ -133,7 +133,7 @@ describe("localized docs fallback", () => {
     }
 
     expect(response?.status).toBe(302);
-    expect(response?.headers.get("Location")).toBe("/fr-FR/docs");
+    expect(response?.headers.get("Location")).toBe("/fr-fr/docs/");
   });
 
   it("loads default docs slugs instead of treating them as locales", async () => {
@@ -153,7 +153,7 @@ describe("localized docs fallback", () => {
       }
 
       expect(response?.status).toBe(301);
-      expect(response?.headers.get("Location")).toBe("/docs/agent-resources");
+      expect(response?.headers.get("Location")).toBe("/docs/agent-resources/");
     },
   );
 
@@ -176,7 +176,7 @@ describe("localized docs fallback", () => {
 
     expect(response?.status).toBe(301);
     expect(response?.headers.get("Location")).toBe(
-      "/fr-FR/docs/agent-resources",
+      "/fr-fr/docs/agent-resources/",
     );
   });
 
@@ -184,25 +184,25 @@ describe("localized docs fallback", () => {
     const items = getDocsNavItems("fr-FR");
 
     expect(items.find((item) => item.id === "getting-started")?.to).toBe(
-      "/fr-FR/docs",
+      "/fr-fr/docs/",
     );
     expect(items.find((item) => item.id === "creating-templates")?.to).toBe(
-      "/fr-FR/docs/creating-templates",
+      "/fr-fr/docs/creating-templates/",
     );
     expect(items.find((item) => item.id === "internationalization")?.to).toBe(
-      "/fr-FR/docs/internationalization",
+      "/fr-fr/docs/internationalization/",
     );
     const toolkitSection = getDocsNavSections("fr-FR").find(
       (section) => section.id === "toolkits",
     );
     expect(
       toolkitSection?.items.find((item) => item.id === "toolkit-ui")?.to,
-    ).toBe("/fr-FR/docs/toolkit-ui");
+    ).toBe("/fr-fr/docs/toolkit-ui/");
     const resourcesSection = getDocsNavSections("fr-FR").find(
       (section) => section.id === "agent-resources",
     );
     expect(resourcesSection?.title).toBe("Agent Resources");
-    expect(resourcesSection?.items[0]?.to).toBe("/fr-FR/docs/agent-resources");
+    expect(resourcesSection?.items[0]?.to).toBe("/fr-fr/docs/agent-resources/");
   });
 
   it("indexes translated docs at localized canonical paths", async () => {
@@ -211,12 +211,12 @@ describe("localized docs fallback", () => {
     expect(
       index.some(
         (entry) =>
-          entry.path === "/fr-FR/docs" &&
+          entry.path === "/fr-fr/docs/" &&
           entry.page.toLowerCase().includes("démarrage"),
       ),
     ).toBe(true);
     expect(
-      index.some((entry) => entry.path === "/fr-FR/docs/internationalization"),
+      index.some((entry) => entry.path === "/fr-fr/docs/internationalization/"),
     ).toBe(true);
   }, 60_000);
 
@@ -225,7 +225,7 @@ describe("localized docs fallback", () => {
       "/docs/multi-app-workspace.md",
     );
     expect(docsMarkdownPathForPath("/fr-FR/docs/internationalization")).toBe(
-      "/fr-FR/docs/internationalization.md",
+      "/fr-fr/docs/internationalization.md",
     );
     expect(docsMarkdownPathForPath("/fr-FR/docs/durable-background-runs")).toBe(
       "/docs/durable-background-runs.md",
