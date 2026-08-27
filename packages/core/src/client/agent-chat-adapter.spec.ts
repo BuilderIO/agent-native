@@ -397,6 +397,7 @@ describe("createAgentChatAdapter", () => {
         ],
         status: { type: "incomplete", reason: "error" },
       });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     } finally {
       await iterator.return?.();
     }
