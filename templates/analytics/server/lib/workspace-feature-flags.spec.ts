@@ -288,6 +288,36 @@ describe("verified fleet feature flag transaction", () => {
     );
   });
 
+  it("classifies a local mutation authorization rejection", async () => {
+    mocks.setLocalFeatureFlag.mockRejectedValue(
+      Object.assign(new Error("private permission detail"), {
+        statusCode: 403,
+      }),
+    );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "analytics",
+        key: "analytics.resilient-fleet-flag-directory",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase: "authorization" });
+  });
+
+  it("classifies other local mutation errors as target action failures", async () => {
+    mocks.setLocalFeatureFlag.mockRejectedValue(
+      new Error("Unknown feature flag: analytics.retired-flag"),
+    );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "analytics",
+        key: "analytics.retired-flag",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase: "target-action" });
+  });
+
   it("classifies local readback authorization loss after persistence", async () => {
     const rules = {
       mode: "off",

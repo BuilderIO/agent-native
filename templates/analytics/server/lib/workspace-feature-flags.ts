@@ -382,6 +382,18 @@ function targetFailure(error: unknown): WorkspaceFeatureFlagFailure {
   return new WorkspaceFeatureFlagFailure(reason);
 }
 
+function localMutationFailure(error: unknown): WorkspaceFeatureFlagFailure {
+  const statusCode =
+    error && typeof error === "object" && "statusCode" in error
+      ? (error as { statusCode?: unknown }).statusCode
+      : undefined;
+  return new WorkspaceFeatureFlagFailure(
+    statusCode === 401 || statusCode === 403
+      ? "authorization"
+      : "target-action",
+  );
+}
+
 async function resolveTargetApp(
   admin: AnalyticsAdminContext,
   appId: string,
@@ -612,10 +624,15 @@ export async function setWorkspaceFeatureFlag(
             rules: localRules!,
           }
         : { operation: input.operation, key: input.key };
-    const result = await setLocalFeatureFlagAction.run(
-      targetInput,
-      localActionContext(admin, "set-feature-flag", sourceContext),
-    );
+    let result;
+    try {
+      result = await setLocalFeatureFlagAction.run(
+        targetInput,
+        localActionContext(admin, "set-feature-flag", sourceContext),
+      );
+    } catch (error) {
+      throw localMutationFailure(error);
+    }
     const orgDomain = result.scope.orgDomain ?? "";
     let mutation: TargetFeatureFlagMutationResult;
     try {
