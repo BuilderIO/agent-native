@@ -354,9 +354,11 @@ Sin `A2A_SECRET` en producción, cada punto final A2A y el punto final de activa
 
 ## Entrante Webhooks {#webhooks}
 
-Los controladores de webhooks entrantes (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) rechazan solicitudes falsificadas de forma predeterminada en producción: cuando falta la var de entorno secreta de firma correspondiente, el controlador devuelve 401 en lugar de aceptar y enviar.
+Los controladores de webhooks entrantes (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom) rechazan solicitudes falsificadas de forma predeterminada en producción: cuando falta la var de entorno secreta de firma correspondiente, el controlador devuelve 401 en lugar de aceptar y enviar.
 
 Esta era anteriormente una postura de "advertir y aceptar": establezca el secreto que de otro modo se perdería o opte por volver al comportamiento anterior con `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` solo para desarrolladores locales. Consulte [Messaging](/docs/messaging#env-vars) para conocer las variables secretas de firma por integración.
+
+Las notificaciones `changes.watch` de Google Drive no pasan por esa puerta de enlace de adaptadores genérica: son solicitudes opacas sin cuerpo. Por eso el framework registra un token aleatorio por canal y verifica las cabeceras `X-Goog-Channel-ID`, `X-Goog-Channel-Token` y `X-Goog-Resource-ID` antes de obtener los cambios. Son notificaciones directas de Drive, no mensajes de Pub/Sub, y no contienen tokens OIDC de Pub/Sub.
 
 ## Lista de verificación de producción {#production-checklist}
 
