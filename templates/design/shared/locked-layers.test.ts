@@ -118,6 +118,49 @@ describe("locked layers", () => {
     ).toThrow(/locks layer/i);
   });
 
+  it("ignores unrelated head edits that shift unstamped ancestor offsets", () => {
+    const page = (title: string) =>
+      `<!doctype html><html><head><title>${title}</title></head><body>
+  <main data-agent-native-node-id="art">
+    <div data-agent-native-node-id="logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">N</div>
+    <h1 data-agent-native-node-id="h">Old</h1>
+  </main>
+</body></html>`;
+    expect(() =>
+      assertLockedLayersPreserved(page("T"), page("A far longer page title")),
+    ).not.toThrow();
+  });
+
+  it("rejects moving a locked layer across an unstamped sibling", () => {
+    const shell = (inner: string) => `<!doctype html><html><body>
+  <main data-agent-native-node-id="art">${inner}
+  </main>
+</body></html>`;
+    const locked =
+      '<div data-agent-native-node-id="logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">N</div>';
+    expect(() =>
+      assertLockedLayersPreserved(
+        shell(`\n    ${locked}\n    <span>plain</span>`),
+        shell(`\n    <span>plain</span>\n    ${locked}`),
+      ),
+    ).toThrow(/locked layer/i);
+  });
+
+  it("allows inserting a sibling that duplicates another sibling's signature", () => {
+    const shell = (inner: string) => `<!doctype html><html><body>
+  <main data-agent-native-node-id="art">${inner}
+  </main>
+</body></html>`;
+    const locked =
+      '<div data-agent-native-node-id="logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">N</div>';
+    expect(() =>
+      assertLockedLayersPreserved(
+        shell(`\n    <span>one</span>\n    ${locked}`),
+        shell(`\n    <span>one</span>\n    <span>two</span>\n    ${locked}`),
+      ),
+    ).not.toThrow();
+  });
+
   it("counts only durable DOM locks across files", () => {
     expect(
       countLockedLayersAcrossFiles([

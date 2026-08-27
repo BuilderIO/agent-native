@@ -17,12 +17,18 @@ export interface LockedLayerSnapshot {
   selfId: string;
 }
 
+/**
+ * Never fall back to `node.id`: it hashes the element's byte offset, so an
+ * unstamped ancestor changes identity whenever anything earlier in the
+ * document changes length, and a sibling that merely moved reads as a
+ * different node.
+ */
 function durableNodeIdentity(node: CodeLayerNode): string {
   const stableId = node.dataAttributes["data-agent-native-node-id"];
   if (stableId) return `node:${stableId}`;
   const htmlId = node.attributes.id;
   if (typeof htmlId === "string" && htmlId.length > 0) return `id:${htmlId}`;
-  return node.id;
+  return `sig:${node.tag}|${node.classes.join(".")}`;
 }
 
 function lockedLayerPlacement(
@@ -59,17 +65,29 @@ function lockedLayerPlacement(
   };
 }
 
+/** Identities appearing exactly once, so a repeated one anchors nothing. */
+function unambiguous(ids: readonly string[]): Set<string> {
+  const seen = new Map<string, number>();
+  for (const id of ids) seen.set(id, (seen.get(id) ?? 0) + 1);
+  return new Set(
+    Array.from(seen).flatMap(([id, count]) => (count === 1 ? [id] : [])),
+  );
+}
+
 /**
- * Order among the siblings present on BOTH sides. A raw position would make
- * any insert earlier in the parent read as "the locked layer moved".
+ * Order among the siblings that anchor on BOTH sides. A raw position would
+ * make any insert earlier in the parent read as "the locked layer moved".
  */
 function orderAmongSurvivingSiblings(
   siblingIds: string[],
   selfId: string,
   otherSiblingIds: readonly string[],
 ): number {
-  const shared = new Set(otherSiblingIds);
-  return siblingIds.filter((id) => shared.has(id)).indexOf(selfId);
+  const mine = unambiguous(siblingIds);
+  const theirs = unambiguous(otherSiblingIds);
+  return siblingIds
+    .filter((id) => mine.has(id) && theirs.has(id))
+    .indexOf(selfId);
 }
 
 /**
