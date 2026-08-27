@@ -38,7 +38,7 @@ import {
   renderHtmlTemplates,
   type FigNode,
 } from "../../server/lib/fig-file-to-html.js";
-import { parseFigmaNodeId } from "../../shared/figma-url.js";
+import { parseFigmaFileKey, parseFigmaNodeId } from "../../shared/figma-url.js";
 import { comparePngs } from "./lib/compare.js";
 import { renderHtmlToPng } from "./lib/render.js";
 
@@ -55,6 +55,11 @@ interface FigCase {
   /** Optional allow-list of `sessionID:localID` frame keys; default is all. */
   frames?: string[];
   /**
+   * The Figma file this `.fig` was saved from. Node ids are unique per FILE,
+   * so without it a frame can match an unrelated design's reference.
+   */
+  fileKey?: string;
+  /**
    * Substring of the refusal this case is pinning. A product limit that fires
    * correctly is a PASS, not a failure: reporting it as one leaves the harness
    * permanently red, and a real regression then hides in the noise. The case
@@ -62,6 +67,36 @@ interface FigCase {
    */
   expectRefusal?: string;
   notes?: string;
+}
+
+/**
+ * The canvas the REST harness captured this frame's Figma reference on, so the
+ * `.fig` render lands on the same one. `render.json` records the frame box,
+ * Figma's ink, and where the box sits inside their union.
+ */
+function referenceRender(importCase: string | undefined): {
+  canvas: { width: number; height: number };
+  contentOffset: { left: number; top: number };
+  renderScale: number;
+} | null {
+  if (!importCase) return null;
+  const path = join(IMPORT_DIR, importCase, "render.json");
+  if (!existsSync(path)) return null;
+  const meta = JSON.parse(readFileSync(path, "utf8")) as {
+    box: { x: number; y: number; width: number; height: number };
+    ink?: { x: number; y: number; width: number; height: number };
+    renderScale?: number;
+  };
+  const ink = meta.ink ?? meta.box;
+  const left = Math.min(meta.box.x, ink.x);
+  const top = Math.min(meta.box.y, ink.y);
+  const right = Math.max(meta.box.x + meta.box.width, ink.x + ink.width);
+  const bottom = Math.max(meta.box.y + meta.box.height, ink.y + ink.height);
+  return {
+    canvas: { width: right - left, height: bottom - top },
+    contentOffset: { left: meta.box.x - left, top: meta.box.y - top },
+    renderScale: meta.renderScale ?? 1,
+  };
 }
 
 interface FrameOutcome {
@@ -103,6 +138,17 @@ interface CaseOutcome {
  * Figma reference and the REST render the import harness already produced for
  * that same node.
  */
+/**
+ * Frame GUID -> the import case holding Figma's reference for it, keyed by
+ * FILE as well as node.
+ *
+ * A Figma node id is unique inside its file and nowhere else, so a bare
+ * node-id index silently matched across files: the fixture file's
+ * `6:20 ledger-f3b-svg-insert` scored 99.55% against `community-interior-
+ * ecommerce`, an unrelated design that happens to own a `6:20` too. A case
+ * without a `fileKey` still matches on node id alone — that is the old
+ * behaviour, and it is why every case in the corpus now declares one.
+ */
 function buildReferenceIndex(): Map<string, string> {
   const index = new Map<string, string>();
   if (!existsSync(IMPORT_MANIFEST)) return index;
@@ -112,9 +158,23 @@ function buildReferenceIndex(): Map<string, string> {
   }>;
   for (const testCase of cases) {
     const nodeId = parseFigmaNodeId(testCase.url);
-    if (nodeId) index.set(nodeId, testCase.id);
+    if (!nodeId) continue;
+    index.set(nodeId, testCase.id);
+    const fileKey = parseFigmaFileKey(testCase.url);
+    if (fileKey) index.set(`${fileKey}/${nodeId}`, testCase.id);
   }
   return index;
+}
+
+/** The reference for a frame, refusing a cross-file id collision. */
+function referenceFor(
+  references: Map<string, string>,
+  testCase: FigCase,
+  frameKey: string,
+): string | undefined {
+  if (testCase.fileKey)
+    return references.get(`${testCase.fileKey}/${frameKey}`);
+  return references.get(frameKey);
 }
 
 const IMAGE_MIME: Record<string, string> = {
@@ -247,10 +307,18 @@ async function runCase(
     mkdirSync(frameDir, { recursive: true });
     writeFileSync(join(frameDir, "fig.html"), frame.html);
 
+    // Render on the SAME canvas the reference was captured on. The import
+    // harness unions the frame box with Figma's ink, because content that
+    // overflows the frame is still in Figma's PNG — the Untitled UI dashboard
+    // spills 106px past its own 960px frame. Rendering the frame box alone
+    // compared a 1440x960 image against a 1440x1066 one, which is not a
+    // fidelity number at all; it is two differently-shaped pictures.
+    const importCase = referenceFor(references, testCase, frameKey);
+    const reference = referenceRender(importCase);
     const rendered = await renderHtmlToPng(browser, frame.html, {
-      width: frame.width,
-      height: frame.height,
-      deviceScaleFactor: 1,
+      width: reference?.canvas.width ?? frame.width,
+      height: reference?.canvas.height ?? frame.height,
+      deviceScaleFactor: reference?.renderScale ?? 1,
     });
     writeFileSync(join(frameDir, "fig.png"), rendered.png);
 
@@ -262,7 +330,6 @@ async function runCase(
       renderWarnings: rendered.warnings,
     };
 
-    const importCase = references.get(frameKey);
     const figmaRef = importCase
       ? join(IMPORT_DIR, importCase, "figma.png")
       : null;
