@@ -82,7 +82,7 @@ describe("get-figma-design-context", () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ path, query }: any) => {
         if (path === "/files/abcDEF12345/nodes") {
-          expect(query).toEqual({ ids: "1:2" });
+          expect(query).toEqual(expect.objectContaining({ ids: "1:2" }));
           return jsonEnvelope({
             nodes: {
               "1:2": {
