@@ -2166,6 +2166,12 @@ const designLocaleOverrides = {
         saving: "保存...",
         saveChanges: "保存更改",
       },
+      preview: {
+        title: "预览",
+        description:
+          "此设计系统由 Builder 设计系统智能管理。打开关联的项目即可查看完整的设计系统，包括所有令牌、组件和使用指南。",
+        pending: "Builder 仍在为此设计系统建立索引。索引完成后即可查看预览。",
+      },
       tokenPreview: {
         title: "代币预览",
         description: "当前存储的颜色、类型、间距和资源的快照。",
@@ -2612,6 +2618,13 @@ const designLocaleOverrides = {
         useAsStartingPoint: "Usar como punto de partida",
         saving: "Ahorro...",
         saveChanges: "Guardar cambios",
+      },
+      preview: {
+        title: "Vista previa",
+        description:
+          "Este sistema de diseño se gestiona con Builder Design System Intelligence. Abre el proyecto vinculado para ver el sistema de diseño completo, incluidos todos los tokens, componentes y guías de uso.",
+        pending:
+          "Builder todavía está indexando este sistema de diseño. La vista previa estará disponible cuando finalice la indexación.",
       },
       tokenPreview: {
         title: "Vista previa del token",
@@ -3067,6 +3080,13 @@ const designLocaleOverrides = {
         saving: "Économie...",
         saveChanges: "Enregistrer les modifications",
       },
+      preview: {
+        title: "Aperçu",
+        description:
+          "Ce système de conception est géré par Builder Design System Intelligence. Ouvrez le projet associé pour voir le système de conception complet, y compris tous les jetons, composants et conseils d’utilisation.",
+        pending:
+          "Builder est en train d’indexer ce système de conception. L’aperçu sera disponible une fois l’indexation terminée.",
+      },
       tokenPreview: {
         title: "Aperçu du jeton",
         description:
@@ -3521,6 +3541,13 @@ const designLocaleOverrides = {
         saving: "Sparen...",
         saveChanges: "Änderungen speichern",
       },
+      preview: {
+        title: "Vorschau",
+        description:
+          "Dieses Designsystem wird von Builder Design System Intelligence verwaltet. Öffnen Sie das verknüpfte Projekt, um das vollständige Designsystem einzusehen, einschließlich aller Tokens, Komponenten und Nutzungshinweise.",
+        pending:
+          "Builder indiziert dieses Designsystem noch. Die Vorschau ist verfügbar, sobald die Indizierung abgeschlossen ist.",
+      },
       tokenPreview: {
         title: "Token-Vorschau",
         description:
@@ -3970,6 +3997,13 @@ const designLocaleOverrides = {
         saving: "保存中...",
         saveChanges: "変更を保存する",
       },
+      preview: {
+        title: "プレビュー",
+        description:
+          "このデザインシステムは Builder Design System Intelligence によって管理されています。リンクされたプロジェクトを開くと、すべてのトークン、コンポーネント、使用ガイダンスを含む完全なデザインシステムを確認できます。",
+        pending:
+          "Builder はこのデザインシステムのインデックスをまだ作成中です。インデックス作成が完了するとプレビューが利用できるようになります。",
+      },
       tokenPreview: {
         title: "トークンのプレビュー",
         description:
@@ -4411,6 +4445,13 @@ const designLocaleOverrides = {
         useAsStartingPoint: "출발점으로 사용",
         saving: "절약...",
         saveChanges: "변경사항 저장",
+      },
+      preview: {
+        title: "미리보기",
+        description:
+          "이 디자인 시스템은 Builder Design System Intelligence에서 관리합니다. 연결된 프로젝트를 열어 모든 토큰, 구성 요소 및 사용 가이드를 포함한 전체 디자인 시스템을 확인하세요.",
+        pending:
+          "Builder가 아직 이 디자인 시스템을 색인화하는 중입니다. 색인화가 완료되면 미리보기를 사용할 수 있습니다.",
       },
       tokenPreview: {
         title: "토큰 미리보기",
@@ -4860,6 +4901,13 @@ const designLocaleOverrides = {
         saving: "Salvando...",
         saveChanges: "Salvar alterações",
       },
+      preview: {
+        title: "Visualização",
+        description:
+          "Este sistema de design é gerenciado pelo Builder Design System Intelligence. Abra o projeto vinculado para ver o sistema de design completo, incluindo todos os tokens, componentes e diretrizes de uso.",
+        pending:
+          "O Builder ainda está indexando este sistema de design. A visualização estará disponível quando a indexação for concluída.",
+      },
       tokenPreview: {
         title: "Visualização do token",
         description:
@@ -5297,6 +5345,13 @@ const designLocaleOverrides = {
         saving: "सहेजा जा रहा है...",
         saveChanges: "परिवर्तनों को सुरक्षित करें",
       },
+      preview: {
+        title: "पूर्वावलोकन",
+        description:
+          "इस डिज़ाइन सिस्टम को Builder डिज़ाइन सिस्टम इंटेलिजेंस द्वारा प्रबंधित किया जाता है। सभी टोकन, घटकों और उपयोग मार्गदर्शन सहित पूरा डिज़ाइन सिस्टम देखने के लिए लिंक की गई परियोजना खोलें।",
+        pending:
+          "Builder अभी भी इस डिज़ाइन सिस्टम को इंडेक्स कर रहा है। इंडेक्सिंग पूर्ण होने पर पूर्वावलोकन उपलब्ध होगा।",
+      },
       tokenPreview: {
         title: "टोकन पूर्वावलोकन",
         description:
@@ -5733,6 +5788,13 @@ const designLocaleOverrides = {
         useAsStartingPoint: "استخدم كنقطة انطلاق",
         saving: "توفير...",
         saveChanges: "حفظ التغييرات",
+      },
+      preview: {
+        title: "معاينة",
+        description:
+          "يتم إدارة نظام التصميم هذا بواسطة Builder Design System Intelligence. افتح المشروع المرتبط لعرض نظام التصميم الكامل، بما في ذلك جميع الرموز والمكونات وإرشادات الاستخدام.",
+        pending:
+          "لا يزال Builder يقوم بفهرسة نظام التصميم هذا. ستكون المعاينة متاحة بعد اكتمال الفهرسة.",
       },
       tokenPreview: {
         title: "معاينة الرمز المميز",

@@ -16,6 +16,7 @@ import {
   IconComponents,
   IconDots,
   IconExternalLink,
+  IconPalette,
   IconPlus,
   IconStar,
   IconStarFilled,
@@ -23,7 +24,14 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -69,6 +77,7 @@ import {
 import { QueryErrorState } from "../components/QueryErrorState";
 import {
   builderRefreshKey,
+  isTrustedBuilderPreviewUrl,
   parseDesignSystemData,
   shouldRefreshBuilderDesignSystem,
   type DesignSystemData,
@@ -862,6 +871,10 @@ function DesignSystemDetailsSheet({
     () => (designSystem ? parseDesignSystemData(designSystem.data) : null),
     [designSystem],
   );
+  const assets = useMemo(
+    () => parseDesignSystemAssets(designSystem && designSystem.assets),
+    [designSystem],
+  );
 
   if (!designSystem) {
     return null;
@@ -918,7 +931,7 @@ function DesignSystemDetailsSheet({
             </div>
           </section>
 
-          <DesignSystemPreviewLink data={parsed} />
+          <DesignSystemPreview data={parsed} assets={assets} />
 
           <section className="space-y-3 border-t border-border pt-6">
             <div>
@@ -973,12 +986,26 @@ function DesignSystemDetailsSheet({
   );
 }
 
-function DesignSystemPreviewLink({ data }: { data: DesignSystemData | null }) {
-  const t = useT();
+function DesignSystemPreview({
+  data,
+  assets,
+}: {
+  data: DesignSystemData | null;
+  assets: Array<{ name?: string; url?: string; variant?: string }>;
+}) {
+  return data?.source === "builder" ? (
+    <DesignSystemPreviewLink data={data} />
+  ) : (
+    <TokenPreview data={data} assets={assets} />
+  );
+}
 
-  if (data?.source !== "builder") {
-    return null;
-  }
+function DesignSystemPreviewLink({ data }: { data: DesignSystemData }) {
+  const t = useT();
+  const trustedBuilderUrl =
+    data.builderUrl && isTrustedBuilderPreviewUrl(data.builderUrl)
+      ? data.builderUrl
+      : undefined;
 
   return (
     <section className="space-y-3 border-t border-border pt-6">
@@ -990,10 +1017,10 @@ function DesignSystemPreviewLink({ data }: { data: DesignSystemData | null }) {
           {t("designSystems.preview.description")}
         </p>
       </div>
-      {data.builderUrl ? (
+      {trustedBuilderUrl ? (
         <Button asChild className="cursor-pointer">
           <a
-            href={withBuilderUtmTrackingParams(data.builderUrl, {
+            href={withBuilderUtmTrackingParams(trustedBuilderUrl, {
               campaign: "product",
               content: "design_system_intelligence",
             })}
@@ -1011,6 +1038,277 @@ function DesignSystemPreviewLink({ data }: { data: DesignSystemData | null }) {
       )}
     </section>
   );
+}
+
+function TokenPreview({
+  data,
+  assets,
+}: {
+  data: DesignSystemData | null;
+  assets: Array<{ name?: string; url?: string; variant?: string }>;
+}) {
+  const t = useT();
+  const colors = getColorTokens(data, t);
+  const typeTokens = getTypographyTokens(data, t);
+  const detailTokens = getDetailTokens(data, assets, t);
+
+  return (
+    <section className="space-y-6 border-t border-border pt-6">
+      <div>
+        <h3 className="text-sm font-medium text-foreground">
+          {t("designSystems.tokenPreview.title")}
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {t("designSystems.tokenPreview.description")}
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <h4 className="text-xs font-medium uppercase text-muted-foreground">
+          {t("designSystems.tokenPreview.colors")}
+        </h4>
+        {colors.length > 0 ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {colors.map((color) => (
+              <div
+                key={color.label}
+                className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-muted/30 p-2"
+              >
+                {color.swatch ? (
+                  <div
+                    className="h-9 w-9 shrink-0 rounded-md border border-border"
+                    style={{ backgroundColor: color.swatch }}
+                  />
+                ) : null}
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-foreground">
+                    {color.label}
+                  </div>
+                  <div className="truncate font-mono !text-[11px] text-muted-foreground">
+                    {color.value}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyPreviewLine icon={<IconPalette className="h-4 w-4" />}>
+            {t("designSystems.tokenPreview.noColors")}
+          </EmptyPreviewLine>
+        )}
+      </div>
+
+      {typeTokens.length > 0 ? (
+        <PreviewList
+          title={t("designSystems.tokenPreview.typography")}
+          items={typeTokens}
+        />
+      ) : null}
+      {detailTokens.length > 0 ? (
+        <PreviewList
+          title={t("designSystems.tokenPreview.details")}
+          items={detailTokens}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function PreviewList({
+  title,
+  items,
+}: {
+  title: string;
+  items: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <div className="space-y-3">
+      <h4 className="text-xs font-medium uppercase text-muted-foreground">
+        {title}
+      </h4>
+      <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {items.map((item) => (
+          <div
+            key={`${item.label}:${item.value}`}
+            className="min-w-0 rounded-lg border border-border bg-muted/30 p-3"
+          >
+            <dt className="text-xs font-medium text-foreground">
+              {item.label}
+            </dt>
+            <dd className="mt-1 truncate text-xs text-muted-foreground">
+              {item.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function EmptyPreviewLine({
+  icon,
+  children,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      {icon}
+      {children}
+    </div>
+  );
+}
+
+function parseDesignSystemAssets(
+  assetsStr?: string | null,
+): Array<{ name?: string; url?: string; variant?: string }> {
+  if (!assetsStr) return [];
+  try {
+    const parsed = JSON.parse(assetsStr);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+type DesignT = ReturnType<typeof useT>;
+
+function getColorTokens(data: DesignSystemData | null, t: DesignT) {
+  const colors = data?.colors;
+  if (!colors) return [];
+  return [
+    {
+      label: t("designSystems.tokenPreview.colorLabels.primary"),
+      value: formatDesignTokenValue(colors.primary),
+      swatch: getCssColorToken(colors.primary),
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.secondary"),
+      value: formatDesignTokenValue(colors.secondary),
+      swatch: getCssColorToken(colors.secondary),
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.accent"),
+      value: formatDesignTokenValue(colors.accent),
+      swatch: getCssColorToken(colors.accent),
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.background"),
+      value: formatDesignTokenValue(colors.background),
+      swatch: getCssColorToken(colors.background),
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.surface"),
+      value: formatDesignTokenValue(colors.surface),
+      swatch: getCssColorToken(colors.surface),
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.text"),
+      value: formatDesignTokenValue(colors.text),
+      swatch: getCssColorToken(colors.text),
+    },
+    {
+      label: t("designSystems.tokenPreview.colorLabels.mutedText"),
+      value: formatDesignTokenValue(colors.textMuted),
+      swatch: getCssColorToken(colors.textMuted),
+    },
+  ].filter(
+    (
+      item,
+    ): item is {
+      label: string;
+      value: string;
+      swatch: string | undefined;
+    } => Boolean(item.value),
+  );
+}
+
+function getTypographyTokens(data: DesignSystemData | null, t: DesignT) {
+  const typography = data?.typography;
+  if (!typography) return [];
+  return [
+    {
+      label: t("designSystems.tokenPreview.typeLabels.headingFont"),
+      value: formatDesignTokenValue(typography.headingFont),
+    },
+    {
+      label: t("designSystems.tokenPreview.typeLabels.bodyFont"),
+      value: formatDesignTokenValue(typography.bodyFont),
+    },
+    {
+      label: t("designSystems.tokenPreview.typeLabels.headingWeight"),
+      value: formatDesignTokenValue(typography.headingWeight),
+    },
+    {
+      label: t("designSystems.tokenPreview.typeLabels.bodyWeight"),
+      value: formatDesignTokenValue(typography.bodyWeight),
+    },
+  ].filter((item): item is { label: string; value: string } =>
+    Boolean(item.value),
+  );
+}
+
+function getDetailTokens(
+  data: DesignSystemData | null,
+  assets: Array<{ name?: string; url?: string; variant?: string }>,
+  t: DesignT,
+) {
+  const spacing = data?.spacing ?? {};
+  const borders = data?.borders ?? {};
+  const defaults = data?.defaults ?? {};
+  const logos = data?.logos ?? [];
+  const namedTokenCount = Array.isArray(data?.tokens) ? data.tokens.length : 0;
+  return [
+    ...objectPreviewItems(t("designSystems.tokenPreview.spacing"), spacing),
+    ...objectPreviewItems(t("designSystems.tokenPreview.borders"), borders),
+    ...objectPreviewItems(t("designSystems.tokenPreview.defaults"), defaults),
+    // The seven color roles are a summary of an import, not its extent. Without
+    // this the panel renders a 200-token system identically to a 7-token one,
+    // which reads as "it only captured a few colors".
+    namedTokenCount > 0
+      ? {
+          label: t("designSystems.tokenPreview.namedTokens"),
+          value: t("designSystems.tokenPreview.savedCount", {
+            count: namedTokenCount,
+          }),
+        }
+      : null,
+    logos.length > 0
+      ? {
+          label: t("designSystems.tokenPreview.logos"),
+          value: t("designSystems.tokenPreview.savedCount", {
+            count: logos.length,
+          }),
+        }
+      : null,
+    assets.length > 0
+      ? {
+          label: t("designSystems.tokenPreview.assets"),
+          value: t("designSystems.tokenPreview.savedCount", {
+            count: assets.length,
+          }),
+        }
+      : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+}
+
+function objectPreviewItems(prefix: string, values: Record<string, unknown>) {
+  return Object.entries(values)
+    .map(([key, value]) => [key, formatDesignTokenValue(value)] as const)
+    .filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
+    .slice(0, 4)
+    .map(([key, value]) => ({
+      label: `${prefix}: ${labelizeKey(key)}`,
+      value,
+    }));
+}
+
+function labelizeKey(key: string) {
+  return key
+    .replace(/([A-Z])/g, " $1")
+    .replace(/[-_]/g, " ")
+    .replace(/^./, (char) => char.toUpperCase());
 }
 
 function LoadingSkeleton() {
