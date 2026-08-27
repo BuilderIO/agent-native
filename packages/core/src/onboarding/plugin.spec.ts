@@ -4,6 +4,9 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const appStateGetMock = vi.hoisted(() => vi.fn());
 const appStatePutMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
+const getUserProfileMock = vi.hoisted(() => vi.fn());
+const updateUserProfileMock = vi.hoisted(() => vi.fn());
+const trackMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -20,6 +23,15 @@ vi.mock("../application-state/store.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => getOrgContextMock(...args),
+}));
+
+vi.mock("../user-profile/store.js", () => ({
+  getUserProfile: (...args: any[]) => getUserProfileMock(...args),
+  updateUserProfile: (...args: any[]) => updateUserProfileMock(...args),
+}));
+
+vi.mock("../tracking/index.js", () => ({
+  track: (...args: any[]) => trackMock(...args),
 }));
 
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
@@ -47,6 +59,7 @@ async function dispatch(
   pathname: string,
   method = "GET",
   headers: HeadersInit = {},
+  requestBody?: unknown,
 ) {
   const url = `https://app.test${pathname}`;
   const event = {
@@ -54,7 +67,11 @@ async function dispatch(
     url: new URL(url),
     path: pathname,
     context: {},
-    req: new Request(url, { method, headers }),
+    req: new Request(url, {
+      method,
+      headers,
+      body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+    }),
     res: {
       status: 200,
       headers: new Headers(),
@@ -80,8 +97,12 @@ async function dispatch(
     if (!middleware) return { fellThrough: true };
     return middleware(event, next);
   };
-  const body = await next();
-  return { body, status: event.res.status, headers: event.res.headers };
+  const responseBody = await next();
+  return {
+    body: responseBody,
+    status: event.res.status,
+    headers: event.res.headers,
+  };
 }
 
 function registerRequestContextProbeStep() {
@@ -114,6 +135,17 @@ describe("onboarding plugin routes", () => {
     });
     appStateGetMock.mockResolvedValue(null);
     appStatePutMock.mockResolvedValue(undefined);
+    getUserProfileMock.mockResolvedValue({
+      email: "alice@example.com",
+      name: "Alice",
+      onboardingRole: null,
+    });
+    updateUserProfileMock.mockResolvedValue({
+      email: "alice@example.com",
+      name: "Alice",
+      onboardingRole: "developer",
+    });
+    trackMock.mockReset();
   });
 
   it("runs step completion resolvers inside the authenticated request context", async () => {
@@ -313,5 +345,50 @@ describe("onboarding plugin routes", () => {
     expect(result.status).toBe(401);
     expect(result.body).toEqual({ error: "Authentication required" });
     expect(appStatePutMock).not.toHaveBeenCalled();
+  });
+
+  it("saves and tracks an authenticated user's onboarding role", async () => {
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      { "content-type": "application/json" },
+      { role: "developer" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true, role: "developer" });
+    expect(getUserProfileMock).toHaveBeenCalledWith("alice@example.com");
+    expect(updateUserProfileMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "Alice",
+      "developer",
+    );
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding.role_selected",
+      { role: "developer" },
+      { userId: "alice@example.com" },
+    );
+  });
+
+  it("rejects invalid onboarding roles before writing or tracking", async () => {
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      { "content-type": "application/json" },
+      { role: "pirate" },
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: "Invalid onboarding role" });
+    expect(updateUserProfileMock).not.toHaveBeenCalled();
+    expect(trackMock).not.toHaveBeenCalled();
   });
 });

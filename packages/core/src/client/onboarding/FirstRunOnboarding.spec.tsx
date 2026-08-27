@@ -49,6 +49,7 @@ describe("FirstRunOnboarding", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
+    mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.createMcpServer.mockReset();
     mocks.testMcpServer.mockReset();
     mocks.useBuilderConnectFlow.mockReset();
@@ -258,7 +259,7 @@ describe("FirstRunOnboarding", () => {
     ).toBeTruthy();
   });
 
-  it("skips the generic integrations catalog when configured for a workflow app", () => {
+  it("skips the generic integrations catalog but still asks for a role", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -286,10 +287,76 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(
-      document.body.querySelector("[data-onboarding-screen='ready']"),
+      document.body.querySelector("[data-onboarding-screen='role']"),
     ).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      "Let’s customize this for you.",
+    );
     expect(document.body.textContent).not.toContain("This app is an agent.");
     expect(document.body.textContent).not.toContain("Agent integrations");
+  });
+
+  it("saves the selected role before completing first-run onboarding", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector(
+          "[data-testid='onboarding-tools-footer'] button.bg-primary",
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-screen='role']"),
+    ).toBeTruthy();
+    expect(document.body.textContent).toContain("Product");
+    expect(document.body.textContent).toContain("Individual");
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-developer'] input")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-onboarding-screen='role'] button.bg-primary")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/onboarding/first-run/role"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ role: "developer" }),
+      }),
+    );
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
   });
 
   it("keeps first-run integrations disabled until scope metadata is ready", () => {
@@ -509,8 +576,8 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
     act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-open-app"]')
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Skip for now")
         ?.click();
     });
 
