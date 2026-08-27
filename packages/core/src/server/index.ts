@@ -134,6 +134,7 @@ export {
   type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
+  type MentionItemMedia,
   type MentionProviderItem,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
@@ -561,6 +562,7 @@ export {
   // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
@@ -569,6 +571,12 @@ export {
   resolveSecret,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
+export {
+  canAuthorizeBuilderApiRequest,
+  hasBuilderApiCredentialCustody,
+  resolveBuilderApiAuthorization,
+} from "./builder-api-auth.js";
+export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,

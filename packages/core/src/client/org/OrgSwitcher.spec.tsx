@@ -8,6 +8,8 @@ import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  beginSignOut: vi.fn(),
+  completeSignOut: vi.fn(),
   notifySessionInvalidated: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
@@ -37,6 +39,8 @@ vi.mock("./hooks.js", () => {
 });
 
 vi.mock("../use-session.js", () => ({
+  beginSignOut: mocks.beginSignOut,
+  completeSignOut: mocks.completeSignOut,
   notifySessionInvalidated: mocks.notifySessionInvalidated,
   useSession: mocks.useSession,
 }));
@@ -68,6 +72,8 @@ describe("OrgSwitcher", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
+    mocks.beginSignOut.mockReset();
+    mocks.completeSignOut.mockReset();
     mocks.notifySessionInvalidated.mockReset();
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();
@@ -261,7 +267,7 @@ describe("OrgSwitcher", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
   });
 
-  it("invalidates mounted sessions and warns before returning to sign-in after a failed sign out", async () => {
+  it("reloads after a failed sign out without returning to sign-in", async () => {
     const originalLocation = window.location;
     const reload = vi.fn();
     const replace = vi.fn();
@@ -312,16 +318,17 @@ describe("OrgSwitcher", () => {
       expect(fetchMock).toHaveBeenCalledWith("/_agent-native/auth/logout", {
         method: "POST",
         credentials: "include",
+        signal: expect.any(AbortSignal),
       });
-      expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
-      expect(replace).toHaveBeenCalledWith(
-        expect.stringContaining("/sign-in?c="),
-      );
+      expect(mocks.beginSignOut).toHaveBeenCalledOnce();
+      expect(mocks.completeSignOut).not.toHaveBeenCalled();
+      expect(mocks.notifySessionInvalidated).not.toHaveBeenCalled();
+      expect(reload).toHaveBeenCalledOnce();
+      expect(replace).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
-        "Logout request returned an error before sign-in",
+        "Sign-out request returned an error",
         503,
       );
-      expect(reload).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
       Object.defineProperty(window, "location", {

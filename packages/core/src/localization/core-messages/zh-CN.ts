@@ -30,7 +30,7 @@ const messages: AgentChatTranslation = {
   "commands.mention": "提及文件、智能体或资源",
   "commands.new": "与 /clear 相同",
   "commands.plan": "切换到只读规划模式",
-  "aboutAgentNative.title": "关于 Agent Native",
+  "aboutAgentNative.title": "关于 Agent-Native",
   "aboutAgentNative.version": "版本",
   "aboutAgentNative.environment": "环境",
   "aboutAgentNative.build": "构建",
@@ -138,7 +138,7 @@ const messages: AgentChatTranslation = {
   "composer.plan": "规划",
   "composer.planDescription": "先进行只读研究并获取批准",
   "composer.planDesktopRequired":
-    "请打开 Agent Native Desktop 以使用规划模式。",
+    "请打开 Agent-Native Desktop 以使用规划模式。",
   "composer.previewAttachment": "预览 {{name}}",
   "composer.reasoning": "推理",
   "composer.reasoningEffort.auto": "自动",

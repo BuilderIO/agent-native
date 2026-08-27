@@ -438,7 +438,7 @@ const databaseMessages = {
   addASource: "Add a source",
   localNoCollection: "Local (no collection)",
   liveWritesTestCollectionOnly:
-    "Live writes are only available for the Agent Native test collection.",
+    "Live writes are only available for the Agent-Native test collection.",
   builderWriteMode: "Builder write mode",
   builderWriteModeUpdated: "Builder write mode updated",
   allowPublishUnpublishPerItem: "Allow publish/unpublish per item",
@@ -539,7 +539,7 @@ const databaseMessagesByLocale = {
       "当此集合描述现有行时推荐。",
     sourceRole: "来源角色",
     localNoCollection: "本地（无集合）",
-    liveWritesTestCollectionOnly: "仅 Agent Native 测试集合支持实时写入。",
+    liveWritesTestCollectionOnly: "仅 Agent-Native 测试集合支持实时写入。",
     builderWriteMode: "Builder 写入模式",
     builderWriteModeUpdated: "已更新 Builder 写入模式",
     allowPublishUnpublishPerItem: "允许逐项发布/取消发布",
@@ -762,7 +762,7 @@ const databaseMessagesByLocale = {
     sourceRole: "Rol de la fuente",
     localNoCollection: "Local (sin colección)",
     liveWritesTestCollectionOnly:
-      "La escritura en vivo solo está disponible para la colección de prueba de Agent Native.",
+      "La escritura en vivo solo está disponible para la colección de prueba de Agent-Native.",
     builderWriteMode: "Modo de escritura de Builder",
     builderWriteModeUpdated: "Modo de escritura de Builder actualizado",
     allowPublishUnpublishPerItem: "Permitir publicar/retirar por elemento",
@@ -1002,7 +1002,7 @@ const databaseMessagesByLocale = {
     sourceRole: "Rôle de la source",
     localNoCollection: "Local (aucune collection)",
     liveWritesTestCollectionOnly:
-      "Les écritures en direct ne sont disponibles que pour la collection de test Agent Native.",
+      "Les écritures en direct ne sont disponibles que pour la collection de test Agent-Native.",
     builderWriteMode: "Mode d'écriture Builder",
     builderWriteModeUpdated: "Mode d'écriture Builder mis à jour",
     allowPublishUnpublishPerItem: "Autoriser publier/dépublier par élément",
@@ -1481,7 +1481,7 @@ const databaseMessagesByLocale = {
     sourceRole: "ソースの役割",
     localNoCollection: "ローカル（コレクションなし）",
     liveWritesTestCollectionOnly:
-      "ライブ書き込みは Agent Native テストコレクションでのみ利用できます。",
+      "ライブ書き込みは Agent-Native テストコレクションでのみ利用できます。",
     builderWriteMode: "Builder 書き込みモード",
     builderWriteModeUpdated: "Builder 書き込みモードを更新しました",
     allowPublishUnpublishPerItem: "項目ごとの公開/非公開を許可",
@@ -1715,7 +1715,7 @@ const databaseMessagesByLocale = {
     sourceRole: "소스 역할",
     localNoCollection: "로컬(컬렉션 없음)",
     liveWritesTestCollectionOnly:
-      "라이브 쓰기는 Agent Native 테스트 컬렉션에서만 사용할 수 있습니다.",
+      "라이브 쓰기는 Agent-Native 테스트 컬렉션에서만 사용할 수 있습니다.",
     builderWriteMode: "Builder 쓰기 모드",
     builderWriteModeUpdated: "Builder 쓰기 모드 업데이트됨",
     allowPublishUnpublishPerItem: "항목별 게시/게시 취소 허용",
@@ -1950,7 +1950,7 @@ const databaseMessagesByLocale = {
     sourceRole: "Função da fonte",
     localNoCollection: "Local (sem coleção)",
     liveWritesTestCollectionOnly:
-      "As gravações ao vivo estão disponíveis apenas para a coleção de teste do Agent Native.",
+      "As gravações ao vivo estão disponíveis apenas para a coleção de teste do Agent-Native.",
     builderWriteMode: "Modo de gravação do Builder",
     builderWriteModeUpdated: "Modo de gravação do Builder atualizado",
     allowPublishUnpublishPerItem:
@@ -2183,7 +2183,7 @@ const databaseMessagesByLocale = {
     sourceRole: "स्रोत भूमिका",
     localNoCollection: "लोकल (कोई संग्रह नहीं)",
     liveWritesTestCollectionOnly:
-      "लाइव राइट केवल Agent Native टेस्ट संग्रह के लिए उपलब्ध हैं।",
+      "लाइव राइट केवल Agent-Native टेस्ट संग्रह के लिए उपलब्ध हैं।",
     builderWriteMode: "Builder राइट मोड",
     builderWriteModeUpdated: "Builder राइट मोड अपडेट किया गया",
     allowPublishUnpublishPerItem: "प्रति आइटम प्रकाशित/अप्रकाशित करने की अनुमति दें",
@@ -2409,7 +2409,7 @@ const databaseMessagesByLocale = {
     sourceRole: "دور المصدر",
     localNoCollection: "محلي (بدون مجموعة)",
     liveWritesTestCollectionOnly:
-      "الكتابة المباشرة متاحة فقط لمجموعة اختبار Agent Native.",
+      "الكتابة المباشرة متاحة فقط لمجموعة اختبار Agent-Native.",
     builderWriteMode: "وضع كتابة Builder",
     builderWriteModeUpdated: "تم تحديث وضع كتابة Builder",
     allowPublishUnpublishPerItem: "السماح بالنشر/إلغاء النشر لكل عنصر",
@@ -2978,11 +2978,11 @@ const editorSlashMessages = {
 
 const localFilesMessages = {
   interruptedPicker:
-    "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
+    "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent-Native Desktop, Chrome, Edge, or another Chromium browser.",
   unsupportedElectron:
-    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
+    "Local folder sync is unavailable here. Use Agent-Native Desktop, Chrome, Edge, or another Chromium browser.",
   unsupportedBrowser:
-    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
+    "Local folder sync is unavailable here. Use Agent-Native Desktop, Chrome, Edge, or another Chromium browser.",
   notSyncedYet: "Not synced yet",
   summaryCreated: "{{count}} created",
   summaryUpdated: "{{count}} updated",
@@ -3006,7 +3006,7 @@ const localFilesMessages = {
   componentPreviewsNeedBridge: "Component previews need the local dev bridge.",
   mdxFilesLinked: "MDX files linked",
   mdxFilesLinkedDescription:
-    "This browser can edit the files, but React component previews need Agent Native Desktop or a local dev server.",
+    "This browser can edit the files, but React component previews need Agent-Native Desktop or a local dev server.",
   folderAdded: "Folder added",
   folderAddFailed: "Folder add failed",
   writePermissionNotGranted: "Write permission was not granted.",
@@ -4278,11 +4278,11 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
 const localFilesMessagesByLocale = {
   "zh-CN": {
     interruptedPicker:
-      "上次文件夹选择器未能完成，因此已在此浏览器配置文件中停用。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
+      "上次文件夹选择器未能完成，因此已在此浏览器配置文件中停用。请使用 Agent-Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     unsupportedElectron:
-      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
+      "此处无法使用本地文件夹同步。请使用 Agent-Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     unsupportedBrowser:
-      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
+      "此处无法使用本地文件夹同步。请使用 Agent-Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     notSyncedYet: "尚未同步",
     summaryCreated: "已创建 {{count}} 个",
     summaryUpdated: "已更新 {{count}} 个",
@@ -4303,7 +4303,7 @@ const localFilesMessagesByLocale = {
     componentPreviewsNeedBridge: "组件预览需要本地开发桥接。",
     mdxFilesLinked: "MDX 文件已链接",
     mdxFilesLinkedDescription:
-      "此浏览器可以编辑文件，但 React 组件预览需要 Agent Native Desktop 或本地开发服务器。",
+      "此浏览器可以编辑文件，但 React 组件预览需要 Agent-Native Desktop 或本地开发服务器。",
     folderAdded: "文件夹已添加",
     folderAddFailed: "文件夹添加失败",
     writePermissionNotGranted: "未授予写入权限。",
@@ -4326,11 +4326,11 @@ const localFilesMessagesByLocale = {
   },
   "es-ES": {
     interruptedPicker:
-      "El selector de carpetas no terminó la última vez, por lo que se ha desactivado en este perfil del navegador. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
+      "El selector de carpetas no terminó la última vez, por lo que se ha desactivado en este perfil del navegador. Usa Agent-Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedElectron:
-      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent-Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedBrowser:
-      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent-Native Desktop, Chrome, Edge u otro navegador Chromium.",
     notSyncedYet: "Aún no sincronizado",
     summaryCreated: "{{count}} creados",
     summaryUpdated: "{{count}} actualizados",
@@ -4352,7 +4352,7 @@ const localFilesMessagesByLocale = {
       "Las vistas previas de componentes necesitan el puente de desarrollo local.",
     mdxFilesLinked: "Archivos MDX enlazados",
     mdxFilesLinkedDescription:
-      "Este navegador puede editar los archivos, pero las vistas previas de componentes React necesitan Agent Native Desktop o un servidor de desarrollo local.",
+      "Este navegador puede editar los archivos, pero las vistas previas de componentes React necesitan Agent-Native Desktop o un servidor de desarrollo local.",
     folderAdded: "Carpeta añadida",
     folderAddFailed: "No se pudo añadir la carpeta",
     writePermissionNotGranted: "No se concedió permiso de escritura.",
@@ -4376,11 +4376,11 @@ const localFilesMessagesByLocale = {
   },
   "fr-FR": {
     interruptedPicker:
-      "Le sélecteur de dossiers ne s’est pas terminé la dernière fois. Il a donc été désactivé dans ce profil de navigateur. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
+      "Le sélecteur de dossiers ne s’est pas terminé la dernière fois. Il a donc été désactivé dans ce profil de navigateur. Utilisez Agent-Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedElectron:
-      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent-Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedBrowser:
-      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent-Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     notSyncedYet: "Pas encore synchronisé",
     summaryCreated: "{{count}} créés",
     summaryUpdated: "{{count}} mis à jour",
@@ -4402,7 +4402,7 @@ const localFilesMessagesByLocale = {
       "Les aperçus de composants nécessitent le pont de développement local.",
     mdxFilesLinked: "Fichiers MDX liés",
     mdxFilesLinkedDescription:
-      "Ce navigateur peut modifier les fichiers, mais les aperçus de composants React nécessitent Agent Native Desktop ou un serveur de développement local.",
+      "Ce navigateur peut modifier les fichiers, mais les aperçus de composants React nécessitent Agent-Native Desktop ou un serveur de développement local.",
     folderAdded: "Dossier ajouté",
     folderAddFailed: "Échec de l’ajout du dossier",
     writePermissionNotGranted:
@@ -4427,11 +4427,11 @@ const localFilesMessagesByLocale = {
   },
   "de-DE": {
     interruptedPicker:
-      "Die Ordnerauswahl wurde beim letzten Mal nicht abgeschlossen und ist daher in diesem Browserprofil deaktiviert. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
+      "Die Ordnerauswahl wurde beim letzten Mal nicht abgeschlossen und ist daher in diesem Browserprofil deaktiviert. Verwende Agent-Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     unsupportedElectron:
-      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent-Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     unsupportedBrowser:
-      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent-Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     notSyncedYet: "Noch nicht synchronisiert",
     summaryCreated: "{{count}} erstellt",
     summaryUpdated: "{{count}} aktualisiert",
@@ -4453,7 +4453,7 @@ const localFilesMessagesByLocale = {
       "Komponentenvorschauen benötigen die lokale Entwicklungsbrücke.",
     mdxFilesLinked: "MDX-Dateien verknüpft",
     mdxFilesLinkedDescription:
-      "Dieser Browser kann die Dateien bearbeiten, aber React-Komponentenvorschauen benötigen Agent Native Desktop oder einen lokalen Entwicklungsserver.",
+      "Dieser Browser kann die Dateien bearbeiten, aber React-Komponentenvorschauen benötigen Agent-Native Desktop oder einen lokalen Entwicklungsserver.",
     folderAdded: "Ordner hinzugefügt",
     folderAddFailed: "Ordner konnte nicht hinzugefügt werden",
     writePermissionNotGranted: "Schreibberechtigung wurde nicht erteilt.",
@@ -4476,11 +4476,11 @@ const localFilesMessagesByLocale = {
   },
   "ja-JP": {
     interruptedPicker:
-      "前回フォルダーピッカーが完了しなかったため、このブラウザプロフィールでは無効になっています。Agent Native Desktop、Chrome、Edge、または別の Chromium ブラウザを使用してください。",
+      "前回フォルダーピッカーが完了しなかったため、このブラウザプロフィールでは無効になっています。Agent-Native Desktop、Chrome、Edge、または別の Chromium ブラウザを使用してください。",
     unsupportedElectron:
-      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
+      "ここではローカルフォルダー同期を利用できません。Agent-Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     unsupportedBrowser:
-      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
+      "ここではローカルフォルダー同期を利用できません。Agent-Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     notSyncedYet: "まだ同期されていません",
     summaryCreated: "{{count}} 件作成",
     summaryUpdated: "{{count}} 件更新",
@@ -4502,7 +4502,7 @@ const localFilesMessagesByLocale = {
       "コンポーネントプレビューにはローカル開発ブリッジが必要です。",
     mdxFilesLinked: "MDX ファイルをリンクしました",
     mdxFilesLinkedDescription:
-      "このブラウザーでファイルを編集できますが、React コンポーネントプレビューには Agent Native Desktop またはローカル開発サーバーが必要です。",
+      "このブラウザーでファイルを編集できますが、React コンポーネントプレビューには Agent-Native Desktop またはローカル開発サーバーが必要です。",
     folderAdded: "フォルダーを追加しました",
     folderAddFailed: "フォルダーの追加に失敗しました",
     writePermissionNotGranted: "書き込み権限が付与されませんでした。",
@@ -4526,11 +4526,11 @@ const localFilesMessagesByLocale = {
   },
   "ko-KR": {
     interruptedPicker:
-      "지난번에 폴더 선택기가 완료되지 않아 이 브라우저 프로필에서 비활성화되었습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
+      "지난번에 폴더 선택기가 완료되지 않아 이 브라우저 프로필에서 비활성화되었습니다. Agent-Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     unsupportedElectron:
-      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent-Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     unsupportedBrowser:
-      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent-Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     notSyncedYet: "아직 동기화되지 않음",
     summaryCreated: "{{count}}개 생성됨",
     summaryUpdated: "{{count}}개 업데이트됨",
@@ -4552,7 +4552,7 @@ const localFilesMessagesByLocale = {
       "컴포넌트 미리보기에는 로컬 개발 브리지가 필요합니다.",
     mdxFilesLinked: "MDX 파일 연결됨",
     mdxFilesLinkedDescription:
-      "이 브라우저에서 파일을 편집할 수 있지만 React 컴포넌트 미리보기에는 Agent Native Desktop 또는 로컬 개발 서버가 필요합니다.",
+      "이 브라우저에서 파일을 편집할 수 있지만 React 컴포넌트 미리보기에는 Agent-Native Desktop 또는 로컬 개발 서버가 필요합니다.",
     folderAdded: "폴더 추가됨",
     folderAddFailed: "폴더 추가 실패",
     writePermissionNotGranted: "쓰기 권한이 부여되지 않았습니다.",
@@ -4576,11 +4576,11 @@ const localFilesMessagesByLocale = {
   },
   "pt-BR": {
     interruptedPicker:
-      "O seletor de pastas não foi concluído da última vez, por isso foi desativado neste perfil do navegador. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
+      "O seletor de pastas não foi concluído da última vez, por isso foi desativado neste perfil do navegador. Use o Agent-Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedElectron:
-      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent-Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedBrowser:
-      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent-Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     notSyncedYet: "Ainda não sincronizado",
     summaryCreated: "{{count}} criados",
     summaryUpdated: "{{count}} atualizados",
@@ -4602,7 +4602,7 @@ const localFilesMessagesByLocale = {
       "As prévias de componentes precisam da ponte de desenvolvimento local.",
     mdxFilesLinked: "Arquivos MDX vinculados",
     mdxFilesLinkedDescription:
-      "Este navegador pode editar os arquivos, mas as prévias de componentes React precisam do Agent Native Desktop ou de um servidor de desenvolvimento local.",
+      "Este navegador pode editar os arquivos, mas as prévias de componentes React precisam do Agent-Native Desktop ou de um servidor de desenvolvimento local.",
     folderAdded: "Pasta adicionada",
     folderAddFailed: "Falha ao adicionar pasta",
     writePermissionNotGranted: "A permissão de gravação não foi concedida.",
@@ -4626,11 +4626,11 @@ const localFilesMessagesByLocale = {
   },
   "hi-IN": {
     interruptedPicker:
-      "पिछली बार फ़ोल्डर पिकर पूरा नहीं हुआ था, इसलिए इसे इस ब्राउज़र प्रोफ़ाइल में बंद कर दिया गया है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
+      "पिछली बार फ़ोल्डर पिकर पूरा नहीं हुआ था, इसलिए इसे इस ब्राउज़र प्रोफ़ाइल में बंद कर दिया गया है। Agent-Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     unsupportedElectron:
-      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent-Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     unsupportedBrowser:
-      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent-Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     notSyncedYet: "अभी सिंक नहीं हुआ",
     summaryCreated: "{{count}} बनाए गए",
     summaryUpdated: "{{count}} अपडेट किए गए",
@@ -4652,7 +4652,7 @@ const localFilesMessagesByLocale = {
       "घटक पूर्वावलोकन के लिए स्थानीय डेवलपमेंट ब्रिज चाहिए।",
     mdxFilesLinked: "MDX फ़ाइलें लिंक की गईं",
     mdxFilesLinkedDescription:
-      "यह ब्राउज़र फ़ाइलें संपादित कर सकता है, लेकिन React घटक पूर्वावलोकन के लिए Agent Native Desktop या स्थानीय डेवलपमेंट सर्वर चाहिए।",
+      "यह ब्राउज़र फ़ाइलें संपादित कर सकता है, लेकिन React घटक पूर्वावलोकन के लिए Agent-Native Desktop या स्थानीय डेवलपमेंट सर्वर चाहिए।",
     folderAdded: "फ़ोल्डर जोड़ा गया",
     folderAddFailed: "फ़ोल्डर जोड़ने में विफल",
     writePermissionNotGranted: "लिखने की अनुमति नहीं दी गई।",
@@ -4675,11 +4675,11 @@ const localFilesMessagesByLocale = {
   },
   "ar-SA": {
     interruptedPicker:
-      "لم يكتمل منتقي المجلدات في المرة السابقة، لذلك تم تعطيله في ملف تعريف المتصفح هذا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
+      "لم يكتمل منتقي المجلدات في المرة السابقة، لذلك تم تعطيله في ملف تعريف المتصفح هذا. استخدم Agent-Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     unsupportedElectron:
-      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent-Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     unsupportedBrowser:
-      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent-Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     notSyncedYet: "لم تتم المزامنة بعد",
     summaryCreated: "تم إنشاء {{count}}",
     summaryUpdated: "تم تحديث {{count}}",
@@ -4701,7 +4701,7 @@ const localFilesMessagesByLocale = {
       "تحتاج معاينات المكونات إلى جسر التطوير المحلي.",
     mdxFilesLinked: "تم ربط ملفات MDX",
     mdxFilesLinkedDescription:
-      "يمكن لهذا المتصفح تحرير الملفات، لكن معاينات مكونات React تحتاج إلى Agent Native Desktop أو خادم تطوير محلي.",
+      "يمكن لهذا المتصفح تحرير الملفات، لكن معاينات مكونات React تحتاج إلى Agent-Native Desktop أو خادم تطوير محلي.",
     folderAdded: "تمت إضافة المجلد",
     folderAddFailed: "فشلت إضافة المجلد",
     writePermissionNotGranted: "لم يتم منح إذن الكتابة.",

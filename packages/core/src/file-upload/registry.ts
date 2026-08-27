@@ -62,13 +62,13 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
       if (await provider.isConfiguredForRequest()) return provider;
     }
   }
-  if (builderFileUploadProvider.isConfigured()) {
-    return builderFileUploadProvider;
-  }
   try {
-    const { resolveHasBuilderPrivateKey } =
-      await import("../server/credential-provider.js");
-    if (await resolveHasBuilderPrivateKey()) {
+    const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
+      await Promise.all([
+        import("../server/builder-api-auth.js"),
+        import("../server/builder-oauth.js"),
+      ]);
+    if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
       return builderFileUploadProvider;
     }
   } catch {
@@ -109,21 +109,27 @@ export async function uploadFile(
   // via runWithRequestContext — actions always have one via action-routes.ts).
   // Two separate try-catch blocks ensure a real upload failure is never
   // silently swallowed as a "no credentials" case.
-  let builderKey: string | null = null;
+  let hasBuilderCredential = false;
   try {
-    const { resolveBuilderPrivateKey } =
-      await import("../server/credential-provider.js");
-    builderKey = await resolveBuilderPrivateKey();
+    const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
+      await Promise.all([
+        import("../server/builder-api-auth.js"),
+        import("../server/builder-oauth.js"),
+      ]);
+    hasBuilderCredential = await canAuthorizeBuilderApiRequest(
+      BUILDER_ASSETS_WRITE_SCOPE,
+    );
   } catch (err) {
-    // DB unavailable or credential store not ready — can't resolve key.
-    // Return an unavailable-provider state below; never fall back to SQL.
+    // DB unavailable or credential store not ready — can't resolve a
+    // credential. Return an unavailable-provider state below; never fall back
+    // to SQL.
     console.warn(
       "[agent-native] Builder credential check failed:",
       err instanceof Error ? err.message : String(err),
     );
   }
 
-  if (builderKey) {
+  if (hasBuilderCredential) {
     // Credentials confirmed — attempt the upload. Real errors (network,
     // API, rate-limit) propagate to the caller; do NOT catch them here.
     return await builderFileUploadProvider.upload(input);

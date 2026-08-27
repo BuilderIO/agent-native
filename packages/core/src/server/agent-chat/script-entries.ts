@@ -239,7 +239,7 @@ export async function createDocsScriptEntries(): Promise<
     entries["framework-search"] = wrapCliScript(
       {
         description:
-          "Search the version-matched Agent Native docs and readable Core, Toolkit, and first-party template source in one bounded read-only call. Use this first when a docs answer may require implementation evidence.",
+          "Search the version-matched Agent-Native docs and readable Core, Toolkit, and first-party template source in one bounded read-only call. Use this first when a docs answer may require implementation evidence.",
         parameters: {
           type: "object",
           properties: {

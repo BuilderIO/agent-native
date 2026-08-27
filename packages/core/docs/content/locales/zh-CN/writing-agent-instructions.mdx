@@ -95,6 +95,14 @@ data and the same actions.
 
 保留一个规范指令文件：`AGENTS.md`。如果客户端需要 `CLAUDE.md`，请将其设为 `AGENTS.md` 的符号链接，而不是第二个副本。两个手工维护的文件发生了偏差，特工最终得出了相互矛盾的规则。真相的一个来源，在需要的地方链接。
 
+`AGENTS.md` 是本框架所依托的通用标准，因此任何读取项目指令的 AI 编码工具都能开箱即用：
+
+- **Claude Code**：读取 `CLAUDE.md`（由 CLI 安装流程从 `AGENTS.md` 符号链接而来）
+- **Cursor**：直接读取 `AGENTS.md`，若存在则读取 `.cursorrules`（Cursor 的旧版位置）
+- **Windsurf**：直接读取 `AGENTS.md`，若存在则读取 `.windsurfrules`（Windsurf 的旧版位置）
+- **Codex、Gemini 等工具**：通过嵌入式代理面板工作
+- **Builder.io**：云端托管代理，支持可视化编辑与协作
+
 ## SKILL.md frontmatter 必须说 AND 时的内容 {#skill-frontmatter}
 
 `description` 是代理在决定是否读取技能时唯一看到的东西。它必须回答两个问题：技能涵盖什么以及何时触发它。仅描述主题的描述不会触发。

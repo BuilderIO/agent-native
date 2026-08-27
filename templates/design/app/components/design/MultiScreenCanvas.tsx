@@ -4,7 +4,9 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  CANVAS_FIT_PADDING_PX,
   DEFAULT_CANVAS_MAX_ZOOM,
+  DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
   canvasToScreenPoint,
@@ -178,7 +180,10 @@ const EMPTY_SCREEN_IDS: readonly string[] = [];
 // redeclared locally and drifting from the shared constant.
 const MIN_ZOOM = DEFAULT_CANVAS_MIN_ZOOM;
 const MAX_ZOOM = DEFAULT_CANVAS_MAX_ZOOM;
-const MAX_WHEEL_PAN_DELTA = 140;
+const AUTOFIT_MIN_ZOOM = DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM;
+// Must match embedded-wheel.bridge.ts's payload bound, or every fast swipe
+// arriving over a screen loses its tail to the tighter of the two clamps.
+const MAX_WHEEL_PAN_DELTA = 240;
 /** Live counter-scale for constant-size frame chrome, written on the world
  *  element every gesture frame by applyViewToDom. React supplies the same
  *  number as the var's fallback, so first paint and SSR are unaffected. */
@@ -295,6 +300,7 @@ import {
   captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
+  getCrossScreenGhostStyle,
   isCrossScreenDropAxis,
   isCrossScreenDropMode,
   isCrossScreenDropPlacement,
@@ -379,9 +385,12 @@ import {
 import type { AlignmentGuide, CanvasFrameEntry } from "./multi-screen/types";
 import { vectorEditCanvasToLocalPoint } from "./multi-screen/vector-edit-geometry";
 import {
-  isPinchZoomDelta,
+  accumulateZoomFactor,
+  clampZoomFactor,
+  normalizeWheelDeltaPx,
   resolveExternalZoomAnchor,
-  resolveZoomFactor,
+  resolveZoomGestureDevice,
+  type ZoomGestureDevice,
 } from "./multi-screen/zoom-gesture";
 
 /**
@@ -1003,7 +1012,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  reply overwrites the selection the user actually made. */
   const drillInRequestRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
-  const pendingWheelGestureRef = useRef<PendingWheelGesture | null>(null);
+  // Two slots, not one: Cmd pressed or released mid-scroll turns a single
+  // physical stream into interleaved zoom and pan ticks, and a shared slot
+  // drops whichever kind the other overwrote.
+  const pendingZoomGestureRef = useRef<Extract<
+    PendingWheelGesture,
+    { mode: "zoom" }
+  > | null>(null);
+  const pendingPanGestureRef = useRef<Extract<
+    PendingWheelGesture,
+    { mode: "pan" }
+  > | null>(null);
+  const zoomGestureDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const wheelGestureFrameRef = useRef<number | null>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const pixelGridRef = useRef<HTMLDivElement>(null);
@@ -1649,12 +1669,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const boundsTop = bounds?.top ?? 0;
     // Leave a Figma-like board gutter beside the last frame for quick drops/draws,
     // and fit tall single frames so lower canvas interactions remain reachable.
+    const minFitScale = AUTOFIT_MIN_ZOOM / 100;
     const widthFitScale =
       renderedScreens.length > 1 && totalWidth > 0
-        ? Math.max(0.1, (rect.width - 180) / totalWidth)
+        ? Math.max(minFitScale, (rect.width - 180) / totalWidth)
         : scale;
     const heightFitScale =
-      totalHeight > 0 ? Math.max(0.1, (rect.height - 96) / totalHeight) : scale;
+      totalHeight > 0
+        ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
+        : scale;
     const nextScale = Math.min(scale, widthFitScale, heightFitScale);
     if (nextScale < scale) {
       const nextZoom = nextScale * 100;
@@ -1662,8 +1685,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       setCanvasZoom(nextZoom);
       onZoomChange?.(nextZoom);
     }
-    const visualLeft = Math.max(24, (rect.width - totalWidth * nextScale) / 2);
-    const visualTop = Math.max(24, (rect.height - totalHeight * nextScale) / 2);
+    // Genuinely centred, including when content overflows: flooring these
+    // pins an oversized lineup against one edge and runs it off the other.
+    const visualLeft = (rect.width - totalWidth * nextScale) / 2;
+    const visualTop = (rect.height - totalHeight * nextScale) / 2;
     const nextPan = {
       x: visualLeft - (SURFACE_PADDING + boundsLeft) * nextScale,
       y: visualTop - (SURFACE_PADDING + boundsTop) * nextScale,
@@ -7050,7 +7075,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         cameraCommand.fitBounds,
         { width: rect.width, height: rect.height },
         {
-          paddingScreenPx: cameraCommand.paddingScreenPx ?? 64,
+          paddingScreenPx:
+            cameraCommand.paddingScreenPx ?? CANVAS_FIT_PADDING_PX,
           // Frame geometry is canvas-space, while every frame DOM node lives
           // inside the padded world. Include that shared origin so fitting a
           // small drawn/preset frame actually centers its painted card.
@@ -7147,70 +7173,65 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const flushPendingWheelGesture = useCallback(() => {
     wheelGestureFrameRef.current = null;
-    const gesture = pendingWheelGestureRef.current;
-    pendingWheelGestureRef.current = null;
-    if (!gesture) return;
+    const zoomGesture = pendingZoomGestureRef.current;
+    const panGesture = pendingPanGestureRef.current;
+    pendingZoomGestureRef.current = null;
+    pendingPanGestureRef.current = null;
 
-    if (gesture.mode === "zoom") {
+    let nextPan = panRef.current;
+    let moved = false;
+    let settleChrome = false;
+
+    if (zoomGesture) {
       const currentZoom = zoomRef.current;
       const nextZoom = clamp(
-        currentZoom * resolveZoomFactor(gesture.deltaY, gesture.pinch),
+        currentZoom * clampZoomFactor(zoomGesture.factor),
         MIN_ZOOM,
         MAX_ZOOM,
       );
-      if (nextZoom === currentZoom) return;
-
-      const nextPan = getPanForZoomToCursor({
-        pan: panRef.current,
-        cursor: gesture.cursor,
-        oldZoom: currentZoom,
-        nextZoom,
-      });
-      zoomRef.current = nextZoom;
-      panRef.current = nextPan;
-      markWheelGestureActive();
-      applyViewToDom();
-      scheduleViewCommit({ settleChrome: true });
-      return;
+      if (nextZoom !== currentZoom) {
+        nextPan = getPanForZoomToCursor({
+          pan: nextPan,
+          cursor: zoomGesture.cursor,
+          oldZoom: currentZoom,
+          nextZoom,
+        });
+        zoomRef.current = nextZoom;
+        moved = true;
+        settleChrome = true;
+      }
     }
 
-    const nextPan = {
-      x: panRef.current.x - gesture.deltaX,
-      y: panRef.current.y - gesture.deltaY,
-    };
+    if (panGesture) {
+      nextPan = {
+        x: nextPan.x - panGesture.deltaX,
+        y: nextPan.y - panGesture.deltaY,
+      };
+      moved = true;
+    }
+
+    if (!moved) return;
     panRef.current = nextPan;
     markWheelGestureActive();
     applyViewToDom();
-    scheduleViewCommit();
+    scheduleViewCommit(settleChrome ? { settleChrome: true } : undefined);
   }, [applyViewToDom, markWheelGestureActive, scheduleViewCommit]);
 
   const enqueueWheelGesture = useCallback(
     (gesture: PendingWheelGesture) => {
-      const pending = pendingWheelGestureRef.current;
-      // Only accumulate like with like: a pinch delta and a wheel notch map to
-      // zoom through different curves, so summing them would apply one curve to
-      // the other's units.
-      if (
-        pending?.mode === "zoom" &&
-        gesture.mode === "zoom" &&
-        pending.pinch === gesture.pinch
-      ) {
-        pendingWheelGestureRef.current = {
-          mode: "zoom",
-          deltaY: pending.deltaY + gesture.deltaY,
-          pinch: gesture.pinch,
-          cursor: gesture.cursor,
-          clientX: gesture.clientX,
-          clientY: gesture.clientY,
-        };
-      } else if (pending?.mode === "pan" && gesture.mode === "pan") {
-        pendingWheelGestureRef.current = {
-          mode: "pan",
-          deltaX: pending.deltaX + gesture.deltaX,
-          deltaY: pending.deltaY + gesture.deltaY,
+      if (gesture.mode === "zoom") {
+        const pending = pendingZoomGestureRef.current;
+        pendingZoomGestureRef.current = {
+          ...gesture,
+          factor: (pending?.factor ?? 1) * gesture.factor,
         };
       } else {
-        pendingWheelGestureRef.current = gesture;
+        const pending = pendingPanGestureRef.current;
+        pendingPanGestureRef.current = {
+          mode: "pan",
+          deltaX: (pending?.deltaX ?? 0) + gesture.deltaX,
+          deltaY: (pending?.deltaY ?? 0) + gesture.deltaY,
+        };
       }
 
       if (wheelGestureFrameRef.current !== null) return;
@@ -7244,13 +7265,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // no forced style/layout read on the hot pan path.
         const rect = surfaceRef.current?.getBoundingClientRect();
         if (!rect) return;
-        // Raw delta: the per-frame clamp lives on the zoom FACTOR now (see
-        // resolveZoomFactor), so accumulation stays frame-rate independent.
-        // Line/page delta modes are always discrete wheels, never a pinch.
+        const device = resolveZoomGestureDevice({
+          deltaY: args.deltaY,
+          deltaMode: args.deltaMode,
+          ctrlKey: args.ctrlKey,
+          metaKey: args.metaKey,
+          atMs: performance.now(),
+          previous: zoomGestureDeviceRef.current,
+        });
+        zoomGestureDeviceRef.current = device;
         enqueueWheelGesture({
           mode: "zoom",
-          deltaY: delta.y,
-          pinch: args.deltaMode === 0 && isPinchZoomDelta(args.deltaY),
+          factor: accumulateZoomFactor(1, delta.y, device.pinch),
           cursor: {
             x: args.clientX - rect.left,
             y: args.clientY - rect.top,
@@ -7289,7 +7315,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!event.isTrusted) return;
       // Pan/zoom mid-drag invalidates the gesture's cached snap viewport.
       invalidateSnapGesture();
-      event.preventDefault();
+      // Chrome sends non-cancelable wheel events during a fling; cancelling one
+      // is a no-op that logs an Intervention per event and still scrolls.
+      if (event.cancelable) event.preventDefault();
       event.stopPropagation();
       enqueueWheelGestureFromClient({
         deltaX: event.deltaX,
@@ -8849,16 +8877,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             // Board-origin drags use the real layer size/top-left so the
             // proxy stays above screen iframes; screen-origin drags keep the
             // older compact cursor ghost.
-            left:
-              pan.x +
-              (SURFACE_PADDING + crossScreenGhost.boardX) * scale -
-              (crossScreenGhost.width ? 0 : 8),
-            top:
-              pan.y +
-              (SURFACE_PADDING + crossScreenGhost.boardY) * scale -
-              (crossScreenGhost.height ? 0 : 8),
-            width: Math.max(1, (crossScreenGhost.width ?? 16) * scale),
-            height: Math.max(1, (crossScreenGhost.height ?? 16) * scale),
+            ...getCrossScreenGhostStyle({
+              ghost: crossScreenGhost,
+              pan,
+              scale,
+            }),
             opacity: crossScreenGhost.dimmed ? 0.4 : 1,
           }}
         />
@@ -11586,10 +11609,9 @@ function getWheelDeltaFromValues(
   deltaY: number,
   deltaMode: number,
 ) {
-  const multiplier = deltaMode === 1 ? 16 : deltaMode === 2 ? 800 : 1;
   return {
-    x: deltaX * multiplier,
-    y: deltaY * multiplier,
+    x: normalizeWheelDeltaPx(deltaX, deltaMode),
+    y: normalizeWheelDeltaPx(deltaY, deltaMode),
   };
 }
 

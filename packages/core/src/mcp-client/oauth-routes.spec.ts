@@ -1,7 +1,7 @@
 import { mockEvent, type H3Event } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-const resolveSecretPairMock = vi.hoisted(() => vi.fn());
+const resolveSecretPairsMock = vi.hoisted(() => vi.fn());
 const CredentialStoreUnavailableErrorMock = vi.hoisted(
   () =>
     class CredentialStoreUnavailableErrorMock extends Error {
@@ -12,7 +12,7 @@ const CredentialStoreUnavailableErrorMock = vi.hoisted(
 
 vi.mock("../server/credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
-  resolveSecretPair: resolveSecretPairMock,
+  resolveSecretPairs: resolveSecretPairsMock,
 }));
 
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
@@ -110,6 +110,16 @@ describe("MCP OAuth callback flow validation", () => {
     );
   });
 
+  it("rejects an invalid chunk marker instead of reading a flow", () => {
+    const event = mockEvent(
+      new Request("http://app.example.com", {
+        headers: { cookie: "an_mcp_oauth_flow=__chunked__1" },
+      }),
+    );
+
+    expect(readMcpOAuthFlowCookie(event)).toBeNull();
+  });
+
   it("rejects flow state that exceeds the bounded chunk count", () => {
     const event = mockEvent(new Request("http://app.example.com"));
 
@@ -205,6 +215,20 @@ describe("MCP OAuth callback flow validation", () => {
       ),
     ).toBe(false);
   });
+
+  it("accepts the shared Google callback for workspace MCP OAuth", () => {
+    expect(
+      isValidMcpOAuthFlow(
+        {
+          ...baseFlow,
+          redirectUri: "https://app.example.com/_agent-native/google/callback",
+        },
+        "alice@example.com",
+        undefined,
+        "<STATE>",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("managed MCP OAuth clients", () => {
@@ -249,8 +273,8 @@ describe("managed MCP OAuth clients", () => {
   });
 
   it("resolves the workspace HubSpot client without exposing its secret to the browser", async () => {
-    resolveSecretPairMock.mockImplementation(
-      async ([clientIdKey, clientSecretKey]: [string, string]) =>
+    resolveSecretPairsMock.mockImplementation(
+      async ([[clientIdKey, clientSecretKey]]) =>
         clientIdKey === "HUBSPOT_MCP_CLIENT_ID" &&
         clientSecretKey === "HUBSPOT_MCP_CLIENT_SECRET"
           ? ["hubspot-client-id", "hubspot-client-secret"]
@@ -267,8 +291,8 @@ describe("managed MCP OAuth clients", () => {
   });
 
   it("resolves the shared Google client for official Workspace MCP servers", async () => {
-    resolveSecretPairMock.mockImplementation(
-      async ([clientIdKey, clientSecretKey]: [string, string]) =>
+    resolveSecretPairsMock.mockImplementation(
+      async ([[clientIdKey, clientSecretKey]]) =>
         clientIdKey === "GOOGLE_CLIENT_ID" &&
         clientSecretKey === "GOOGLE_CLIENT_SECRET"
           ? ["google-client-id", "google-client-secret"]
@@ -295,15 +319,19 @@ describe("managed MCP OAuth clients", () => {
       });
       expect(resolveMcpOAuthScope(new URL(origin), "org")).toBeNull();
     }
+    expect(resolveSecretPairsMock).toHaveBeenLastCalledWith(
+      [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+      { allowUserScope: false, preferWorkspaceScope: true },
+    );
   });
 
   it("does not resolve a managed client for an unrelated MCP server", async () => {
-    resolveSecretPairMock.mockReset();
+    resolveSecretPairsMock.mockReset();
 
     await expect(
       resolveManagedMcpOAuthClient(new URL("https://mcp.example.com")),
     ).resolves.toBeUndefined();
-    expect(resolveSecretPairMock).not.toHaveBeenCalled();
+    expect(resolveSecretPairsMock).not.toHaveBeenCalled();
   });
 });
 

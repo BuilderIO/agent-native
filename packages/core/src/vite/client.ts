@@ -445,7 +445,7 @@ function mirrorReactRouterVirtualInvalidation(
  *
  * `@react-router/dev`'s framework-mode plugin invalidates its virtual modules
  * through `server.moduleGraph` — Vite's deprecated back-compat graph, which
- * proxies only the `client` and `ssr` environments. Agent Native serves SSR
+ * proxies only the `client` and `ssr` environments. Agent-Native serves SSR
  * from Nitro's `nitro` environment, so that invalidation never reaches the
  * `virtual:react-router/server-build` the request path evaluates, and the route
  * table stays frozen at whatever it was when the dev server booted. A new route
@@ -1090,6 +1090,7 @@ const CORE_CLIENT_SUBPATHS = [
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
   "@agent-native/core/client/api-path",
   "@agent-native/core/client/clipboard",
+  "@agent-native/core/client/zoom-gesture",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -1509,6 +1510,10 @@ function getCoreSourceAliases(
     "@agent-native/core/client/clipboard": path.join(
       coreSrc,
       "client/clipboard.ts",
+    ),
+    "@agent-native/core/client/zoom-gesture": path.join(
+      coreSrc,
+      "client/zoom-gesture.ts",
     ),
     "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(

@@ -1,7 +1,7 @@
 ---
 name: adding-workspace-apps
 description: >-
-  How to add an app to an Agent Native workspace: classifying an "agent"
+  How to add an app to an Agent-Native workspace: classifying an "agent"
   request, scaffolding `apps/<app-name>`, app discovery and descriptions,
   mounting and base paths, action-first data, and finishing a chat-template app.
   Use when asked to create, build, scaffold, or generate a new agent or app in a

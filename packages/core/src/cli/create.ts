@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "child_process";
+import { execFile, execFileSync, spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -150,7 +150,7 @@ const HEADLESS_OPTION = {
 const COMMUNITY_OPTION = {
   name: "community",
   label: "Community template",
-  hint: "Install a third-party Agent Native app from a public GitHub repository",
+  hint: "Install a third-party Agent-Native app from a public GitHub repository",
 };
 
 export interface CreateAppOptions {
@@ -918,6 +918,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
       appDir,
@@ -1075,9 +1076,8 @@ function cleanupOnFailure(targetDir: string): void {
  * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
  * that don't already exist into the current directory so pre-existing files
  * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
- * the staging dir. Git init/commit is skipped when the current directory is
- * already a repo so we never write an unexpected commit into the user's
- * history.
+ * the staging dir. Git init/commit is skipped when the scaffold lands inside a
+ * repo so we never write an unexpected commit into the user's history.
  */
 function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
   if (!inPlace) {
@@ -1094,8 +1094,91 @@ function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
 }
 
 function tryGitInitUnlessRepo(dir: string): void {
-  if (fs.existsSync(path.join(dir, ".git"))) return;
+  // Only "git says there is no repository here" earns an init. A discovery
+  // failure has to fall through to doing nothing.
+  if (discoverEnclosingRepo(dir).state !== "outside") return;
   tryGitInit(dir);
+}
+
+/**
+ * The variables that bind git to a particular repository.
+ *
+ * Deliberately narrower than git's `local_repo_env`: that list also clears
+ * `GIT_CONFIG*`, because git is entering a different repository and the
+ * caller's `-c` overrides were scoped to the old one. Here the caller is
+ * configuring the scaffold that is about to exist, so `init.defaultBranch`,
+ * `core.hooksPath` and `commit.gpgsign` have to survive.
+ */
+const GIT_REPO_LOCATION_ENV = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_INTERNAL_SUPER_PREFIX",
+  "GIT_NAMESPACE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_QUARANTINE_PATH",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+];
+
+/**
+ * Env with any inherited repository context dropped.
+ *
+ * Whatever launched the process — a hook, a `rebase --exec`, a `receive-pack`
+ * quarantine — may have pinned git to its own repository. Inheriting that makes
+ * discovery answer about that repository rather than the directory being
+ * scaffolded, and makes an init write into it. Picking the variables off one at
+ * a time invites the next gap, so mirror the list git clears for exactly this
+ * reason. The discovery controls are deliberately not in it: where the search
+ * stops really is the caller's to configure.
+ */
+function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of GIT_REPO_LOCATION_ENV) delete env[key];
+  return env;
+}
+
+type RepoDiscovery =
+  | { state: "inside"; root: string }
+  | { state: "outside" }
+  | { state: "unknown"; reason: string };
+
+/**
+ * Whether `dir` sits inside a repository, as git itself resolves it.
+ *
+ * Matching a `.git` entry by hand looks equivalent and is not: discovery also
+ * turns on symlinked paths, filesystem boundaries, `GIT_CEILING_DIRECTORIES`
+ * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`. Running git is free here, since the
+ * only alternative to finding a repo is shelling out to `git init` anyway.
+ *
+ * "No repository" and "could not tell" are separate answers on purpose. Git
+ * exits 128 for a checkout it refuses — dubious ownership, a corrupt gitfile —
+ * as readily as for a genuinely repo-less directory, and reading the first as
+ * the second is how a guard against nested repositories comes to create one.
+ * `LC_ALL` is pinned so the message they are told apart by is not translated.
+ */
+function discoverEnclosingRepo(dir: string): RepoDiscovery {
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...envWithoutRepoOverrides(), LC_ALL: "C" },
+  });
+  if (result.error) return { state: "unknown", reason: result.error.message };
+  if (result.status === 0) {
+    const root = result.stdout.trim();
+    return root
+      ? { state: "inside", root }
+      : { state: "unknown", reason: "git reported no toplevel" };
+  }
+  const stderr = (result.stderr ?? "").trim();
+  if (/not a git repository/i.test(stderr)) return { state: "outside" };
+  return { state: "unknown", reason: stderr || `git exited ${result.status}` };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1459,7 +1542,7 @@ function communityTemplateTrustMessage(selection: string): string | undefined {
   const community = parseCommunityTemplateSelection(selection, false);
   if (!community) return undefined;
   return [
-    `${community.repo} is third-party code and is not reviewed or maintained by Agent Native.`,
+    `${community.repo} is third-party code and is not reviewed or maintained by Agent-Native.`,
     "The CLI downloads source only; it does not install dependencies or run template scripts.",
     "Review the generated files before running pnpm install.",
     community.ref
@@ -1877,6 +1960,7 @@ function postProcessStandalone(
     ...resolution,
     shape: "standalone",
   });
+  ensureScaffoldEmailBrandingConfig(targetDir, name, templateName);
   ensureGuardedScaffold(targetDir);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
@@ -2207,6 +2291,7 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
+  discoverEnclosingRepo as _discoverEnclosingRepo,
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
@@ -2506,7 +2591,7 @@ function assertSafeCommunityArchiveListing(listing: string): void {
   });
   if (unsafeEntry) {
     throw new ValidationError(
-      "Community template archives may only contain Agent Native's canonical internal symlinks (CLAUDE.md and .claude/skills). Remove other symbolic or hard links and try again.",
+      "Community template archives may only contain Agent-Native's canonical internal symlinks (CLAUDE.md and .claude/skills). Remove other symbolic or hard links and try again.",
     );
   }
 }
@@ -2617,7 +2702,7 @@ function assertCommunityTemplateRoot(targetDir: string, repo: string): void {
   const packagePath = path.join(targetDir, "package.json");
   if (!fs.existsSync(packagePath)) {
     throw new ValidationError(
-      `Community template ${repo} is not an Agent Native app at the repository root: package.json was not found. Point to a repository whose root is the app.`,
+      `Community template ${repo} is not an Agent-Native app at the repository root: package.json was not found. Point to a repository whose root is the app.`,
     );
   }
 
@@ -2644,7 +2729,7 @@ function assertCommunityTemplateRoot(targetDir: string, repo: string): void {
   );
   if (!usesAgentNativeCore) {
     throw new ValidationError(
-      `Community template ${repo} is not an Agent Native app at the repository root. Its package.json must directly depend on @agent-native/core in dependencies, devDependencies, or peerDependencies.`,
+      `Community template ${repo} is not an Agent-Native app at the repository root. Its package.json must directly depend on @agent-native/core in dependencies, devDependencies, or peerDependencies.`,
     );
   }
 }
@@ -3272,6 +3357,27 @@ function fixPackageJsonName(
   } catch {}
 }
 
+function ensureScaffoldEmailBrandingConfig(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  if (!templateName || appName === templateName) return;
+  const pluginsDir = path.join(appDir, "server", "plugins");
+  const configPath = path.join(pluginsDir, "agent-native-email-branding.ts");
+  if (fs.existsSync(configPath)) return;
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const appTitle = JSON.stringify(appTitleForScaffold(appName));
+  const sourceTemplate = JSON.stringify(
+    trackingTemplateName(templateName) ?? templateName,
+  );
+
+  fs.writeFileSync(
+    configPath,
+    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
+  );
+}
+
 function scaffoldGuidanceForTemplate(
   templateName: string | undefined,
 ): "default" | "headless" | undefined {
@@ -3841,9 +3947,10 @@ function hasTrackingTemplate(content: string): boolean {
 }
 
 function tryGitInit(dir: string): boolean {
+  const env = envWithoutRepoOverrides();
   try {
-    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
-    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe" });
+    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe", env });
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe", env });
     execFileSync(
       "git",
       ["commit", "-m", "Initial commit from agent-native create"],
@@ -3851,7 +3958,7 @@ function tryGitInit(dir: string): boolean {
         cwd: dir,
         stdio: "pipe",
         env: {
-          ...process.env,
+          ...env,
           GIT_AUTHOR_NAME: "agent-native",
           GIT_AUTHOR_EMAIL: "noreply@agent-native.com",
           GIT_COMMITTER_NAME: "agent-native",

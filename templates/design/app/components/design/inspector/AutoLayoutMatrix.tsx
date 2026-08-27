@@ -99,8 +99,8 @@ export interface AutoLayoutMatrixValue {
   clipContent?: boolean;
   clipContentMixed?: boolean;
   resolvedSize?: {
-    horizontal?: number;
-    vertical?: number;
+    horizontal?: number | null;
+    vertical?: number | null;
   };
   mixedSize?: {
     horizontal?: boolean;
@@ -1459,7 +1459,7 @@ export interface SizingFieldProps {
   /** Logical axis used by min/max + variable callbacks. */
   sizingAxis: AutoLayoutSizingAxis;
   value: AutoLayoutSizing;
-  resolvedSize?: number;
+  resolvedSize?: number | null;
   mixed?: boolean;
   /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
@@ -1533,6 +1533,13 @@ export function SizingField({
   // design rule: when Fixed, show ONLY the numeric value + chevron (no word).
   // When Hug / Fill, show value + the mode word.
   const showWord = value !== "fixed";
+  // An unmeasurable size prints nothing rather than a stale number: the mode
+  // word alone is true, "437" next to it is not.
+  const sizeText = mixed
+    ? "Mixed"
+    : resolvedSize == null
+      ? ""
+      : String(Math.round(resolvedSize));
 
   const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
   const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
@@ -1686,7 +1693,7 @@ export function SizingField({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label={`${axis} ${mixed ? "Mixed" : Math.round(resolvedSize ?? 0)} ${labels[value]}`}
+                  aria-label={`${axis} ${sizeText} ${labels[value]}`}
                   disabled={disabled}
                   className={cn(
                     "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
@@ -1705,7 +1712,7 @@ export function SizingField({
                       mixed ? "text-muted-foreground" : "text-foreground",
                     )}
                   >
-                    {mixed ? "Mixed" : Math.round(resolvedSize ?? 0)}
+                    {sizeText}
                   </span>
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (

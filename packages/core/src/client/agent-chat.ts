@@ -7,6 +7,7 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
+import type { MentionItemMedia } from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { agentNativePath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
@@ -51,7 +52,7 @@ export interface AgentChatMessage {
   /**
    * Message routing type:
    * - "content" (default): stays in the embedded app agent for content/data operations
-   * - "code": routes to the code editing frame (Agent Native Desktop or Builder.io)
+   * - "code": routes to the code editing frame (Agent-Native Desktop or Builder.io)
    *
    * When type is "code" and no frame is connected, a dialog is shown.
    * `requiresCode: true` is treated as `type: "code"` for backward compatibility.
@@ -172,6 +173,7 @@ export type BufferedAgentChatOpenRequest = {
 export interface AgentComposerReference {
   label: string;
   icon?: string;
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;
@@ -673,6 +675,42 @@ function normalizeMetadata(
   return value as Record<string, unknown>;
 }
 
+function normalizeMentionItemMedia(
+  value: unknown,
+): AgentComposerReference["media"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type === "none") return { type: "none" };
+  const backgroundColor =
+    typeof candidate.backgroundColor === "string"
+      ? candidate.backgroundColor.trim()
+      : "";
+  if (candidate.type === "text") {
+    const text =
+      typeof candidate.text === "string" ? candidate.text.trim() : "";
+    if (!text) return undefined;
+    return {
+      type: "text",
+      text,
+      ...(backgroundColor ? { backgroundColor } : {}),
+    };
+  }
+  if (candidate.type === "image") {
+    const src = typeof candidate.src === "string" ? candidate.src.trim() : "";
+    if (!src) return undefined;
+    const fit = candidate.fit === "cover" ? "cover" : "contain";
+    return {
+      type: "image",
+      src,
+      fit,
+      ...(backgroundColor ? { backgroundColor } : {}),
+    };
+  }
+  return undefined;
+}
+
 function normalizeAgentComposerReferenceInternal(
   value: unknown,
   depth: number,
@@ -710,6 +748,8 @@ function normalizeAgentComposerReferenceInternal(
   const slotLabel =
     typeof candidate.slotLabel === "string" ? candidate.slotLabel.trim() : "";
   if (slotLabel) normalized.slotLabel = slotLabel;
+  const media = normalizeMentionItemMedia(candidate.media);
+  if (media) normalized.media = media;
   const metadata = normalizeMetadata(candidate.metadata);
   if (metadata) normalized.metadata = metadata;
   const clearsSlots = normalizeStringArray(candidate.clearsSlots);

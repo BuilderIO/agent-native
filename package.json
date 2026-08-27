@@ -58,6 +58,7 @@
     "oxlint": "oxlint --config .oxlintrc.json .",
     "dev:cli": "tsx packages/core/src/cli/index.ts",
     "guard:hooks-registered": "node scripts/guard-hooks-registered.mjs",
+    "guard:agent-native-brand": "tsx scripts/guard-agent-native-brand.ts",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",
     "guard:no-pnpm-patches": "tsx scripts/guard-no-pnpm-patches.ts",
     "guard:chat-first-shared-ui": "tsx scripts/guard-chat-first-shared-ui.ts",
@@ -138,6 +139,7 @@
     "changeset:add": "changeset add",
     "changeset:status": "changeset status --since=origin/main",
     "changeset:version": "changeset version",
+    "changeset:release-version": "pnpm changeset:version && pnpm changelog:compact",
     "changelog:compact": "tsx scripts/compact-changelogs.ts --write",
     "guard:changelog": "tsx scripts/compact-changelogs.ts --check",
     "changeset:publish": "pnpm -r build && changeset publish",
@@ -201,7 +203,8 @@
       "glob": ">=10.5.0",
       "@anthropic-ai/sdk": ">=0.90.0",
       "hono": ">=4.12.4",
-      "@expo/dom-webview": "57.0.1"
+      "@expo/dom-webview": "57.0.1",
+      "shell-quote": "1.9.0"
     }
   }
 }

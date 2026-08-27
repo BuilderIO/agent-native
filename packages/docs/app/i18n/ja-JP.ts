@@ -433,6 +433,103 @@ const jaJP = {
     freeAndOpenSource: "100%無料 • オープンソース",
     viewAllApps: "すべてのアプリを見る",
   },
+  homepage: {
+    hero: {
+      title: "agentic アプリケーションのための framework",
+      bodyLine1:
+        "ユーザー向けに別のプロダクトを作らずに、AI エージェント向けに構築できます。",
+      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      learnMore: "詳しく見る",
+    },
+    install: {
+      copyCommand: "インストールコマンドをコピー",
+    },
+    actions: {
+      title: "1 つの Action があらゆる面を動かす",
+      bodyLine1: "Action は Agent-Native アプリを構成する基本単位です。",
+      bodyLine2:
+        "機能を一度定義すれば、UI、agent チャット、HTTP API、MCP、A2A、CLI から利用できます。",
+      diagramAlt:
+        "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
+    },
+    builtIn: {
+      title: "すべての Agent-Native アプリに組み込み済み",
+      body: "ユーザーと AI エージェントが共に働くために必要なものが、すでに 1 つのアプリケーションに組み込まれています。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "ユーザーに、閲覧・編集・レビューのための使い慣れた画面を提供します。",
+        },
+        agentChat: {
+          title: "組み込みの agent チャット",
+          body: "アプリを離れずに、作業を任せたり質問したり結果を確認したりできます。",
+        },
+        sharedState: {
+          title: "共有アプリケーション状態",
+          body: "agent はユーザーが表示、選択、編集している内容を把握します。",
+        },
+        sharedSql: {
+          title: "共有 SQL データ",
+          body: "ユーザーと agent は同じ信頼できるデータソースを読み書きします。",
+        },
+        skillsMemory: {
+          title: "Skills と memory",
+          body: "agent に再利用可能な専門知識と永続的なコンテキストを与えます。",
+        },
+        automations: {
+          title: "自動化",
+          body: "スケジュールやアプリケーションイベントに応じて agent の作業を自動実行します。",
+        },
+        agentTeams: {
+          title: "Agent チーム",
+          body: "アプリ内、またはアプリをまたいで専門の agent に作業を任せられます。",
+        },
+        auth: {
+          title: "認証と組織",
+          body: "サインイン、ユーザーアカウント、組織メンバーシップが組み込まれています。",
+        },
+        sharing: {
+          title: "共有と権限",
+          body: "誰が各リソースを閲覧、コメント、編集、管理できるかを制御します。",
+        },
+      },
+    },
+    stack: {
+      title: "お使いのスタックで動作",
+      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、アプリケーションはあなたのものであり続けます。",
+      exploreApps: "Agent-Native で作られたアプリを見る",
+    },
+    showcase: {
+      title: "Agent-Native で何を作れるか",
+      body: "チャット、目的を絞った社内ツール、完全な顧客向けプロダクトまで、どこからでも始められます。どのアプリもユーザーには UI を、agent には同じ作業をこなすツールを提供します。",
+      browseApps: "アプリを見る",
+      scrollLeft: "アプリを左へスクロール",
+      scrollRight: "アプリを右へスクロール",
+    },
+    bottomCta: {
+      title: "最初の Agent-Native アプリを作る",
+      body: "ユーザーと AI エージェントのために 1 つのアプリケーションを作成します。好きな LLM を持ち込んで、どこにでもデプロイできます。",
+    },
+    getStartedModal: {
+      title: "はじめる",
+      close: "閉じる",
+      buildLocally: "ローカルでアプリを作る",
+      tryAnApp: "アプリを試す",
+      buildInCloud: "クラウドで作る",
+    },
+    footer: {
+      tagline: "agentic アプリケーションのための framework。",
+      framework: "フレームワーク",
+      ecosystem: "エコシステム",
+      community: "コミュニティ",
+      legal: "法的情報",
+      docs: "ドキュメント",
+      actions: "アクション",
+      apps: "アプリ",
+      privacyPolicy: "プライバシーポリシー",
+      saasTerms: "SaaS 利用規約",
+    },
+  },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
     eyebrow: "動く app から始め、agent に進化させます。",
@@ -499,7 +596,7 @@ const jaJP = {
     design: {
       replaces: "デザインプロトタイピングツールを置き換えまたは拡張",
       description:
-        "Agent-native HTML プロトタイピングスタジオ。インタラクティブな Alpine/Tailwind デザインを生成し、バリアントを比較し、ライブ調整して結果をエクスポートします。",
+        "Agent-Native HTML プロトタイピングスタジオ。インタラクティブな Alpine/Tailwind デザインを生成し、バリアントを比較し、ライブ調整して結果をエクスポートします。",
     },
     content: {
       replaces: "MDX、Notion、Google Docs の Obsidian を置換または拡張します。",
@@ -1235,7 +1332,7 @@ const jaJP = {
       s026: "共有可能なリンク",
       s027: "すべてのプランにはパブリック URL が付与されます。非同期レビュー、コメント、承認のためにチームメイトと共有します。",
       s028: "デスクトップファイル同期",
-      s029: "アプリを複製したり CLI を実行したりせずに、ホストされたプランを Agent Native Desktop からローカルの MDX ファイルにミラーリングします。",
+      s029: "アプリを複製したり CLI を実行したりせずに、ホストされたプランを Agent-Native Desktop からローカルの MDX ファイルにミラーリングします。",
       s030: "なので、レビューはコードの横にあります。",
       s031: "仕組み",
       s032: "計画は共有アプリ内に存在します。あなたとエージェントの両方が、機能のライフサイクル全体を通じて計画を読み取り、更新できます。",
@@ -1269,7 +1366,7 @@ const jaJP = {
       s060: "すべてのテンプレートを表示",
       s061: "VS Code ハンドオフ",
       s062: "次を使って VS Code のサイドパネルでプランリンクを開きます:",
-      s063: "Agent Native Plans 拡張機能",
+      s063: "Agent-Native Plans 拡張機能",
       s064: "ワイヤーフレーム — コンポーネント枠付きのラフな UI モックアップ",
       s065: "注釈付きコード — 行ごとのメモ付きソースファイル",
       s066: "図 — フロー、シーケンス、またはアーキテクチャ",
@@ -1297,7 +1394,7 @@ const jaJP = {
           "plan mode はターミナル内のテキストで、1 人にしか見えず、承認すると消えます。Plans はワイヤーフレーム、図、注釈付き差分を備えた視覚的な計画です。共有と永続保存が可能で、エージェントが機能のライフサイクル全体を通して作成、読み取り、更新できます。",
         question5: "コードの横で計画を確認できますか？",
         answer5:
-          "はい。VS Code 拡張機能では計画をサイドパネルに表示でき、Agent Native Desktop はホストされた計画をローカルの MDX ファイルへミラーリングします。",
+          "はい。VS Code 拡張機能では計画をサイドパネルに表示でき、Agent-Native Desktop はホストされた計画をローカルの MDX ファイルへミラーリングします。",
         question6: "Plans は無料ですか？",
         answer6:
           "はい。無料のオープンソースで、MIT ライセンスです。Plans にはホストされた共有リンクがあり、すべてをローカルファイルへミラーリングすることもできます。",
@@ -1523,9 +1620,9 @@ const jaJP = {
     },
   },
   downloadPage: {
-    title: "Agent Native をダウンロード",
+    title: "Agent-Native をダウンロード",
     body: "すべての agent-native アプリを 1 つのデスクトップシェルに集約。プロダクションアプリを内蔵し、ローカル開発向けの dev モード切り替えも備えています。",
-    openDesktop: "Agent Native を開く",
+    openDesktop: "Agent-Native を開く",
     downloadInstaller: "インストーラーをダウンロード",
     downloadStarted: "ダウンロードを開始しました",
     downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
@@ -1960,6 +2057,7 @@ const jaJP = {
     externalAgents: "外部 Agents (ホスト接続)",
     externalAgentsCatalog: "外部 Agents カタログ",
     mcpApps: "MCP Apps (インライン UI)",
+    webMcp: "WebMCP (ブラウザ ツール)",
     crossAppSso: "クロスアプリ SSO",
     notifications: "通知",
     automationConnectors: "ワークフローコネクタ",

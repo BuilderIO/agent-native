@@ -24,6 +24,7 @@
   --accent-foreground: 0 0% 15%;
   --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
+  --success: 142 72% 38%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 0 0% 40%;
@@ -57,6 +58,7 @@
   --accent-foreground: 0 0% 90%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
+  --success: 142 62% 56%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 0 0% 60%;
@@ -78,6 +80,7 @@
 }
 
 @theme inline {
+  --color-success: hsl(var(--success));
   --color-highlight: hsl(var(--highlight));
   --color-highlight-foreground: hsl(var(--highlight-foreground));
 }

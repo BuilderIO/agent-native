@@ -99,7 +99,7 @@ export class ComputerControlBroker {
       const permissions = this.options.permissionStatus?.();
       if (permissions && !permissions.accessibility) {
         const error = new Error(
-          "Accessibility permission is required to observe semantic desktop targets. Enable Agent Native in System Settings > Privacy & Security > Accessibility.",
+          "Accessibility permission is required to observe semantic desktop targets. Enable Agent-Native in System Settings > Privacy & Security > Accessibility.",
         );
         await this.audit(operation, "blocked", { permission: "accessibility" });
         throw error;

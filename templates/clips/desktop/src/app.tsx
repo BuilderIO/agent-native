@@ -160,7 +160,11 @@ import {
   retryUpdateCheck,
   useUpdateStatus,
 } from "./lib/updater";
-import { normalizeServerUrl } from "./lib/url";
+import {
+  DEFAULT_SERVER_URL,
+  normalizeServerUrl,
+  SERVER_URL_STORAGE_KEY,
+} from "./lib/url";
 import { cn } from "./lib/utils";
 import {
   installDesktopVoiceDictation,
@@ -392,7 +396,8 @@ function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }
 
-const STORAGE_KEY = "clips:server-url";
+// Shared with overlays via lib/url.ts — the meeting pill reads the same key.
+const STORAGE_KEY = SERVER_URL_STORAGE_KEY;
 const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
@@ -408,19 +413,13 @@ const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
+const VIDEO_STORAGE_CONFIGURED_KEY = "clips:video-storage-configured";
 // The docs section for the tray's rolling buffer, published under the same
 // Rewind name the settings tab uses.
 const REWIND_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind";
 
-// Sensible defaults so the user never has to type a URL on first launch.
-// Dev builds point at the local dev server; production builds point at the
-// hosted Clips instance. The user can still override from Settings.
-// Dev points at the Clips dev server (shared-app-config says 8094).
-// Prod points at the hosted Clips instance. User can override from Settings.
-const DEFAULT_URL = import.meta.env.DEV
-  ? "http://localhost:8094"
-  : "https://clips.agent-native.com";
+const DEFAULT_URL = DEFAULT_SERVER_URL;
 
 function normalizeCaptureSource(value: string): CaptureSource {
   if (value === "region" && isMacPlatform()) return "region";
@@ -431,6 +430,10 @@ function stopRestartHandoff(handoff: RestartHandoff): void {
   [handoff.displayStream, handoff.audioStream].forEach((stream) =>
     stream?.getTracks().forEach((track) => track.stop()),
   );
+  // Every creation site attaches its own catch, so this teardown promise
+  // can't reject — this guard keeps a handoff abandoned mid-restart from
+  // ever surfacing an unhandled rejection if a future site forgets.
+  void handoff.transcriptionTornDown?.catch(() => {});
 }
 
 type FetchInput = Parameters<typeof fetch>[0];
@@ -469,6 +472,7 @@ function serverUrlForPendingUpload(
 // an unparseable/non-OK response). An "unknown" result must never downgrade an
 // already-connected user to the setup flow.
 type VideoStorageProbe = "configured" | "missing" | "unknown";
+type FileUploadStatusProbe = VideoStorageProbe | "reauthorization-required";
 
 // Poll cadence for the caller's re-check loop is 5s; bound each probe request
 // well above that so a hung request can't wedge the poll's in-flight guard.
@@ -490,62 +494,80 @@ async function fetchWithAbortTimeout(
 
 async function hasConfiguredVideoStorage(
   serverUrl: string,
+  account: string | null,
 ): Promise<VideoStorageProbe> {
   const base = serverUrl.replace(/\/+$/, "");
 
-  // Track whether any endpoint gave a definitive answer. If both checks throw
-  // or return non-OK/unparseable responses, we can't tell and return "unknown".
-  let sawDefinitiveAnswer = false;
-
-  try {
-    const uploadStatus = await fetchWithAbortTimeout(
-      `${base}/_agent-native/file-upload/status`,
-      {
-        credentials: "include",
-        cache: "no-store",
-      },
-      VIDEO_STORAGE_PROBE_TIMEOUT_MS,
-    );
-    if (uploadStatus.ok) {
-      const body = (await uploadStatus.json().catch(() => null)) as {
+  // One endpoint's answer: "configured", "missing" (a definitive
+  // not-configured), "reauthorization-required", or "unknown" (threw,
+  // non-OK, or unparseable).
+  const probeEndpoint = async (
+    path: string,
+  ): Promise<FileUploadStatusProbe> => {
+    try {
+      const res = await fetchWithAbortTimeout(
+        `${base}${path}`,
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        VIDEO_STORAGE_PROBE_TIMEOUT_MS,
+      );
+      if (!res.ok) return "unknown";
+      // coercion-ok: an unparseable body maps to the typed "unknown" probe
+      // result, which callers treat as distinct from configured/missing.
+      const body = (await res.json().catch(() => null)) as {
         configured?: boolean;
+        builderReauthorizationRequired?: boolean;
       } | null;
-      if (body) {
-        sawDefinitiveAnswer = true;
-        if (body.configured) return "configured";
+      if (!body) return "unknown";
+      if (body.configured) return "configured";
+      if (body.builderReauthorizationRequired) {
+        return "reauthorization-required";
       }
+      return "missing";
+    } catch {
+      return "unknown";
     }
-  } catch {
-    // Fall through to the Builder status endpoint.
+  };
+
+  const uploadProbe = probeEndpoint("/_agent-native/file-upload/status");
+  const builderProbe = probeEndpoint("/_agent-native/builder/status");
+  const uploadResult = await uploadProbe;
+  if (uploadResult === "reauthorization-required") {
+    return "missing";
   }
 
-  try {
-    const builderStatus = await fetchWithAbortTimeout(
-      `${base}/_agent-native/builder/status`,
-      {
-        credentials: "include",
-        cache: "no-store",
-      },
-      VIDEO_STORAGE_PROBE_TIMEOUT_MS,
-    );
-    if (builderStatus.ok) {
-      const body = (await builderStatus.json().catch(() => null)) as {
-        configured?: boolean;
-      } | null;
-      if (body) {
-        sawDefinitiveAnswer = true;
-        if (body.configured) return "configured";
-      }
-    }
-  } catch {
-    // Network error or unreachable server — treat as indeterminate below.
+  // The probes run concurrently. The upload endpoint is authoritative when it
+  // reports that Builder needs reauthorization; otherwise, "configured" wins
+  // if either endpoint reports it.
+  const results = [uploadResult, await builderProbe];
+  const probe = results.includes("configured")
+    ? "configured"
+    : results.includes("missing")
+      ? "missing"
+      : "unknown";
+  // Last-known-good cache: seeds the next launch's Start button so it isn't
+  // held behind this round-trip. Only "configured" is ever cached —
+  // "missing"/"unknown" must always re-probe — and only when we know whose
+  // answer it is, so an unauthenticated probe never writes one.
+  if (probe === "configured" && account) {
+    saveBool(videoStorageConfiguredKey(serverUrl, account), true);
   }
-
-  return sawDefinitiveAnswer ? "missing" : "unknown";
+  return probe;
 }
 
 function authTokenStorageKey(serverUrl: string): string {
   return `${AUTH_TOKEN_KEY}:${originForServer(serverUrl)}`;
+}
+
+// Whether video storage is configured is a fact about one account on one
+// server: both status endpoints answer as the authenticated user. A key any
+// coarser lets one answer enable Start for a server or an account it was never
+// about — including after a sign-out. `account` is null before the session
+// probe settles, which is not an identity, so nothing is cached or seeded then.
+function videoStorageConfiguredKey(serverUrl: string, account: string): string {
+  return `${VIDEO_STORAGE_CONFIGURED_KEY}:${originForServer(serverUrl)}:${account}`;
 }
 
 function loadDesktopAuthToken(serverUrl: string): string {
@@ -1234,6 +1256,10 @@ export function App({
   const serverHostForSignIn = serverUrl
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
+  // Seeded from the last-known-good cache so a machine that ever probed
+  // Starts at "checking" and is seeded from the cache only once the signed-in
+  // account is known — the cached answer belongs to one account on one server,
+  // and the seed effect below is what applies it.
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
@@ -1295,14 +1321,43 @@ export function App({
     setDesktopAuthContext(serverUrl, loadDesktopAuthToken(serverUrl));
   }, [serverUrl]);
 
+  // Who and where `videoStorageStatus` is an answer about. Every probe captures
+  // this and drops its result if it has since moved on, so an in-flight probe
+  // can never land one account-and-server's answer on another's.
+  const videoStorageIdentity = `${originForServer(serverUrl)}|${signedInAs ?? ""}`;
+  const videoStorageIdentityRef = useRef(videoStorageIdentity);
+  // A change of server or account makes the current answer meaningless, and the
+  // probe below deliberately never downgrades "configured" to "checking", so
+  // without this the previous answer would keep Start enabled against the new
+  // identity until its first probe lands. Re-seed from that identity's own
+  // cache — which is also what applies the cache at launch, once the session
+  // probe has said who is signed in.
+  useEffect(() => {
+    videoStorageIdentityRef.current = videoStorageIdentity;
+    setVideoStorageStatus(
+      signedInAs &&
+        loadBool(videoStorageConfiguredKey(serverUrl, signedInAs), false)
+        ? "configured"
+        : "checking",
+    );
+  }, [videoStorageIdentity, serverUrl, signedInAs]);
+
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed" || localRecordingMode !== "off") {
       setVideoStorageStatus("configured");
       return true;
     }
 
-    setVideoStorageStatus((prev) => (prev === "missing" ? prev : "checking"));
-    const probe = await hasConfiguredVideoStorage(serverUrl);
+    // Deliberately no "checking" reset here: the status may already be seeded
+    // from the last-known-good cache or the mount-time warmup probe, and
+    // downgrading "configured" to "checking" would re-disable Start for the
+    // probe's whole round-trip. A definitive probe result below still wins.
+    const probedIdentity = videoStorageIdentity;
+    const probe = await hasConfiguredVideoStorage(serverUrl, signedInAs);
+    // The server or the account moved on while this was in flight: this answer
+    // is about an identity the UI is no longer using, and "configured over
+    // there" is not evidence about what Start would record to now.
+    if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (probe === "unknown") {
       // The check couldn't be completed (offline/unreachable). Never downgrade
       // an already-connected user to "missing" on an indeterminate result;
@@ -1316,11 +1371,24 @@ export function App({
     }
     setVideoStorageStatus(probe);
     return probe === "configured";
-  }, [authStatus, localRecordingMode, serverUrl]);
+  }, [
+    authStatus,
+    localRecordingMode,
+    serverUrl,
+    signedInAs,
+    videoStorageIdentity,
+  ]);
 
   useEffect(() => {
     void refreshVideoStorageStatus();
   }, [refreshVideoStorageStatus]);
+
+  // There is deliberately no mount-time warmup probe here any more. One used to
+  // run in parallel with checkAuth to overlap the round-trips, but a probe
+  // started before the session settles cannot say which account its answer
+  // belongs to, and applying it anyway is exactly how one account inherited
+  // another's "configured". A returning user is covered by the account-scoped
+  // cache seed above at no round-trip cost; a first launch pays one probe.
 
   useEffect(() => {
     if (
@@ -2604,6 +2672,13 @@ export function App({
     };
   }, []);
 
+  // Warm the multi-second SCShareableContent lookup while the popover is
+  // open so a recording start within the cache TTL skips it. Fire-and-forget.
+  useEffect(() => {
+    if (!popoverVisible) return;
+    invoke("native_fullscreen_prefetch_capture_content").catch(() => {});
+  }, [popoverVisible]);
+
   const speechPermissionChecked = useRef(false);
   useEffect(() => {
     if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
@@ -2676,6 +2751,12 @@ export function App({
   // failed). Stop and cancel are terminal transitions on the recorder a
   // restart is already tearing down, so they must not run against it.
   const restartInFlightRef = useRef(false);
+  // The take the recorder last announced, tracked from the same
+  // `clips:recorder-session` event the pill uses for its identity. A stop that
+  // throws has no result to name, so this is the only way its failure event can
+  // say which take it belongs to instead of being applied to whichever card
+  // happens to be open.
+  const sessionRecordingIdRef = useRef<string | null>(null);
   const recordingInFlight = isRecording || recordingFlowActive;
   useLayoutEffect(() => {
     recordingFlowGateRef.current = recordingInFlight;
@@ -3497,6 +3578,8 @@ export function App({
         preAcquiredCameraStream,
         preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
         preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
+        pendingTranscriptionTeardown:
+          options?.resumeCapture?.transcriptionTornDown ?? null,
         signal: startController.signal,
       });
       // macOS: give WebKit a short window to dispatch getDisplayMedia before
@@ -3772,6 +3855,14 @@ export function App({
       });
     };
     track(
+      listen<{ recordingId?: string | null }>(
+        "clips:recorder-session",
+        (event) => {
+          sessionRecordingIdRef.current = event.payload?.recordingId ?? null;
+        },
+      ),
+    );
+    track(
       listen("clips:recorder-stop", async () => {
         if (restartInFlightRef.current) return;
         // Detach the React Start/bubble gate immediately. The recorder keeps
@@ -3797,6 +3888,9 @@ export function App({
 
         let stopFailed = false;
         let stopResult: RecorderStopResult | null = null;
+        // Captured before the await: by the time a slow stop throws, a
+        // replacement take may already have announced itself.
+        const stoppingRecordingId = sessionRecordingIdRef.current;
         try {
           stopResult = await handle.stop();
           if (stopResult.localOnly) {
@@ -3804,6 +3898,15 @@ export function App({
               folderPath: stopResult.localFolder,
               files: stopResult.localFiles ?? [],
             });
+            // A local-only stop has no upload, so nothing else ever publishes
+            // its outcome. Without this the pill's completion card would hold
+            // "finishing up" until its stall timeout — and it must not claim
+            // the file was saved before the export actually returned.
+            emit("clips:native-upload-finished", {
+              recordingId: stopResult.recordingId,
+              ok: true,
+              localFilePath: stopResult.localFiles?.[0]?.path ?? null,
+            }).catch(() => {});
           } else {
             setLastRecordingId(stopResult.recordingId);
             // The browser opens `/r/<id>` (the author's dashboard); what lands
@@ -3814,6 +3917,18 @@ export function App({
         } catch (err) {
           stopFailed = true;
           setRecError(err instanceof Error ? err.message : String(err));
+          // Only when the stop itself threw. Past that point the upload
+          // pipeline owns the completion event and a copy-link failure is not
+          // an upload failure — but a stop that never produced a result is
+          // not a completion, and a local-only take has no other publisher to
+          // correct the card.
+          if (!stopResult) {
+            emit("clips:native-upload-finished", {
+              recordingId: stoppingRecordingId ?? undefined,
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            }).catch(() => {});
+          }
           await loadPendingUploads();
         } finally {
           recordingStopFinalizingRef.current = false;
@@ -3836,8 +3951,19 @@ export function App({
     track(
       listen("clips:recorder-cancel", async () => {
         if (restartInFlightRef.current) return;
+        const cancelDone = recorder.cancel();
+        // Optimistic feedback: bring the popover back and clear the tray's
+        // recording state the moment the cancel is dispatched — the recorder
+        // teardown can take seconds and neither call depends on it. The flow
+        // gate below must NOT be released here: it stays latched until
+        // cancel() resolves so a fast Start can't race the tearing-down
+        // session.
+        if (!cancelled) {
+          invoke("set_recording_state", { active: false }).catch(() => {});
+          invoke("show_popover").catch(() => {});
+        }
         try {
-          await recorder.cancel();
+          await cancelDone;
         } finally {
           if (!cancelled) {
             (
@@ -3849,8 +3975,6 @@ export function App({
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
-            invoke("set_recording_state", { active: false }).catch(() => {});
-            invoke("show_popover").catch(() => {});
           }
         }
       }),
@@ -8101,7 +8225,7 @@ function Setup({
       /* A fixed height, not content-driven: the tray window resizes itself to
          match rendered content, so a taller tab would otherwise grow the window
          out from under the user. Tabs scroll inside this frame instead. */
-      className="flex h-[560px] max-h-[calc(100vh-48px)] w-full flex-col overflow-hidden rounded-[14px] bg-background text-foreground"
+      className="flex h-[560px] max-h-screen w-full flex-col overflow-hidden rounded-[14px] bg-background text-foreground"
     >
       <div className="grid min-h-0 flex-1 grid-cols-[176px_minmax(0,1fr)]">
         <nav

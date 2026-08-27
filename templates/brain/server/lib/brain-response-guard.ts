@@ -20,7 +20,7 @@ const MUTATION_INTENTS = new Set([
 ]);
 
 const COMPANY_KNOWLEDGE_TERMS = [
-  "agent native",
+  "agent-native",
   "builder",
   "brain",
   "company",

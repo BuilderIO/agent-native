@@ -296,7 +296,7 @@ const enUS = {
     },
     comparison: {
       titleLine1: "Don't pick between apps or agents.",
-      titleAccent: "Agent-native apps are both",
+      titleAccent: "Agent-Native apps are both",
       columns: {
         saas: "SaaS Tools",
         agents: "Raw AI Agents",
@@ -432,6 +432,103 @@ const enUS = {
       dashboards: "Dashboards",
     },
   },
+  homepage: {
+    hero: {
+      title: "The agentic application framework",
+      bodyLine1:
+        "Build for AI agents without building a second product for users.",
+      bodyLine2: "Bring your own LLM. Deploy anywhere.",
+      learnMore: "Learn more",
+    },
+    install: {
+      copyCommand: "Copy install command",
+    },
+    actions: {
+      title: "One Action powers every surface",
+      bodyLine1: "Actions are the building blocks of an Agent-Native app.",
+      bodyLine2:
+        "Define functionality once, then use it from your UI, agent chat, HTTP API, MCP, A2A, or CLI.",
+      diagramAlt:
+        "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
+    },
+    builtIn: {
+      title: "Built into every Agent-Native app",
+      body: "Everything users and AI agents need to work together, already wired into one application.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "Give users familiar screens for browsing, editing, and reviewing work.",
+        },
+        agentChat: {
+          title: "Embedded agent chat",
+          body: "Let users delegate work, ask questions, and review results without leaving the app.",
+        },
+        sharedState: {
+          title: "Shared application state",
+          body: "The agent knows what users are viewing, selecting, and editing.",
+        },
+        sharedSql: {
+          title: "Shared SQL data",
+          body: "Users and agents read and update the same source of truth.",
+        },
+        skillsMemory: {
+          title: "Skills and memory",
+          body: "Give agents reusable expertise and persistent context.",
+        },
+        automations: {
+          title: "Automations",
+          body: "Run agent work automatically on schedules or application events.",
+        },
+        agentTeams: {
+          title: "Agent teams",
+          body: "Delegate work to specialist agents within the app or across apps.",
+        },
+        auth: {
+          title: "Authentication and organizations",
+          body: "Sign-in, user accounts, and organization membership are built in.",
+        },
+        sharing: {
+          title: "Sharing and permissions",
+          body: "Control who can view, comment, edit, or manage every resource.",
+        },
+      },
+    },
+    stack: {
+      title: "Works with your stack",
+      body: "Bring your LLM, database, tools, and infrastructure, Agent-Native is open source TypeScript, so your application stays yours.",
+      exploreApps: "Explore apps built with Agent-Native",
+    },
+    showcase: {
+      title: "What can you build with Agent-Native?",
+      body: "Start with chat, a focused internal tool, or a complete customer-facing product. Every app gives users a UI and agents the tools to do the same work.",
+      browseApps: "Browse apps",
+      scrollLeft: "Scroll apps left",
+      scrollRight: "Scroll apps right",
+    },
+    bottomCta: {
+      title: "Build your first Agent-Native app",
+      body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
+    },
+    getStartedModal: {
+      title: "Get started",
+      close: "Close",
+      buildLocally: "Build an app locally",
+      tryAnApp: "Try an app",
+      buildInCloud: "Build in the cloud",
+    },
+    footer: {
+      tagline: "The agentic application framework.",
+      framework: "Framework",
+      ecosystem: "Ecosystem",
+      community: "Community",
+      legal: "Legal",
+      docs: "Docs",
+      actions: "Actions",
+      apps: "Apps",
+      privacyPolicy: "Privacy Policy",
+      saasTerms: "SaaS Terms",
+    },
+  },
   templatesPage: {
     title: "Open-source agentic apps you own",
     eyebrow: "Start from a working app and let the agent evolve it.",
@@ -496,7 +593,7 @@ const enUS = {
     design: {
       replaces: "Agent-Native Figma",
       description:
-        "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
+        "Agent-Native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
     },
     content: {
       replaces: "Agent-Native Notion/Obsidian",
@@ -521,7 +618,7 @@ const enUS = {
     forms: {
       replaces: "Replaces or augments Typeform, Google Forms",
       description:
-        "Agent-native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
+        "Agent-Native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
     },
     assets: {
       replaces:
@@ -1228,7 +1325,7 @@ const enUS = {
           "Plan mode is text in your terminal, visible to one person, gone when you approve it. Plans are visual — wireframes, diagrams, annotated diffs — shareable, and persistent: agents create, read, and update them across the feature's whole lifecycle.",
         question5: "Can I see plans next to my code?",
         answer5:
-          "Yes. The VS Code extension opens plans in a side panel, and Agent Native Desktop mirrors hosted plans to local MDX files.",
+          "Yes. The VS Code extension opens plans in a side panel, and Agent-Native Desktop mirrors hosted plans to local MDX files.",
         question6: "Is Plans free?",
         answer6:
           "Yes. Free, open source, MIT licensed. Plans get hosted share links, and you can mirror everything to local files.",
@@ -1262,7 +1359,7 @@ const enUS = {
       s026: "Shareable Links",
       s027: "Every plan gets a public URL. Share with teammates for async review, comments, and approvals.",
       s028: "Desktop File Sync",
-      s029: "Mirror hosted plans to local MDX files from Agent Native Desktop without cloning the app or running a CLI.",
+      s029: "Mirror hosted plans to local MDX files from Agent-Native Desktop without cloning the app or running a CLI.",
       s030: ", so review stays beside the code.",
       s031: "How it works",
       s032: "Planning lives in a shared app — both you and the agent can read and update it throughout the lifecycle of a feature.",
@@ -1296,7 +1393,7 @@ const enUS = {
       s060: "View all apps",
       s061: "VS Code Handoffs",
       s062: "Open plan links in a VS Code side panel with the",
-      s063: "Agent Native Plans extension",
+      s063: "Agent-Native Plans extension",
       s064: "Wireframe — sketchy UI mockup with component slots",
       s065: "Annotated code — source file with per-line notes",
       s066: "Diagram — flowchart, sequence, or architecture",
@@ -1514,9 +1611,9 @@ const enUS = {
     },
   },
   downloadPage: {
-    title: "Download Agent Native",
+    title: "Download Agent-Native",
     body: "All your agent-native apps in one desktop shell. Production apps built-in, with a dev mode toggle for local development.",
-    openDesktop: "Open Agent Native",
+    openDesktop: "Open Agent-Native",
     downloadInstaller: "Download installer",
     downloadStarted: "Download started",
     downloadAgain: "Didn't work? Try downloading again",
@@ -1947,6 +2044,7 @@ const enUS = {
     externalAgents: "External Agents (Connect a Host)",
     externalAgentsCatalog: "External Agents Catalog",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (Browser Tools)",
     crossAppSso: "Cross-App SSO",
     notifications: "Notifications",
     automationConnectors: "Workflow Connectors",

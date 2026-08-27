@@ -108,14 +108,15 @@ function redactionCandidates(secret: string): string[] {
   return [...candidates].sort((a, b) => b.length - a.length);
 }
 
-export async function readResponseTextWithLimit(
+export async function readResponseBytesWithLimit(
   response: Response,
   maxBytes = MAX_EXTENSION_PROXY_RESPONSE_SIZE,
-): Promise<{ text: string; truncated: boolean; size: number }> {
+): Promise<{ bytes: Uint8Array; truncated: boolean; size: number }> {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
+    await response.body?.cancel().catch(() => {});
     return {
-      text: `(response too large - ${contentLength} bytes, max ${maxBytes})`,
+      bytes: new Uint8Array(),
       truncated: true,
       size: Number(contentLength),
     };
@@ -126,13 +127,13 @@ export async function readResponseTextWithLimit(
     const buffer = await response.arrayBuffer();
     if (buffer.byteLength > maxBytes) {
       return {
-        text: `(response truncated - ${buffer.byteLength} bytes, max ${maxBytes})`,
+        bytes: new Uint8Array(),
         truncated: true,
         size: buffer.byteLength,
       };
     }
     return {
-      text: new TextDecoder().decode(buffer),
+      bytes: new Uint8Array(buffer),
       truncated: false,
       size: buffer.byteLength,
     };
@@ -147,25 +148,36 @@ export async function readResponseTextWithLimit(
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel().catch(() => {});
-      return {
-        text: `(response truncated - ${total} bytes, max ${maxBytes})`,
-        truncated: true,
-        size: total,
-      };
+      return { bytes: new Uint8Array(), truncated: true, size: total };
     }
     chunks.push(value);
   }
 
-  const buffer = new Uint8Array(total);
+  const bytes = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
-    buffer.set(chunk, offset);
+    bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return { bytes, truncated: false, size: total };
+}
 
+export async function readResponseTextWithLimit(
+  response: Response,
+  maxBytes = MAX_EXTENSION_PROXY_RESPONSE_SIZE,
+): Promise<{ text: string; truncated: boolean; size: number }> {
+  const result = await readResponseBytesWithLimit(response, maxBytes);
+  if (result.truncated) {
+    const contentLength = response.headers.get("content-length");
+    const text =
+      contentLength && Number(contentLength) > maxBytes
+        ? `(response too large - ${contentLength} bytes, max ${maxBytes})`
+        : `(response truncated - ${result.size} bytes, max ${maxBytes})`;
+    return { text, truncated: true, size: result.size };
+  }
   return {
-    text: new TextDecoder().decode(buffer),
+    text: new TextDecoder().decode(result.bytes),
     truncated: false,
-    size: total,
+    size: result.size,
   };
 }

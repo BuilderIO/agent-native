@@ -287,7 +287,7 @@ export interface CommandMenuProps {
    */
   changelogKey?: string;
   /**
-   * Whether to show the built-in "About Agent Native" entry. Defaults to true
+   * Whether to show the built-in "About Agent-Native" entry. Defaults to true
    * for app-shell menus that provide a changelog; set false for local menus.
    */
   showAbout?: boolean;
@@ -384,7 +384,7 @@ export function CommandMenu({
       .includes(search.toLowerCase());
   const showChangelogRow = hasChangelog && changelogRowMatches;
   const aboutLabel = t("agentChat.aboutAgentNative.title", {
-    defaultValue: "About Agent Native",
+    defaultValue: "About Agent-Native",
   });
   const aboutVersionLabel = t("agentChat.aboutAgentNative.version", {
     defaultValue: "Version",
@@ -405,7 +405,7 @@ export function CommandMenu({
     !search ||
     [
       aboutLabel,
-      "agent native",
+      "agent-native",
       aboutVersionLabel,
       "versions",
       "package",
@@ -547,7 +547,7 @@ export function CommandMenu({
                   </>
                 )}
 
-                {/* About Agent Native — built-in framework diagnostics entry */}
+                {/* About Agent-Native — built-in framework diagnostics entry */}
                 {showAboutRow && (
                   <>
                     {(hasResults || showChangelogRow) && <CommandSeparator />}

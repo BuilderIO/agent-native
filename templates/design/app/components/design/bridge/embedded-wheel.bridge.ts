@@ -96,7 +96,9 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function stopNativeInteraction(e: Event): void {
-    e.preventDefault();
+    // A fling's wheel events are not cancelable; cancelling one logs a browser
+    // Intervention per event and scrolls anyway.
+    if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
   }
@@ -120,7 +122,11 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWheel(e: WheelEvent): void {
-    if (!wheelEnabled) return;
+    // Zoom forwards whatever the pan flag says: the flag only arrives by
+    // postMessage and a document swap strands it, while the zoom bridge cancels
+    // ctrl/meta wheel here regardless — so gating it makes the gesture vanish.
+    var zoomIntent = !!(e.ctrlKey || e.metaKey);
+    if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
     postToParent({
       type: "embedded-canvas-wheel",

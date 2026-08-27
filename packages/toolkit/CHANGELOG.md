@@ -1,5 +1,48 @@
 # @agent-native/toolkit
 
+## 0.17.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.17.3
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- Release all public npm packages with a patch version bump.
+
+## 0.17.2
+
+### Patch Changes
+
+- 65a3b88: Keep shared feedback controls clear of the environment badge and editor chrome.
+- Release all public npm packages with a patch version bump.
+
+## 0.17.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.17.0
+
+### Minor Changes
+
+- cf473dc: Allow mention providers to show custom text or images with optional background
+  colors, or to omit leading media, while preserving the existing icon fallback.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.16.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.16.15
 
 ### Patch Changes

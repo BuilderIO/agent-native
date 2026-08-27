@@ -1,4 +1,4 @@
-# Agent Native Package Lookup For Agents
+# Agent-Native Package Lookup For Agents
 
 The version-matched docs and template corpus are bundled with
 `@agent-native/core` and installed at:
@@ -9,7 +9,7 @@ node_modules/@agent-native/core/corpus
 node_modules/@agent-native/core/dist
 ```
 
-Use these version-matched markdown docs before coding against Agent Native
+Use these version-matched markdown docs before coding against Agent-Native
 framework APIs or advanced features. Use the corpus when you need first-party
 template patterns to replicate, and `dist/` (compiled sources plus `.d.ts`) when
 you need the framework's own implementation details. Public docs are useful for
@@ -81,5 +81,5 @@ preserve public action, state, auth, and agent-chat runtime contracts.
   corpus for first-party template patterns.
 - If local instructions and package docs conflict, local app instructions win
   for that app, but verify the framework API shape in package docs or types.
-- Do not invent Agent Native APIs. Search these docs and installed type
+- Do not invent Agent-Native APIs. Search these docs and installed type
   definitions before adding imports, routes, actions, or framework config.

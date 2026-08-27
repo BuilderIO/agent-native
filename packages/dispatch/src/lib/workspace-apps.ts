@@ -1,6 +1,9 @@
 import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+import {
+  resolveEnvironmentTargets,
+  withBuilderUtmTrackingParams,
+} from "@agent-native/core/shared";
 
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
@@ -76,6 +79,16 @@ function clientRuntimeEnvironment(): "production" | "development" {
   return "production";
 }
 
+function clientEnvironmentLane(): "production" | "beta" {
+  if (typeof window === "undefined") return "production";
+  const hostname = window.location.hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  const targets = resolveEnvironmentTargets(hostname);
+  return targets?.betaHost === hostname ? "beta" : "production";
+}
+
 /**
  * The workspace SSO action only accepts an exact registered app identity and
  * origin. The catalog's boolean is a server-derived projection for custom
@@ -92,7 +105,10 @@ export function isWorkspaceSsoApp(
     if (app.workspaceSso === true) return true;
     return isWorkspaceSsoAppUrl(
       { id: app.id, url: rawUrl },
-      { nodeEnv: clientRuntimeEnvironment() },
+      {
+        nodeEnv: clientRuntimeEnvironment(),
+        environmentLane: clientEnvironmentLane(),
+      },
     );
     // coercion-ok: malformed app metadata is not eligible for workspace SSO.
   } catch {
@@ -143,6 +159,30 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
   app: Pick<WorkspaceAppSummary, "id" | "isDispatch">,
 ): boolean {
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
+}
+
+function defaultWorkspaceAppUrl(rawUrl: string): string {
+  if (typeof window === "undefined") return rawUrl;
+
+  const hostname = window.location.hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  const requestTargets = resolveEnvironmentTargets(hostname);
+  if (!requestTargets || requestTargets.betaHost !== hostname) return rawUrl;
+
+  try {
+    const url = new URL(rawUrl);
+    const appTargets = resolveEnvironmentTargets(url.hostname);
+    if (!appTargets) return rawUrl;
+    url.protocol = "https:";
+    url.hostname = appTargets.betaHost;
+    url.port = "";
+    return url.toString();
+  } catch {
+    // coercion-ok: malformed default metadata remains an absent navigation target.
+    return rawUrl;
+  }
 }
 
 export function workspaceAppRoute(appId: string): string {
@@ -376,7 +416,7 @@ export function mergeChatFirstWorkspaceApps(
       // Dispatch. Keep a mounted path for legacy callers, but give embed
       // session resolution the exact canonical origin.
       path: "/",
-      url: CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id],
+      url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
     });
   }

@@ -75,6 +75,8 @@ export interface ChangeEvent {
    * to drive the access-aware delivery check in `canSeeChangeForUser`.
    */
   resourceId?: string;
+  /** Public-resource scope for events whose resource may be gone. */
+  visibility?: "public";
   [k: string]: unknown;
 }
 
@@ -1070,7 +1072,10 @@ export class AppSyncState {
    * owner/org fast paths below are unchanged and evaluated first.
    */
   canSeeChangeForUser(
-    event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
     userEmail: string,
     orgId: string | undefined,
   ): boolean {
@@ -1080,22 +1085,32 @@ export class AppSyncState {
   }
 
   private getChangeVisibilityForUser(
-    event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
     userEmail: string,
     orgId: string | undefined,
   ): ChangeVisibility {
+    const normalizedUserEmail = userEmail.trim().toLowerCase();
     // Global / unowned events: every authenticated user gets them. Events that
     // predate resource tagging (owner/org only, no resourceType) keep the exact
     // conservative contract they had before.
     if (!event.owner && !event.orgId && !event.resourceType) return "visible";
-    if (event.owner && event.owner === userEmail) return "visible";
+    if (
+      typeof event.owner === "string" &&
+      event.owner.trim().toLowerCase() === normalizedUserEmail
+    ) {
+      return "visible";
+    }
     if (event.orgId && orgId && event.orgId === orgId) return "visible";
+    if (event.visibility === "public") return "visible";
 
     // Access-aware branch: only when the event carries BOTH resourceType and
     // resourceId and the owner/org fast paths above did not already grant.
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
-        userEmail,
+        normalizedUserEmail,
         orgId,
         event.resourceType,
         event.resourceId,
@@ -1115,7 +1130,7 @@ export class AppSyncState {
         key,
         event.resourceType,
         event.resourceId,
-        userEmail,
+        normalizedUserEmail,
         orgId,
       );
       return "pending";
@@ -2101,7 +2116,10 @@ export function __resetCollabAccessCacheForTests(): void {
 }
 
 export function canSeeChangeForUser(
-  event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+  event: Pick<
+    ChangeEvent,
+    "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+  >,
   userEmail: string,
   orgId: string | undefined,
 ): boolean {

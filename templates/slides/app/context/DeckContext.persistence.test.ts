@@ -17,7 +17,11 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 import {
   DeckProvider,
+  clearSlideEditingActive,
+  flushPendingSaves,
+  hasUnsavedDeckChanges,
   hasUncommittedDeckChanges,
+  markSlideEditingActive,
   mergeServerAddedSlides,
   useDecks,
   type Deck,
@@ -81,6 +85,7 @@ function setupFetch(options?: {
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   patchFailures?: { deckId: string; count: number };
+  putFailures?: { deckId: string; count: number };
 }) {
   let resolveCreate: (response: Response) => void = () => {};
   let resolveDeferredPut: (() => void) | null = null;
@@ -88,6 +93,10 @@ function setupFetch(options?: {
   let firstPutSignal: AbortSignal | undefined;
   let resolveDeferredPatch: (() => void) | null = null;
   let firstPatchSignal: AbortSignal | undefined;
+  let deferNextGetDeck = false;
+  let resolveDeferredGetDeck: (() => void) | null = null;
+  let deferNextDeckList = false;
+  let resolveDeferredDeckList: (() => void) | null = null;
   let accessibleDeck: Deck | null = null;
   const patchAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
@@ -133,6 +142,12 @@ function setupFetch(options?: {
           }
         });
       }
+      if (
+        deckId === options?.putFailures?.deckId &&
+        attempts <= options.putFailures.count
+      ) {
+        return Promise.reject(new Error("save-deck failed"));
+      }
       return Promise.resolve(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
       );
@@ -164,15 +179,31 @@ function setupFetch(options?: {
         );
       }
       const decks = accessibleDeck ? [accessibleDeck] : [];
-      return Promise.resolve(
-        new Response(JSON.stringify({ count: decks.length, decks }), {
-          status: 200,
-        }),
+      const response = new Response(
+        JSON.stringify({ count: decks.length, decks }),
+        { status: 200 },
       );
+      if (deferNextDeckList) {
+        deferNextDeckList = false;
+        return new Promise<Response>((resolve) => {
+          resolveDeferredDeckList = () => resolve(response);
+        });
+      }
+      return Promise.resolve(response);
     }
 
     if (href.includes("/_agent-native/actions/get-deck")) {
       if (accessibleDeck) {
+        if (deferNextGetDeck) {
+          deferNextGetDeck = false;
+          const deferredDeck = accessibleDeck;
+          return new Promise<Response>((resolve) => {
+            resolveDeferredGetDeck = () =>
+              resolve(
+                new Response(JSON.stringify(deferredDeck), { status: 200 }),
+              );
+          });
+        }
         return Promise.resolve(
           new Response(JSON.stringify(accessibleDeck), { status: 200 }),
         );
@@ -219,9 +250,26 @@ function setupFetch(options?: {
     rejectDeferredPut: (error: unknown = new Error("late save failure")) =>
       rejectDeferredPut?.(error),
     getFirstPutSignal: () => firstPutSignal,
+    getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
-    setAccessibleDeck: (deck: Deck) => {
+    deferNextGetDeck: () => {
+      deferNextGetDeck = true;
+    },
+    hasDeferredGetDeck: () => resolveDeferredGetDeck !== null,
+    resolveDeferredGetDeck: () => {
+      resolveDeferredGetDeck?.();
+      resolveDeferredGetDeck = null;
+    },
+    deferNextDeckList: () => {
+      deferNextDeckList = true;
+    },
+    hasDeferredDeckList: () => resolveDeferredDeckList !== null,
+    resolveDeferredDeckList: () => {
+      resolveDeferredDeckList?.();
+      resolveDeferredDeckList = null;
+    },
+    setAccessibleDeck: (deck: Deck | null) => {
       accessibleDeck = deck;
     },
     getPatchAttempts: (deckId: string) => patchAttempts.get(deckId) ?? 0,
@@ -268,6 +316,7 @@ describe("DeckContext deck creation persistence", () => {
 
   afterEach(() => {
     cleanup();
+    window.history.pushState({}, "", "/");
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -317,6 +366,143 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.decks).toEqual([accessible]);
+  });
+
+  it("keeps an unload flush behind the active save chain", async () => {
+    window.history.pushState({}, "", "/deck/flush-order-deck");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-order-deck",
+      title: "Flush order deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "flush-order-deck",
+        "slide-1",
+        { content: "<h1>First</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.updateSlide("flush-order-deck", "slide-1", {
+        content: "<h1>Latest</h1>",
+      });
+      flushPendingSaves();
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(1);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls[1]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls[1]?.[1])).toMatchObject({
+      deckId: "flush-order-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<h1>Latest</h1>" },
+        },
+      ],
+    });
+
+    await result.current.flushDeckSave("flush-order-deck");
+  });
+
+  it("requeues a failed keepalive flush for a normal retry", async () => {
+    window.history.pushState({}, "", "/deck/flush-retry-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchFailures: { deckId: "flush-retry-deck", count: 1 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-retry-deck",
+      title: "Flush retry deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide("flush-retry-deck", "slide-1", {
+        content: "<h1>Latest</h1>",
+      });
+      flushPendingSaves();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPatchAttempts("flush-retry-deck")).toBe(1);
+    expect(hasUnsavedDeckChanges("flush-retry-deck")).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPatchAttempts("flush-retry-deck")).toBe(2);
+    expect(hasUnsavedDeckChanges("flush-retry-deck")).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/_agent-native/actions/patch-deck") &&
+          init?.keepalive === true,
+      ),
+    ).toBe(true);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
@@ -545,6 +731,318 @@ describe("DeckContext deck creation persistence", () => {
         "<div>Edited</div>",
       ),
     );
+  });
+
+  it("persists inline drafts without replacing the local editor state", async () => {
+    window.history.pushState({}, "", "/deck/inline-draft-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-draft-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-draft-deck",
+        "slide-1",
+        { content: "<div>First draft</div>" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        "inline-draft-deck",
+        "slide-1",
+        { content: "<div>Final draft</div>" },
+        { preserveLocalState: true },
+      );
+    });
+
+    expect(
+      result.current.getDeck("inline-draft-deck")?.slides[0]?.content,
+    ).toBe("<div>Original</div>");
+    expect(hasUncommittedDeckChanges("inline-draft-deck", new Set())).toBe(
+      true,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      return actionCallBody(init).deckId === "inline-draft-deck";
+    });
+    expect(patchCalls).toHaveLength(1);
+    expect(actionCallBody(patchCalls[0]?.[1])).toMatchObject({
+      deckId: "inline-draft-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Final draft</div>" },
+        },
+      ],
+    });
+    expect(hasUncommittedDeckChanges("inline-draft-deck", new Set())).toBe(
+      false,
+    );
+  });
+
+  it("persists the latest inline draft when the user reverts before debounce", async () => {
+    window.history.pushState({}, "", "/deck/inline-revert-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-revert-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-revert-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+      result.current.updateSlide(
+        "inline-revert-deck",
+        "slide-1",
+        { content: "<div>Original</div>" },
+        { preserveLocalState: true },
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      return actionCallBody(init).deckId === "inline-revert-deck";
+    });
+    expect(patchCalls).toHaveLength(1);
+    expect(actionCallBody(patchCalls[0]?.[1])).toMatchObject({
+      operations: [
+        {
+          fields: { content: "<div>Original</div>" },
+        },
+      ],
+    });
+  });
+
+  it("records one undo entry when an inline draft commits", async () => {
+    window.history.pushState({}, "", "/deck/inline-undo-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-undo-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-undo-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+      // The editor's exit path updates local state and records the one
+      // deck-level undo entry without replaying an already-queued server op.
+      result.current.updateSlide(
+        "inline-undo-deck",
+        "slide-1",
+        {
+          content: "<div>Draft</div>",
+        },
+        { recordUndoOnly: true },
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(1);
+
+    expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
+      "<div>Draft</div>",
+    );
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => result.current.undo());
+    expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
+      "<div>Original</div>",
+    );
+  });
+
+  it("does not full-replace after an inline draft save and later deck render", async () => {
+    window.history.pushState({}, "", "/deck/inline-render-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "inline-render-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "inline-render-deck",
+        "slide-1",
+        { content: "<div>Draft</div>" },
+        { preserveLocalState: true },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const fullSaveCalls = fetchMock.mock.calls.filter(([url, init]) => {
+      return (
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === "inline-render-deck"
+      );
+    });
+    expect(fullSaveCalls).toHaveLength(0);
+  });
+
+  it("protects an active inline draft after its autosave drains", async () => {
+    window.history.pushState({}, "", "/deck/inline-active-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const original = {
+      id: "inline-active-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    } satisfies Deck;
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    markSlideEditingActive("inline-active-deck", "slide-1");
+    try {
+      vi.useFakeTimers();
+      act(() => {
+        result.current.updateSlide(
+          "inline-active-deck",
+          "slide-1",
+          { content: "<div>Draft</div>" },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      setAccessibleDeck({
+        ...original,
+        slides: [{ ...original.slides[0], content: "<div>Agent</div>" }],
+      });
+      await act(async () => {
+        await result.current.refreshOpenDeck("inline-active-deck");
+      });
+
+      expect(
+        result.current.getDeck("inline-active-deck")?.slides[0]?.content,
+      ).toBe("<div>Original</div>");
+    } finally {
+      clearSlideEditingActive("inline-active-deck", "slide-1");
+    }
   });
 
   it("persists a duplicated slide after the optimistic insert", async () => {
@@ -1337,6 +1835,946 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("reorders by slide id after a thumbnail delete and keeps the granular op and undo", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-4",
+          content: "<h1>Four</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(4),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+      result.current.reorderSlides("shared-deck", "slide-4", "slide-1");
+      result.current.reorderSlides("shared-deck", "slide-1", "slide-3");
+    });
+
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-4", "slide-3", "slide-1"]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        String(url).includes("/_agent-native/actions/patch-deck") &&
+        actionCallBody(init).deckId === "shared-deck"
+      );
+    });
+    expect(patchCall).toBeTruthy();
+    expect(actionCallBody(patchCall?.[1])).toMatchObject({
+      deckId: "shared-deck",
+      operations: [
+        {
+          op: "delete-slide",
+          slideId: "slide-2",
+        },
+        {
+          op: "reorder-slides",
+          orderedIds: ["slide-4", "slide-1", "slide-3"],
+        },
+        {
+          op: "reorder-slides",
+          orderedIds: ["slide-4", "slide-3", "slide-1"],
+        },
+      ],
+    });
+
+    expect(result.current.canUndo).toBe(true);
+    act(() => {
+      result.current.undo();
+    });
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-4", "slide-1", "slide-3"]);
+
+    vi.useRealTimers();
+  });
+
+  it("does not resurrect a locally deleted slide from a stale open-deck refetch", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getFirstPatchSignal, resolveDeferredPatch } =
+      setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(3),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-3"]);
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(true);
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.refreshOpenDeck("shared-deck");
+    });
+
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-3"]);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-3"]);
+    vi.useRealTimers();
+  });
+
+  it("keeps a stale refetch from resurrecting a delete after the save settles", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getFirstPatchSignal,
+      resolveDeferredPatch,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(2),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+
+    deferNextGetDeck();
+    const staleRefresh = result.current.refreshOpenDeck("shared-deck");
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(false);
+
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleRefresh;
+    });
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1"]);
+    vi.useRealTimers();
+  });
+
+  it("does not let a stale baseline reload resurrect a deleted slide", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      getFirstPatchSignal,
+      resolveDeferredPatch,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("shared-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+
+    deferNextGetDeck();
+    const staleReload = result.current.reloadDecks();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(false);
+
+    setAccessibleDeck({ ...original, slides: [original.slides[0]!] });
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleReload;
+    });
+
+    expect(
+      result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1"]);
+    vi.useRealTimers();
+  });
+
+  it("ignores an in-flight deck-list diff after a baseline reload", async () => {
+    window.history.pushState({}, "", "/");
+    const deck: Deck = {
+      id: "baseline-list-deck",
+      title: "Baseline list deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    const {
+      setAccessibleDeck,
+      deferNextDeckList,
+      hasDeferredDeckList,
+      resolveDeferredDeckList,
+    } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck(deck.id)?.title).toBe(deck.title);
+
+    setAccessibleDeck(null);
+    deferNextDeckList();
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(hasDeferredDeckList()).toBe(true));
+
+    setAccessibleDeck(deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    resolveDeferredDeckList();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.getDeck(deck.id)?.title).toBe(deck.title);
+  });
+
+  it("shows a deleted slide again after its save permanently fails", async () => {
+    window.history.pushState({}, "", "/deck/failed-delete-deck");
+    const original: Deck = {
+      id: "failed-delete-deck",
+      title: "Failed delete deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchFailures: { deckId: "failed-delete-deck", count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("failed-delete-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_250);
+    });
+    expect(getPatchAttempts("failed-delete-deck")).toBe(3);
+    expect(hasUncommittedDeckChanges("failed-delete-deck", new Set())).toBe(
+      true,
+    );
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    expect(
+      result.current
+        .getDeck("failed-delete-deck")
+        ?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+    vi.useRealTimers();
+  });
+
+  it("re-establishes delete protection when a later edit retries a failed delete", async () => {
+    window.history.pushState({}, "", "/deck/retry-delete-deck");
+    const original: Deck = {
+      id: "retry-delete-deck",
+      title: "Retry delete deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      getPatchAttempts,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+    } = setupFetch({
+      patchFailures: { deckId: "retry-delete-deck", count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("retry-delete-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_250);
+    });
+    expect(getPatchAttempts("retry-delete-deck")).toBe(3);
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(
+      result.current
+        .getDeck("retry-delete-deck")
+        ?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+
+    act(() => {
+      result.current.updateSlide("retry-delete-deck", "slide-1", {
+        content: "<h1>Edited after retry</h1>",
+      });
+    });
+
+    deferNextGetDeck();
+    const delayedRefresh = result.current.refreshOpenDeck("retry-delete-deck");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await delayedRefresh;
+    });
+    expect(
+      result.current
+        .getDeck("retry-delete-deck")
+        ?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getPatchAttempts("retry-delete-deck")).toBe(4);
+    vi.useRealTimers();
+  });
+
+  it("preserves newer delete tombstones after a replacement save", async () => {
+    window.history.pushState({}, "", "/deck/replacement-delete-race-deck");
+    const initial: Deck = {
+      id: "replacement-delete-race-deck",
+      title: "Replacement delete race deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      resolveDeferredPut,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+      resolveDeferredPatch,
+      getPatchAttempts,
+      getFirstPutSignal,
+    } = setupFetch({ deferredPut: true, deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const replacementSlides = [
+      initial.slides[1]!,
+      { ...initial.slides[2]!, content: "<h1>Replaced three</h1>" },
+    ];
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+      result.current.setDeckSlides(initial.id, replacementSlides);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPutSignal()).toBeDefined();
+
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-2");
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+    });
+    deferNextGetDeck();
+    const staleRefresh = result.current.refreshOpenDeck(initial.id);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredPut();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleRefresh;
+    });
+
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-3"]);
+    vi.useRealTimers();
+  });
+
+  it("does not clear a newer delete when a replacement save succeeds", async () => {
+    window.history.pushState({}, "", "/deck/replacement-same-slide-deck");
+    const initial: Deck = {
+      id: "replacement-same-slide-deck",
+      title: "Replacement same slide deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, resolveDeferredPut, getFirstPutSignal } =
+      setupFetch({ deferredPut: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+    });
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "<h1>Replaced two</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPutSignal()).toBeDefined();
+
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+    });
+    resolveDeferredPut();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-2"]);
+    vi.useRealTimers();
+  });
+
+  it("retries the newest replacement after an older replacement fails", async () => {
+    window.history.pushState({}, "", "/deck/replacement-retry-deck");
+    const initial: Deck = {
+      id: "replacement-retry-deck",
+      title: "Replacement retry deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      getFirstPutSignal,
+      rejectDeferredPut,
+    } = setupFetch({ deferredPut: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[0]!,
+        initial.slides[1]!,
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPutSignal()).toBeDefined();
+
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-2");
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[1]!,
+        initial.slides[2]!,
+      ]);
+    });
+    rejectDeferredPut();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    const saveCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === initial.id,
+    );
+    expect(saveCalls).toHaveLength(2);
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-2", "slide-3"]);
+    vi.useRealTimers();
+  });
+
+  it("resets the retry budget for a newer replacement", async () => {
+    window.history.pushState({}, "", "/deck/replacement-retry-budget-deck");
+    const initial: Deck = {
+      id: "replacement-retry-budget-deck",
+      title: "Replacement retry budget deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getPutAttempts } = setupFetch({
+      putFailures: { deckId: initial.id, count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[0]!, content: "<h1>Replacement one</h1>" },
+        initial.slides[1]!,
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(getPutAttempts(initial.id)).toBe(2);
+
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "<h1>Replacement two</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(getPutAttempts(initial.id)).toBe(4);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("clears tombstones omitted by a permanently failed replacement", async () => {
+    window.history.pushState({}, "", "/deck/failed-replacement-deck");
+    const initial: Deck = {
+      id: "failed-replacement-deck",
+      title: "Failed replacement deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getPutAttempts } = setupFetch({
+      putFailures: { deckId: initial.id, count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+    });
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[1]!, content: "<h1>Replacement two</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getPutAttempts(initial.id)).toBe(3);
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+    vi.useRealTimers();
+  });
+
+  it("does not merge a slide omitted by a pending replacement", async () => {
+    window.history.pushState({}, "", "/deck/pending-replacement-deck");
+    const initial: Deck = {
+      id: "pending-replacement-deck",
+      title: "Pending replacement deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.setDeckSlides(initial.id, [initial.slides[0]!]);
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1"]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    vi.useRealTimers();
+  });
+
+  it("allows a later authoritative re-add after a successful replacement omission", async () => {
+    window.history.pushState({}, "", "/deck/replacement-omission-readd-deck");
+    const initial: Deck = {
+      id: "replacement-omission-readd-deck",
+      title: "Replacement omission re-add deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-2");
+    });
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[0]!, content: "<h1>Replacement one</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2099-01-01T00:00:00.000Z",
+      slides: [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "<h1>Re-added</h1>" },
+      ],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+    vi.useRealTimers();
+  });
+
   it("waits for an in-flight granular save before restoring an authoritative version", async () => {
     window.history.pushState({}, "", "/deck/restore-patch-race-deck");
     const initial: Deck = {
@@ -1635,6 +3073,85 @@ describe("DeckContext deck creation persistence", () => {
     const deck = result.current.getDeck("live-dirty-deck")!;
     expect(deck.slides[0]?.content).toBe("<h1>Local draft</h1>");
     expect(deck.slides[1]?.content).toBe("<h1>Agent added slide</h1>");
+  });
+
+  it("adopts a targeted agent edit while an unrelated local write is in flight", async () => {
+    window.history.pushState({}, "", "/deck/targeted-dirty-deck");
+    const initial: Deck = {
+      id: "targeted-dirty-deck",
+      title: "Targeted Dirty Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Second</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getFirstPatchSignal, resolveDeferredPatch } =
+      setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { content: "<h1>Local pending</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: "<h1>After agent edit</h1>",
+        },
+      ],
+    });
+    const source = MockEventSource.lastInstance!;
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "deck-changed",
+            deckId: initial.id,
+            slideId: "slide-1",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+        "<h1>After agent edit</h1>",
+      ),
+    );
+    expect(result.current.getDeck(initial.id)?.slides[1]?.content).toBe(
+      "<h1>Local pending</h1>",
+    );
+    resolveDeferredPatch();
   });
 
   describe("SSE reconnect and resync", () => {
