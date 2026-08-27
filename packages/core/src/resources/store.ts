@@ -79,6 +79,21 @@ function prefixLike(value: string): string {
   return `${escapeLike(value)}%`;
 }
 
+function isMissingResourceSchemaError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate?.code === "42P01" || candidate?.code === "42703") return true;
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message.toLowerCase()
+      : "";
+  return (
+    message.includes("no such table: resources") ||
+    message.includes("no such column:") ||
+    message.includes('relation "resources" does not exist') ||
+    (message.includes("column") && message.includes("does not exist"))
+  );
+}
+
 export interface Resource {
   id: string;
   path: string;
@@ -110,6 +125,13 @@ export interface ResourceMeta {
   runId: string | null;
   expiresAt: number | null;
   metadata: string | null;
+}
+
+export interface ResourceContentProjection {
+  id: string;
+  path: string;
+  owner: string;
+  content: string;
 }
 
 export type ResourceCreatedBy = "user" | "agent" | "system";
@@ -1655,6 +1677,51 @@ export async function resourceList(
     local,
     mergeResourceMetas(resources, granted.map(resourceToMeta)),
   );
+}
+
+/**
+ * Read complete resource bodies for a small set of owners and path prefixes in
+ * one projected query. Directory discovery uses this instead of listing
+ * metadata and then issuing one content query per manifest.
+ */
+export async function resourceListContentByOwnersAndPrefixes(
+  owners: readonly string[],
+  pathPrefixes: readonly string[],
+): Promise<ResourceContentProjection[]> {
+  const uniqueOwners = [...new Set(owners.filter(Boolean))];
+  const uniquePrefixes = [...new Set(pathPrefixes.filter(Boolean))];
+  if (uniqueOwners.length === 0 || uniquePrefixes.length === 0) return [];
+
+  const client = getDbExec();
+  const ownerSql = uniqueOwners.map(() => "?").join(", ");
+  const prefixSql = uniquePrefixes
+    .map(() => "path LIKE ? ESCAPE '!'")
+    .join(" OR ");
+  const query = {
+    sql: `SELECT id, path, owner, content FROM resources WHERE owner IN (${ownerSql}) AND (${prefixSql})${scratchFilterSql()}`,
+    args: [
+      ...uniqueOwners,
+      ...uniquePrefixes.map((prefix) => prefixLike(prefix)),
+    ],
+  };
+  let rows: Awaited<ReturnType<DbExec["execute"]>>["rows"];
+  try {
+    ({ rows } = await client.execute(query));
+  } catch (error) {
+    // Healthy hosted databases already have the resources schema. Avoid the
+    // schema-assurance path on every cold directory request, but retain lazy
+    // initialization for a genuinely fresh local or self-hosted database.
+    if (!isMissingResourceSchemaError(error)) throw error;
+    await ensureTable();
+    ({ rows } = await client.execute(query));
+  }
+  scheduleExpiredAgentScratchCleanup(client);
+  return rows.map((row) => ({
+    id: String(row.id),
+    path: String(row.path),
+    owner: String(row.owner),
+    content: String(row.content),
+  }));
 }
 
 export async function resourceListAccessible(

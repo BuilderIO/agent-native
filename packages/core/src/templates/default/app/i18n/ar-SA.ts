@@ -220,7 +220,7 @@ const messages = {
     useBuilder: "استخدم منشئ",
     openDesktopToEditCode: "افتح سطح المكتب لتحرير التعليمات البرمجية",
     codeUnavailableDescription:
-      "تتوفر تغييرات التعليمات البرمجية المصدر والوصول إلى CLI في تطبيق Agent Native Desktop.",
+      "تتوفر تغييرات التعليمات البرمجية المصدر والوصول إلى CLI في تطبيق Agent-Native Desktop.",
     downloadDesktop: "تحميل سطح المكتب",
     chatMode: "وضع الدردشة",
     chat: "المحادثة",
@@ -341,7 +341,7 @@ const messages = {
       '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
     subtitle:
       "يقوم هذا الإجراء بإنشاء أو تعديل التعليمات البرمجية المصدر، والتي تحتاج إلى Desktop أو Builder من هذا السطح.",
-    desktopTitle: "استخدم سطح المكتب Agent Native",
+    desktopTitle: "استخدم سطح المكتب Agent-Native",
     desktopDescription:
       "افتح المشروع في تطبيق سطح المكتب لتمكين تعديلات المصدر والوصول إلى CLI.",
     builderAgentTitle: "استخدم وكيل Builder.io",

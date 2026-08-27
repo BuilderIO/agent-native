@@ -101,12 +101,13 @@ Die verfügbaren Modi sind:
 
 - `off`. Der Standard. In Produktion sind keine Code-Ausführungstools
   registriert.
-- `sandboxed`. Registriert `run-code`, einen isolierten Node.js-JavaScript-Runner
-  mit bereinigter Umgebung, einem frischen temporären Verzeichnis,
-  Ausgabe-/Zeitlimits und einer Localhost-Brücke zu zugelassenen registrierten
-  Tools wie `provider-api-request`, `provider-api-docs`, `provider-api-catalog`,
-  `web-request` und der ressourcengestützten Workspace-Dateibrücke, die von
-  `workspaceRead` / `workspaceWrite` verwendet wird.
+- `sandboxed`. Registriert `run-code`, einen gehärteten QuickJS-Evaluator mit
+  begrenztem Speicher, Stack, Quelltext, Ergebnis und Ausgabe sowie Host-
+  Funktionen zu zugelassenen registrierten Tools wie `provider-api-request`,
+  `provider-api-docs`, `provider-api-catalog`, `web-request` und der
+  ressourcengestützten Workspace-Dateibrücke von `workspaceRead` /
+  `workspaceWrite`. Node-Module, Dateisystem, Umgebungsvariablen, Netzwerk,
+  Timer und Imports sind im Gastcode nicht verfügbar.
 - `trusted`. Registriert `run-code` plus die vollständige Coding-Tool-Registry
   (`bash`, `read`, `edit`, `write`). Verwenden Sie das nur für Einzelmandanten-
   oder betreibergesteuerte Bereitstellungen, bei denen voller Shell-Zugriff auf
@@ -118,11 +119,10 @@ bestimmte Bereitstellung ohne Codeänderung zu überschreiben.
 `AGENT_PROD_CODE_EXECUTION=off` erzwingt die Deaktivierung der Code-Ausführung,
 selbst wenn die Plugin-Option sie aktiviert.
 
-Die `run-code`-Sandbox ist eine Isolierung auf Prozessebene, kein
-Betriebssystem-Container. Sie entfernt App-Secrets aus der Umgebung des
-untergeordneten Prozesses und verwendet, wo verfügbar, das
-Node-Berechtigungsmodell, aber ausgehender Netzwerkverkehr wird nicht von Node
-selbst blockiert. Authentifizierte Aufrufe sollten über die Bridge-Helper
+Der produktive `run-code`-Evaluator verwendet gehärtetes QuickJS statt eines
+Node-Kinderprozesses. Er ist kein Betriebssystem-Container: Host-Funktionen
+bleiben vertrauenswürdige Fähigkeiten und erzwingen Authentifizierung und
+Autorisierung, während der Evaluator Gastressourcen und Brückenaufrufe begrenzt.
 laufen, die das Tool bereitstellt.
 
 ## Was kommt als nächstes?

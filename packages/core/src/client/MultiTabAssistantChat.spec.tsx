@@ -158,7 +158,11 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn(async () => null) }));
 vi.mock("./use-action.js", () => actionMocks);
 
 /** Serve the three requests refreshEngines makes so the catalog is non-empty. */
-function stubCatalog(engines: unknown[], configuredKeys: string[]) {
+function stubCatalog(
+  engines: unknown[],
+  configuredKeys: string[],
+  builderConfigured = false,
+) {
   invalidateClientStatusRequests();
   actionMocks.callAction.mockResolvedValue({ engines } as never);
   vi.stubGlobal(
@@ -171,7 +175,7 @@ function stubCatalog(engines: unknown[], configuredKeys: string[]) {
         );
       }
       if (url.includes("builder/status")) {
-        return Response.json({ configured: false });
+        return Response.json({ configured: builderConfigured });
       }
       return Response.json({ value: null });
     }),
@@ -182,8 +186,12 @@ function stubCatalog(engines: unknown[], configuredKeys: string[]) {
  * Mounts a fresh instance after stubbing, because `refreshEngines` runs once on
  * mount — the shared root from `beforeEach` has already resolved an empty list.
  */
-async function mountWithCatalog(engines: unknown[], configuredKeys: string[]) {
-  stubCatalog(engines, configuredKeys);
+async function mountWithCatalog(
+  engines: unknown[],
+  configuredKeys: string[],
+  builderConfigured = false,
+) {
+  stubCatalog(engines, configuredKeys, builderConfigured);
   const el = document.createElement("div");
   document.body.appendChild(el);
   const localRoot = createRoot(el);
@@ -226,6 +234,7 @@ vi.mock("./AssistantChat.js", async () => {
         selectedEngine?: string;
         selectedEffort?: string;
         availableModels?: Array<{ engine: string; configured: boolean }>;
+        composerDisabled?: boolean;
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
@@ -253,6 +262,7 @@ vi.mock("./AssistantChat.js", async () => {
           data-model-catalog={props.availableModels
             ?.map((group) => `${group.engine}:${group.configured}`)
             .join(",")}
+          data-composer-disabled={props.composerDisabled ? "true" : "false"}
           data-context-scope={
             props.contextScope
               ? `${props.contextScope.type}:${props.contextScope.id}`
@@ -368,6 +378,68 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
     ).toBe("high");
+  });
+
+  it("defaults a fresh chat to a configured model group", async () => {
+    const view = await mountWithCatalog(
+      [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-5-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+      ],
+      [],
+      true,
+    );
+
+    expect(view.engineOf()).toBe("builder");
+    await view.cleanup();
+  });
+
+  it("blocks a fresh chat until the model catalog resolves", async () => {
+    const engines = [
+      {
+        name: "builder",
+        label: "Builder.io Gateway",
+        supportedModels: ["gpt-5-6-luna"],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      },
+    ];
+    stubCatalog(engines, [], true);
+    let resolveEngineList!: (value: unknown) => void;
+    actionMocks.callAction.mockImplementation(
+      () => new Promise((resolve) => (resolveEngineList = resolve)) as never,
+    );
+
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const localRoot = createRoot(el);
+    act(() => {
+      localRoot.render(<MultiTabAssistantChat storageKey="pending-catalog" />);
+    });
+
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-disabled"),
+    ).toBe("true");
+
+    await act(async () => {
+      resolveEngineList({ engines });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-disabled"),
+    ).toBe("false");
+
+    await act(async () => localRoot.unmount());
+    el.remove();
   });
 
   // The engines fetch is still in flight when an app-initiated first turn

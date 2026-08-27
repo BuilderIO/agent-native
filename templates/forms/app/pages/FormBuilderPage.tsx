@@ -6,12 +6,20 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { useReconciledState } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type {
+  FormCompletionMode,
   FormField,
   FormFieldType,
   FormIntegration,
   FormSettings,
   IntegrationType,
+} from "@shared/types";
+import {
+  DEFAULT_FORM_COMPLETION_REFRESH_SECONDS,
+  getFormCompletionMode,
+  MAX_FORM_COMPLETION_REFRESH_SECONDS,
+  MIN_FORM_COMPLETION_REFRESH_SECONDS,
 } from "@shared/types";
 import {
   IconExternalLink,
@@ -61,6 +69,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -225,6 +240,19 @@ export function FormBuilderPage() {
   const [localTitle, setLocalTitle] = useReconciledState(form?.title ?? "", {
     active: titleFocused.current,
   });
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      localTitle,
+      t("forms.untitled"),
+    )} — Forms`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [localTitle, t]);
+
   const [localDescription, setLocalDescription] = useReconciledState(
     form?.description ?? "",
     { active: descriptionFocused.current },
@@ -1580,6 +1608,7 @@ function SettingsEditor({
 }) {
   const t = useT();
   const [settings, setSettings] = useState<FormSettings>({ ...form.settings });
+  const completionMode = getFormCompletionMode(settings);
 
   function update(partial: Partial<FormSettings>) {
     setSettings((prev) => ({ ...prev, ...partial }));
@@ -1614,14 +1643,72 @@ function SettingsEditor({
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs">{t("builder.settings.redirectUrl")}</Label>
-        <Input
-          value={settings.redirectUrl || ""}
-          onChange={(e) => update({ redirectUrl: e.target.value })}
-          placeholder="https://..."
-          className="h-8 text-sm"
-        />
+        <Label className="text-xs">
+          {t("builder.settings.completionMode")}
+        </Label>
+        <Select
+          value={completionMode}
+          onValueChange={(value) =>
+            update({ completionMode: value as FormCompletionMode })
+          }
+        >
+          <SelectTrigger className="h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="message" className="text-sm">
+              {t("builder.settings.completionMessage")}
+            </SelectItem>
+            <SelectItem value="redirect" className="text-sm">
+              {t("builder.settings.completionRedirect")}
+            </SelectItem>
+            <SelectItem value="message_then_refresh" className="text-sm">
+              {t("builder.settings.completionMessageThenRefresh")}
+            </SelectItem>
+            <SelectItem value="refresh" className="text-sm">
+              {t("builder.settings.completionRefresh")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
+
+      {completionMode === "redirect" && (
+        <div className="space-y-2">
+          <Label className="text-xs">{t("builder.settings.redirectUrl")}</Label>
+          <Input
+            value={settings.redirectUrl || ""}
+            onChange={(e) => update({ redirectUrl: e.target.value })}
+            placeholder="https://..."
+            className="h-8 text-sm"
+          />
+        </div>
+      )}
+
+      {completionMode === "message_then_refresh" && (
+        <div className="space-y-2">
+          <Label className="text-xs">
+            {t("builder.settings.completionRefreshSeconds")}
+          </Label>
+          <Input
+            type="number"
+            min={MIN_FORM_COMPLETION_REFRESH_SECONDS}
+            max={MAX_FORM_COMPLETION_REFRESH_SECONDS}
+            step={1}
+            value={
+              settings.completionRefreshSeconds ??
+              DEFAULT_FORM_COMPLETION_REFRESH_SECONDS
+            }
+            onChange={(e) => {
+              const value = e.target.value;
+              update({
+                completionRefreshSeconds:
+                  value === "" ? undefined : Number(value),
+              });
+            }}
+            className="h-8 text-sm"
+          />
+        </div>
+      )}
 
       <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-card p-3">
         <div className="space-y-1">

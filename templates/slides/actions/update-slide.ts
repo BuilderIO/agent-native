@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -487,24 +487,34 @@ export default defineAction({
       };
     });
 
+    // ─── Non-write exits must THROW, not return ───────────────────────────
+    //
+    // Returning any value — `{ ok: false }` included — is indistinguishable
+    // from a successful write to everything above this action. `isError` is
+    // set only from the runner's catch, so a returned no-op is stamped
+    // `completedSideEffect: true` and the journal later replays it to a
+    // resumed run under "Already completed (do NOT re-run these — their side
+    // effects already happened)". It is also invisible to the repeat
+    // breakers, which is how one production thread ran 20 consecutive
+    // identical "text not found" calls without one firing. Throwing is the
+    // only channel that says "the deck was not modified", and it is already
+    // this file's idiom for the stale-hash rejection above.
     if (rmw.notFound) {
-      return {
-        ok: false,
-        message: `Text not found in slide: "${find!.slice(0, 60)}". Use get-deck with this slideId to see the current slide HTML.`,
-      };
+      throw new Error(
+        `Nothing was written: text not found in slide: "${find!.slice(0, 60)}". Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`,
+      );
     }
 
     const { applied, editResults } = rmw;
+    const unmatched = (editResults ?? []).filter((entry) =>
+      entry.endsWith(":0"),
+    );
     if (!applied) {
-      return {
-        ok: true,
-        deckId,
-        slideId,
-        applied: false,
-        editResults,
-        contentHash: rmw.contentHash,
-        deepLink: deckDeepLink(deckId),
-      };
+      throw new Error(
+        unmatched.length
+          ? `Nothing was written: ${unmatched.join(", ")} matched no text in the slide. Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`
+          : `Nothing was written: the result is identical to the current slide content (contentHash ${rmw.contentHash}). The slide already says what this edit would have made it say.`,
+      );
     }
 
     // Start the freshness window after the SQL write and before notifying the
@@ -547,6 +557,12 @@ export default defineAction({
       slideId,
       applied,
       editResults,
+      ...(unmatched.length
+        ? {
+            partial: true,
+            message: `Applied, but ${unmatched.join(", ")} matched no text and was skipped — do not report those parts as done.`,
+          }
+        : {}),
       contentHash: rmw.contentHash,
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode
@@ -569,7 +585,11 @@ export default defineAction({
           viewportWidth: fit.measurement.viewportWidth,
           viewportHeight: fit.measurement.viewportHeight,
         },
-        message: formatOverflowForTool(deckId, fit.measurement),
+        // Keep the skipped-edit warning: an overflow report must not be the
+        // only thing the model sees when part of the patch never landed.
+        message: [base.message, formatOverflowForTool(deckId, fit.measurement)]
+          .filter(Boolean)
+          .join("\n\n"),
       };
     }
 

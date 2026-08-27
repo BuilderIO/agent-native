@@ -1,43 +1,43 @@
 ---
-title: "チャットでの最初の機能追加"
-description: "Chat のスターター画面をレンダリングする唯一のファイル、その実際の props が何をするか、そして機能を最初から最後まで追加する完全なウォークスルー。"
+title: "チャット: 最初の機能"
+description: "Chat のスタータースクリーンをレンダリングする唯一のファイル、その実際の props が何をするか、そして機能を最初から最後まで追加する完全なウォークスルー。"
 ---
 
-# チャットでの最初の機能追加
+# 最初の機能
 
-このページは、[チャット テンプレート](/docs/template-chat) を拡張する開発者向けです。スターター チャット画面をレンダリングする唯一のファイルを取り上げ、実際の機能を求めたときにエージェントが通常触れるすべてを説明します。
+このページは、[チャット テンプレート](/docs/template-chat) を拡張する開発者向けです。スターター チャット画面をレンダリングする単一のファイルを取り上げ、実際の機能を求められたときにエージェントが通常触れるすべてを順に説明します。
 
-## 検査する最初のコード {#first-code}
+## 最初に確認するコード {#first-code}
 
-- `actions/hello.ts` は、エージェントが呼び出すことができるスターター動作です。交換するか、
-  その横に actions を追加します。
-- `app/routes/_index.tsx` は、フルページのチャット サーフェスをレンダリングします。
-  ここに提案、空の状態、コンポーザー、または周囲のレイアウトを入力します。
-- `AGENTS.md` は、組み込みエージェントにこのアプリ内での動作方法を指示します。
+- `actions/hello.ts` は、エージェントが呼び出せるスターターの動作です。これを
+  置き換えるか、その横に action を追加してください。
+- `app/routes/_index.tsx` は、フルページのチャット サーフェスをレンダリング
+  します。ここで提案、空の状態、コンポーザー、周囲のレイアウトを調整します。
+- `AGENTS.md` は、組み込みエージェントにこのアプリ内での作業方法を伝えます。
 
 <FileTree
-  id="doc-block-3lypxq"
-  title={"Chat テンプレートのレイアウト"}
+  id="doc-block-chat3"
+  title="Chat テンプレートのレイアウト"
   entries={[
     {
       path: "actions/hello.ts",
-      note: "1 つの example action; 置き換えるか横に actions を追加",
+      note: "唯一のサンプル action。置き換えるか、その横に action を追加",
     },
     {
       path: "actions/view-screen.ts",
-      note: "エージェントが読む標準 context action",
+      note: "エージェントが最初に呼び出す標準の context action",
     },
     {
       path: "actions/navigate.ts",
-      note: "標準 navigation action",
+      note: "標準の navigation action",
     },
     {
       path: "app/routes/_index.tsx",
-      note: "フルページの chat 画面を描画; suggestions、empty state、composer を編集",
+      note: "フルページのチャット サーフェスをレンダリング。提案、空の状態、コンポーザーを編集",
     },
     {
       path: "app/routes/chat.$threadId.tsx",
-      note: "_index.tsx を再エクスポートするため、/chat/:threadId は URL 内のスレッド ID を伴って同じ画面をレンダリングします",
+      note: "_index.tsx を再エクスポートするため、/chat/:threadId は URL 内にスレッド id を持つ同じサーフェスをレンダリングします",
     },
     {
       path: "AGENTS.md",
@@ -46,25 +46,100 @@ description: "Chat のスターター画面をレンダリングする唯一の�
   ]}
 />
 
-実際のスターター ファイルは単純な `<AgentChatSurface />` 以上のものです。スレッド URL 同期、タブ識別、hero コンポーザー レイアウトについては `app/routes/_index.tsx` を参照してください。
+実際のスターター ファイルは、単純な `<AgentChatSurface />` 以上のものです。スレッド URL 同期、マルチタブ実行のためのタブ識別、hero コンポーザー レイアウトを結線しており、そのコピーはリテラル文字列ではなく i18n キーから取得されます。
 
-## 独自のエージェント バックエンドを使用する {#own-agent-backend}
-
-テンプレートは、デフォルトで組み込みの app-agent ループを使用します。カスタム バックエンドに接続するには、UI を書き換えるのではなく、エージェント チャット プラグインの背後にあるチャット ランタイムを交換します。チャット ルートは、共有チャット サーフェスの周囲のシン レンダラーのままである必要があります。バックエンドの選択はサーバー プラグイン/ランタイム アダプターに属します。
-
-モデル オーケストレーションがすでに別の場所に存在しているが、それでも認証、スレッド、actions、UI 状態、およびデプロイ可能なページを備えたアプリが必要な場合に、これを使用します。
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/routes/_index.tsx (抜粋)"
+  filename="app/routes/_index.tsx"
+  language="tsx"
+  code={
+    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "19-21",
+      label: "スレッド URL 同期",
+      note: "`/chat/:threadId` (`chat.$threadId.tsx`) はこの同じコンポーネントを再エクスポートします。ルートにスレッド id があるとき、`threadUrlSync` は URL とアクティブなスレッドを同期させ続けます。スレッドを切り替えると `/chat/<id>` へ push され、その URL を開くとスレッドが復元されます。",
+    },
+    {
+      lines: "38",
+      label: "タブ識別",
+      note: "`TAB_ID` (`app/lib/tab-id.ts` で、ブラウザ タブごとに一度だけ生成されるランダムな id) は、共有チャット ランタイムが同じアプリの複数の開いているタブを区別できるようにします。これにより、あるタブで開始された実行が別のタブのものと誤認されることがなくなります。",
+    },
+    {
+      lines: "39-44",
+      label: "提案は i18n キー",
+      note: '提案のコピーは、リテラルな英語の文字列ではなく `t("chat.suggestionCapabilities")` など (`app/i18n/en-US.ts` を参照) から取得されます。また `dynamicSuggestions={false}` は、ランタイム自身の提案生成をオフにして、この 3 つを優先させます。',
+    },
+    {
+      lines: "46-47",
+      label: "hero コンポーザー レイアウト",
+      note: '`composerLayoutVariant="hero"` と `centerComposerWhenEmpty` により、他の `mode="page"` チャット ルートが使う、下部に固定されたプレーンなコンポーザーの代わりに、タイトルと説明を上に配置してコンポーザーを中央に表示します。',
+    },
+    {
+      lines: "49-54",
+      label: "composerSlot（コンポーザー スロット）",
+      note: "コンポーザーが中央に表示されている間だけ、その上にレンダリングされる任意の JSX です。「何をお手伝いできますか？」という見出しがここにあります。ランタイムに触れずに空の状態の訴求文を変更するには、これを編集します。",
+    },
+    {
+      lines: "23-31",
+      label: "ホーム ハンドオフ",
+      note: 'このページで実行が開始されると、`markAgentChatHomeHandoff("chat")` は、ホーム サーフェスがアクティブな実行を所有していることを記録します。そのため、他の画面に移動して戻ってきても、実行が失われることなく再接続されます。',
+    },
+  ]}
+/>
 
 ## 最初の編集 {#first-edits}
 
-足場を構築した後、エージェントに次のことを尋ねます:
+最初に追加する機能の多くは、同じ形をたどります。テーブル、1 つか 2 つの action、ルート、ナビゲーション エントリ、そして `AGENTS.md` の更新です。エージェントに次のように頼んでみましょう。
 
-> `notes` のデータ モデルを追加します。メモには ID、タイトル、本文、所有者が含まれます。 `/notes` でメモ ページをレンダリングし、actions の作成/リストを追加して、チャットでメモを作成できるようにします。
+> `notes` のデータ モデルを追加してください。note には id、title、body、owner があります。`/notes` に notes ページをレンダリングし、作成/一覧の action を追加して、チャットからも note を作成できるようにしてください。
 
-エージェントは、Drizzle スキーマ、actions、ルート、ナビゲーション、および指示を追加する必要があります。その後、UI またはチャットからメモ機能を使用できるようになります。
+チャットには `server/db/schema.ts` がまったく同梱されていません ([同梱内容](/docs/template-chat#what-ships) を参照)。そのため、最初の変更は新しいファイルの追加であり、他のすべてのテンプレートが使用している同じ `table`/`text`/`ownableColumns` の形に従います。
+
+<Diff
+  id="doc-block-chat5"
+  title="新しい notes テーブル"
+  filename="server/db/schema.ts"
+  language="ts"
+  before={""}
+  after={
+    'import {\n  table,\n  text,\n  ownableColumns,\n} from "@agent-native/core/db/schema";\n\nexport const notes = table("notes", {\n  id: text("id").primaryKey(),\n  title: text("title").notNull(),\n  body: text("body").notNull(),\n  createdAt: text("created_at").notNull(),\n  updatedAt: text("updated_at").notNull(),\n  ...ownableColumns(),\n});'
+  }
+  annotations={[
+    {
+      lines: "1-5",
+      label: "共有スキーマ ヘルパー",
+      note: "`table`/`text`/`ownableColumns` は `@agent-native/core/db/schema` から提供されます。これは、すべてのテンプレートが使用する同じ方言に依存しないヘルパーであり、そのためこのファイルは SQLite と Postgres の間で移植可能なままになります。",
+    },
+    {
+      lines: "13",
+      label: "ownableColumns（所有可能列）",
+      note: "`...ownableColumns()` は、フレームワークの `accessFilter`/`resolveAccess` ヘルパーが期待する owner/org 列を追加します。これにより、notes は追加の配線なしで、標準のユーザー単位/組織単位の共有モデルに組み込まれます。",
+    },
+  ]}
+/>
+
+残りの機能はそこから続きます。
+
+- `actions/create-note.ts` — `actions/hello.ts` と同じ形をした、Zod スキーマ (`title`、`body`) を持つ `defineAction`。
+- `actions/list-notes.ts` — `accessFilter` を通じて新しいテーブルをクエリする、読み取り専用の action (`actions/view-screen.ts` と同様の `readOnly: true`)。
+- `app/routes/notes.tsx` — 新しいルート。このアプリはファイルシステム ルーティング (`app/routes.ts` の `flatRoutes()`) を使用しているため、ファイルを追加するだけで `/notes` がマウントされます。
+- `/notes` を指す、`app/components/layout/Sidebar.tsx` の `navItems` 配列への新しいエントリ。
+- notes が存在すること、そしてどの action がそれらを管理するかをエージェントに伝える `AGENTS.md` への追記。
+
+新しい action は、存在すればすぐにチャットから呼び出し可能になります。`agentTool: false` を設定しない限り、すべての `defineAction` は既定でツールになります。ただし、モデルの最初のリクエストに必ず含まれるわけではありません。`server/plugins/agent-chat.ts` は `INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]` を設定しており、これは最初のターンで送信されるツール スキーマだけを制御します。新しく追加した `create-note` を含む他のすべては、`tool-search` を通じて到達可能であり、オンデマンドでロードされます。最初のメッセージからモデルの既定のツールセットに含めたい場合にのみ、そのリストに名前を追加してください。
+
+## 独自のエージェント バックエンドを使う {#own-agent-backend}
+
+このテンプレートは既定で組み込みのアプリエージェント ループを使用します。カスタム バックエンドに接続するには、UI を書き換えるのではなく、エージェント チャット プラグインの背後にあるチャット ランタイムを交換してください。チャット ルートは、共有チャット サーフェスの薄いレンダラーのままであるべきです。バックエンドの選択はサーバー プラグイン/ランタイム アダプターに属します。
+
+モデルのオーケストレーションが既に別の場所にあるものの、それでも認証、スレッド、action、UI 状態、デプロイ可能なページを備えたアプリが欲しい場合に、これを使用してください。
 
 ## 次は何ですか
 
-- [**チャット テンプレート**](/docs/template-chat) — デフォルトで何が含まれ、いつ選択するか
-- [**Chat — ランタイムと管理サーフェス**](/docs/template-chat-developers) — コア テーブル、認証、管理ページ
-- [**Actions**](/docs/actions-overview) — アクション システム チャットと UI の両方を呼び出します
-- [**Native チャット UI**](/docs/native-chat-ui) — チャット サーフェス プリミティブとランタイム オプション
+- [**チャット**](/docs/template-chat) — 既定で同梱される内容と、選ぶべき場面
+- [**チャット: 開発者ガイド**](/docs/template-chat-developers) — クイックスタート、action、コアテーブル、認証、管理ページ
+- [**Actions**](/docs/actions-overview) — チャットと UI の両方が呼び出す action システム
+- [**Native チャット UI**](/docs/native-chat-ui) — チャット サーフェスのプリミティブとランタイム オプション

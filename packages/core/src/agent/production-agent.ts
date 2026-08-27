@@ -14,12 +14,14 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
   describeToolParameterSignature,
+  isActionContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -257,6 +259,10 @@ export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
  */
 export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
+/** Keep an alive-but-unclaimed worker out of the unclaimed-run reaper. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
+/** Stop extending an unclaimed row so a stuck setup remains recoverable. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
 
 export type BackgroundDispatchOutcome =
   | { action: "stream" }
@@ -268,19 +274,29 @@ export type BackgroundDispatchOutcome =
 
 /**
  * `diag_stage` is persisted as a JSON payload (`{ stage, detail?, at }`) by
- * `recordRunDiagnostic`. Extract the bare stage name so it can be compared to
- * `RUN_DIAG_STAGE` constants. Falls back to the raw value when it is not JSON
- * (defensive — legacy rows or tests may store a bare stage).
+ * `recordRunDiagnostic`. Extract the stage and timestamp so the stage can be
+ * compared to `RUN_DIAG_STAGE` constants and its deadline enforced. Falls back
+ * to the raw value when it is not JSON (defensive — legacy rows or tests may
+ * store a bare stage).
  */
-function parseRunDiagStage(raw: string | null | undefined): string | null {
-  if (!raw) return null;
+function parseRunDiagnostic(raw: string | null | undefined): {
+  stage: string | null;
+  at: number | null;
+} {
+  if (!raw) return { stage: null, at: null };
   try {
-    const parsed = JSON.parse(raw) as { stage?: unknown };
-    if (parsed && typeof parsed.stage === "string") return parsed.stage;
+    const parsed = JSON.parse(raw) as { stage?: unknown; at?: unknown };
+    return {
+      stage: typeof parsed.stage === "string" ? parsed.stage : null,
+      at:
+        typeof parsed.at === "number" && Number.isFinite(parsed.at)
+          ? parsed.at
+          : null,
+    };
   } catch {
     // Not JSON — treat the raw value as the stage name.
   }
-  return typeof raw === "string" ? raw : null;
+  return { stage: raw, at: null };
 }
 
 /**
@@ -290,8 +306,10 @@ function parseRunDiagStage(raw: string | null | undefined): string | null {
  * generated wrapper fails to import/hand off to the route, the worker never
  * reaches `claimBackgroundRun` and the run is reaped as "worker never claimed".
  *
- * So after a successful dispatch we poll briefly for the worker to CLAIM the run:
+ * So after a successful dispatch we poll briefly for the worker to CLAIM the run
+ * and keep polling while it proves that setup is still progressing:
  *   - claimed within grace        → "stream"    (subscribe to the worker)
+ *   - alive in setup               → keep polling (the foreground still owns recovery)
  *   - dispatch failed OR no claim  → recover inline by atomically claiming the
  *       run ourselves: if we win → "inline"; if a (delayed) worker already won
  *       it → "subscribe" (never double-run).
@@ -309,12 +327,15 @@ export async function resolveBackgroundDispatchOutcome(opts: {
    * provided, the foreground may keep waiting PAST `graceMs` while the worker is
    * provably alive and still in setup — but it recovers inline before the run has
    * been unclaimed this long (minus the safety margin), so it always claims
-   * before the reaper can fire. Omit to disable the extension (behaves exactly
-   * like the base grace).
+   * before the reaper can fire. The worker's pre-claim diagnostic deadline is a
+   * second hard cap. Omit to disable the extension (behaves exactly like the
+   * base grace).
    */
   reaperGraceMs?: number;
   /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
   reaperSafetyMarginMs?: number;
+  /** Return the durable stream as soon as the worker proves it entered setup. */
+  streamWhenWorkerAlive?: boolean;
   pollIntervalMs: number;
   readClaim: (runId: string) => Promise<{
     dispatchMode: string | null;
@@ -357,6 +378,7 @@ export async function resolveBackgroundDispatchOutcome(opts: {
     const reaperGraceMs = opts.reaperGraceMs;
     const reaperMargin =
       opts.reaperSafetyMarginMs ?? BACKGROUND_REAPER_SAFETY_MARGIN_MS;
+    let preclaimDeadlineAt: number | null = null;
     for (;;) {
       const claim = await opts.readClaim(opts.runId).catch(() => null);
       if (
@@ -368,10 +390,25 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       }
       // `diag_stage` is stored as JSON ({stage, detail?, at}); compare on the
       // bare stage name, not the raw payload.
-      const stage = parseRunDiagStage(claim?.diagStage);
+      const diagnostic = parseRunDiagnostic(claim?.diagStage);
+      const stage = diagnostic.stage;
+      if (
+        preclaimDeadlineAt == null &&
+        diagnostic.at != null &&
+        ALIVE_IN_SETUP.has(stage ?? "")
+      ) {
+        const diagnosticDeadline =
+          diagnostic.at + BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS;
+        preclaimDeadlineAt = diagnosticDeadline;
+      }
       // Worker recorded a pre-claim death — no point waiting out the grace.
       if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
       const elapsedNow = now();
+      // Heartbeats stop at the worker-entry deadline. Do not let the stale
+      // diagnostic marker extend the foreground wait beyond that same window.
+      if (preclaimDeadlineAt != null && elapsedNow >= preclaimDeadlineAt) {
+        break;
+      }
       // The unclaimed-reaper errors any still-`background` row once it has been
       // unclaimed for `reaperGraceMs`, measured from the row's OWN liveness
       // (COALESCE(heartbeat_at, started_at)) — NOT from when we began polling.
@@ -393,6 +430,9 @@ export async function resolveBackgroundDispatchOutcome(opts: {
         claim?.status === "running" &&
         !!stage &&
         ALIVE_IN_SETUP.has(stage);
+      if (aliveInSetup && opts.streamWhenWorkerAlive) {
+        return { action: "stream" };
+      }
       if (elapsedNow >= baseDeadline && !aliveInSetup) break;
       await sleep(opts.pollIntervalMs);
     }
@@ -781,6 +821,11 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * Whether a user-scoped action preference may satisfy `needsApproval`
+   * without prompting for this call. Defaults to true.
+   */
+  allowPersistentApproval?: boolean;
   /**
    * The action hands control back to the user: once it succeeds the loop stops
    * the turn instead of asking the model for another step, and any remaining
@@ -1513,7 +1558,18 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
-const SOURCE_SWEEP_TOOL_CALL_THRESHOLD = 12;
+/**
+ * Read-only source/search tool calls one turn may make before the convergence
+ * guard tells the agent to stop sweeping and answer from what it gathered.
+ *
+ * Resolved per call rather than captured at module load: the value is declared
+ * config, so a deployment can raise it for research-shaped apps that legitimately
+ * inspect many records, and a module-level read would freeze whichever value was
+ * resolved before the app's config plugin loaded.
+ */
+export function resolveSourceSweepToolCallThreshold(): number {
+  return getAppConfig().agent.sourceSweepToolCallThreshold;
+}
 /**
  * Serialized-byte threshold at which a run reports how much tool schema
  * `expandActiveTools` has loaded on top of its starting set. Expansion is
@@ -1867,6 +1923,7 @@ export function buildUserContentWithAttachments(opts: {
   let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
+    if (att.displayOnly === true) continue;
     const uploadedUrl = (att as any).url as string | undefined;
     if ((att as any).referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
@@ -2868,6 +2925,11 @@ async function applyObservationalMemoryToContext(
   }
 }
 
+type CachedReadOnlyToolResult = {
+  content: string;
+  images?: EngineToolResultPart["images"];
+};
+
 /**
  * Cross-chunk read-only result cache seed.
  *
@@ -2892,8 +2954,8 @@ async function applyObservationalMemoryToContext(
 function seedReadOnlyToolResultsFromJournal(
   journal: ToolCallJournal | null,
   actions: Record<string, ActionEntry>,
-): Map<string, string> {
-  const cache = new Map<string, string>();
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>();
   if (!journal) return cache;
   for (const entry of journal.completed) {
     const action = actions[entry.tool];
@@ -2914,7 +2976,7 @@ function seedReadOnlyToolResultsFromJournal(
     ) {
       continue;
     }
-    cache.set(toolCallCacheKey(entry.tool, entry.input), result);
+    cache.set(toolCallCacheKey(entry.tool, entry.input), { content: result });
   }
   return cache;
 }
@@ -2922,9 +2984,9 @@ function seedReadOnlyToolResultsFromJournal(
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
-  seed?: Map<string, string>,
-): Map<string, string> {
-  const cache = new Map<string, string>(seed);
+  seed?: Map<string, CachedReadOnlyToolResult>,
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>(seed);
   if (!isInternalContinuationTurn(messages)) return cache;
 
   // Scoped to the current turn only (same slice as
@@ -2968,7 +3030,10 @@ function seedReadOnlyToolResultsFromHistory(
       // cached — every call must execute fresh, seeded or not.
       if (!call.dedupe) continue;
       if (!isReusableReadOnlyToolResult(part)) continue;
-      cache.set(toolCallCacheKey(call.name, call.input), part.content);
+      cache.set(toolCallCacheKey(call.name, call.input), {
+        content: part.content,
+        ...(part.images?.length ? { images: part.images } : {}),
+      });
     }
   }
 
@@ -3067,6 +3132,16 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   if (part.isError) return false;
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
+  // The ledger persists only the note, not image bytes. Re-execute an image
+  // read when its payload is unavailable so a continuation can restore vision.
+  if (
+    !part.images?.length &&
+    /\[image(?:\s+#\d+|\s*:)[^\n\]]*\battached(?:\s+#\d+|:)[^\n\]]*\]/i.test(
+      part.content,
+    )
+  ) {
+    return false;
+  }
   return !(
     lower.startsWith("skipped duplicate read-only call to ") ||
     lower.startsWith("invalid action parameters for ") ||
@@ -3327,7 +3402,7 @@ export async function executeAgentToolCall(
   let streamCalls = 0;
   const engine: AgentEngine = {
     name: "agent-native:single-tool",
-    label: "Agent Native tool runtime",
+    label: "Agent-Native tool runtime",
     defaultModel: "agent-native:single-tool",
     supportedModels: ["agent-native:single-tool"],
     capabilities: {
@@ -3375,7 +3450,7 @@ export async function executeAgentToolCall(
     await runAgentLoop({
       engine,
       model: engine.defaultModel,
-      systemPrompt: "Execute the selected Agent Native tool call.",
+      systemPrompt: "Execute the selected Agent-Native tool call.",
       tools,
       availableTools: tools,
       messages: [
@@ -3650,7 +3725,7 @@ function stableStringify(value: unknown): string {
 }
 
 export function toolCallCacheKey(toolName: string, input: unknown): string {
-  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
+  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input, toolName))}`;
 }
 
 export function findApprovedStructuredToolCall(
@@ -3933,7 +4008,7 @@ function hasExhaustedSourceSweepBudget(opts: {
   actions: Record<string, ActionEntry>;
   threshold?: number;
 }): boolean {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   return (
     opts.priorToolCalls.filter((call) =>
       isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
@@ -4012,14 +4087,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
  * tool error, and the breakers key on that text: a message that reports its own
  * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
  * decline that exists to stop a spiral becomes the one thing nothing can count.
- * The fixed threshold below says the same thing without varying.
+ * The threshold is fixed for the turn, so it says the same thing without
+ * varying.
  */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const target =
     opts.scope === "aggregate"
       ? "read-only source/search tools"
@@ -4053,7 +4129,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   threshold?: number;
 }): { toolName: string; priorCalls: number; message: string } | null {
   if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const priorCalls = opts.priorToolCalls.filter(
     (call) => call.name === opts.toolName,
   ).length;
@@ -4102,7 +4178,7 @@ function seedSourceSweepToolCallsFromHistory(
       if (!isLikelySourceSweepTool(part.name, actions[part.name])) continue;
       seeded.push({
         name: part.name,
-        input: normalizeToolCallInputForHistory(part.input),
+        input: normalizeToolCallInputForHistory(part.input, part.name),
       });
     }
   }
@@ -4111,9 +4187,18 @@ function seedSourceSweepToolCallsFromHistory(
 
 function normalizeToolCallInputForHistory(
   input: unknown,
+  toolName?: string,
 ): Record<string, unknown> {
   if (input && typeof input === "object" && !Array.isArray(input)) {
-    return input as Record<string, unknown>;
+    const record = input as Record<string, unknown>;
+    if (toolName !== "docs-search" || typeof record.query !== "string") {
+      return record;
+    }
+    // docs-search lowercases and splits queries on whitespace before matching.
+    return {
+      ...record,
+      query: record.query.trim().replace(/\s+/g, " ").toLowerCase(),
+    };
   }
   return { rawInput: input };
 }
@@ -5042,7 +5127,11 @@ export async function runAgentLoop(opts: {
         const closeModelStreamBracket = () => {
           if (!modelStreamBracketOpen) return;
           modelStreamBracketOpen = false;
-          send({ type: "model_stream", status: "end" });
+          send({
+            type: "model_stream",
+            status: "end",
+            ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+          });
         };
         let lastModelStreamProgressAt = Date.now();
         // FIX 2: true once a real (non-heartbeat) engine-stream event has been
@@ -5521,7 +5610,7 @@ export async function runAgentLoop(opts: {
       part.type === "tool-call"
         ? {
             ...part,
-            input: normalizeToolCallInputForHistory(part.input),
+            input: normalizeToolCallInputForHistory(part.input, part.name),
           }
         : part,
     );
@@ -5746,6 +5835,7 @@ export async function runAgentLoop(opts: {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
+        toolCall.name,
       );
       const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
         toolName: toolCall.name,
@@ -5964,7 +6054,11 @@ export async function runAgentLoop(opts: {
           // than silently running a high-consequence action.
           mustApprove = true;
         }
-        if (mustApprove && opts.isToolAlwaysAllowed) {
+        if (
+          mustApprove &&
+          actionEntry.allowPersistentApproval !== false &&
+          opts.isToolAlwaysAllowed
+        ) {
           try {
             mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
           } catch {
@@ -5994,6 +6088,9 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(actionEntry.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
             ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
@@ -6344,8 +6441,11 @@ export async function runAgentLoop(opts: {
           actionEntry.readOnly === true && actionEntry.dedupe !== false
             ? toolCallCacheKey(toolCall.name, toolCall.input)
             : null;
-        if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-          const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+        const cachedResult = cacheKey
+          ? readOnlyToolResultCache.get(cacheKey)
+          : undefined;
+        if (cacheKey && cachedResult) {
+          const previousResult = cachedResult.content;
           // `contextMessages` (not `messages`) is what the model actually sees
           // this iteration — context-xray eviction/summarization and
           // observational-memory trimming can drop the earlier result from
@@ -6394,6 +6494,9 @@ export async function runAgentLoop(opts: {
             toolName: toolCall.name,
             toolInput: wireToolInput,
             content: result,
+            ...(cachedResult.images?.length
+              ? { images: cachedResult.images }
+              : {}),
           };
         }
 
@@ -6625,7 +6728,17 @@ export async function runAgentLoop(opts: {
             };
           } else {
             const message = sanitizeToolErrorValue(err);
-            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+            // A code the action chose is worth more to the model than the
+            // prose alone: it can branch on `not_found` without parsing a
+            // sentence. `action_failed` is what `fail()` fills in when the
+            // author picked nothing, so it says only "it failed" — which the
+            // word "Error" already said. Appending it would be noise the
+            // breaker then has to key on.
+            const errorCode =
+              isActionContractError(err) && err.errorCode !== "action_failed"
+                ? ` (errorCode: ${err.errorCode})`
+                : "";
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
           }
           isError = true;
         }
@@ -6692,7 +6805,10 @@ export async function runAgentLoop(opts: {
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
-            readOnlyToolResultCache.set(cacheKey, result);
+            readOnlyToolResultCache.set(cacheKey, {
+              content: result,
+              ...(toolResultImages?.length ? { images: toolResultImages } : {}),
+            });
           } else if (actionEntry.readOnly !== true) {
             // A genuine write invalidates all cached reads. A dedupe:false
             // read-only tool also has a null cacheKey (see above) but must NOT
@@ -7649,49 +7765,90 @@ export async function claimBackgroundWorkerRunEarly(opts: {
         ? opts.requestTurnId.trim()
         : opts.runId;
 
-  await record(
-    opts.runId,
-    RUN_DIAG_STAGE.workerEntered,
-    [
-      `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
-      `continuationCount=${opts.continuationCount}`,
-      opts.backgroundRuntimeDetail,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  ).catch(() => {});
+  let preclaimHeartbeatInFlight = false;
+  let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  const preclaimHeartbeatStartedAt = Date.now();
+  const heartbeatWhileUnclaimed = () => {
+    if (
+      Date.now() - preclaimHeartbeatStartedAt >=
+      BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
+    ) {
+      stopPreclaimHeartbeat();
+      return;
+    }
+    if (preclaimHeartbeatInFlight) return;
+    preclaimHeartbeatInFlight = true;
+    void heartbeat(opts.runId)
+      .catch(() => {})
+      .finally(() => {
+        preclaimHeartbeatInFlight = false;
+      });
+  };
+  const stopPreclaimHeartbeat = () => {
+    if (preclaimHeartbeatTimer !== undefined) {
+      clearInterval(preclaimHeartbeatTimer);
+      preclaimHeartbeatTimer = undefined;
+    }
+  };
 
-  // A failed durable abort read must surface as infrastructure failure. It is
-  // not evidence that the user stopped the turn.
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+  // The foreground subscribes as soon as this worker proves it is alive, so
+  // the worker must keep the still-unclaimed row fresh while its abort checks
+  // and atomic claim are in flight. Once claimed, run-manager owns the timer.
+  preclaimHeartbeatTimer = setInterval(
+    heartbeatWhileUnclaimed,
+    BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+  );
+  // Close the gap before the first interval tick when the row is already near
+  // the unclaimed-reaper cutoff.
+  heartbeatWhileUnclaimed();
+  try {
+    await record(
+      opts.runId,
+      RUN_DIAG_STAGE.workerEntered,
+      [
+        `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
+        `continuationCount=${opts.continuationCount}`,
+        opts.backgroundRuntimeDetail,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ).catch(() => {});
 
-  if (opts.continuationCount > 0) {
-    await insert(opts.runId, threadId, turnId, {
-      dispatchMode: "background",
-    }).catch(() => {});
-  }
+    // A failed durable abort read must surface as infrastructure failure. It is
+    // not evidence that the user stopped the turn.
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+    if (opts.continuationCount > 0) {
+      await insert(opts.runId, threadId, turnId, {
+        dispatchMode: "background",
+      }).catch(() => {});
+    }
 
-  const won = await claim(opts.runId);
-  if (!won) {
-    await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
-    return { claimed: false, skipped: "already-claimed" };
-  }
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
-  await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
+    const won = await claim(opts.runId);
+    stopPreclaimHeartbeat();
+    if (!won) {
+      await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
+      return { claimed: false, skipped: "already-claimed" };
+    }
+
+    await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
+    await heartbeat(opts.runId).catch(() => {});
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
+    return { claimed: true };
+  } finally {
+    stopPreclaimHeartbeat();
   }
-  return { claimed: true };
 }
 
 /**
@@ -8820,7 +8977,9 @@ export function createProductionAgentHandler(
     if (
       hasAttachments &&
       requestAttachments.some(
-        (a) => a.type === "image" || a.type === "file" || a.type === "document",
+        (a) =>
+          a.displayOnly !== true &&
+          (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
       try {
@@ -9832,13 +9991,17 @@ export function createProductionAgentHandler(
       // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
       // row sits at `dispatch_mode='background'` until the reaper errors it
       // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
-      // polls briefly for the claim and decides:
-      //   - "stream":    a worker claimed the run → subscribe to it.
+      // polls briefly for the claim or a live setup marker and decides:
+      //   - "stream":    a worker claimed or entered setup → subscribe to it.
       //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
       //                  run a second copy.
       //   - "inline":    dispatch failed OR no worker claimed within grace → we
       //                  atomically own the run; recover by running it inline so a
       //                  dead worker degrades to a working synchronous turn.
+      // Once the worker has entered setup, the SQL stream opens immediately and
+      // the worker continues setup in the background. The bounded preclaim
+      // heartbeat keeps the reaper from racing that setup; the reaper owns
+      // recovery if the worker later fails before claiming the run.
       const backgroundOutcome = await resolveBackgroundDispatchOutcome({
         dispatched,
         backgroundRowInserted,
@@ -9848,6 +10011,7 @@ export function createProductionAgentHandler(
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,
+        streamWhenWorkerAlive: true,
       });
 
       if (

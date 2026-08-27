@@ -585,7 +585,7 @@ const CODE_AGENT_RUNTIME_OPTIONS = [
   {
     id: "default",
     label: "Default",
-    description: "Agent Native hosted chat",
+    description: "Agent-Native hosted chat",
   },
   {
     id: "codex",
@@ -1507,7 +1507,7 @@ export default function CodeAgentsApp({
           );
           return;
         }
-        toast("Local sign-in is only available in Agent Native Desktop", {
+        toast("Local sign-in is only available in Agent-Native Desktop", {
           description: "Open Settings to manage hosted providers instead.",
         });
         onOpenSettings?.();
@@ -2035,7 +2035,7 @@ export default function CodeAgentsApp({
     try {
       const result = await host.pairRemoteConnector({
         relayUrl: trimmedRelayUrl,
-        label: "Agent Native Desktop",
+        label: "Agent-Native Desktop",
       });
       setRemoteConnectorStatus(result.status);
       setRemoteConnectorMessage(result.error ?? result.message ?? null);
@@ -2109,10 +2109,12 @@ export default function CodeAgentsApp({
     seedNewPrompt("");
   }
 
-  async function controlRun(command: CodeAgentControlCommand) {
+  async function controlRun(
+    command: CodeAgentControlCommand,
+  ): Promise<boolean> {
     if (!selectedRunId) {
       toast("Select a chat first", { duration: 1800 });
-      return;
+      return false;
     }
     if (command === "resume" && selectedRunUsesAppSurface) {
       setWorkbenchOpen(true);
@@ -2131,7 +2133,7 @@ export default function CodeAgentsApp({
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
-      return;
+      return false;
     }
     if (result.action === "open-ui") setWorkbenchOpen(true);
     if (result.action === "refresh") await loadRuns(true);
@@ -2139,6 +2141,7 @@ export default function CodeAgentsApp({
       duration: result.ok ? 2200 : 3600,
       description: result.error,
     });
+    return result.ok;
   }
 
   async function forkSelectedChat(executionTarget: "local" | "worktree") {
@@ -3370,7 +3373,7 @@ function AgentCapabilitySummary({
         title={
           desktopReady
             ? "Desktop Accessibility and Screen Recording permissions are ready."
-            : "Enable Accessibility and Screen Recording for Agent Native in System Settings."
+            : "Enable Accessibility and Screen Recording for Agent-Native in System Settings."
         }
         onClick={onOpenComputerSetup}
       >
@@ -3449,7 +3452,7 @@ function ComputerAccessDialog({
           <div>
             <DialogTitle>Computer access</DialogTitle>
             <DialogDescription id="computer-access-description">
-              Agent Native only controls Chrome or your desktop while Agent is
+              Agent-Native only controls Chrome or your desktop while Agent is
               working. Stop releases control immediately.
             </DialogDescription>
           </div>
@@ -3502,7 +3505,7 @@ function ComputerAccessDialog({
             title="Chrome"
             description={
               readiness.chromeReady
-                ? "The Agent Native extension is connected."
+                ? "The Agent-Native extension is connected."
                 : "Opens Chrome Extensions and reveals the bundled extension folder. Turn on Developer mode, choose Load unpacked, then select that folder."
             }
             ready={readiness.chromeReady}
@@ -3524,7 +3527,7 @@ function ComputerAccessDialog({
                   Restart once after enabling it so the new access takes effect.
                 </span>
               </div>
-              {actionButton("restart", "Restart Agent Native")}
+              {actionButton("restart", "Restart Agent-Native")}
             </div>
           )}
       </DialogContent>
@@ -4652,6 +4655,46 @@ function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
 }
 
+export function getCodeAgentExternalStreamingMessageId(
+  events: readonly CodeAgentTranscriptEvent[],
+  runId: string,
+  baselineEventIds?: ReadonlySet<string>,
+): string | null {
+  const repo = buildRepositoryFromCodeAgentTranscript(events);
+  if (!Array.isArray(repo?.messages)) return null;
+  const lastEntry = repo.messages.at(-1);
+  const lastMessage = lastEntry?.message ?? lastEntry;
+  if (
+    !lastMessage ||
+    typeof lastMessage !== "object" ||
+    (lastMessage as { role?: unknown }).role !== "assistant"
+  ) {
+    return null;
+  }
+  const metadata = (lastMessage as { metadata?: unknown }).metadata;
+  if (!metadata || typeof metadata !== "object") return null;
+  const metadataRecord = metadata as Record<string, unknown>;
+  if (metadataRecord.runId !== runId) return null;
+  if (baselineEventIds) {
+    const custom =
+      metadataRecord.custom && typeof metadataRecord.custom === "object"
+        ? (metadataRecord.custom as Record<string, unknown>)
+        : {};
+    const eventIds = custom.codeAgentTranscriptEventIds;
+    if (
+      !Array.isArray(eventIds) ||
+      !eventIds.some(
+        (eventId) =>
+          typeof eventId === "string" && !baselineEventIds.has(eventId),
+      )
+    ) {
+      return null;
+    }
+  }
+  const messageId = (lastMessage as { id?: unknown }).id;
+  return typeof messageId === "string" && messageId ? messageId : null;
+}
+
 export function findRunsThatBecameUnread(
   previousRuns: readonly CodeAgentRun[] | undefined,
   nextRuns: readonly CodeAgentRun[],
@@ -5114,7 +5157,7 @@ function MobileConnectorPanel({
           <IconQrcode size={15} strokeWidth={1.8} />
           Mobile
         </p>
-        <h2>Agent Native mobile</h2>
+        <h2>Agent-Native mobile</h2>
         <p>
           Scan the QR code to open chats on your phone, then pair this Mac to
           start and continue local Agent work from mobile.
@@ -5162,7 +5205,7 @@ function MobileConnectorPanel({
               size={224}
               level="H"
               marginSize={3}
-              title="Open Agent Native mobile chats"
+              title="Open Agent-Native mobile chats"
               bgColor="#ffffff"
               fgColor="#111111"
             />
@@ -5279,7 +5322,7 @@ function RunDetailCard({
   modelOptions: CodeAgentModelOption[];
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onStop: () => void;
+  onStop: () => Promise<boolean>;
   onApprove: () => void;
   onApproveAlways: () => void;
   onDeny: () => void;
@@ -5296,17 +5339,72 @@ function RunDetailCard({
   restoringWorktreeId?: string | null;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
+  const runId = run?.id;
+  const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
+  const wasRunActiveRef = useRef(runIsActive);
+  const externalStreamingBaselineEventIdsRef = useRef<Set<string>>(
+    new Set(transcriptEvents.map((event) => event.id)),
+  );
+  const externalStreamingBaselineInitializedRef = useRef(
+    !runIsActive || !transcriptLoading,
+  );
+  const stopInFlightRef = useRef(false);
+  const stopSucceededRef = useRef(false);
+  const handleStop = useCallback(async () => {
+    if (!runId || stopInFlightRef.current) return false;
+    stopInFlightRef.current = true;
+    setUserStoppedRunId(runId);
+    try {
+      const stopSucceeded = await onStop();
+      if (stopSucceeded) {
+        stopSucceededRef.current = true;
+      } else if (!stopSucceededRef.current) {
+        setUserStoppedRunId((stoppedRunId) =>
+          stoppedRunId === runId ? null : stoppedRunId,
+        );
+      }
+      return stopSucceeded;
+    } finally {
+      stopInFlightRef.current = false;
+    }
+  }, [onStop, runId]);
+
+  useEffect(() => {
+    if (!runIsActive) {
+      externalStreamingBaselineEventIdsRef.current = new Set(
+        transcriptEvents.map((event) => event.id),
+      );
+      externalStreamingBaselineInitializedRef.current = true;
+      wasRunActiveRef.current = false;
+      return;
+    }
+
+    if (!wasRunActiveRef.current) {
+      stopSucceededRef.current = false;
+      setUserStoppedRunId(null);
+    }
+    if (
+      !externalStreamingBaselineInitializedRef.current &&
+      !transcriptLoading
+    ) {
+      externalStreamingBaselineEventIdsRef.current = new Set(
+        transcriptEvents.map((event) => event.id),
+      );
+      externalStreamingBaselineInitializedRef.current = true;
+    }
+    wasRunActiveRef.current = true;
+  }, [runIsActive, transcriptEvents, transcriptLoading]);
 
   useEffect(() => {
     if (!runIsActive) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      onStop();
+      void handleStop();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onStop, runIsActive]);
+  }, [handleStop, runIsActive]);
 
   if (!run) {
     return (
@@ -5321,6 +5419,15 @@ function RunDetailCard({
       </div>
     );
   }
+
+  const externalStreamingMessageId =
+    runIsActive && runId
+      ? getCodeAgentExternalStreamingMessageId(
+          transcriptEvents,
+          runId,
+          externalStreamingBaselineEventIdsRef.current,
+        )
+      : null;
 
   const hasCredentialHistory = hasMissingCredentialSignal(
     run,
@@ -5460,9 +5567,11 @@ function RunDetailCard({
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         hideCredentialMessages={hasCredentialHistory}
+        externalStreamingMessageId={externalStreamingMessageId}
+        externalUserStopped={userStoppedRunId === run.id}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
-        onStop={onStop}
+        onStop={handleStop}
         onDeny={onDeny}
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
@@ -5486,6 +5595,8 @@ function TranscriptPanel({
   modelSelection,
   modelOptions,
   hideCredentialMessages = false,
+  externalStreamingMessageId,
+  externalUserStopped,
   onPermissionModeChange,
   onModelSelectionChange,
   onStop,
@@ -5507,9 +5618,11 @@ function TranscriptPanel({
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   hideCredentialMessages?: boolean;
+  externalStreamingMessageId: string | null;
+  externalUserStopped: boolean;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onStop: () => void;
+  onStop: () => Promise<boolean>;
   /** Resolves the run's pending approval as denied — same command the standalone approval banner uses. */
   onDeny?: () => void;
   /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
@@ -5628,7 +5741,9 @@ function TranscriptPanel({
             adapterReloadKey={controller}
             loadHistoryRepository={loadHistoryRepository}
             historyReloadKey={historyReloadKey}
-            externalStreaming={runIsActive}
+            externalStreaming={Boolean(externalStreamingMessageId)}
+            externalUserStopped={externalUserStopped}
+            onStop={onStop}
             approvalActions={
               onDeny || onApproveAlways
                 ? {
@@ -5734,7 +5849,7 @@ function TranscriptSourceBanner({
   );
 }
 
-function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
+function CodeAgentStopButton({ onStop }: { onStop: () => Promise<boolean> }) {
   return (
     <button
       type="button"

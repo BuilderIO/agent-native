@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.form.shared-engine"
 name: "Shared Form engine"
-user_promise: "Content Form Views and Agent Native Forms use one schema, validation, permission, and idempotent submission engine."
+user_promise: "Content Form Views and Agent-Native Forms use one schema, validation, permission, and idempotent submission engine."
 primary_user_job: "Collect structured input once with the same contract whether it arrives from a Form View, an embedded Form, or an agent."
 kind: "surface"
 state: "approved_shape"
@@ -41,7 +41,7 @@ A requester submits an intake Form from an embed. The same schema validates it a
 
 ## Product contract
 
-Form schemas define typed fields, validation, permission, submission target, idempotency, and receipts. Content Form Views, Agent Native Forms, and agents call one submission Action.
+Form schemas define typed fields, validation, permission, submission target, idempotency, and receipts. Content Form Views, Agent-Native Forms, and agents call one submission Action.
 
 ## Boundaries and non-goals
 

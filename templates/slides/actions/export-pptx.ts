@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -1965,7 +1965,7 @@ export default defineAction({
       });
       pptx.layout = "AGENT_NATIVE";
     }
-    pptx.author = "Agent Native Slides";
+    pptx.author = "Agent-Native Slides";
     pptx.title = row.title;
     // The font scheme is the one half of the theme pptxgenjs does expose;
     // without it a themed deck re-imports as Calibri Light / Calibri.

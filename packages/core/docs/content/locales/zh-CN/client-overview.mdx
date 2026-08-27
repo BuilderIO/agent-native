@@ -9,7 +9,7 @@ description: "app/ 和 public/ 目录：您在其中构建代理本机应用程�
 
 与典型前端唯一的架构差异在于：这一层没有属于自己的 backend-for-frontend。它通过代理调用的同一批 actions 读写数据，因此在这里接入的任何功能，代理也自动能够执行。
 
-<Diagram id="doc-block-client-overview-1" title="传统前端 vs. Agent Native" summary="传统前端调用只有它自己能访问的 API 层。在 Agent Native 中，app/ 和代理都调用相同的 actions，因此在这里构建的每一项能力都可以免费供代理调用。">
+<Diagram id="doc-block-client-overview-1" title="传统前端 vs. Agent-Native" summary="传统前端调用只有它自己能访问的 API 层。在 Agent-Native 中，app/ 和代理都调用相同的 actions，因此在这里构建的每一项能力都可以免费供代理调用。">
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ description: "app/ 和 public/ 目录：您在其中构建代理本机应用程�
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/（React 前端）</div>
       <div class="diagram-node">Agent</div>

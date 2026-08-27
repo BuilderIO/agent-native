@@ -79,7 +79,7 @@ describe("DocsSidebar", () => {
     const html = renderSidebar("/docs");
 
     expect(html).toContain("Overview");
-    expect(html).toContain('href="/docs"');
+    expect(html).toContain('href="/docs/"');
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
   });
 
@@ -96,7 +96,6 @@ describe("DocsSidebar", () => {
       "getting-started",
       "what-is-agent-native",
       "key-concepts",
-      "faq",
     ]);
     expect(deployment?.items.map((item) => item.id)).toEqual([
       "deployment",
@@ -150,19 +149,19 @@ describe("DocsSidebar", () => {
 
     expect(html).toContain("Agent Resources");
     expect(html).toContain("Agent Resources Overview");
-    expect(html).toContain('href="/docs/agent-resources"');
-    expect(html).not.toContain('href="/docs/workspace"');
+    expect(html).toContain('href="/docs/agent-resources/"');
+    expect(html).not.toContain('href="/docs/workspace/"');
   });
 
   it("expands the section that contains the active docs page", () => {
     const html = renderSidebar("/docs/tracking");
 
     expect(html).toContain("Tracking &amp; Analytics");
-    expect(html).toContain('href="/docs/tracking"');
+    expect(html).toContain('href="/docs/tracking/"');
     expect(html).toContain('aria-expanded="true"');
 
-    const activeLink = getLinkMarkup(html, "/docs/tracking");
-    const closedLink = getLinkMarkup(html, "/docs/creating-templates");
+    const activeLink = getLinkMarkup(html, "/docs/tracking/");
+    const closedLink = getLinkMarkup(html, "/docs/creating-templates/");
 
     expect(activeLink).toContain('data-an-prefetch="viewport"');
     expect(activeLink).not.toContain("tabindex");
@@ -176,21 +175,21 @@ describe("DocsSidebar", () => {
 
     // "Plans" is a chevron-only group trigger, not a link.
     expect(html).toContain("sidebar-group-trigger");
-    expect(html).not.toContain('href="/docs/visual-plans"');
+    expect(html).not.toContain('href="/docs/visual-plans/"');
 
     // The main Plans doc is the first child, plus the two satellites.
     expect(html).toContain("docs-sidebar-subitems");
-    const mainDocLink = getLinkMarkup(html, "/docs/template-plan");
+    const mainDocLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(mainDocLink).toContain("sidebar-sublink");
-    expect(html).toContain('href="/docs/pr-visual-recap"');
-    expect(html).toContain('href="/docs/plan-plugin"');
+    expect(html).toContain('href="/docs/pr-visual-recap/"');
+    expect(html).toContain('href="/docs/plan-plugin/"');
   });
 
   it("renders Toolkits as a top-level section with focused docs", () => {
     const html = renderSidebar("/docs/toolkit-collaboration");
     const toolkitLinks = getDocsNavItems().filter(
       (item) =>
-        item.to === "/docs/agent-native-toolkit" ||
+        item.to === "/docs/agent-native-toolkit/" ||
         item.to.startsWith("/docs/toolkit-"),
     );
 
@@ -200,7 +199,7 @@ describe("DocsSidebar", () => {
       expect(html).toContain(`href="${item.to}"`);
     }
 
-    const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration");
+    const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration/");
     expect(activeLink).toContain("is-active");
   });
 
@@ -211,7 +210,7 @@ describe("DocsSidebar", () => {
     expect(html).toContain('aria-expanded="true"');
 
     // The active child link is highlighted and the group is open.
-    const activeLink = getLinkMarkup(html, "/docs/template-plan");
+    const activeLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');
   });

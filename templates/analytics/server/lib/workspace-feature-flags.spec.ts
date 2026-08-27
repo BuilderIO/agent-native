@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   fetchOrgApps: vi.fn(),
+  fetchOrgAppsResult: vi.fn(),
   getOrgDomain: vi.fn(),
   isFeatureFlagEnabled: vi.fn(),
   signA2AToken: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("@agent-native/core/feature-flags", () => ({
 }));
 vi.mock("@agent-native/core/mcp", () => ({
   fetchOrgApps: mocks.fetchOrgApps,
+  fetchOrgAppsResult: mocks.fetchOrgAppsResult,
 }));
 vi.mock("@agent-native/core/org", () => ({
   getOrgDomain: mocks.getOrgDomain,
@@ -70,6 +72,10 @@ describe("verified fleet feature flag transaction", () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     mocks.fetchOrgApps.mockResolvedValue([app]);
+    mocks.fetchOrgAppsResult.mockResolvedValue({
+      status: "available",
+      apps: [app],
+    });
     mocks.getOrgDomain.mockResolvedValue("example.test");
     mocks.isFeatureFlagEnabled.mockResolvedValue(true);
     mocks.signA2AToken.mockResolvedValue("example-delegated-token");
@@ -151,6 +157,116 @@ describe("verified fleet feature flag transaction", () => {
       expect.objectContaining({ enabledForCurrentUser: false }),
     );
   });
+
+  it("retries one unavailable directory lookup before sending one mutation", async () => {
+    const rules = { mode: "off", emails: [], orgIds: [], percentage: 0 };
+    mocks.fetchOrgAppsResult
+      .mockResolvedValueOnce({ status: "unavailable", reason: "network" })
+      .mockResolvedValueOnce({ status: "available", apps: [app] });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(200, mutationBody(rules)))
+      .mockResolvedValueOnce(
+        response(200, {
+          contractVersion: 1,
+          status: "ready",
+          flags: [{ key: "new-editor", rules, enabledForCurrentUser: false }],
+          canManage: true,
+        }),
+      );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).resolves.toMatchObject({ status: "verified" });
+    expect(mocks.fetchOrgAppsResult).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps resilient directory retries dormant while the rollout flag is off", async () => {
+    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
+    mocks.fetchOrgApps.mockResolvedValue([app]);
+    const rules = { mode: "off", emails: [], orgIds: [], percentage: 0 };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      response(200, mutationBody(rules)),
+    );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).resolves.toMatchObject({ contractVersion: 2, status: "ready" });
+    expect(mocks.fetchOrgApps).toHaveBeenCalledOnce();
+    expect(mocks.fetchOrgAppsResult).not.toHaveBeenCalled();
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not retry a successful directory response missing the target", async () => {
+    mocks.fetchOrgAppsResult.mockResolvedValue({
+      status: "available",
+      apps: [],
+    });
+    const targetFetch = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase: "directory" });
+    expect(mocks.fetchOrgAppsResult).toHaveBeenCalledOnce();
+    expect(targetFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves a persistent directory failure without sending a mutation", async () => {
+    mocks.fetchOrgAppsResult.mockResolvedValue({
+      status: "unavailable",
+      reason: "timeout",
+    });
+    const targetFetch = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase: "directory" });
+    expect(mocks.fetchOrgAppsResult).toHaveBeenCalledTimes(2);
+    expect(targetFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "not-configured",
+    "authentication",
+    "authorization",
+    "invalid-response",
+    "http-error",
+  ] as const)(
+    "does not retry non-transient directory reason %s",
+    async (reason) => {
+      mocks.fetchOrgAppsResult.mockResolvedValue({
+        status: "unavailable",
+        reason,
+      });
+      const targetFetch = vi.spyOn(globalThis, "fetch");
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+        }),
+      ).rejects.toMatchObject({ phase: "directory" });
+      expect(mocks.fetchOrgAppsResult).toHaveBeenCalledOnce();
+      expect(targetFetch).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     Object.assign(new Error("private timeout"), { name: "TimeoutError" }),
@@ -396,7 +512,11 @@ describe("verified fleet feature flag transaction", () => {
   it.each([
     [
       "directory",
-      async () => mocks.fetchOrgApps.mockRejectedValue(new Error("private")),
+      async () =>
+        mocks.fetchOrgAppsResult.mockResolvedValue({
+          status: "unavailable",
+          reason: "authorization",
+        }),
     ],
     [
       "token-generation",

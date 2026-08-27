@@ -141,10 +141,13 @@ const messages = {
     pageTitle: "Reunião · Clips",
   },
   recordingPage: {
+    back: "Voltar",
+    done: "Concluído",
     untitledClip: "Clipe sem título",
     recordingNotFound: "Gravação não encontrada",
     noAccess: "Você pode não ter acesso a este clipe.",
     backToLibrary: "Voltar à biblioteca",
+    sharedWithYou: "Compartilhado com você",
     storageStillDisconnected: "O armazenamento ainda não está conectado",
     finishBuilderOrS3:
       "Conclua o pop-up Builder.io ou configure o armazenamento S3 e tente novamente.",
@@ -206,8 +209,6 @@ const messages = {
     retryImport: "Tentar importar novamente",
     retryUpload: "Tentar enviar novamente",
     checkAgain: "Verificar novamente",
-    back: "Voltar",
-    done: "Concluído",
     edit: "Editar",
     aiTools: "Ferramentas de IA",
     enhanceRecording: "Melhore esta gravação",
@@ -502,7 +503,9 @@ const messages = {
     agentPrompt:
       "Busque esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Use transcript.segments para o contexto falado, busque recommendedFrames ou as URLs da API de quadros para ver a tela e confira browserDiagnostics, se presente, para logs de console redigidos e metadados de solicitações fetch/XHR.",
     agentTokenDescription:
-      "Esta URL temporaria para agentes permite ler o clipe sem torna-lo publico. Ela expira em duas horas.",
+      "Link temporário somente leitura para agentes, porque este clipe não é público. Expira em 2 horas.",
+    agentPublicDescription:
+      "Link somente leitura para agentes. Funciona enquanto o clipe estiver público.",
     agentLinkUnavailable: "Não foi possível criar o link para agentes.",
     retryAgentLink: "Tentar novamente",
     gifPreview: "visualização de GIF",
@@ -527,16 +530,15 @@ const messages = {
     autoplay: "Reprodução automática",
     startAt: "Começar em (segundos)",
     embedCode: "Código de incorporação",
+    copyEmbedCode: "Copiar código de incorporação",
+    more: "Mais",
     sharePlainTitle: "Compartilhar {{title}}",
   },
   shareUi: {
     owner: "Proprietário: {{email}}",
-    generalAccess: "Acesso geral",
-    restrictedLinkDescription:
-      "Este link só funcionará para pessoas que já têm acesso.",
-    makingPublic: "Tornando público…",
-    makePublicAndCopy: "Tornar público e copiar",
     copy: "Copiar",
+    copied: "Copiado",
+    copyLink: "Copiar link",
     addPeopleByEmail: "Adicionar pessoas por e-mail",
     invite: "Convidar",
     notifyPeople: "Notificar pessoas",
@@ -544,6 +546,19 @@ const messages = {
     ownerRole: "Proprietário",
     remove: "Remover",
     noAccessYet: "Ninguém tem acesso ainda.",
+    whoHasAccess: "Quem tem acesso",
+    canAccess: "Pode acessar",
+    onlyYou: "Só você",
+    othersCount_one: "{{email}} + {{count}} outro",
+    othersCount_many: "{{email}} + {{count}} outros",
+    othersCount_other: "{{email}} + {{count}} outros",
+    selectAccess: "Selecionar acesso",
+    accessOptions: {
+      public: "Qualquer pessoa com o link pode ver",
+      org: "Qualquer pessoa em {{orgName}} pode ver",
+      orgFallback: "Qualquer pessoa na sua organização pode ver",
+      private: "Somente pessoas convidadas podem ver",
+    },
     visibility: {
       private: {
         label: "Privado",
@@ -1013,8 +1028,6 @@ const messages = {
     editComment: "Editar comentário",
     commentButton: "Comentar",
     composerPlaceholder: "Adicionar um comentário…",
-    mentionSomeone: "Mencionar alguém",
-    addEmoji: "Adicionar emoji",
   },
   shareMeeting: {
     pageTitle: "Notas da reunião · Clips",
@@ -1554,6 +1567,7 @@ const messages = {
     invite: "Convidar",
     inviteFailed: "Não foi possível convidar a pessoa",
     removePersonFailed: "Não foi possível remover a pessoa",
+    permissionUpdateFailed: "Não foi possível atualizar a permissão",
     passwordProtectedDescription:
       "Este vídeo está protegido. Digite a senha para assistir.",
     password: "Senha",

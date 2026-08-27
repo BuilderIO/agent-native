@@ -12,11 +12,62 @@ vi.mock("react-dom", () => ({
 }));
 
 import {
+  getUploadedImageAgentOptions,
   isSourceImprovementRequest,
+  requestedSlideCount,
   startDeckGeneration,
 } from "./create-deck-generation";
 
+describe("getUploadedImageAgentOptions", () => {
+  it("does not forward oversized inline image data", () => {
+    const oversizedDataUrl = `data:image/png;base64,${"a".repeat(1_000_000)}`;
+    expect(
+      getUploadedImageAgentOptions([
+        {
+          path: "/uploads/large.png",
+          url: "https://cdn.example.test/large.png",
+          originalName: "large.png",
+          filename: "large.png",
+          type: "image/png",
+          size: 750_000,
+          dataUrl: oversizedDataUrl,
+        },
+      ]),
+    ).toEqual({
+      referenceImagePaths: ["https://cdn.example.test/large.png"],
+    });
+  });
+
+  it("caps the aggregate inline image payload while retaining every URL", () => {
+    const dataUrls = Array.from(
+      { length: 4 },
+      (_, index) =>
+        `data:image/png;base64,${String.fromCharCode(97 + index).repeat(800_000)}`,
+    );
+    const options = getUploadedImageAgentOptions(
+      dataUrls.map((dataUrl, index) => ({
+        path: `/uploads/image-${index}.png`,
+        url: `https://cdn.example.test/image-${index}.png`,
+        originalName: `image-${index}.png`,
+        filename: `image-${index}.png`,
+        type: "image/png",
+        size: 600_000,
+        dataUrl,
+      })),
+    );
+
+    expect(options.referenceImagePaths).toHaveLength(4);
+    expect(options.images).toHaveLength(3);
+    expect(options.images).toEqual(dataUrls.slice(0, 3));
+  });
+});
+
 describe("startDeckGeneration", () => {
+  it("extracts an explicit target slide count for continuation", () => {
+    expect(requestedSlideCount("Create a dark 6-slide presentation")).toBe(6);
+    expect(requestedSlideCount("Create a deck about launches")).toBeUndefined();
+  });
+
   it("treats an implicit improvement prompt as source-preserving", () => {
     expect(
       isSourceImprovementRequest("Make this prettier", [
@@ -65,6 +116,35 @@ describe("startDeckGeneration", () => {
     ).toBe(true);
   });
 
+  it("defaults a plain source conversion to source-preserving", () => {
+    expect(
+      isSourceImprovementRequest(
+        "Create deck: turn this into a deck using our branding",
+        [
+          {
+            path: "/uploads/source.pdf",
+            originalName: "source.pdf",
+            filename: "source.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+      ),
+    ).toBe(true);
+
+    expect(
+      isSourceImprovementRequest("Make this into a deck", [
+        {
+          path: "/uploads/source.pdf",
+          originalName: "source.pdf",
+          filename: "source.pdf",
+          type: "application/pdf",
+          size: 1024,
+        },
+      ]),
+    ).toBe(true);
+  });
+
   it("keeps an ordinary attached PDF as agent reference material", async () => {
     const deck = {
       id: "deck-1",
@@ -78,7 +158,8 @@ describe("startDeckGeneration", () => {
     await expect(
       startDeckGeneration({
         session: { user: "owner@example.com" },
-        prompt: "Create a new deck using this PDF as reference material",
+        prompt:
+          "Create this as a focused deck, more like the attached deck. Here's the outline. Preserve the useful before and after examples, but ignore the numbers because they do not mean slides.",
         files: [
           {
             path: "/uploads/reference.pdf",
@@ -86,6 +167,21 @@ describe("startDeckGeneration", () => {
             filename: "ZiVAULRxvgAN1alyiLem.pdf",
             type: "application/pdf",
             size: 1024,
+          },
+        ],
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+          {
+            type: "file",
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            displayOnly: true,
+            text: "outline",
           },
         ],
         designSystems: [],
@@ -107,6 +203,21 @@ describe("startDeckGeneration", () => {
       expect.anything(),
     );
     expect(agentSubmit).toHaveBeenCalledOnce();
+    expect(agentSubmit.mock.calls[0]?.[2]?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "Attachments are context for the agent by default",
     );
@@ -116,11 +227,122 @@ describe("startDeckGeneration", () => {
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "write presenter-only text into each slide's `notes` field",
     );
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            fields: expect.objectContaining({
+              generationContext: expect.objectContaining({
+                originalPrompt:
+                  "Create this as a focused deck, more like the attached deck. Here's the outline. Preserve the useful before and after examples, but ignore the numbers because they do not mean slides.",
+                files: [
+                  expect.objectContaining({ path: "/uploads/reference.pdf" }),
+                ],
+              }),
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("passes hosted URLs and inline image bytes through to agentSubmit", async () => {
+    const deck = {
+      id: "deck-image-1",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+    const inlineImage = "data:image/png;base64,aW1hZ2U=";
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Make this into a deck",
+        files: [
+          {
+            path: "/uploads/hosted.png",
+            url: "https://cdn.example.test/hosted.png",
+            originalName: "hosted.png",
+            filename: "hosted.png",
+            type: "image/png",
+            size: 1024,
+            dataUrl: inlineImage,
+          },
+          {
+            path: "/uploads/inline.jpg",
+            originalName: "inline.jpg",
+            filename: "inline.jpg",
+            type: "image/jpeg",
+            size: 1024,
+            dataUrl: "data:image/jpeg;base64,amBlZw==",
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(agentSubmit.mock.calls[0]?.[2]).toMatchObject({
+      referenceImagePaths: ["https://cdn.example.test/hosted.png"],
+      images: [inlineImage, "data:image/jpeg;base64,amBlZw=="],
+    });
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "inspect the complete visual source",
+    );
+  });
+
+  it("cleans up when generation context persistence fails", async () => {
+    mockCallAction.mockRejectedValueOnce(new Error("context failed"));
+    const deck = {
+      id: "deck-context-failure",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const deleteDeck = vi.fn();
+    const onSetupFailure = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck",
+        files: [],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck,
+        navigate: vi.fn(),
+        agentSubmit: vi.fn(),
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+        onSetupFailure,
+      }),
+    ).resolves.toBe("failed");
+
+    expect(deleteDeck).toHaveBeenCalledWith(deck.id);
+    expect(onSetupFailure).toHaveBeenCalledWith(
+      "Create a deck",
+      [],
+      expect.objectContaining({ message: "context failed" }),
+    );
   });
 
   it("imports an attached source PDF for a slide-for-slide restyling request", async () => {
     const deck = {
-      id: "deck-1",
+      id: "deck-source-1",
       title: "Untitled Deck",
       createdAt: "2026-08-11T00:00:00.000Z",
       updatedAt: "2026-08-11T00:00:00.000Z",
@@ -129,7 +351,7 @@ describe("startDeckGeneration", () => {
     const agentSubmit = vi.fn();
     mockCallAction.mockResolvedValue({
       imported: true,
-      deckId: "deck-1",
+      deckId: "deck-source-1",
       slideCount: 4,
     });
 
@@ -164,7 +386,7 @@ describe("startDeckGeneration", () => {
       {
         filePath: "/uploads/source.pdf",
         format: "pdf",
-        deckId: "deck-1",
+        deckId: "deck-source-1",
         importIntoDeck: true,
       },
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
@@ -173,5 +395,50 @@ describe("startDeckGeneration", () => {
       "Source-preserving improvement mode",
     );
     expect(agentSubmit.mock.calls[0]?.[1]).toContain("Do not call add-slide");
+  });
+
+  it("passes lightweight attachment chips into the generation", async () => {
+    const deck = {
+      id: "deck-retry-1",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck",
+        files: [],
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(agentSubmit.mock.calls[0]?.[2]?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ]);
   });
 });

@@ -91,7 +91,7 @@ description: "本地开发框架、嵌入式代理面板和云框架 - AI 代理
   以及应用程序工具之上的数据库访问，因此代理可以更改应用程序的
   自己的来源。代码请求被门控：当消息需要代码时
   (`type: "code"`)并且没有连接支持代码的框架，面板显示
-  解释代码更改需要 Agent Native Desktop 或 Builder 的对话框；
+  解释代码更改需要 Agent-Native Desktop 或 Builder 的对话框；
   当连接框架时，请求将路由到它和代码代理
   工作时指示灯显示 (`useSendToAgentChat`)。对于规范
   编码工具列表和共享UI合约，参见
@@ -217,7 +217,7 @@ cd my-app
 pnpm dev
 ```
 
-本地开发框架（框架存储库中的私有 `@agent-native/frame` 包）是未发布到 npm 的内部工具包。它将活动应用程序的开发服务器加载到 iframe 中，并在其旁边安装嵌入式面板，通过 `app` 查询参数选择应用程序。集成CLI终端需要Agent Native Desktop，提供终端所需的本地代码和PTY访问；如果没有它，面板将显示聊天界面并提示您打开桌面以使用 CLI。
+本地开发框架（框架存储库中的私有 `@agent-native/frame` 包）是未发布到 npm 的内部工具包。它将活动应用程序的开发服务器加载到 iframe 中，并在其旁边安装嵌入式面板，通过 `app` 查询参数选择应用程序。集成CLI终端需要Agent-Native Desktop，提供终端所需的本地代码和PTY访问；如果没有它，面板将显示聊天界面并提示您打开桌面以使用 CLI。
 
 ## 兼容性说明 {#compatibility}
 

@@ -1,5 +1,5 @@
 /**
- * Durable links between a verified provider identity and an Agent Native user.
+ * Durable links between a verified provider identity and an Agent-Native user.
  * Provider credentials and raw provider payloads never belong in this table.
  */
 
@@ -152,7 +152,7 @@ export async function upsertVerifiedIntegrationIdentity(input: {
   if (existing) {
     if (!matchesVerifiedLink(existing, { userEmail, orgId })) {
       throw new Error(
-        "This provider identity is already linked to a different Agent Native account.",
+        "This provider identity is already linked to a different Agent-Native account.",
       );
     }
     const updatedAt = Date.now();
@@ -191,7 +191,7 @@ export async function upsertVerifiedIntegrationIdentity(input: {
     );
     if (!raced || !matchesVerifiedLink(raced, { userEmail, orgId })) {
       throw new Error(
-        "This provider identity is already linked to a different Agent Native account.",
+        "This provider identity is already linked to a different Agent-Native account.",
       );
     }
     return raced;

@@ -213,7 +213,7 @@ const messages = {
     useBuilder: "빌더 사용",
     openDesktopToEditCode: "데스크톱을 열어 코드 편집",
     codeUnavailableDescription:
-      "소스 코드 변경 및 CLI 액세스는 Agent Native 데스크톱 앱에서 사용할 수 있습니다.",
+      "소스 코드 변경 및 CLI 액세스는 Agent-Native 데스크톱 앱에서 사용할 수 있습니다.",
     downloadDesktop: "데스크탑 다운로드",
     chatMode: "채팅 모드",
     chat: "채팅",
@@ -319,7 +319,7 @@ const messages = {
       '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
     subtitle:
       "이 작업은 이 표면의 Desktop 또는 Builder가 필요한 소스 코드를 생성하거나 수정합니다.",
-    desktopTitle: "Agent Native 데스크탑 사용",
+    desktopTitle: "Agent-Native 데스크탑 사용",
     desktopDescription:
       "소스 편집 및 CLI 액세스를 활성화하려면 데스크톱 앱에서 프로젝트를 엽니다.",
     builderAgentTitle: "Builder.io 에이전트 사용",

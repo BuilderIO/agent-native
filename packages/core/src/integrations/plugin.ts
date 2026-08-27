@@ -8,7 +8,6 @@ import {
 } from "h3";
 import { getRequestHeader } from "h3";
 import type { EventHandler } from "h3";
-import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
@@ -68,6 +67,7 @@ import { claimIntegrationControl } from "./controls-store.js";
 import {
   startGoogleDocsPoller,
   handlePushNotification,
+  verifyGoogleDocsPushNotification,
 } from "./google-docs-poller.js";
 import {
   IntegrationIdentityDeclinedError,
@@ -358,51 +358,6 @@ function startA2AContinuationRetryJob(
     );
   }, 10_000);
   a2aContinuationStartupTimer.unref?.();
-}
-
-// ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────
-// Cache Google's public keys for OIDC verification. jose handles TTL +
-// refresh internally — same pattern as templates/mail/.../gmail/push.post.ts.
-// Used to verify Google Pub/Sub push notifications carry a valid bearer token
-// signed by a configured service account. Without this, the webhook is wide
-// open to anonymous callers who can force a Drive sync (H7 in the audit).
-const GOOGLE_JWKS = createRemoteJWKSet(
-  new URL("https://www.googleapis.com/oauth2/v3/certs"),
-);
-const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
-
-/**
- * Verify a Pub/Sub OIDC bearer token. Throws on any verification failure.
- * Requires GOOGLE_DOCS_PUSH_AUDIENCE and GOOGLE_DOCS_PUSH_SIGNER_EMAIL to be
- * set; if either is missing in production, the webhook handler refuses the
- * request entirely (so a misconfigured deployment fails closed, surfacing in
- * Pub/Sub's delivery metrics).
- */
-async function verifyGoogleDocsPushToken(authHeader: string): Promise<void> {
-  if (!authHeader.startsWith("Bearer ")) {
-    throw new Error("missing bearer token");
-  }
-  const token = authHeader.slice(7);
-  const audience = process.env.GOOGLE_DOCS_PUSH_AUDIENCE;
-  if (!audience) {
-    throw new Error("GOOGLE_DOCS_PUSH_AUDIENCE not configured");
-  }
-  const { payload } = await jwtVerify(token, GOOGLE_JWKS, {
-    issuer: GOOGLE_ISSUERS,
-    audience,
-  });
-  if (payload.email_verified !== true) {
-    throw new Error("email_verified claim is not true");
-  }
-  // Pin to a specific service account — without this, any Google-issued
-  // token with the right audience could trigger a Drive sync.
-  const expectedSigner = process.env.GOOGLE_DOCS_PUSH_SIGNER_EMAIL;
-  if (!expectedSigner) {
-    throw new Error("GOOGLE_DOCS_PUSH_SIGNER_EMAIL not configured");
-  }
-  if (payload.email !== expectedSigner) {
-    throw new Error(`unexpected signer: ${String(payload.email)}`);
-  }
 }
 
 export const BUILT_IN_INTEGRATION_ADAPTER_FACTORIES = Object.freeze([
@@ -833,10 +788,10 @@ function remoteCommandPushPayload(
         : "Remote run updated";
   const body =
     status === "completed"
-      ? "Open Agent Native to review the result."
+      ? "Open Agent-Native to review the result."
       : status === "failed"
-        ? "Open Agent Native to review the failure."
-        : "Open Agent Native to review the latest status.";
+        ? "Open Agent-Native to review the failure."
+        : "Open Agent-Native to review the latest status.";
   return {
     title,
     body,
@@ -3084,7 +3039,7 @@ export function createIntegrationsPlugin(
                 installation.teamName || installation.enterpriseName || "Slack",
                 {
                   addAccount: true,
-                  appName: "Agent Native",
+                  appName: "Agent-Native",
                   returnUrl: state.returnUrl || "/messaging",
                 },
               );
@@ -3180,39 +3135,15 @@ export function createIntegrationsPlugin(
 
         // ─── POST /:platform/webhook ───────────────────────────
         if (action === "webhook" && method === "POST") {
-          // Google Docs push notifications bypass the normal webhook flow —
-          // they're opaque "something changed" pings, not message payloads.
-          // We MUST verify the Pub/Sub OIDC token here. Without it, anyone
-          // could POST any body to this URL and force a Drive changes pull
-          // (H7 in the webhook security audit).
+          // Google Drive push notifications are opaque "something changed"
+          // pings. Verify the native channel token before forcing a Drive pull.
           if (platform === "google-docs") {
-            const audience = process.env.GOOGLE_DOCS_PUSH_AUDIENCE;
-            if (!audience) {
-              if (process.env.NODE_ENV === "production") {
-                // Fail closed in prod so a misconfigured deployment surfaces
-                // in Pub/Sub's delivery metrics rather than silently
-                // accepting anonymous requests.
-                setResponseStatus(event, 503);
-                return {
-                  ok: false,
-                  error:
-                    "google-docs push endpoint disabled (audience not configured)",
-                };
-              }
-              // Dev: keep the loose posture so contributors can play with the
-              // integration locally without configuring Pub/Sub.
-              handlePushNotification().catch((err) => {
-                console.error("[google-docs] Push handler error:", err);
-              });
-              return "ok";
-            }
-            const authHeader = getRequestHeader(event, "authorization") || "";
-            try {
-              await verifyGoogleDocsPushToken(authHeader);
-            } catch (err: any) {
-              console.warn(
-                `[google-docs] OIDC verify failed: ${err?.message ?? String(err)}`,
-              );
+            const verified = await verifyGoogleDocsPushNotification({
+              channelId: getRequestHeader(event, "x-goog-channel-id"),
+              channelToken: getRequestHeader(event, "x-goog-channel-token"),
+              resourceId: getRequestHeader(event, "x-goog-resource-id"),
+            });
+            if (!verified) {
               setResponseStatus(event, 401);
               return { ok: false, error: "unauthorized" };
             }

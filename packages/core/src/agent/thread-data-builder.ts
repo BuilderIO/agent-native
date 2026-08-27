@@ -33,7 +33,12 @@ interface ContentPart {
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+  approval?: {
+    approvalKey: string;
+    dismissed?: boolean;
+    askId?: string;
+    allowPersistentApproval?: false;
+  };
 }
 
 interface BuildAssistantMessageOptions {
@@ -238,6 +243,9 @@ export function buildAssistantMessage(
         part.approval = {
           approvalKey: event.approvalKey,
           ...(event.askId ? { askId: event.askId } : {}),
+          ...(event.allowPersistentApproval === false
+            ? { allowPersistentApproval: false }
+            : {}),
         };
       }
       continue;
@@ -1482,6 +1490,20 @@ function buildStoredAttachments(
   return (attachments ?? [])
     .map((att, index) => {
       const id = `server-${runId ?? Date.now()}-attachment-${index}`;
+      if (att.displayOnly === true) {
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content:
+            typeof att.text === "string" && att.text.length > 0
+              ? [{ type: "text", text: textAttachmentEnvelope(att, att.text) }]
+              : [],
+          metadata: { displayOnly: true },
+        };
+      }
       // When the attachment was successfully pre-uploaded, store only the URL
       // reference. This keeps the SQL thread_data row compact regardless of
       // file size, and lets the transcript render from the hosted URL instead

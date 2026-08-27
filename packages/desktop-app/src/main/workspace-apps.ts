@@ -133,7 +133,7 @@ export async function loadDesktopWorkspaceApps(options: {
     const apps = normalizeWorkspaceAppConfigs(inventory, { baseUrl: origin });
     return {
       enabled: true,
-      apps: apps.map((app) => ({ ...app, workspaceSso: true })),
+      apps,
     };
   } catch (error) {
     // Native shells fail closed while the rollout or session is unavailable.

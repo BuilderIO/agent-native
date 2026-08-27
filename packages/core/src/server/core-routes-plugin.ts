@@ -8,6 +8,9 @@ import {
   getRequestURL,
   getRequestIP,
   readRawBody,
+  getCookie,
+  setCookie,
+  deleteCookie,
 } from "h3";
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
@@ -122,10 +125,10 @@ import {
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
 import {
   BUILDER_CONNECT_PARAM,
+  BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_ENV_KEYS,
   BUILDER_OPENER_PARAM,
   BUILDER_RELAY_FLOW_HEADER,
@@ -133,6 +136,7 @@ import {
   BUILDER_RELAY_STATE_PARAM,
   BUILDER_RELAY_TIMESTAMP_HEADER,
   appendBuilderConnectToken,
+  appendBuilderConnectStateCookie,
   builderConnectTrackingProperties,
   createBuilderConnectState,
   createBuilderBrowserCallbackErrorPage,
@@ -146,7 +150,9 @@ import {
   normalizeBuilderAgentContext,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
+  resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
+  removeBuilderConnectStateCookie,
   runBuilderAgent,
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
@@ -156,15 +162,21 @@ import {
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
 import {
+  BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
-  finishBuilderOAuthAuthorization,
+  exchangeBuilderOAuthAuthorization,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
+  saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
   type BuilderOAuthPendingFlow,
 } from "./builder-oauth.js";
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
+import {
+  resolveCoreRoutesMcpOptions,
+  type CoreRoutesMcpOptions,
+} from "./core-routes/mcp-connect-options.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -1352,20 +1364,24 @@ export interface CoreRoutesPluginOptions {
   /** Disable the /_agent-native/embed/start iframe session launcher. */
   disableEmbedRoute?: boolean;
   /**
-   * Disable the /mcp/connect routes (browser Connect page + CLI device-code
-   * flow that mints per-user, revocable MCP tokens) and the standard remote-MCP
-   * OAuth endpoints under /mcp/oauth. The legacy /_agent-native/mcp aliases
-   * are disabled at the same time.
-   * Enabled by default — the routes are session-gated where they approve user
-   * access; token endpoints are protected by single-use codes / refresh
-   * tokens.
+   * Everything about this app's MCP connect surface — whether the Connect page
+   * and OAuth endpoints are mounted, and the server id clients key it by.
+   * See `CoreRoutesMcpOptions`.
+   *
+   * Replaces the top-level `disableMcpConnect`, `mcpConnectServerName`,
+   * `mcpConnectAppId`, and `mcpConnectAppName`, which stay accepted for one
+   * minor. Setting both forms to disagreeing values throws at plugin init
+   * rather than silently picking one.
    */
+  mcp?: CoreRoutesMcpOptions;
+
+  /** @deprecated Use `mcp.connect: false`. */
   disableMcpConnect?: boolean;
-  /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
-  mcpConnectAppId?: string;
-  /** Explicit MCP server id for copyable config/device-flow grants. */
+  /** @deprecated Use `mcp.serverName`. */
   mcpConnectServerName?: string;
-  /** Human app name shown on the MCP connect page. */
+  /** @deprecated Set `app.id` in `defineAppConfig()`. */
+  mcpConnectAppId?: string;
+  /** @deprecated Set `app.name` in `defineAppConfig()`. */
   mcpConnectAppName?: string;
   /** Per-template override mapping deep-link params → client SPA path.
    *  See `createOpenRouteHandler`. */
@@ -1761,7 +1777,7 @@ export function createCoreRoutesPlugin(
       registerFrameworkSecrets();
       registerBuiltinProviders();
       // Named for the destination it actually reaches: every configured
-      // tracking provider (PostHog, Mixpanel, Amplitude, Agent Native
+      // tracking provider (PostHog, Mixpanel, Amplitude, Agent-Native
       // Analytics, webhook), not just one of them.
       registerErrorCaptureProvider("tracking", (error, context) => {
         // Attribute to the in-flight request's user so server exceptions and
@@ -2586,12 +2602,10 @@ export function createCoreRoutesPlugin(
       //      request with the navigation context. We allow `same-origin` or
       //      `none` (typed/bookmark/extension); cross-site / same-site without
       //      a valid connect token are rejected.
-      //   3. Pending row keyed by signed OAuth state — the callback
-      //      requires both a valid session and a one-time row that this
-      //      handler wrote during the same flow. Without the same-origin
-      //      gate or connect token above, an attacker could prime the row from
-      //      cross-site and then trick the victim into completing an
-      //      attacker-initiated authorization flow.
+      //   3. Pending row keyed by signed OAuth state plus a host-only cookie —
+      //      Builder can omit the callback query, but it cannot read or forge
+      //      the cookie. The callback still requires the matching session,
+      //      pending row, and a successful PKCE exchange before persistence.
       getH3App(nitroApp).use(
         `${P}/builder/connect`,
         defineEventHandler(async (event) => {
@@ -2695,7 +2709,8 @@ export function createCoreRoutesPlugin(
             // No prior error row — fine
           }
 
-          const callbackUrl = resolveBuilderConnectCallbackUrl(event);
+          const state = createBuilderConnectState();
+          const callbackUrl = resolveBuilderConnectCallbackUrl(event, state);
           if (
             !callbackUrl ||
             !isBuilderConnectCallbackUrlAllowed(callbackUrl, event)
@@ -2739,8 +2754,6 @@ export function createCoreRoutesPlugin(
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
-          const state = createBuilderConnectState();
-
           // The standard OAuth client discovers Builder's protected-resource
           // metadata, dynamically registers, and creates its S256 verifier.
           // Persist that opaque protocol state encrypted and consume it once.
@@ -2764,6 +2777,21 @@ export function createCoreRoutesPlugin(
               tracking: connectTracking,
             });
             await purgeExpiredBuilderConnectPendingStates().catch(() => 0); // coercion-ok: connect already persisted the new pending row; purge of abandoned rows must not fail OAuth start
+            setCookie(
+              event,
+              BUILDER_CONNECT_STATE_COOKIE,
+              appendBuilderConnectStateCookie(
+                getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
+                state,
+              ),
+              {
+                httpOnly: true,
+                secure: callbackUrl.startsWith("https://"),
+                sameSite: "lax",
+                path: "/",
+                maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+              },
+            );
           } catch (err) {
             await trackBuilderLifecycle(
               event,
@@ -2905,9 +2933,9 @@ export function createCoreRoutesPlugin(
 
       // Branch-creation waitlist signup. Used by ConnectBuilderCard when the
       // current request has no Builder branch project configured. Hosted
-      // Agent Native deployments submit into the Builder-org Forms waitlist;
+      // Agent-Native deployments submit into the Builder-org Forms waitlist;
       // local/self-hosted deployments keep the analytics signal without
-      // sending private workspace data to Agent Native.
+      // sending private workspace data to Agent-Native.
       getH3App(nitroApp).use(
         `${P}/builder/branch-waitlist`,
         defineEventHandler(async (event: H3Event) => {
@@ -3168,7 +3196,14 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const state = requestUrl.searchParams.get("state");
+          // Builder sometimes drops the top-level OAuth state. Recover it
+          // from the host-only cookie set by /builder/connect; the pending row
+          // and authenticated session still bind it to this account.
+          const queryState = requestUrl.searchParams.get("state");
+          const state = resolveBuilderConnectCallbackState(
+            queryState,
+            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
+          );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           const fail = async (
             status: number,
@@ -3236,7 +3271,10 @@ export function createCoreRoutesPlugin(
             typeof pending.redirectUri === "string"
               ? pending.redirectUri
               : null;
-          const expectedRedirectUri = resolveBuilderConnectCallbackUrl(event);
+          const expectedRedirectUri = resolveBuilderConnectCallbackUrl(
+            event,
+            state,
+          );
 
           if (
             !ownerEmail ||
@@ -3262,17 +3300,6 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const consumed = await consumeBuilderConnectPendingState(state);
-          if (!consumed) {
-            return fail(
-              403,
-              "No active Builder connect flow found. Restart the connection from Settings.",
-              ownerEmail,
-              "callback_verification_failed",
-              tracking,
-            );
-          }
-
           const denied = requestUrl.searchParams.get("error");
           const code = requestUrl.searchParams.get("code");
           const iss = requestUrl.searchParams.get("iss") ?? undefined;
@@ -3288,14 +3315,15 @@ export function createCoreRoutesPlugin(
             );
           }
 
+          let credentials: Awaited<
+            ReturnType<typeof exchangeBuilderOAuthAuthorization>
+          >;
           try {
             const oauthFlow = JSON.parse(
               decryptSecretValue(encryptedOAuthFlow),
             ) as BuilderOAuthPendingFlow;
-            await finishBuilderOAuthAuthorization({
+            credentials = await exchangeBuilderOAuthAuthorization({
               ownerEmail,
-              orgId:
-                typeof consumed.orgId === "string" ? consumed.orgId : undefined,
               code,
               iss,
               pending: oauthFlow,
@@ -3308,6 +3336,53 @@ export function createCoreRoutesPlugin(
               "code_exchange_failed",
               tracking,
             );
+          }
+
+          // PKCE proves the callback belongs to this flow before its pending
+          // row is consumed. Persist first so a transient credential-store
+          // failure does not strand an otherwise valid pending flow.
+          try {
+            await saveBuilderOAuthCredentials({
+              ownerEmail,
+              orgId:
+                typeof pending.orgId === "string" ? pending.orgId : undefined,
+              credentials,
+            });
+          } catch {
+            return fail(
+              500,
+              "Builder credentials could not be saved. Restart the connection.",
+              ownerEmail,
+              "credential_write_failed",
+              tracking,
+            );
+          }
+
+          const consumed = await consumeBuilderConnectPendingState(state);
+          if (!consumed) {
+            return fail(
+              403,
+              "No active Builder connect flow found. Restart the connection from Settings.",
+              ownerEmail,
+              "callback_verification_failed",
+              tracking,
+            );
+          }
+
+          const remainingStates = removeBuilderConnectStateCookie(
+            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
+            state,
+          );
+          if (remainingStates) {
+            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remainingStates, {
+              httpOnly: true,
+              secure: expectedRedirectUri.startsWith("https://"),
+              sameSite: "lax",
+              path: "/",
+              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+            });
+          } else {
+            deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
           }
 
           try {
@@ -3869,15 +3944,20 @@ export function createCoreRoutesPlugin(
           const userEmail = session?.email;
           const resolveStatus = async () => {
             const active = await getActiveFileUploadProviderForRequest();
-            let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
+            let builderConfigured = false;
+            let builderUploadConfigured = false;
             try {
-              const { resolveBuilderPrivateKey } =
-                await import("./credential-provider.js");
-              builderConfigured = await resolveBuilderPrivateKey().then(
-                (k) => !!k,
+              const {
+                canAuthorizeBuilderApiRequest,
+                hasBuilderApiCredentialCustody,
+              } = await import("./builder-api-auth.js");
+              builderConfigured = await hasBuilderApiCredentialCustody();
+              builderUploadConfigured = await canAuthorizeBuilderApiRequest(
+                BUILDER_ASSETS_WRITE_SCOPE,
               );
             } catch {
-              // fall back to env check above
+              builderConfigured = false;
+              builderUploadConfigured = false;
             }
 
             const providers = await Promise.all(
@@ -3898,15 +3978,17 @@ export function createCoreRoutesPlugin(
             // builderConfigured so status reflects this specific request.
             const isBuilderEnvActive = active?.id === "builder";
             const configured = isBuilderEnvActive
-              ? builderConfigured
-              : !!active || builderConfigured;
+              ? builderUploadConfigured
+              : !!active || builderUploadConfigured;
             const activeProvider = isBuilderEnvActive
-              ? builderConfigured
+              ? builderUploadConfigured
                 ? { id: "builder", name: "Builder.io" }
                 : null
               : active
-                ? { id: active.id, name: active.name }
-                : builderConfigured
+                ? active.id === "builder" && !builderUploadConfigured
+                  ? null
+                  : { id: active.id, name: active.name }
+                : builderUploadConfigured
                   ? { id: "builder", name: "Builder.io" }
                   : null;
 
@@ -3915,6 +3997,9 @@ export function createCoreRoutesPlugin(
               activeProvider,
               providers,
               builderConfigured,
+              builderUploadConfigured,
+              builderReauthorizationRequired:
+                builderConfigured && !builderUploadConfigured,
             };
           };
 
@@ -4250,7 +4335,8 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      if (!options.disableMcpConnect) {
+      const mcpConnect = resolveCoreRoutesMcpOptions(options);
+      if (mcpConnect.connect) {
         getH3App(nitroApp).use(
           "/.well-known/oauth-protected-resource",
           defineEventHandler((event: H3Event) =>
@@ -4275,8 +4361,8 @@ export function createCoreRoutesPlugin(
             defineEventHandler(async (event: H3Event) => {
               const subpath = event.url?.pathname || "";
               return handleMcpOAuth(event, subpath, {
-                appId: options.mcpConnectAppId,
-                appName: options.mcpConnectAppName ?? getAppName(),
+                appId: mcpConnect.appId,
+                appName: mcpConnect.appName,
               });
             }),
           );
@@ -4292,9 +4378,9 @@ export function createCoreRoutesPlugin(
         // The auth guard bypasses ONLY the page + device/start + device/poll
         // (see createAuthGuardFn in auth.ts).
         const mcpConnectOpts = {
-          appId: options.mcpConnectAppId,
-          appName: options.mcpConnectAppName ?? getAppName(),
-          serverName: options.mcpConnectServerName,
+          appId: mcpConnect.appId,
+          appName: mcpConnect.appName,
+          serverName: mcpConnect.serverName,
         };
         for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
           getH3App(nitroApp).use(
@@ -4315,7 +4401,7 @@ export function createCoreRoutesPlugin(
       // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
       // links the verified email into this app's local Better Auth store. The
       // handler fails closed unless direct web SSO is configured or the
-      // packaged Desktop SSO Canary requests a canonical Agent Native app.
+      // packaged Desktop SSO Canary requests a canonical Agent-Native app.
       // Mounting the handler unconditionally lets that request-scoped decision
       // work.
       getH3App(nitroApp).use(

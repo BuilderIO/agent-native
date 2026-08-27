@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   listWorkspaceConnectionProviders,
   type WorkspaceConnectionCapability,
@@ -9,6 +9,7 @@ import {
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
 import {
+  CredentialStoreUnavailableError,
   hasWorkspaceProviderOAuthCredentials,
   isGoogleWorkspaceOAuthProvider,
 } from "@agent-native/core/server";
@@ -50,7 +51,7 @@ type GrantSummary = {
   lastUsedAt?: string | null;
 };
 
-type GoogleOAuthAvailability = "configured" | "unconfigured";
+type GoogleOAuthAvailability = "configured" | "unconfigured" | "unavailable";
 
 function unique(values: string[]) {
   return Array.from(
@@ -129,10 +130,17 @@ export default defineAction({
         | WorkspaceConnectionTemplateUse
         | undefined,
     });
-    const googleOAuthAvailability: GoogleOAuthAvailability =
-      (await hasWorkspaceProviderOAuthCredentials("gmail"))
+    let googleOAuthAvailability: GoogleOAuthAvailability;
+    try {
+      googleOAuthAvailability = (await hasWorkspaceProviderOAuthCredentials(
+        "gmail",
+      ))
         ? "configured"
         : "unconfigured";
+    } catch (error) {
+      if (!(error instanceof CredentialStoreUnavailableError)) throw error;
+      googleOAuthAvailability = "unavailable";
+    }
     const googleOAuthConfigured = googleOAuthAvailability === "configured";
     const providers = catalogProviders.filter(
       (provider) =>
@@ -274,7 +282,7 @@ export default defineAction({
       availability: {
         googleOAuth: {
           status: googleOAuthAvailability,
-          retryable: false,
+          retryable: googleOAuthAvailability === "unavailable",
         },
       },
       providers: providersWithReadiness,

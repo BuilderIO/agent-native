@@ -31,10 +31,9 @@ Read the relevant skill before deeper work:
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
-- When improving an uploaded PPTX or PDF, import it into the target deck first.
-  Treat `sourceImport` as the source-of-truth contract: preserve slide count,
-  order, IDs, copy, notes, images, and positioned objects; verify with
-  `get-deck`.
+- New-deck attachments are reference context. Import into a deck only after an
+  explicit user request or Import control; explicit imports follow `sourceImport`,
+  preserve structure, and are verified with `get-deck`.
 - A source import with `fidelity: partial` or `imagesSkipped` is not safe to
   restyle automatically. Report the exact warning rather than silently
   replacing missing content.

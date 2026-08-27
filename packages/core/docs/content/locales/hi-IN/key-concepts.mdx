@@ -354,6 +354,8 @@ graph LR
 
 जब agent data बदलता है, तो UI को उसे बिना manual refresh के reflect करना होता है। `useDbSync()` इसे automatic बनाता है। Same-process writes `/_agent-native/events` पर stream होते हैं; `/_agent-native/poll` cross-process और serverless fallback बना रहता है। जब agent database (application state, settings, या domain data) में लिखता है, तो एक version counter बढ़ता है और client relevant React Query caches को invalidate कर देता है।
 
+SSE, WebSockets के बजाय common case को cover करता है, क्योंकि यह same-process writes को plain HTTP के ज़रिए browser तक तुरंत पहुंचने का रास्ता देता है, जबकि version-counter poll एक fallback के रूप में बना रहता है जो serverless और edge सहित हर deployment environment में काम करता है, जहां persistent sockets उपलब्ध नहीं हो सकते।
+
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
 import { useDbSync } from "@agent-native/core/client/hooks";

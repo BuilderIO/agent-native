@@ -46,6 +46,10 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
+import {
+  DEFAULT_THINKING_DISPLAY,
+  type ThinkingDisplay,
+} from "../../shared/thinking-display.js";
 import { getActiveRun } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
@@ -79,6 +83,7 @@ import {
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
+import { useThinkingDisplay } from "../thinking-display.js";
 import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
@@ -108,6 +113,7 @@ import {
   ChatRunningTurnIdContext,
   ChatRunDurationContext,
   ReasoningCell,
+  RanToolsSummary,
   useLocalizedWorkedDuration,
   WorkedForSummary,
   toolCallHasPendingApproval,
@@ -1300,6 +1306,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal,
   hasUnresolvedTool,
   hasActiveTool,
+  userStoppedRun,
 }: {
   isLast: boolean;
   chatRunning: boolean;
@@ -1311,6 +1318,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
   hasActiveTool?: boolean;
+  userStoppedRun?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
   const ownsActiveTurn =
@@ -1326,10 +1334,10 @@ export function shouldShowAssistantMessageFooter({
     messageRunId != null &&
     activeRunId === messageRunId;
   const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
-  if (chatRunning && ownsActiveRun) return false;
-  if (hasActiveTool) return false;
+  if (chatRunning && ownsActiveRun && !userStoppedRun) return false;
+  if (hasActiveTool && !userStoppedRun) return false;
   if (!isLast) return true;
-  if (hasUnresolvedTool) return false;
+  if (hasUnresolvedTool && !userStoppedRun) return false;
   return statusIsTerminal;
 }
 
@@ -1341,8 +1349,9 @@ export function shouldShowAssistantMessageFooter({
  */
 export const ServerRunActiveContext = React.createContext(false);
 export const UserStoppedRunContext = React.createContext<
-  (runId?: string) => boolean
+  (runId?: string, turnId?: string) => boolean
 >(() => false);
+export const ExternalUserStoppedRunContext = React.createContext(false);
 
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
@@ -1493,14 +1502,19 @@ export function isAlwaysVisibleAssistantTool(part: {
   );
 }
 
-export function isCollapsibleAssistantWorkPart(part: {
-  type?: string;
-  toolName?: string;
-  chatUI?: unknown;
-  mcpApp?: unknown;
-  approval?: { approvalKey?: string; dismissed?: boolean };
-}): boolean {
-  if (part.type === "reasoning") return true;
+export function isCollapsibleAssistantWorkPart(
+  part: {
+    type?: string;
+    toolName?: string;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+    approval?: { approvalKey?: string; dismissed?: boolean };
+  },
+  thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
+): boolean {
+  // Hidden reasoning renders nothing, so counting it as work would wrap a
+  // reasoning-only turn in an empty "Worked for…" disclosure.
+  if (part.type === "reasoning") return thinkingDisplay !== "hidden";
   return (
     part.type === "tool-call" &&
     !isAlwaysVisibleAssistantTool(part) &&
@@ -1549,36 +1563,42 @@ export function getAssistantToolSummaryInfo(
   };
 }
 
+export interface AssistantWorkPart {
+  type?: string;
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  chatUI?: unknown;
+  mcpApp?: unknown;
+  approval?: { approvalKey?: string; dismissed?: boolean };
+}
+
 export function groupAssistantWorkParts(
-  part: {
-    type?: string;
-    toolCallId?: string;
-    toolName?: string;
-    args?: Record<string, unknown>;
-    chatUI?: unknown;
-    mcpApp?: unknown;
-    approval?: { approvalKey?: string; dismissed?: boolean };
-  },
+  part: AssistantWorkPart,
   index: number,
-  parts: readonly {
-    type?: string;
-    toolCallId?: string;
-    toolName?: string;
-    args?: Record<string, unknown>;
-    chatUI?: unknown;
-    mcpApp?: unknown;
-    approval?: { approvalKey?: string; dismissed?: boolean };
-  }[],
-): ["group-work"] | null {
+  parts: readonly AssistantWorkPart[],
+  thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
+): ["group-work"] | ["group-work", "group-ran-tools"] | null {
+  const toolSummary = getAssistantToolSummaryInfo(parts);
+  const isOlderToolWork =
+    toolSummary.startIndex >= 0 &&
+    index < toolSummary.startIndex &&
+    (isCollapsibleAssistantWorkPart(part, thinkingDisplay) ||
+      isCallAgentToolCallShadowed(parts, index));
+  const groupKey: ["group-work"] | ["group-work", "group-ran-tools"] =
+    isOlderToolWork ? ["group-work", "group-ran-tools"] : ["group-work"];
+
   if (isCallAgentToolCallShadowed(parts, index)) {
     const previousPart = parts[index - 1];
     const previousPartIsInWorkGroup =
       previousPart != null &&
-      (isCollapsibleAssistantWorkPart(previousPart) ||
+      (isCollapsibleAssistantWorkPart(previousPart, thinkingDisplay) ||
         isCallAgentToolCallShadowed(parts, index - 1));
-    return previousPartIsInWorkGroup ? ["group-work"] : null;
+    return previousPartIsInWorkGroup ? groupKey : null;
   }
-  if (isCollapsibleAssistantWorkPart(part)) return ["group-work"];
+  if (isCollapsibleAssistantWorkPart(part, thinkingDisplay)) {
+    return groupKey;
+  }
   return null;
 }
 
@@ -1719,8 +1739,21 @@ export function AssistantMessage() {
   const messageRunId = assistantMessageRunId(msg);
   const messageTurnId = assistantMessageTurnId(msg);
   const userStoppedRun = React.useContext(UserStoppedRunContext);
+  const externalUserStopped = React.useContext(ExternalUserStoppedRunContext);
   const isUserStoppedRun =
-    assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
+    assistantMessageWasUserStopped(msg) ||
+    userStoppedRun(messageRunId, messageTurnId) ||
+    (externalUserStopped && isLast);
+  const thinkingDisplay = useThinkingDisplay();
+  const groupWorkParts = useCallback(
+    (
+      part: AssistantWorkPart,
+      index: number,
+      parts: readonly AssistantWorkPart[],
+    ): ["group-work"] | ["group-work", "group-ran-tools"] | null =>
+      groupAssistantWorkParts(part, index, parts, thinkingDisplay),
+    [thinkingDisplay],
+  );
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const hasActiveTool = assistantMessageHasActiveTool(msg.content);
@@ -1767,7 +1800,10 @@ export function AssistantMessage() {
           ? t("agentChat.message.missingFinal")
           : null));
   const animateMissingFinalResponse = Boolean(
-    isLast && missingFinalResponseNoticeText && wasLiveRef.current,
+    !isUserStoppedRun &&
+    isLast &&
+    missingFinalResponseNoticeText &&
+    wasLiveRef.current,
   );
   const missingFinalResponseAnimationKey = animateMissingFinalResponse
     ? missingFinalResponseNoticeText
@@ -1823,6 +1859,7 @@ export function AssistantMessage() {
       statusIsTerminal,
       hasUnresolvedTool,
       hasActiveTool,
+      userStoppedRun: isUserStoppedRun,
     });
   const cpCtx = React.useContext(CheckpointContext);
 
@@ -1928,6 +1965,9 @@ export function AssistantMessage() {
 
   // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
+  const assistantToolSummary = getAssistantToolSummaryInfo(
+    Array.isArray(msgContent) ? msgContent : [],
+  );
   const hasCodeAgentTools =
     Array.isArray(msgContent) &&
     msgContent.some(
@@ -1943,14 +1983,14 @@ export function AssistantMessage() {
       (p, index) =>
         !isCallAgentToolCallShadowed(msgContent, index) &&
         (p.type !== "tool-call" || p.activity !== true) &&
-        isCollapsibleAssistantWorkPart(p),
+        isCollapsibleAssistantWorkPart(p, thinkingDisplay),
     );
   const firstWorkPartIndex = Array.isArray(msgContent)
     ? msgContent.findIndex(
         (p, index) =>
           !isCallAgentToolCallShadowed(msgContent, index) &&
           (p.type !== "tool-call" || p.activity !== true) &&
-          isCollapsibleAssistantWorkPart(p),
+          isCollapsibleAssistantWorkPart(p, thinkingDisplay),
       )
     : -1;
   const shadowedToolCallIds = Array.isArray(msgContent)
@@ -1977,7 +2017,7 @@ export function AssistantMessage() {
           />
         )}
         <ToolCallStackMotion>
-          <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
+          <MessagePrimitive.GroupedParts groupBy={groupWorkParts}>
             {({ part, children }) => {
               switch (part.type) {
                 case "group-work": {
@@ -2004,6 +2044,15 @@ export function AssistantMessage() {
                     </WorkedForSummary>
                   );
                 }
+                case "group-ran-tools":
+                  return (
+                    <RanToolsSummary
+                      toolCount={assistantToolSummary.hiddenToolCount}
+                      motionKey={`assistant-${msg.id}`}
+                    >
+                      {children}
+                    </RanToolsSummary>
+                  );
                 case "text":
                   if (
                     isUserStoppedRun &&

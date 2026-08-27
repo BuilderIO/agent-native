@@ -4,6 +4,7 @@ import {
   BinaryDocumentAttachmentAdapter,
   isTextLikeFile,
   serializeAttachmentContentPart,
+  serializeQueuedAttachments,
 } from "./attachment-adapters.js";
 
 describe("BinaryDocumentAttachmentAdapter", () => {
@@ -51,5 +52,38 @@ describe("serializeAttachmentContentPart", () => {
       mimeType: "application/pdf",
       filename: "report.pdf",
     });
+  });
+});
+
+describe("serializeQueuedAttachments", () => {
+  it("keeps display-only file descriptors without reading file bytes", async () => {
+    await expect(
+      serializeQueuedAttachments([
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          displayOnly: true,
+        },
+        {
+          type: "file",
+          name: "pasted-text-1.txt",
+          contentType: "text/plain",
+          displayOnly: true,
+          text: "pasted outline",
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        name: "reference.pdf",
+        content: [],
+        metadata: { displayOnly: true },
+      }),
+      expect.objectContaining({
+        name: "pasted-text-1.txt",
+        content: [{ type: "text", text: "pasted outline" }],
+        metadata: { displayOnly: true },
+      }),
+    ]);
   });
 });

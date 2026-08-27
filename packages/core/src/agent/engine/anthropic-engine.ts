@@ -34,6 +34,7 @@ import {
   splitSystemPromptForCache,
   stablePrefixCacheControl,
 } from "./prompt-cache.js";
+import { createProviderToolNameMap } from "./tool-name.js";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
@@ -83,8 +84,9 @@ class AnthropicEngine implements AgentEngine {
     // multiplies the two layers into ~12 HTTP requests per failed run.
     const client = new Anthropic({ apiKey: this.apiKey, maxRetries: 1 });
 
-    const tools = engineToolsToAnthropic(opts.tools);
-    const messages = engineMessagesToAnthropic(opts.messages);
+    const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const tools = engineToolsToAnthropic(opts.tools, toolNameMap);
+    const messages = engineMessagesToAnthropic(opts.messages, toolNameMap);
     const anthropicOpts = opts.providerOptions?.anthropic;
 
     // Resolved once so both max_tokens and the thinking-budget headroom
@@ -234,7 +236,11 @@ class AnthropicEngine implements AgentEngine {
         // The SDK's SSE parsing already drops `ping` keepalives before they
         // reach this loop, so any chunk here is real provider progress.
         firstEventAbort.markFirstEvent();
-        const events = anthropicChunkToEngineEvents(chunk, chunkState);
+        const events = anthropicChunkToEngineEvents(
+          chunk,
+          chunkState,
+          toolNameMap,
+        );
         for (const event of events) {
           observeStreamedToolInput(toolInputs, event);
           yield event;
@@ -242,7 +248,10 @@ class AnthropicEngine implements AgentEngine {
       }
 
       const finalMessage = await apiStream.finalMessage();
-      const assistantContent = anthropicContentToEngine(finalMessage.content);
+      const assistantContent = anthropicContentToEngine(
+        finalMessage.content,
+        toolNameMap,
+      );
 
       // The final content can carry the same tool call with an empty input
       // even though the stream already delivered complete argument deltas.
@@ -275,14 +284,24 @@ class AnthropicEngine implements AgentEngine {
 
       // Emit usage
       if (finalMessage.usage) {
+        // Anthropic reports `input_tokens` EXCLUDING both cache fields — the
+        // opposite of OpenAI, and the opposite of what the `usage` event
+        // means. Passing it through under-reported the prompt (a fully cached
+        // turn read as ~3 tokens) and made `calculateCost` charge the cached
+        // tokens twice. Add them back so every engine emits one convention;
+        // `@ai-sdk/anthropic` normalizes its `inputTokens.total` the same way.
+        const cacheReadTokens = finalMessage.usage.cache_read_input_tokens ?? 0;
+        const cacheWriteTokens =
+          finalMessage.usage.cache_creation_input_tokens ?? 0;
         yield {
           type: "usage",
-          inputTokens: finalMessage.usage.input_tokens ?? 0,
+          inputTokens:
+            (finalMessage.usage.input_tokens ?? 0) +
+            cacheReadTokens +
+            cacheWriteTokens,
           outputTokens: finalMessage.usage.output_tokens ?? 0,
-          cacheReadTokens:
-            (finalMessage.usage as any).cache_read_input_tokens ?? 0,
-          cacheWriteTokens:
-            (finalMessage.usage as any).cache_creation_input_tokens ?? 0,
+          cacheReadTokens,
+          cacheWriteTokens,
         };
       }
 

@@ -165,4 +165,41 @@ describe("AppSyncState multi-app isolation", () => {
       orgId: "org-b",
     });
   });
+
+  it("matches owner-scoped events case-insensitively", () => {
+    const s = new AppSyncState({
+      getDb: () => makeDb(),
+      isPostgres: () => false,
+    });
+
+    expect(
+      s.canSeeChangeForUser(
+        { owner: "owner@example.com", resourceType: "deck", resourceId: "d1" },
+        "Owner@Example.com",
+        undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it("delivers public resource tombstones without resolving the deleted row", () => {
+    const resolveAccess = vi.fn(async () => null);
+    const s = new AppSyncState({
+      getDb: () => makeDb(),
+      isPostgres: () => false,
+      resolveAccess,
+    });
+
+    expect(
+      s.canSeeChangeForUser(
+        {
+          resourceType: "deck",
+          resourceId: "d1",
+          visibility: "public",
+        },
+        "viewer@example.com",
+        undefined,
+      ),
+    ).toBe(true);
+    expect(resolveAccess).not.toHaveBeenCalled();
+  });
 });

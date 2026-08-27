@@ -33,7 +33,10 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
-import { isActionExposedToExternalAgents } from "../action.js";
+import {
+  isActionContractError,
+  isActionExposedToExternalAgents,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -2291,8 +2294,17 @@ export async function createMCPServerForRequest(
               : {}),
           };
         } catch (err: any) {
+          // Same contract the in-app agent gets: the message the action wrote,
+          // plus the code it chose. `action_failed` is `fail()`'s stand-in for
+          // "the author picked none", so it adds nothing here.
+          const errorCode =
+            isActionContractError(err) && err.errorCode !== "action_failed"
+              ? ` (errorCode: ${err.errorCode})`
+              : "";
           return {
-            content: [{ type: "text", text: `Error: ${err.message}` }],
+            content: [
+              { type: "text", text: `Error: ${err.message}${errorCode}` },
+            ],
             isError: true,
           };
         }

@@ -28,6 +28,7 @@ import React, {
   useImperativeHandle,
   useMemo,
 } from "react";
+import { toast } from "sonner";
 
 import {
   Popover,
@@ -44,6 +45,7 @@ import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
 import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
+import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import {
   isClaudeCodeAgentId,
@@ -179,6 +181,7 @@ function composerReferenceFromMentionItem(
   return {
     label: item.label,
     icon: item.icon || "file",
+    media: item.media,
     source: item.source,
     refType: item.refType,
     refId: item.refId || null,
@@ -195,6 +198,7 @@ function mentionReferenceAttrs(ref: AgentComposerReference) {
   return {
     label: ref.label,
     icon: ref.icon || "file",
+    media: ref.media || null,
     source: ref.source,
     refType: ref.refType,
     refId: ref.refId || null,
@@ -738,7 +742,7 @@ export interface TiptapComposerProps {
   slashCommands?: SlashCommand[];
   /** Additional slash skills surfaced in the shared / menu. */
   slashSkills?: SkillResult[];
-  /** Include built-in sidebar slash commands like /clear and /help. Default true. */
+  /** Include built-in sidebar slash commands when onSlashCommand is provided. */
   includeDefaultSlashCommands?: boolean;
   /** Include app-discovered skills from the default agent endpoint. Default true. */
   includeDefaultSlashSkills?: boolean;
@@ -914,7 +918,7 @@ function ModeSelector({
   const resolvedPlanModeDisabledReason =
     planModeDisabledReason ??
     t("agentChat.composer.planDesktopRequired", {
-      defaultValue: "Open Agent Native Desktop to use Plan mode.",
+      defaultValue: "Open Agent-Native Desktop to use Plan mode.",
     });
 
   return (
@@ -1643,7 +1647,7 @@ function ModelSelector({
                           {hostedHarness
                             ? t("agentChat.composer.hostedHarnessDescription", {
                                 defaultValue:
-                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent Native Desktop.",
+                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent-Native Desktop.",
                               })
                             : t("agentChat.composer.harnessAgentDescription", {
                                 defaultValue:
@@ -2352,14 +2356,14 @@ export function TiptapComposer({
     isLoading: skillsLoading,
   } = useSkills(includeDefaultSlashSkills && popover?.type === "/");
 
-  const allSlashCommands = useMemo(
-    () =>
-      mergeSlashCommands([
-        ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
-        ...slashCommands,
-      ]),
-    [includeDefaultSlashCommands, slashCommands, t],
-  );
+  const allSlashCommands = useMemo(() => {
+    // A command without a host callback would be deleted as an invisible no-op.
+    if (!onSlashCommand) return [];
+    return mergeSlashCommands([
+      ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
+      ...slashCommands,
+    ]);
+  }, [includeDefaultSlashCommands, onSlashCommand, slashCommands, t]);
 
   const allSlashSkills = useMemo(
     () =>
@@ -2401,6 +2405,15 @@ export function TiptapComposer({
   filteredSkillsRef.current = filteredSkills;
   const onSlashCommandRef = useRef(onSlashCommand);
   onSlashCommandRef.current = onSlashCommand;
+  const announceSlashCommand = useCallback((command: SlashCommand) => {
+    const handler = onSlashCommandRef.current;
+    if (!handler) return;
+    handler(command.name);
+    toast.success(`/${command.name}`, {
+      description: command.description,
+      duration: 1800,
+    });
+  }, []);
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
   const contextItemsRef = useRef(contextItems);
@@ -3333,7 +3346,7 @@ export function TiptapComposer({
         const matched = allSlashCommands.find((c) => c.name === cmdName);
         if (matched) {
           clearEditorAfterSubmit();
-          onSlashCommandRef.current?.(matched.name);
+          announceSlashCommand(matched);
           return;
         }
       }
@@ -3458,6 +3471,7 @@ export function TiptapComposer({
       syncComposerState,
       voice,
       allSlashCommands,
+      announceSlashCommand,
       t,
     ],
   );
@@ -3492,7 +3506,7 @@ export function TiptapComposer({
     ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
     popoverStateRef.current = null;
     setPopover(null);
-    onSlashCommandRef.current?.(command.name);
+    announceSlashCommand(command);
   }
 
   function selectSkill(
@@ -3545,9 +3559,9 @@ export function TiptapComposer({
         .deleteRange({ from: deleteFrom, to: currentPos })
         .run();
       closePopover();
-      onSlashCommand?.(command.name);
+      announceSlashCommand(command);
     },
-    [editor, popover, closePopover, onSlashCommand],
+    [editor, popover, closePopover, announceSlashCommand],
   );
 
   const handleSelectSkill = useCallback(
@@ -3693,7 +3707,11 @@ export function TiptapComposer({
               key={ref.slotKey}
               className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground shadow-sm"
             >
-              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <MentionItemMedia
+                media={ref.media}
+                size="sm"
+                fallbackIcon="clipboard"
+              />
               {ref.slotLabel && (
                 <span className="shrink-0 text-muted-foreground">
                   {ref.slotLabel}

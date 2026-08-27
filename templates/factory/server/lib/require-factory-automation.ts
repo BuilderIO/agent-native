@@ -1,9 +1,11 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 
+import { getDb } from "../db/index.js";
 import {
   factoryAutomationLeafName,
   readAutomationFactoryId,
+  requireExistingFactory,
 } from "./factory-scope.js";
 import type { WorkspaceMemberIdentity } from "./require-workspace-member.js";
 
@@ -24,12 +26,6 @@ const FACTORY_AUTOMATION_NAMES = {
 } as const;
 
 export type FactoryAutomationRole = keyof typeof FACTORY_AUTOMATION_NAMES;
-
-function workspaceOwnerEmail(): string | undefined {
-  const email = process.env.WORKSPACE_OWNER_EMAIL?.trim().toLowerCase(); // guard:allow-env-credential - deployment owner identity, not a user credential
-  if (!email || /[\r\n]/.test(email)) return undefined;
-  return email;
-}
 
 export async function requireFactoryAutomation(
   context: ActionRunContext | undefined,
@@ -61,15 +57,13 @@ export async function requireFactoryAutomation(
       "organization",
     )
   ).find((entry) => entry.resource.id === lineage.triggerId);
-  const ownerEmail = workspaceOwnerEmail();
   if (
     !definition ||
     definition.name !== lineage.triggerName ||
     definition.meta.domain !== "factory" ||
     definition.meta.orgId !== identity.orgId ||
     definition.meta.runAs !== "creator" ||
-    !ownerEmail ||
-    definition.meta.createdBy?.trim().toLowerCase() !== ownerEmail
+    !definition.meta.createdBy?.trim()
   ) {
     throw new Error(
       "The action was not invoked by a governed Factory automation.",
@@ -86,5 +80,8 @@ export async function requireFactoryAutomation(
     throw new Error(
       "The action was not invoked by a governed Factory automation.",
     );
+  }
+  if (expectedFactoryId) {
+    await requireExistingFactory(getDb(), identity.orgId, expectedFactoryId);
   }
 }

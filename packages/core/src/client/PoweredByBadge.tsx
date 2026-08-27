@@ -47,7 +47,7 @@ const containerStyle = (
 const darkQuery = "(prefers-color-scheme: dark)";
 
 /**
- * Small branding badge: "Built with [Agent Native logo]"
+ * Small branding badge: "Built with [Agent-Native logo]"
  *
  * - Fixed position in the corner
  * - Subtle, semi-transparent
@@ -172,17 +172,17 @@ export function PoweredByBadge({
               }
             : containerStyle(position)
         }
-        aria-label="Built with Agent Native"
+        aria-label="Built with Agent-Native"
       >
         {!isPlain && <span>Built with</span>}
         <img
           src={logoOnLight}
-          alt="Agent Native"
+          alt="Agent-Native"
           className="an-powered-logo an-powered-logo-light"
         />
         <img
           src={logoOnDark}
-          alt="Agent Native"
+          alt="Agent-Native"
           className="an-powered-logo an-powered-logo-dark"
         />
       </a>

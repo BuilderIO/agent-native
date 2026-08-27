@@ -482,7 +482,7 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
     directMcpAppInit = (async () => {
       const result = await postJsonRpcRequest("ui/initialize", {
         protocolVersion: DIRECT_MCP_APP_PROTOCOL_VERSION,
-        appInfo: { name: "Agent Native App", version: "1.0.0" },
+        appInfo: { name: "Agent-Native App", version: "1.0.0" },
         appCapabilities: {
           availableDisplayModes: ["inline", "fullscreen", "pip"],
         },

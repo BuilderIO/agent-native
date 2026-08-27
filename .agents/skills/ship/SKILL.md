@@ -2,10 +2,11 @@
 name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes. GitHub Actions auto-deploys
-  beta and the docs site through the prebuilt publisher; other production
-  promotion is manual.
+  babysit it, merge when clean, merge safe Dependabot updates encountered in
+  the queue, then create a fresh branch. Use when the user asks to ship,
+  publish, or hand off local changes. GitHub Actions auto-deploys beta and the
+  docs site through the prebuilt publisher; other production promotion is
+  manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -35,6 +36,21 @@ Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
+
+When a ship run also reviews the open PR queue, it may merge a non-draft PR
+authored by the exact Dependabot bot login when the `review-prs` Dependabot
+merge exception passes. That exception is limited to patch/minor,
+dependency-only manifest/lockfile updates with clean mergeability, all
+required checks successful, no active review blocker, no ultra-scary security,
+data, or deployment risk, and no minor update for a major-version-0
+dependency. Satisfy any required approving review, then bind the normal
+protected merge to the expected head SHA with `--match-head-commit <sha>`; do
+not use an admin bypass. Any required approval must come from a verified
+BuilderIO human member who is not the PR author or a bot. Verify the
+approver's GitHub user type is `User` and
+`gh api orgs/BuilderIO/members/<login>` succeeds. This queue exception may
+skip the current branch's `/babysit-pr` soak, but it does not skip branch
+protection. Do not auto-merge other external PRs.
 
 ## Branch-wide Push
 
@@ -98,9 +114,10 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   already has an `👀` reaction from anyone, preserve that fact as an existing
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified `@agent-native` **Fixed**,
-  **In progress**, or **Clarification needed** disposition; an eye-only or
-  stale eye-only item remains actionable for that handoff check. For items
+  an actionable in-scope item, require a verified disposition from the
+  invoking Slack identity - **Fixed**, **In progress**, or **Clarification
+  needed**; an eye-only or stale eye-only item remains actionable for that
+  handoff check. For items
   routed to Sid or Alice, or classified as external, duplicate, deferred, or
   informational, honor that owning disposition and do not turn the eye into a
   merge blocker. If the reaction state is unavailable, record the item as
@@ -133,7 +150,8 @@ external, or unavailable/unverified - always re-read the complete source thread
 and current handoff and reconcile them for new replies, reactions, linked
 evidence, resolution, or ownership signals. The handoff is a prior record, not
 the source of truth. After that refresh, if
-`@agent-native` or another participant already supplied the needed details,
+the invoking Slack identity, a legacy `@agent-native` message, or another
+participant already supplied the needed details,
 identified the cause, linked a fix, or said the issue is fixed, landed, or being
 fixed, do not reopen it as a clarification request or ask for duplicate
 information. Carry it as fixed pending verification, already owned, or in
@@ -170,7 +188,8 @@ workflow's ownership. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
 parent marked with `👀` is not thereby complete or non-actionable: preserve the
 reaction without duplicating it, and for actionable in-scope items do not merge
-while an eye-only or stale eye-only item lacks a verified bot disposition.
+while an eye-only or stale eye-only item lacks a verified disposition from the
+invoking Slack identity.
 
 ## Worktree and branch setup
 
@@ -260,6 +279,17 @@ branch, stay on it.
    requirements are simultaneously true for 10 consecutive minutes:
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
+
+   If this invocation also found a Dependabot PR, apply the dedicated
+   `review-prs` exception above and merge each qualifying update with its
+   expected head SHA. Immediately before each merge, re-read the current head,
+   review state, mergeability, and checks; obtain any required approval from a
+   verified BuilderIO human member other than the PR author or a bot, after
+   verifying the GitHub user type is `User` and organization membership with
+   `gh api orgs/BuilderIO/members/<login>`. Then run:
+   `gh pr merge <number> --squash --match-head-commit <sha>` without `--admin`.
+   Re-read each PR after merging and record its result; never use this path to
+   bypass a failed or unavailable check.
 
 8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,

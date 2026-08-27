@@ -140,10 +140,13 @@ const messages = {
     pageTitle: "Meeting · Clips",
   },
   recordingPage: {
+    back: "Back",
+    done: "Done",
     untitledClip: "Untitled Clip",
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
     backToLibrary: "Back to library",
+    sharedWithYou: "Shared with you",
     storageStillDisconnected: "Storage still isn't connected",
     finishBuilderOrS3:
       "Finish the Builder.io popup or configure S3-compatible storage, then try again.",
@@ -204,8 +207,6 @@ const messages = {
     retryImport: "Retry import",
     retryUpload: "Retry upload",
     checkAgain: "Check again",
-    back: "Back",
-    done: "Done",
     edit: "Edit",
     aiTools: "AI tools",
     enhanceRecording: "Enhance this recording",
@@ -491,7 +492,9 @@ const messages = {
     agentPrompt:
       "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
     agentTokenDescription:
-      "This temporary agent URL lets agents read the clip without making it public. It expires after two hours.",
+      "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
+    agentPublicDescription:
+      "Read-only link for agents. Works while the clip stays public.",
     agentLinkUnavailable: "Couldn't create the agent link.",
     retryAgentLink: "Retry",
     gifPreview: "GIF preview",
@@ -516,22 +519,33 @@ const messages = {
     autoplay: "Autoplay",
     startAt: "Start at (seconds)",
     embedCode: "Embed code",
+    copyEmbedCode: "Copy embed code",
+    more: "More",
   },
   shareUi: {
     owner: "Owner: {{email}}",
-    generalAccess: "General access",
-    restrictedLinkDescription:
-      "This link will only work for people who already have access.",
-    makingPublic: "Making public…",
-    makePublicAndCopy: "Make public and copy",
     copy: "Copy",
+    copied: "Copied",
+    copyLink: "Copy Link",
     addPeopleByEmail: "Add people by email",
     invite: "Invite",
     notifyPeople: "Notify people",
     peopleWithAccess: "People with access",
+    whoHasAccess: "Who has access",
+    canAccess: "Can access",
+    onlyYou: "Only you",
+    othersCount_one: "{{email}} + {{count}} other",
+    othersCount_other: "{{email}} + {{count}} others",
     ownerRole: "Owner",
     remove: "Remove",
     noAccessYet: "No one has access yet.",
+    selectAccess: "Select access",
+    accessOptions: {
+      public: "Anyone with the link can view",
+      org: "Anyone in {{orgName}} can view",
+      orgFallback: "Anyone in your organization can view",
+      private: "Only people invited can view",
+    },
     visibility: {
       private: {
         label: "Private",
@@ -988,8 +1002,6 @@ const messages = {
     editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
-    mentionSomeone: "Mention someone",
-    addEmoji: "Add emoji",
   },
   shareMeeting: {
     pageTitle: "Meeting notes · Clips",
@@ -1526,6 +1538,7 @@ const messages = {
     invite: "Invite",
     inviteFailed: "Couldn't invite person",
     removePersonFailed: "Couldn't remove person",
+    permissionUpdateFailed: "Couldn't update permission",
     passwordProtectedDescription:
       "This video is protected. Enter the password to watch.",
     password: "Password",

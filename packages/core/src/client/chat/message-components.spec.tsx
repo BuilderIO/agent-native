@@ -355,6 +355,34 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
+  it("shows controls for a response explicitly stopped with pending tool state", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows stopped controls while the active response is still settling", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: true,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
@@ -1011,6 +1039,22 @@ describe("isCollapsibleAssistantWorkPart", () => {
     expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
   });
 
+  it("stops counting reasoning as work once thinking is hidden", () => {
+    // Otherwise a reasoning-only turn renders an empty "Worked for…" wrapper.
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "hidden"),
+    ).toBe(false);
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "expanded"),
+    ).toBe(true);
+    expect(
+      isCollapsibleAssistantWorkPart(
+        { type: "tool-call", toolName: "read-file" },
+        "hidden",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps custom UI outside collapsed work", () => {
     expect(
       isCollapsibleAssistantWorkPart({
@@ -1130,6 +1174,41 @@ describe("groupAssistantWorkParts", () => {
 
     expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
     expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
+  });
+
+  it("leaves hidden reasoning out of the work group", () => {
+    const parts = [
+      { type: "reasoning" },
+      { type: "tool-call", toolCallId: "tc_1", toolName: "read-file" },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "hidden")).toBeNull();
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "collapsed")).toEqual([
+      "group-work",
+    ]);
+    expect(groupAssistantWorkParts(parts[1], 1, parts, "hidden")).toEqual([
+      "group-work",
+    ]);
+  });
+
+  it("collapses older tool calls while keeping the newest three visible", () => {
+    const parts = [
+      { type: "tool-call", toolName: "docs-search" },
+      { type: "tool-call", toolName: "framework-search" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([
+      ["group-work", "group-ran-tools"],
+      ["group-work", "group-ran-tools"],
+      ["group-work"],
+      ["group-work"],
+      ["group-work"],
+    ]);
   });
 });
 

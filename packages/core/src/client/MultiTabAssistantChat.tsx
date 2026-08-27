@@ -13,6 +13,7 @@ import React, {
 } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import type { AgentChatAttachment } from "../agent/types.js";
 import {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
@@ -98,6 +99,7 @@ interface ModelSelection {
 interface PendingSend {
   message: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
@@ -124,10 +126,16 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
+  if (
+    send.trackInRunsTray ||
+    send.requestMode ||
+    send.submitMessageId ||
+    send.attachments
+  ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.attachments ? { attachments: send.attachments } : {}),
       ...(send.submitMessageId
         ? { submitMessageId: send.submitMessageId }
         : {}),
@@ -178,7 +186,17 @@ function resolveModelSelection(
   selection: ModelSelection | undefined,
   groups: EngineModelGroup[],
 ): ModelSelection | undefined {
-  if (!selection?.model) return undefined;
+  if (!selection?.model) {
+    const group = groups.find((candidate) => candidate.configured);
+    const model = group?.models[0];
+    return group && model
+      ? {
+          model,
+          engine: group.engine,
+          effort: resolveReasoningEffortSelection(model, undefined),
+        }
+      : undefined;
+  }
   // Engine precedence turns on whether the catalog OFFERS the supplied engine,
   // not on whether that engine advertises this model:
   //   offered      → honor it. A gateway's advertised list is its built-in
@@ -1847,6 +1865,7 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        attachments,
         submitMessageId,
       } = parsed;
       const requestedTabId = parsed.tabId;
@@ -1876,6 +1895,7 @@ export function MultiTabAssistantChat({
       const send: PendingSend = {
         message: fullMessage,
         images,
+        attachments,
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
@@ -2844,6 +2864,8 @@ export function MultiTabAssistantChat({
           )
           .map((tabId) => {
             const modelSelection = resolveThreadModelSelection(tabId);
+            const modelSelectionPending =
+              !hostManagedModels && modelListLoading && !modelSelection;
             const tabDynamicSuggestions =
               tabId === activeThreadId && !contentHidden
                 ? props.dynamicSuggestions
@@ -2933,11 +2955,15 @@ export function MultiTabAssistantChat({
                   // sub-agent tab would start a fresh run on that thread and kill
                   // the in-flight team chunk. Disable the composer and show a
                   // hint so users know to send via the orchestrator chat instead.
-                  composerDisabled={Boolean(parentMap[tabId])}
+                  composerDisabled={
+                    Boolean(parentMap[tabId]) || modelSelectionPending
+                  }
                   composerDisabledPlaceholder={
                     parentMap[tabId]
                       ? translate("agentChat.composer.subAgentReadOnly")
-                      : undefined
+                      : modelSelectionPending
+                        ? translate("agentChat.composer.loadingModels")
+                        : undefined
                   }
                 />
               </div>

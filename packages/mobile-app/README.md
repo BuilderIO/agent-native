@@ -1,4 +1,23 @@
-# Agent Native mobile app
+# Agent-Native mobile app
+
+## CI build checks
+
+Pull requests that change the mobile app or its shared workspace dependencies
+run `.github/workflows/mobile-build-check.yml`. The workflow exports production
+JavaScript bundles for both platforms and compiles an Android debug APK on
+Linux. It does not publish artifacts or require store credentials.
+
+The iOS pull-request lane stops at the production bundle. Expo SDK 57.0.6 has a
+known native compile failure with the Xcode 26.x toolchains available to hosted
+CI, so an iOS compile job would currently be a permanently red gate rather than
+useful validation. Restore an unsigned Simulator `xcodebuild` lane after the app
+upgrades to an Expo patch that supports the selected hosted Xcode version.
+
+The pull-request check disables remote-push entitlements and Apple app
+extensions so forks and contributors can run it without signing access. Use an
+EAS `preview` or `production` build to verify signing, push entitlements,
+widgets, the keyboard, broadcast upload, Watch target, and installability on a
+physical device. See `IOS_RELEASE.md` for the iOS credential bootstrap.
 
 ## Local iOS auth harness
 

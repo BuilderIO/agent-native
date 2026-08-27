@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -31,6 +31,7 @@ function parseMentions(value: string | null): Mention[] {
 
 export default defineAction({
   description: "List all comments on a document, grouped by thread.",
+  deferLoading: false,
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
   }),

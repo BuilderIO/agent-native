@@ -205,6 +205,12 @@ const messages = {
       successMessage: "رسالة النجاح",
       defaultSuccessMessage: "شكرا لك! تم تسجيل ردك.",
       redirectUrl: "رابط إعادة التوجيه (اختياري)",
+      completionMode: "بعد الإرسال",
+      completionMessage: "عرض الرسالة حتى التحديث",
+      completionRedirect: "إعادة التوجيه إلى عنوان URL",
+      completionMessageThenRefresh: "عرض الرسالة ثم التحديث",
+      completionRefresh: "التحديث بنموذج جديد",
+      completionRefreshSeconds: "التحديث بعد (بالثواني)",
       anonymousResponses: "ردود مجهولة الهوية",
       anonymousResponsesDescription:
         "عدم الاحتفاظ بعناوين IP أو هوية المجيب أو بيانات المصدر الوصفية.",

@@ -139,10 +139,13 @@ const messages = {
     pageTitle: "اجتماع · Clips",
   },
   recordingPage: {
+    back: "خلف",
+    done: "تم",
     untitledClip: "مقطع بدون عنوان",
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
     backToLibrary: "العودة إلى المكتبة",
+    sharedWithYou: "تمت مشاركته معك",
     storageStillDisconnected: "وحدة التخزين لا تزال غير متصلة",
     finishBuilderOrS3:
       "قم بإنهاء النافذة المنبثقة Builder.io أو قم بتكوين مساحة تخزين S3، ثم حاول مرة أخرى.",
@@ -199,8 +202,6 @@ const messages = {
     retryImport: "أعد محاولة الاستيراد",
     retryUpload: "أعد محاولة التحميل",
     checkAgain: "تحقق مجددًا",
-    back: "خلف",
-    done: "تم",
     edit: "تحرير",
     aiTools: "أدوات الذكاء الاصطناعي",
     enhanceRecording: "تعزيز هذا التسجيل",
@@ -494,7 +495,8 @@ const messages = {
     agentPrompt:
       "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
     agentTokenDescription:
-      "يسمح URL المؤقت هذا للوكلاء بقراءة المقطع دون جعله عاما. تنتهي صلاحيته بعد ساعتين.",
+      "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
+    agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",
     agentLinkUnavailable: "تعذر إنشاء رابط الوكيل.",
     retryAgentLink: "إعادة المحاولة",
     gifPreview: "معاينة GIF",
@@ -519,16 +521,15 @@ const messages = {
     autoplay: "التشغيل التلقائي",
     startAt: "البدء عند (ثواني)",
     embedCode: "كود التضمين",
+    copyEmbedCode: "نسخ كود التضمين",
+    more: "المزيد",
     sharePlainTitle: "مشاركة {{title}}",
   },
   shareUi: {
     owner: "المالك: {{email}}",
-    generalAccess: "الوصول العام",
-    restrictedLinkDescription:
-      "سيعمل هذا الرابط فقط للأشخاص الذين لديهم وصول بالفعل.",
-    makingPublic: "جارٍ جعله عامًا…",
-    makePublicAndCopy: "جعله عامًا ونسخه",
     copy: "نسخ",
+    copied: "تم النسخ",
+    copyLink: "نسخ الرابط",
     addPeopleByEmail: "إضافة أشخاص بالبريد الإلكتروني",
     invite: "دعوة",
     notifyPeople: "إشعار الأشخاص",
@@ -536,6 +537,22 @@ const messages = {
     ownerRole: "المالك",
     remove: "إزالة",
     noAccessYet: "لا أحد لديه وصول حتى الآن.",
+    whoHasAccess: "من يملك حق الوصول",
+    canAccess: "يمكنه الوصول",
+    onlyYou: "أنت فقط",
+    othersCount_zero: "{{email}} ({{count}})",
+    othersCount_one: "{{email}} + {{count}} آخر",
+    othersCount_two: "{{email}} + {{count}} آخرين",
+    othersCount_few: "{{email}} + {{count}} آخرين",
+    othersCount_many: "{{email}} + {{count}} آخرًا",
+    othersCount_other: "{{email}} + {{count}} آخرين",
+    selectAccess: "اختر الوصول",
+    accessOptions: {
+      public: "يمكن لأي شخص لديه الرابط العرض",
+      org: "يمكن لأي شخص في {{orgName}} العرض",
+      orgFallback: "يمكن لأي شخص في مؤسستك العرض",
+      private: "يمكن للأشخاص المدعوين فقط العرض",
+    },
     visibility: {
       private: {
         label: "خاص",
@@ -1001,8 +1018,6 @@ const messages = {
     editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
-    mentionSomeone: "أذكر شخصًا",
-    addEmoji: "أضف رمزًا تعبيريًا",
   },
   shareMeeting: {
     pageTitle: "ملاحظات الاجتماع · Clips",
@@ -1544,6 +1559,7 @@ const messages = {
     invite: "دعوة",
     inviteFailed: "تعذرت دعوة الشخص",
     removePersonFailed: "تعذرت إزالة الشخص",
+    permissionUpdateFailed: "تعذر تحديث الإذن",
     passwordProtectedDescription:
       "هذا الفيديو محمي. أدخل كلمة المرور للمشاهدة.",
     password: "كلمة المرور",

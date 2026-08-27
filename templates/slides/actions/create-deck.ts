@@ -24,6 +24,10 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import {
+  ensureUniqueSlideIds,
+  rebindCreativeContextSlideLabels,
+} from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 
 const ReuseLabelSchema = z
@@ -93,7 +97,7 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Create a new deck, optionally already populated with slides, or atomically replace all slides in an existing deck. " +
+    "Create the real editable Agent-Native Slides deck, optionally already populated with slides, or atomically replace all slides in an existing deck. This is the primary Slides MCP write action: use it instead of creating or publishing a standalone HTML artifact with the host's file tools. Put slide markup in `slides[].content`; this action persists it and returns an Open in Slides link. " +
     "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
@@ -159,6 +163,16 @@ export default defineAction({
   }) => {
     const db = getDb();
     const now = new Date().toISOString();
+    const normalizedSlides = ensureUniqueSlideIds(
+      rawSlides.map((s) => ({
+        ...s,
+        content: normalizeSlidePadding(s.content),
+      })),
+    );
+    const slides = rebindCreativeContextSlideLabels(
+      normalizedSlides.slides,
+      normalizedSlides.originalIds,
+    );
     const validatedCreativeContext = await validateGenerationCreativeContext({
       contextPackId,
       contextModeOverride,
@@ -166,7 +180,7 @@ export default defineAction({
         new Map(
           [
             ...reuseLabels,
-            ...rawSlides.flatMap(
+            ...slides.flatMap(
               (slide) => slide.creativeContextReuseLabels ?? [],
             ),
           ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
@@ -186,7 +200,7 @@ export default defineAction({
         ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
         label: label.label,
       })),
-      ...rawSlides.flatMap((slide) => {
+      ...slides.flatMap((slide) => {
         const labels = slide.creativeContextReuseLabels ?? [];
         return labels.length
           ? labels.map((label) => ({
@@ -206,7 +220,7 @@ export default defineAction({
               },
             ];
       }),
-      ...(reuseLabels.length === 0 && rawSlides.length === 0
+      ...(reuseLabels.length === 0 && slides.length === 0
         ? [
             {
               elementId: "deck",
@@ -217,10 +231,6 @@ export default defineAction({
         : []),
     ];
 
-    const slides = rawSlides.map((s) => ({
-      ...s,
-      content: normalizeSlidePadding(s.content),
-    }));
     const firstSlideContent = slides[0]?.content;
     const resolvedTitle =
       repairGeneratedDeckTitle(title, firstSlideContent) ?? title;

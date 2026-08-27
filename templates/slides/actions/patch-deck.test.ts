@@ -391,6 +391,25 @@ describe("applyOperation — patch-deck-fields", () => {
     expect(deck.designSystemId).toBeNull();
   });
 
+  it("persists generation context without changing slide content", () => {
+    const generationContext = {
+      originalPrompt: "Create a dark 6-slide deck",
+      targetSlideCount: 6,
+      files: [
+        { path: "/uploads/reference.png", originalName: "reference.png" },
+      ],
+    };
+    const deck = { title: "T", slides: [{ id: "s1", content: "source" }] };
+
+    applyOperation(deck, {
+      op: "patch-deck-fields",
+      fields: { generationContext },
+    });
+
+    expect(deck.generationContext).toEqual(generationContext);
+    expect(deck.slides[0].content).toBe("source");
+  });
+
   it("recovers an opaque title from the first slide", () => {
     const deck = {
       title: "Untitled Deck",
@@ -1106,6 +1125,68 @@ describe("run() — layout fit re-check", () => {
     });
     expect(result.layoutOverflow).toBeUndefined();
     expect(result.message).toBeUndefined();
+  });
+
+  it("broadcasts the changed slide for a single-slide agent patch", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
+      slideId: "slide-1",
+      actor: "agent",
+    });
+  });
+
+  it("does not target a mixed structural batch at one slide", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-2" },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("does not target a slide when deck fields are also patched", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "patch-deck-fields", fields: { title: "Updated deck" } },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
   it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {

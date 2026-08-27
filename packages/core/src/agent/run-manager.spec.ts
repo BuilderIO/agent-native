@@ -62,7 +62,6 @@ vi.mock("./run-store.js", () => ({
           type: "error",
           error: detail || "The agent run failed.",
           ...(code && code !== "unknown" ? { errorCode: code } : {}),
-          recoverable: true,
         },
         shouldPersist: true,
       };
@@ -3607,7 +3606,6 @@ describe("run manager soft timeout", () => {
       expect.objectContaining({
         type: "error",
         error: "Connection error.",
-        recoverable: true,
       }),
     );
   });

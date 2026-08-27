@@ -89,6 +89,45 @@ describe("Nitro dev startup recovery", () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it("settles readiness before the first document request", () => {
+    vi.useFakeTimers();
+    try {
+      const entry = {
+        id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
+        transformResult: { code: "entry" },
+      };
+      const environment = {
+        moduleGraph: { idToModuleMap: new Map([[entry.id, entry]]) },
+      };
+      let time = 0;
+      let middleware:
+        | ((req: unknown, res: unknown, next: () => void) => void)
+        | undefined;
+      _nitroStartupGate({ now: () => time, settleMs: 100 }).configureServer?.({
+        environments: { nitro: environment },
+        middlewares: {
+          use: vi.fn((handler) => {
+            middleware = handler;
+          }),
+        },
+      } as never);
+
+      // The interval observes readiness while no browser request is present.
+      time = 150;
+      vi.advanceTimersByTime(100);
+
+      const next = vi.fn();
+      middleware?.(
+        { headers: { accept: "text/html" }, method: "GET" },
+        { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+        next,
+      );
+      expect(next).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("turns a transient document error into a quiet retry page", () => {
     let middleware:
       | ((
@@ -445,16 +484,16 @@ describe("dev server mounted path helpers", () => {
     await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
 
     expect(next).not.toHaveBeenCalled();
-    expect(server.pluginContainer.load).toHaveBeenCalledWith(
+    expect(server.transformRequest).toHaveBeenCalledWith(
       "\0virtual:react-router/browser-manifest",
     );
-    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(server.pluginContainer.load).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith(
       "content-type",
       "text/javascript",
     );
     expect(res.end).toHaveBeenCalledWith(
-      'window.__loaded = "\\u0000virtual:react-router/browser-manifest";',
+      'export const url = "\\u0000virtual:react-router/browser-manifest";',
     );
   });
 

@@ -417,10 +417,8 @@ export function DesignSystemSetup({
     [t],
   );
 
-  const handleBuilderIndexUpload = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = "";
+  const processBuilderIndexFile = useCallback(
+    async (file: File | undefined) => {
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
         setBuilderIndexError(t("designSystemSetup.figFileRequired"));
@@ -466,6 +464,33 @@ export function DesignSystemSetup({
     },
     [companyName, t, startDecodePolling, stopDecodePolling],
   );
+
+  const handleBuilderIndexUpload = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      void processBuilderIndexFile(event.target.files?.[0]);
+      event.target.value = "";
+    },
+    [processBuilderIndexFile],
+  );
+
+  const handleBuilderIndexDrop = useCallback(
+    (event: React.DragEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void processBuilderIndexFile(event.dataTransfer.files?.[0]);
+    },
+    [processBuilderIndexFile],
+  );
+
+  const addImageFiles = useCallback((files: FileList) => {
+    const newFiles = Array.from(files).map((file) => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    }));
+    setImageFiles((previous) => [...previous, ...newFiles]);
+  }, []);
 
   const handleEditSave = async () => {
     if (!editingId || !existingDs) return;
@@ -808,6 +833,8 @@ export function DesignSystemSetup({
                         <button
                           type="button"
                           onClick={() => figInputRef.current?.click()}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={handleBuilderIndexDrop}
                           disabled={builderIndexing}
                           className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                         >
@@ -1153,6 +1180,12 @@ export function DesignSystemSetup({
                     </Label>
                     <button
                       onClick={() => imageInputRef.current?.click()}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        addImageFiles(event.dataTransfer.files);
+                      }}
                       className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                     >
                       <p className="text-xs text-muted-foreground">
@@ -1165,16 +1198,7 @@ export function DesignSystemSetup({
                       accept="image/*,.svg"
                       multiple
                       onChange={(e) => {
-                        if (!e.target.files) return;
-                        const newFiles = Array.from(e.target.files).map(
-                          (f) => ({
-                            id: crypto.randomUUID(),
-                            name: f.name,
-                            type: f.type,
-                            size: f.size,
-                          }),
-                        );
-                        setImageFiles((p) => [...p, ...newFiles]);
+                        if (e.target.files) addImageFiles(e.target.files);
                         e.target.value = "";
                       }}
                       className="hidden"
@@ -1448,12 +1472,6 @@ function BuilderSourceStatus({
           : sourceKind === "mixed"
             ? t("designSystemSetup.sourceMixed")
             : t("designSystemSetup.sourceBuilder");
-  const statusTitle =
-    state === "unavailable"
-      ? t("designSystemSetup.sourceUnavailable")
-      : state === "indexed"
-        ? t("designSystemSetup.sourceIndexed")
-        : t("designSystemSetup.sourceIndexing");
   const statusDescription =
     state === "unavailable"
       ? t("designSystemSetup.sourceUnavailableDescription")
@@ -1469,12 +1487,6 @@ function BuilderSourceStatus({
                   docs,
                   tokens,
                 });
-  const statusClassName =
-    state === "unavailable"
-      ? "text-destructive"
-      : state === "indexed"
-        ? "text-primary"
-        : "text-muted-foreground";
 
   return (
     <section
@@ -1495,20 +1507,6 @@ function BuilderSourceStatus({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {statusDescription}
           </p>
-        </div>
-        <div
-          className={cn(
-            "flex shrink-0 items-center gap-1.5 text-xs font-medium",
-            statusClassName,
-          )}
-          role="status"
-          aria-live="polite"
-        >
-          <span
-            className="size-1.5 rounded-full bg-current"
-            aria-hidden="true"
-          />
-          {statusTitle}
         </div>
       </div>
       {builder.builderUrl || onSync ? (

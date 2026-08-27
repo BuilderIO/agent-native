@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -37,6 +37,7 @@ export async function resolveNavigatePath(
 export default defineAction({
   description:
     "Navigate the UI to a document, database, or view. Use --path for URL paths, --documentId for pages, or --databaseId for database pages.",
+  deferLoading: false,
   schema: z.object({
     path: z
       .string()

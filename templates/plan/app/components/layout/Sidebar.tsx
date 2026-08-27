@@ -72,7 +72,7 @@ function buildBrandingCustomizationMessage(request: string) {
 }
 
 const navItems = [
-  { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
+  { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/chat" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
 ];
 
@@ -216,7 +216,7 @@ function PlanChatsSection({
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/chat");
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -536,6 +536,7 @@ export function Sidebar({
   onCollapsedChange,
 }: SidebarProps) {
   const location = useLocation();
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
   const returnPath = planReturnPathFromLocation(location);
@@ -652,13 +653,13 @@ export function Sidebar({
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive =
-            item.href === "/"
-              ? location.pathname === "/"
+            item.href === "/chat"
+              ? pathname === "/chat"
               : item.href === "/plans"
-                ? location.pathname.startsWith("/plans") ||
-                  location.pathname.startsWith("/recaps") ||
-                  location.pathname.startsWith("/local-plans")
-                : location.pathname.startsWith(item.href);
+                ? pathname.startsWith("/plans") ||
+                  pathname.startsWith("/recaps") ||
+                  pathname.startsWith("/local-plans")
+                : pathname.startsWith(item.href);
           const link = (
             <Link
               to={item.href}
@@ -681,7 +682,7 @@ export function Sidebar({
           return (
             <div key={item.href}>
               {link}
-              {item.href === "/" ? (
+              {item.href === "/chat" ? (
                 <PlanChatsSection collapsed={collapsed} open={isActive} />
               ) : null}
               {item.href === "/plans" && isActive ? (
@@ -695,7 +696,7 @@ export function Sidebar({
       <nav className="grid shrink-0 gap-1 px-2 py-1">
         {bottomNavItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname.startsWith(item.href);
+          const isActive = pathname.startsWith(item.href);
           const link = (
             <Link
               to={item.href}

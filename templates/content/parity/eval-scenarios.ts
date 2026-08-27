@@ -8,9 +8,61 @@ export interface ParityEvalScenario {
   prompt: string;
   successSignals: string[];
   expectedTools?: string[];
+  expectedPropertyValues?: Record<string, unknown>;
+  expectedPropertyTypes?: Record<string, string>;
+  expectedCreateEnvelope?: {
+    target: {
+      spaceId: string;
+      databaseId: string;
+      databaseDocumentId: string;
+    };
+    expectedSchemaRevision: string;
+    idempotencyKey: string;
+    title: string;
+  };
 }
 
 export const parityEvalScenarios: ParityEvalScenario[] = [
+  {
+    id: "database-create-property-preservation",
+    title: "Database create property preservation",
+    capabilityIds: ["database.rows"],
+    gateEnv: "CONTENT_PARITY_EVALS",
+    defaultState: "skipped",
+    requiresPrivateCredentials: false,
+    prompt:
+      "Find the fixture Content database titled PR #3314 feedback — do not treat 3314 as its database ID. Discover its exact database target and mutation contract through Content actions, then create exactly one row titled [FIXTURE] preserve explicit properties with idempotency key fixture-create-property-preservation-v1. Set Status to status-cannot-verify and Evidence to Baseline fixture preserve-me using the discovered immutable property IDs and property types. Omit authority identity because the authenticated server owns it. No Blocks value was requested. Call add-database-item once, then report its result truthfully.",
+    successSignals: [
+      "Discovers the exact database and mutation contract before creating.",
+      "Uses add-database-item once for the discovered stable target without authoring authority identity.",
+      "Preserves both explicitly requested writable property values.",
+      "Does not invent a Blocks value or another property.",
+      "Reports an action failure rather than claiming a row was created if the fixture is unavailable.",
+    ],
+    expectedTools: [
+      "list-content-databases",
+      "get-content-database",
+      "add-database-item",
+    ],
+    expectedPropertyValues: {
+      fixture_status_property: "status-cannot-verify",
+      fixture_evidence_property: "Baseline fixture preserve-me",
+    },
+    expectedPropertyTypes: {
+      fixture_status_property: "status",
+      fixture_evidence_property: "text",
+    },
+    expectedCreateEnvelope: {
+      target: {
+        spaceId: "fixture_personal_space",
+        databaseId: "fixture_feedback_database",
+        databaseDocumentId: "fixture_feedback_document",
+      },
+      expectedSchemaRevision: "fixture_schema_revision",
+      idempotencyKey: "fixture-create-property-preservation-v1",
+      title: "[FIXTURE] preserve explicit properties",
+    },
+  },
   {
     id: "database-bulk-row-reliability",
     title: "Bulk database row reliability",

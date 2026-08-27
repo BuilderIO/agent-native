@@ -29,6 +29,16 @@ describe("editor side panels", () => {
     expect(editorSource).not.toContain("SlideStyleInspector");
     expect(editorSource).not.toContain('data-slide-style-dock="true"');
   });
+
+  it("clears generic animation targets when the active slide changes", () => {
+    expect(pageSource).toContain(`useEffect(() => {
+    setAnimationTarget(null);
+  }, [activeSlideId]);`);
+    expect(pageSource).toContain(`const toggleAnimations = useCallback(() => {
+    setAnimationTarget(null);
+    setAnimationsOpen((open) => !open);
+  }, []);`);
+  });
 });
 
 describe("slide context toolbar", () => {

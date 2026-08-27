@@ -195,6 +195,7 @@ import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/crea
 import type {
   IframeContextMenuPayload,
   IframeHotkeyPayload,
+  IframeFigmaClipboardPastePayload,
   IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
@@ -207,6 +208,7 @@ import {
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
+import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import {
   mergeRotationValue,
@@ -237,12 +239,14 @@ import {
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
 import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
+import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import {
   beginEyedropperPick,
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsPanel } from "@/components/design/KeyboardShortcutsPanel";
 import {
   LayersPanel,
@@ -267,6 +271,10 @@ import {
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  designPreviewWindows,
+  requestSelectionMeasurement,
+} from "@/components/design/multi-screen/measure-selection";
 import type {
   CanvasLayerMarqueeSelection,
   CanvasPrimitiveInsert,
@@ -353,6 +361,7 @@ import {
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   isDesignHotkeyEditableTarget,
   isShowKeyboardShortcutsHotkey,
@@ -383,6 +392,7 @@ import { readDesignClipboardPayloadFromSystem } from "@/lib/design-clipboard";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
+  isAttemptedFigmaPaste,
 } from "@/lib/design-import";
 import {
   acknowledgeDesignSaveOutboxEntry,
@@ -395,6 +405,10 @@ import {
 } from "@/lib/design-save-outbox";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
+import {
+  dismissFigmaPasteImageNotice,
+  figmaPasteImageNoticeDismissed,
+} from "@/lib/figma-paste-image-notice";
 import {
   exportDesignAsFigmaSvg,
   type LiveFigmaSvgSnapshot,
@@ -822,6 +836,9 @@ export default function DesignEditorRoute() {
 function DesignEditor() {
   // ── Session, route params, design identity ─────────────────────────────────
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const { id } = useParams<{ id: string }>();
   const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
@@ -2411,7 +2428,6 @@ function DesignEditor() {
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
     [],
   );
-  const [figmaHydrationImageCount, setFigmaHydrationImageCount] = useState(0);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -2761,8 +2777,7 @@ function DesignEditor() {
   ]);
 
   const pendingGenerationActive =
-    hasPendingGeneration &&
-    !!readPendingGeneration(id) &&
+    (hasPendingGeneration || Boolean(readPendingGeneration(id))) &&
     !pendingQuestionsVisible;
 
   const { data: designResult, isLoading: designLoading } = useActionQuery<
@@ -3291,6 +3306,7 @@ function DesignEditor() {
           journalOutboxEntry,
           lastAckedFileContentHashRef,
           latestFileSaveForUnloadRef,
+          clearPendingLocalFileContent,
           markPendingLocalFileContent,
           queryClient,
           setPatchProof,
@@ -3304,6 +3320,7 @@ function DesignEditor() {
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
       journalOutboxEntry,
+      clearPendingLocalFileContent,
       markPendingLocalFileContent,
       queryClient,
       t,
@@ -4227,16 +4244,17 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    if (!id || files.length === 0) return;
+    if (!id) return;
     const pending = readPendingGeneration(id);
-    if (pending?.templateId) return;
+    if (!pending || pending.templateId) return;
+    if (!hasPendingGenerationOutput(pending, files)) return;
     clearGenerationCompleteTimer();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
     setGenerationIssue(null);
     setRetryablePrompt(null);
     staleToastShownRef.current = false;
-  }, [clearGenerationCompleteTimer, id, files.length]);
+  }, [clearGenerationCompleteTimer, files, id]);
 
   useEffect(
     () =>
@@ -9392,6 +9410,54 @@ function DesignEditor() {
   );
 
   // ── Style commit ───────────────────────────────────────────────────────────
+  // Hug/Fill resolve to a px width only inside the iframe, so the inspector
+  // has no current number until the bridge measures one. Reacting to the
+  // value rather than hooking each write path covers inspector commits,
+  // agent edits and undo alike.
+  const measureTargetSelector =
+    selectedElement && sizeNeedsMeasurement(selectedElement.computedStyles)
+      ? // The canonical source selector cannot address a live/localhost
+        // document — that is a different node-id namespace.
+        (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
+      : null;
+  const measureTargetScreenId = activeFile?.id ?? "";
+  // Keyed on the sizes themselves: switching an element between two keywords
+  // leaves the selector identical, and a failed measurement must retry.
+  const measureTargetKey = measureTargetSelector
+    ? [
+        measureTargetScreenId,
+        measureTargetSelector,
+        selectedElement?.computedStyles.width ?? "",
+        selectedElement?.computedStyles.height ?? "",
+      ].join("|")
+    : null;
+  useEffect(() => {
+    if (!measureTargetSelector || !measureTargetKey) return;
+    let cancelled = false;
+    void requestSelectionMeasurement({
+      targetWindows: designPreviewWindows,
+      screenId: measureTargetScreenId,
+      selector: measureTargetSelector,
+    }).then((measured) => {
+      if (cancelled || !measured) return;
+      setSelectedElement((prev) =>
+        prev &&
+        (prev.runtimeSelector ?? prev.selector) === measureTargetSelector
+          ? {
+              ...prev,
+              boundingRect: measured.boundingRect,
+              computedStyles: measured.computedStyles,
+              inlineStyles: measured.inlineStyles,
+            }
+          : prev,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measureTargetKey]);
+
   const commitVisualStyles = useCallback(
     (
       selector: string,
@@ -10560,9 +10626,7 @@ function DesignEditor() {
           id,
           navigate,
           queryClient,
-          setFigmaHydrationFileIds,
-          setFigmaHydrationImageCount,
-          setFigmaHydrationOpen,
+          showPastedImagesNotice,
           t,
         },
         content,
@@ -10570,11 +10634,57 @@ function DesignEditor() {
     [canEditDesign, id, navigate, queryClient, t],
   );
 
-  const handleCanvasFigmaClipboardPaste = useCallback(
-    ({ content }: { content: string }) => {
-      void importFigmaClipboardIntoDesign(content);
+  // One prompt for every path that can leave image placeholders behind: the
+  // clipboard paste and the import panel both land here, so they cannot drift
+  // into two different explanations of the same state.
+  const showPastedImagesNotice = useCallback(
+    ({ count, fileIds }: { count: number; fileIds: string[] }) => {
+      if (figmaPasteImageNoticeDismissed()) return;
+      toast.custom(
+        (toastId) => (
+          <FigmaPasteImagesNotice
+            count={count}
+            designId={id ?? ""}
+            fileIds={fileIds}
+            onConnect={() => {
+              setFigmaHydrationFileIds(fileIds);
+              setFigmaHydrationOpen(true);
+            }}
+            onDismissForever={dismissFigmaPasteImageNotice}
+            onHydrated={() => {
+              void queryClient.invalidateQueries({ queryKey: ["action"] });
+            }}
+            onClose={() => toast.dismiss(toastId)}
+          />
+        ),
+        { duration: Infinity },
+      );
     },
-    [importFigmaClipboardIntoDesign],
+    [id, queryClient],
+  );
+
+  const handleCanvasFigmaClipboardPaste = useCallback(
+    ({ content, html, text }: IframeFigmaClipboardPastePayload) => {
+      if (content) {
+        void importFigmaClipboardIntoDesign(content);
+        return;
+      }
+      // Same judgement the parent-document listener makes in runEditorPaste,
+      // on strings the bridge relayed because the event never left the iframe.
+      const relayed = {
+        getData: (type: string) =>
+          type === "text/html"
+            ? (html ?? "")
+            : type === "text/plain"
+              ? (text ?? "")
+              : "",
+      };
+      if (!isAttemptedFigmaPaste(relayed)) return;
+      toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+        description: t("designEditor.import.figmaPasteUnreadable"),
+      });
+    },
+    [importFigmaClipboardIntoDesign, t],
   );
 
   // Reads a File as a data URL, wrapped as a Promise so multi-file paste can
@@ -10805,6 +10915,7 @@ function DesignEditor() {
           importFigmaClipboardIntoDesign,
           lastWrittenClipboardMarkerRef,
           lastWrittenClipboardPlainTextRef,
+          t,
         },
         event,
       ),
@@ -10815,16 +10926,24 @@ function DesignEditor() {
       handlePastedImageFiles,
       hasCanvasClipboard,
       importFigmaClipboardIntoDesign,
+      t,
     ],
   );
 
+  // Same gate as useDesignHotkeys below, and for the same reason: `embedded`
+  // is not it — the host-embedded editor that keeps our rails also keeps every
+  // other shortcut, so gating paste on `embedded` made Cmd+V there a no-op
+  // with nothing shown. Only a host that owns the chrome owns the keyboard.
+  // The question flow is likewise not a reason to drop the listener: bare-letter
+  // tool shortcuts fight its inputs, a paste does not — runEditorPaste's own
+  // editable-target guard already leaves those inputs alone.
   useEffect(() => {
-    if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
+    if (hostOwnsChrome) return;
     document.addEventListener("paste", handleEditorPaste, true);
     return () => {
       document.removeEventListener("paste", handleEditorPaste, true);
     };
-  }, [embedded, handleEditorPaste, pendingQuestions]);
+  }, [handleEditorPaste, hostOwnsChrome]);
 
   const handlePasteOverSelection = useCallback(
     () =>
@@ -10836,6 +10955,7 @@ function DesignEditor() {
         handlePasteSelection,
         selectedElement,
         selectInsertedLayers,
+        t,
       }),
     [
       activeFile,
@@ -10845,6 +10965,7 @@ function DesignEditor() {
       handlePasteSelection,
       selectInsertedLayers,
       selectedElement,
+      t,
     ],
   );
 
@@ -13585,6 +13706,7 @@ function DesignEditor() {
       !responsiveInteractActive &&
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
+    canClaimBoundChords: canEditDesign,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
     // F always means Frame; without forcing the mode it would reuse whichever
     // sub-tool the dropdown last selected.
@@ -16677,7 +16799,8 @@ function DesignEditor() {
     ],
   );
 
-  // canGroup: 2+ DOM-node layers selected in the active screen (not file rows).
+  // canGroup: 1+ DOM-node layers selected in the active screen (not file
+  // rows). Figma groups a single object too — the wrapper takes its bounds.
   const fileIdSet = new Set(files.map((f) => f.id));
   const selectedDomLayerIds = selectedLayerIds.filter(
     (id) => !id.startsWith("__") && !fileIdSet.has(id),
@@ -16698,7 +16821,7 @@ function DesignEditor() {
     canEditDesign &&
     viewMode === "single" &&
     Boolean(activeFile) &&
-    selectedDomLayerIds.length >= 2 &&
+    selectedDomLayerIds.length >= 1 &&
     selectedLayersUseCompatibleSourceBackend;
   // canUngroup: one or more DOM-node layers selected (L16: handleUngroupSelection
   // loops all selected containers), and EVERY selected layer must be a
@@ -18346,12 +18469,12 @@ function DesignEditor() {
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
             <DropdownMenuItem onClick={handleUndo} disabled={!canUndo}>
               {t("designEditor.undo")}
-              <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcut("$mod+z")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleRedo} disabled={!canRedo}>
               {t("designEditor.redo")}
               <DropdownMenuShortcut>
-                {"⇧⌘Z" /* i18n-ignore keyboard shortcut */}
+                {shortcut("$mod+shift+z")}
               </DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -18360,7 +18483,7 @@ function DesignEditor() {
               disabled={!activeFile}
             >
               {"Duplicate" /* i18n-ignore design menu command */}
-              <DropdownMenuShortcut>⌘D</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcut("$mod+d")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleDeleteSelection}
@@ -18407,7 +18530,7 @@ function DesignEditor() {
           <DropdownMenuShortcut>
             {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
                 the browser consumes it before the page ever sees it. */}
-            {"⌃⇧?" /* i18n-ignore keyboard shortcut */}
+            {shortcut("ctrl+shift+?")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {isSignedIn && (
@@ -18523,7 +18646,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom in" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            {"Cmd Plus" /* i18n-ignore shortcut key label */}
+            {shortcut("$mod+=")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -18532,7 +18655,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom out" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            {"Cmd Minus" /* i18n-ignore shortcut key label */}
+            {shortcut("$mod+-")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -18541,7 +18664,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom to fit" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            ⇧1
+            {shortcut("shift+1")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {[50, 100, 200].map((preset) => (
@@ -18565,7 +18688,7 @@ function DesignEditor() {
             </span>
             {preset === 100 ? (
               <DropdownMenuShortcut className="tracking-normal">
-                ⌘0
+                {shortcut("$mod+0")}
               </DropdownMenuShortcut>
             ) : null}
           </DropdownMenuItem>
@@ -19272,9 +19395,10 @@ function DesignEditor() {
                     onImport={(result) => {
                       const count = result.unresolvedImageRefCount ?? 0;
                       if (count > 0 && result.files?.length) {
-                        setFigmaHydrationFileIds(result.files.map((f) => f.id));
-                        setFigmaHydrationImageCount(count);
-                        setFigmaHydrationOpen(true);
+                        showPastedImagesNotice({
+                          count,
+                          fileIds: result.files.map((f) => f.id),
+                        });
                       }
                     }}
                   />
@@ -20488,7 +20612,6 @@ function DesignEditor() {
         onOpenChange={setFigmaHydrationOpen}
         designId={id ?? ""}
         fileIds={figmaHydrationFileIds}
-        imageCount={figmaHydrationImageCount}
         onHydrated={() => {
           void queryClient.invalidateQueries({ queryKey: ["action"] });
         }}
@@ -20601,6 +20724,8 @@ function DesignEditor() {
             effort: options.effort,
           };
           const startedAt = Date.now();
+          const { attachments: _composerAttachments, ...agentOptions } =
+            options;
           patchPendingGeneration(id, {
             prompt,
             files,
@@ -20616,7 +20741,7 @@ function DesignEditor() {
               ? `Generate design for "${design.title}": ${prompt}`
               : `Prepare design questions for "${design.title}": ${prompt}`,
             context,
-            { ...options, newTab: true, images },
+            { ...agentOptions, newTab: true, images },
           );
           setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {

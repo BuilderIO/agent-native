@@ -322,7 +322,7 @@ answer policy:
 
 ```bash
 pnpm --filter brain action create-source \
-  --title "Blessed Agent Native docs" \
+  --title "Blessed Agent-Native docs" \
   --provider generic \
   --sourceKey agent-native-docs \
   --policy '{"trustTier":"blessed","answerEligible":true,"authority":100,"freshnessWindowDays":null,"reviewRequired":false,"conflictBehavior":"prefer-higher-authority"}' \
@@ -335,9 +335,9 @@ Then publish one stable upstream record per `externalId`:
 {
   "sourceKey": "agent-native-docs",
   "externalId": "what-is-agent-native",
-  "title": "What is Agent Native?",
+  "title": "What is Agent-Native?",
   "kind": "document",
-  "content": "Agent Native is ...",
+  "content": "Agent-Native is ...",
   "capturedAt": "2026-07-30T12:00:00.000Z",
   "sourceUrl": "https://docs.example.com/what-is-agent-native",
   "tags": ["faq", "agent-native"],

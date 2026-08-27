@@ -24,7 +24,7 @@ Each app is a complete product you can run today and customize into your own.
 | [**Slides**](/docs/template-slides)       | An agent-native Google Slides. React-based decks the agent generates and edits directly.                                     |
 | [**Analytics**](/docs/template-analytics) | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.                              |
 | [**Clips**](/docs/template-clips)         | Async screen + camera recording with transcription, chapters, and AI summaries.                                              |
-| [**Design**](/docs/template-design)       | Agent-native HTML prototyping studio for interactive Alpine/Tailwind designs.                                                |
+| [**Design**](/docs/template-design)       | Agent-Native HTML prototyping studio for interactive Alpine/Tailwind designs.                                                |
 | [**Forms**](/docs/template-forms)         | An agent-native Typeform. Build, share, collect, and route submissions to Slack, Sheets, webhooks, or Discord.               |
 | [**Plan**](/docs/template-plan)           | Visual plans and PR recaps with diagrams, wireframes, and annotations.                                                       |
 | [**Dispatch**](/docs/template-dispatch)   | The workspace control plane: shared secrets, reusable integrations, Slack/Telegram, scheduled jobs.                          |
@@ -35,11 +35,11 @@ Each app has its own docs covering its architecture, actions, and customization.
 
 ## Community templates {#community-templates}
 
-The named templates in the CLI picker are **first-party**: Agent Native
+The named templates in the CLI picker are **first-party**: Agent-Native
 maintains, tests, documents, and releases them with the framework. A
 **community template** is maintained and versioned by its repository owner. It
 can use the same framework surface, but a community listing is not an
-endorsement or a promise of support from Agent Native.
+endorsement or a promise of support from Agent-Native.
 
 Run `create`, choose **Community template**, and paste a plain public GitHub
 repository URL:
@@ -48,8 +48,8 @@ repository URL:
 https://github.com/owner/repo
 ```
 
-If the repository root is a single Agent Native app, the CLI installs it
-directly without another picker. If the repository is an Agent Native workspace,
+If the repository root is a single Agent-Native app, the CLI installs it
+directly without another picker. If the repository is an Agent-Native workspace,
 the CLI discovers valid direct children of `apps/*`, excludes `dispatch`, and
 asks which app to install.
 
@@ -214,7 +214,7 @@ Four steps take you from template to deployed app:
 
 1. **Pick an app.** Use the CLI picker, or browse the docs.
 2. **Brand it.** Change the name, colors, logo, and copy. Most example apps expose this in a single config file.
-3. **Customize it.** Make source changes in your own repository and development workflow. An agent can help when its frame is intentionally granted workspace and write tooling; otherwise the embedded agent operates the resulting app through its actions, data, and configured integrations.
+3. **Customize it.** Make source changes in your own repository and development workflow: "add a priority field to forms," "connect to our Salesforce instance," "change the color scheme to match our brand." An agent can help when its frame is intentionally granted workspace and write tooling; otherwise the embedded agent operates the resulting app through its actions, data, and configured integrations.
 4. **Ship it.** Run the deploy command. You now have a production app at your own domain.
 
 Steps 2–4 typically take a few days. Step 3 has no fixed end point — the app is yours to evolve, while the embedded agent remains available to operate the deployed product and can assist with source changes when code access is explicitly enabled.

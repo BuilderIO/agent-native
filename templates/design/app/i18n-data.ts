@@ -606,12 +606,15 @@ const enUS = {
         "Connect your Figma access token for exact node imports.",
       figmaPasteMatchGuidance:
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
+      figmaPasteUnreadable:
+        "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again — or import a Figma link from the Import panel.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
       figmaPasteLocalKiwiLabel:
         "Imported without token — geometry and text only",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
+      figmaPasteImagesDontShowAgain: "Don't show again",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
@@ -1125,6 +1128,8 @@ const enUS = {
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
+      saveConflict:
+        "This screen changed elsewhere. Your last edit was not saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
@@ -1362,6 +1367,11 @@ const enUS = {
     createdBy: "Created by",
     allAuthors: "All authors",
     me: "Me",
+    designFilter: "Design filter",
+    mine: "Mine",
+    all: "All",
+    showMineDesigns: "Show my designs",
+    showAllDesigns: "Show all designs",
     openingDesign: "Opening design...",
     skipToEditor: "Skip to editor",
     failedToCreateDesign: "Failed to create design",
@@ -1396,6 +1406,9 @@ const enUS = {
     prototype: "Prototype",
     other: "Other",
     designPreview: "Design preview",
+    paginationPrevious: "Previous",
+    paginationNext: "Next",
+    paginationPage: "Page {{page}} of {{totalPages}}",
   },
   visualEdit: {
     eyebrow: "Visual edit",
@@ -1960,6 +1973,7 @@ const designLocaleOverrides = {
         svgExportError: "无法导出 SVG",
         undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
         redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
+        saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
       },
     },
     designSystemSetup: {
@@ -2386,6 +2400,8 @@ const designLocaleOverrides = {
         svgExportError: "No se pudo exportar SVG",
         undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
         redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
+        saveConflict:
+          "Esta pantalla cambió en otro lugar. Tu última edición no se guardó.",
       },
     },
     designSystemSetup: {
@@ -2837,6 +2853,8 @@ const designLocaleOverrides = {
           "Annulation ignorée : quelqu'un d'autre a déplacé cet élément",
         redoSkippedConcurrentEdit:
           "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
+        saveConflict:
+          "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
       },
     },
     designSystemSetup: {
@@ -3289,6 +3307,8 @@ const designLocaleOverrides = {
           "Rückgängig übersprungen – jemand anderes hat das verschoben",
         redoSkippedConcurrentEdit:
           "Wiederholen übersprungen – jemand anderes hat das verschoben",
+        saveConflict:
+          "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
       },
     },
     designSystemSetup: {
@@ -3740,6 +3760,8 @@ const designLocaleOverrides = {
           "元に戻す操作をスキップしました — 他のユーザーがそれを移動しました",
         redoSkippedConcurrentEdit:
           "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
+        saveConflict:
+          "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
       },
     },
     designSystemSetup: {
@@ -4186,6 +4208,8 @@ const designLocaleOverrides = {
           "실행 취소를 건너뛰었습니다 — 다른 사용자가 이동했습니다",
         redoSkippedConcurrentEdit:
           "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
+        saveConflict:
+          "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
       },
     },
     designSystemSetup: {
@@ -4625,6 +4649,8 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit:
           "Desfazer ignorado — outra pessoa moveu isso",
         redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
+        saveConflict:
+          "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
       },
     },
     designSystemSetup: {
@@ -5071,6 +5097,7 @@ const designLocaleOverrides = {
           "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
         redoSkippedConcurrentEdit:
           "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
+        saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
       },
     },
     designSystemSetup: {
@@ -5505,6 +5532,7 @@ const designLocaleOverrides = {
         svgExportError: "تعذر تصدير SVG",
         undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
         redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
+        saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
       },
     },
     designSystemSetup: {
@@ -12462,11 +12490,14 @@ const designImportOverrides = {
         figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
         figmaPasteMatchGuidance:
           "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+        figmaPasteUnreadable:
+          "剪貼簿中沒有已複製的 Figma 圖層。請在 Figma 中選取畫框，按 Cmd+C 複製後再貼上，或從匯入面板匯入 Figma 連結。",
         figmaPasteRestLabel: "透過 Figma API 匯入",
         figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
         figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
         figmaPasteImagesNeedToken:
           "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+        figmaPasteImagesDontShowAgain: "不再顯示",
         figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
         figmaHydrationDialogDescription:
           "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
@@ -12526,11 +12557,14 @@ const designImportOverrides = {
         figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
         figmaPasteMatchGuidance:
           "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
+        figmaPasteUnreadable:
+          "剪贴板中没有复制的 Figma 图层。请在 Figma 中选中画框，按 Cmd+C 复制后再粘贴，或从导入面板导入 Figma 链接。",
         figmaPasteRestLabel: "通过 Figma API 导入",
         figmaPasteHtmlLabel: "从剪贴板预览导入",
         figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
         figmaPasteImagesNeedToken:
           "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
+        figmaPasteImagesDontShowAgain: "不再显示",
         figmaHydrationDialogTitle: "连接 Figma 以加载图片",
         figmaHydrationDialogDescription:
           "输入您的 Figma 访问令牌，以加载已导入屏幕{{screensPlural}}中缺少的 {{count}} 张图片{{plural}}。",
@@ -12592,12 +12626,15 @@ const designImportOverrides = {
           "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
         figmaPasteMatchGuidance:
           "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
+        figmaPasteUnreadable:
+          "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o importa un enlace de Figma desde el panel Importar.",
         figmaPasteRestLabel: "Importado mediante la API de Figma",
         figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
         figmaPasteLocalKiwiLabel:
           "Importado sin token — solo geometría y texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
+        figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
         figmaHydrationDialogTitle: "Conectar Figma para cargar imágenes",
         figmaHydrationDialogDescription:
           "Introduce tu token de acceso de Figma para cargar {{count}} imagen{{plural}} faltante{{plural}} en la pantalla{{screensPlural}} importada{{screensPlural}}.",
@@ -12661,12 +12698,15 @@ const designImportOverrides = {
           "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
         figmaPasteMatchGuidance:
           "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
+        figmaPasteUnreadable:
+          "Ce presse-papiers ne contient aucun calque Figma copié. Sélectionnez un cadre dans Figma, copiez-le avec Cmd+C puis recollez, ou importez un lien Figma depuis le panneau Importer.",
         figmaPasteRestLabel: "Importé via l'API Figma",
         figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
         figmaPasteLocalKiwiLabel:
           "Importé sans token — géométrie et texte uniquement",
         figmaPasteImagesNeedToken:
           "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
+        figmaPasteImagesDontShowAgain: "Ne plus afficher",
         figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
         figmaHydrationDialogDescription:
           "Saisissez votre token d'accès Figma pour charger {{count}} image{{plural}} manquante{{plural}} dans l'écran{{screensPlural}} importé{{screensPlural}}.",
@@ -12730,12 +12770,15 @@ const designImportOverrides = {
           "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
         figmaPasteMatchGuidance:
           "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
+        figmaPasteUnreadable:
+          "In dieser Zwischenablage sind keine kopierten Figma-Ebenen. Wähle in Figma einen Frame aus, kopiere ihn mit Cmd+C und füge ihn erneut ein – oder importiere einen Figma-Link über das Import-Panel.",
         figmaPasteRestLabel: "Über die Figma-API importiert",
         figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
         figmaPasteLocalKiwiLabel:
           "Ohne Token importiert — nur Geometrie und Text",
         figmaPasteImagesNeedToken:
           "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
+        figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
         figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
         figmaHydrationDialogDescription:
           "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
@@ -12798,12 +12841,15 @@ const designImportOverrides = {
           "正確なノードインポートのために Figma アクセストークンを接続してください。",
         figmaPasteMatchGuidance:
           "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
+        figmaPasteUnreadable:
+          "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、インポートパネルから Figma のリンクをインポートしてください。",
         figmaPasteRestLabel: "Figma API 経由でインポート",
         figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
         figmaPasteLocalKiwiLabel:
           "トークンなしでインポート — ジオメトリとテキストのみ",
         figmaPasteImagesNeedToken:
           "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
+        figmaPasteImagesDontShowAgain: "今後は表示しない",
         figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
         figmaHydrationDialogDescription:
           "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
@@ -12867,11 +12913,14 @@ const designImportOverrides = {
           "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
         figmaPasteMatchGuidance:
           "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
+        figmaPasteUnreadable:
+          "클립보드에 복사된 Figma 레이어가 없습니다. Figma에서 프레임을 선택해 Cmd+C로 복사한 뒤 다시 붙여넣거나, 가져오기 패널에서 Figma 링크를 가져오세요.",
         figmaPasteRestLabel: "Figma API로 가져옴",
         figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
         figmaPasteLocalKiwiLabel: "토큰 없이 가져옴 — 기하학적 구조와 텍스트만",
         figmaPasteImagesNeedToken:
           "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
+        figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
         figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
         figmaHydrationDialogDescription:
           "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
@@ -12935,6 +12984,8 @@ const designImportOverrides = {
           "Conecte seu token de acesso do Figma para importações exatas de nós.",
         figmaPasteMatchGuidance:
           "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
+        figmaPasteUnreadable:
+          "Essa área de transferência não tem camadas do Figma copiadas. Selecione um frame no Figma, copie com Cmd+C e cole novamente, ou importe um link do Figma pelo painel Importar.",
         figmaPasteRestLabel: "Importado via API do Figma",
         figmaPasteHtmlLabel:
           "Importado da pré-visualização da área de transferência",
@@ -12942,6 +12993,7 @@ const designImportOverrides = {
           "Importado sem token — apenas geometria e texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
+        figmaPasteImagesDontShowAgain: "Não mostrar novamente",
         figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
         figmaHydrationDialogDescription:
           "Insira seu token de acesso do Figma para carregar {{count}} imagem{{plural}} ausente{{plural}} na tela{{screensPlural}} importada{{screensPlural}}.",
@@ -13005,12 +13057,15 @@ const designImportOverrides = {
           "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
         figmaPasteMatchGuidance:
           "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
+        figmaPasteUnreadable:
+          "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या Import पैनल से Figma लिंक आयात करें।",
         figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
         figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
         figmaPasteLocalKiwiLabel:
           "बिना token के आयात किया गया — केवल geometry और text",
         figmaPasteImagesNeedToken:
           "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
+        figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
         figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
         figmaHydrationDialogDescription:
           "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
@@ -13073,12 +13128,15 @@ const designImportOverrides = {
           "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
         figmaPasteMatchGuidance:
           "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
+        figmaPasteUnreadable:
+          "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو استورد رابط Figma من لوحة الاستيراد.",
         figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
         figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
         figmaPasteLocalKiwiLabel:
           "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
         figmaPasteImagesNeedToken:
           "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
+        figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
         figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
         figmaHydrationDialogDescription:
           "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",
@@ -15603,6 +15661,14 @@ const designAuthorFilterOverrides = {
       createdBy: "创建者",
       allAuthors: "所有作者",
       me: "我",
+      designFilter: "设计筛选",
+      mine: "我的",
+      all: "全部",
+      showMineDesigns: "显示我的设计",
+      showAllDesigns: "显示所有设计",
+      paginationPrevious: "上一页",
+      paginationNext: "下一页",
+      paginationPage: "第 {{page}} / {{totalPages}} 页",
     },
   },
   "es-ES": {
@@ -15610,6 +15676,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Creado por",
       allAuthors: "Todos los autores",
       me: "Yo",
+      designFilter: "Filtro de diseños",
+      mine: "Míos",
+      all: "Todos",
+      showMineDesigns: "Mostrar mis diseños",
+      showAllDesigns: "Mostrar todos los diseños",
+      paginationPrevious: "Anterior",
+      paginationNext: "Siguiente",
+      paginationPage: "Página {{page}} de {{totalPages}}",
     },
   },
   "fr-FR": {
@@ -15617,6 +15691,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Créé par",
       allAuthors: "Tous les auteurs",
       me: "Moi",
+      designFilter: "Filtre de designs",
+      mine: "Les miens",
+      all: "Tous",
+      showMineDesigns: "Afficher mes designs",
+      showAllDesigns: "Afficher tous les designs",
+      paginationPrevious: "Précédent",
+      paginationNext: "Suivant",
+      paginationPage: "Page {{page}} sur {{totalPages}}",
     },
   },
   "de-DE": {
@@ -15624,6 +15706,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Erstellt von",
       allAuthors: "Alle Autoren",
       me: "Ich",
+      designFilter: "Designfilter",
+      mine: "Meine",
+      all: "Alle",
+      showMineDesigns: "Meine Designs anzeigen",
+      showAllDesigns: "Alle Designs anzeigen",
+      paginationPrevious: "Zurück",
+      paginationNext: "Weiter",
+      paginationPage: "Seite {{page}} von {{totalPages}}",
     },
   },
   "ja-JP": {
@@ -15631,6 +15721,14 @@ const designAuthorFilterOverrides = {
       createdBy: "作成者",
       allAuthors: "すべての作成者",
       me: "自分",
+      designFilter: "デザインのフィルター",
+      mine: "自分のデザイン",
+      all: "すべて",
+      showMineDesigns: "自分のデザインを表示",
+      showAllDesigns: "すべてのデザインを表示",
+      paginationPrevious: "前へ",
+      paginationNext: "次へ",
+      paginationPage: "{{totalPages}}ページ中{{page}}ページ",
     },
   },
   "ko-KR": {
@@ -15638,6 +15736,14 @@ const designAuthorFilterOverrides = {
       createdBy: "만든 사람",
       allAuthors: "모든 작성자",
       me: "나",
+      designFilter: "디자인 필터",
+      mine: "내 디자인",
+      all: "전체",
+      showMineDesigns: "내 디자인 보기",
+      showAllDesigns: "모든 디자인 보기",
+      paginationPrevious: "이전",
+      paginationNext: "다음",
+      paginationPage: "{{totalPages}}페이지 중 {{page}}페이지",
     },
   },
   "pt-BR": {
@@ -15645,6 +15751,14 @@ const designAuthorFilterOverrides = {
       createdBy: "Criado por",
       allAuthors: "Todos os autores",
       me: "Eu",
+      designFilter: "Filtro de designs",
+      mine: "Meus",
+      all: "Todos",
+      showMineDesigns: "Mostrar meus designs",
+      showAllDesigns: "Mostrar todos os designs",
+      paginationPrevious: "Anterior",
+      paginationNext: "Próximo",
+      paginationPage: "Página {{page}} de {{totalPages}}",
     },
   },
   "hi-IN": {
@@ -15652,6 +15766,14 @@ const designAuthorFilterOverrides = {
       createdBy: "द्वारा बनाया गया",
       allAuthors: "सभी लेखक",
       me: "मैं",
+      designFilter: "डिज़ाइन फ़िल्टर",
+      mine: "मेरे",
+      all: "सभी",
+      showMineDesigns: "मेरे डिज़ाइन दिखाएं",
+      showAllDesigns: "सभी डिज़ाइन दिखाएं",
+      paginationPrevious: "पिछला",
+      paginationNext: "अगला",
+      paginationPage: "पृष्ठ {{page}} / {{totalPages}}",
     },
   },
   "ar-SA": {
@@ -15659,6 +15781,14 @@ const designAuthorFilterOverrides = {
       createdBy: "أنشأه",
       allAuthors: "جميع المؤلفين",
       me: "أنا",
+      designFilter: "تصفية التصميمات",
+      mine: "تصميماتي",
+      all: "الكل",
+      showMineDesigns: "عرض تصميماتي",
+      showAllDesigns: "عرض كل التصميمات",
+      paginationPrevious: "السابق",
+      paginationNext: "التالي",
+      paginationPage: "الصفحة {{page}} من {{totalPages}}",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;

@@ -10,7 +10,11 @@ import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import { PromptComposer } from "@agent-native/core/client/composer";
-import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import {
+  useActionQuery,
+  useAvatarUrl,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
@@ -7448,7 +7452,7 @@ function LoggedOutEmptyPlan() {
   }, []);
 
   return (
-    <div className="flex min-h-full items-center justify-center overflow-auto p-4 sm:p-8">
+    <div className="flex min-h-full -translate-y-[10vh] items-center justify-center overflow-auto p-4 sm:p-8">
       <div className="flex w-full max-w-4xl flex-col items-center gap-3 py-8 text-center">
         <h2 className="text-2xl font-semibold tracking-tight">
           {t("plansPage.loggedOut.title")}
@@ -7504,6 +7508,23 @@ function LoggedOutEmptyPlan() {
 }
 
 type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
+
+function PlanOwnerAvatar({ email }: { email: string }) {
+  const avatarUrl = useAvatarUrl(email);
+  const name = emailToName(email);
+
+  return (
+    <Avatar className="size-5">
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
+      <AvatarFallback
+        className="text-[9px] font-semibold text-primary-foreground"
+        style={{ backgroundColor: emailToColor(email) }}
+      >
+        {commentAuthorInitials(name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 function PlansOverview({
   plans,
@@ -7785,20 +7806,7 @@ function PlansOverview({
                             className="flex min-w-0 items-center gap-1.5"
                             title={plan.ownerEmail}
                           >
-                            <Avatar className="size-5">
-                              <AvatarFallback
-                                className="text-[9px] font-semibold text-white"
-                                style={{
-                                  backgroundColor: emailToColor(
-                                    plan.ownerEmail,
-                                  ),
-                                }}
-                              >
-                                {commentAuthorInitials(
-                                  emailToName(plan.ownerEmail),
-                                )}
-                              </AvatarFallback>
-                            </Avatar>
+                            <PlanOwnerAvatar email={plan.ownerEmail} />
                             <span className="truncate">
                               {emailToName(plan.ownerEmail)}
                             </span>

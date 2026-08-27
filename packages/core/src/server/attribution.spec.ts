@@ -7,6 +7,7 @@ import {
   deriveSignupAttribution,
   encodeSignupAttributionContext,
   parseCookieHeader,
+  SIGNUP_ATTRIBUTION_HEADER_NAME,
   readAnalyticsAnonymousId,
   readFirstTouchAttribution,
   signupAttributionContextFromCookieHeader,
@@ -253,8 +254,30 @@ describe("signupAttributionContextFromCookieHeader", () => {
   it("keeps malformed browser identity input out of the context", () => {
     expect(
       signupAttributionContextFromCookieHeader("an_aid=has%20space"),
+    ).toBeUndefined();
+  });
+
+  // A browser that ran our client script always has `an_ft`, so no cookies at
+  // all means no browser. Reporting that as "direct" is what made an
+  // unattributable server-side row indistinguishable from a real visitor who
+  // arrived with no campaign — and it is why 94% of `better-auth` signups read
+  // as direct traffic nobody could trace.
+  it("reports no browser context rather than direct attribution", () => {
+    expect(signupAttributionContextFromCookieHeader(null)).toBeUndefined();
+    expect(signupAttributionContextFromCookieHeader("")).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader("other=1; session=abc"),
+    ).toBeUndefined();
+  });
+
+  it("still reports direct for a real visitor carrying no campaign", () => {
+    expect(
+      signupAttributionContextFromCookieHeader(
+        `${ftCookie({ landing_path: "/" })}; an_aid=anon_1`,
+      ),
     ).toEqual({
-      attribution: { referral_source: "direct" },
+      attribution: { referral_source: "direct", first_touch_path: "/" },
+      anonymousId: "anon_1",
     });
   });
 });
@@ -279,5 +302,23 @@ describe("signup attribution request handoff", () => {
   it("distinguishes malformed handoffs from direct attribution", () => {
     expect(decodeSignupAttributionContext("not-json")).toBeUndefined();
     expect(signupAttributionContextFromHeaders(new Headers())).toBeUndefined();
+  });
+
+  // The handoff header is unsigned and outranks the request cookie in the
+  // user-create hook, so an inbound copy lets a stranger write the
+  // `anonymous_id` and campaign onto somebody else's signup row.
+  it("drops an inbound handoff when there is nothing of ours to stamp", () => {
+    const spoofed = addSignupAttributionHeader(
+      {
+        [SIGNUP_ATTRIBUTION_HEADER_NAME]: encodeSignupAttributionContext({
+          attribution: { utm_campaign: "attacker" },
+          anonymousId: "anon_attacker",
+        }),
+      },
+      undefined,
+    );
+
+    expect(spoofed.get(SIGNUP_ATTRIBUTION_HEADER_NAME)).toBeNull();
+    expect(signupAttributionContextFromHeaders(spoofed)).toBeUndefined();
   });
 });

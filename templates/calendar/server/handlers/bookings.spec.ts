@@ -251,7 +251,7 @@ describe("booking availability", () => {
     expect(withUnscheduledHost).toEqual(withoutHost);
   });
 
-  it("falls back to schedule-only availability, skipping Google conflict checks, when the owner has not connected Google", async () => {
+  it("marks availability unavailable when the owner has not connected Google", async () => {
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(false);
     const existingBooking = {
       start: "2026-07-20T16:00:00.000Z",
@@ -276,10 +276,40 @@ describe("booking availability", () => {
     });
 
     expect(result).toEqual({
-      items: [{ start: existingBooking.start, end: existingBooking.end }],
+      items: [],
+      unavailableReason:
+        "Calendar availability unavailable for host@example.com",
     });
     expect(googleCalendar.getFreeBusy).not.toHaveBeenCalled();
     expect(googleCalendar.listEvents).not.toHaveBeenCalled();
+  });
+
+  it("marks availability unavailable when a Google calendar response contains a per-calendar error", async () => {
+    vi.mocked(googleCalendar.getFreeBusy).mockResolvedValue({
+      calendars: {
+        "host@example.com": {
+          busy: [],
+          errors: [{ reason: "notFound" }],
+        },
+      },
+      errors: [],
+    });
+
+    const result = await getConflictItems({
+      db: {} as any,
+      ownerEmail: "host@example.com",
+      hostEmails: ["host@example.com"],
+      conflictSlugs: ["meeting-45"],
+      rangeStartIso: "2026-07-20T07:00:00.000Z",
+      rangeEndIso: "2026-07-21T07:00:00.000Z",
+      timezone: "America/Los_Angeles",
+    });
+
+    expect(result).toEqual({
+      items: [],
+      unavailableReason:
+        "Calendar availability unavailable for host@example.com",
+    });
   });
 
   it("marks owner availability unavailable when Google free/busy reports errors, ignoring any listEvents data", async () => {

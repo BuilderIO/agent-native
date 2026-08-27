@@ -201,6 +201,18 @@ const messages = {
     automationsTab: "Automatizaciones",
     agentsTab: "Agentes",
     factorySettings: "Ajustes",
+    dangerZone: "Zona de peligro",
+    deleteFactory: "Eliminar fábrica",
+    deleteFactoryDescription:
+      "Elimina permanentemente esta fábrica, su mapa, cola, reglas, actividad, ajustes, sondeos y automatizaciones. Esta acción es irreversible.",
+    deleteFactoryTitle: "¿Eliminar {{name}}?",
+    deleteFactoryWarning:
+      "El trabajo que ya esté en curso en GitHub, Slack o Builder no se cancelará.",
+    deleteFactoryConfirmation: "Escribe {{name}} para confirmar",
+    deleteFactoryCancel: "Cancelar",
+    deleteFactoryConfirm: "Eliminar fábrica",
+    factoryDeleted: "Fábrica eliminada.",
+    factoryDeleteFailed: "No se pudo eliminar la fábrica.",
     agenticAppsTitle: "Aplicaciones agenticas",
     agenticAppsEmpty:
       "Aún no hay aplicaciones agenticas en este espacio de trabajo.",

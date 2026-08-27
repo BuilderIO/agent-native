@@ -12,8 +12,10 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
 import { isLoomEmbedBackedRecording } from "../../shared/loom";
+import { clipsSharePageTitle } from "../../shared/share-meta";
 
 export function meta() {
   return [{ title: "Clip" }];
@@ -22,40 +24,6 @@ export function meta() {
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
-
-/**
- * Parse `t` URL param into ms (supports plain seconds or `1m20s` / `1h2m3s`).
- *   "80"      → 80_000
- *   "1m20s"   → 80_000
- *   "1h2m3s"  → 3_723_000
- *   "1:20"    → 80_000  (MM:SS)
- */
-function parseTimeParam(raw: string | null): number {
-  if (!raw) return 0;
-  const v = raw.trim();
-  if (!v) return 0;
-
-  // Plain seconds
-  if (/^\d+(\.\d+)?$/.test(v)) return Math.floor(parseFloat(v) * 1000);
-
-  // MM:SS or HH:MM:SS
-  if (/^\d+:\d+(:\d+)?$/.test(v)) {
-    const parts = v.split(":").map((n) => parseInt(n, 10));
-    if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
-    if (parts.length === 3)
-      return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
-  }
-
-  // 1h2m3s style
-  const m = v.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
-  if (m) {
-    const h = parseInt(m[1] ?? "0", 10);
-    const mm = parseInt(m[2] ?? "0", 10);
-    const s = parseInt(m[3] ?? "0", 10);
-    return (h * 3600 + mm * 60 + s) * 1000;
-  }
-  return 0;
-}
 
 export default function EmbedRoute() {
   const t = useT();
@@ -168,6 +136,17 @@ export default function EmbedRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+
+  useEffect(() => {
+    if (!recording) return;
+    const nextTitle = clipsSharePageTitle(recording.title);
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [recording?.title]);
+
   const comments = dataQ.data?.data?.comments ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
@@ -251,7 +230,7 @@ export default function EmbedRoute() {
         thumbnailUrl={recording.thumbnailUrl}
         defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
         autoPlay={autoplay}
-        startMs={startMs}
+        startMs={resolveStartMs(startMs, recording.durationMs)}
         comments={comments}
         chapters={chapters}
         transcriptSegments={transcriptSegments}

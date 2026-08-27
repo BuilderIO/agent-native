@@ -3,20 +3,21 @@ import {
   postNavigate,
   isInAgentEmbed,
 } from "@agent-native/core/client/navigation";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { EmailMessage } from "@shared/types";
 import { IconExternalLink } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThreadMessages } from "@/hooks/use-emails";
-import messages from "@/i18n/en-US";
+import mailMessages from "@/i18n/en-US";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { formatEmailDate, formatEmailDateFull, cn } from "@/lib/utils";
 
 export function meta() {
-  return [{ title: messages.mail.routeTitles.emailThread }];
+  return [{ title: mailMessages.mail.routeTitles.emailThread }];
 }
 
 // ─── Message Card ────────────────────────────────────────────────────────────
@@ -121,13 +122,26 @@ export default function EmailEmbedRoute() {
   const { data: messages, isLoading } = useThreadMessages(
     threadId ?? undefined,
   );
+  const subject =
+    messages && messages.length > 0 ? messages[0].subject : undefined;
+
+  useEffect(() => {
+    const nextTitle = subject
+      ? `${normalizeDocumentTitle(
+          subject,
+          mailMessages.mail.routeTitles.emailThread,
+        )} — Mail`
+      : mailMessages.mail.routeTitles.emailThread;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [subject]);
 
   if (!threadId) {
     return <ErrorState message={t("mail.routeTitles.unableToLoadThread")} />;
   }
-
-  const subject =
-    messages && messages.length > 0 ? messages[0].subject : undefined;
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">

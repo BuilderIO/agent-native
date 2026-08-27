@@ -25,18 +25,23 @@ Every `runAgentLoop()` call is automatically instrumented via `instrumentAgentLo
 - **llm_call** span — model name, token counts (input, output, cache read/write), cost
 - **tool_call** spans — one per action invocation, with duration and success/error
 
-Content (prompts, tool args, tool results) is **redacted by default**. Opt in via the `observability-config` settings key:
+Content (prompts, tool args, tool results) is **redacted by default**. Opt in through the declared `observability` config domain:
 
 ```ts
-await putSetting("observability-config", {
-  enabled: true,
-  capturePrompts: false,
-  captureToolArgs: true,    // capture action input args
-  captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries
-  evalSampleRate: 0.05,     // 5% of runs get LLM-as-judge eval
-  inferredSentimentEnabled: false,
-  inferredSentimentSampleRate: 0,
-  inferredSentimentModel: "gpt-5-6-luna",
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    capturePrompts: false,
+    captureToolArgs: true, // capture action input args
+    captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries
+    evalSampleRate: 0.05, // 5% of runs get LLM-as-judge eval
+    inferredSentimentEnabled: false,
+    inferredSentimentSampleRate: 0,
+    inferredSentimentModel: "gpt-5-6-luna",
+  },
 });
 ```
 
@@ -243,26 +248,13 @@ All tables are dialect-agnostic (SQLite + Postgres) and strictly additive.
 
 ## Export to External Platforms
 
-Configure OTLP export in the observability settings:
+Core emits `gen_ai.*` semantic convention spans and deliberately registers no OpenTelemetry provider or exporter itself (`observability/tracing.ts`). To reach Langfuse, Datadog, Grafana, New Relic, or any OTel-compatible backend, the app registers its own `TracerProvider`.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer ..." },
-    },
-  ],
-});
-```
-
-The framework emits `gen_ai.*` semantic convention spans compatible with Langfuse, Datadog, Grafana, New Relic, and any OTel-compatible backend.
+There is no framework config field for an export endpoint or token, and there should not be: the backend credential belongs in the vault and in the app's own provider wiring, not in a config object or a settings row.
 
 ## Live OpenTelemetry Spans (Optional)
 
-Separate from the `exporters` config above (which ships the in-house traces to an OTLP endpoint), the agent loop can also emit **live OpenTelemetry spans** for every run, model call, and tool call, so a host that already runs an OTel collector sees agent activity alongside its other distributed traces.
+The agent loop emits **live OpenTelemetry spans** for every run, model call, and tool call, so a host that already runs an OTel collector sees agent activity alongside its other distributed traces.
 
 This layer is optional and **no-op by default**:
 
@@ -274,7 +266,7 @@ The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_
 ## Tracking Bridge
 
 Instrumented agent loops emit server-side tracking events for every run through
-`track()` from `@agent-native/core/tracking`, so configured PostHog, Agent Native
+`track()` from `@agent-native/core/tracking`, so configured PostHog, Agent-Native
 Analytics, Mixpanel, Amplitude, and webhook providers receive them through the
 same best-effort fan-out as other tracking events.
 
@@ -291,7 +283,7 @@ same best-effort fan-out as other tracking events.
 - Each event is stamped with when it happened, not when the run flushed. The
   whole tree is emitted in one burst at run end, so `track()` takes an
   `occurredAt` and the trace tree keeps a real timeline.
-- Agent Native Analytics shape: the same event lands in `analytics_events` with
+- Agent-Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
   `failed_tools`, and `status`. A content-free `tools` array includes at most
@@ -325,21 +317,46 @@ Constraints that are not visible from the emit site:
   PostHog's schema; a name it does not define today it may define tomorrow with
   a different meaning. Ours are plain (`duration_ms`, `input_truncated`,
   `spans_dropped`), which also keeps them out of PostHog's `$ai_*` aggregation.
-- **Trace-level input/output state lives only on `$ai_trace`.** PostHog reads a
-  trace's input and output from that event and never from its children, so
-  `$ai_input_state` / `$ai_output_state` have to be set there or the trace
-  detail view is empty.
+- **`$ai_trace` carries no `$ai_input_state` / `$ai_output_state`.** Content
+  rides the generations; a trace-level copy repeated the run's prompt and answer
+  on a second event. PostHog reads a trace's input and output from that event
+  and from nowhere else, so the visible cost is that traces list with a null
+  input and a conversation is titled from the first generation's `$ai_input`
+  instead. Measured, not assumed — check whether that title is still wrong
+  before trading the duplication back.
 
-- **One generation per run, not per model round-trip.** The engine layer reports
-  aggregate usage through `onUsage` and exposes no per-step hook, so a multi-step
-  run collapses into a single generation carrying the whole message list.
-  Per-round-trip latency and intermediate turns are unavailable without a new
-  seam in `ai-sdk-engine.ts` / `builder-engine.ts`. Do not describe the current
-  output as per-step.
+- **One generation per model round-trip.** Engines that bracket their calls with
+  `model_stream` get one `$ai_generation` each, with that call's tools as its
+  children. Only an engine that never brackets falls back to a single aggregate
+  generation covering the whole run, and it is reported as one.
+- **Messages are rewritten into PostHog's shape before they ship.**
+  `toPostHogMessages()` in `posthog-ai.ts` maps engine parts onto the
+  OpenAI/Anthropic conventions PostHog reads: `tool-call` becomes `tool_calls`,
+  and a `tool-result` — which the engine has to carry inside a `user` message,
+  because `EngineMessage` has no `tool` role — becomes its own `role: "tool"`
+  message. Skipping this is not cosmetic: PostHog dumps raw JSON for shapes it
+  does not know, and the byte-ceiling rescue in `boundAiContent` keeps "the last
+  user message", which in engine shape is the last tool result rather than the
+  question. Attachment bodies become a marker naming the media type and size —
+  base64 renders as nothing in PostHog and spends the whole ceiling.
+- **A tool call and its result pair on the id the MODEL issued.** The span id is
+  a separate namespace that never appears in the transcript, so emitting it on
+  `tool_calls[].id` leaves PostHog with a call and a result that never match and
+  every tool call renders with no output. Span id is the fallback only for
+  emitters that report no call id.
 - **Disabled capture omits the field rather than sending an empty one.** An
   empty array is indistinguishable from a run that genuinely had no messages.
   Truncated content is marked, and a run over the span cap stamps
-  `spans_dropped` — a truncated run must not read as a complete one.
+  `spans_dropped` — a truncated run must not read as a complete one. The one
+  deliberate exception is a tool span's `$ai_output_state` with
+  `captureToolResults` off: it carries an explicit "withheld" marker, because an
+  absent output state reads as a tool that returned nothing, and the tool did
+  answer.
+- **A tool that RETURNS an error envelope is a success here.** `$ai_is_error`
+  and `failed_tools` follow the tool event's `isError`, which the agent sets
+  when an action throws. An action that returns `{ error: ... }` instead is
+  counted as a healthy call by every rollup on this page. Fix it in the action
+  (`fail()`), not by teaching this layer to sniff payload shapes.
 - **The structural tool-call list ships even when content capture is off.**
   Backends derive their tool tags from tool-call blocks inside the output
   choices and from nothing else, so tool names (without arguments) are always

@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ClipsAvatar } from "@/components/clips-avatar";
 
 export type NotificationKind = "comment" | "reaction" | "mention" | "share";
 
@@ -62,11 +62,13 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
     <ul className="divide-y">
       {items.map((item) => (
         <li key={item.id} className="py-3 flex items-start gap-3">
-          <Avatar className="h-9 w-9 flex-shrink-0">
-            <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-              {initials(item.authorEmail)}
-            </AvatarFallback>
-          </Avatar>
+          <ClipsAvatar
+            email={item.authorEmail}
+            alt={item.authorEmail ?? t("clipsFinalRaw.someone")}
+            fallback={initials(item.authorEmail)}
+            className="h-9 w-9 flex-shrink-0"
+            fallbackClassName="text-xs bg-primary text-primary-foreground"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 text-sm">
               <KindIcon kind={item.kind} />

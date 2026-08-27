@@ -239,17 +239,28 @@ export default function App() {
       const app = apps.find((candidate) => candidate.id === appId);
       if (!api || !app) return;
 
-      const updated = app.isBuiltIn
-        ? await api.update(appId, { enabled: false })
-        : await api.remove(appId);
-      setApps(updated);
-      setActiveChatFirstAppId((current) => (current === appId ? "" : current));
-      setChatFirstPreviewRequest((current) =>
-        current?.appId === appId ? undefined : current,
-      );
-      setChatFirstPreviewStatus((current) =>
-        current?.appId === appId ? undefined : current,
-      );
+      try {
+        const updated = app.isBuiltIn
+          ? await api.update(appId, { enabled: false })
+          : await api.remove(appId);
+        setApps(updated);
+        setActiveChatFirstAppId((current) =>
+          current === appId ? "" : current,
+        );
+        setChatFirstPreviewRequest((current) =>
+          current?.appId === appId ? undefined : current,
+        );
+        setChatFirstPreviewStatus((current) =>
+          current?.appId === appId ? undefined : current,
+        );
+      } catch {
+        // The main process failed to persist the change (e.g. userData is
+        // unwritable), so local state must stay untouched and the failure
+        // must be visible instead of leaving a silently-reverted rail.
+        toast.error(`Couldn't remove ${app.name}`, {
+          description: "Please try again.",
+        });
+      }
     },
     [apps],
   );

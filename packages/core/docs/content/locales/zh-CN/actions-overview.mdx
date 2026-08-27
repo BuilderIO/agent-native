@@ -37,7 +37,7 @@ Actions 是应用所做一切事情的唯一事实来源。用 `defineAction()` 
 
 大多数应用会在前端和数据库之间搭建一个独立的 API 层，且只有浏览器能调用它。如果代理想要相同的能力，就需要一套单独的、重复编写和维护的集成。代理本机应用跳过了这层拆分：UI 和代理调用的是完全相同的 action，所以只需要写一份实现，也只有一个地方可能藏 bug。
 
-<Diagram id="doc-block-actions-overview-2" title="传统前端 vs. Agent Native" summary="传统前端调用只有它自己能访问的 API 层。在 Agent Native 中，app/ 和代理都调用相同的 actions，因此在这里构建的每一项能力都可以免费供代理调用。">
+<Diagram id="doc-block-actions-overview-2" title="传统前端 vs. Agent-Native" summary="传统前端调用只有它自己能访问的 API 层。在 Agent-Native 中，app/ 和代理都调用相同的 actions，因此在这里构建的每一项能力都可以免费供代理调用。">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Actions 是应用所做一切事情的唯一事实来源。用 `defineAction()` 
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/（React 前端）</div>
       <div class="diagram-node">Agent</div>

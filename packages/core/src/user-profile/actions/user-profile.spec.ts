@@ -4,10 +4,16 @@ import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 
 const getUserProfileMock = vi.fn();
 const updateUserProfileMock = vi.fn();
+const getUserSettingMock = vi.fn();
+const putUserSettingMock = vi.fn();
+const mutateUserSettingMock = vi.fn();
 const getBetterAuthMock = vi.fn();
+const getBetterAuthSyncMock = vi.fn();
 const getBetterAuthInternalAdapterMock = vi.fn();
+const createBetterAuthSessionForEmailMock = vi.fn();
 let auth: {
   api: {
+    getSession: ReturnType<typeof vi.fn>;
     listUserAccounts: ReturnType<typeof vi.fn>;
     setPassword: ReturnType<typeof vi.fn>;
     changePassword: ReturnType<typeof vi.fn>;
@@ -15,14 +21,24 @@ let auth: {
 };
 let internalAdapter: {
   findUserByEmail: ReturnType<typeof vi.fn>;
+  updateUser: ReturnType<typeof vi.fn>;
 };
 
 vi.mock("../store.js", () => ({
   getUserProfile: (...args: unknown[]) => getUserProfileMock(...args),
   updateUserProfile: (...args: unknown[]) => updateUserProfileMock(...args),
 }));
+vi.mock("../../settings/user-settings.js", () => ({
+  getUserSetting: (...args: unknown[]) => getUserSettingMock(...args),
+  putUserSetting: (...args: unknown[]) => putUserSettingMock(...args),
+  mutateUserSetting: (...args: unknown[]) => mutateUserSettingMock(...args),
+}));
 vi.mock("../../server/better-auth-instance.js", () => ({
+  getAuthSecret: () => "test-auth-secret",
+  createBetterAuthSessionForEmail: (...args: unknown[]) =>
+    createBetterAuthSessionForEmailMock(...args),
   getBetterAuth: (...args: unknown[]) => getBetterAuthMock(...args),
+  getBetterAuthSync: (...args: unknown[]) => getBetterAuthSyncMock(...args),
   getBetterAuthInternalAdapter: (...args: unknown[]) =>
     getBetterAuthInternalAdapterMock(...args),
 }));
@@ -39,13 +55,22 @@ describe("user profile actions", () => {
     getUserProfileMock.mockResolvedValue({
       email: "alice@example.com",
       name: "Alice",
+      onboardingRole: null,
     });
     updateUserProfileMock.mockResolvedValue({
       email: "alice@example.com",
       name: "Alice Smith",
+      onboardingRole: null,
     });
+    getUserSettingMock.mockResolvedValue(null);
+    putUserSettingMock.mockResolvedValue(undefined);
+    mutateUserSettingMock.mockResolvedValue({});
+    getBetterAuthSyncMock.mockReturnValue(true);
     auth = {
       api: {
+        getSession: vi.fn().mockResolvedValue({
+          user: { email: "alice@example.com" },
+        }),
         listUserAccounts: vi
           .fn()
           .mockResolvedValue([
@@ -57,6 +82,11 @@ describe("user profile actions", () => {
       },
     };
     getBetterAuthMock.mockResolvedValue(auth);
+    createBetterAuthSessionForEmailMock.mockResolvedValue({
+      email: "alice@example.com",
+      token: "ba-session-token",
+      userId: "user-1",
+    });
     internalAdapter = {
       findUserByEmail: vi.fn().mockResolvedValue({
         user: { id: "user-1", email: "alice@example.com" },
@@ -69,6 +99,7 @@ describe("user profile actions", () => {
           { id: "acc-2", providerId: "google", accountId: "alice@example.com" },
         ],
       }),
+      updateUser: vi.fn().mockResolvedValue(undefined),
     };
     getBetterAuthInternalAdapterMock.mockResolvedValue(internalAdapter);
   });
@@ -80,7 +111,11 @@ describe("user profile actions", () => {
         {},
         { caller: "frontend", userEmail: "alice@example.com" },
       ),
-    ).resolves.toEqual({ email: "alice@example.com", name: "Alice" });
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice",
+      onboardingRole: null,
+    });
     expect(getUserProfileMock).toHaveBeenCalledWith("alice@example.com");
   });
 
@@ -90,11 +125,43 @@ describe("user profile actions", () => {
         { name: "Alice Smith" },
         { caller: "frontend", userEmail: "alice@example.com" },
       ),
-    ).resolves.toEqual({ email: "alice@example.com", name: "Alice Smith" });
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: null,
+    });
     expect(updateUserProfileMock).toHaveBeenCalledWith(
       "alice@example.com",
       "Alice Smith",
     );
+  });
+
+  it("passes the onboarding role through to the shared profile write", async () => {
+    await expect(
+      updateProfile.run(
+        { name: "Alice Smith", onboardingRole: "developer" },
+        { caller: "frontend", userEmail: "alice@example.com" },
+      ),
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: null,
+    });
+    expect(updateUserProfileMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "Alice Smith",
+      "developer",
+    );
+  });
+
+  it("rejects an onboarding role outside the shared vocabulary", async () => {
+    await expect(
+      updateProfile.run(
+        { name: "Alice Smith", onboardingRole: "pirate" as never },
+        { caller: "frontend", userEmail: "alice@example.com" },
+      ),
+    ).rejects.toThrow();
+    expect(updateUserProfileMock).not.toHaveBeenCalled();
   });
 
   it("requires authentication", async () => {
@@ -227,6 +294,55 @@ describe("user profile actions", () => {
     expect(JSON.stringify(setPassword)).not.toContain("new-password");
   });
 
+  it("supports legacy sessions without coupling password changes to email delivery", async () => {
+    auth.api.getSession.mockResolvedValue(null);
+    const headers = new Headers({ cookie: "an_session=legacy-session-token" });
+
+    await expect(
+      setPassword.run(
+        { newPassword: "new-password" },
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          requestHeaders: headers,
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+    await expect(
+      changePassword.run(
+        { currentPassword: "old-password", newPassword: "new-password" },
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          requestHeaders: headers,
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+
+    expect(createBetterAuthSessionForEmailMock).toHaveBeenCalledWith(
+      "alice@example.com",
+    );
+    expect(auth.api.setPassword).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: { newPassword: "new-password" },
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(auth.api.changePassword).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: { currentPassword: "old-password", newPassword: "new-password" },
+        headers: expect.any(Headers),
+      }),
+    );
+
+    const bridgedHeaders = auth.api.setPassword.mock.calls[0][0].headers;
+    expect(bridgedHeaders.get("cookie")).toBe(headers.get("cookie"));
+    expect(bridgedHeaders.get("authorization")).toMatch(
+      /^Bearer ba-session-token\.[A-Za-z0-9_-]+$/,
+    );
+    expect(headers.get("authorization")).toBeNull();
+  });
+
   it("enforces the 12-character minimum before calling Better Auth", async () => {
     const context = {
       caller: "frontend" as const,
@@ -281,5 +397,176 @@ describe("user profile actions", () => {
         { caller: "frontend", userEmail: "alice@example.com" },
       ),
     ).rejects.toThrow("Not authenticated");
+  });
+});
+
+describe("user profile store", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserSettingMock.mockResolvedValue(null);
+    putUserSettingMock.mockResolvedValue(undefined);
+    mutateUserSettingMock.mockResolvedValue({});
+    getBetterAuthSyncMock.mockReturnValue(true);
+  });
+
+  it("stores the onboarding role in user settings for custom-auth users", async () => {
+    getBetterAuthSyncMock.mockReturnValue(false);
+
+    vi.resetModules();
+    vi.doUnmock("../store.js");
+    const { updateUserOnboardingRole } = await import("../store.js");
+
+    await expect(
+      updateUserOnboardingRole("alice@example.com", "developer"),
+    ).resolves.toBe("developer");
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "user-profile",
+      expect.any(Function),
+    );
+    const updater = mutateUserSettingMock.mock.calls[0][2];
+    expect(updater({ name: "Alice" })).toEqual({
+      name: "Alice",
+      onboardingRole: "developer",
+    });
+  });
+
+  it("stores the onboarding role on the Better Auth user row and reads it back", async () => {
+    const firstLookup = {
+      user: {
+        id: "user-1",
+        email: "alice@example.com",
+        name: "Alice",
+        onboardingRole: null,
+      },
+      accounts: [],
+    };
+    const secondLookup = {
+      user: {
+        id: "user-1",
+        email: "alice@example.com",
+        name: "Alice Smith",
+        onboardingRole: "developer",
+      },
+      accounts: [],
+    };
+    const findUserByEmail = vi
+      .fn()
+      .mockResolvedValueOnce(firstLookup)
+      .mockResolvedValueOnce(secondLookup);
+    const updateUser = vi.fn().mockResolvedValue(undefined);
+    getBetterAuthInternalAdapterMock.mockResolvedValue({
+      findUserByEmail,
+      updateUser,
+    });
+
+    vi.resetModules();
+    vi.doUnmock("../store.js");
+    const { updateUserProfile, updateUserOnboardingRole } =
+      await import("../store.js");
+
+    await expect(
+      updateUserProfile("alice@example.com", "Alice Smith", "developer"),
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: "developer",
+    });
+    expect(updateUser).toHaveBeenCalledWith("user-1", {
+      name: "Alice Smith",
+      onboardingRole: "developer",
+    });
+
+    findUserByEmail.mockResolvedValueOnce(firstLookup).mockResolvedValueOnce({
+      user: {
+        ...secondLookup.user,
+        name: "Updated in Settings",
+      },
+      accounts: [],
+    });
+    updateUser.mockClear();
+
+    await expect(
+      updateUserOnboardingRole("alice@example.com", "developer"),
+    ).resolves.toBe("developer");
+    expect(updateUser).toHaveBeenCalledWith("user-1", {
+      onboardingRole: "developer",
+    });
+  });
+
+  it("throws when the onboarding role does not persist on the Better Auth user row", async () => {
+    const firstLookup = {
+      user: {
+        id: "user-1",
+        email: "alice@example.com",
+        name: "Alice",
+        onboardingRole: null,
+      },
+      accounts: [],
+    };
+    const secondLookup = {
+      user: {
+        id: "user-1",
+        email: "alice@example.com",
+        name: "Alice Smith",
+        onboardingRole: null,
+      },
+      accounts: [],
+    };
+    const findUserByEmail = vi
+      .fn()
+      .mockResolvedValueOnce(firstLookup)
+      .mockResolvedValueOnce(secondLookup);
+    const updateUser = vi.fn().mockResolvedValue(undefined);
+    getBetterAuthInternalAdapterMock.mockResolvedValue({
+      findUserByEmail,
+      updateUser,
+    });
+
+    vi.resetModules();
+    vi.doUnmock("../store.js");
+    const { updateUserProfile } = await import("../store.js");
+
+    await expect(
+      updateUserProfile("alice@example.com", "Alice Smith", "developer"),
+    ).rejects.toThrow("Failed to save onboarding role");
+    expect(updateUser).toHaveBeenCalledWith("user-1", {
+      name: "Alice Smith",
+      onboardingRole: "developer",
+    });
+  });
+
+  it("returns the normalized name after a name-only Better Auth update", async () => {
+    getUserSettingMock.mockResolvedValue({ name: "Legacy Name" });
+    const authUser = {
+      user: {
+        id: "user-1",
+        email: "alice@example.com",
+        name: "Alice",
+        onboardingRole: "developer",
+      },
+      accounts: [],
+    };
+    const findUserByEmail = vi.fn().mockResolvedValue(authUser);
+    const updateUser = vi.fn().mockResolvedValue(undefined);
+    getBetterAuthInternalAdapterMock.mockResolvedValue({
+      findUserByEmail,
+      updateUser,
+    });
+
+    vi.resetModules();
+    vi.doUnmock("../store.js");
+    const { updateUserProfile } = await import("../store.js");
+
+    await expect(
+      updateUserProfile("alice@example.com", "Alice Smith"),
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: "developer",
+    });
+    expect(updateUser).toHaveBeenCalledWith("user-1", {
+      name: "Alice Smith",
+    });
   });
 });

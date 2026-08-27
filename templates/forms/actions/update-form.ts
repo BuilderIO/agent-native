@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -10,7 +10,11 @@ import {
   assertValidFields,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
-import type { FormField, FormSettings } from "../shared/types.js";
+import {
+  assertValidFormCompletionSettings,
+  type FormField,
+  type FormSettings,
+} from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 function slugify(text: string): string {
@@ -23,7 +27,7 @@ function slugify(text: string): string {
 
 export default defineAction({
   description:
-    "Update an existing form, including settings.emailOnNewResponses to email the form owner when new responses arrive.",
+    "Update an existing form, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive.",
   schema: z.object({
     id: z.string().describe("Form ID (required)"),
     title: z.string().optional().describe("New title"),
@@ -35,12 +39,14 @@ export default defineAction({
     fields: z
       .union([z.string(), z.array(z.any())])
       .optional()
-      .describe("Array of form fields (or JSON string of the same)"),
+      .describe(
+        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+      ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string of the same). Set emailOnNewResponses=true to email the form owner for each new response.",
+        "Form settings object (or JSON string of the same). Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.",
       ),
     status: z
       .enum(["draft", "published", "closed"])
@@ -107,6 +113,7 @@ export default defineAction({
         // the valid settings supplied by this update.
       }
       const parsedSettings = { ...existingSettings, ...incomingSettings };
+      assertValidFormCompletionSettings(parsedSettings);
       // Reject blocked integration URLs at save time (private IPs,
       // cloud-metadata, non-http(s) schemes). fireIntegrations also
       // re-checks at runtime as defense-in-depth.

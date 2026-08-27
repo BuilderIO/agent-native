@@ -1,5 +1,8 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client/composer";
 import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -15,6 +18,12 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import {
+  canAddInlineImageToPayload,
+  canInlineImageFile,
+  readFileAsDataUrl,
+} from "@/lib/image-drop-to-agent";
+
+import {
   MAX_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILES,
 } from "../../../shared/upload-types";
@@ -26,10 +35,115 @@ import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface UploadedFile {
   path: string;
   url?: string;
+  /** Browser-only fallback when the upload provider did not return a public URL. */
+  dataUrl?: string;
   originalName: string;
   filename: string;
   type: string;
   size: number;
+}
+
+export interface PromptChatAttachment {
+  type: "file";
+  name: string;
+  contentType?: string;
+  displayOnly: true;
+  text?: string;
+}
+export async function addInlineImageFallbacks(
+  files: File[],
+  uploaded: UploadedFile[],
+): Promise<UploadedFile[]> {
+  const inlineDataUrls: string[] = [];
+  const result: UploadedFile[] = [];
+  for (let index = 0; index < uploaded.length; index++) {
+    const uploadedFile = uploaded[index];
+    const file = files[index];
+    const isImage =
+      uploadedFile.type.startsWith("image/") ||
+      Boolean(file?.type.startsWith("image/"));
+    if (!isImage || !file) {
+      result.push(uploadedFile);
+      continue;
+    }
+    if (uploadedFile.dataUrl) {
+      if (canAddInlineImageToPayload(inlineDataUrls, uploadedFile.dataUrl)) {
+        inlineDataUrls.push(uploadedFile.dataUrl);
+        result.push(uploadedFile);
+      } else {
+        const { dataUrl: _dataUrl, ...withoutDataUrl } = uploadedFile;
+        result.push(withoutDataUrl);
+      }
+      continue;
+    }
+    if (!canInlineImageFile(file)) {
+      result.push(uploadedFile);
+      continue;
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    if (canAddInlineImageToPayload(inlineDataUrls, dataUrl)) {
+      inlineDataUrls.push(dataUrl);
+      result.push({ ...uploadedFile, dataUrl });
+    } else {
+      result.push(uploadedFile);
+    }
+  }
+  return result;
+}
+
+export async function createPromptChatAttachments(
+  attachments: ReadonlyArray<unknown> | undefined,
+  uploaded: UploadedFile[],
+): Promise<PromptChatAttachment[]> {
+  const result: PromptChatAttachment[] = [];
+  let uploadedIndex = 0;
+
+  for (const raw of attachments ?? []) {
+    const attachment = raw as {
+      name?: unknown;
+      contentType?: unknown;
+      file?: File;
+    };
+    const name =
+      typeof attachment.name === "string"
+        ? attachment.name
+        : attachment.file?.name;
+    if (!name) continue;
+
+    if (name.startsWith("pasted-text-")) {
+      let text: string | undefined;
+      try {
+        text = await attachment.file?.text();
+      } catch {
+        text = undefined;
+      }
+      result.push({
+        type: "file",
+        name,
+        contentType:
+          typeof attachment.contentType === "string"
+            ? attachment.contentType
+            : "text/plain",
+        displayOnly: true,
+        ...(text !== undefined ? { text } : {}),
+      });
+      continue;
+    }
+
+    const uploadedFile = uploaded[uploadedIndex++];
+    result.push({
+      type: "file",
+      name: uploadedFile?.originalName ?? name,
+      contentType:
+        uploadedFile?.type ??
+        (typeof attachment.contentType === "string"
+          ? attachment.contentType
+          : undefined),
+      displayOnly: true,
+    });
+  }
+
+  return result;
 }
 
 // Netlify functions cap request bodies well under what a real PPTX/PDF
@@ -184,7 +298,7 @@ export async function uploadPromptFiles(
   largeIndices.forEach((fileIndex, resultIndex) => {
     uploads[fileIndex] = largeUploads[resultIndex];
   });
-  return uploads;
+  return addInlineImageFallbacks(files, uploads);
 }
 
 /**
@@ -214,7 +328,11 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void | Promise<void>;
+  onSubmit: (
+    prompt: string,
+    files: UploadedFile[],
+    attachments?: ReadonlyArray<PromptChatAttachment>,
+  ) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -341,7 +459,12 @@ export default function PromptPopover({
   );
 
   const handleSubmit = useCallback(
-    async (text: string, files: File[]) => {
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options?: PromptComposerSubmitOptions,
+    ) => {
       const enrichedText = [text.trim(), googleDocContext]
         .filter(Boolean)
         .join("\n\n");
@@ -351,7 +474,11 @@ export default function PromptPopover({
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
-        await onSubmit(enrichedText, uploaded);
+        const chatAttachments = await createPromptChatAttachments(
+          options?.attachments,
+          uploaded,
+        );
+        await onSubmit(enrichedText, uploaded, chatAttachments);
         setSubmitting(false);
       } catch (error) {
         setSubmitting(false);

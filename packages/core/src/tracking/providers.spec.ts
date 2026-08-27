@@ -19,7 +19,7 @@ describe("tracking providers", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not register Agent Native Analytics without a public key", async () => {
+  it("does not register Agent-Native Analytics without a public key", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "");
     const { listTrackingProviders, registerBuiltinProviders } =
       await freshTrackingModules();
@@ -29,7 +29,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).not.toContain("agent-native-analytics");
   });
 
-  it("sends track events to Agent Native Analytics when configured", async () => {
+  it("sends track events to Agent-Native Analytics when configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
@@ -132,7 +132,7 @@ describe("tracking providers", () => {
     expect(properties).not.toHaveProperty("exceptionExtra");
   });
 
-  it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
+  it("falls back to the public Vite key for server-side Agent-Native Analytics", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_vite_test");
     const { listTrackingProviders, registerBuiltinProviders } =
       await freshTrackingModules();
@@ -142,7 +142,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).toContain("agent-native-analytics");
   });
 
-  it("flushes Agent Native Analytics events immediately in serverless runtimes", async () => {
+  it("flushes Agent-Native Analytics events immediately in serverless runtimes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
@@ -223,6 +223,86 @@ describe("tracking providers", () => {
         $ai_output_tokens: 20,
       },
     });
+  });
+
+  it("sends a buffered event's own time to PostHog, not the flush time", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    const toolStartedAt = Date.parse("2026-08-24T17:53:18.793Z");
+    track(
+      "$ai_span",
+      { $ai_trace_id: "run-1", $ai_span_name: "run-query" },
+      { userId: "u1", occurredAt: toolStartedAt },
+    );
+    track(
+      "page_viewed",
+      { path: "/" },
+      { userId: "u1", occurredAt: toolStartedAt },
+    );
+    await flushTracking();
+
+    // Top level, not inside `properties`: a `properties.timestamp` is an
+    // ordinary custom property to PostHog, and the event lands at its
+    // ingestion time. An agent run flushes its whole tree at the end, so that
+    // collapsed every span in a multi-minute run onto the same instant.
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(init.body);
+      expect(body.timestamp).toBe("2026-08-24T17:53:18.793Z");
+      expect(body.properties).not.toHaveProperty("timestamp");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("shifts AI event times to the operation's end for PostHog only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const {
+      flushTracking,
+      registerBuiltinProviders,
+      registerTrackingProvider,
+      track,
+    } = await freshTrackingModules();
+
+    const fanOut: TrackingEvent[] = [];
+    registerBuiltinProviders();
+    registerTrackingProvider({
+      name: "qa-fan-out",
+      track: (e) => fanOut.push(e),
+    });
+
+    const startedAt = Date.parse("2026-08-24T21:55:59.154Z");
+    track(
+      "$ai_generation",
+      { $ai_trace_id: "run-1", $ai_latency: 6.52 },
+      { userId: "u1", occurredAt: startedAt },
+    );
+    track(
+      "$ai_trace",
+      { $ai_trace_id: "run-1" },
+      { userId: "u1", occurredAt: startedAt },
+    );
+    await flushTracking();
+
+    const posted = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body));
+    // PostHog reads an AI event's timestamp as the operation's END and
+    // subtracts `$ai_latency` to recover the start.
+    expect(posted[0].timestamp).toBe("2026-08-24T21:56:05.674Z");
+    // The trace carries no latency, so there is nothing to shift.
+    expect(posted[1].timestamp).toBe("2026-08-24T21:55:59.154Z");
+    // Every other backend keeps the start it was given — they read the
+    // timestamp verbatim and never reconstruct anything from `$ai_latency`.
+    expect(fanOut.map((e) => e.timestamp)).toEqual([
+      "2026-08-24T21:55:59.154Z",
+      "2026-08-24T21:55:59.154Z",
+    ]);
   });
 
   it("reshapes tracked exceptions into PostHog's $exception_list", async () => {
@@ -331,7 +411,7 @@ describe("tracking providers", () => {
     expect(flushed).toBe(true);
   });
 
-  it("does not register Agent Native Analytics for localhost app URLs", async () => {
+  it("does not register Agent-Native Analytics for localhost app URLs", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");
     const { listTrackingProviders, registerBuiltinProviders } =
@@ -342,7 +422,7 @@ describe("tracking providers", () => {
     expect(listTrackingProviders()).not.toContain("agent-native-analytics");
   });
 
-  it("allows an explicit localhost override for Agent Native Analytics", async () => {
+  it("allows an explicit localhost override for Agent-Native Analytics", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");

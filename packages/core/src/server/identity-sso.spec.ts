@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
+
 const getSessionMock = vi.fn();
 const createOAuthSessionMock = vi.fn(async () => ({
   sessionToken: "fresh-session-token",
@@ -72,7 +77,6 @@ vi.mock("./auth.js", () => ({
     }
   },
 }));
-vi.mock("./app-name.js", () => ({ getAppName: () => "mail" }));
 vi.mock("./google-oauth.js", () => ({
   createOAuthSession: (...args: any[]) => createOAuthSessionMock(...args),
   getOrigin: (event: any) =>
@@ -230,6 +234,9 @@ beforeEach(() => {
   findUserByEmailMock.mockClear();
   process.env.A2A_SECRET = SECRET;
   process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
+  // Stands in for the package layer: outside a template checkout package.json
+  // is core's own, which the first-party table does not match.
+  defineAppConfig({ app: { name: "mail" } });
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -243,6 +250,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetAppConfigForTests();
   delete process.env.A2A_SECRET;
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
   vi.unstubAllGlobals();

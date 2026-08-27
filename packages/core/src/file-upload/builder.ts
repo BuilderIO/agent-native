@@ -67,7 +67,7 @@ async function assertOk(res: Response, label: string): Promise<void> {
 
 async function uploadLargeFileViaSignedUrl(
   input: FileUploadInput,
-  privateKey: string,
+  authorization: string,
   bareMimeType: string,
   bytes: Uint8Array,
 ): Promise<FileUploadResult> {
@@ -81,7 +81,7 @@ async function uploadLargeFileViaSignedUrl(
   // Step 1 — request a signed URL.
   console.log(`[builder-upload] step 1: requesting signed URL`);
   const { uploadUrl, assetId, requiredHeaders } = await requestBuilderSignedUrl(
-    privateKey,
+    authorization,
     name,
     bareMimeType,
     bytes.byteLength,
@@ -106,7 +106,7 @@ async function uploadLargeFileViaSignedUrl(
     `[builder-upload] step 3: registering asset - ${assetId}, ${input.filename}`,
   );
   const { url, id } = await completeBuilderUpload(
-    privateKey,
+    authorization,
     assetId,
     input.filename,
     {
@@ -119,7 +119,7 @@ async function uploadLargeFileViaSignedUrl(
 }
 
 async function requestBuilderSignedUrl(
-  privateKey: string,
+  authorization: string,
   filename: string,
   mimeType: string,
   size: number,
@@ -134,7 +134,7 @@ async function requestBuilderSignedUrl(
   const res = await fetchWithTimeout(url.toString(), {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${privateKey}`,
+      Authorization: authorization,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -163,7 +163,7 @@ async function requestBuilderSignedUrl(
 }
 
 async function completeBuilderUpload(
-  privateKey: string,
+  authorization: string,
   assetId: string,
   filename: string | undefined,
   options?: { stableUrl?: boolean; recordAsset?: boolean },
@@ -177,7 +177,7 @@ async function completeBuilderUpload(
   const res = await fetchWithTimeout(url.toString(), {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${privateKey}`,
+      Authorization: authorization,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -227,9 +227,23 @@ async function uploadSmallFile(url: URL, init: RequestInit): Promise<Response> {
 }
 
 /**
+ * Builder gates every `/api/v1/upload/*` endpoint on `builder:assets:write`.
+ * Legacy `bpk-` keys skip that check, which is why uploads kept working for
+ * older connections while OAuth-only ones could not upload at all.
+ */
+async function assetAuthorization(): Promise<string> {
+  const [{ resolveBuilderApiAuthorization }, { BUILDER_ASSETS_WRITE_SCOPE }] =
+    await Promise.all([
+      import("../server/builder-api-auth.js"),
+      import("../server/builder-oauth.js"),
+    ]);
+  return resolveBuilderApiAuthorization(BUILDER_ASSETS_WRITE_SCOPE);
+}
+
+/**
  * Built-in Builder.io file upload provider.
- * Uses the same BUILDER_PRIVATE_KEY as the browser/background-agent flows,
- * so connecting Builder once (via the sidebar "Connect Builder" action)
+ * Uses the same Builder connection as the browser/background-agent flows, so
+ * connecting Builder once (via the sidebar "Connect Builder" action)
  * automatically enables file uploads.
  *
  * Upload API: https://www.builder.io/c/docs/upload-api
@@ -240,12 +254,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
   isConfigured: () => !!process.env.BUILDER_PRIVATE_KEY,
   upload: async (input: FileUploadInput) => {
     const { data, filename, mimeType } = input;
-    const { resolveBuilderPrivateKey } =
-      await import("../server/credential-provider.js");
-    const privateKey = await resolveBuilderPrivateKey();
-    if (!privateKey) {
-      throw new Error("BUILDER_PRIVATE_KEY is not set");
-    }
+    const authorization = await assetAuthorization();
 
     // Strip any media-type parameters (e.g. `;codecs=avc1,opus` from
     // MediaRecorder blobs) — Builder's upload API parses the body as raw
@@ -264,7 +273,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
       return uploadLargeFileViaSignedUrl(
         input,
-        privateKey,
+        authorization,
         bareMimeType,
         bytes,
       );
@@ -284,7 +293,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const response = await uploadSmallFile(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${privateKey}`,
+        Authorization: authorization,
         "Content-Type": bareMimeType,
       },
       body: makeBody(bytes, bareMimeType),
@@ -329,17 +338,14 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
   resumable: {
     async startSession(filename, mimeType, maxBytes) {
-      const { resolveBuilderPrivateKey } =
-        await import("../server/credential-provider.js");
-      const privateKey = await resolveBuilderPrivateKey();
-      if (!privateKey) throw new Error("BUILDER_PRIVATE_KEY is not set");
+      const authorization = await assetAuthorization();
 
       console.log(
         `[builder-resumable] starting session: ${filename} ${mimeType} ${maxBytes} bytes`,
       );
       const { uploadUrl, assetId, requiredHeaders } =
         await requestBuilderSignedUrl(
-          privateKey,
+          authorization,
           filename,
           mimeType,
           maxBytes,
@@ -433,15 +439,12 @@ export const builderFileUploadProvider: FileUploadProvider = {
     },
 
     async completeSession(session, filename, options) {
-      const { resolveBuilderPrivateKey } =
-        await import("../server/credential-provider.js");
-      const privateKey = await resolveBuilderPrivateKey();
-      if (!privateKey) throw new Error("BUILDER_PRIVATE_KEY is not set");
+      const authorization = await assetAuthorization();
 
       const assetId = session.meta.assetId as string;
       console.log(`[builder-resumable] completing upload: assetId=${assetId}`);
       const { url } = await completeBuilderUpload(
-        privateKey,
+        authorization,
         assetId,
         filename,
         {

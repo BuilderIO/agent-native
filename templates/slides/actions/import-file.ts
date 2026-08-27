@@ -1,6 +1,7 @@
 import path from "path";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
+import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
@@ -28,6 +29,7 @@ import {
 } from "../server/lib/source-import.js";
 import {
   ASPECT_RATIOS,
+  ASPECT_RATIO_VALUES,
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
@@ -35,17 +37,36 @@ import {
   isOpaqueDeckTitle,
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
+import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
+function rasterImageMediaType(
+  filename: string,
+): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
+  switch (path.extname(filename).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
 export default defineAction({
   description:
-    "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
+    "Import a file (PPTX, DOCX, PDF, FIG, or raster image) and extract content for creating slides or slide design systems. " +
     "For PPTX files, returns parsed slides with text and layout info ready for conversion, or writes positioned source-preserving slides when importIntoDeck is true. " +
     "For DOCX files, returns structured sections extracted from the document. " +
-    "For PDF files, returns extracted text organized by page, or source-faithful page-image slides when importIntoDeck is true. " +
+    "For PDF files, returns extracted text organized by page, or editable slides when importIntoDeck is true — a PDF this app exported restores its original slides, and any other PDF is rebuilt as positioned text boxes and images. " +
     "For Figma .fig files, requires Builder.io (free tier available) and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
     "The agent can then use the extracted content to create a deck via create-deck or add-slide, or tell the user where Builder is indexing the design system.",
   schema: z.object({
@@ -53,7 +74,7 @@ export default defineAction({
       .string()
       .describe("Uploaded file path or opaque hosted upload reference"),
     format: z
-      .enum(["pptx", "docx", "pdf", "fig", "auto"])
+      .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])
       .optional()
       .default("auto")
       .describe("File format — auto-detected from extension if not specified"),
@@ -66,7 +87,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe(
-        "If true, append slides to deckId. PDF pages are imported as source-faithful images that preserve their original layout and aspect ratio; use the default false when editable extracted source text is needed.",
+        "If true, append slides to deckId. PDF pages become editable slides — original layers when the PDF came from this app, otherwise positioned text boxes and images reconstructed from the page. Use the default false to read a file's text without writing slides.",
       ),
     maxChars: z.coerce
       .number()
@@ -92,11 +113,46 @@ export default defineAction({
       else if (ext === ".docx") detectedFormat = "docx";
       else if (ext === ".pdf") detectedFormat = "pdf";
       else if (ext === ".fig") detectedFormat = "fig";
+      else if (rasterImageMediaType(filename)) detectedFormat = "image";
       else {
         throw new Error(
-          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig`,
+          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig, .jpg, .png, .gif, .webp`,
         );
       }
+    }
+
+    if (detectedFormat === "image") {
+      if (importIntoDeck) {
+        throw new Error(
+          "Raster image imports are visual references, not slide imports. Use update-slide or add-slide to place the image after inspecting it.",
+        );
+      }
+      const mediaType = rasterImageMediaType(filename);
+      if (!mediaType) {
+        throw new Error(
+          "Vision image imports support only JPEG, PNG, GIF, and WebP files.",
+        );
+      }
+      const imageData = fileBuffer.toString("base64");
+      if (imageData.length > MAX_TOOL_RESULT_IMAGE_BASE64_CHARS) {
+        throw new Error(
+          `Raster image "${filename}" exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-character vision tool limit. Upload a smaller image and retry.`,
+        );
+      }
+      return {
+        format: "image",
+        filename,
+        contentType: mediaType,
+        byteLength: fileBuffer.length,
+        deckId,
+        _agentImages: [
+          {
+            data: imageData,
+            mediaType,
+            label: filename,
+          },
+        ],
+      };
     }
 
     if (detectedFormat === "fig") {
@@ -369,6 +425,57 @@ function nearestAspectRatio(width: number, height: number): AspectRatio {
   return best;
 }
 
+/**
+ * Restores the deck an earlier PDF export embedded, rather than reconstructing
+ * one from the render. Slide ids are minted fresh: the payload's ids belong to
+ * whatever deck was exported, which may not be this one and is not this
+ * caller's to claim.
+ */
+async function importPdfFromSidecar(args: {
+  sidecar: SlidesPdfSidecar;
+  fallbackTitle: string;
+  deckId: string;
+}) {
+  const { sidecar, fallbackTitle, deckId } = args;
+
+  // Stored as authored, like every other write into `decks.data` — the editor,
+  // `update-slide`, and `patch-deck` all persist raw slide HTML and let
+  // `SlideRenderer` sanitize at render. Running the shared sanitizer here
+  // instead would be both weaker and lossy: on the server it falls back to its
+  // regex twin, which deletes a slide's `<style>` block and everything after
+  // it, so a restored slide would come back truncated.
+  const slides = sidecar.slides.map((slide) => ({
+    ...slide,
+    id: newSlideId(),
+    layout: slide.layout ?? "content",
+  }));
+
+  const aspectRatio = ASPECT_RATIO_VALUES.includes(
+    sidecar.aspectRatio as AspectRatio,
+  )
+    ? (sidecar.aspectRatio as AspectRatio)
+    : undefined;
+
+  const importedTitle = await appendDeckSlides(
+    deckId,
+    sidecar.title?.trim() || fallbackTitle,
+    slides,
+    "import-file:pdf-sidecar",
+    aspectRatio,
+  );
+
+  return {
+    format: "pdf",
+    title: importedTitle,
+    pageCount: slides.length,
+    slideCount: slides.length,
+    aspectRatio,
+    deckId,
+    imported: true,
+    restoredFromExport: true,
+  };
+}
+
 async function importPdfPagesWithFidelity(args: {
   fileBuffer: Buffer;
   title: string;
@@ -381,14 +488,49 @@ async function importPdfPagesWithFidelity(args: {
     await import("../server/handlers/import/html-converter.js");
   const { parsePdfFidelity } =
     await import("../server/handlers/import/pdf-fidelity-parser.js");
+  const { readSlidesPdfSidecar } =
+    await import("../server/handlers/import/pdf-sidecar-reader.js");
 
   const pdf = new PDFParse({
     data: new Uint8Array(fileBuffer),
     CanvasFactory: canvasFactory,
   });
+  // `pdf-parse` memoizes the loaded pdfjs document behind `load()` (a TS-only
+  // `private` method — a real, callable runtime property). Reaching into it
+  // gives every step below the one parsed document instead of reparsing the
+  // file per step.
+  const loadDocument = () =>
+    (
+      pdf as unknown as {
+        load(): Promise<
+          import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy
+        >;
+      }
+    ).load();
+
   let pages: { num: number; text: string }[];
   let fidelityPages: Awaited<ReturnType<typeof parsePdfFidelity>>;
+  // Set when this PDF is one of ours but its deck source could not be used.
+  // Carried into the result so the caller reports a rebuilt deck as rebuilt
+  // instead of as a clean restore.
+  let sidecarWarning: string | undefined;
   try {
+    // A PDF this app exported carries the deck it was rendered from. Restoring
+    // that is not a better reconstruction, it is the original slides — so it
+    // runs before any parsing, and skips the text/image extraction entirely.
+    const sidecar = await readSlidesPdfSidecar(await loadDocument());
+    if (sidecar.status === "unreadable") {
+      sidecarWarning = `This PDF was exported from Slides, but its embedded deck source could not be used (${sidecar.reason}). The slides below were rebuilt from the page content instead, so they may differ from the original deck.`;
+      console.warn(`[import-file] ${sidecarWarning}`);
+    }
+    if (sidecar.status === "found") {
+      return await importPdfFromSidecar({
+        sidecar: sidecar.sidecar,
+        fallbackTitle: title,
+        deckId,
+      });
+    }
+
     pages = normalizePdfPages(await pdf.getText());
     // Image placement needs the optional canvas renderer to decode pixel
     // data; skip it (text still gets real positions/sizes) when the native
@@ -409,17 +551,7 @@ async function importPdfPagesWithFidelity(args: {
           })
       : undefined;
 
-    // `pdf-parse` memoizes the loaded pdfjs document behind `load()` (a
-    // TS-only `private` method — a real, callable runtime property).
-    // Reaching into it reuses the exact document `getText`/`getImage` above
-    // already parsed instead of parsing the file a second time.
-    const doc = await (
-      pdf as unknown as {
-        load(): Promise<
-          import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy
-        >;
-      }
-    ).load();
+    const doc = await loadDocument();
     // coercion-ok: undefined here means either canvasFactory was absent or
     // getImage() already failed and logged a warning above — text-only
     // fidelity is the intended degrade, not a swallowed failure.
@@ -567,6 +699,7 @@ async function importPdfPagesWithFidelity(args: {
     deckId,
     imported: true,
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(sidecarWarning ? { warning: sidecarWarning } : {}),
   };
 }
 

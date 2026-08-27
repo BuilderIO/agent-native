@@ -14,9 +14,12 @@ import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
+import { readDeployCredentialEnv } from "./credential-provider.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
   getAppBasePath,
   getOrigin,
+  getOAuthStateSigningKey,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
@@ -25,7 +28,7 @@ const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
-const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
+const BUILDER_BROWSER_CLIENT_ID = "Agent-Native Browser";
 const DISPATCH_APP_CREATION_SETTINGS_KEY = "dispatch-app-creation-settings";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
@@ -109,15 +112,25 @@ function safeEqualText(expected: string, actual: string): boolean {
 }
 
 /**
- * Opaque OAuth `state` for Builder connect. Bound to the app auth secret so a
- * pending row cannot be forged from another deployment that shares a database.
+ * Opaque OAuth `state` for Builder connect. Bound to a server-only signing
+ * secret so a pending row cannot be forged from another deployment that shares
+ * a database.
  */
+function builderConnectStateSigningKeys(): string[] {
+  const currentSecret = getOAuthStateSigningKey();
+  const keys = [`builder-connect-state:${currentSecret}`];
+  const legacySecret =
+    readDeployCredentialEnv("BETTER_AUTH_SECRET")?.trim() ||
+    getWorkspaceA2ADerivedSecret("better-auth");
+  if (legacySecret && legacySecret !== currentSecret) {
+    keys.push(`builder-connect-state:${legacySecret}`);
+  }
+  return keys;
+}
+
 export function createBuilderConnectState(): string {
   const stateNonce = randomBytes(32).toString("base64url");
-  const signature = createHmac(
-    "sha256",
-    `builder-connect-state:${getAuthSecret()}`,
-  )
+  const signature = createHmac("sha256", builderConnectStateSigningKeys()[0]!)
     .update(stateNonce)
     .digest("base64url");
   return `${stateNonce}.${signature}`;
@@ -137,13 +150,12 @@ export function isSignedBuilderConnectState(
   ) {
     return false;
   }
-  const expected = createHmac(
-    "sha256",
-    `builder-connect-state:${getAuthSecret()}`,
-  )
-    .update(nonce)
-    .digest("base64url");
-  return safeEqualText(expected, signature);
+  return builderConnectStateSigningKeys().some((key) => {
+    const expected = createHmac("sha256", key)
+      .update(nonce)
+      .digest("base64url");
+    return safeEqualText(expected, signature);
+  });
 }
 
 /**
@@ -183,16 +195,19 @@ export function isBuilderConnectCallbackUrlAllowed(
  * `getAppBasePath()` + `BUILDER_CALLBACK_PATH`. Intentionally ignores any
  * `?redirect_uri=` query override — connect always returns to this app's own
  * callback. Validated with `isBuilderConnectCallbackUrlAllowed` (Railway-safe,
- * no fixed domain allowlist).
+ * no fixed domain allowlist). When state is provided, bind it into the exact
+ * registered callback URI because Builder can omit top-level OAuth state.
  */
 export function resolveBuilderConnectCallbackUrl(
   event: H3Event,
+  state?: string,
 ): string | null {
-  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}`;
+  const stateSuffix = state ? `?state=${encodeURIComponent(state)}` : "";
+  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
   // Match google-oauth default-redirect behavior when the request is not under
   // APP_BASE_PATH: fall back to the root `/_agent-native/...` callback.
-  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}`;
+  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
     return root;
   }
@@ -555,15 +570,13 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Query-param name carrying the signed CSRF state on the connect→callback
- * round-trip. Prefixed with `_an_` to avoid collisions if Builder ever
- * adds standard OAuth `state` support to cli-auth. Builder preserves
- * the path/query of `redirect_url` verbatim when redirecting back, so
- * we embed `_an_state=…` inside the redirect_url query string at
- * connect time and read it back on the callback.
+ * Query-param name carrying the signed CSRF state on the legacy
+ * connect→callback round-trip. Prefixed with `_an_` to avoid collisions if
+ * Builder ever adds standard OAuth `state` support to cli-auth.
  */
 export const BUILDER_STATE_PARAM = "_an_state";
 export const BUILDER_CONNECT_PARAM = "_an_connect";
+export const BUILDER_CONNECT_STATE_COOKIE = "an_builder_connect_state";
 export const BUILDER_CONNECT_OWNER_COOKIE = "an_builder_connect_owner";
 export const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 export const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
@@ -571,6 +584,54 @@ export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
   "agentNativeConnectSource";
 export const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
+
+const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
+
+function parseBuilderConnectStateCookie(
+  value: string | null | undefined,
+): string[] | null {
+  if (!value) return [];
+  const states = value.split(",");
+  if (
+    states.length > BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES ||
+    states.some((state) => !isSignedBuilderConnectState(state))
+  ) {
+    return null;
+  }
+  return [...new Set(states)];
+}
+
+export function appendBuilderConnectStateCookie(
+  value: string | null | undefined,
+  state: string,
+): string {
+  const states = parseBuilderConnectStateCookie(value) ?? [];
+  return [...states.filter((candidate) => candidate !== state), state]
+    .slice(-BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES)
+    .join(",");
+}
+
+export function removeBuilderConnectStateCookie(
+  value: string | null | undefined,
+  state: string,
+): string {
+  return (parseBuilderConnectStateCookie(value) ?? [])
+    .filter((candidate) => candidate !== state)
+    .join(",");
+}
+
+export function resolveBuilderConnectCallbackState(
+  queryState: string | null,
+  cookieState: string | null | undefined,
+): string | null {
+  const cookieStates = parseBuilderConnectStateCookie(cookieState);
+  if (cookieState && !cookieStates) return null;
+  if (queryState !== null) {
+    if (cookieStates?.length && !cookieStates.includes(queryState)) return null;
+    return queryState;
+  }
+  return cookieStates?.length === 1 ? cookieStates[0] : null;
+}
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 const BUILDER_SIGNUP_SOURCE = "agent-native";
@@ -1056,11 +1117,9 @@ function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
 
 /**
  * Build the Builder cli-auth URL for the connect popup. When a signed
- * `state` token is supplied it is embedded inside the `redirect_url`
- * query string so it survives Builder's redirect verbatim — Builder
- * preserves the redirect_url's existing query when appending p-key /
- * api-key / etc., so we don't depend on Builder echoing a top-level
- * `state` parameter (it doesn't).
+ * `state` token is supplied it is embedded inside the `redirect_url` query
+ * string. The connect route also stores it in an HttpOnly cookie because
+ * Builder may strip the callback query while appending its response params.
  *
  * Status responses can surface this URL directly; the legacy
  * `/_agent-native/builder/connect` trampoline still calls this helper for
@@ -1125,6 +1184,7 @@ export function buildBuilderCliAuthUrl(
     "preview_url",
     `${normalizedPreviewOrigin}${appBasePath}`,
   );
+  url.searchParams.set("cli", "true");
   url.searchParams.set("framework", "agent-native");
   applyBuilderConnectTrackingParams(url.searchParams, tracking);
   applyBuilderUtmTrackingParams(url.searchParams, {

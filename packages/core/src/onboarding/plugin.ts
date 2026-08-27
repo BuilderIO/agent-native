@@ -7,6 +7,7 @@
  *   POST /_agent-native/onboarding/dismiss            — dismiss the banner
  *   GET  /_agent-native/onboarding/dismissed          — dismissed flag + allComplete
  *   GET  /_agent-native/onboarding/first-run/status   — post-signup flow status
+ *   POST /_agent-native/onboarding/first-run/role     — save role preference
  *   POST /_agent-native/onboarding/first-run/complete — permanently complete it
  */
 
@@ -16,6 +17,7 @@ import {
   getCookie,
   getMethod,
   getQuery,
+  readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -35,6 +37,9 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
+import { track } from "../tracking/index.js";
+import { onboardingRoleSchema } from "../user-profile/shared.js";
+import { updateUserOnboardingRole } from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
@@ -338,6 +343,42 @@ export function createOnboardingPlugin(
           return {
             firstRun,
           };
+        });
+      }),
+    );
+
+    // POST /_agent-native/onboarding/first-run/role
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/first-run/role`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const context = await resolveOnboardingContext(event);
+        if (!context.userEmail) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+
+        const body = (await readBody(event)) as { role?: unknown } | null;
+        const parsed = onboardingRoleSchema.safeParse(body?.role);
+        if (!parsed.success) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid onboarding role" };
+        }
+
+        return withOnboardingRequestContext(context, async () => {
+          const savedRole = await updateUserOnboardingRole(
+            context.userEmail!,
+            parsed.data,
+          );
+          track(
+            "onboarding.role_selected",
+            { role: parsed.data },
+            { userId: context.userEmail },
+          );
+          return { ok: true, role: savedRole };
         });
       }),
     );

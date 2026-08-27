@@ -31,6 +31,7 @@ import {
   isPathMountedWorkspaceApp,
   isWorkspaceSsoApp,
   navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
   workspaceAppHref,
   workspaceAppRoute,
@@ -239,7 +240,9 @@ export function WorkspaceAppCard({
           <WorkspaceAppOpenActions
             app={app}
             href={directHref ?? href}
-            openDirectly={Boolean(directHref)}
+            openDirectly={Boolean(
+              directHref && shouldOpenWorkspaceAppInTopWindow(),
+            )}
             isPinned={isPinned}
             pinLabel={pinLabel}
             pendingOpenLabel={pendingOpenLabel}

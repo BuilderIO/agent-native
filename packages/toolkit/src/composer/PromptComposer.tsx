@@ -74,6 +74,7 @@ export interface PromptComposerSubmitOptions {
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
+  attachments?: ReadonlyArray<unknown>;
 }
 
 export interface PromptComposerProps {
@@ -142,7 +143,7 @@ export interface PromptComposerProps {
   slashCommands?: SlashCommand[];
   /** Additional slash skills surfaced in the shared / menu. */
   slashSkills?: SkillResult[];
-  /** Include built-in sidebar slash commands like /clear and /help. Default true. */
+  /** Include built-in sidebar slash commands when onSlashCommand is provided. */
   includeDefaultSlashCommands?: boolean;
   /** Include app-discovered skills from the default agent endpoint. Default true. */
   includeDefaultSlashSkills?: boolean;
@@ -635,6 +636,7 @@ function PromptComposerInner({
         model: composerModel,
         engine: composerEngine,
         effort: composerEffort,
+        attachments,
       });
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
