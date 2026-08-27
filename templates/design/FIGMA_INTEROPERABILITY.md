@@ -1045,7 +1045,8 @@ third time.
 
 `parseColorStop` reads a stop position only when it is a PERCENTAGE and
 otherwise returns the whole unsplit token as the COLOUR, so
-`stop-color="rgb(0,0,0) 40px"` — an invalid paint — rendered black with
+a `stop-color` with a length still glued to the colour — an invalid paint —
+rendered black with
 nothing in the export report. The reachable trigger is not exotic: the
 universal hard-stop idiom `<colour> 0 50%, <colour> 50% 100%` computes with a
 bare `0`,

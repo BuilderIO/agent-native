@@ -2693,7 +2693,8 @@ export function collectRawFigmaSvgScene(
         // Matching geometry by shape instead missed `90% 40% at 50% 0%`, and
         // stripping its trailing position left `... at 50%`, which then read
         // as a colour with a position glued on — the whole gradient was
-        // dropped. Computed styles always spell colours as rgb()/rgba().
+        // dropped. Computed styles always spell a colour as a function or
+        // hex, never as a bare number, which is what makes this test reliable.
         const hasColor =
           /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i.test(
             part,
