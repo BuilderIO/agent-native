@@ -4,6 +4,11 @@
     "maxOmitted": 0,
     "maxApproximated": 0
   },
+  "image-scale-modes": {
+    "maxDiffPercent": 2.336,
+    "maxOmitted": 0,
+    "maxApproximated": 3
+  },
   "layout-stress": {
     "maxDiffPercent": 0.365,
     "maxOmitted": 0,
