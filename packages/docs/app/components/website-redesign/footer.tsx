@@ -1,10 +1,6 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/core/client/ui";
-import {
-  IconBrandDiscord,
-  IconBrandGithub,
-  IconSpeakerphone,
-} from "@tabler/icons-react";
+import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -208,9 +204,8 @@ export function Footer() {
             trigger={
               <button
                 type="button"
-                className={`${controlSurfaceClassName} gap-[var(--spacing-2)] px-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]`}
+                className={`${controlSurfaceClassName} px-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]`}
               >
-                <IconSpeakerphone size={18} stroke={1.5} />
                 {t("feedback.label")}
               </button>
             }
