@@ -8,8 +8,8 @@ const ONE_PAGER_CREATION_PATTERN =
   /\b(?:assemble|build|create|design|draft|generate|make|prepare|produce|write|put\s+together)\b.{0,64}\bone[-\s]?page(?:r)?s?\b/i;
 
 const EXPLICIT_PLAN_PATTERN =
-  /\b(?:interactive|visual)\s+(?:plan|prototype|recap)\b/i;
-const NEGATION_PATTERN = /\b(?:do\s+not|don't|dont|never|not)\b/i;
+  /\b(?:(?:interactive|visual)(?:\s+one[-\s]?page(?:r)?s?)?|one[-\s]?page(?:r)?s?\s+(?:interactive|visual))\s+(?:plan|prototype|recap)\b/i;
+const NEGATION_PATTERN = /\b(?:do\s+not|don't|dont|never|not|no\s+need)\b/i;
 
 const VISUAL_DESIGN_PATTERNS = [
   /\b(?:assemble|build|design|redesign|create|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
@@ -17,7 +17,7 @@ const VISUAL_DESIGN_PATTERNS = [
 ];
 
 function hasAffirmativeMatch(text: string, pattern: RegExp): boolean {
-  return text.split(/[.!?;]+/).some((clause) => {
+  return text.split(/[.!?;,]+/).some((clause) => {
     const match = clause.match(pattern);
     return (
       match?.index !== undefined &&
