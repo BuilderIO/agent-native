@@ -32,6 +32,25 @@ function profileFromAuthUser(
   };
 }
 
+async function profileFromAuthUserWithStoredName(
+  email: string,
+  user: { name?: string | null; image?: string | null },
+): Promise<UserProfile> {
+  const profile = profileFromAuthUser(email, user);
+  const storedResult = (
+    await Promise.allSettled([getStoredUserProfile(email)])
+  )[0];
+  if (storedResult.status !== "fulfilled") return profile;
+
+  return {
+    ...profile,
+    name: normalizeUserProfileName(
+      resolveUserProfileName(email, storedResult.value.name, user.name),
+      email,
+    ),
+  };
+}
+
 async function getStoredUserProfile(email: string): Promise<UserProfile> {
   const stored = await getUserSetting(email, USER_PROFILE_SETTING_KEY);
   const storedName = typeof stored?.name === "string" ? stored.name : null;
@@ -45,7 +64,7 @@ async function getStoredUserProfile(email: string): Promise<UserProfile> {
 
 export async function getUserProfile(email: string): Promise<UserProfile> {
   const authUser = await getAuthUser(email);
-  if (authUser) return profileFromAuthUser(email, authUser.user);
+  if (authUser) return profileFromAuthUserWithStoredName(email, authUser.user);
   return getStoredUserProfile(email);
 }
 
@@ -83,9 +102,19 @@ export async function getUserProfiles(
           },
         ],
       );
-      for (const user of users) {
-        const email = user.email.trim().toLowerCase();
-        if (email) profiles.set(email, profileFromAuthUser(email, user));
+      const userProfiles = await Promise.all(
+        users.map(async (user) => {
+          const email = user.email.trim().toLowerCase();
+          return email
+            ? ([
+                email,
+                await profileFromAuthUserWithStoredName(email, user),
+              ] as const)
+            : null;
+        }),
+      );
+      for (const entry of userProfiles) {
+        if (entry) profiles.set(...entry);
       }
       batchLookupSucceeded = true;
     } catch {
