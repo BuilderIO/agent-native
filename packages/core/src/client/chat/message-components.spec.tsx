@@ -355,6 +355,34 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
+  it("shows controls for a response explicitly stopped with pending tool state", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows stopped controls while the active response is still settling", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: true,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({

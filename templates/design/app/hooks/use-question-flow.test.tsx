@@ -214,4 +214,27 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
 
     await cleanup();
   });
+
+  it("keeps answered questions on the existing design shell", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(
+      "The design shell already exists and is the only design to modify.",
+    );
+    expect(call.context).toContain(
+      'Use designId "design-1" for generation. Never call create-design',
+    );
+
+    await cleanup();
+  });
 });
