@@ -18,9 +18,7 @@ describe("isTrustedBuilderPreviewUrl", () => {
   });
 
   it("rejects a non-Builder origin", () => {
-    expect(isTrustedBuilderPreviewUrl("https://evil.example.com")).toBe(
-      false,
-    );
+    expect(isTrustedBuilderPreviewUrl("https://evil.example.com")).toBe(false);
   });
 
   it("rejects a lookalike hostname", () => {
