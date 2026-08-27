@@ -125,7 +125,7 @@ function collectAnimationElements(
   parentPath: number[],
   elements: ParsedAnimationElement[],
 ) {
-  Array.from(parent.children).forEach((child, childIndex) => {
+  getPersistedChildren(parent).forEach((child, childIndex) => {
     if (SKIPPED_TAGS.has(child.tagName.toLowerCase())) return;
 
     const path = [...parentPath, childIndex];
@@ -366,7 +366,7 @@ export function resolveSlideAnimationTargetsWithDiagnostics<
         },
       };
     }
-    const path = getElementPath(root, element);
+    const path = getPersistedElementPath(root, element);
     if (!path) {
       return {
         resolved: null,
@@ -415,7 +415,7 @@ export function getSlideAnimationTargetKey(
   const element = resolveSlideAnimationElement(root, target);
   if (!element) return null;
 
-  const path = getElementPath(root, element);
+  const path = getPersistedElementPath(root, element);
   return path ? animationElementKey(path) : null;
 }
 

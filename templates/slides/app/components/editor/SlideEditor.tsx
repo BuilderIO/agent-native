@@ -101,7 +101,10 @@ import {
   resolveSlidesCanvasNudge,
   slidesCanvasInteractionCore,
 } from "./canvas-interactions";
-import type { SlideShapeType } from "./EditorActionCluster";
+import {
+  SLIDE_SHAPE_LABEL_KEYS,
+  type SlideShapeType,
+} from "./EditorActionCluster";
 import ImageOverlay from "./ImageOverlay";
 import {
   shouldPersistInlineEditContent,
@@ -153,8 +156,10 @@ import {
   isDeletableFlowImage,
   isDeletableSlideElement,
   removeSlideObjectAndLayoutSpacer,
+  preserveSlideObjectLayoutSpacer,
   resolveSlideObjectContainingBlock,
   snapSlideObjectMove,
+  stripTransientSlideLayoutSpacers,
   unionSlideObjectGeometries,
   type CopiedSlideObjects,
   type SlideAlignmentGuide,
@@ -297,11 +302,9 @@ function stripBuilderIds(html: string): string {
     const stripRoot = doc.querySelector("[data-strip-root]");
     if (stripRoot) {
       stripPlaceholderZws(stripRoot);
-      // Layout spacers only keep an in-flow element's slot stable while a
-      // drag is live. They are editor chrome, not part of the persisted slide.
-      stripRoot.querySelectorAll(".fmd-layout-spacer").forEach((spacer) => {
-        spacer.remove();
-      });
+      // Transient spacers only keep an in-flow element's slot stable while a
+      // drag is live. A preserved gap is durable slide layout state.
+      stripTransientSlideLayoutSpacers(stripRoot);
     }
     cleaned = stripRoot?.innerHTML ?? doc.body.innerHTML;
   }
@@ -2724,7 +2727,7 @@ export default function SlideEditor({
         return false;
       }
       for (const element of roots) {
-        removeSlideObjectAndLayoutSpacer(element);
+        removeSlideObjectAndLayoutSpacer(element, { preserveLayoutSlot: true });
       }
       clearMultiSelection();
     } else {
@@ -2738,11 +2741,15 @@ export default function SlideEditor({
         // remove that owner so its persisted metadata cannot become a ghost.
         const owner = findPersistedImageObject(element, slideContent);
         if (owner) removeSlideObjectAndLayoutSpacer(owner);
-        else element.remove();
+        else {
+          removeSlideObjectAndLayoutSpacer(element, {
+            preserveLayoutSlot: true,
+          });
+        }
         setSelectedImg(null);
         setImageOverlay(null);
       } else {
-        removeSlideObjectAndLayoutSpacer(element);
+        removeSlideObjectAndLayoutSpacer(element, { preserveLayoutSlot: true });
       }
       clearSelectedElement();
     }
@@ -3529,9 +3536,14 @@ export default function SlideEditor({
       if (!canvas) return;
       const { fmdSlide, positioningLayer } = canvas;
       const rect = positioningLayer.getBoundingClientRect();
-      const size = type === "circle" ? 144 : { width: 192, height: 144 };
-      const width = typeof size === "number" ? size : size.width;
-      const height = typeof size === "number" ? size : size.height;
+      const size = {
+        rectangle: { width: 192, height: 144 },
+        circle: { width: 144, height: 144 },
+        arrow: { width: 192, height: 144 },
+        triangle: { width: 144, height: 144 },
+        line: { width: 240, height: 4 },
+      }[type];
+      const { width, height } = size;
       const point = clientPointToSlideCoordinates(
         clientX,
         clientY,
@@ -3548,14 +3560,7 @@ export default function SlideEditor({
       const color = getSlideTextBoxDefaultColor(target, positioningLayer);
       shape.className = `fmd-shape fmd-shape-${type}`;
       shape.setAttribute("data-slide-shape", type);
-      shape.setAttribute(
-        "aria-label",
-        t(
-          type === "circle"
-            ? "editorToolbar.shapeCircle"
-            : "editorToolbar.shapeRectangle",
-        ),
-      );
+      shape.setAttribute("aria-label", t(SLIDE_SHAPE_LABEL_KEYS[type]));
       ensureSlideObjectId(shape);
       ensureBuilderId(shape);
       shape.style.position = "absolute";
@@ -3565,8 +3570,16 @@ export default function SlideEditor({
       shape.style.height = `${height}px`;
       shape.style.boxSizing = "border-box";
       shape.style.backgroundColor = color;
-      shape.style.border = `2px solid ${color}`;
-      shape.style.borderRadius = type === "circle" ? "50%" : "4px";
+      shape.style.border =
+        type === "rectangle" || type === "circle" ? `2px solid ${color}` : "0";
+      shape.style.borderRadius =
+        type === "circle" ? "50%" : type === "line" ? "999px" : "4px";
+      if (type === "arrow") {
+        shape.style.clipPath =
+          "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
+      } else if (type === "triangle") {
+        shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
+      }
       shape.style.opacity = "0.85";
       positioningLayer.appendChild(shape);
 
@@ -3818,9 +3831,13 @@ export default function SlideEditor({
       };
 
       const restorePromotedElement = () => {
+        if (!promotedToFreeform) return;
+        promotedToFreeform = false;
         removeFreeformLayoutSpacer();
-        restoreMarkdownTree?.();
-        if (!restoreMarkdownTree) {
+        const restoreTree = restoreMarkdownTree;
+        restoreMarkdownTree = undefined;
+        restoreTree?.();
+        if (!restoreTree) {
           element.className = originalClassName;
           if (originalStyle === null) element.removeAttribute("style");
           else element.setAttribute("style", originalStyle);
@@ -3921,6 +3938,7 @@ export default function SlideEditor({
             clone.remove();
             activeElement = element;
           }
+          if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           const html = readCurrentSlideContentHtml();
           // Markdown slides temporarily move their ReactMarkdown children into
           // an fmd canvas during promotion. Restore that live tree after
@@ -4026,16 +4044,12 @@ export default function SlideEditor({
 
   const startElementResize = useCallback(
     (handle: ResizeHandle, e: React.PointerEvent) => {
-      if (readOnly) return;
+      if (readOnly || e.button !== 0) return;
       const element = resolveSelectedElement();
       const slideCanvas = element?.closest(
         ".fmd-slide, [data-slide-canvas]",
       ) as HTMLElement | null;
-      if (
-        !element ||
-        !slideCanvas ||
-        getComputedStyle(element).position !== "absolute"
-      ) {
+      if (!element || !slideCanvas || isSlideCanvasShell(element)) {
         return;
       }
       e.preventDefault();
@@ -4053,9 +4067,78 @@ export default function SlideEditor({
         return;
       }
 
-      const origin = getObjectGeometry(element);
       const originalObjectId = element.getAttribute("data-slide-object-id");
+      const originalClassName = element.className;
+      const originalStyle = element.getAttribute("style");
+      const originalContentEditable = element.getAttribute("contenteditable");
+      const originalEditingBlock = element.getAttribute("data-editing-block");
       const selector = getBuilderSelector(element);
+      const initiallyAbsolute =
+        getComputedStyle(element).position === "absolute";
+      let origin = initiallyAbsolute ? getObjectGeometry(element) : null;
+      let restoreMarkdownTree: (() => void) | undefined;
+      let promotedToFreeform = false;
+
+      const removeFreeformLayoutSpacer = () => {
+        const objectId = element.getAttribute("data-slide-object-id");
+        if (!objectId) return;
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      };
+
+      const restorePromotedElement = () => {
+        if (!promotedToFreeform) return;
+        promotedToFreeform = false;
+        removeFreeformLayoutSpacer();
+        const restoreTree = restoreMarkdownTree;
+        restoreMarkdownTree = undefined;
+        restoreTree?.();
+        if (!restoreTree) {
+          element.className = originalClassName;
+          if (originalStyle === null) element.removeAttribute("style");
+          else element.setAttribute("style", originalStyle);
+          if (originalContentEditable === null) {
+            element.removeAttribute("contenteditable");
+          } else {
+            element.setAttribute("contenteditable", originalContentEditable);
+          }
+          if (originalEditingBlock === null) {
+            element.removeAttribute("data-editing-block");
+          } else {
+            element.setAttribute("data-editing-block", originalEditingBlock);
+          }
+        }
+        if (originalObjectId) {
+          element.setAttribute("data-slide-object-id", originalObjectId);
+        } else {
+          element.removeAttribute("data-slide-object-id");
+        }
+      };
+
+      if (!origin) {
+        const frozen = freezeElementForFreeformSelection(element);
+        if (!frozen || getComputedStyle(element).position !== "absolute") {
+          frozen?.restoreMarkdownTree?.();
+          return;
+        }
+        restoreMarkdownTree = frozen.restoreMarkdownTree;
+        promotedToFreeform = true;
+        origin = getObjectGeometry(element);
+      }
+      if (!origin || origin.width <= 0 || origin.height <= 0) {
+        restorePromotedElement();
+        return;
+      }
+      const resizeOrigin = origin;
+
       if (selector) selectElementForStyling(element, selector, "resizing");
 
       const stop = () => {
@@ -4083,7 +4166,13 @@ export default function SlideEditor({
           const currentSelector = getBuilderSelector(element);
           if (currentSelector)
             selectElementForStyling(element, currentSelector);
+          if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           const html = readCurrentSlideContentHtml();
+          if (restoreMarkdownTree) {
+            removeFreeformLayoutSpacer();
+            restoreMarkdownTree();
+            restoreMarkdownTree = undefined;
+          }
           if (html !== null) {
             onUpdateSlideRef.current({ content: html }, undefined, {
               persistence: "immediate",
@@ -4092,11 +4181,14 @@ export default function SlideEditor({
           return { handled: true };
         },
         cancel: () => {
-          applyObjectGeometry(element, origin);
-          if (originalObjectId) {
-            element.setAttribute("data-slide-object-id", originalObjectId);
-          } else {
-            element.removeAttribute("data-slide-object-id");
+          if (promotedToFreeform) restorePromotedElement();
+          else {
+            applyObjectGeometry(element, resizeOrigin);
+            if (originalObjectId) {
+              element.setAttribute("data-slide-object-id", originalObjectId);
+            } else {
+              element.removeAttribute("data-slide-object-id");
+            }
           }
           const currentSelector = getBuilderSelector(element);
           if (currentSelector)
@@ -4118,7 +4210,7 @@ export default function SlideEditor({
         viewport: slideRect,
         canvas: { width: slideWidth, height: slideHeight },
         handle,
-        rect: origin,
+        rect: resizeOrigin,
       });
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -4145,12 +4237,18 @@ export default function SlideEditor({
         });
         const currentSelector = getBuilderSelector(element);
         if (currentSelector) selectElementForStyling(element, currentSelector);
-        if (!result.committed) return;
+        if (!result.committed) {
+          restorePromotedElement();
+          if (currentSelector)
+            selectElementForStyling(element, currentSelector);
+          return;
+        }
       };
 
       const onCancel = () => {
         stop();
         controller.cancel();
+        restorePromotedElement();
         const currentSelector = getBuilderSelector(element);
         if (currentSelector) selectElementForStyling(element, currentSelector);
       };
@@ -4162,6 +4260,7 @@ export default function SlideEditor({
     },
     [
       applyObjectGeometry,
+      freezeElementForFreeformSelection,
       getObjectGeometry,
       readCurrentSlideContentHtml,
       readOnly,
@@ -4423,6 +4522,9 @@ export default function SlideEditor({
           // Serialize while the promoted elements still live in their fmd
           // canvas. Markdown promotion restores the React tree below, but
           // the persisted HTML must retain the canvas and absolute geometry.
+          for (const promotion of promotions) {
+            preserveSlideObjectLayoutSpacer(promotion.element);
+          }
           const html = readCurrentSlideContentHtml();
           for (const promotion of promotions) {
             removeFreeformLayoutSpacer(promotion.element);
@@ -4624,6 +4726,7 @@ export default function SlideEditor({
       geometry.x += dx;
       geometry.y += dy;
       applyObjectGeometry(frozen.element, geometry);
+      preserveSlideObjectLayoutSpacer(frozen.element);
       const html = readCurrentSlideContentHtml();
 
       if (frozen.restoreMarkdownTree) {
@@ -5505,13 +5608,12 @@ export default function SlideEditor({
   const slideElementSelected =
     !!selectedImg || !!editingEl || !!selectedStyleSnapshot;
 
-  // Resize handles are only offered for elements with position: absolute.
-  // Flow objects become absolute only after a real drag crosses the gesture
-  // threshold, so a stationary click keeps its existing edit/select behavior.
+  // Flow objects are promoted for the resize gesture and restored when a
+  // press does not become a resize.
   const selectedForDrag =
     selectedElementRect && !editingEl ? resolveSelectedElement() : null;
   const isSelectedElementDraggable = selectedForDrag
-    ? getComputedStyle(selectedForDrag).position === "absolute"
+    ? !isSlideCanvasShell(selectedForDrag)
     : false;
   const objectOperationSelection = getObjectOperationSelection();
   const hasObjectSelection = objectOperationSelection !== null;
