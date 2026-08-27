@@ -310,7 +310,6 @@ import {
 } from "@/components/editor/FigmaLinkComposerBubble";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { ReferenceSelectionComposerBubble } from "@/components/editor/ReferenceSelectionComposerBubble";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -364,7 +363,6 @@ import {
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
-import { useReferenceMode } from "@/hooks/use-reference-mode";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   isDesignHotkeyEditableTarget,
@@ -802,7 +800,6 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
 import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text-edit-utils";
-import { getSelectionShortLabel } from "./design-editor/reference-mode";
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
@@ -8782,23 +8779,6 @@ function DesignEditor() {
   const mirroredSelectionIdRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
-  const previousReferenceActiveRef = useRef(false);
-  const referenceMode = useReferenceMode({
-    activeFileId: activeFile?.id,
-    selectedElement,
-  });
-  const referenceSelectionLabel = useMemo(
-    () =>
-      selectedElement
-        ? getSelectionShortLabel({
-            textContent: selectedElement.textContent,
-            layerName: selectedCodeLayerNode?.layerName,
-            elementId: selectedElement.id,
-            tagName: selectedElement.tagName,
-          })
-        : "",
-    [selectedElement, selectedCodeLayerNode?.layerName],
-  );
   useEffect(
     () =>
       runMirrorSelectionToAgentChat({
@@ -8809,8 +8789,6 @@ function DesignEditor() {
         id,
         isSignedIn,
         mirroredSelectionIdRef,
-        referenceActive: referenceMode.referenceActive,
-        previousReferenceActiveRef,
         selectedCodeLayerNode,
         selectedElement,
         sentSelectionIdRef,
@@ -8821,7 +8799,6 @@ function DesignEditor() {
       design?.title,
       id,
       isSignedIn,
-      referenceMode.referenceActive,
       selectedCodeLayerNode,
       selectedElement,
     ],
@@ -8837,21 +8814,9 @@ function DesignEditor() {
     useAgentChatContext(isSignedIn).items;
   useEffect(() => {
     const key = "design:selected-element";
-    const hasOurKey = composerContextItemsForBookkeeping.some(
-      (item) => item.key === key,
-    );
-    composerContextHasOurKeyRef.current = hasOurKey;
-    // The chip disappearing (send, or the user removing it) means whatever
-    // reference tag rode along with it is consumed — a tag is for "this
-    // generation turn," not every turn until the user reselects.
-    if (!hasOurKey && referenceMode.referenceActive) {
-      referenceMode.disarmReference();
-    }
-  }, [
-    composerContextItemsForBookkeeping,
-    referenceMode.referenceActive,
-    referenceMode.disarmReference,
-  ]);
+    composerContextHasOurKeyRef.current =
+      composerContextItemsForBookkeeping.some((item) => item.key === key);
+  }, [composerContextItemsForBookkeeping]);
 
   useEffect(() => {
     const key = "design:design-system";
@@ -18908,6 +18873,17 @@ function DesignEditor() {
                 : t("review.applyFeedback", { count: reviewAgentQueueCount })}
             </Button>
           ) : null}
+          {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddToContextOpen(true)}
+              className="h-8 gap-1.5 rounded-md px-3 text-sm"
+            >
+              <IconLibraryPlus className="size-4" />
+              {"Add to Context" /* i18n-ignore prominent context entry point */}
+            </Button>
+          ) : null}
           <Popover
             open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
             onOpenChange={(open) => {
@@ -19055,6 +19031,20 @@ function DesignEditor() {
           ) : null}
         </div>
       </div>
+      {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
+        <CreativeContextShareSheet
+          resource={{
+            appId: "design",
+            resourceType: "design",
+            resourceId: id ?? "",
+            title: design.title ?? "Untitled design",
+            updatedAt: design?.updatedAt ?? undefined,
+            preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
+          }}
+          open={addToContextOpen}
+          onOpenChange={setAddToContextOpen}
+        />
+      ) : null}
       {activeScreenIsLocalSource &&
       viewMode === "single" &&
       activeScreenPreviewUrl ? (
@@ -19377,22 +19367,12 @@ function DesignEditor() {
                     showHeader={false}
                     showTabBar={false}
                     browserTabId={browserTabId}
-                    onComposerTextChange={(text) => {
-                      handleComposerTextChange(text);
-                      referenceMode.onComposerTextChange(text);
-                    }}
+                    onComposerTextChange={handleComposerTextChange}
                     composerSlot={
                       detectedFigmaComposerLink ? (
                         <FigmaLinkComposerBubble
                           link={detectedFigmaComposerLink}
                           designId={id}
-                        />
-                      ) : referenceMode.referenceEligible ? (
-                        <ReferenceSelectionComposerBubble
-                          label={referenceSelectionLabel}
-                          active={referenceMode.referenceActive}
-                          onArm={referenceMode.armReference}
-                          onClear={referenceMode.disarmReference}
                         />
                       ) : null
                     }
