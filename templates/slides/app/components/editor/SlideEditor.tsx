@@ -3911,7 +3911,7 @@ export default function SlideEditor({
 
   const startElementResize = useCallback(
     (handle: ResizeHandle, e: React.PointerEvent) => {
-      if (readOnly) return;
+      if (readOnly || e.button !== 0) return;
       const element = resolveSelectedElement();
       const slideCanvas = element?.closest(
         ".fmd-slide, [data-slide-canvas]",
