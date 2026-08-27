@@ -217,6 +217,39 @@ describe("createAgentChatAdapter", () => {
     expect(getPendingTurn("thread-pending")).toBeNull();
   });
 
+  it("does not consume a 200 JSON response while checking auth errors", async () => {
+    const response = jsonResponse({ error: "Authentication required" });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "Authentication required" }, 401),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-auth",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(response.bodyUsed).toBe(false);
+    expect(results[0]).toMatchObject({
+      status: { type: "incomplete", reason: "error" },
+    });
+  });
+
   it("posts the latest user message with attachments, references, and model selection", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

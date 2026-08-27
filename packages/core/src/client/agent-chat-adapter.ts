@@ -3912,7 +3912,8 @@ export function createAgentChatAdapter(
               !contentType.includes("text/event-stream")
             ) {
               try {
-                const body = await res.text();
+                // Probe a clone so the original body stays available to the SSE reader.
+                const body = await res.clone().text();
                 const parsed = JSON.parse(body) as { error?: unknown };
                 if (parsed.error) {
                   throw new Error(String(parsed.error));
