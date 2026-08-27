@@ -177,3 +177,39 @@ export function getCrossScreenDropGuideStyle(args: {
       : undefined,
   };
 }
+
+/**
+ * Fixed on-screen size for the cursor ghost shown when the source iframe did
+ * not report the dragged layer's size. Screen-space on purpose: scaling it by
+ * zoom rendered a 1.6px dot on a 10% board.
+ */
+export const COMPACT_CROSS_SCREEN_GHOST_PX = 16;
+
+export function getCrossScreenGhostStyle(args: {
+  ghost: { boardX: number; boardY: number; width?: number; height?: number };
+  pan: Point;
+  scale: number;
+}): CSSProperties {
+  const { boardX, boardY, width: boardWidth, height: boardHeight } = args.ghost;
+  // A reported size is board-space and tracks zoom; the compact fallback is
+  // already screen-space, so it is centred on the point rather than offset by
+  // a constant that only lined up at 100% zoom.
+  const width = boardWidth
+    ? Math.max(1, boardWidth * args.scale)
+    : COMPACT_CROSS_SCREEN_GHOST_PX;
+  const height = boardHeight
+    ? Math.max(1, boardHeight * args.scale)
+    : COMPACT_CROSS_SCREEN_GHOST_PX;
+  return {
+    left:
+      args.pan.x +
+      (SURFACE_PADDING + boardX) * args.scale -
+      (boardWidth ? 0 : width / 2),
+    top:
+      args.pan.y +
+      (SURFACE_PADDING + boardY) * args.scale -
+      (boardHeight ? 0 : height / 2),
+    width,
+    height,
+  };
+}
