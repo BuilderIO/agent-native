@@ -350,9 +350,11 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 
 ## 入站Webhooks {#webhooks}
 
-入站 webhook 处理程序（Resend、SendGrid、Slack、Telegram、WhatsApp、Recall.ai、Deepgram、Zoom、Google Docs Pub/Sub）默认在生产中拒绝伪造请求：当缺少相应的签名秘密环境变量时，处理程序返回 401，而不是接受和分派。
+入站 webhook 处理程序（Resend、SendGrid、Slack、Telegram、WhatsApp、Recall.ai、Deepgram、Zoom）默认在生产中拒绝伪造请求：当缺少相应的签名秘密环境变量时，处理程序返回 401，而不是接受和分派。
 
 这以前是“警告并接受”的立场 - 设置您可能会丢失的秘密，或者选择仅针对本地开发人员使用 `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` 恢复旧行为。请参阅 [Messaging](/docs/messaging#env-vars) 了解每个集成签名秘密变量。
+
+Google Drive 的 `changes.watch` 通知不会经过这个通用适配器网关：它们是没有正文的不透明请求。因此，框架会为每个频道注册随机令牌，并在拉取更改前验证 `X-Goog-Channel-ID`、`X-Goog-Channel-Token` 和 `X-Goog-Resource-ID` 标头。这些是直接的 Drive 通知，不是 Pub/Sub 消息，也不携带 Pub/Sub OIDC bearer 令牌。
 
 ## 生产清单 {#production-checklist}
 

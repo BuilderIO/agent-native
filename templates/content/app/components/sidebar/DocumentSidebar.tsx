@@ -27,7 +27,7 @@ import {
   IconRestore,
   IconSearch,
   IconSettings,
-  IconStar,
+  IconPin,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -2311,7 +2311,7 @@ export function DocumentSidebar({
                       onClick={() => toggleSection("favorites")}
                     >
                       <span className="relative size-3.5">
-                        <IconStar
+                        <IconPin
                           aria-hidden="true"
                           className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
                         />
