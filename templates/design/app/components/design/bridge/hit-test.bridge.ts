@@ -252,13 +252,14 @@
     var cs = window.getComputedStyle(el);
     if (cs.position === "static") return false;
     var children = el.children;
+    if (children.length === 0) return false;
     for (var i = 0; i < children.length; i += 1) {
       var childPosition = window.getComputedStyle(children[i]).position;
-      if (childPosition === "absolute" || childPosition === "fixed") {
-        return true;
+      if (childPosition !== "absolute" && childPosition !== "fixed") {
+        return false;
       }
     }
-    return false;
+    return true;
   }
 
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
@@ -1041,19 +1042,20 @@
       ) {
         return;
       }
-      try {
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:selectable-rects-result",
-            correlationId:
-              typeof e.data.correlationId === "string"
-                ? e.data.correlationId
-                : "",
-            payload: collectSelectableElementInfos(),
-          },
-          "*",
-        );
-      } catch (_err) {}
+      // Deliberately uncaught: an undeliverable reply already surfaces as
+      // {status:"unanswered"} on the host's own timeout, and swallowing the
+      // throw here would hide the only signal that this bridge tried to answer.
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:selectable-rects-result",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          payload: collectSelectableElementInfos(),
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type !== "agent-native:hit-test") return;

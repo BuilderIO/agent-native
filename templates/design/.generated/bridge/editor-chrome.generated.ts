@@ -5965,13 +5965,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       if (cs.position === "static") return false;
       var children = el.children;
+      if (children.length === 0) return false;
       for (var i = 0; i < children.length; i += 1) {
         var childPosition = window.getComputedStyle(children[i]).position;
-        if (childPosition === "absolute" || childPosition === "fixed") {
-          return true;
+        if (childPosition !== "absolute" && childPosition !== "fixed") {
+          return false;
         }
       }
-      return false;
+      return true;
     }
     function isAbsolutePrimitiveContainer(el) {
       if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
@@ -7821,6 +7822,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             clearReorderReflow2();
             showTransformBadge("Move layer", cx, cy);
           } else {
+            crossScreenClaimedByHost = false;
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,

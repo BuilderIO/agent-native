@@ -958,6 +958,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   /** Ref kept in sync with state so the message handler can read without closures. */
   const crossScreenTargetRef = useRef<CrossScreenDragTarget | null>(null);
   const crossScreenHitTestSeqRef = useRef(0);
+  /** Bumped when a new cross-screen gesture starts. A commit hit-test can
+   *  outlive its gesture, and persisting its reply afterwards moves a layer the
+   *  user is no longer dragging. */
+  const crossScreenDropSeqRef = useRef(0);
   const crossScreenPreviewTargetIdRef = useRef<string | null>(null);
   /** The most-recent drag message payload — kept for use in the "end" handler. */
   const crossScreenDragMsgRef = useRef<{
@@ -2100,11 +2104,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       return new Promise((resolve) => {
         const timer = window.setTimeout(() => {
           window.removeEventListener("message", hitListener);
-          // Fall back to the last successful result for this target instead
-          // of resolving empty — a single slow reply (bridge script briefly
-          // busy, iframe mid-navigation, etc.) shouldn't make the drop guide
-          // flicker away and immediately reappear on the next hit-test.
-          resolve(crossScreenLastHitResultRef.current.get(candidate.id) ?? {});
+          // A preview may reuse this target's last reply so the guide doesn't
+          // flicker on one slow round trip. A commit may not: that reply was
+          // resolved at a different pointer position, and placing against it
+          // puts the layer somewhere the user never released.
+          resolve(
+            options.preview
+              ? (crossScreenLastHitResultRef.current.get(candidate.id) ?? {})
+              : {},
+          );
         }, options.timeoutMs ?? HIT_TEST_PREVIEW_TIMEOUT_MS);
 
         const hitListener = (ev: MessageEvent) => {
@@ -2281,8 +2289,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const sourceContentScale = (sourceScreenId: string): number => {
       if (sourceScreenId === boardFileId) return 1;
       const geometry = frameGeometryRef.current[sourceScreenId];
+      // A breakpoint renders through its own iframe id, so keying the lookup on
+      // the screen id measures the wrong viewport (or none) and scales the proxy
+      // by 1 when it should shrink.
+      const sourceScreen = screensRef.current.find(
+        (item) => item.id === sourceScreenId,
+      );
+      const iframeId = sourceScreen
+        ? getActiveScreenIframeId(sourceScreen)
+        : sourceScreenId;
       const iframe = surfaceRef.current?.querySelector<HTMLIFrameElement>(
-        `[data-screen-iframe-id="${CSS.escape(sourceScreenId)}"]`,
+        `[data-screen-iframe-id="${CSS.escape(iframeId)}"]`,
       );
       const viewportWidth = iframe?.clientWidth || geometry?.width || 0;
       if (!geometry || viewportWidth <= 0) return 1;
@@ -2430,6 +2447,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         selector: payload.selector,
       });
       clearCrossScreenDrag();
+      const dropSeq = crossScreenDropSeqRef.current;
+      const isCurrentDrop = () => crossScreenDropSeqRef.current === dropSeq;
       crossScreenLastBoardPointRef.current = null;
       const hasIdentifier = !!(payload.selector || payload.sourceId);
       if (!hasIdentifier || !sourceScreenId) return;
@@ -2489,6 +2508,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             dropMode,
             anchorRect,
           }) => {
+            if (!isCurrentDrop()) return;
             const hasAnchor = Boolean(
               anchorNodeId || pendingNodeId || anchorSelector,
             );
@@ -2534,6 +2554,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           dropMode,
           anchorRect,
         }) => {
+          if (!isCurrentDrop()) return;
           const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
             ? placement
             : undefined;
@@ -2665,6 +2686,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
       if (msg.phase === "start") {
+        // A new gesture invalidates any commit hit-test still in flight from
+        // the previous one. Only a start does — the bridge posts "cancel"
+        // immediately after "end", so clearing must not count.
+        crossScreenDropSeqRef.current += 1;
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,

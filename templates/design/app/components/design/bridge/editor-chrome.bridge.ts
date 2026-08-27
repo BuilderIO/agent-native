@@ -8270,13 +8270,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cs = window.getComputedStyle(el);
     if (cs.position === "static") return false;
     var children = el.children;
+    if (children.length === 0) return false;
+    // Every child out of flow, not merely one: a flex row with a single
+    // absolutely positioned badge still lays its other children out in flow,
+    // and calling that freeform strips a dropped layer's flow position.
     for (var i = 0; i < children.length; i += 1) {
       var childPosition = window.getComputedStyle(children[i]).position;
-      if (childPosition === "absolute" || childPosition === "fixed") {
-        return true;
+      if (childPosition !== "absolute" && childPosition !== "fixed") {
+        return false;
       }
     }
-    return false;
+    return true;
   }
 
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
@@ -11359,6 +11363,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clearReorderReflow();
           showTransformBadge("Move layer", cx, cy);
         } else {
+          // Back inside: the host stops receiving cross-screen moves, so its
+          // claim goes stale and a release here would commit nowhere.
+          crossScreenClaimedByHost = false;
           // Cursor is inside this iframe — use existing in-iframe behavior,
           // stabilized (hysteresis) and previewed with live sibling reflow when
           // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
