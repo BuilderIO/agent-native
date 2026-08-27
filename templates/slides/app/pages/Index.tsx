@@ -291,6 +291,9 @@ export default function Index() {
   const [newDeckRetryContext, setNewDeckRetryContext] = useState<
     string | undefined
   >();
+  const [newDeckRetryPrompt, setNewDeckRetryPrompt] = useState<
+    string | undefined
+  >();
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
@@ -484,6 +487,7 @@ export default function Index() {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
           setNewDeckRetryContext(undefined);
+          setNewDeckRetryPrompt(undefined);
         }
       }
     },
@@ -504,6 +508,7 @@ export default function Index() {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryContext(options.context);
+      setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles([]);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -560,6 +565,7 @@ export default function Index() {
     } catch {}
     if (!saved) return;
     setNewDeckRetryContext(savedContext);
+    setNewDeckRetryPrompt(saved);
     if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt(null);
@@ -590,6 +596,7 @@ export default function Index() {
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
     setNewDeckRetryContext(state.retryContext);
+    setNewDeckRetryPrompt(state.retryPrompt);
     setShowNewDeckPrompt(true);
     navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
@@ -682,6 +689,7 @@ export default function Index() {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryContext(additionalContext || undefined);
+      setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
@@ -733,6 +741,7 @@ export default function Index() {
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
     setNewDeckRetryContext(undefined);
+    setNewDeckRetryPrompt(undefined);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
       (value) => value.includes("<google-doc "),
@@ -864,18 +873,25 @@ export default function Index() {
   const handlePromptSubmit = useCallback(
     (prompt: string, files: UploadedFile[], context?: string) => {
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+      const retryContext =
+        context ??
+        (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
       setPendingDeck({
         prompt,
         files,
-        context: context ?? newDeckRetryContext,
+        context: retryContext,
       });
+      setNewDeckRetryPrompt(undefined);
+      setNewDeckRetryContext(undefined);
       setShowNewDeckReferenceStep(true);
     },
-    [newDeckRetryContext, setNewDeckPromptOpen],
+    [newDeckRetryContext, newDeckRetryPrompt, setNewDeckPromptOpen],
   );
 
   const handlePromptSkip = useCallback(() => {
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+    setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryContext(undefined);
     setPendingDeck({ prompt: "", files: [] });
     setShowNewDeckReferenceStep(true);
   }, [setNewDeckPromptOpen]);

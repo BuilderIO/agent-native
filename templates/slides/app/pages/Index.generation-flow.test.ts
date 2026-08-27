@@ -57,7 +57,10 @@ describe("new deck generation flow", () => {
     expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
     expect(source).toContain("retryContext?: string");
     expect(flow).toContain("retryContext: additionalContext || undefined");
-    expect(source).toContain("context: context ?? newDeckRetryContext");
+    expect(source).toContain("newDeckRetryPrompt");
+    expect(source).toContain(
+      "prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined",
+    );
   });
 
   it("requires a generated title before the first slide", () => {

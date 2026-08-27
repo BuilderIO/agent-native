@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addSlideAgentMessage,
   createDeckAgentMessage,
+  MAX_AGENT_VISIBLE_MESSAGE_CHARS,
 } from "./agent-visible-message";
 
 const longMultilinePrompt = [
@@ -25,5 +26,14 @@ describe("visible Slides agent messages", () => {
   it("uses a fallback only when no prompt was entered", () => {
     expect(createDeckAgentMessage("")).toBe("new deck");
     expect(addSlideAgentMessage("")).toBe("a new slide");
+  });
+
+  it("bounds oversized prompts without adding an action prefix", () => {
+    const prompt = "x".repeat(MAX_AGENT_VISIBLE_MESSAGE_CHARS + 1_000);
+    const message = createDeckAgentMessage(prompt);
+
+    expect(message).toHaveLength(MAX_AGENT_VISIBLE_MESSAGE_CHARS);
+    expect(message).toContain("[Prompt truncated for reliability]");
+    expect(message).toMatch(/^x+/);
   });
 });
