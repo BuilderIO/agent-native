@@ -2465,6 +2465,29 @@ export function collectRawFigmaSvgScene(
         ? contentTop + rotatedStride * (index + 0.5) + baselineFromCentre
         : applyAffine(toLocal, 0, r.top + r.height / 2)[1] + baselineFromCentre;
 
+    // Anchor a line on the rect of the text actually EMITTED, not on the raw
+    // line rect. Chromium returns a soft wrap's trailing space as its own thin
+    // rect at the same top, and `groupRectsByLine` unions it into the line
+    // extent — that union is required, or the line COUNT over-splits. But the
+    // emitted text is trimmed, so a centred line that wraps at a space was
+    // anchored half a space's advance to the right of its own ink (5.9px at
+    // 48px type). Measure the range being emitted instead; the merge stays
+    // untouched, because a rect alone cannot be told apart from a bidi or
+    // font-fallback run split.
+    const inkRect = (from: number, to: number, fallback: DOMRect): DOMRect => {
+      const raw = full.slice(from, to);
+      const lead = raw.length - raw.replace(/^\s+/, "").length;
+      const trail = raw.length - raw.replace(/\s+$/, "").length;
+      const a = charAt[from + lead];
+      const b = charAt[to - trail - 1];
+      if (!a || !b) return fallback;
+      const inkRange = doc.createRange();
+      inkRange.setStart(a.node, a.offset);
+      inkRange.setEnd(b.node, b.offset + 1);
+      const merged = groupRectsByLine(Array.from(inkRange.getClientRects()));
+      return merged.length === 1 ? merged[0]! : fallback;
+    };
+
     if (lineRects.length === 1) {
       const r = lineRects[0];
       return {
@@ -2472,7 +2495,7 @@ export function collectRawFigmaSvgScene(
         lines: [
           {
             text: applyTransform(full.trim()),
-            x: localAnchorX(r),
+            x: localAnchorX(inkRect(0, full.length, r)),
             y: lineBaseline(r, 0),
           },
         ],
@@ -2484,8 +2507,9 @@ export function collectRawFigmaSvgScene(
     const lines = lineRects.map((r, i) => {
       const end = offsets[i] ?? full.length;
       const text = applyTransform(full.slice(start, end).trim());
+      const ink = inkRect(start, end, r);
       start = end;
-      return { text, x: localAnchorX(r), y: lineBaseline(r, i) };
+      return { text, x: localAnchorX(ink), y: lineBaseline(r, i) };
     });
     return { partial: !foldable, lines };
   }

@@ -208,15 +208,44 @@ async function rasterizeUnsupportedNodes(
   originOffset: { x: number; y: number },
 ): Promise<void> {
   if (node.rasterReason && !node.rasterHref) {
+    // The clip has to be INTERSECTED with the page, not just clamped at the
+    // origin. A node that overhangs the viewport made Playwright return a
+    // narrower bitmap than asked for, and `renderRaster` then drew that short
+    // capture into the node's full-width `<image>` rect with
+    // `preserveAspectRatio="none"` — stretching it sideways. Nothing compared
+    // the requested clip with the bitmap that came back, so a truncated
+    // screenshot rendered as a plausible-looking but wrong image.
+    //
+    // The intersected rect is written back onto the node so the `<image>` is
+    // placed at exactly the box the pixels came from.
+    const viewport = page.viewportSize();
+    const pageRight = viewport ? viewport.width : Number.POSITIVE_INFINITY;
+    const pageBottom = viewport ? viewport.height : Number.POSITIVE_INFINITY;
+    const x0 = Math.max(0, node.rect.x + originOffset.x);
+    const y0 = Math.max(0, node.rect.y + originOffset.y);
+    const x1 = Math.min(
+      pageRight,
+      node.rect.x + originOffset.x + node.rect.width,
+    );
+    const y1 = Math.min(
+      pageBottom,
+      node.rect.y + originOffset.y + node.rect.height,
+    );
     const clip = {
-      x: Math.max(0, node.rect.x + originOffset.x),
-      y: Math.max(0, node.rect.y + originOffset.y),
-      width: Math.max(1, Math.round(node.rect.width)),
-      height: Math.max(1, Math.round(node.rect.height)),
+      x: x0,
+      y: y0,
+      width: Math.max(1, Math.round(x1 - x0)),
+      height: Math.max(1, Math.round(y1 - y0)),
     };
     try {
       const png = await page.screenshot({ clip, type: "png" });
       node.rasterHref = `data:image/png;base64,${png.toString("base64")}`;
+      node.rect = {
+        x: x0 - originOffset.x,
+        y: y0 - originOffset.y,
+        width: clip.width,
+        height: clip.height,
+      };
     } catch {
       // Leave rasterHref unset — hydrateRawFigmaSvgNode falls back to an
       // empty href, and the export report still names the node as
