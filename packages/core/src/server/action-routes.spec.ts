@@ -15,6 +15,7 @@ const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
+const mockVerifyConnectBearer = vi.hoisted(() => vi.fn());
 
 function fakeUnsignedJwt(payload: Record<string, string>): string {
   const encode = (value: Record<string, string>) =>
@@ -89,6 +90,12 @@ vi.mock("../a2a-claims.js", () => ({
 vi.mock("./identity-sso-store.js", () => ({
   consumeOneTimeJti: (...args: unknown[]) => mockConsumeOneTimeJti(...args),
 }));
+vi.mock("../mcp/build-server.js", () => ({
+  verifyAuth: (...args: unknown[]) => mockVerifyConnectBearer(...args),
+}));
+vi.mock("../mcp/oauth-route.js", () => ({
+  getMcpOAuthAudiences: () => [],
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
@@ -111,6 +118,8 @@ describe("mountActionRoutes", () => {
     mockVerifyA2ATokenWithClaims.mockReset();
     mockConsumeOneTimeJti.mockReset();
     mockConsumeOneTimeJti.mockResolvedValue(false);
+    mockVerifyConnectBearer.mockReset();
+    mockVerifyConnectBearer.mockResolvedValue({ authed: false });
     mockResolveEmbedSessionFromRequest.mockReset();
     mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
     vi.restoreAllMocks();
@@ -2031,6 +2040,35 @@ describe("mountActionRoutes", () => {
 
     expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
     expect(received.userEmail).toBe("session-user@example.com");
+  });
+
+  it("hard-rejects with 401 when connect bearer verification fails", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": { run: vi.fn(async () => ({ ok: true })) } as any,
+    };
+    mockVerifyConnectBearer.mockRejectedValue(new Error("verifier exploded"));
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: "Bearer connect-token" },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions["do-thing"].run).not.toHaveBeenCalled();
   });
 
   it("hard-rejects with 401 when resolveCaller throws (session chain not consulted)", async () => {

@@ -80,31 +80,27 @@ async function resolveConnectBearerCaller(
   const authorization = getHeader(event, "authorization");
   if (!authorization?.startsWith("Bearer ")) return null;
 
-  try {
-    const [{ verifyAuth }, { getMcpOAuthAudiences }] = await Promise.all([
-      import("../mcp/build-server.js"),
-      import("../mcp/oauth-route.js"),
-    ]);
-    const audiences = new Set(getMcpOAuthAudiences(event));
-    const requestUrl = event.req?.url ?? event.url?.toString();
-    if (requestUrl) {
-      const origin = new URL(requestUrl).origin;
-      audiences.add(`${origin}/mcp`);
-      audiences.add(`${origin}/_agent-native/mcp`);
-    }
-    const result = await verifyAuth(authorization, undefined, {
-      resourceUrl: [...audiences],
-      allowDevOpen: false,
-    });
-    if (!result.authed || !result.identity?.userEmail) return null;
-    return {
-      owner: result.identity.userEmail,
-      ...(result.identity.orgId ? { orgId: result.identity.orgId } : {}),
-      anonymous: false,
-    };
-  } catch {
-    return null;
+  const [{ verifyAuth }, { getMcpOAuthAudiences }] = await Promise.all([
+    import("../mcp/build-server.js"),
+    import("../mcp/oauth-route.js"),
+  ]);
+  const audiences = new Set(getMcpOAuthAudiences(event));
+  const requestUrl = event.req?.url ?? event.url?.toString();
+  if (requestUrl) {
+    const origin = new URL(requestUrl).origin;
+    audiences.add(`${origin}/mcp`);
+    audiences.add(`${origin}/_agent-native/mcp`);
   }
+  const result = await verifyAuth(authorization, undefined, {
+    resourceUrl: [...audiences],
+    allowDevOpen: false,
+  });
+  if (!result.authed || !result.identity?.userEmail) return null;
+  return {
+    owner: result.identity.userEmail,
+    ...(result.identity.orgId ? { orgId: result.identity.orgId } : {}),
+    anonymous: false,
+  };
 }
 
 async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {

@@ -25,7 +25,7 @@ const netlifyConfig = readFileSync(
 describe("Slides analytics delegation contract", () => {
   it("routes analytics-backed deck requests through Analytics", () => {
     expect(agentsGuide).toContain("analytics-data-for-decks");
-    expect(agentsGuide).toContain("delegate via Analytics");
+    expect(agentsGuide).toContain("delegate to Analytics");
     expect(skill).toContain('agent: "analytics"');
     expect(skill).toContain("call-agent");
     expect(skill).toContain("natural-language `message`");
