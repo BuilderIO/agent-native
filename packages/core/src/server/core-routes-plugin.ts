@@ -162,6 +162,7 @@ import {
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
 import {
+  BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
@@ -3943,16 +3944,20 @@ export function createCoreRoutesPlugin(
           const userEmail = session?.email;
           const resolveStatus = async () => {
             const active = await getActiveFileUploadProviderForRequest();
-            let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
+            let builderConfigured = false;
+            let builderUploadConfigured = false;
             try {
-              // Must match what provider selection asks, or this reports
-              // storage as unconfigured for an OAuth-only connection whose
-              // uploads actually work.
-              const { hasBuilderApiCredentialCustody } =
-                await import("./builder-api-auth.js");
+              const {
+                canAuthorizeBuilderApiRequest,
+                hasBuilderApiCredentialCustody,
+              } = await import("./builder-api-auth.js");
               builderConfigured = await hasBuilderApiCredentialCustody();
+              builderUploadConfigured = await canAuthorizeBuilderApiRequest(
+                BUILDER_ASSETS_WRITE_SCOPE,
+              );
             } catch {
-              // fall back to env check above
+              builderConfigured = false;
+              builderUploadConfigured = false;
             }
 
             const providers = await Promise.all(
@@ -3973,15 +3978,17 @@ export function createCoreRoutesPlugin(
             // builderConfigured so status reflects this specific request.
             const isBuilderEnvActive = active?.id === "builder";
             const configured = isBuilderEnvActive
-              ? builderConfigured
-              : !!active || builderConfigured;
+              ? builderUploadConfigured
+              : !!active || builderUploadConfigured;
             const activeProvider = isBuilderEnvActive
-              ? builderConfigured
+              ? builderUploadConfigured
                 ? { id: "builder", name: "Builder.io" }
                 : null
               : active
-                ? { id: active.id, name: active.name }
-                : builderConfigured
+                ? active.id === "builder" && !builderUploadConfigured
+                  ? null
+                  : { id: active.id, name: active.name }
+                : builderUploadConfigured
                   ? { id: "builder", name: "Builder.io" }
                   : null;
 
@@ -3990,6 +3997,9 @@ export function createCoreRoutesPlugin(
               activeProvider,
               providers,
               builderConfigured,
+              builderUploadConfigured,
+              builderReauthorizationRequired:
+                builderConfigured && !builderUploadConfigured,
             };
           };
 
