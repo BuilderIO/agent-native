@@ -34,9 +34,9 @@ const DESIGN_MUTATION_VERBS =
 const DESIGN_MUTATION_OBJECTS =
   /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|width|wireframe)\b/i;
 const DESIGN_ADVISORY_WORDS =
-  /\b(?:advise|analy[sz]e|audit|critique|recommend|review|suggest)\b/i;
+  /\b(?:advise|advice|analy[sz]e|audit|critique|recommend(?:ation)?s?|review|suggest(?:ion)?s?)\b/i;
 const DESIGN_ADVISORY_SKILLS =
-  /\b(?:improve|learn|develop)\s+(?:my|your|design|visual|ui)?\s*(?:design\s+)?skills?\b/i;
+  /\b(?:improve|learn|develop)\s+(?:my|your)\s+(?:(?:design|visual|ui)\s+)?skills?\b(?!\s+(?:section|card|component|layout|panel|row|screen|page|button|text)\b)/i;
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -192,7 +192,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
       advisoryMatch.index + advisoryMatch[0].length,
     );
     const followsAdvisory =
-      /\b(?:and|also|but|then)\s+(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i.test(
+      /(?:\b(?:and|also|but|then)\s+|[.!?;:,]\s*)(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i.test(
         afterAdvisory,
       );
     if (!DESIGN_MUTATION_VERBS.test(beforeAdvisory) && !followsAdvisory) {

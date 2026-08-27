@@ -81,6 +81,28 @@ describe("Design final response guard", () => {
     expect(
       looksLikeDesignMutationRequest("review this card and fix the button"),
     ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please give me advice to improve this design",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please provide suggestions for this design",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("improve your design skills card layout"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("improve your Design Skills section"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("review this card. fix the button"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("review this card; fix the button"),
+    ).toBe(true);
   });
 
   it("retries prose-only completion for a design mutation", () => {
