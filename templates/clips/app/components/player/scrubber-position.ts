@@ -21,3 +21,7 @@ export function scrubberFillPercent(
   if (durationMs <= 0) return 0;
   return Math.max(0, Math.min(100, (currentMs / durationMs) * 100));
 }
+
+export function timelineMarkerMs(ms: number): number {
+  return Math.round(ms / 500) * 500;
+}

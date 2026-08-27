@@ -492,6 +492,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 {
                   id: comment.id,
                   content: comment.content,
+                  authorEmail: comment.authorEmail,
+                  authorName: comment.authorName,
                   videoTimestampMs: editedMs,
                 },
               ];
@@ -1121,6 +1123,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
         onSeek?.(visibleMs);
       },
       [
@@ -1208,6 +1211,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
       }
     }, [
       activeVideoSrc,
@@ -2013,6 +2017,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             comments={comments}
             currentMs={currentMs}
             playbackRate={speed}
+            durationMs={scrubberTimeline.durationMs}
+            getTimelinePositionMs={(comment) =>
+              isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits)
+            }
             onClick={onCommentClick}
           />
         ) : null}

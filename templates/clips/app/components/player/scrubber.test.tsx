@@ -8,6 +8,23 @@ vi.mock("@tabler/icons-react", () => ({
   IconMessageFilled: () => <span data-icon-comment />,
 }));
 
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useAvatarUrl: () => "https://lh3.googleusercontent.com/avatar.jpg",
+}));
+
+vi.mock("@/components/ui/avatar", () => ({
+  Avatar: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div {...props}>{children}</div>
+  ),
+  AvatarImage: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
+    <img {...props} />
+  ),
+  AvatarFallback: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+}));
+
 vi.mock("@/lib/utils", () => ({
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
@@ -70,7 +87,13 @@ describe("Scrubber reaction markers", () => {
           durationMs={10_000}
           onSeek={onSeek}
           comments={[
-            { id: "comment-1", content: "Nice", videoTimestampMs: 1_000 },
+            {
+              id: "comment-1",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "Nice",
+              videoTimestampMs: 1_000,
+            },
           ]}
           reactions={[
             { id: "reaction-1", emoji: "👍", videoTimestampMs: 1_000 },
@@ -104,5 +127,49 @@ describe("Scrubber reaction markers", () => {
     });
     expect(onSeek).toHaveBeenNthCalledWith(1, 1_000);
     expect(onSeek).toHaveBeenNthCalledWith(2, 1_000);
+  });
+
+  it("uses the highlighted comment treatment for hover previews", () => {
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_000}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          comments={[
+            {
+              id: "comment-1",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "Please check this.",
+              videoTimestampMs: 1_000,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const comment = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 comment"]',
+    );
+    act(() => {
+      comment?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    const preview = container.querySelector<HTMLElement>(
+      "[data-player-comment-hover]",
+    );
+    expect(preview?.className).toContain("bottom-[calc(100%+1rem)]");
+    expect(preview?.className).toContain("z-50");
+    expect(
+      container.querySelector("[data-player-comment-preview]")?.className,
+    ).toContain("bg-foreground/95");
+    expect(container.textContent).toContain("Brent");
+    expect(container.textContent).toContain("Please check this.");
+    expect(
+      container
+        .querySelector("[data-player-comment-preview] img")
+        ?.getAttribute("src"),
+    ).toBe("https://lh3.googleusercontent.com/avatar.jpg");
   });
 });

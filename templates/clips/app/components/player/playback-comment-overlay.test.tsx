@@ -16,7 +16,20 @@ import {
 } from "./playback-comment-overlay";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useAvatarUrl: () => null,
+  useAvatarUrl: () => "https://lh3.googleusercontent.com/avatar.jpg",
+}));
+
+vi.mock("@/components/ui/avatar", () => ({
+  Avatar: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div {...props}>{children}</div>
+  ),
+  AvatarImage: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
+    <img {...props} />
+  ),
+  AvatarFallback: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
 }));
 
 const comment: PlaybackComment = {
@@ -84,6 +97,43 @@ describe("PlaybackCommentOverlay", () => {
 
     expect(container.textContent).toContain("Madison");
     expect(container.textContent).toContain("Please take a look at this.");
+    expect(
+      container.querySelector("[data-player-playback-comment]")?.className,
+    ).toContain("bottom-[6.5rem]");
+    expect(
+      container.querySelector("[data-player-playback-comment]")?.className,
+    ).toContain("z-40");
+    expect(
+      container
+        .querySelector("[data-player-comment-preview] img")
+        ?.getAttribute("src"),
+    ).toBe("https://lh3.googleusercontent.com/avatar.jpg");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("anchors the highlighted comment to its timeline position", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[comment]}
+          currentMs={12_500}
+          durationMs={60_000}
+          getTimelinePositionMs={() => 15_000}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLElement>("[data-player-comment-preview]")
+        ?.parentElement?.style.left,
+    ).toBe("25%");
 
     act(() => root.unmount());
     container.remove();

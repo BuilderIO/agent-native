@@ -34,6 +34,7 @@ import {
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 import { cn } from "@/lib/utils";
 
+import type { CommentPreviewData } from "./playback-comment-overlay";
 import { ReactionsTray, type ReactionHandler } from "./reactions-tray";
 import { Scrubber, msToClock } from "./scrubber";
 
@@ -52,7 +53,9 @@ export interface PlayerControlsProps {
   isFullscreen: boolean;
   isPip: boolean;
   theaterMode: boolean;
-  comments?: { id: string; videoTimestampMs: number; content: string }[];
+  comments?: (CommentPreviewData & {
+    videoTimestampMs: number;
+  })[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
   onPlayPause: () => void;

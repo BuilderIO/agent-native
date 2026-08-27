@@ -4,15 +4,22 @@ import { useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import {
+  CommentPreview,
+  type CommentPreviewData,
+} from "./playback-comment-overlay";
+import {
   scrubberFillPercent,
   scrubberPositionFromClientX,
+  timelineMarkerMs,
 } from "./scrubber-position";
 
 export interface ScrubberProps {
   currentMs: number;
   durationMs: number;
   onSeek: (ms: number) => void;
-  comments?: { id: string; videoTimestampMs: number; content: string }[];
+  comments?: (CommentPreviewData & {
+    videoTimestampMs: number;
+  })[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
 }
@@ -26,7 +33,7 @@ export function Scrubber(props: ScrubberProps) {
   const [hoverX, setHoverX] = useState<number>(0);
   const [dragging, setDragging] = useState(false);
   const [tooltip, setTooltip] = useState<
-    | { kind: "comment"; content: string; ms: number }
+    | { kind: "comment"; comment: CommentPreviewData; ms: number }
     | { kind: "chapter"; title: string; ms: number }
     | { kind: "reaction"; content: string; ms: number }
     | null
@@ -99,12 +106,17 @@ export function Scrubber(props: ScrubberProps) {
   }
 
   const commentsByMs = useMemo(() => {
-    const map = new Map<number, { id: string; content: string }[]>();
+    const map = new Map<number, CommentPreviewData[]>();
     (comments ?? []).forEach((c) => {
       // Bucket by 500ms so overlapping comments cluster.
-      const key = Math.round(c.videoTimestampMs / 500) * 500;
+      const key = timelineMarkerMs(c.videoTimestampMs);
       const list = map.get(key) ?? [];
-      list.push({ id: c.id, content: c.content });
+      list.push({
+        id: c.id,
+        content: c.content,
+        authorEmail: c.authorEmail,
+        authorName: c.authorName,
+      });
       map.set(key, list);
     });
     return map;
@@ -113,7 +125,7 @@ export function Scrubber(props: ScrubberProps) {
   const reactionsByMs = useMemo(() => {
     const map = new Map<number, { id: string; emoji: string }[]>();
     recentReactions.forEach((reaction) => {
-      const key = Math.round(reaction.videoTimestampMs / 500) * 500;
+      const key = timelineMarkerMs(reaction.videoTimestampMs);
       const list = map.get(key) ?? [];
       list.push({ id: reaction.id, emoji: reaction.emoji });
       map.set(key, list);
@@ -159,12 +171,20 @@ export function Scrubber(props: ScrubberProps) {
       {/* Tooltip (comment / chapter) */}
       {tooltip ? (
         <div
-          className="absolute -top-10 -translate-x-1/2 max-w-[240px] rounded bg-primary px-2 py-1 text-[11px] text-primary-foreground"
+          data-player-comment-hover
+          className="pointer-events-none absolute bottom-[calc(100%+1rem)] z-50 -translate-x-1/2"
           style={{ left: (tooltip.ms / Math.max(1, durationMs)) * 100 + "%" }}
         >
-          {tooltip.kind === "comment" || tooltip.kind === "reaction"
-            ? tooltip.content
-            : tooltip.title}
+          {tooltip.kind === "comment" ? (
+            <CommentPreview
+              comment={tooltip.comment}
+              className="animate-in fade-in slide-in-from-bottom-2 duration-200"
+            />
+          ) : (
+            <div className="max-w-[min(36rem,calc(100vw-1.5rem))] rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-[11px] text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15">
+              {tooltip.kind === "reaction" ? tooltip.content : tooltip.title}
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -219,7 +239,7 @@ export function Scrubber(props: ScrubberProps) {
                   onMouseEnter={() =>
                     setTooltip({
                       kind: "comment",
-                      content: commentList[0].content.slice(0, 100),
+                      comment: commentList[0],
                       ms,
                     })
                   }
