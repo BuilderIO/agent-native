@@ -95,6 +95,7 @@ describe("dispatchIntegrationRoutingHint", () => {
     "Create a one-pager without a visual design",
     "Create a one-pager with no visual design",
     "Create a one-pager, no visual design",
+    "Create a one-pager without an elaborate interactive visual design",
   ])("does not route a visually excluded one-pager to Design: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
       targetAgent: "content",
@@ -125,6 +126,8 @@ describe("dispatchIntegrationRoutingHint", () => {
     "Create an interactive visual plan for the launch",
     "Create an interactive, visual plan for the launch",
     "Create a visual, interactive prototype for the launch",
+    "Create interactive visual prototypes for the launch",
+    "Create visual recaps for the launch",
   ])("keeps explicit interactive visual plan requests on Plan: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
       targetAgent: "plan",
@@ -134,6 +137,7 @@ describe("dispatchIntegrationRoutingHint", () => {
   it.each([
     "Compare interactive visual plan options",
     "What is an interactive prototype?",
+    "Create a launch email and discuss an interactive visual plan",
   ])("does not route informational Plan mentions: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toBeUndefined();
   });

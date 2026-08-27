@@ -8,15 +8,15 @@ const ONE_PAGER_CREATION_PATTERN =
   /\b(?:assemble|build|create|design|draft|generate|make|prepare|produce|write|put\s+together)\b.{0,64}\bone[-\s]?page(?:r)?s?\b/i;
 
 const EXPLICIT_PLAN_PATTERN =
-  /\b(?:(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:one[-\s]?page(?:r)?s?\s+)?(?:plan|prototype|recap)|one[-\s]?page(?:r)?s?\s+(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:plan|prototype|recap))\b/i;
+  /\b(?:(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:one[-\s]?page(?:r)?s?\s+)?(?:plans?|prototypes?|recaps?)|one[-\s]?page(?:r)?s?\s+(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:plans?|prototypes?|recaps?))\b/i;
 const NEGATION_PATTERN =
   /\b(?:do\s+not|don't|dont|never|not(?!\s+only)|no\s+need|instead\s+of|rather\s+than)\b/i;
 const NEGATED_MATCH_PATTERN =
-  /\b(?:without|no)\s+(?:a\s+|an\s+|the\s+)?(?:(?:interactive|visual)\s+){0,2}(?:one[-\s]?page(?:r)?s?|visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration|design|intake|form|plan|prototype|recap)\b/i;
+  /\b(?:without|no)\s+(?:a\s+|an\s+|the\s+)?(?:[\w-]+\s+){0,6}(?:(?:interactive|visual)\s+){0,2}(?:one[-\s]?page(?:r)?s?|visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration|design|intake|form|plan|prototype|recap)\b/i;
 const VISUAL_PROSE_EXCLUSION_PATTERN =
   /\b(?:about|documentation|document|report)\b/i;
 const ACTION_CLAUSE_SPLIT_PATTERN =
-  /[.!?;]+|,(?=\s*(?:do\s+not|don't|dont|never|not|no\b|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|\b(?:but\s+rather|but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
+  /[.!?;]+|,(?=\s*(?:do\s+not|don't|dont|never|not|no\b|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|\b(?:but\s+rather|but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together|discuss|compare|review|explain|describe|summarize|outline|analy[sz]e|edit|update|revise|check|evaluate)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
 
 const VISUAL_DESIGN_PATTERNS = [
   /\b(?:assemble|build|design|redesign|create|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
@@ -35,10 +35,7 @@ function hasAffirmativeMatch(
     if (match?.index === undefined) return false;
 
     const matchPrefix = clause.slice(0, match.index);
-    const matchContext = clause.slice(
-      Math.max(0, match.index - 32),
-      match.index + match[0].length,
-    );
+    const matchContext = clause.slice(0, match.index + match[0].length);
     return (
       !NEGATION_PATTERN.test(matchPrefix) &&
       (!rejectNegatedMatch ||
