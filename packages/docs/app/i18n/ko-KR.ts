@@ -432,6 +432,7 @@ const koKR = {
     getStarted: "시작하기",
     freeAndOpenSource: "100% 무료 • 오픈 소스",
     viewAllApps: "모든 앱 보기",
+    close: "닫기",
   },
   homepage: {
     hero: {
@@ -439,7 +440,7 @@ const koKR = {
       bodyLine1:
         "사용자를 위한 두 번째 제품을 따로 만들지 않고도 AI 에이전트를 위해 개발하세요.",
       bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
-      learnMore: "자세히 알아보기",
+      tryAnApp: "앱 사용해 보기",
     },
     install: {
       copyCommand: "설치 명령 복사",
@@ -510,13 +511,6 @@ const koKR = {
       title: "첫 Agent-Native 앱을 만들어 보세요",
       body: "사용자와 AI 에이전트를 위한 하나의 애플리케이션을 만드세요. 원하는 LLM을 사용하고 어디에나 배포하세요.",
     },
-    getStartedModal: {
-      title: "시작하기",
-      close: "닫기",
-      buildLocally: "로컬에서 앱 만들기",
-      tryAnApp: "앱 사용해 보기",
-      buildInCloud: "클라우드에서 만들기",
-    },
     footer: {
       tagline: "에이전틱 애플리케이션 프레임워크.",
       framework: "프레임워크",
@@ -528,6 +522,15 @@ const koKR = {
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
       saasTerms: "SaaS 약관",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "로컬에서 빌드하지 않으시나요?",
+      exploreApp: "먼저 라이브 앱을 살펴보세요",
+      between: "또는",
+      joinWaitlist: "대기자 명단에 등록하고",
+      end: "브라우저에서 빌드하세요.",
     },
   },
   templatesPage: {
@@ -559,6 +562,7 @@ const koKR = {
     popoverTitle: "Builder.io로 온라인에서 빌드",
     popoverBody:
       "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
+    dialogTitle: "브라우저에서 빌드",
     emailLabel: "이메일",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "대기자 명단 참여",

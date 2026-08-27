@@ -75,6 +75,7 @@ const enUS = {
     getStarted: "Get started",
     freeAndOpenSource: "100% free • open source",
     viewAllApps: "View all apps",
+    close: "Close",
   },
   search: {
     dialogLabel: "Search documentation",
@@ -438,7 +439,7 @@ const enUS = {
       bodyLine1:
         "Build for AI agents without building a second product for users.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
-      learnMore: "Learn more",
+      tryAnApp: "Try an app",
     },
     install: {
       copyCommand: "Copy install command",
@@ -509,13 +510,6 @@ const enUS = {
       title: "Build your first Agent-Native app",
       body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
     },
-    getStartedModal: {
-      title: "Get started",
-      close: "Close",
-      buildLocally: "Build an app locally",
-      tryAnApp: "Try an app",
-      buildInCloud: "Build in the cloud",
-    },
     footer: {
       tagline: "The agentic application framework.",
       framework: "Framework",
@@ -527,6 +521,15 @@ const enUS = {
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
       saasTerms: "SaaS Terms",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Not building locally?",
+      exploreApp: "Explore a live app",
+      between: "first, or",
+      joinWaitlist: "join the waitlist",
+      end: "to build in the browser instead.",
     },
   },
   templatesPage: {
@@ -557,6 +560,7 @@ const enUS = {
     popoverTitle: "Join the waitlist",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
+    dialogTitle: "Build in the browser",
     emailLabel: "Email",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "Join waitlist",

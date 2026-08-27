@@ -433,6 +433,7 @@ const deDE = {
     getStarted: "Loslegen",
     freeAndOpenSource: "100 % kostenlos • Open Source",
     viewAllApps: "Alle Apps anzeigen",
+    close: "Schließen",
   },
   homepage: {
     hero: {
@@ -440,7 +441,7 @@ const deDE = {
       bodyLine1:
         "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
       bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
-      learnMore: "Mehr erfahren",
+      tryAnApp: "App ausprobieren",
     },
     install: {
       copyCommand: "Installationsbefehl kopieren",
@@ -511,13 +512,6 @@ const deDE = {
       title: "Baue deine erste Agent-Native App",
       body: "Erstelle eine Anwendung für Nutzer und KI-Agenten. Bring dein eigenes LLM mit und deploye überall.",
     },
-    getStartedModal: {
-      title: "Loslegen",
-      close: "Schließen",
-      buildLocally: "App lokal bauen",
-      tryAnApp: "App ausprobieren",
-      buildInCloud: "In der Cloud bauen",
-    },
     footer: {
       tagline: "Das Framework für agentische Anwendungen.",
       framework: "Framework",
@@ -529,6 +523,15 @@ const deDE = {
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
       saasTerms: "SaaS-Bedingungen",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Sie möchten nicht lokal entwickeln?",
+      exploreApp: "Erkunden Sie zuerst eine Live-App",
+      between: "oder",
+      joinWaitlist: "tragen Sie sich in die Warteliste ein",
+      end: "um stattdessen im Browser zu entwickeln.",
     },
   },
   templatesPage: {
@@ -561,6 +564,7 @@ const deDE = {
     popoverTitle: "Online mit Builder.io bauen",
     popoverBody:
       "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
+    dialogTitle: "Im Browser entwickeln",
     emailLabel: "E-Mail",
     emailPlaceholder: "du@firma.com",
     joinWaitlist: "Warteliste beitreten",

@@ -433,6 +433,7 @@ const frFR = {
     getStarted: "Commencer",
     freeAndOpenSource: "100 % gratuit • open source",
     viewAllApps: "Voir toutes les applications",
+    close: "Fermer",
   },
   homepage: {
     hero: {
@@ -440,7 +441,7 @@ const frFR = {
       bodyLine1:
         "Créez pour les agents IA sans construire un second produit pour les utilisateurs.",
       bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
-      learnMore: "En savoir plus",
+      tryAnApp: "Essayer une app",
     },
     install: {
       copyCommand: "Copier la commande d'installation",
@@ -511,13 +512,6 @@ const frFR = {
       title: "Construisez votre première app Agent-Native",
       body: "Créez une seule application pour les utilisateurs et les agents IA. Apportez votre propre LLM et déployez où vous voulez.",
     },
-    getStartedModal: {
-      title: "Commencer",
-      close: "Fermer",
-      buildLocally: "Construire une app en local",
-      tryAnApp: "Essayer une app",
-      buildInCloud: "Construire dans le cloud",
-    },
     footer: {
       tagline: "Le framework des applications agentic.",
       framework: "Framework",
@@ -529,6 +523,15 @@ const frFR = {
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
       saasTerms: "Conditions SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Vous ne développez pas en local ?",
+      exploreApp: "Explorez d’abord une application en ligne",
+      between: "ou",
+      joinWaitlist: "inscrivez-vous sur la liste d’attente",
+      end: "pour développer dans le navigateur.",
     },
   },
   templatesPage: {
@@ -561,6 +564,7 @@ const frFR = {
     popoverTitle: "Créer en ligne avec Builder.io",
     popoverBody:
       "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
+    dialogTitle: "Créer dans le navigateur",
     emailLabel: "E-mail",
     emailPlaceholder: "vous@entreprise.com",
     joinWaitlist: "Rejoindre la liste d'attente",

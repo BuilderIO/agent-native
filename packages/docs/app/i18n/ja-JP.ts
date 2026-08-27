@@ -432,6 +432,7 @@ const jaJP = {
     getStarted: "始める",
     freeAndOpenSource: "100%無料 • オープンソース",
     viewAllApps: "すべてのアプリを見る",
+    close: "閉じる",
   },
   homepage: {
     hero: {
@@ -439,7 +440,7 @@ const jaJP = {
       bodyLine1:
         "ユーザー向けに別のプロダクトを作らずに、AI エージェント向けに構築できます。",
       bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
-      learnMore: "詳しく見る",
+      tryAnApp: "アプリを試す",
     },
     install: {
       copyCommand: "インストールコマンドをコピー",
@@ -510,13 +511,6 @@ const jaJP = {
       title: "最初の Agent-Native アプリを作る",
       body: "ユーザーと AI エージェントのために 1 つのアプリケーションを作成します。好きな LLM を持ち込んで、どこにでもデプロイできます。",
     },
-    getStartedModal: {
-      title: "はじめる",
-      close: "閉じる",
-      buildLocally: "ローカルでアプリを作る",
-      tryAnApp: "アプリを試す",
-      buildInCloud: "クラウドで作る",
-    },
     footer: {
       tagline: "agentic アプリケーションのための framework。",
       framework: "フレームワーク",
@@ -528,6 +522,15 @@ const jaJP = {
       apps: "アプリ",
       privacyPolicy: "プライバシーポリシー",
       saasTerms: "SaaS 利用規約",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "ローカルで構築しない場合は、",
+      exploreApp: "まず公開中のアプリを試す",
+      between: "か",
+      joinWaitlist: "ウェイトリストに登録して",
+      end: "ブラウザで構築してください。",
     },
   },
   templatesPage: {
@@ -559,6 +562,7 @@ const jaJP = {
     popoverTitle: "Builder.io でオンライン構築",
     popoverBody:
       "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
+    dialogTitle: "ブラウザで構築",
     emailLabel: "メール",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "待機リストに参加",

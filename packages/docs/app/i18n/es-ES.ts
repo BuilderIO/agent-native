@@ -433,6 +433,7 @@ const esES = {
     getStarted: "Comenzar",
     freeAndOpenSource: "100 % gratis • código abierto",
     viewAllApps: "Ver todas las aplicaciones",
+    close: "Cerrar",
   },
   homepage: {
     hero: {
@@ -440,7 +441,7 @@ const esES = {
       bodyLine1:
         "Crea para agentes de IA sin construir un segundo producto para los usuarios.",
       bodyLine2: "Usa tu propio LLM. Despliega donde quieras.",
-      learnMore: "Saber más",
+      tryAnApp: "Probar una app",
     },
     install: {
       copyCommand: "Copiar comando de instalación",
@@ -512,13 +513,6 @@ const esES = {
       title: "Crea tu primera app Agent-Native",
       body: "Crea una sola aplicación para usuarios y agentes de IA. Usa tu propio LLM y despliega donde quieras.",
     },
-    getStartedModal: {
-      title: "Comenzar",
-      close: "Cerrar",
-      buildLocally: "Crear una app localmente",
-      tryAnApp: "Probar una app",
-      buildInCloud: "Crear en la nube",
-    },
     footer: {
       tagline: "El framework de aplicaciones agentic.",
       framework: "Framework",
@@ -530,6 +524,15 @@ const esES = {
       apps: "Apps",
       privacyPolicy: "Política de privacidad",
       saasTerms: "Términos de SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "¿No vas a crearla localmente?",
+      exploreApp: "Explora primero una aplicación en vivo",
+      between: "o",
+      joinWaitlist: "únete a la lista de espera",
+      end: "para crearla en el navegador.",
     },
   },
   templatesPage: {
@@ -562,6 +565,7 @@ const esES = {
     popoverTitle: "Crear en línea con Builder.io",
     popoverBody:
       "Builder.io puede crear y personalizar una app agent-native en la nube: acciones, autenticación, estado SQL y chat del agente incluidos. Únete a la lista de espera para acceso anticipado.",
+    dialogTitle: "Crear en el navegador",
     emailLabel: "Correo electrónico",
     emailPlaceholder: "tu@empresa.com",
     joinWaitlist: "Unirse a la lista de espera",

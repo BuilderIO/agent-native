@@ -431,13 +431,14 @@ const hiIN = {
     getStarted: "शुरू करें",
     freeAndOpenSource: "100% मुफ़्त • ओपन सोर्स",
     viewAllApps: "सभी ऐप्स देखें",
+    close: "बंद करें",
   },
   homepage: {
     hero: {
       title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
       bodyLine1: "उपयोगकर्ताओं के लिए दूसरा प्रोडक्ट बनाए बिना AI एजेंट्स के लिए बनाएं।",
       bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
-      learnMore: "और जानें",
+      tryAnApp: "कोई ऐप आज़माएं",
     },
     install: {
       copyCommand: "इंस्टॉल कमांड कॉपी करें",
@@ -507,13 +508,6 @@ const hiIN = {
       title: "अपना पहला Agent-Native ऐप बनाएं",
       body: "उपयोगकर्ताओं और AI एजेंट्स के लिए एक ही एप्लिकेशन बनाएं। अपना LLM लाएं और कहीं भी डिप्लॉय करें।",
     },
-    getStartedModal: {
-      title: "शुरू करें",
-      close: "बंद करें",
-      buildLocally: "ऐप स्थानीय रूप से बनाएं",
-      tryAnApp: "कोई ऐप आज़माएं",
-      buildInCloud: "क्लाउड में बनाएं",
-    },
     footer: {
       tagline: "एजेंटिक एप्लिकेशन फ्रेमवर्क।",
       framework: "फ्रेमवर्क",
@@ -525,6 +519,15 @@ const hiIN = {
       apps: "ऐप्स",
       privacyPolicy: "गोपनीयता नीति",
       saasTerms: "SaaS शर्तें",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "लोकल रूप से नहीं बना रहे हैं?",
+      exploreApp: "पहले एक live ऐप देखें",
+      between: "या",
+      joinWaitlist: "waitlist में शामिल हों",
+      end: "और इसके बजाय browser में बनाएं।",
     },
   },
   templatesPage: {
@@ -555,6 +558,7 @@ const hiIN = {
     popoverTitle: "Builder.io के साथ ऑनलाइन बनाएँ",
     popoverBody:
       "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
+    dialogTitle: "Browser में बनाएँ",
     emailLabel: "ईमेल",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "Waitlist में शामिल हों",

@@ -430,13 +430,14 @@ const arSA = {
     getStarted: "ابدأ",
     freeAndOpenSource: "مجاني 100% • مفتوح المصدر",
     viewAllApps: "عرض جميع التطبيقات",
+    close: "إغلاق",
   },
   homepage: {
     hero: {
       title: "إطار العمل لتطبيقات الوكلاء",
       bodyLine1: "ابنِ لوكلاء الذكاء الاصطناعي دون بناء منتج ثانٍ للمستخدمين.",
       bodyLine2: "استخدم LLM الخاص بك. وانشر في أي مكان.",
-      learnMore: "اعرف المزيد",
+      tryAnApp: "جرّب تطبيقًا",
     },
     install: {
       copyCommand: "نسخ أمر التثبيت",
@@ -507,13 +508,6 @@ const arSA = {
       title: "ابنِ أول تطبيق Agent-Native لك",
       body: "أنشئ تطبيقًا واحدًا للمستخدمين ووكلاء الذكاء الاصطناعي. استخدم LLM الخاص بك وانشر في أي مكان.",
     },
-    getStartedModal: {
-      title: "ابدأ الآن",
-      close: "إغلاق",
-      buildLocally: "ابنِ تطبيقًا محليًا",
-      tryAnApp: "جرّب تطبيقًا",
-      buildInCloud: "ابنِ في السحابة",
-    },
     footer: {
       tagline: "إطار العمل لتطبيقات الوكلاء.",
       framework: "الإطار",
@@ -525,6 +519,15 @@ const arSA = {
       apps: "التطبيقات",
       privacyPolicy: "سياسة الخصوصية",
       saasTerms: "شروط SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "ألا تريد البناء محليًا؟",
+      exploreApp: "استكشف تطبيقًا مباشرًا",
+      between: "أولًا، أو",
+      joinWaitlist: "انضم إلى قائمة الانتظار",
+      end: "للبناء في المتصفح بدلًا من ذلك.",
     },
   },
   templatesPage: {
@@ -555,6 +558,7 @@ const arSA = {
     popoverTitle: "ابنِ عبر الإنترنت باستخدام Builder.io",
     popoverBody:
       "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
+    dialogTitle: "أنشئ في المتصفح",
     emailLabel: "البريد الإلكتروني",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "انضم إلى قائمة الانتظار",

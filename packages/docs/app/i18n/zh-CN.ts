@@ -425,13 +425,14 @@ const zhCN = {
     getStarted: "开始使用",
     freeAndOpenSource: "100% 免费 • 开源",
     viewAllApps: "查看所有应用",
+    close: "关闭",
   },
   homepage: {
     hero: {
       title: "面向 agentic 应用的框架",
       bodyLine1: "为 agent 构建，无需为用户单独打造第二个产品。",
       bodyLine2: "使用你自己的 LLM，随处部署。",
-      learnMore: "了解更多",
+      tryAnApp: "试用应用",
     },
     install: {
       copyCommand: "复制安装命令",
@@ -501,13 +502,6 @@ const zhCN = {
       title: "构建你的第一个 Agent-Native 应用",
       body: "为用户和 AI agent 打造同一个应用。使用你自己的 LLM，随处部署。",
     },
-    getStartedModal: {
-      title: "开始使用",
-      close: "关闭",
-      buildLocally: "在本地构建应用",
-      tryAnApp: "试用一个应用",
-      buildInCloud: "在云端构建",
-    },
     footer: {
       tagline: "面向 agentic 应用的框架。",
       framework: "框架",
@@ -519,6 +513,15 @@ const zhCN = {
       apps: "应用",
       privacyPolicy: "隐私政策",
       saasTerms: "SaaS 条款",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "不在本地构建？",
+      exploreApp: "先试用在线应用",
+      between: "或",
+      joinWaitlist: "加入候补名单",
+      end: "改为在浏览器中构建。",
     },
   },
   templatesPage: {
@@ -548,6 +551,7 @@ const zhCN = {
     popoverTitle: "使用 Builder.io 在线构建",
     popoverBody:
       "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
+    dialogTitle: "在浏览器中构建",
     emailLabel: "邮箱",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "加入候补名单",
