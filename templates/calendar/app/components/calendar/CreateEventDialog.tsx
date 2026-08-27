@@ -930,7 +930,10 @@ export function CreateEventPopover({
             return;
           }
           const target = event.target as HTMLElement;
-          if (target.closest("[data-attendee-autocomplete]")) {
+          if (
+            target.closest("[data-attendee-autocomplete]") ||
+            target.closest("[data-time-picker-popover]")
+          ) {
             event.preventDefault();
           }
         }}
