@@ -24,10 +24,12 @@ import {
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  preserveSlideObjectLayoutSpacer,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
   snapSlideObjectMove,
+  stripTransientSlideLayoutSpacers,
   SLIDE_OBJECT_PASTE_OFFSET,
   distributeSlideObjectMembers,
   type SlideObjectGeometry,
@@ -191,6 +193,22 @@ describe("slide object interactions", () => {
     document.body.append(layer);
 
     expect(resolveSlideObjectContainingBlock(text, layer)).toBe(layer);
+  });
+
+  it("uses the positioned slide when its inner autofit layer is static", () => {
+    const slide = document.createElement("div");
+    const layer = document.createElement("div");
+    const layoutGroup = document.createElement("div");
+    const text = document.createElement("p");
+    slide.className = "fmd-slide";
+    slide.style.position = "relative";
+    layer.setAttribute("data-fmd-autofit-content", "true");
+    layoutGroup.append(text);
+    layer.append(layoutGroup);
+    slide.append(layer);
+    document.body.append(slide);
+
+    expect(resolveSlideObjectContainingBlock(text, layer)).toBe(slide);
   });
 
   it("gives clones a distinct persisted identity and drops runtime ids", () => {
@@ -465,6 +483,90 @@ describe("slide object interactions", () => {
       expect(parent.children).toHaveLength(0);
     },
   );
+
+  it("does not copy imported PPTX metadata onto a layout spacer", () => {
+    const parent = document.createElement("div");
+    const shape = document.createElement("div");
+    shape.className = "fmd-pptx-shape";
+    shape.setAttribute("data-pptx-element-kind", "shape");
+    shape.setAttribute("data-pptx-image-name", "not-an-image");
+    parent.append(shape);
+
+    const spacer = freezeSlideElementForFreeform(
+      shape,
+      { x: 0, y: 0, width: 120, height: 80 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+
+    expect(spacer.classList.contains("fmd-pptx-shape")).toBe(false);
+    expect(spacer.hasAttribute("data-pptx-element-kind")).toBe(false);
+    expect(spacer.hasAttribute("data-pptx-image-name")).toBe(false);
+  });
+
+  it("keeps a committed flow slot through serialization cleanup", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    root.append(rectangle);
+
+    freezeSlideElementForFreeform(
+      rectangle,
+      { x: 0, y: 0, width: 120, height: 80 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+    preserveSlideObjectLayoutSpacer(rectangle);
+
+    const serializedRoot = root.cloneNode(true) as HTMLElement;
+    stripTransientSlideLayoutSpacers(serializedRoot);
+    const persisted = sanitizeSlideHtml(serializedRoot.innerHTML);
+    const persistedRoot = document.createElement("div");
+    persistedRoot.innerHTML = persisted;
+
+    expect(
+      persistedRoot.querySelector(
+        '.fmd-layout-spacer[data-slide-layout-preserved="true"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      persistedRoot.querySelector(
+        `[data-slide-layout-spacer-for="${rectangle.dataset.slideObjectId}"]`,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("removes a committed flow object's preserved slot with the object", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    root.append(rectangle);
+
+    freezeSlideElementForFreeform(
+      rectangle,
+      { x: 0, y: 0, width: 120, height: 80 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+    preserveSlideObjectLayoutSpacer(rectangle);
+
+    removeSlideObjectAndLayoutSpacer(rectangle);
+
+    expect(root.children).toHaveLength(0);
+  });
 
   it("sends an object in front of every peer", () => {
     const container = document.createElement("div");
@@ -899,6 +1001,30 @@ describe("isDeletableSlideElement", () => {
 
     expect(root.contains(rectangle)).toBe(false);
     expect(root.contains(sibling)).toBe(true);
+  });
+
+  it("preserves a deleted flow element's layout slot when requested", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    const sibling = document.createElement("div");
+    Object.defineProperties(rectangle, {
+      offsetWidth: { configurable: true, value: 420 },
+      offsetHeight: { configurable: true, value: 96 },
+    });
+    root.append(rectangle, sibling);
+
+    removeSlideObjectAndLayoutSpacer(rectangle, { preserveLayoutSlot: true });
+
+    const spacer = root.firstElementChild as HTMLElement;
+    expect(root.contains(rectangle)).toBe(false);
+    expect(root.contains(sibling)).toBe(true);
+    expect(spacer.classList.contains("fmd-layout-spacer")).toBe(true);
+    expect(spacer.dataset.slideLayoutPreserved).toBe("true");
+    expect(spacer.dataset.slideLayoutSpacerFor).toBe(
+      rectangle.dataset.slideObjectId,
+    );
+    expect(spacer.style.width).toBe("420px");
+    expect(spacer.style.height).toBe("96px");
   });
 
   it("keeps renderer shells and layout spacers protected", () => {

@@ -99,6 +99,7 @@ describe("Better Auth migrations", () => {
     expect(rotation?.run).toEqual(expect.any(Function));
   });
 
+<<<<<<< HEAD
   it("indexes case-insensitive legacy session verification lookups", () => {
     const index = BETTER_AUTH_MIGRATIONS.find(
       (migration) => migration.name === "better-auth-user-lower-email-index",
@@ -107,6 +108,18 @@ describe("Better Auth migrations", () => {
     expect(index?.sql).toMatchObject({
       postgres: expect.stringContaining('ON "user" (LOWER(email))'),
       sqlite: expect.stringContaining("ON user (LOWER(email))"),
+=======
+  it("adds the nullable onboarding role column for Better Auth users", () => {
+    const onboardingRole = BETTER_AUTH_MIGRATIONS.find(
+      (migration) => migration.name === "better-auth-add-onboarding-role",
+    );
+    expect(onboardingRole?.version).toBe(5);
+    expect(onboardingRole?.sql).toMatchObject({
+      postgres: expect.stringContaining('"onboarding_role" TEXT'),
+      sqlite: expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS onboarding_role TEXT",
+      ),
+>>>>>>> origin/main
     });
   });
 });
