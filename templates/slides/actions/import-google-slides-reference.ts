@@ -47,7 +47,7 @@ export function extractGoogleSlidesPresentationId(value: string): string {
     throw new Error("Use a docs.google.com Google Slides presentation URL.");
   }
   const match = url.pathname.match(
-    /^\/presentation\/d\/([a-zA-Z0-9_-]+)(?:\/|$)/,
+    /^\/presentation\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)(?:\/|$)/,
   );
   if (!match) {
     throw new Error("That URL is not a Google Slides presentation link.");
