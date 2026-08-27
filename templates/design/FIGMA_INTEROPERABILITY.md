@@ -339,26 +339,33 @@ buried:
   all four sides — a vertical rule between every column of a table that has
   none. Dashboard 4.95% -> 4.33%, flat interior 0.964% -> 0.452%.
 
-### The export's text sits about a pixel low
+### The export's text is rasterisation, not displacement
 
 Running the offline export harness against its stored ceilings — which this
 branch had not done since the ceilings were written — `typography` measures
 **3.031%** against a 2.014% ceiling. It is not any of this branch's changes:
 none of them touch text emission, `origin/main` never touched the export path or
-this fixture, and the same fixture's design render is unchanged.
+this fixture.
 
-At 6x the cause is visible and singular: the exported SVG's text sits about one
-pixel LOWER than the DOM it came from. Same string, same wrap, same tracking.
-The exporter derives the alphabetic baseline from CSS half-leading, using
-`fontBoundingBoxAscent`/`Descent` from canvas metrics — and swapping those for
-`emHeightAscent`/`Descent` measures identically at 3.031%, so the sample is not
-the lever.
+At 6x in a side-by-side the exported text LOOKS about a pixel low, and that read
+was wrong. Measured instead of eyeballed, the ink is in exactly the same place:
 
-Recorded rather than papered over: this is the largest single class of export
-error left, it affects every text node, and it needs its own measured pass
-against the metrics Chromium actually lays a line box out with. The ceiling is
-set to the measured 3.05% so the harness states the truth instead of failing on
-a number nobody has looked at.
+| band | design ink rows | export ink rows | design ink cols | export ink cols |
+| --- | --- | --- | --- | --- |
+| heading | 150..200 | 150..200 | 57..256 | 57..256 |
+| paragraph | 1016..1035 | 1016..1035 | 214..678 | 214..678 |
+
+Same rows, same columns, same wrap, to the pixel. The classifier then settles
+what the 3% is: **100.0% of the differing pixels sit on a glyph edge, 0.000% in
+a flat interior.** Every one. This is the same accepted class as the Figma font
+difference — two text rasterisers disagreeing about partial coverage of the same
+outline, here Chromium's DOM text path against its own SVG `<text>` path — and
+not a defect the converter can fix.
+
+The ceiling is set to the measured 3.05% so the harness states that rather than
+failing on a number nobody had looked at. Recorded at length because the
+side-by-side reading was wrong and the measurement disagreed with it: a
+composite of two crops is not evidence about position.
 
 ### Export follow-ups, each waiting on a measurement
 
