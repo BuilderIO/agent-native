@@ -298,6 +298,12 @@ export interface AgentChatRequest {
    * durable grant when a transport drops it, but refuses ambiguous matches.
    */
   approvedToolCalls?: string[];
+  /**
+   * Exact durable ask resolved by this continuation. New clients include it
+   * alongside `approvedToolCalls`; older clients remain supported by the
+   * unique-pending-key recovery path.
+   */
+  approvalId?: string;
 }
 
 export type AgentToolInput = Record<string, unknown>;

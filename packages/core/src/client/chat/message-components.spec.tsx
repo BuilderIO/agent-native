@@ -36,8 +36,45 @@ import {
   ChatImageAttachmentPreview,
   MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
+  displayableApprovalText,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
+
+describe("approval waiting transcript display", () => {
+  it("removes only framework waiting copy represented by a matching approval card", () => {
+    const waiting = "Waiting for your approval to run send-email.";
+    const content = [
+      {
+        type: "tool-call",
+        toolName: "archive-email",
+        approval: { approvalKey: "archive-email:{}" },
+      },
+      {
+        type: "tool-call",
+        toolName: "send-email",
+        approval: { approvalKey: "send-email:{}" },
+      },
+      { type: "text", text: waiting },
+    ];
+
+    expect(displayableApprovalText(waiting, content)).toBe("");
+    expect(displayableApprovalText(`${waiting}Email sent.`, content)).toBe(
+      "Email sent.",
+    );
+    expect(
+      displayableApprovalText(waiting, [{ type: "text", text: waiting }]),
+    ).toBe(waiting);
+    expect(
+      displayableApprovalText(waiting, [
+        {
+          type: "tool-call",
+          toolName: "archive-email",
+          approval: { approvalKey: "archive-email:{}" },
+        },
+      ]),
+    ).toBe(waiting);
+  });
+});
 
 describe("assistant request ID resolution", () => {
   it("prefers the server run ID attached to the message", () => {

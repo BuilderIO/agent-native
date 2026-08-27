@@ -2419,7 +2419,7 @@ describe("ApprovalAffordance", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps Deny local-only and hides Approve/Always-allow with no ApprovalContext", () => {
+  it("keeps Deny local-only and hides Approve/Always-allow with no ApprovalContext", async () => {
     act(() => {
       root.render(
         <ToolCallDisplay
@@ -2441,7 +2441,7 @@ describe("ApprovalAffordance", () => {
     const denyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Deny",
     ) as HTMLButtonElement;
-    act(() => denyButton.click());
+    await act(async () => denyButton.click());
 
     expect(container.textContent).toContain("Denied. bash did not run.");
   });
@@ -2481,7 +2481,7 @@ describe("ApprovalAffordance", () => {
     }
   });
 
-  it("keeps the default two-button layout when only onApprove is provided", () => {
+  it("keeps the default two-button layout when only onApprove is provided", async () => {
     const onApprove = vi.fn();
     act(() => {
       root.render(
@@ -2505,7 +2505,7 @@ describe("ApprovalAffordance", () => {
     const approveButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Approve",
     ) as HTMLButtonElement;
-    act(() => approveButton.click());
+    await act(async () => approveButton.click());
 
     expect(onApprove).toHaveBeenCalledWith("approval-1");
     expect(container.textContent).toContain("Approved. Re-running bash...");
@@ -2542,7 +2542,7 @@ describe("ApprovalAffordance", () => {
     ).toEqual(["send email", "Approve", "Deny"]);
   });
 
-  it("keeps Approved visible when the chat refresh remounts the tool card", () => {
+  it("keeps Approved visible when the chat refresh remounts the tool card", async () => {
     const onApprove = vi.fn();
 
     function RefreshingApproval() {
@@ -2577,7 +2577,7 @@ describe("ApprovalAffordance", () => {
       (button) => button.textContent === "Approve",
     ) as HTMLButtonElement;
 
-    act(() => approveButton.click());
+    await act(async () => approveButton.click());
 
     expect(onApprove).toHaveBeenCalledWith("approval-1");
     expect(container.textContent).toContain("Approved. Re-running bash...");
@@ -2588,7 +2588,35 @@ describe("ApprovalAffordance", () => {
     ).toEqual(["bash"]);
   });
 
-  it("shows Approve/Deny again when the server re-issues approval_required with a new askId for the same toolCallId", () => {
+  it("keeps a server-rehydrated Deny visible when the tool card remounts", () => {
+    const render = (revision: number) =>
+      root.render(
+        <ApprovalContext.Provider
+          value={{
+            onApprove: vi.fn(),
+            getApprovalResolution: (_key, _callId, askId) =>
+              askId === "ask-denied" ? "denied" : null,
+          }}
+        >
+          <ToolCallDisplay
+            key={revision}
+            toolName="bash"
+            toolCallId="call-1"
+            args={{}}
+            approval={{ approvalKey: "approval-1", askId: "ask-denied" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+
+    act(() => render(1));
+    act(() => render(2));
+
+    expect(container.textContent).toContain("Denied. bash did not run.");
+    expect(container.textContent).not.toContain("Approve to run bash?");
+  });
+
+  it("shows Approve/Deny again when the server re-issues approval_required with a new askId for the same toolCallId", async () => {
     // Mirrors a failed resume: the server's resume never consumed the grant
     // (expired TTL, turn-id mismatch) and re-enters the gate, re-emitting
     // `approval_required` for the SAME toolCallId with a fresh `askId`. The
@@ -2634,9 +2662,9 @@ describe("ApprovalAffordance", () => {
     const approveButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Approve",
     ) as HTMLButtonElement;
-    act(() => approveButton.click());
+    await act(async () => approveButton.click());
 
-    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(onApprove).toHaveBeenCalledWith("approval-1", "ask-1");
     expect(container.textContent).toContain("Approved. Re-running bash...");
 
     // The failed resume re-emits approval_required for the same toolCallId
@@ -2651,9 +2679,15 @@ describe("ApprovalAffordance", () => {
     ).toEqual(["bash", "Approve", "Deny"]);
   });
 
-  it("calls onDeny in addition to the local denied state when provided", () => {
+  it("waits for durable Deny and ignores a double click", async () => {
     const onApprove = vi.fn();
-    const onDeny = vi.fn();
+    let resolveDeny!: (resolution: "denied") => void;
+    const onDeny = vi.fn(
+      () =>
+        new Promise<"denied">((resolve) => {
+          resolveDeny = resolve;
+        }),
+    );
     act(() => {
       root.render(
         <ApprovalContext.Provider value={{ onApprove, onDeny }}>
@@ -2670,10 +2704,112 @@ describe("ApprovalAffordance", () => {
     const denyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Deny",
     ) as HTMLButtonElement;
-    act(() => denyButton.click());
+    await act(async () => {
+      denyButton.click();
+      denyButton.click();
+    });
 
     expect(onDeny).toHaveBeenCalledWith("approval-1");
+    expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(container.textContent).not.toContain("Denied. bash did not run.");
+
+    await act(async () => resolveDeny("denied"));
     expect(container.textContent).toContain("Denied. bash did not run.");
+  });
+
+  it("waits for approval resolution and renders a competing denial", async () => {
+    let resolveApproval!: (resolution: "denied") => void;
+    const onApprove = vi.fn(
+      () =>
+        new Promise<"denied">((resolve) => {
+          resolveApproval = resolve;
+        }),
+    );
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider value={{ onApprove }}>
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1", askId: "ask-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    const approve = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Approve",
+    ) as HTMLButtonElement;
+    await act(async () => {
+      approve.click();
+      approve.click();
+    });
+
+    expect(onApprove).toHaveBeenCalledWith("approval-1", "ask-1");
+    expect(onApprove).toHaveBeenCalledOnce();
+    expect(container.textContent).not.toContain("Denied. bash did not run.");
+    await act(async () => resolveApproval("denied"));
+    expect(container.textContent).toContain("Denied. bash did not run.");
+  });
+
+  it("blocks approvals and offers retry when hydration fails", () => {
+    const retry = vi.fn();
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{
+            onApprove: vi.fn(),
+            approvalHydrationStatus: "error",
+            onRetryApprovalResolutions: retry,
+          }}
+        >
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1", askId: "ask-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.find((button) => button.textContent === "Approve")?.disabled,
+    ).toBe(true);
+    expect(
+      buttons.find((button) => button.textContent === "Deny")?.disabled,
+    ).toBe(true);
+    const retryButton = buttons.find(
+      (button) => button.textContent === "Retry",
+    ) as HTMLButtonElement;
+    act(() => retryButton.click());
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("does not render mutating approval controls for a shared viewer", () => {
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{ onApprove: vi.fn(), canResolveApprovals: false }}
+        >
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1", askId: "ask-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Approve to run bash?");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash"]);
   });
 
   it("renders Always allow only when onAlwaysAllow is provided, and it approves on click", async () => {

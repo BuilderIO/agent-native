@@ -16,7 +16,7 @@ vi.mock("../sharing/access.js", () => ({
 
 vi.mock("./emitter.js", () => ({ emitChatThreadChange: vi.fn() }));
 
-import { resolveThreadAccess } from "./store.js";
+import { resolveThreadAccess, resolveThreadAccessIdentity } from "./store.js";
 
 const THREAD_ROW = {
   id: "t1",
@@ -68,6 +68,29 @@ describe("resolveThreadAccess loads the ACL without the conversation blob", () =
     expect(resolveAccessMock.mock.calls[0][3]).toEqual({
       skipResourceBody: true,
     });
+  });
+
+  it("returns the authorized identity without loading thread data", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "editor",
+      resource: {
+        id: "t1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        visibility: "private",
+      },
+    });
+
+    await expect(
+      resolveThreadAccessIdentity("editor@example.com", "t1", "editor", {
+        orgId: "active-org",
+      }),
+    ).resolves.toEqual({
+      id: "t1",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+    });
+    expect(executeMock).not.toHaveBeenCalled();
   });
 
   it("still denies a caller whose role does not satisfy the minimum", async () => {

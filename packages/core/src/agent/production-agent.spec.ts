@@ -57,6 +57,7 @@ import {
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
+  resolveAgentApprovalThreadScope,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
@@ -1528,6 +1529,54 @@ describe("resolveAgentOwnerEmail", () => {
     );
 
     expect(owner).toBe("context@example.com");
+  });
+});
+
+describe("resolveAgentApprovalThreadScope", () => {
+  it("returns absent when chat thread sharing is not registered", async () => {
+    await expect(
+      resolveAgentApprovalThreadScope(
+        "owner@example.com",
+        null,
+        "thread-1",
+        "editor",
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("uses the persisted thread owner and org when the active org differs", async () => {
+    const resolveAccess = vi.fn(
+      async (
+        _userEmail: string,
+        _threadId: string,
+        _role: "viewer" | "editor",
+        _ctx: { orgId?: string },
+      ) => ({
+        id: "thread-1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+      }),
+    );
+
+    await expect(
+      resolveAgentApprovalThreadScope(
+        "owner@example.com",
+        "active-org",
+        "thread-1",
+        "editor",
+        resolveAccess,
+      ),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      threadId: "thread-1",
+    });
+    expect(resolveAccess).toHaveBeenCalledWith(
+      "owner@example.com",
+      "thread-1",
+      "editor",
+      { orgId: "active-org" },
+    );
   });
 });
 
@@ -9988,6 +10037,100 @@ describe("runAgentLoop", () => {
     expect(run).not.toHaveBeenCalled();
     expect(events2).toContainEqual(
       expect.objectContaining({ type: "approval_required" }),
+    );
+  });
+
+  it("never executes a durably denied call after a reload continuation", async () => {
+    const first = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const firstEvents: any[] = [];
+
+    await runAgentLoop({
+      engine: first.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => firstEvents.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = firstEvents.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    expect(approvalKey).toBeTruthy();
+    expect(run).not.toHaveBeenCalled();
+
+    // A reload can replay the stale Approve control, but the durable store is
+    // authoritative: once Deny won, the continuation must not execute or mint
+    // a replacement approval for the same logical call.
+    const consumeApproval = vi.fn(async () => "denied" as const);
+    const onApprovalRequired = vi.fn(async () => "replacement-ask");
+    const replayEvents: any[] = [];
+
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      consumeApproval,
+      onApprovalRequired,
+      send: (event) => replayEvents.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(consumeApproval).toHaveBeenCalledOnce();
+    expect(onApprovalRequired).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(replayEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "send-email",
+        result: expect.stringMatching(/denied|did NOT execute/i),
+      }),
+    );
+  });
+
+  it("does not execute or re-ask when an exact approval was already consumed", async () => {
+    const run = vi.fn(async () => "delivered");
+    const onApprovalRequired = vi.fn(async () => "replacement-ask");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run,
+        },
+      },
+      approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+      consumeApproval: vi.fn(async () => "consumed" as const),
+      onApprovalRequired,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(onApprovalRequired).not.toHaveBeenCalled();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
     );
   });
 

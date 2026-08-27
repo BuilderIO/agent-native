@@ -203,7 +203,10 @@ import {
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
-import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
+import type {
+  AgentToolApprovalBinding,
+  AgentToolApprovalPolicyBinding,
+} from "./tool-approval-store.js";
 import {
   findCompletedJournalEntry,
   type ToolCallJournal,
@@ -1426,6 +1429,51 @@ export async function resolveAgentOwnerEmail(
     }
   }
   return ownerEmail ?? getRequestUserEmail() ?? null;
+}
+
+type AgentApprovalThreadAccessResolver = (
+  userEmail: string,
+  threadId: string,
+  minRole: "viewer" | "editor",
+  ctx: { orgId?: string },
+) => Promise<{ id: string; ownerEmail: string; orgId: string | null } | null>;
+
+export async function resolveAgentApprovalThreadScope(
+  callerEmail: string,
+  activeOrgId: string | null | undefined,
+  threadId: string,
+  role: "viewer" | "editor",
+  resolveAccess?: AgentApprovalThreadAccessResolver,
+) {
+  if (!resolveAccess) {
+    const { getShareableResource } = await import("../sharing/registry.js");
+    if (!getShareableResource("chat_thread")) return null;
+  }
+  const accessResolver =
+    resolveAccess ??
+    (await import("../chat-threads/store.js")).resolveThreadAccessIdentity;
+  const thread = await accessResolver(callerEmail, threadId, role, {
+    orgId: activeOrgId ?? undefined,
+  });
+  return thread
+    ? {
+        ownerEmail: thread.ownerEmail,
+        orgId: thread.orgId,
+        threadId: thread.id,
+      }
+    : null;
+}
+
+export function agentToolApprovalPolicyBindingForThread(
+  actorEmail: string,
+  threadScope: { orgId?: string | null },
+  toolName: string,
+): AgentToolApprovalPolicyBinding {
+  return {
+    ownerEmail: actorEmail,
+    orgId: threadScope.orgId ?? null,
+    toolName,
+  };
 }
 
 const MAX_RETRIES = 3;
@@ -3353,7 +3401,9 @@ export interface ExecuteAgentToolCallOptions {
   onApprovalRequired?: (
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
-  consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  consumeApproval?: (
+    binding: AgentApprovalBinding,
+  ) => Promise<boolean | "denied" | "consumed">;
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
@@ -4699,7 +4749,9 @@ export async function runAgentLoop(opts: {
   onApprovalRequired?: (
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
-  consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  consumeApproval?: (
+    binding: AgentApprovalBinding,
+  ) => Promise<boolean | "denied" | "consumed">;
   /** User-scoped action-type policy, checked only after needsApproval. */
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
@@ -6003,10 +6055,27 @@ export async function runAgentLoop(opts: {
         approvalKey,
       };
       const requestedApproval = approvedToolCallKeys.delete(approvalKey);
-      const wasApproved =
+      const approvalDecision =
         requestedApproval && opts.consumeApproval
           ? await opts.consumeApproval(approvalBinding)
           : requestedApproval;
+      const wasApproved = approvalDecision === true;
+      if (approvalDecision === "denied" || approvalDecision === "consumed") {
+        const result =
+          approvalDecision === "denied"
+            ? `Denied by the user: "${toolCall.name}" did NOT execute. ` +
+              "This exact request cannot be approved later."
+            : `The approved "${toolCall.name}" request already completed and was not run again.`;
+        turnYieldedToUser = true;
+        requestedActionStop ??= {
+          message: result,
+          errorCode:
+            approvalDecision === "denied"
+              ? "approval-denied"
+              : "approval-consumed",
+        };
+        return declineToolCall(result);
+      }
       if (actionEntry.needsApproval && !wasApproved) {
         let mustApprove = false;
         try {
@@ -9618,6 +9687,10 @@ export function createProductionAgentHandler(
             .filter((key: unknown): key is string => typeof key === "string")
             .slice(0, 200)
         : undefined;
+    const requestedApprovalId =
+      typeof body.approvalId === "string" && body.approvalId.trim()
+        ? body.approvalId.trim()
+        : undefined;
     // The durable approval row is the authorization boundary. Do not require
     // the client to reproduce the original structured history exactly: the UI
     // may truncate tool arguments and intentionally assigns fresh replay ids.
@@ -9679,17 +9752,32 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
+    const activeApprovalOrgId = getRequestOrgId() ?? null;
+    const persistedApprovalScope =
+      ownerEmail && threadId
+        ? await resolveAgentApprovalThreadScope(
+            ownerEmail,
+            activeApprovalOrgId,
+            threadId,
+            "editor",
+          )
+        : null;
+    const approvalOwnerEmail = persistedApprovalScope?.ownerEmail ?? ownerEmail;
+    const approvalOrgId = persistedApprovalScope
+      ? persistedApprovalScope.orgId
+      : activeApprovalOrgId;
     const resolvedApprovalTurnId =
       !isBackgroundWorker &&
-      ownerEmail &&
+      approvalOwnerEmail &&
       threadId &&
       requestedApprovedToolCalls?.length
         ? await resolveAgentToolApprovalTurnId({
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
+            ownerEmail: approvalOwnerEmail,
+            orgId: approvalOrgId,
             threadId,
             requestedTurnId: requestTurnId,
             approvalKeys: requestedApprovedToolCalls,
+            approvalId: requestedApprovalId,
           })
         : null;
     const effectiveTurnId =
@@ -9703,16 +9791,17 @@ export function createProductionAgentHandler(
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {
-      if (!ownerEmail) {
+      if (!approvalOwnerEmail) {
         throw new Error(
           "Cannot create or consume an approval without an authenticated owner",
         );
       }
       return {
-        ownerEmail,
-        orgId: getRequestOrgId() ?? null,
+        ownerEmail: approvalOwnerEmail,
+        orgId: approvalOrgId,
         threadId: effectiveThreadId,
         turnId: effectiveTurnId,
+        ...(requestedApprovalId ? { approvalId: requestedApprovalId } : {}),
         toolName: binding.toolName,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
@@ -9723,16 +9812,18 @@ export function createProductionAgentHandler(
         return createAgentToolApproval(approvalStoreBinding(binding));
       },
       consumeApproval: async (binding: AgentApprovalBinding) => {
-        if (!ownerEmail) return false;
+        if (!approvalOwnerEmail) return false;
         return consumeAgentToolApproval(approvalStoreBinding(binding));
       },
       isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
         if (!ownerEmail) return false;
-        return isAgentToolAlwaysAllowed({
-          ownerEmail,
-          orgId: getRequestOrgId() ?? null,
-          toolName: binding.toolName,
-        });
+        return isAgentToolAlwaysAllowed(
+          agentToolApprovalPolicyBindingForThread(
+            ownerEmail,
+            { orgId: approvalOrgId },
+            binding.toolName,
+          ),
+        );
       },
     };
     const approvedToolCallsForExecution = requestedApprovedToolCalls;

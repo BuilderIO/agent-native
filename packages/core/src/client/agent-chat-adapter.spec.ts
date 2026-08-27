@@ -594,13 +594,17 @@ describe("createAgentChatAdapter", () => {
         ],
         abortSignal: new AbortController().signal,
         runConfig: {
-          custom: { approvedToolCalls: ["create-builder-branch:{}"] },
+          custom: {
+            approvedToolCalls: ["create-builder-branch:{}"],
+            approvalId: "ask-1",
+          },
         },
       } as any),
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.approvedToolCalls).toEqual(["create-builder-branch:{}"]);
+    expect(body.approvalId).toBe("ask-1");
   });
 
   it("falls back to the live picker for queue entries without a model snapshot", async () => {

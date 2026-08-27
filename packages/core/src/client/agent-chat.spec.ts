@@ -63,9 +63,13 @@ vi.stubGlobal("fetch", fetchSpy);
 const {
   _resetAgentChatContextForTests,
   _resetAgentChatSubmitBufferForTests,
+  AgentToolApprovalRequestError,
+  alwaysAllowAgentToolApproval,
+  approveAgentToolApproval,
   addContextToAgentChat,
   claimAgentChatSubmit,
   clearAgentChatContext,
+  denyAgentToolApproval,
   drainBufferedAgentChatSubmits,
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
@@ -74,6 +78,7 @@ const {
   listAgentChatContext,
   normalizeAgentComposerReference,
   parseSubmitChatMessage,
+  loadAgentToolApprovalResolutions,
   removeAgentChatContextItem,
   reportAgentChatSubmitResult,
   sendToAgentChat,
@@ -921,5 +926,126 @@ describe("filterAgentChatContextItems", () => {
       items[0],
       items[2],
     ]);
+  });
+});
+
+describe("agent tool approval client", () => {
+  it("preserves HTTP status for transport fallbacks", async () => {
+    fetchSpy.mockResolvedValueOnce({ ok: false, status: 404 } as any);
+
+    await expect(
+      loadAgentToolApprovalResolutions("/custom-chat", "thread-1"),
+    ).rejects.toMatchObject({
+      name: "AgentToolApprovalRequestError",
+      status: 404,
+    } satisfies Partial<InstanceType<typeof AgentToolApprovalRequestError>>);
+  });
+
+  it("loads persisted resolutions for one thread", async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        resolutions: { "ask-1": "denied", ignored: "pending" },
+        canResolve: true,
+      }),
+    } as any);
+
+    await expect(
+      loadAgentToolApprovalResolutions("/agent-chat", "thread/1"),
+    ).resolves.toEqual({
+      resolutions: { "ask-1": "denied" },
+      canResolve: true,
+    });
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "/agent-chat/approvals?threadId=thread%2F1",
+      expect.objectContaining({ method: "GET", cache: "no-store" }),
+    );
+  });
+
+  it("rejects a malformed successful resolution payload", async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ canResolve: true }),
+    } as any);
+
+    await expect(
+      loadAgentToolApprovalResolutions("/agent-chat", "thread-1"),
+    ).rejects.toMatchObject({
+      name: "AgentToolApprovalRequestError",
+      status: 500,
+    });
+  });
+
+  it.each([
+    ["approve", approveAgentToolApproval, "approved"],
+    ["always_allow", alwaysAllowAgentToolApproval, "approved"],
+  ] as const)(
+    "persists an atomic %s decision before continuing",
+    async (operation, resolveApproval, resolution) => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ resolution }),
+      } as any);
+
+      await expect(
+        resolveApproval("/agent-chat", {
+          threadId: "thread-1",
+          approvalId: "ask-1",
+          ...(operation === "always_allow" ? { toolName: "send-email" } : {}),
+        } as never),
+      ).resolves.toBe("approved");
+      const [url, request] = fetchSpy.mock.calls.at(-1)!;
+      expect(url).toBe("/agent-chat/approvals");
+      expect(JSON.parse(request.body)).toEqual({
+        threadId: "thread-1",
+        approvalId: "ask-1",
+        operation,
+        ...(operation === "always_allow" ? { toolName: "send-email" } : {}),
+      });
+    },
+  );
+
+  it("reports an already consumed approval without replaying it", async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ resolution: "approved", consumed: true }),
+    } as any);
+
+    await expect(
+      approveAgentToolApproval("/agent-chat", {
+        threadId: "thread-1",
+        approvalId: "ask-1",
+      }),
+    ).resolves.toBe("consumed");
+  });
+
+  it("persists a denial through the protected route", async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ resolution: "denied" }),
+    } as any);
+
+    await expect(
+      denyAgentToolApproval("/agent-chat", {
+        threadId: "thread-1",
+        approvalId: "ask-1",
+      }),
+    ).resolves.toBe("denied");
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "/agent-chat/approvals",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Agent-Native-CSRF": "1" }),
+        body: JSON.stringify({
+          threadId: "thread-1",
+          approvalId: "ask-1",
+        }),
+      }),
+    );
   });
 });

@@ -5,6 +5,7 @@ import {
   normalizeThreadRepository,
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
+import { deleteAgentToolApprovalsForThread } from "../agent/tool-approval-store.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
@@ -602,18 +603,14 @@ export async function ensureChatThreadTables(): Promise<void> {
   await ensureTable();
 }
 
-export async function resolveThreadAccess(
+/** Authorize access and return only the durable identity columns. */
+export async function resolveThreadAccessIdentity(
   userEmail: string | null | undefined,
   threadId: string | null | undefined,
   minRole: ShareRole | "owner" = "viewer",
   ctx: Omit<AccessContext, "userEmail"> = {},
-): Promise<ChatThread | null> {
+): Promise<Pick<ChatThread, "id" | "ownerEmail" | "orgId"> | null> {
   if (!userEmail || !threadId) return null;
-  // `skipResourceBody` matters more here than anywhere else: without it the
-  // access load is an unprojected `select()` that pulls `thread_data` — the
-  // whole conversation JSON — and then this function discards the row and reads
-  // it again through `getThread`. Two full-blob reads of the same row per call,
-  // on the agent-chat hot path.
   const access = await resolveAccess(
     "chat_thread",
     threadId,
@@ -621,7 +618,27 @@ export async function resolveThreadAccess(
     { skipResourceBody: true },
   );
   if (!access || !roleSatisfies(access.role, minRole)) return null;
-  return await getThread(threadId);
+  return {
+    id: access.resource.id,
+    ownerEmail: access.resource.ownerEmail,
+    orgId: access.resource.orgId ?? null,
+  };
+}
+
+export async function resolveThreadAccess(
+  userEmail: string | null | undefined,
+  threadId: string | null | undefined,
+  minRole: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<ChatThread | null> {
+  const access = await resolveThreadAccessIdentity(
+    userEmail,
+    threadId,
+    minRole,
+    ctx,
+  );
+  if (!access) return null;
+  return await getThread(access.id);
 }
 
 export async function getThread(id: string): Promise<ChatThread | null> {
@@ -1548,7 +1565,7 @@ export async function deleteThread(id: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `DELETE FROM chat_threads WHERE id = ?`,
+    sql: `DELETE FROM chat_threads WHERE id = ? RETURNING owner_email, org_id`,
     args: [id],
   });
   if (result.rowsAffected > 0) {
@@ -1558,6 +1575,21 @@ export async function deleteThread(id: string): Promise<boolean> {
         args: [id],
       })
       .catch(() => {});
+    const deleted = result.rows[0] as
+      | { owner_email?: unknown; org_id?: unknown }
+      | undefined;
+    if (typeof deleted?.owner_email === "string") {
+      await deleteAgentToolApprovalsForThread({
+        ownerEmail: deleted.owner_email,
+        orgId: typeof deleted.org_id === "string" ? deleted.org_id : null,
+        threadId: id,
+      }).catch((error) => {
+        console.warn(
+          `[chat-threads] Could not clean tool approvals for deleted thread ${id}`,
+          error,
+        );
+      });
+    }
     emitChatThreadChange(id);
     return true;
   }

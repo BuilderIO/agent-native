@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { agentToolApprovalPolicyBindingForThread } from "../agent/production-agent.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
 import { CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
@@ -7,6 +8,7 @@ import {
   finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
+  resolveAgentApprovalThreadScope,
   resolveRecurringJobsBuildMarker,
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
@@ -99,6 +101,44 @@ const run: AgentRunSummary = {
   terminalReason: "done",
   diagStage: null,
 };
+
+describe("approval thread scope", () => {
+  it("uses the persisted owner and org after authorizing a shared editor", async () => {
+    const resolveAccess = vi.fn(async () =>
+      sharedThread({ orgId: "thread-org" }),
+    );
+
+    const scope = await resolveAgentApprovalThreadScope(
+      "editor@example.com",
+      "active-org",
+      "thread-1",
+      "editor",
+      resolveAccess,
+    );
+    expect(scope).toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "thread-org",
+      threadId: "thread-1",
+    });
+    expect(
+      agentToolApprovalPolicyBindingForThread(
+        "editor@example.com",
+        scope!,
+        "send-email",
+      ),
+    ).toEqual({
+      ownerEmail: "editor@example.com",
+      orgId: "thread-org",
+      toolName: "send-email",
+    });
+    expect(resolveAccess).toHaveBeenCalledWith(
+      "editor@example.com",
+      "thread-1",
+      "editor",
+      { orgId: "active-org" },
+    );
+  });
+});
 
 describe("recurring jobs runtime startup", () => {
   it("disables background jobs in local development before scheduler and trigger load", () => {
