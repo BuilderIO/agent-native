@@ -110,42 +110,45 @@ jobs:
         shell: bash
         run: |
           TAG="v${{ needs.resolve-version.outputs.version }}"
-          get_tag_sha() {
-            local ref_json object_type object_sha
-            ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1")
-            object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
-            object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
-            if [ "$object_type" = "tag" ]; then
-              gh api "repos/${GITHUB_REPOSITORY}/git/tags/$object_sha" --jq '.object.sha'
-            else
-              printf '%s\n' "$object_sha"
-            fi
-          }
-          if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
-            EXISTING_TAG_SHA=$(get_tag_sha "$TAG")
-            if [ "$EXISTING_TAG_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
-              echo "::error::Existing release $TAG points to $EXISTING_TAG_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
+          RELEASE_ERROR=$(mktemp)
+          if RELEASE_JSON=$(gh release view "$TAG" -R "${{ github.repository }}" --json isDraft,targetCommitish 2>"$RELEASE_ERROR"); then
+            IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "::error::Release $TAG is already published. Choose a new version instead of rebuilding it."
               exit 1
             fi
-            echo "Release $TAG already exists at the coordinated source; build jobs will upload to it."
-          elif [ "$RELEASE_CHANNEL" = "nightly" ]; then
-            gh release create "$TAG" \
-              --draft \
-              --prerelease \
-              --latest=false \
-              --target "${{ needs.resolve-version.outputs.source_ref }}" \
-              --title "Agent-Native Nightly v${{ needs.resolve-version.outputs.version }}" \
-              --notes "Auto-updating Nightly build of the Agent-Native desktop app." \
-              -R "${{ github.repository }}"
+            EXISTING_TARGET_SHA=$(printf '%s' "$RELEASE_JSON" | jq -r '.targetCommitish' | tr '[:upper:]' '[:lower:]')
+            if [ -z "$EXISTING_TARGET_SHA" ] || [ "$EXISTING_TARGET_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
+              echo "::error::Existing draft release $TAG targets $EXISTING_TARGET_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
+              rm -f "$RELEASE_ERROR"
+              exit 1
+            fi
+            echo "Draft release $TAG already targets the coordinated source; build jobs will upload to it."
+          elif grep -Fxq 'release not found' "$RELEASE_ERROR"; then
+            if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              gh release create "$TAG" \
+                --draft \
+                --prerelease \
+                --latest=false \
+                --target "${{ needs.resolve-version.outputs.source_ref }}" \
+                --title "Agent-Native Nightly v${{ needs.resolve-version.outputs.version }}" \
+                --notes "Auto-updating Nightly build of the Agent-Native desktop app." \
+                -R "${{ github.repository }}"
+            else
+              gh release create "$TAG" \
+                --draft \
+                --latest=false \
+                --target "${{ needs.resolve-version.outputs.source_ref }}" \
+                --title "Agent-Native v${{ needs.resolve-version.outputs.version }}" \
+                --notes "Stable release of the Agent-Native desktop app." \
+                -R "${{ github.repository }}"
+            fi
           else
-            gh release create "$TAG" \
-              --draft \
-              --latest=false \
-              --target "${{ needs.resolve-version.outputs.source_ref }}" \
-              --title "Agent-Native v${{ needs.resolve-version.outputs.version }}" \
-              --notes "Stable release of the Agent-Native desktop app." \
-              -R "${{ github.repository }}"
+            cat "$RELEASE_ERROR"
+            rm -f "$RELEASE_ERROR"
+            exit 1
           fi
+          rm -f "$RELEASE_ERROR"
 
   build-mac:
     needs: [resolve-version, prepare-release]
