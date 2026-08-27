@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getBetterAuthActionHeaders } from "../../server/better-auth-action-headers.js";
 import { getBetterAuth } from "../../server/better-auth-instance.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -39,7 +40,11 @@ export default defineAction({
       }
     ).changePassword({
       body: { currentPassword, newPassword },
-      headers: ctx.requestHeaders,
+      headers: await getBetterAuthActionHeaders(
+        auth,
+        ctx.userEmail,
+        ctx.requestHeaders,
+      ),
     });
   },
 });
