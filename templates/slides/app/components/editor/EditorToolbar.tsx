@@ -615,7 +615,7 @@ export default function EditorToolbar({
         agentActive={agentActive}
         showAgentEditingDot={false}
         currentUserEmail={currentUserEmail}
-        className="ml-auto flex-shrink-0 mr-0.5 pl-2"
+        className="flex-shrink-0 mr-0.5 pl-2"
       />
 
       {/* Consolidated editor menu */}
