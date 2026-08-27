@@ -58,6 +58,7 @@ import { isMixedValue } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
+  ApplyLayoutFlowHandler,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -219,10 +220,7 @@ function FlexContainerControls({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
-  onApplyLayoutFlow?: (
-    nodeId: string,
-    containerStyles: Record<string, string>,
-  ) => boolean;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
 }) {
   const styles = element.computedStyles;
   // The element's CURRENT layout flow as authored in code, read from its own
@@ -389,9 +387,10 @@ function FlexContainerControls({
             ...element.inlineStyles,
           });
           // Children drawn on canvas are absolutely positioned, so the
-          // container styles alone would render no layout at all.
-          if (onApplyLayoutFlow && nodeId && onApplyLayoutFlow(nodeId, patch)) {
-            return;
+          // container styles alone would render no layout at all — only a node
+          // this editor cannot rewrite may fall through to them.
+          if (onApplyLayoutFlow && nodeId) {
+            if (onApplyLayoutFlow(nodeId, patch) !== "unsupported") return;
           }
           if (onStylesChange) {
             onStylesChange(patch);
@@ -667,10 +666,7 @@ export function LayoutContextProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
-  onApplyLayoutFlow?: (
-    nodeId: string,
-    containerStyles: Record<string, string>,
-  ) => boolean;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {

@@ -59,6 +59,19 @@ export type StyleChangeHandler = (
   meta?: StyleChangeMeta,
 ) => void;
 
+/**
+ * Result of converting a container to a flex/grid flow. Only `"unsupported"`
+ * (no inline source for this node) may fall back to writing the container
+ * styles alone: after a `"failed"` rewrite the children are still pinned, so
+ * that fallback would render a layout nobody asked for and report success.
+ */
+export type ApplyLayoutFlowOutcome = "applied" | "unsupported" | "failed";
+
+export type ApplyLayoutFlowHandler = (
+  nodeId: string,
+  containerStyles: Record<string, string>,
+) => ApplyLayoutFlowOutcome;
+
 export type StylesChangeHandler = (
   styles: Record<string, string>,
   meta?: StyleChangeMeta,

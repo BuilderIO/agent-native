@@ -86,7 +86,7 @@ describe("LayoutContextProperties interactions", () => {
     document.body.append(container);
     const root = createRoot(container);
     const onStylesChange = vi.fn();
-    const onApplyLayoutFlow = vi.fn().mockReturnValue(true);
+    const onApplyLayoutFlow = vi.fn().mockReturnValue("applied");
     const element = {
       tagName: "div",
       classes: [],
@@ -127,7 +127,13 @@ describe("LayoutContextProperties interactions", () => {
     });
     expect(onStylesChange).not.toHaveBeenCalled();
 
-    onApplyLayoutFlow.mockReturnValue(false);
+    // A rewrite that was attempted and failed must NOT fall through to the
+    // container-only write: that renders a grid whose children stay pinned.
+    onApplyLayoutFlow.mockReturnValue("failed");
+    await act(async () => gridButton?.click());
+    expect(onStylesChange).not.toHaveBeenCalled();
+
+    onApplyLayoutFlow.mockReturnValue("unsupported");
     await act(async () => gridButton?.click());
     expect(onStylesChange).toHaveBeenCalledOnce();
 

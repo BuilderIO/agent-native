@@ -701,6 +701,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var value = el && el.getAttribute && el.getAttribute(name);
       return value ? "[" + name + '="' + escapeAttribute(value) + '"]' : "";
     }
+    function isStableIdentitySelector(selector) {
+      if (!selector || /[\\s>+~,]/.test(selector)) return false;
+      if (/^#[^#.:[\\]()]+$/.test(selector)) return true;
+      return /^\\[(data-agent-native-node-id|data-code-layer-id|data-layer-id|data-builder-id|data-loc)="/.test(
+        selector
+      );
+    }
     function classSelectorSuffix(el, maxCount) {
       if (!el || !el.classList) return "";
       return Array.prototype.slice.call(el.classList, 0, maxCount).map(function(token) {
@@ -3041,9 +3048,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       applyLayerStateSelectors();
       selectedEl = null;
       clearHoverGate();
-      for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
+      var reanchorCandidates = forceFullDocument ? activeCandidates.filter(isStableIdentitySelector) : activeCandidates;
+      for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
         try {
-          var match = document.querySelector(activeCandidates[i]);
+          var match = document.querySelector(reanchorCandidates[i]);
           if (match && !isLayerInteractionBlocked(match) && !isOverlayElement(match)) {
             selectedEl = selectionTargetForHit(match) || match;
           }
@@ -4011,6 +4019,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var previousSelectedEl = selectedEl;
       selectedEl = frame;
       positionOverlay(selectionOverlay, selectedEl);
+      if (!e.shiftKey && passiveSelectionEls.length) {
+        setPassiveSelectionElements([]);
+      }
       preservePreviousSelectedElementForShiftClick(
         previousSelectedEl,
         selectedEl,

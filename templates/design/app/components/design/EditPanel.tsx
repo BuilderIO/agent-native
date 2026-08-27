@@ -131,6 +131,7 @@ import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
+  type ApplyLayoutFlowHandler,
   type StyleChangeHandler,
   type StyleChangeMeta,
   type StylesChangeHandler,
@@ -409,13 +410,9 @@ interface EditPanelProps {
   onDisableAutoLayout?: (nodeId: string) => void;
   /**
    * Apply a flex/grid flow to this container, reflowing its children into it.
-   * Returns false when the node has no inline source to patch, so the caller
-   * falls back to writing the container styles alone.
+   * Only `"unsupported"` may fall back to writing the container styles alone.
    */
-  onApplyLayoutFlow?: (
-    nodeId: string,
-    containerStyles: Record<string, string>,
-  ) => boolean;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;

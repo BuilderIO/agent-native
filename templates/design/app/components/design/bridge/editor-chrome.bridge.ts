@@ -490,6 +490,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return value ? "[" + name + '="' + escapeAttribute(value) + '"]' : "";
   }
 
+  // True only for a selector that names one node's own identity: the stable
+  // source-id attributes getSelector prefers, or an id. Anything with a
+  // combinator or an :nth-* step describes a POSITION, which a sibling can
+  // inherit after a delete or a reorder.
+  function isStableIdentitySelector(selector: string): boolean {
+    if (!selector || /[\s>+~,]/.test(selector)) return false;
+    if (/^#[^#.:[\]()]+$/.test(selector)) return true;
+    return /^\[(data-agent-native-node-id|data-code-layer-id|data-layer-id|data-builder-id|data-loc)="/.test(
+      selector,
+    );
+  }
+
   function classSelectorSuffix(el: Element | null, maxCount: number): string {
     if (!el || !el.classList) return "";
     return Array.prototype.slice
@@ -4027,9 +4039,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     selectedEl = null;
     clearHoverGate();
-    for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
+    // A structural replace can have deleted the selected node, and a stale
+    // positional candidate then matches whichever sibling shifted into its
+    // place — so only whole-selector stable identity may re-anchor one.
+    var reanchorCandidates = forceFullDocument
+      ? activeCandidates.filter(isStableIdentitySelector)
+      : activeCandidates;
+    for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
       try {
-        var match = document.querySelector(activeCandidates[i]);
+        var match = document.querySelector(reanchorCandidates[i]);
         // Skip the editor's own injected overlay chrome and re-anchor to a
         // source-backed element. A stale positional candidate like
         // body > div:nth-of-type(6) can otherwise re-match an overlay div
@@ -5425,6 +5443,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var previousSelectedEl = selectedEl;
     selectedEl = frame;
     positionOverlay(selectionOverlay, selectedEl);
+    // Same collapse the shield's own plain select does (phantom-passenger
+    // fix, §3.5): a drag started before the host mirrors this selection back
+    // would otherwise carry the previous multi-selection's members along.
+    if (!e.shiftKey && passiveSelectionEls.length) {
+      setPassiveSelectionElements([]);
+    }
     preservePreviousSelectedElementForShiftClick(
       previousSelectedEl,
       selectedEl,

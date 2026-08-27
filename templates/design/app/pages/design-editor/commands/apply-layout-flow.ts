@@ -1,6 +1,9 @@
 import { applyVisualEdit } from "@shared/code-layer";
+import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
+import type { ApplyLayoutFlowOutcome } from "@/components/design/edit-panel/style-change-types";
+import { codeLayerPatchMessage } from "@/pages/design-editor/code-layer-state";
 
 export interface ApplyLayoutFlowArgs {
   applyLocalContentUpdate: (
@@ -11,26 +14,26 @@ export interface ApplyLayoutFlowArgs {
   ) => void;
   canEditDesign: boolean;
   getFreshActiveContent: () => string;
+  t: (key: string, options?: Record<string, unknown>) => string;
 }
 
 /**
  * Turn a container into a flex or grid layout, reflowing its children the way
- * Shift+A does. Returns false when the node is not editable inline source
- * (runtime-backed screens, another file's node) so the caller can fall back to
- * writing the container styles alone.
+ * Shift+A does.
  */
 export function runApplyLayoutFlow(
   {
     applyLocalContentUpdate,
     canEditDesign,
     getFreshActiveContent,
+    t,
   }: ApplyLayoutFlowArgs,
   nodeId: string,
   containerStyles: Record<string, string>,
-): boolean {
-  if (!canEditDesign) return false;
+): ApplyLayoutFlowOutcome {
+  if (!canEditDesign) return "unsupported";
   const baseContent = getFreshActiveContent();
-  if (!baseContent) return false;
+  if (!baseContent) return "unsupported";
   const patch = applyVisualEdit(baseContent, {
     kind: "autoLayout",
     targetId: nodeId,
@@ -42,9 +45,22 @@ export function runApplyLayoutFlow(
     properties: Object.keys(containerStyles).join(","),
     status: patch.result.status,
   });
-  if (patch.result.status !== "applied") return false;
-  if (patch.content !== baseContent) {
-    applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
+  if (patch.result.status === "applied") {
+    if (patch.content !== baseContent) {
+      applyLocalContentUpdate(patch.content, {
+        forcePreviewFullDocument: true,
+      });
+    }
+    return "applied";
   }
-  return true;
+  // "conflict" is the only status that means "not this file's node".
+  if (patch.result.status === "conflict") return "unsupported";
+  toast.error(
+    codeLayerPatchMessage(
+      patch.result.message,
+      t("designEditor.toasts.layerMoveFailed"),
+    ),
+    { duration: 4000 },
+  );
+  return "failed";
 }

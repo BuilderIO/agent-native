@@ -11353,11 +11353,12 @@ function DesignEditor() {
           applyLocalContentUpdate,
           canEditDesign,
           getFreshActiveContent,
+          t,
         },
         nodeId,
         containerStyles,
       ),
-    [applyLocalContentUpdate, canEditDesign, getFreshActiveContent],
+    [applyLocalContentUpdate, canEditDesign, getFreshActiveContent, t],
   );
 
   // Figma parity: turning auto layout off must leave a freeform container.
