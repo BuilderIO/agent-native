@@ -1316,7 +1316,7 @@ function getBuilderConnectCallbackOrigin(event: H3Event): string {
   const headerHost = getBuilderRequestHost(event);
   return isBuilderCloudRequestHost(headerHost)
     ? getBuilderBrowserOriginForEvent(event)
-    : getOrigin(event);
+    : getOrigin(event, { useForwardedHost: false });
 }
 
 function isLoopbackBuilderRequestHost(host: string | undefined): boolean {
@@ -1363,7 +1363,9 @@ function firstPublicBuilderPreviewOriginFromEnv(): string | null {
  */
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const headerHost = getBuilderRequestHost(event);
-  if (!isTrustedBuilderRequestHost(headerHost)) return getOrigin(event);
+  if (!isTrustedBuilderRequestHost(headerHost)) {
+    return getOrigin(event, { useForwardedHost: false });
+  }
   if (isLoopbackBuilderRequestHost(headerHost)) {
     const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
     if (publicPreviewOrigin) return publicPreviewOrigin;

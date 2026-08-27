@@ -251,9 +251,14 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
  * The protocol defaults to `https` in production (so a TLS-terminating proxy
  * that drops `x-forwarded-proto` doesn't downgrade us to plain HTTP).
  */
-export function getOrigin(event: H3Event): string {
+export function getOrigin(
+  event: H3Event,
+  options: { useForwardedHost?: boolean } = {},
+): string {
   const headerHost =
-    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+    options.useForwardedHost === false
+      ? getHeader(event, "host")
+      : getHeader(event, "x-forwarded-host") || getHeader(event, "host");
   const isProd = process.env.NODE_ENV === "production";
   const headerProto =
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");

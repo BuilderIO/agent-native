@@ -536,6 +536,35 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("does not reuse a rejected forwarded host without a configured origin", () => {
+      process.env.NODE_ENV = "production";
+      for (const key of [
+        "APP_URL",
+        "VITE_APP_URL",
+        "BETTER_AUTH_URL",
+        "VITE_BETTER_AUTH_URL",
+        "WORKSPACE_GATEWAY_URL",
+        "VITE_WORKSPACE_GATEWAY_URL",
+      ]) {
+        delete process.env[key];
+      }
+      const event = createBuilderBrowserEvent(
+        {
+          host: "127.0.0.1:8080",
+          "x-forwarded-host": "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://127.0.0.1:8080/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://127.0.0.1:8080",
+      );
+    });
+
     it("recovers state from the callback cookie when Builder omits query state", () => {
       const state = createBuilderConnectState();
       const otherState = createBuilderConnectState();
@@ -994,6 +1023,7 @@ describe("Builder callback CSRF state", () => {
       }
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host": "alice.builderio.xyz",
         "x-forwarded-proto": "https",
       });
@@ -1018,6 +1048,7 @@ describe("Builder callback CSRF state", () => {
       }
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host": "alice.builderio.xyz",
         "x-forwarded-proto": "https",
       });
