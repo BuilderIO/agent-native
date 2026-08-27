@@ -1250,7 +1250,8 @@ function getBuilderRequestHost(event: H3Event): string | undefined {
   // forwarded Builder preview host. Direct requests keep their own Host so a
   // caller cannot steer OAuth redirects with an arbitrary forwarded header.
   return forwardedHost &&
-    (!requestHost || isLoopbackBuilderRequestHost(requestHost))
+    requestHost &&
+    isLoopbackBuilderRequestHost(requestHost)
     ? forwardedHost
     : requestHost;
 }

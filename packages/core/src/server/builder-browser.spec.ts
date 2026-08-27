@@ -495,6 +495,22 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("ignores a forwarded Builder Cloud host without a proxy host", () => {
+      process.env.NODE_ENV = "production";
+      process.env.APP_URL = "https://default-template.netlify.app";
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "attacker.builder.cloud",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://default-template.netlify.app",
+      );
+    });
+
     it("recovers state from the callback cookie when Builder omits query state", () => {
       const state = createBuilderConnectState();
       const otherState = createBuilderConnectState();
@@ -683,6 +699,7 @@ describe("Builder callback CSRF state", () => {
       process.env.APP_BASE_PATH = "/dispatch";
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host":
           "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
         "x-forwarded-proto": "https",
@@ -725,6 +742,7 @@ describe("Builder callback CSRF state", () => {
       process.env.APP_BASE_PATH = "/dispatch";
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host":
           "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
         "x-forwarded-proto": "https",
@@ -744,6 +762,7 @@ describe("Builder callback CSRF state", () => {
       process.env.APP_BASE_PATH = "/dispatch";
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host": "127.0.0.1:8080",
         "x-forwarded-proto": "http",
       });
