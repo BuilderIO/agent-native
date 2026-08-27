@@ -15,7 +15,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -1484,23 +1484,85 @@ export function useLabels() {
 
 let pinnedLabelsUpdateTail: Promise<void> = Promise.resolve();
 let pinnedLabelsUpdateToken = 0;
+let pinnedLabelsOwnerEmail: string | undefined;
 let confirmedPinnedLabels: string[] | undefined;
 const pendingPinnedLabelsIntents: Array<{
   base: string[];
   next: string[];
 }> = [];
 
+function normalizePinnedLabelsOwner(email?: string): string | undefined {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function resetPinnedLabelsState(ownerEmail: string | undefined) {
+  if (pinnedLabelsOwnerEmail === ownerEmail) return;
+  pinnedLabelsOwnerEmail = ownerEmail;
+  pinnedLabelsUpdateTail = Promise.resolve();
+  pinnedLabelsUpdateToken += 1;
+  confirmedPinnedLabels = undefined;
+  pendingPinnedLabelsIntents.length = 0;
+}
+
 export function rebasePinnedLabelsUpdate(
   confirmed: readonly string[],
   base: readonly string[],
   next: readonly string[],
 ): string[] {
-  const baseSet = new Set(base);
-  const nextSet = new Set(next);
-  const added = new Set(next.filter((id) => !baseSet.has(id)));
-  const ordered = next.filter((id) => confirmed.includes(id) || added.has(id));
-  const extras = confirmed.filter((id) => !baseSet.has(id) && !nextSet.has(id));
-  return [...ordered, ...extras];
+  const unique = (values: readonly string[]) => [...new Set(values)];
+  const confirmedList = unique(confirmed);
+  const baseList = unique(base);
+  const nextList = unique(next);
+  const baseSet = new Set(baseList);
+  const nextSet = new Set(nextList);
+  const baseRetained = baseList.filter((id) => nextSet.has(id));
+  const nextRetained = nextList.filter((id) => baseSet.has(id));
+  const intentReordered = nextRetained.some(
+    (id, index) => id !== baseRetained[index],
+  );
+  const concurrentAdds = confirmedList.filter(
+    (id) => !baseSet.has(id) && !nextSet.has(id),
+  );
+
+  if (intentReordered) return [...nextList, ...concurrentAdds];
+
+  const rebased = confirmedList.filter(
+    (id) => !baseSet.has(id) || nextSet.has(id),
+  );
+  const addedAfter = new Map<string, number>();
+
+  for (const [index, id] of nextList.entries()) {
+    if (baseSet.has(id)) continue;
+
+    const previous = nextList
+      .slice(0, index)
+      .reverse()
+      .find((candidate) => baseSet.has(candidate) && nextSet.has(candidate));
+    const following = nextList
+      .slice(index + 1)
+      .find((candidate) => baseSet.has(candidate) && nextSet.has(candidate));
+
+    if (previous) {
+      const position = rebased.indexOf(previous);
+      if (position >= 0) {
+        const offset = addedAfter.get(previous) ?? 0;
+        rebased.splice(position + 1 + offset, 0, id);
+        addedAfter.set(previous, offset + 1);
+        continue;
+      }
+    }
+    if (following) {
+      const position = rebased.indexOf(following);
+      if (position >= 0) {
+        rebased.splice(position, 0, id);
+        continue;
+      }
+    }
+    rebased.push(id);
+  }
+
+  return rebased;
 }
 
 export function serializePinnedLabelsUpdate<T>(
@@ -1524,6 +1586,13 @@ export function useSettings() {
 
 export function useUpdateSettings() {
   const qc = useQueryClient();
+  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const ownerEmail = normalizePinnedLabelsOwner(settings?.email);
+
+  useEffect(() => {
+    resetPinnedLabelsState(ownerEmail);
+  }, [ownerEmail]);
+
   return useMutation({
     mutationFn: (data: Partial<UserSettings>) => {
       if (!("pinnedLabels" in data)) {
@@ -1534,7 +1603,18 @@ export function useUpdateSettings() {
         );
       }
 
+      const currentSettings = qc.getQueryData<UserSettings>(["settings"]);
+      const currentOwnerEmail = normalizePinnedLabelsOwner(
+        currentSettings?.email,
+      );
+      if (settingsLoading || !currentSettings || !currentOwnerEmail) {
+        throw new Error("Mail preferences are still loading");
+      }
+
       return serializePinnedLabelsUpdate(() => {
+        if (pinnedLabelsOwnerEmail !== currentOwnerEmail) {
+          throw new Error("Mail preferences changed accounts");
+        }
         const intent = pendingPinnedLabelsIntents.shift();
         const confirmed = confirmedPinnedLabels ?? intent?.base ?? [];
         const rebased = intent
@@ -1559,6 +1639,11 @@ export function useUpdateSettings() {
       const prev = qc.getQueryData<UserSettings>(["settings"]);
       const hasPinnedLabels = "pinnedLabels" in data;
       if (hasPinnedLabels) {
+        const owner = normalizePinnedLabelsOwner(prev?.email);
+        if (settingsLoading || !prev || !owner) {
+          return { prev, data, token: undefined, owner };
+        }
+        resetPinnedLabelsState(owner);
         pendingPinnedLabelsIntents.push({
           base: prev?.pinnedLabels ?? [],
           next: data.pinnedLabels ?? [],
@@ -1571,7 +1656,12 @@ export function useUpdateSettings() {
       if (prev) {
         qc.setQueryData(["settings"], { ...prev, ...data });
       }
-      return { prev, data, token };
+      return {
+        prev,
+        data,
+        token,
+        owner: normalizePinnedLabelsOwner(prev?.email),
+      };
     },
     onError: (_err, _data, ctx) => {
       if (!ctx?.prev) return;
@@ -1579,7 +1669,11 @@ export function useUpdateSettings() {
       const current = qc.getQueryData<UserSettings>(["settings"]);
       if (!current) return;
 
-      if (ctx.token !== undefined && ctx.token !== pinnedLabelsUpdateToken) {
+      if (
+        ctx.token !== undefined &&
+        (ctx.token !== pinnedLabelsUpdateToken ||
+          ctx.owner !== pinnedLabelsOwnerEmail)
+      ) {
         return;
       }
 
@@ -1595,8 +1689,11 @@ export function useUpdateSettings() {
       if (!changed) return;
       qc.setQueryData(["settings"], { ...current, ...rollback });
     },
-    onSuccess: (data, variables) => {
-      if ("pinnedLabels" in variables) {
+    onSuccess: (data, variables, _context) => {
+      if (
+        "pinnedLabels" in variables &&
+        normalizePinnedLabelsOwner(data.email) === pinnedLabelsOwnerEmail
+      ) {
         confirmedPinnedLabels = data.pinnedLabels;
       }
     },

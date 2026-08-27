@@ -6,24 +6,40 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mockPreferences(pinnedLabels: string[] | undefined) {
+function mockPreferences(
+  result:
+    | { ok: true; pinnedLabels: string[] | undefined }
+    | { ok: false; reject?: false }
+    | { ok: false; reject: true },
+) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(
-      async () =>
-        new Response(JSON.stringify({ pinnedLabels }), {
+    vi.fn(async () => {
+      if ("reject" in result && result.reject) {
+        throw new Error("request failed");
+      }
+      if (!result.ok) {
+        return new Response("fail", { status: 500 });
+      }
+      return new Response(
+        JSON.stringify({ pinnedLabels: result.pinnedLabels }),
+        {
           headers: { "content-type": "application/json" },
-        }),
-    ),
+        },
+      );
+    }),
   );
 }
 
 async function expectInboxRedirect(
   routeLoader: typeof loader | typeof clientLoader,
-  pinnedLabels: string[] | undefined,
+  fetchResult:
+    | { ok: true; pinnedLabels: string[] | undefined }
+    | { ok: false; reject?: false }
+    | { ok: false; reject: true },
   expectedLocation: string,
 ) {
-  mockPreferences(pinnedLabels);
+  mockPreferences(fetchResult);
   let thrown: unknown;
   try {
     await routeLoader({ request: new Request("https://mail.test/") } as never);
@@ -40,18 +56,38 @@ async function expectInboxRedirect(
 
 describe("Mail root route", () => {
   it("keeps the server redirect preference-free for the public shell", () => {
-    return expectInboxRedirect(loader, [], "/inbox");
+    return expectInboxRedirect(
+      loader,
+      { ok: true, pinnedLabels: [] },
+      "/inbox",
+    );
   });
 
   it("keeps first-use Important selected on client navigation", () => {
     return expectInboxRedirect(
       clientLoader,
-      undefined,
+      { ok: true, pinnedLabels: undefined },
       "/inbox?label=important",
     );
   });
 
   it("routes an explicitly saved empty pin list on the client", () => {
-    return expectInboxRedirect(clientLoader, [], "/inbox");
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: true, pinnedLabels: [] },
+      "/inbox",
+    );
+  });
+
+  it("stays neutral on a non-2xx preference read", () => {
+    return expectInboxRedirect(clientLoader, { ok: false }, "/inbox");
+  });
+
+  it("stays neutral on a rejected preference read", () => {
+    return expectInboxRedirect(
+      clientLoader,
+      { ok: false, reject: true },
+      "/inbox",
+    );
   });
 });

@@ -31,8 +31,8 @@ export function meta() {
  * hydration, before the route tree was fully attached. A `loader` runs as
  * part of the server response and the navigation completes before the app
  * hydrates. The server redirect stays preference-free for the public SSR
- * shell; client navigations can choose the saved preference, and InboxPage
- * applies the same first-use default after settings load.
+ * shell; client navigations can choose the saved preference only after a
+ * successful settings read confirms there is no explicit pin list.
  */
 type MailPreferences = {
   pinnedLabels?: string[];
@@ -43,13 +43,13 @@ async function resolveRootInboxHref(): Promise<string> {
     const response = await fetch(
       agentNativePath("/_agent-native/actions/get-mail-preferences"),
     );
-    if (!response.ok) return "/inbox?label=important";
+    if (!response.ok) return "/inbox";
     const settings = (await response.json()) as MailPreferences;
     return settings.pinnedLabels === undefined
       ? "/inbox?label=important"
       : "/inbox";
   } catch {
-    return "/inbox?label=important";
+    return "/inbox";
   }
 }
 

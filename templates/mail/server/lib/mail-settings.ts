@@ -43,19 +43,20 @@ export function mergePinnedLabels(
   if (base === undefined) return [...next];
 
   const baseSet = new Set(base);
-  const nextSet = new Set<string>();
-  const merged: string[] = [];
-  for (const label of next) {
-    if (nextSet.has(label)) continue;
-    nextSet.add(label);
-    merged.push(label);
+  const currentSet = new Set(current ?? []);
+  const nextSet = new Set(next);
+  const merged = new Set<string>();
+
+  for (const label of base) {
+    if (currentSet.has(label) && nextSet.has(label)) merged.add(label);
   }
   for (const label of current ?? []) {
-    if (baseSet.has(label) || nextSet.has(label)) continue;
-    nextSet.add(label);
-    merged.push(label);
+    if (!baseSet.has(label)) merged.add(label);
   }
-  return merged;
+  for (const label of next) {
+    if (!baseSet.has(label)) merged.add(label);
+  }
+  return [...merged];
 }
 
 export function normalizeMailSettings(

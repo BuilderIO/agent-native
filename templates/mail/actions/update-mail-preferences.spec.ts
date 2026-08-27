@@ -46,7 +46,7 @@ describe("update-mail-preferences action", () => {
     expect(result).toEqual(
       expect.objectContaining({
         email: "owner@example.com",
-        pinnedLabels: ["important", "sent", "travel"],
+        pinnedLabels: ["important", "travel", "sent"],
         theme: "light",
       }),
     );
@@ -87,7 +87,7 @@ describe("update-mail-preferences action", () => {
     });
 
     expect(first.pinnedLabels).toEqual(["important", "travel"]);
-    expect(second.pinnedLabels).toEqual(["important", "sent", "travel"]);
+    expect(second.pinnedLabels).toEqual(["important", "travel", "sent"]);
   });
 
   it("honors an explicit unpin while preserving a concurrent pin", async () => {

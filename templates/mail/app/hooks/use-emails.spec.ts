@@ -149,6 +149,16 @@ describe("rebasePinnedLabelsUpdate", () => {
       ),
     ).toEqual(["sent", "inbox"]);
   });
+
+  it("preserves confirmed order when a queued intent keeps the same order", () => {
+    expect(
+      rebasePinnedLabelsUpdate(
+        ["sent", "inbox"],
+        ["inbox", "sent"],
+        ["inbox", "sent"],
+      ),
+    ).toEqual(["sent", "inbox"]);
+  });
 });
 
 describe("useUpdateSettings", () => {
@@ -158,6 +168,8 @@ describe("useUpdateSettings", () => {
     expect(source).toContain('"pinnedLabels" in data');
     expect(source).toContain("serializePinnedLabelsUpdate(() =>");
     expect(source).toContain("rebasePinnedLabelsUpdate(");
+    expect(source).toContain("resetPinnedLabelsState(owner)");
+    expect(source).toContain("settingsLoading || !prev || !owner");
     expect(source).toContain("requestSource: TAB_ID");
   });
 });
