@@ -73,17 +73,20 @@ describe("dispatchIntegrationRoutingHint", () => {
     },
   );
 
-  it("keeps explicit interactive visual plan requests on Plan", () => {
-    expect(
-      dispatchIntegrationRoutingHint(
-        "Create an interactive one-page plan for the launch",
-      ),
-    ).toMatchObject({ targetAgent: "plan" });
+  it.each([
+    "Create an interactive one-page plan for the launch",
+    "Create an interactive visual plan for the launch",
+  ])("keeps explicit interactive visual plan requests on Plan: %s", (text) => {
+    expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
+      targetAgent: "plan",
+    });
   });
 
   it.each([
     "Do not create a one-pager",
     "Do not create an interactive visual plan",
+    "No need to create a one-pager",
+    "There is no need to create an interactive visual plan",
   ])("does not route negated requests: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toBeUndefined();
   });
@@ -92,11 +95,29 @@ describe("dispatchIntegrationRoutingHint", () => {
     for (const text of [
       "Do not create an interactive visual plan; instead create a one-pager",
       "Don't create a visual plan, create a one-pager instead",
+      "Don't create a visual plan, but create a one-pager instead",
+      "For the customer who is not available, create a one-pager",
     ]) {
       expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
         targetAgent: "content",
       });
     }
+  });
+
+  it("does not route a later negated one-pager action", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Create a plan but don't write a one-pager",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("keeps a one-pager over an excluded Plan phrase", () => {
+    expect(
+      dispatchIntegrationRoutingHint(
+        "Create a one-pager instead of an interactive visual plan",
+      ),
+    ).toMatchObject({ targetAgent: "content" });
   });
 
   it("lets unrelated domain questions use normal agent discovery", () => {
