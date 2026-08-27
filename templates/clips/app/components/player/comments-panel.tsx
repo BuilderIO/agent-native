@@ -664,7 +664,8 @@ function CommentComposer({
       <div
         className={cn(
           "flex gap-2",
-          isSharePresentation && "items-start rounded-md p-3 shadow-sm",
+          isSharePresentation &&
+            "items-start rounded-md border border-border p-3 shadow-sm",
         )}
       >
         {isSharePresentation ? (
@@ -681,7 +682,7 @@ function CommentComposer({
           className={cn(
             "resize-none border-0 bg-background text-sm",
             isSharePresentation
-              ? "min-h-10 flex-1 border-0 p-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               : "min-h-[60px]",
           )}
           onKeyDown={(e) => {

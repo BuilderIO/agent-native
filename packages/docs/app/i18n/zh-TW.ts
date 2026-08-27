@@ -269,7 +269,7 @@ const messages = {
     },
     comparison: {
       titleLine1: "不必在 app 和 agent 之間二選一。",
-      titleAccent: "Agent-native apps 二者兼備。",
+      titleAccent: "Agent-Native apps 二者兼備。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
@@ -424,6 +424,103 @@ const messages = {
     freeAndOpenSource: "100% 免費 • 開放原始碼",
     viewAllApps: "查看所有應用",
   },
+  homepage: {
+    hero: {
+      title: "面向 agentic 應用的框架",
+      bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
+      bodyLine2: "使用你自己的 LLM，隨處部署。",
+      tryAnApp: "試用應用程式",
+    },
+    install: {
+      copyCommand: "複製安裝指令",
+    },
+    actions: {
+      title: "一個 Action 驅動所有能力面",
+      bodyLine1: "Action 是 Agent-Native 應用的基礎構建區塊。",
+      bodyLine2:
+        "只需定義一次功能，即可在 UI、agent 對話、HTTP API、MCP、A2A 或 CLI 中使用。",
+      diagramAlt: "一個 Action 驅動 UI、MCP、Agent 對話、A2A、HTTP API 和 CLI",
+    },
+    builtIn: {
+      title: "每個 Agent-Native 應用都內建這些能力",
+      body: "使用者和 AI agent 協同工作所需的一切，已經整合到同一個應用中。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "為使用者提供熟悉的畫面，用於瀏覽、編輯和審閱工作。",
+        },
+        agentChat: {
+          title: "內嵌 agent 對話",
+          body: "讓使用者不必離開應用即可委派工作、提問和查看結果。",
+        },
+        sharedState: {
+          title: "共用的應用狀態",
+          body: "agent 知道使用者正在查看、選取和編輯的內容。",
+        },
+        sharedSql: {
+          title: "共用的 SQL 資料",
+          body: "使用者和 agent 讀取並更新同一份可信資料來源。",
+        },
+        skillsMemory: {
+          title: "Skills 與 memory",
+          body: "為 agent 提供可重複使用的專業知識和持久脈絡。",
+        },
+        automations: {
+          title: "自動化",
+          body: "按排程或應用事件自動執行 agent 工作。",
+        },
+        agentTeams: {
+          title: "Agent 團隊",
+          body: "在應用內部或跨應用把工作委派給專業 agent。",
+        },
+        auth: {
+          title: "身分驗證與組織",
+          body: "登入、使用者帳號和組織成員關係均已內建。",
+        },
+        sharing: {
+          title: "分享與權限",
+          body: "控制誰可以查看、留言、編輯或管理每一項資源。",
+        },
+      },
+    },
+    stack: {
+      title: "適配你的技術堆疊",
+      body: "帶上你自己的 LLM、資料庫、工具和基礎設施，Agent-Native 是開放原始碼的 TypeScript，你的應用始終歸你所有。",
+      exploreApps: "探索用 Agent-Native 打造的應用",
+    },
+    showcase: {
+      title: "你能用 Agent-Native 打造什麼？",
+      body: "從聊天、專注的內部工具，到完整的面向客戶產品，任何形態都能從這裡開始。每個應用都為使用者提供 UI，也為 agent 提供完成相同工作的工具。",
+      browseApps: "瀏覽應用",
+      scrollLeft: "向左捲動應用",
+      scrollRight: "向右捲動應用",
+    },
+    bottomCta: {
+      title: "打造你的第一個 Agent-Native 應用",
+      body: "為使用者和 AI agent 打造同一個應用。使用你自己的 LLM，隨處部署。",
+    },
+    footer: {
+      tagline: "面向 agentic 應用的框架。",
+      framework: "框架",
+      ecosystem: "生態系",
+      community: "社群",
+      legal: "法律",
+      docs: "文件",
+      actions: "行動",
+      apps: "應用",
+      privacyPolicy: "隱私權政策",
+      saasTerms: "SaaS 條款",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "不在本機建置？",
+      exploreApp: "先試用線上應用程式",
+      between: "或",
+      joinWaitlist: "加入候補名單",
+      end: "改為在瀏覽器中建置。",
+    },
+  },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
     eyebrow: "從一個可執行的 app 開始，讓 agent 繼續改進它。",
@@ -448,7 +545,7 @@ const messages = {
     description: "從框架指南開始，或使用 Builder.io 的雲端編碼代理在線上建置。",
     readDocs: "閱讀文件",
     buildOnline: "線上建置",
-    popoverTitle: "使用 Builder.io 線上建置",
+    popoverTitle: "在瀏覽器中建置",
     popoverBody:
       "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
     emailLabel: "電子郵件",
@@ -1214,7 +1311,7 @@ const messages = {
       s026: "可分享的連結",
       s027: "每個計畫都有一個公開 URL。與團隊成員共用以進行非同步審閱、評論和核准。",
       s028: "桌面檔案同步",
-      s029: "將託管計畫從 Agent Native Desktop 鏡像到本機 MDX 檔案，無需克隆應用程式或執行 CLI。",
+      s029: "將託管計畫從 Agent-Native Desktop 鏡像到本機 MDX 檔案，無需克隆應用程式或執行 CLI。",
       s030: "，因此審查位於程式碼旁邊。",
       s031: "它是如何運作的",
       s032: "規劃存在於共用應用程式中 - 您和代理都可以在功能的整個生命週期中讀取和更新它。",
@@ -1248,7 +1345,7 @@ const messages = {
       s060: "檢視所有範本",
       s061: "VS Code 交接",
       s062: "使用以下擴充功能在 VS Code 側邊面板中開啟計畫連結：",
-      s063: "Agent Native Plans 擴充功能",
+      s063: "Agent-Native Plans 擴充功能",
       s064: "線框圖 — 帶元件插槽的草圖式 UI 模型",
       s065: "帶註解的程式碼 — 帶逐行註解的來源檔案",
       s066: "圖表 — 流程圖、序列圖或架構圖",
@@ -1275,7 +1372,7 @@ const messages = {
           "plan mode 是終端中的文字，只對一個人可見，核准後就會消失。Plans 是視覺化的，包含線框圖、圖表和帶註解的差異；它可分享、可持久保存，代理能在功能的整個生命週期中建立、讀取和更新計畫。",
         question5: "我可以在程式碼旁邊查看計畫嗎？",
         answer5:
-          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
+          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent-Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
         question6: "Plans 免費嗎？",
         answer6:
           "免費、開放原始碼，並採用 MIT 授權。Plans 提供託管的分享連結，你也可以把所有內容鏡像到本機檔案。",
@@ -1496,9 +1593,9 @@ const messages = {
     },
   },
   downloadPage: {
-    title: "下載 Agent Native",
+    title: "下載 Agent-Native",
     body: "所有 agent-native 應用都在一個桌面外殼中。內建正式環境應用，並提供用於本機開發的開發模式開關。",
-    openDesktop: "開啟 Agent Native",
+    openDesktop: "開啟 Agent-Native",
     downloadInstaller: "下載安裝程式",
     downloadStarted: "已開始下載",
     downloadAgain: "沒有成功？再試一次下載",

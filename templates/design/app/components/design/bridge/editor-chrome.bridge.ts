@@ -1508,6 +1508,63 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el === document.body || el === document.documentElement;
   }
 
+  // A hairline and a zero-height flow container are both real layers. Pad them
+  // for hit-testing and outlines instead of dropping them, or a click can
+  // select what a marquee cannot.
+  // Both this bridge and the lightweight hit-test bridge are injected into the
+  // same document unless Interact mode drops this one. The fallback answers
+  // selectable-rects only when this flag is absent, or two replies race and the
+  // host keeps whichever arrives first.
+  (window as unknown as Record<string, boolean>).__agentNativeEditorChrome =
+    true;
+
+  var MIN_SELECTABLE_EXTENT_PX = 4;
+  var NON_SELECTABLE_TAGS = [
+    "script",
+    "style",
+    "template",
+    "link",
+    "meta",
+    "title",
+    "noscript",
+    "br",
+  ];
+
+  /** A rect padded so a hairline or empty box can still be hit and outlined. */
+  function selectableBounds(el: Element): {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  } {
+    var rect = el.getBoundingClientRect();
+    var padX =
+      rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+    var padY =
+      rect.height < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+    return {
+      left: rect.left - padX,
+      top: rect.top - padY,
+      right: rect.right + padX,
+      bottom: rect.bottom + padY,
+      width: rect.width + padX * 2,
+      height: rect.height + padY * 2,
+    };
+  }
+
+  /** The outermost <svg> above `el`, or null when `el` is not SVG geometry. */
+  function outermostSvgAncestor(el: Element | null): Element | null {
+    var owner = el && (el as SVGElement).ownerSVGElement;
+    if (!owner) return null;
+    var root: Element = owner;
+    while ((root as SVGElement).ownerSVGElement) {
+      root = (root as SVGElement).ownerSVGElement as Element;
+    }
+    return root;
+  }
+
   function isBoardRootMarqueeSurface(el: Element | null): boolean {
     if (!designCanvasBoardSurface || !el) return false;
     if (isDocumentRootElement(el)) return true;
@@ -1574,6 +1631,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function selectionTargetForHit(hit: Element | null): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
+    // A <path>/<polygon> is geometry, not a layer: its tight bbox is 0-height
+    // for a horizontal line, and only the outermost <svg> carries the id and a
+    // layout box.
+    var svgRoot = outermostSvgAncestor(hit);
+    if (svgRoot) return svgRoot;
     // Select the deepest element under the pointer on the first click. The
     // bridge can mint a pending node id and build a source-equivalent selector
     // for id-less descendants, so climbing to the nearest tagged ancestor is
@@ -2316,15 +2378,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     (window.parent as Window).postMessage(message, "*");
   }
 
+  // Every element the click path can reach, not just the id-bearing ones: an id
+  // attribute is a persistence detail, and generated markup routinely has none,
+  // so keying selectability off it made a marquee miss what a click hits.
   function collectSelectableElements(): Element[] {
     var nodes = Array.prototype.slice.call(
-      document.querySelectorAll(
-        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]",
-      ),
+      document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
     var seen = new Set<Element>();
     var elements: Element[] = [];
     nodes.forEach(function (node) {
+      if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1) {
+        return;
+      }
       var target = selectionTargetForHit(node);
       if (
         !target ||
@@ -2332,16 +2398,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         isBoardRootMarqueeSurface(target) ||
         isOverlayElement(target) ||
         isLayerInteractionBlocked(target) ||
-        seen.has(target)
+        isTemplateCloneElement(target) ||
+        seen.has(target) ||
+        isPaddedAwayFromView(target)
       ) {
         return;
       }
-      var rect = target.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
       seen.add(target);
       elements.push(target);
     });
     return elements;
+  }
+
+  /** True for a node the padding above would otherwise rescue into the band:
+   *  `display:none` and `visibility:hidden` both measure 0x0, and inflating
+   *  them makes a layer nobody can see selectable. Computed style is read only
+   *  for degenerate boxes, so a whole-document sweep stays cheap. */
+  function isPaddedAwayFromView(el: Element): boolean {
+    var rect = el.getBoundingClientRect();
+    if (
+      rect.width >= MIN_SELECTABLE_EXTENT_PX &&
+      rect.height >= MIN_SELECTABLE_EXTENT_PX
+    ) {
+      return false;
+    }
+    var cs = window.getComputedStyle(el);
+    return cs.display === "none" || cs.visibility === "hidden";
   }
 
   function collectSelectableElementInfos(): unknown[] {
@@ -2860,6 +2942,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     additive: boolean;
     moved: boolean;
     pointerId?: number;
+    candidates?: Element[];
     move: string;
     up: string;
     onMove: (ev: MouseEvent) => void;
@@ -5247,11 +5330,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
     if (!placedRotatedLocalBox) {
       var rect = el.getBoundingClientRect();
+      // Only a degenerate box is padded, so every normal outline still matches
+      // the element rect exactly.
+      var box = selectableBounds(el);
       overlay.style.display = "block";
-      overlay.style.top = rect.top + "px";
-      overlay.style.left = rect.left + "px";
-      overlay.style.width = rect.width + "px";
-      overlay.style.height = rect.height + "px";
+      overlay.style.top = box.top + "px";
+      overlay.style.left = box.left + "px";
+      overlay.style.width = box.width + "px";
+      overlay.style.height = box.height + "px";
       overlay.style.transform = "";
     }
     if (overlay === selectionOverlay) {
@@ -6401,9 +6487,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     marqueeSelectionOverlay.style.width = rect.width + "px";
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
-    var hitElements = collectSelectableElements().filter(function (el) {
-      var bounds = el.getBoundingClientRect();
-      if (bounds.width <= 0 || bounds.height <= 0) return false;
+    // Collected once per gesture: this runs on every pointermove, and a
+    // generated screen can hold thousands of nodes.
+    if (!activeMarqueeSelection.candidates) {
+      activeMarqueeSelection.candidates = collectSelectableElements();
+    }
+    var hitElements = activeMarqueeSelection.candidates.filter(function (el) {
+      var bounds = selectableBounds(el);
+      // A candidate that encloses the band is the container being banded
+      // inside, not something aimed at: sweeping it in selects the whole
+      // screen and every later drag moves everything.
+      if (
+        bounds.left <= rect.left &&
+        bounds.top <= rect.top &&
+        bounds.right >= rect.right &&
+        bounds.bottom >= rect.bottom
+      ) {
+        return false;
+      }
       return rectsIntersect(rect, {
         left: bounds.left,
         top: bounds.top,
@@ -8177,18 +8278,85 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
+    img: true,
+    video: true,
+    picture: true,
+    audio: true,
+    canvas: true,
+    svg: true,
+    path: true,
+    input: true,
+    textarea: true,
+    select: true,
+    br: true,
+    hr: true,
+    iframe: true,
+  };
+  var BRIDGE_ADOPTING_PRIMITIVES: Record<string, boolean> = {
+    frame: true,
+    rectangle: true,
+    rect: true,
+  };
+
+  // KEEP IN SYNC with hit-test.bridge.ts — pinned by bridge.guard.spec.ts.
+  // Layout decides, not the tag: a group has no data-an-primitive and a
+  // generated container is often a <section>.
+
+  // keep in sync with hit-test.bridge.ts isFreeformRelativeContainer
+  // Complements isAbsolutePrimitiveContainer below, which requires the
+  // container itself to be absolute/fixed. A generated screen wraps content in
+  // a `position:relative` full-bleed div, and calling that flow strips a
+  // dropped layer's left/top into the corner. Every child must be out of flow:
+  // one absolute badge in a flex row does not make the row freeform.
+  function isFreeformRelativeContainer(el: Element | null): boolean {
+    if (!el || el === document.body || el === document.documentElement) {
+      return false;
+    }
+    if (window.getComputedStyle(el).position === "static") return false;
+    var children = el.children;
+    if (children.length === 0) return false;
+    for (var i = 0; i < children.length; i += 1) {
+      if (isOverlayElement(children[i])) continue;
+      var childPosition = window.getComputedStyle(children[i]).position;
+      if (childPosition !== "absolute" && childPosition !== "fixed") {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
-    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    if (!el || el.nodeType !== 1) return false;
+    if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    // Frames adopt; a rectangle is a vector shape and never becomes a
-    // container (same contract appendCanvasPrimitiveToHtml enforces on draw).
-    if (primitive !== "frame") return false;
+    if (primitive) {
+      // A declared frame or rectangle is authored free-form even when empty;
+      // other drawn shapes stay leaves, matching what
+      // appendCanvasPrimitiveToHtml enforces on draw.
+      if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
+      return false;
+    }
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  function hasAbsolutePositionedChild(el: Element): boolean {
+    var kids = el.children;
+    for (var i = 0; i < kids.length; i += 1) {
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+    }
+    return false;
   }
 
   // A frame with any content of its own has a layout that adopting auto
@@ -8743,9 +8911,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             anchor: hit,
             placement: "inside",
             axis: parentFlowAxis(hit),
-            dropMode: isAbsolutePrimitiveContainer(hit)
-              ? "absolute-container"
-              : "flow-insert",
+            dropMode:
+              isAbsolutePrimitiveContainer(hit) ||
+              isFreeformRelativeContainer(hit)
+                ? "absolute-container"
+                : "flow-insert",
           };
         }
         return {
@@ -8791,9 +8961,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         anchor: parent,
         placement: "inside",
         axis: axis,
-        dropMode: isAbsolutePrimitiveContainer(parent)
-          ? "absolute-container"
-          : "flow-insert",
+        dropMode:
+          isAbsolutePrimitiveContainer(parent) ||
+          isFreeformRelativeContainer(parent)
+            ? "absolute-container"
+            : "flow-insert",
       };
     }
     var beforeTarget = null;
@@ -9037,7 +9209,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // recognizes it via this same helper and assigns dropMode
       // "absolute-container" so onUp skips the auto-layout conversion and
       // keeps the moved element's position:absolute.
-      if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+      if (
+        cursor !== document.body &&
+        (isAbsolutePrimitiveContainer(cursor) ||
+          isFreeformRelativeContainer(cursor))
+      ) {
         // Same-parent drop is a pure reposition: a target here re-appends the
         // element as its parent's last child and changes its z-order.
         if (cursor === el.parentElement) return null;
@@ -10852,6 +11028,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
       var reorderSelector = getSelector(reorderEl);
       var reorderSourceId = getSourceId(reorderEl);
+      crossScreenClaimedByHost = false;
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
       var reorderRect = reorderEl.getBoundingClientRect();
       var reorderPointerStart = pointerStartParam || e;
@@ -11224,6 +11401,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               iframeY: cy,
               viewportW: vw,
               viewportH: vh,
+              // Without a size the host can only draw a 16px cursor dot, so
+              // the element being dragged is invisible once it leaves here.
+              elementRect: {
+                left: reorderRect.left,
+                top: reorderRect.top,
+                width: reorderRect.width,
+                height: reorderRect.height,
+              },
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
             },
@@ -11240,6 +11425,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clearReorderReflow();
           showTransformBadge("Move layer", cx, cy);
         } else {
+          // Back inside: the host stops receiving cross-screen moves, so its
+          // claim goes stale and a release here would commit nowhere.
+          crossScreenClaimedByHost = false;
           // Cursor is inside this iframe — use existing in-iframe behavior,
           // stabilized (hysteresis) and previewed with live sibling reflow when
           // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
@@ -11277,6 +11465,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
         document.removeEventListener("pointercancel", onReorderEscape, true);
+        window.removeEventListener("blur", onReorderEscape, true);
+        document.removeEventListener(
+          "visibilitychange",
+          onReorderVisibilityChange,
+          true,
+        );
         document.removeEventListener("keydown", onReorderKeyDown, true);
         document.removeEventListener("keyup", onReorderKeyUp, true);
         clearActiveDragCancel(onReorderEscape);
@@ -11285,6 +11479,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // in the final slot with no back-to-origin flicker.
         clearReorderLift();
         clearReorderReflow();
+      }
+      function onReorderVisibilityChange() {
+        if (document.visibilityState === "hidden") onReorderEscape();
       }
       function onReorderEscape() {
         cleanupReorderDrag();
@@ -11326,14 +11523,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.preventDefault();
       }
       function onReorderUp(ev) {
+        // A release with no usable point is not a release at the origin: 0,0
+        // reads as "inside this iframe" and drops the element in the top-left
+        // corner. Cancel instead, which restores it where it started.
+        if (
+          !ev ||
+          !Number.isFinite(ev.clientX) ||
+          !Number.isFinite(ev.clientY)
+        ) {
+          onReorderEscape();
+          return;
+        }
         cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
         var vw = window.innerWidth;
         var vh = window.innerHeight;
-        var cx = ev ? ev.clientX : 0;
-        var cy = ev ? ev.clientY : 0;
-        var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh;
+        var cx = ev.clientX;
+        var cy = ev.clientY;
+        var outsideOnDrop =
+          cx < 0 ||
+          cy < 0 ||
+          cx > vw ||
+          cy > vh ||
+          // Claimed by the host: committing here too would write the node
+          // twice, from two different ideas of where it landed.
+          crossScreenClaimedByHost;
         // Post the end message so the host can finalize a cross-screen drop.
         // Group drags never armed the host (see onReorderMove), so posting
         // end here would trigger a bogus single-element cross-screen move.
@@ -11348,6 +11563,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               iframeY: cy,
               viewportW: vw,
               viewportH: vh,
+              // Without a size the host can only draw a 16px cursor dot, so
+              // the element being dragged is invisible once it leaves here.
+              elementRect: {
+                left: reorderRect.left,
+                top: reorderRect.top,
+                width: reorderRect.width,
+                height: reorderRect.height,
+              },
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
             },
@@ -11480,6 +11703,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
       document.addEventListener("pointercancel", onReorderEscape, true);
+      // A drag that never receives its release — the pointer left for another
+      // window, or the tab was hidden — must not leave the element lifted out
+      // of place with an orphaned ghost on the canvas.
+      window.addEventListener("blur", onReorderEscape, true);
+      document.addEventListener(
+        "visibilitychange",
+        onReorderVisibilityChange,
+        true,
+      );
       document.addEventListener("keydown", onReorderKeyDown, true);
       document.addEventListener("keyup", onReorderKeyUp, true);
       setActiveDragCancel(onReorderEscape);
@@ -11716,6 +11948,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
+        // Back inside: the host stops receiving cross-screen moves here, so its
+        // claim is about to go stale. Reclaim the gesture or the release commits
+        // nowhere.
+        crossScreenClaimedByHost = false;
         currentAutoLayoutTarget =
           !duplicatedForDrag && !bridgeSpaceKeyPressed
             ? autoLayoutInsertionTargetForPoint(
@@ -11842,8 +12078,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSizeBadge();
       hideConstraintGuides();
       if (!dragEl) return;
+      // The board surface iframe covers the screens, so a release over one is
+      // still "inside" it. Only the host knows that, and it says so by claiming
+      // the drop; committing here as well writes the node twice.
       var outsideOnDrop = ev
-        ? isOutsideIframeViewport(ev.clientX, ev.clientY)
+        ? isOutsideIframeViewport(ev.clientX, ev.clientY) ||
+          crossScreenClaimedByHost
         : false;
       if (
         ev &&
@@ -12869,6 +13109,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return candidateKeys[(idx + 1) % candidateKeys.length];
   }
 
+  // Figma parity: a drag on a container's own background rubber-bands its
+  // children. A leaf object, or one already selected, still moves.
+  function isContainerBackgroundHit(el: Element | null): boolean {
+    if (!el || el === selectedEl) return false;
+    if (isDocumentRootElement(el)) return false;
+    if (outermostSvgAncestor(el) === el) return false;
+    return Boolean(el.firstElementChild);
+  }
+
+  // The board surface iframe spans the whole canvas, screens included, so
+  // "the release was inside my viewport" cannot decide who owns the drop. The
+  // host claims the gesture whenever the pointer is over a screen frame.
+  var crossScreenClaimedByHost = false;
+
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
     if (e.button !== 0) return;
@@ -12882,7 +13136,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !hit ||
       hit === document.body ||
       hit === document.documentElement ||
-      isBoardRootMarqueeSurface(hitTarget)
+      isBoardRootMarqueeSurface(hitTarget) ||
+      isContainerBackgroundHit(hitTarget)
     ) {
       beginMarqueeSelection(e);
       return;
@@ -13446,6 +13701,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             );
           }
         });
+        return;
+      }
+      // A paste carrying nothing importable stays silent, unless it plainly
+      // came from Figma — the user expected a screen and must be told why they
+      // got nothing. The parent applies the same rule to its own listener, but
+      // a paste inside the iframe never reaches it, so relay the strings and
+      // let that one rule decide both.
+      var pastedHtml = e.clipboardData
+        ? e.clipboardData.getData("text/html") || ""
+        : "";
+      var pastedText = e.clipboardData
+        ? e.clipboardData.getData("text/plain") || ""
+        : "";
+      if (/figma/i.test(pastedHtml) || /figma/i.test(pastedText)) {
+        (window.parent as Window).postMessage(
+          {
+            type: "figma-clipboard-paste",
+            content: "",
+            html: pastedHtml,
+            text: pastedText,
+          },
+          "*",
+        );
       }
     },
     true,
@@ -14409,6 +14687,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       statePreviewElement = nextStatePreviewElement;
       return;
     }
+    if (e.data.type === "agent-native:cross-screen-claim") {
+      crossScreenClaimedByHost = Boolean(e.data.claimed);
+      return;
+    }
     if (e.data.type === "agent-native:cancel-active-drag") {
       cancelActiveBridgeDrag();
       return;
@@ -14427,6 +14709,43 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
       if (activeMarqueeSelection) return;
       clearRuntimeSelection();
+      return;
+    }
+    // A host-side inspector commit never reaches this bridge, so nothing
+    // re-measures the element it changed. `fit-content` leaves the host holding
+    // the keyword plus a pre-commit rect, i.e. no current width at all.
+    if (e.data.type === "agent-native:measure-selection") {
+      // The host broadcasts to every frame, so a reply from the wrong screen
+      // or the wrong element is worse than no reply: it lands in the inspector
+      // as a confident number for something else. Stay silent unless this
+      // frame owns both the screen and the element.
+      var measureScreenId: string =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
+      var measureSelector: string =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var measureTarget: Element | null = null;
+      if (measureSelector) {
+        try {
+          measureTarget = document.querySelector(measureSelector);
+        } catch (_err) {
+          measureTarget = null;
+        }
+      } else {
+        measureTarget = selectedEl;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:selection-measured",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          screenId: designCanvasScreenId,
+          payload: measureTarget ? getElementInfo(measureTarget) : null,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type === "agent-native:collect-selectable-rects") {

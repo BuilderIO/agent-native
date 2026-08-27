@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
+import { sitePathForLocale } from "../app/components/docs-locale";
 import { getTemplateDocsPath } from "../app/components/template-docs";
 import { TemplateCard, templates } from "../app/components/TemplateCard";
 import { docsI18nCatalog } from "../app/i18n";
@@ -23,7 +24,9 @@ describe("TemplateCard", () => {
         </MemoryRouter>,
       );
 
-      expect(html).toContain(`href="${getTemplateDocsPath(template)}"`);
+      expect(html).toContain(
+        `href="${sitePathForLocale(getTemplateDocsPath(template))}"`,
+      );
       expect(html).not.toContain(
         `href="/templates/${template.slug}">View Docs`,
       );

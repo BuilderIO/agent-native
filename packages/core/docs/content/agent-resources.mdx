@@ -5,6 +5,8 @@ description: "Claude-Code-level customization per user — skills, memory, instr
 
 # Agent Resources
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 Every agent-native app ships with **agent resources**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
 The twist: **it's SQL rows, not filesystem files.** Each user gets their own set of agent resources stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
@@ -26,7 +28,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own set
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
-    <span class="diagram-pill accent">Agent-native resources</span
+    <span class="diagram-pill accent">Agent-Native resources</span
     ><small class="diagram-muted">rows in one SQL database</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
@@ -71,7 +73,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own set
 
 </Diagram>
 
-| Claude Code / Codex              | Agent-native resources                             |
+| Claude Code / Codex              | Agent-Native resources                             |
 | -------------------------------- | -------------------------------------------------- |
 | Files on your local disk         | Rows in a shared SQL database                      |
 | One codebase per developer       | One codebase, many users                           |

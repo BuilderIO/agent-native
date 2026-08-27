@@ -5,6 +5,7 @@ import {
   getFigmaClipboardContent,
   hasFigmaClipboardPayload,
   importResultNotification,
+  isAttemptedFigmaPaste,
   type JsonParsableResponse,
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
@@ -198,6 +199,52 @@ describe("design import clipboard helpers", () => {
   it("recognizes standalone HTML separately from Figma clipboard markers", () => {
     expect(looksLikeStandaloneHtml("<section>Hero</section>")).toBe(true);
     expect(looksLikeStandaloneHtml("plain text")).toBe(false);
+  });
+});
+
+describe("attempted-but-unimportable Figma pastes", () => {
+  it("tells a copied Figma link apart from an ordinary paste", () => {
+    expect(
+      isAttemptedFigmaPaste(
+        clipboardData({
+          "text/plain":
+            "https://www.figma.com/design/AbCdEf123456/Marketing?node-id=12-34",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isAttemptedFigmaPaste(clipboardData({ "text/plain": "https://x.com/a" })),
+    ).toBe(false);
+    expect(
+      isAttemptedFigmaPaste(clipboardData({ "text/plain": "some notes" })),
+    ).toBe(false);
+  });
+
+  it("reports a Figma clipboard whose marker pair arrived truncated", () => {
+    expect(
+      isAttemptedFigmaPaste(
+        clipboardData({
+          "text/html": '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==',
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("stays quiet once the payload is importable", () => {
+    expect(
+      isAttemptedFigmaPaste(
+        clipboardData({
+          "text/html":
+            '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not read a bare word as a Figma file key", () => {
+    expect(
+      isAttemptedFigmaPaste(clipboardData({ "text/plain": "AbCdEf123456" })),
+    ).toBe(false);
   });
 });
 

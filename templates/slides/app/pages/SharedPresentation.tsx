@@ -1,5 +1,6 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { SharedDeckResponse } from "@shared/api";
 import { IconAlertCircle } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
@@ -23,6 +24,16 @@ export default function SharedPresentation({
   const [deck, setDeck] = useState<SharedDeckResponse | null>(initialDeck);
   const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(!initialDeck && !initialError);
+
+  useEffect(() => {
+    if (!deck) return;
+    const nextTitle = `${normalizeDocumentTitle(deck.title, "Shared Presentation")} — Slides`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deck?.title]);
 
   useEffect(() => {
     if (!token) return;

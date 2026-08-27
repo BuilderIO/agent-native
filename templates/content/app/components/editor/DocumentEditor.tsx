@@ -15,6 +15,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
   IconDatabase,
@@ -105,6 +106,7 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
+import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
 import {
   classifyLocalSourceRead,
   localSourceRevisionForQueuedEdit,
@@ -584,6 +586,24 @@ function DocumentEditorBody({
     });
   }, [documentId, t]);
   const updateDocument = useUpdateDocument();
+  const handleToggleFavorite = useCallback(
+    (nextFavorite: boolean) => {
+      updateDocument.mutate(
+        { id: documentId, isFavorite: nextFavorite },
+        {
+          onError: (error) => {
+            toast.error(t("sidebar.failedUpdateFavorite"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
+    },
+    [documentId, t, updateDocument],
+  );
   const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
@@ -637,6 +657,21 @@ function DocumentEditorBody({
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      localTitle,
+      t("sidebar.untitled"),
+    )} — Content`;
+    const previousTitle = window.document.title;
+    window.document.title = nextTitle;
+    return () => {
+      if (window.document.title === nextTitle) {
+        window.document.title = previousTitle;
+      }
+    };
+  }, [localTitle, t]);
+
   const [databaseExportContext, setDatabaseExportContext] =
     useState<DatabaseExportContext | null>(null);
   const databaseExportContextFingerprintRef = useRef("null");
@@ -749,6 +784,13 @@ function DocumentEditorBody({
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const getLinkedLocalEditorSnapshot = useCallback(
+    () => ({
+      title: localTitleRef.current,
+      content: localContentRef.current,
+    }),
+    [],
+  );
   const localSourceWriteErrorShownRef = useRef(false);
   const documentUpdatedAtRef = useRef<string | null>(
     document.updatedAt ?? null,
@@ -1266,6 +1308,59 @@ function DocumentEditorBody({
       stop?.();
     };
   }, [document.id, document.source, isLinkedLocalSourceDocument]);
+
+  const handleLinkedLocalAgentPersistence = useCallback(
+    (persisted: Document, revision?: DesktopContentFileRevision) => {
+      localSourceRevisionRef.current = revision;
+      localTitleRef.current = persisted.title;
+      localContentRef.current = persisted.content;
+      setLocalTitle(persisted.title);
+      setLocalContent(persisted.content);
+      setLocalContentUpdatedAt(persisted.updatedAt ?? new Date().toISOString());
+      lastSavedTitleRef.current = {
+        title: persisted.title,
+        updatedAt: lastSavedTitleRef.current.updatedAt,
+      };
+      lastSavedContentRef.current = {
+        content: persisted.content,
+        updatedAt: lastSavedContentRef.current.updatedAt,
+      };
+      setLocalFileSyncRevision((revision) => revision + 1);
+      setLocalSourceConflict(null);
+      const sqlUpdatedAt = documentUpdatedAtRef.current;
+      queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+        mergeDocumentIntoDocumentCache(old, {
+          ...persisted,
+          updatedAt: sqlUpdatedAt ?? persisted.updatedAt,
+        }),
+      );
+    },
+    [documentId, queryClient],
+  );
+
+  useEffect(() => {
+    if (
+      !isLinkedLocalSourceDocument ||
+      document.title !== localTitleRef.current ||
+      document.content !== localContentRef.current ||
+      !document.updatedAt
+    ) {
+      return;
+    }
+    lastSavedTitleRef.current = {
+      title: document.title,
+      updatedAt: document.updatedAt,
+    };
+    lastSavedContentRef.current = {
+      content: document.content,
+      updatedAt: document.updatedAt,
+    };
+  }, [
+    document.content,
+    document.title,
+    document.updatedAt,
+    isLinkedLocalSourceDocument,
+  ]);
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -2024,6 +2119,13 @@ function DocumentEditorBody({
       registry={contentBlockRegistry}
       ctx={blockRenderContext}
     >
+      {isLinkedLocalSourceDocument && editorCanEdit ? (
+        <LinkedLocalDocumentAgentBridge
+          document={document}
+          getEditorSnapshot={getLinkedLocalEditorSnapshot}
+          onPersisted={handleLinkedLocalAgentPersistence}
+        />
+      ) : null}
       <div
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root
@@ -2059,6 +2161,8 @@ function DocumentEditorBody({
               deleteDocument.isPending || deleteContentDatabase.isPending
             }
             onDelete={handleDeleteDocument}
+            isFavorite={document.isFavorite}
+            onToggleFavorite={handleToggleFavorite}
             utilityPanel={utilityPanel}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
@@ -2125,7 +2229,7 @@ function DocumentEditorBody({
               data-local-source-read-only
             >
               {t("editor.localFileReadOnlySnapshot", {
-                device: "Agent Native Desktop",
+                device: "Agent-Native Desktop",
                 date: new Date(
                   document.source?.updatedAt ?? document.updatedAt,
                 ).toLocaleString(),

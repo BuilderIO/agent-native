@@ -15,6 +15,13 @@ describe("inline edit session", () => {
     expect(shouldPersistInlineEditContent(initial, { ...initial })).toBe(false);
   });
 
+  it("does not replay content already captured by the latest draft", () => {
+    const latestDraft = { ...initial, content: "<h1>Latest</h1>" };
+    expect(shouldPersistInlineEditContent(latestDraft, latestDraft)).toBe(
+      false,
+    );
+  });
+
   it("persists changed content", () => {
     expect(
       shouldPersistInlineEditContent(initial, {

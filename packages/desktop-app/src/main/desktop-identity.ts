@@ -963,7 +963,7 @@ export class DesktopIdentityBroker {
     if (!authority) {
       return Promise.resolve({
         ok: false,
-        error: "The Agent Native identity service is unavailable.",
+        error: "The Agent-Native identity service is unavailable.",
       });
     }
 
@@ -1048,7 +1048,7 @@ export class DesktopIdentityBroker {
           ? "The identity service did not respond in time. Please try again."
           : error instanceof Error
             ? error.message
-            : "Could not reach the Agent Native identity service.",
+            : "Could not reach the Agent-Native identity service.",
       );
     } finally {
       clearTimeout(timeoutTimer);
@@ -1138,7 +1138,7 @@ export class DesktopIdentityBroker {
       identityWindow = this.options.createWindow({
         width: 520,
         height: 720,
-        title: "Sign in to Agent Native",
+        title: "Sign in to Agent-Native",
         show: true,
         backgroundColor: "#111111", // guard:allow-raw-color - native auth window stays neutral before app theme loads.
         parent: this.options.parentWindow?.() ?? undefined,
@@ -1276,7 +1276,7 @@ export class DesktopIdentityBroker {
     if (!authority) {
       return Promise.resolve({
         ok: false,
-        error: "The Agent Native identity service is unavailable.",
+        error: "The Agent-Native identity service is unavailable.",
       });
     }
 
@@ -1369,7 +1369,7 @@ export class DesktopIdentityBroker {
       return fail(
         error instanceof Error
           ? error.message
-          : "Could not reach the Agent Native identity service.",
+          : "Could not reach the Agent-Native identity service.",
       );
     }
 
@@ -3138,7 +3138,7 @@ export class DesktopIdentityBroker {
     const identityWindow = this.options.createWindow({
       width: 520,
       height: 720,
-      title: "Sign in to Agent Native",
+      title: "Sign in to Agent-Native",
       show: options.interactive !== false,
       backgroundColor: "#111111",
       parent: this.options.parentWindow?.() ?? undefined,

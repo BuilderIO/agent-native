@@ -83,13 +83,14 @@ export default defineAction({
       const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
       const rootNode = await fetchFigmaNode(fileKey, nodeId);
 
-      const { files, fidelityEntries } = await buildScreenFilesFromFigmaNodes(
-        fileKey,
-        { [nodeId]: rootNode },
-        {
-          source: () => ({ figmaUrl: args.figmaUrl ?? null }),
-        },
-      );
+      const { files, fidelityEntries, omissionWarnings } =
+        await buildScreenFilesFromFigmaNodes(
+          fileKey,
+          { [nodeId]: rootNode },
+          {
+            source: () => ({ figmaUrl: args.figmaUrl ?? null }),
+          },
+        );
 
       const saved = await saveImportedDesignFiles({
         designId,
@@ -99,6 +100,7 @@ export default defineAction({
 
       return {
         ...saved,
+        warnings: [...(saved.warnings ?? []), ...omissionWarnings],
         figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
         fidelityReport: summarizeFidelity(fidelityEntries),
         guidance:

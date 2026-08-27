@@ -667,11 +667,14 @@ const messages = {
       figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
       figmaPasteMatchGuidance:
         "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+      figmaPasteUnreadable:
+        "剪貼簿中沒有已複製的 Figma 圖層。請在 Figma 中選取畫框，按 Cmd+C 複製後再貼上，或從匯入面板匯入 Figma 連結。",
       figmaPasteRestLabel: "透過 Figma API 匯入",
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
       figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
       figmaPasteImagesNeedToken:
         "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+      figmaPasteImagesDontShowAgain: "不再顯示",
       figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
       figmaHydrationDialogDescription:
         "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
@@ -996,6 +999,7 @@ const messages = {
       auditRunFailed: "無法執行設計稽核",
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
+      saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       reactSourceAnchorsLoading:
         "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
@@ -1208,6 +1212,11 @@ const messages = {
     createdBy: "建立者",
     allAuthors: "所有作者",
     me: "我",
+    designFilter: "設計篩選",
+    mine: "我的",
+    all: "全部",
+    showMineDesigns: "顯示我的設計",
+    showAllDesigns: "顯示所有設計",
     openingDesign: "正在開啟設計...",
     skipToEditor: "直接進入編輯器",
     failedToCreateDesign: "無法建立設計",
@@ -1241,6 +1250,9 @@ const messages = {
     prototype: "原型",
     other: "其他",
     designPreview: "Design 預覽",
+    paginationPrevious: "上一頁",
+    paginationNext: "下一頁",
+    paginationPage: "第 {{page}} / {{totalPages}} 頁",
   },
   templatesPage: {
     ...designTemplateFeatureOverrides["zh-TW"].templatesPage,

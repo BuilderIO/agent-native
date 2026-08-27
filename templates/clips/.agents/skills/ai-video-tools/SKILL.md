@@ -141,18 +141,19 @@ removing overlapping duplicate speech and low-speech Whisper hallucinations. Kee
 system audio enabled when the meeting audio comes from another app.
 
 Native transcript first is a hard rule, not a preference: cloud transcription is
-fallback-only for Clips recordings. Cleanup and transcript-backed title/summary
-generation run in the durable post-finalize path, so never hide a usable native
-transcript behind failed metadata work, and keep heuristic titles replaceable
-until the agent refinement lands.
+fallback-only for Clips recordings. Recording transcripts keep the native text as
+captured; `request-transcript` does not run automatic cleanup. Never hide a
+usable native transcript behind failed metadata work, and keep heuristic titles
+replaceable until the agent refinement lands. The standalone `cleanup-transcript`
+action remains available for explicit dictation, meeting, and agent workflows.
 
 Clips never routes recording/meeting audio to OpenAI for transcription. (Groq's endpoint is OpenAI-_compatible_ in request shape only — the audio goes to Groq, not OpenAI.)
 
 If no native transcript exists and no cloud fallback is available (no Builder connection and no Groq key), the action writes `status="failed"` so the UI can show a friendly prompt.
 
-When a transcript becomes ready, `request-transcript` must await native cleanup
-and the metadata handoff before its durable post-finalize worker returns.
-Do not leave title/summary work as an unawaited promise in that worker:
+When a transcript becomes ready, `request-transcript` must await the metadata
+handoff before its durable post-finalize worker returns. Do not leave
+title/summary work as an unawaited promise in that worker:
 serverless runtimes may freeze it immediately. A local heuristic title uses
 `titleSource: "context"` so it remains a temporary UI fallback until the
 `generate-metadata` agent request replaces it with a transcript-backed title.

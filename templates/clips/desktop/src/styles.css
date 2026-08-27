@@ -25,11 +25,10 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
-  /* Keep the side and bottom shadow clear of the transparent Tauri window.
-     The top is intentionally tighter: the popover should feel attached to
-     its menu-bar icon, where a clipped shadow is not visible anyway. */
-  --popover-shadow-gutter: 24px;
-  --popover-shadow-gutter-top: 6px;
+  /* Transparent apron reserved for CSS-painted shadows on the overlays that
+     still use them (bubble, countdown). The popover and other converted
+     windows are sized to their content exactly and use the native NSWindow
+     shadow instead. */
   --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
@@ -67,9 +66,9 @@
 }
 
 /* Tauri window is `transparent: true` + `decorations: false`, so the HTML
-   paints the visible shape. A padded transparent outer, with a rounded
-   inner panel that carries the actual background + shadow, gives us the
-   round-cornered chromeless popover. */
+   paints the visible shape. The popover window is sized to the rounded panel
+   exactly; macOS derives a native shadow from the panel's alpha, giving us
+   the round-cornered chromeless popover with no transparent apron. */
 html,
 body {
   margin: 0;
@@ -116,10 +115,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow: hidden;
 }
 
-body[data-clips-route="recording-pill"] #root {
-  padding: var(--overlay-shadow-gutter);
-}
-
 /* ------------------------------------------------------------------------- */
 /* App shell                                                                  */
 /* ------------------------------------------------------------------------- */
@@ -132,14 +127,12 @@ body[data-clips-route="recording-pill"] #root {
   gap: 14px;
   background: var(--bg);
   border: 1px solid var(--border);
+  /* The rounded corners shape the native NSWindow shadow — the window is
+     sized to this panel exactly, so a CSS box-shadow would just clip. */
   border-radius: 14px;
-  /* Subtle drop shadow so the popover visually detaches from the menu bar. */
-  box-shadow: var(--shadow-md);
   /* No fixed height — the Tauri window is resized to match the rendered
      content via resize_popover, so the shell just flows naturally. */
-  max-height: calc(
-    100vh - var(--popover-shadow-gutter) - var(--popover-shadow-gutter)
-  );
+  max-height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -834,40 +827,6 @@ body[data-clips-route="recording-pill"] #root {
   stroke-linejoin: round;
   /* Keep the line crisp regardless of the non-uniform x-stretch. */
   vector-effect: non-scaling-stroke;
-}
-
-/* One variable owns the meter's height and the bars scale off it — every rule
-   that resizes the meter sets `--meter-height`, not `height`. Two rules setting
-   `height` independently is how the box and the bars drifted apart before. */
-.live-audio-bars {
-  --meter-height: 26px;
-  display: inline-flex;
-  width: 48px;
-  height: var(--meter-height);
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.live-audio-bars-compact {
-  --meter-height: 22px;
-  width: 21px;
-  gap: 3px;
-}
-
-.live-audio-bar {
-  display: block;
-  width: 3px;
-  border-radius: 999px;
-  background: rgba(132, 204, 22, 0.98);
-  transition: height 90ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .live-audio-bar {
-    transition: none;
-  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -3419,291 +3378,6 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Vertical Loom-style recording pill                                         */
-/* ------------------------------------------------------------------------- */
-
-.toolbar-v {
-  position: fixed;
-  left: var(--overlay-shadow-gutter);
-  top: var(--overlay-shadow-gutter);
-  width: 72px;
-  height: 150px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  /* Pin content to the top in BOTH states. The primary controls are
-     centered inside their own fixed-height zone (.toolbar-v-primary), so
-     the collapsed→expanded growth only adds room BELOW them. Without this,
-     flipping justify-content center→flex-start on hover yanked the Stop
-     button up toward the bar's top edge. */
-  justify-content: flex-start;
-  /* Equal inset on all four sides from the pill edge to the buttons. */
-  padding: 10px;
-  overflow: hidden;
-  border-radius: 24px;
-  background: rgba(20, 22, 28, 0.94);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  user-select: none;
-  -webkit-user-select: none;
-  cursor: grab;
-  transition: border-radius 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.toolbar-v:hover,
-.toolbar-v:focus-within {
-  /* Matches TOOLBAR_EXPANDED_HEIGHT in toolbar.tsx — the fixed 130px primary
-     zone + 88px hover actions (+2 margin) + 20px vertical padding. */
-  height: 240px;
-  border-radius: 26px;
-}
-
-.toolbar-v:active {
-  cursor: grabbing;
-}
-
-/* Fixed-height home for Stop / time / Pause. Its height equals the collapsed
-   pill's content box (150px − 20px vertical padding = 130px), so the trio is
-   centered exactly as before when collapsed and never shifts when the pill
-   grows on hover — the extra height flows into .toolbar-v-hover-actions below. */
-.toolbar-v-primary {
-  flex: 0 0 130px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.toolbar-v-stop {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
-  min-height: 30px;
-  flex: 0 0 30px;
-  aspect-ratio: 1 / 1;
-  border-radius: 50%;
-  border: none;
-  /* orange-500 — a touch softer than the red-orange we had before. */
-  background: #f97316;
-  color: white;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.toolbar-v-stop:hover {
-  background: #ea580c;
-}
-
-.toolbar-v-stop:active {
-  transform: scale(0.94);
-}
-
-.toolbar-v-stop-square {
-  width: 14px;
-  height: 14px;
-  background: currentColor;
-  border-radius: 2px;
-  display: inline-block;
-}
-
-.toolbar-v-spinner {
-  animation: toolbar-v-spin 0.8s linear infinite;
-}
-
-@keyframes toolbar-v-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.toolbar-v-time {
-  flex: 0 0 auto;
-  appearance: none;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  font-weight: 600;
-  color: white;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-}
-
-.toolbar-v-time:hover,
-.toolbar-v-time:focus-visible {
-  background: rgba(255, 255, 255, 0.1);
-  outline: none;
-}
-
-.toolbar-v-time-preparing {
-  font-size: 9px;
-  letter-spacing: 0;
-}
-
-.toolbar-v-pause {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
-  min-height: 30px;
-  flex: 0 0 30px;
-  aspect-ratio: 1 / 1;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.toolbar-v-pause:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-}
-
-.toolbar-v-hover-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  height: 0;
-  margin-top: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(-6px);
-  pointer-events: none;
-  visibility: hidden;
-  transition:
-    opacity 130ms ease-out,
-    transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.toolbar-v:hover .toolbar-v-hover-actions,
-.toolbar-v:focus-within .toolbar-v-hover-actions {
-  height: 88px;
-  margin-top: 2px;
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-  visibility: visible;
-}
-
-.toolbar-v-action {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  flex: 0 0 40px;
-  aspect-ratio: 1 / 1;
-  border-radius: 999px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.95);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out,
-    transform 120ms ease-out;
-}
-
-.toolbar-v-action:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: white;
-}
-
-.toolbar-v-action:active {
-  transform: scale(0.94);
-}
-
-.toolbar-v-action-danger:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.toolbar-v-paused {
-  border-color: rgba(245, 158, 11, 0.35);
-}
-
-/* Pre-record state: the toolbar is visible during the bubble session so the
-   user can drag + position it before hitting Start. Buttons are disabled
-   (no recorder to drive yet). Greyed out + not-allowed cursor makes the
-   "not yet" affordance obvious. */
-.toolbar-v-disabled .toolbar-v-stop,
-.toolbar-v-disabled .toolbar-v-pause,
-.toolbar-v-disabled .toolbar-v-action {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.35);
-  cursor: not-allowed;
-  pointer-events: auto;
-}
-.toolbar-v-disabled .toolbar-v-stop:hover,
-.toolbar-v-disabled .toolbar-v-pause:hover,
-.toolbar-v-disabled .toolbar-v-action:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.35);
-}
-.toolbar-v-stop:disabled,
-.toolbar-v-pause:disabled,
-.toolbar-v-action:disabled {
-  cursor: not-allowed;
-}
-
-.toolbar-v-disk-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #f59e0b;
-  opacity: 0.9;
-  flex-shrink: 0;
-}
-
-.toolbar-v-disk-indicator-critical {
-  color: #ef4444;
-  animation: toolbar-v-disk-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes toolbar-v-disk-pulse {
-  0%,
-  100% {
-    opacity: 0.7;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.toolbar-v-disk-warning {
-  border-color: rgba(245, 158, 11, 0.45);
-}
-
-.toolbar-v-disk-critical {
-  border-color: rgba(239, 68, 68, 0.5);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .toolbar-v,
-  .toolbar-v-hover-actions,
-  .toolbar-v-action {
-    transition: none;
-  }
-  .toolbar-v-disk-indicator-critical {
-    animation: none;
-  }
-}
-
-/* ------------------------------------------------------------------------- */
 /* Overlay: camera bubble                                                     */
 /* ------------------------------------------------------------------------- */
 
@@ -3944,7 +3618,7 @@ body[data-clips-route="recording-pill"] #root {
   padding: 4px 2px 0;
 }
 
-/* Agent Native's mark, so the first screen says whose app this is. */
+/* Agent-Native's mark, so the first screen says whose app this is. */
 .signin-mark {
   display: block;
   width: 26px;
@@ -4498,10 +4172,12 @@ body[data-clips-route="recording-pill"] #root {
 
 /* Wispr Flow-style dictation pill: small capsule anchored to the bottom
    of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust. */
+   bottom-center on the primary display by show_flow_bar in Rust, sized to
+   the content exactly — elevation is the native NSWindow shadow, so there
+   is no transparent shadow-gutter apron here. */
 .flow-bar-root {
   position: fixed;
-  inset: var(--overlay-shadow-gutter);
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4564,8 +4240,8 @@ body[data-clips-route="recording-pill"] #root {
   justify-content: center;
 }
 
-.flow-bar-canvas {
-  display: block;
+.flow-bar-meter {
+  height: 18px;
 }
 
 .flow-bar-processing {
@@ -4930,10 +4606,12 @@ body[data-clips-route="recording-pill"] #root {
 /* Overlay: recording pill                                                    */
 /* ------------------------------------------------------------------------- */
 
-/* Fills the window minus the shadow gutter `#root` already pads out. The
-   collapsed capsule centers here rather than hugging a corner: hover is polled
-   against the window frame, so slack between frame and capsule would light the
-   pill up while the cursor is nowhere near it. */
+/* Fills the window, which Rust sizes to the visible capsule exactly —
+   elevation is the native NSWindow shadow (see recording_indicator.rs), so
+   there is no transparent shadow-gutter apron here. The collapsed capsule
+   centers rather than hugging a corner: hover is polled against the window
+   frame, so slack between frame and capsule would light the pill up while
+   the cursor is nowhere near it. */
 .pill-outer {
   display: flex;
   height: 100%;
@@ -4980,6 +4658,10 @@ body[data-clips-route="recording-pill"] #root {
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
+  /* Pinned to the top of its window. The window is pre-grown before the
+     capsule opens, and a centred capsule would jump upward the instant that
+     happens — the growth has to come out of the bottom edge only. */
+  align-self: flex-start;
   /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
      height. A fixed radius on the ~44x64 vertical form looks like a rounded
      rectangle. */
@@ -5052,26 +4734,139 @@ body[data-clips-route="recording-pill"] #root {
 /* Collapsed = vertical capsule: logo on top, waveform below. */
 .pill-inner-compact .pill-header.pill-vertical {
   flex-direction: column;
-  gap: 6px;
+  /* No gap here: the transport segment owns the space above itself, so at
+     rest it contributes nothing and the capsule closes flush under the
+     meter. Spacing lives inside each group instead, all on one 8px step. */
+  gap: 0;
   height: auto;
   width: auto;
-  padding: 10px 8px;
+  padding: 9px 8px;
   cursor: pointer;
 }
 
 .pill-vertical .pill-logo {
-  height: 12px;
+  width: 21px;
+  height: auto;
 }
 
-/* Controls (timer / pause / stop / chevron) live in the expanded view — the
-   collapsed capsule is just logo + waveform and expands on click. */
+/* The collapsed capsule grows along its long axis to reveal its transport,
+   the same way the recorder pill grows to reveal its extras: the segment
+   animates its own measured size while the window is resized around it. The
+   height here is set in px by the overlay after measuring — `auto` cannot be
+   animated, and a guessed constant drifts from the real control stack. */
+/* Height and opacity are set inline by the overlay, not by a hover rule: this
+   window is never the key window, and the browser can stop advancing its
+   animations — so anything whose END state depends on a transition running is
+   invisible exactly when it matters. The transition is the polish; the inline
+   values are the truth. */
 .pill-vertical .pill-controls {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  /* The horizontal pill pushes its controls to the right with an auto margin;
+     in this column that is a 3px offset off the capsule's centre line. */
+  margin-left: 0;
+  gap: 8px;
+  /* The space above the transport is a margin, animated with the height. As
+     padding it could not collapse below its own 8px, so the capsule kept a
+     dead band under the meter while closed. */
+  margin-top: 0;
+  height: 0;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    height 220ms var(--ease-drawer),
+    margin-top 220ms var(--ease-drawer),
+    opacity 160ms var(--ease-out-strong);
+}
+
+.pill-vertical .pill-controls[data-open="true"] {
+  pointer-events: auto;
+}
+
+/* The buttons settle in a beat after the capsule starts opening, so the growth
+   reads as the capsule making room rather than a jump cut. Transform only —
+   a stalled transition leaves them 4px off instead of invisible. */
+.pill-vertical .pill-controls > * {
+  transform: translateY(-4px);
+  transition: transform 200ms var(--ease-out-strong);
+  transition-delay: 60ms;
+}
+
+.pill-vertical .pill-controls[data-open="true"] > * {
+  transform: translateY(0);
+}
+
+/* The note-taker shows no elapsed time anywhere, and 38px of capsule has room
+   for the two transport controls and nothing besides. */
+.pill-vertical .pill-timer,
+.pill-vertical .pill-expand-btn,
+.pill-vertical .pill-copy-btn {
   display: none;
 }
 
+/* Bare glyphs, matching the recorder pill: a red square for stop and a ghost
+   pause, with no filled circle behind either. The base styles here are the
+   compact pill's filled buttons, which is the wrong language for a capsule
+   this small — two solid discs stacked read as a traffic light. */
+/* Sized to the glyph, not to the hit target. A 22px box around a 14px icon
+   puts 4px of dead space on the rhythm, which is why evenly-spaced boxes
+   still looked uneven — the eye measures ink, not boxes. The target is an
+   overlay instead, so it costs nothing in layout. */
+.pill-vertical .pill-pause-btn,
+.pill-vertical .pill-stop-btn {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.pill-vertical .pill-pause-btn::after,
+.pill-vertical .pill-stop-btn::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn:hover {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: #ffffff;
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-stop-btn,
+.pill-inner-compact
+  .pill-header.pill-vertical
+  .pill-stop-btn:hover:not(:disabled) {
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-vertical .pill-controls,
+  .pill-vertical .pill-controls > * {
+    transition-duration: 1ms;
+    transition-delay: 0ms;
+  }
+}
+
 .pill-vertical .pill-wave-meter {
-  --meter-height: 22px;
-  width: 21px;
+  height: 14px;
 }
 
 /* Wrapper around logo + waveform. */
@@ -5083,7 +4878,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
 }
 
 .pill-timer {
@@ -5092,12 +4887,17 @@ body[data-clips-route="recording-pill"] #root {
   font-variant-numeric: tabular-nums;
 }
 
-/* Layout only. `display` must stay flex here — a `block` override collapses
-   the meter's bars into a single stacked column instead of a waveform. */
+/* The collapsed capsule is its own dark chrome with white content, and the
+   expanded panel is themed — inheriting is the only value that reads on both. */
+.pill-media-spinner {
+  flex: none;
+  color: currentColor;
+  opacity: 0.7;
+}
+
+/* Layout only; the bars size and color themselves. */
 .pill-wave-meter {
-  --meter-height: 26px;
-  width: 48px;
-  flex-shrink: 0;
+  height: 14px;
 }
 
 .pill-stop-btn {
@@ -5163,7 +4963,9 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pill-divider {
-  margin: 0 12px;
+  /* 14px matches the header's title and the transcript's own padding. A rule
+     that overhangs the text it separates is the misalignment you see first. */
+  margin: 0 14px;
   height: 1px;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.1);
@@ -5295,8 +5097,7 @@ body[data-clips-route="recording-pill"] #root {
   opacity: 0.5;
 }
 
-.pill-ask-send,
-.pill-ask-open {
+.pill-ask-send {
   display: inline-flex;
   height: 28px;
   width: 28px;
@@ -5326,11 +5127,6 @@ body[data-clips-route="recording-pill"] #root {
 .pill-ask-send:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-.pill-ask-open:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f5f5f5;
 }
 
 .lt-chat {
@@ -5411,6 +5207,661 @@ body[data-clips-route="recording-pill"] #root {
   background: rgba(255, 255, 255, 0.06);
   color: #e5e5e5;
   border-bottom-left-radius: 4px;
+}
+
+/* ---- Expanded meeting panel: a themed reading surface --------------------
+   The collapsed capsule stays dark capture chrome (it floats over arbitrary
+   content), but the EXPANDED panel is for reading, so it follows the system
+   theme and borrows the record pill's control grammar: a red stop square as
+   the live indicator + save action, bare ghost glyphs for everything else.
+   All rules are scoped to the expanded state and override the dark base. */
+
+.pill-inner:not(.pill-inner-compact) {
+  background: hsl(var(--ui-popover) / 0.98);
+  color: hsl(var(--ui-foreground));
+  border: 0.5px solid hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-header {
+  gap: 6px;
+  padding: 0 8px 0 14px;
+}
+
+/* Everything in the header that is not text rides the measured shift, so the
+   glyphs sit on the title's optical centre rather than on its box centre.
+   Zero until measured, so a missing measurement changes nothing. */
+.pill-inner:not(.pill-inner-compact) .pill-controls {
+  transform: translateY(var(--header-ink-shift, 0px));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-wave-meter {
+  transform: translateY(var(--header-meter-shift, 0px));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-media {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.pill-title {
+  /* Same box height as the control buttons beside it: centring two boxes of
+     equal height puts their ink on one line whatever the font metrics do. */
+  line-height: 30px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: hsl(var(--ui-foreground));
+  transition: color 150ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer-live {
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+}
+
+.pill-stop-square {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn {
+  height: 30px;
+  width: 30px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:disabled {
+  opacity: 0.4;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-divider {
+  background: hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-error {
+  background: hsl(var(--ui-destructive) / 0.1);
+  border-color: hsl(var(--ui-destructive) / 0.3);
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-banner {
+  border-color: hsl(var(--ui-success) / 0.35);
+  background: hsl(var(--ui-success) / 0.1);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-text {
+  color: hsl(var(--ui-success));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open {
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open:hover {
+  opacity: 0.9;
+  background: hsl(var(--ui-primary));
+}
+
+/* Transcript: uniform left alignment for reading — the speaker label, not
+   the side, carries who is talking. */
+.pill-inner:not(.pill-inner-compact) .lt-chat {
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-empty {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you,
+.pill-inner:not(.pill-inner-compact) .lt-row-them {
+  align-items: flex-start;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 0 2px 2px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-label,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-label {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-bubble {
+  max-width: 100%;
+  padding: 7px 11px;
+  border-radius: 10px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-bubble,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-bubble {
+  background: hsl(var(--ui-muted));
+  color: hsl(var(--ui-foreground));
+  border-bottom-right-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+/* Ask composer: Stop leads the line (Wispr's pattern), then the quiet
+   rounded field on the muted fill with ghost actions. */
+.pill-stop-inline-square {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2.5px;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  background: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-bar {
+  gap: 6px;
+  padding: 8px 14px 12px;
+}
+
+/* Inline ask conversation: a sheet rises from the composer and holds the
+   running exchange — user questions as chat bubbles, streamed answers, and
+   contextual suggestion chips. The grip resizes it; pulling it low dismisses. */
+.pill-ask-sheet {
+  /* In the column, not over it: an overlay would cover the newest transcript
+     lines, which is the only part of a live session anyone is reading. */
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 0.5px solid hsl(var(--ui-border));
+  border-radius: 14px 14px 0 0;
+  background: hsl(var(--ui-popover));
+  box-shadow: var(--elevation-sheet);
+  /* Travels rather than fades: the panel arrives from the edge it belongs to,
+     on the same curve the framework's drawers use. */
+  animation: pill-ask-sheet-in 320ms var(--ease-drawer);
+}
+
+.pill-ask-sheet[data-state="closing"] {
+  animation: pill-ask-sheet-out 200ms var(--ease-collapse) forwards;
+  pointer-events: none;
+}
+
+/* The panel leads; its contents follow a beat later, so the drawer reads as
+   one object arriving instead of a card and its text appearing together. */
+.pill-ask-sheet > * {
+  animation: pill-ask-sheet-content 260ms var(--ease-out-strong) both;
+  animation-delay: 90ms;
+}
+
+.pill-ask-sheet[data-state="closing"] > * {
+  animation: none;
+}
+
+@keyframes pill-ask-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pill-ask-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@keyframes pill-ask-sheet-content {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Motion is the affordance here, not decoration — reduced motion keeps the
+   state change, drops the travel. */
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-sheet,
+  .pill-ask-sheet[data-state="closing"],
+  .pill-ask-sheet > * {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-sheet {
+    animation: none;
+  }
+}
+
+.pill-ask-sheet-grip {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  /* 18px of grabbable height around a 4px handle: the affordance is the
+     target, not the glyph. */
+  padding: 8px 0 6px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.pill-ask-sheet-grip:active {
+  cursor: grabbing;
+}
+
+.pill-ask-sheet-handle {
+  display: block;
+  width: 32px;
+  height: 4px;
+  border-radius: 999px;
+  background: hsl(var(--ui-muted-foreground) / 0.35);
+  transition:
+    background 160ms var(--ease-collapse),
+    transform 160ms var(--ease-collapse);
+}
+
+.pill-ask-sheet-grip:active .pill-ask-sheet-handle {
+  transform: scaleX(1.12);
+  background: hsl(var(--ui-muted-foreground) / 0.7);
+}
+
+.pill-ask-sheet-grip:hover .pill-ask-sheet-handle {
+  background: hsl(var(--ui-muted-foreground) / 0.55);
+}
+
+.pill-ask-sheet-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 11px;
+  overflow-y: auto;
+  padding: 6px 16px 12px;
+}
+
+.pill-ask-msg-user {
+  align-self: flex-end;
+  max-width: 88%;
+  /* A full-radius capsule curves in on every line but the middle, so the
+     horizontal padding has to clear the corner, not just the glyph. */
+  padding: 9px 17px;
+  border-radius: 999px;
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.pill-ask-msg-assistant {
+  align-self: stretch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--ui-foreground));
+  white-space: pre-line;
+}
+
+.pill-ask-suggestions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px 16px 10px;
+  mask-image: linear-gradient(
+    to right,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 calc(100% - 22px),
+    transparent 100%
+  );
+}
+
+.pill-ask-suggestions::-webkit-scrollbar {
+  display: none;
+}
+
+/* Waiting for capture to attach: never the live red, never a running clock. */
+.pill-timer-starting {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--ui-muted-foreground));
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.pill-ask-work {
+  margin-bottom: 7px;
+}
+
+.pill-ask-work-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* The trail scrolls rather than wrapping: a run of ten steps must not push the
+   answer down the sheet. Edges fade so a clipped chip reads as "more". */
+.pill-ask-chips {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* No horizontal padding: it reads as extra space between the chip and its
+     label, on top of the row's own gap. Vertical padding has to clear the
+     active chip's scale AND its 2px ring, or `overflow-x` clips the ring —
+     one axis set to auto makes the other axis clip too. */
+  padding: 4px 0;
+}
+
+.pill-ask-chips[data-scrolled="true"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 14px
+  );
+}
+
+.pill-ask-chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* Overlapped like a stack of avatars rather than spaced out as a row: the
+   ring in the surface color is what cuts each chip out of the one behind it,
+   so the trail reads as one object with a head instead of N buttons. */
+/* A Tabler glyph inks 75% of its box, so a 12px icon put 9px of ink inside a
+   21px ring — 43%, which reads as a glyph lost in a circle rather than one
+   set in it. 15px of icon in a 20px ring is ~56%. */
+.pill-ask-chip-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-right: -5px;
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px hsl(var(--ui-popover));
+  color: hsl(var(--ui-muted-foreground));
+  background: hsl(var(--ui-popover));
+  opacity: 0.5;
+  transition:
+    opacity 160ms var(--ease-out-strong),
+    transform 160ms var(--ease-out-strong),
+    border-color 160ms var(--ease-out-strong);
+}
+
+.pill-ask-chip-icon:last-child {
+  margin-right: 0;
+}
+
+.pill-ask-chip-icon[data-active="true"] {
+  z-index: 2;
+  transform: scale(1.1);
+  opacity: 1;
+  color: hsl(var(--ui-foreground));
+  border-color: hsl(var(--ui-foreground) / 0.4);
+}
+
+.pill-ask-chip-icon[data-status="error"] {
+  z-index: 1;
+  opacity: 1;
+  color: hsl(var(--ui-destructive));
+  border-color: hsl(var(--ui-destructive) / 0.4);
+}
+
+.pill-ask-chip-icon[data-status="running"][data-active="true"],
+.pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
+  animation: pill-ask-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pill-ask-chip-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pill-ask-work-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-ask-work-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: hsl(var(--ui-muted-foreground));
+  cursor: default;
+}
+
+.pill-ask-work-toggle:hover {
+  color: hsl(var(--ui-foreground));
+  background: hsl(var(--ui-muted) / 0.6);
+}
+
+/* Quoted like the reasoning it is, so it never reads as the answer. */
+.pill-ask-work-now,
+.pill-ask-work-list {
+  margin: 5px 0 0;
+  padding: 0 0 0 9px;
+  border-left: 1.5px solid hsl(var(--ui-border));
+  font-size: 12px;
+  line-height: 17px;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-ask-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+}
+
+.pill-ask-work-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pill-ask-work-list li[data-status="error"] {
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-ask-work-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-ask-work-item-detail {
+  flex: none;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-chip-icon[data-status="running"][data-active="true"],
+  .pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
+    animation: none;
+  }
+}
+
+.pill-ask-thread-caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  border-radius: 1.5px;
+  background: hsl(var(--ui-muted-foreground));
+  animation: pill-ask-caret 900ms steps(2) infinite;
+}
+
+@keyframes pill-ask-caret {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-activity {
+    display: block;
+    margin: 2px 0;
+    font-size: 12px;
+    font-style: italic;
+    color: hsl(var(--ui-muted-foreground));
+    animation: pill-ask-activity-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes pill-ask-activity-pulse {
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pill-ask-activity {
+      animation: none;
+    }
+  }
+
+  .pill-ask-thread-caret {
+    animation: none;
+  }
+}
+
+/* The field owns the fill, radius, and focus ring; the input is transparent
+   inside it and the send button sits embedded at the trailing edge (shadcn's
+   InputGroup pattern), so composing and sending read as one control. */
+.pill-inner:not(.pill-inner-compact) .pill-ask-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  height: 34px;
+  padding: 0 4px 0 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: hsl(var(--ui-muted));
+  transition: border-color 120ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-field:focus-within {
+  border-color: hsl(var(--ui-ring) / 0.35);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: hsl(var(--ui-foreground));
+  font-size: 13px;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input::placeholder {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send {
+  /* Concentric with the capsule field: 34px/2 outer radius minus the 4px
+     inset = 13px inner radius, i.e. an exact 26px circle. */
+  height: 26px;
+  width: 26px;
+  border-radius: 999px;
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+  transition:
+    opacity 120ms,
+    background 120ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:disabled {
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+  opacity: 0.6;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:hover:not(:disabled) {
+  opacity: 0.85;
 }
 
 .pill-pause-btn {

@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   Table,
   TableBody,
@@ -58,11 +58,13 @@ export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
             <TableRow key={row.email}>
               <TableCell>
                 <div className="flex items-center gap-2 min-w-0">
-                  <Avatar className="h-7 w-7 flex-shrink-0">
-                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                      {initials(row.email)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <ClipsAvatar
+                    email={row.email}
+                    alt={row.email}
+                    fallback={initials(row.email)}
+                    className="h-7 w-7 flex-shrink-0"
+                    fallbackClassName="text-xs bg-primary text-primary-foreground"
+                  />
                   <span className="truncate">{row.email}</span>
                 </div>
               </TableCell>

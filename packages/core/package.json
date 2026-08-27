@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.175.1",
+  "version": "0.175.5",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -109,6 +109,7 @@
     "./db-admin": "./dist/db-admin/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
+    "./db/drizzle-migrations": "./dist/db/drizzle-migrations.js",
     "./client": "./dist/client/index.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/chat-first": "./dist/client/chat-first/index.js",
@@ -388,6 +389,7 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@mozilla/readability": "0.6.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@noble/hashes": "^2.3.0",
     "@radix-ui/react-popover": "catalog:",
     "@radix-ui/react-select": "catalog:",
     "@radix-ui/react-tooltip": "catalog:",

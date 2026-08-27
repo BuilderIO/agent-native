@@ -5,7 +5,7 @@ description: "Démarrez avec un produit SaaS complet : UI, base de données, aut
 
 # Apps
 
-Les apps Agent Native se présentent sous deux formes : les modèles, qui offrent un UI navigateur complet, et les apps automation-first, qui n'en ont pas — un bot Slack, un rapport nocturne, un répondeur de webhook. Cette page couvre les modèles ; voir [Automation-First Apps](/docs/pure-agent-apps) pour l'autre forme.
+Les apps Agent-Native se présentent sous deux formes : les modèles, qui offrent un UI navigateur complet, et les apps automation-first, qui n'en ont pas — un bot Slack, un rapport nocturne, un répondeur de webhook. Cette page couvre les modèles ; voir [Automation-First Apps](/docs/pure-agent-apps) pour l'autre forme.
 
 Un modèle est un produit SaaS complet : UI, base de données, authentification et agent, déjà construits et connectés entre eux. Choisissez-en un, marquez-le, puis déployez-le comme votre propre produit plutôt que de partir d'un échafaudage vierge. Ce modèle est appelé SaaS clonable : vous partez d'un produit fini, et non d'un échafaudage.
 
@@ -35,12 +35,12 @@ Chaque app dispose de sa propre documentation couvrant son architecture, ses act
 
 ## Modèles communautaires {#community-templates}
 
-Les modèles nommés dans le sélecteur CLI sont **officiels** : Agent Native les
+Les modèles nommés dans le sélecteur CLI sont **officiels** : Agent-Native les
 maintient, les teste, les documente et les publie avec le framework. Un
 **modèle communautaire** est maintenu et versionné par le propriétaire de son
 dépôt. Il peut utiliser la même surface du framework, mais sa présence dans la
 liste communautaire ne constitue ni une recommandation ni une promesse de
-support de la part d'Agent Native.
+support de la part d'Agent-Native.
 
 Exécutez `create`, choisissez **Modèle communautaire**, puis collez l'URL simple
 d'un dépôt GitHub public :
@@ -49,7 +49,7 @@ d'un dépôt GitHub public :
 https://github.com/owner/repo
 ```
 
-Si la racine du dépôt contient une seule app Agent Native, la CLI l'installe
+Si la racine du dépôt contient une seule app Agent-Native, la CLI l'installe
 directement sans autre sélecteur. Si le dépôt est un espace de travail Agent
 Native, la CLI découvre les enfants directs valides de `apps/*`, exclut
 `dispatch` et demande quelle app installer.
@@ -142,7 +142,7 @@ publication.
 
 > **Examinez le code communautaire avant d'installer ses dépendances ou de
 > l'exécuter.** Les modèles communautaires sont téléchargés depuis des dépôts
-> tiers ; Agent Native ne les isole, ne les audite et ne les maintient pas.
+> tiers ; Agent-Native ne les isole, ne les audite et ne les maintient pas.
 > La CLI télécharge uniquement les sources ; elle n'installe aucune dépendance
 > et n'exécute aucun script du modèle. Vérifiez les sources, la licence, les
 > dépendances et les scripts d'installation des packages, et préférez une
@@ -291,7 +291,7 @@ Chaque app d'exemple est également disponible sous forme de produit hébergé s
 
 ## Essayez-le avec une compétence {#try-with-a-skill}
 
-Vous pouvez ajouter des capacités Agent Native à un agent de codage que vous utilisez déjà, sans créer d'échafaudage d'app. Voir le [Skills Guide](/docs/skills-guide#app-backed-skills).
+Vous pouvez ajouter des capacités Agent-Native à un agent de codage que vous utilisez déjà, sans créer d'échafaudage d'app. Voir le [Skills Guide](/docs/skills-guide#app-backed-skills).
 
 ## Construire sur cette base
 

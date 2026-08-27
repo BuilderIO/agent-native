@@ -112,7 +112,7 @@ The public URL is `/f/<slug>`, where the slug is generated from the title plus a
   server never checks.
 </Callout>
 
-**Branding.** Every standalone public form shows a small "Built with Agent Native" badge in the bottom corner. It isn't a per-form setting — it's hidden automatically only when the form is embedded inside another page, such as an embedded feedback popover, since that context already carries its host app's own branding.
+**Branding.** Every standalone public form shows a small "Built with Agent-Native" badge in the bottom corner. It isn't a per-form setting — it's hidden automatically only when the form is embedded inside another page, such as an embedded feedback popover, since that context already carries its host app's own branding.
 
 **Anonymous mode.** Set `anonymous: true` on a form's settings for genuine anonymity: submissions on that form skip capturing the request IP, the submitter's session or claimed email, the page URL, the client surface, and any chat/run ids — none of it is ever written, not just hidden later. This is different from an ordinary published form, which is publicly reachable but still records who and where a response came from when that information is available.
 
@@ -120,7 +120,7 @@ The public URL is `/f/<slug>`, where the slug is generated from the title plus a
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box;padding:40px 60px;gap:20px;position:relative'><div><h2 style='margin:0'>Customer feedback</h2><p class='wf-muted' style='margin:6px 0 0'>Tell us what is and isn't working.</p></div><div class='wf-card'><strong>Overall satisfaction</strong><span style='font-size:20px;letter-spacing:2px'>★★★★☆</span></div><div class='wf-card'><strong>What could be better?</strong><input value='Type your answer...'/></div><div class='wf-card' style='align-items:center;text-align:center;gap:6px'><span class='wf-pill'>Verify you're human</span><span class='wf-muted' style='font-size:12px'>Cloudflare Turnstile widget</span></div><button class='primary' style='align-self:flex-start'>Submit</button><span class='wf-pill' style='position:absolute;right:24px;bottom:20px'>Built with Agent Native</span></div>"
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box;padding:40px 60px;gap:20px;position:relative'><div><h2 style='margin:0'>Customer feedback</h2><p class='wf-muted' style='margin:6px 0 0'>Tell us what is and isn't working.</p></div><div class='wf-card'><strong>Overall satisfaction</strong><span style='font-size:20px;letter-spacing:2px'>★★★★☆</span></div><div class='wf-card'><strong>What could be better?</strong><input value='Type your answer...'/></div><div class='wf-card' style='align-items:center;text-align:center;gap:6px'><span class='wf-pill'>Verify you're human</span><span class='wf-muted' style='font-size:12px'>Cloudflare Turnstile widget</span></div><button class='primary' style='align-self:flex-start'>Submit</button><span class='wf-pill' style='position:absolute;right:24px;bottom:20px'>Built with Agent-Native</span></div>"
     }
   />
 </WireframeBlock>

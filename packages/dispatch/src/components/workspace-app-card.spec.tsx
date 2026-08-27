@@ -218,6 +218,47 @@ describe("WorkspaceAppCard", () => {
     }
   });
 
+  it("keeps mounted workspace apps inline outside Builder", async () => {
+    const originalTop = window.top;
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <TooltipProvider>
+              <WorkspaceAppCard
+                app={{
+                  id: "feedback-leaderboard",
+                  name: "Feedback leaderboard",
+                  path: "/feedback-leaderboard",
+                  url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+                  status: "ready",
+                }}
+              />
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+      });
+
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(".app-open-actions__primary")
+          ?.click(),
+      );
+      expect(topWindow.location.href).toBe("");
+    } finally {
+      Object.defineProperty(window, "top", {
+        configurable: true,
+        value: originalTop,
+      });
+    }
+  });
+
   it("opens Share from the app settings menu instead of the card actions", async () => {
     const animationFrameCallbacks: FrameRequestCallback[] = [];
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {

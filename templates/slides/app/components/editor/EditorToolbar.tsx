@@ -12,6 +12,7 @@ import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,
+  IconCircle,
   IconPlayerPlay,
   IconLayoutSidebar,
   IconPhoto,
@@ -23,7 +24,6 @@ import {
   IconMoon,
   IconDotsVertical,
   IconLoader2,
-  IconBolt,
   IconAdjustments,
   IconPencilPlus,
   IconPin,
@@ -31,6 +31,10 @@ import {
   IconCode,
   IconCopy,
   IconFileTypePdf,
+  IconPlus,
+  IconSquare,
+  IconTextSize,
+  IconTransitionRight,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -63,7 +67,10 @@ import {
   registerEditorCommands,
   type EditorCommand,
 } from "./editor-command-model";
-import { EditorActionCluster } from "./EditorActionCluster";
+import {
+  EditorActionCluster,
+  type SlideShapeType,
+} from "./EditorActionCluster";
 import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
@@ -100,9 +107,9 @@ interface EditorToolbarProps {
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
   currentUserEmail?: string;
-  /** Whether the animations panel is open */
+  /** Whether the selected-element transitions panel is open */
   animationsOpen?: boolean;
-  /** Toggle the animations panel */
+  /** Toggle the selected-element transitions panel */
   onToggleAnimations?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
@@ -120,9 +127,12 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
-  onChangeSlideTransition?: (
-    transition: NonNullable<Slide["transition"]>,
-  ) => void;
+  /** Active shape tool */
+  shapeType?: SlideShapeType | null;
+  /** Arm a shape tool for the next canvas click */
+  onSelectShape?: (shape: SlideShapeType) => void;
+  /** Update the current slide's entrance transition from the overflow menu. */
+  onChangeSlideTransition?: (transition: SlideTransition) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -142,6 +152,15 @@ interface EditorToolbarProps {
 
 const TOOLBAR_ICON_BUTTON_CLASS =
   "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
+
+type SlideTransition = NonNullable<Slide["transition"]>;
+
+const SLIDE_TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
+  { value: "instant", labelKey: "editorToolbar.transition_instant" },
+  { value: "fade", labelKey: "editorToolbar.transition_fade" },
+  { value: "slide", labelKey: "editorToolbar.transition_slide" },
+  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
+];
 
 export default function EditorToolbar({
   deck,
@@ -174,6 +193,8 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
+  shapeType,
+  onSelectShape,
   onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
@@ -242,6 +263,10 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
+  const activeSlideTransition: SlideTransition =
+    !currentSlide?.transition || currentSlide.transition === "none"
+      ? "instant"
+      : currentSlide.transition;
 
   useLayoutEffect(() => {
     const measuredWidth =
@@ -332,6 +357,51 @@ export default function EditorToolbar({
   const editorCommands = useMemo<EditorCommand[]>(() => {
     const commands: EditorCommand[] = [];
     if (canEdit) {
+      if (onAddEmptySlide) {
+        commands.push({
+          id: "new-slide",
+          group: "slideTools",
+          label: t("editorSidebar.newSlide"),
+          keywords: ["slide", "add", "insert", "new"],
+          icon: IconPlus,
+          run: () => {
+            if (!addSlideGenerating) onAddEmptySlide();
+          },
+        });
+      }
+      if (onToggleTextBoxMode) {
+        commands.push({
+          id: "add-text-box",
+          group: "slideTools",
+          label: t("editorToolbar.addTextBox"),
+          keywords: ["text", "box", "insert"],
+          icon: IconTextSize,
+          active: textBoxMode,
+          run: onToggleTextBoxMode,
+        });
+      }
+      if (currentSlide && onSelectShape) {
+        commands.push(
+          {
+            id: "shape-rectangle",
+            group: "slideTools",
+            label: t("editorToolbar.shapeRectangle"),
+            keywords: ["shape", "rectangle", "square", "insert"],
+            icon: IconSquare,
+            active: shapeType === "rectangle",
+            run: () => onSelectShape("rectangle"),
+          },
+          {
+            id: "shape-circle",
+            group: "slideTools",
+            label: t("editorToolbar.shapeCircle"),
+            keywords: ["shape", "circle", "ellipse", "insert"],
+            icon: IconCircle,
+            active: shapeType === "circle",
+            run: () => onSelectShape("circle"),
+          },
+        );
+      }
       commands.push(
         {
           id: "generate-image",
@@ -355,8 +425,8 @@ export default function EditorToolbar({
           id: "element-animations",
           group: "slideTools",
           label: t("editorToolbar.elementAnimations"),
-          keywords: ["animation", "motion"],
-          icon: IconBolt,
+          keywords: ["animation", "motion", "transition"],
+          icon: IconTransitionRight,
           active: animationsOpen,
           run: onToggleAnimations,
         });
@@ -394,6 +464,20 @@ export default function EditorToolbar({
         active: pinMode,
         run: onTogglePinMode,
       });
+    }
+
+    if (canEdit && currentSlide && onChangeSlideTransition) {
+      commands.push(
+        ...SLIDE_TRANSITIONS.map((transition) => ({
+          id: `slide-transition-${transition.value}`,
+          group: "slideTools" as const,
+          label: t(transition.labelKey),
+          keywords: ["slide", "transition", transition.value],
+          icon: IconTransitionRight,
+          active: activeSlideTransition === transition.value,
+          run: () => onChangeSlideTransition(transition.value),
+        })),
+      );
     }
     if (onToggleComments) {
       commands.push({
@@ -485,6 +569,8 @@ export default function EditorToolbar({
     );
     return commands;
   }, [
+    activeSlideTransition,
+    addSlideGenerating,
     animationsOpen,
     canComment,
     canEdit,
@@ -493,20 +579,26 @@ export default function EditorToolbar({
     drawMode,
     importing,
     isDark,
+    onAddEmptySlide,
     onDuplicateDeck,
     onExportGoogleSlides,
     onExportPdf,
     onGenerateImage,
     onOpenAssetLibrary,
     onShowHistory,
+    onSelectShape,
+    onChangeSlideTransition,
     onToggleAnimations,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
+    onToggleTextBoxMode,
     onToggleTweaks,
     pinMode,
     setTheme,
+    shapeType,
     t,
+    textBoxMode,
     tweaksOpen,
   ]);
   const editorCommandsRef = useRef<readonly EditorCommand[]>(editorCommands);
@@ -515,7 +607,7 @@ export default function EditorToolbar({
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
   return (
-    <div className="deck-editor-toolbar flex h-14 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
+    <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -558,9 +650,6 @@ export default function EditorToolbar({
           onToggleTextBoxMode={onToggleTextBoxMode}
           onAddEmptySlide={onAddEmptySlide}
           addSlideGenerating={addSlideGenerating}
-          currentSlideId={currentSlide?.id}
-          slideTransition={currentSlide?.transition}
-          onChangeSlideTransition={onChangeSlideTransition}
         />
       )}
 
@@ -608,18 +697,19 @@ export default function EditorToolbar({
         />
       )}
 
-      {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
-      <PresenceBar
-        activeUsers={activeUsers ?? []}
-        agentPresent={agentPresent}
-        agentActive={agentActive}
-        showAgentEditingDot={false}
-        currentUserEmail={currentUserEmail}
-        className="ml-auto flex-shrink-0 mr-0.5 pl-2"
-      />
+      {/* Top-right editor actions */}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
+        <PresenceBar
+          activeUsers={activeUsers ?? []}
+          agentPresent={agentPresent}
+          agentActive={agentActive}
+          showAgentEditingDot={false}
+          currentUserEmail={currentUserEmail}
+          className="flex-shrink-0 pl-2"
+        />
 
-      {/* Consolidated editor menu */}
-      <div className="ml-auto flex-shrink-0">
+        {/* Consolidated editor menu */}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -660,7 +750,7 @@ export default function EditorToolbar({
                           : undefined
                       }
                     >
-                      <IconBolt className="size-4" />
+                      <IconTransitionRight className="size-4" />
                       {t("editorToolbar.elementAnimations")}
                     </DropdownMenuItem>
                   )}
@@ -703,6 +793,30 @@ export default function EditorToolbar({
                       {t("editorToolbar.pinComments")}
                     </DropdownMenuItem>
                   )}
+                </DropdownMenuGroup>
+              </>
+            )}
+
+            {canEdit && currentSlide && onChangeSlideTransition && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>
+                  {t("editorToolbar.transition")}
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {SLIDE_TRANSITIONS.map((transition) => (
+                    <DropdownMenuItem
+                      key={transition.value}
+                      onSelect={() => onChangeSlideTransition(transition.value)}
+                      className={
+                        activeSlideTransition === transition.value
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      {t(transition.labelKey)}
+                    </DropdownMenuItem>
+                  ))}
                 </DropdownMenuGroup>
               </>
             )}

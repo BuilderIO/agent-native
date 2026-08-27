@@ -231,7 +231,7 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
-  it("wraps the existing Agent Native chat endpoint and normalizes SSE events", async () => {
+  it("wraps the existing Agent-Native chat endpoint and normalizes SSE events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
         {

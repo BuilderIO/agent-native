@@ -5,7 +5,9 @@ description: "Security model for agent-native apps: input validation, SQL inject
 
 # Security
 
-Agent-native apps are designed to be secure by default. The framework provides automatic protections at multiple layers — you get SQL-level data isolation, parameterized queries, input validation, and authentication out of the box.
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
+Agent-Native apps are designed to be secure by default. The framework provides automatic protections at multiple layers — you get SQL-level data isolation, parameterized queries, input validation, and authentication out of the box.
 
 ## What you get for free, and what you own {#what-you-own}
 
@@ -356,7 +358,7 @@ Inbound webhook handlers (Resend, SendGrid, Slack, Telegram, WhatsApp) refuse fo
 
 This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [Messaging](/docs/messaging#env-vars) for the per-integration signing-secret variables.
 
-Google Docs Pub/Sub push notifications don't go through that generic adapter gate — they're a separate code path that verifies an OIDC bearer token against `GOOGLE_DOCS_PUSH_AUDIENCE`. When that audience variable is unset in production, the endpoint fails closed with **503** (not 401); when it's set but the token doesn't verify, it returns 401.
+Google Drive `changes.watch` notifications don't go through that generic adapter gate — they're opaque requests with no body, so the framework registers a random per-channel token and verifies the `X-Goog-Channel-ID`, `X-Goog-Channel-Token`, and `X-Goog-Resource-ID` headers before pulling changes. These are direct Drive notifications, not Pub/Sub messages, and they do not carry Pub/Sub OIDC bearer tokens.
 
 ## Production Checklist {#production-checklist}
 

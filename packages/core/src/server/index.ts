@@ -562,6 +562,7 @@ export {
   // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
@@ -571,6 +572,7 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
 } from "./builder-api-auth.js";

@@ -19,7 +19,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- Clicking the Agent Native logo now toggles the app sidebar.
+- Clicking the Agent-Native logo now toggles the app sidebar.
 
 ## 2026-07-29
 

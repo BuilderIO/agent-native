@@ -432,6 +432,105 @@ const ptBR = {
     freeAndOpenSource: "100% grátis • código aberto",
     viewAllApps: "Ver todos os apps",
   },
+  homepage: {
+    hero: {
+      title: "O framework para aplicativos agentic",
+      bodyLine1:
+        "Construa para agentes de IA sem construir um segundo produto para os usuários.",
+      bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
+      tryAnApp: "Experimentar um app",
+    },
+    install: {
+      copyCommand: "Copiar comando de instalação",
+    },
+    actions: {
+      title: "Uma Action alimenta cada superfície",
+      bodyLine1: "Actions são os blocos de construção de um app Agent-Native.",
+      bodyLine2:
+        "Defina a funcionalidade uma vez e use-a a partir da sua UI, chat do agente, HTTP API, MCP, A2A ou CLI.",
+      diagramAlt:
+        "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
+    },
+    builtIn: {
+      title: "Integrado em cada app Agent-Native",
+      body: "Tudo o que usuários e agentes de IA precisam para trabalhar juntos, já conectado em uma aplicação.",
+      pillars: {
+        reactUi: {
+          title: "UI em React",
+          body: "Dê aos usuários telas familiares para navegar, editar e revisar trabalho.",
+        },
+        agentChat: {
+          title: "Chat de agente incorporado",
+          body: "Deixe os usuários delegarem trabalho, fazerem perguntas e revisarem resultados sem sair do app.",
+        },
+        sharedState: {
+          title: "Estado de aplicação compartilhado",
+          body: "O agente sabe o que os usuários estão vendo, selecionando e editando.",
+        },
+        sharedSql: {
+          title: "Dados SQL compartilhados",
+          body: "Usuários e agentes leem e atualizam a mesma fonte de verdade.",
+        },
+        skillsMemory: {
+          title: "Habilidades e memória",
+          body: "Dê aos agentes expertise reutilizável e contexto persistente.",
+        },
+        automations: {
+          title: "Automações",
+          body: "Execute trabalho do agente automaticamente por horários ou eventos da aplicação.",
+        },
+        agentTeams: {
+          title: "Equipes de agentes",
+          body: "Delegue trabalho a agentes especializados dentro do app ou entre apps.",
+        },
+        auth: {
+          title: "Autenticação e organizações",
+          body: "Login, contas de usuário e associação a organizações já vêm integrados.",
+        },
+        sharing: {
+          title: "Compartilhamento e permissões",
+          body: "Controle quem pode visualizar, comentar, editar ou gerenciar cada recurso.",
+        },
+      },
+    },
+    stack: {
+      title: "Funciona com sua stack",
+      body: "Traga seu LLM, banco de dados, ferramentas e infraestrutura; Agent-Native é TypeScript de código aberto, então sua aplicação continua sua.",
+      exploreApps: "Explore apps criados com Agent-Native",
+    },
+    showcase: {
+      title: "O que você pode construir com Agent-Native?",
+      body: "Comece com um chat, uma ferramenta interna focada, ou um produto completo voltado ao cliente. Cada app dá aos usuários uma UI e aos agentes as ferramentas para fazer o mesmo trabalho.",
+      browseApps: "Explorar apps",
+      scrollLeft: "Rolar apps para a esquerda",
+      scrollRight: "Rolar apps para a direita",
+    },
+    bottomCta: {
+      title: "Construa seu primeiro app Agent-Native",
+      body: "Crie uma aplicação para usuários e agentes de IA. Traga seu próprio LLM e implante em qualquer lugar.",
+    },
+    footer: {
+      tagline: "O framework para aplicativos agentic.",
+      framework: "Framework",
+      ecosystem: "Ecossistema",
+      community: "Comunidade",
+      legal: "Legal",
+      docs: "Documentação",
+      actions: "Actions",
+      apps: "Apps",
+      privacyPolicy: "Política de Privacidade",
+      saasTerms: "Termos de SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Não vai criar localmente?",
+      exploreApp: "Explore primeiro um app ao vivo",
+      between: "ou",
+      joinWaitlist: "entre na lista de espera",
+      end: "para criar no navegador.",
+    },
+  },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
     eyebrow: "Comece com uma app funcional e deixe o agente evoluí-la.",
@@ -458,7 +557,7 @@ const ptBR = {
       "Comece com o guia do framework ou crie online com o agente de programação em nuvem da Builder.io.",
     readDocs: "Ler a documentação",
     buildOnline: "Criar online",
-    popoverTitle: "Criar online com a Builder.io",
+    popoverTitle: "Criar no navegador",
     popoverBody:
       "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
     emailLabel: "Email",
@@ -1237,7 +1336,7 @@ const ptBR = {
           "O modo de planejamento é texto no seu terminal, visível para uma pessoa e perdido depois que você aprova. Plans é visual — com wireframes, diagramas e diffs anotados —, compartilhável e persistente: os agentes criam, leem e atualizam os planos durante todo o ciclo de vida do recurso.",
         question5: "Posso ver os planos ao lado do meu código?",
         answer5:
-          "Sim. A extensão do VS Code abre os planos em um painel lateral, e o Agent Native Desktop espelha os planos hospedados em arquivos MDX locais.",
+          "Sim. A extensão do VS Code abre os planos em um painel lateral, e o Agent-Native Desktop espelha os planos hospedados em arquivos MDX locais.",
         question6: "Plans é gratuito?",
         answer6:
           "Sim. É gratuito, de código aberto e licenciado sob MIT. Plans oferece links de compartilhamento hospedados, e você pode espelhar tudo em arquivos locais.",
@@ -1271,7 +1370,7 @@ const ptBR = {
       s026: "Links compartilháveis",
       s027: "Cada plano recebe um URL público. Compartilhe com colegas de equipe para revisão, comentários e aprovações assíncronas.",
       s028: "Sincronização de arquivos da área de trabalho",
-      s029: "Espelhe planos hospedados para arquivos MDX locais do Agent Native Desktop sem clonar o aplicativo ou executar um CLI.",
+      s029: "Espelhe planos hospedados para arquivos MDX locais do Agent-Native Desktop sem clonar o aplicativo ou executar um CLI.",
       s030: ", então a revisão fica ao lado do código.",
       s031: "Como funciona",
       s032: "O planejamento fica em um aplicativo compartilhado – você e o agente podem lê-lo e atualizá-lo durante todo o ciclo de vida de um recurso.",
@@ -1305,7 +1404,7 @@ const ptBR = {
       s060: "Ver todos os modelos",
       s061: "Envios para VS Code",
       s062: "Abra links de planos em um painel lateral do VS Code com a",
-      s063: "extensão Agent Native Plans",
+      s063: "extensão Agent-Native Plans",
       s064: "Wireframe — maquete de UI esboçada com slots de componentes",
       s065: "Código anotado — arquivo-fonte com notas por linha",
       s066: "Diagrama — fluxo, sequência ou arquitetura",
@@ -1524,9 +1623,9 @@ const ptBR = {
     },
   },
   downloadPage: {
-    title: "Baixar Agent Native",
+    title: "Baixar Agent-Native",
     body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
-    openDesktop: "Abrir Agent Native",
+    openDesktop: "Abrir Agent-Native",
     downloadInstaller: "Baixar instalador",
     downloadStarted: "Download iniciado",
     downloadAgain: "Não funcionou? Tente baixar novamente",

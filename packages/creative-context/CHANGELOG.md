@@ -1,5 +1,24 @@
 # @agent-native/creative-context
 
+## 0.7.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.12
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.10
 
 ### Patch Changes

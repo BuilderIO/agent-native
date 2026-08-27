@@ -33,6 +33,10 @@ import {
   recordAudit,
   resolveLinkedOwner,
 } from "./dispatch-store.js";
+import {
+  projectEnvironmentUrl,
+  requestEnvironmentLane,
+} from "./environment-lane.js";
 import { createRequest, listSecretOptions } from "./vault-store.js";
 import { WORKSPACE_APPS_ACTION_PATH } from "./workspace-app-action-auth.js";
 import {
@@ -460,13 +464,14 @@ function applyWorkspaceAppMetadataOverride(
 // code belongs here; changes to authorship, content trust, or sharing require
 // an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
-  const base =
+  const configuredBase =
     process.env.WORKSPACE_GATEWAY_URL ||
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL ||
     null;
+  const base = configuredBase ? projectEnvironmentUrl(configuredBase) : null;
   if (!base) return null;
   try {
     return new URL(appPath, `${base.replace(/\/$/, "")}/`).toString();
@@ -493,7 +498,7 @@ function workspaceAppLink(
   if (!urlValue) return workspaceAppUrl(appPath);
   if (urlValue.startsWith("/")) return workspaceAppUrl(urlValue) ?? urlValue;
   try {
-    return new URL(urlValue).toString();
+    return projectEnvironmentUrl(new URL(urlValue).toString());
   } catch {
     return urlValue;
   }
@@ -1461,8 +1466,9 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
 async function readWorkspaceAppsFromGateway(): Promise<
   WorkspaceAppSummary[] | null
 > {
-  const base = process.env.WORKSPACE_GATEWAY_URL;
-  if (!base) return null;
+  const configuredBase = process.env.WORKSPACE_GATEWAY_URL;
+  if (!configuredBase) return null;
+  const base = projectEnvironmentUrl(configuredBase);
 
   let baseUrl: URL;
   try {
@@ -1728,6 +1734,7 @@ async function applyArchivedAndPending(
       workspaceSso: isWorkspaceSsoAppUrl(withMetadata, {
         nodeEnv: process.env.NODE_ENV,
         registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+        environmentLane: requestEnvironmentLane(),
       }),
       ...(archivedSet.has(app.id) ? { archived: true } : {}),
     };
@@ -2439,7 +2446,7 @@ function buildWorkspaceAppPrompt(input: {
         ? `Dispatch will create workspace resource grants for the selected resources for appId "${appId}". After the app exists, sync workspace resources so the app receives both global and selected shared resources.`
         : "Do not grant any selected-only Dispatch workspace resources unless the user asks later.",
       "",
-      "Agent-native rules (these are the framework's contract — not optional):",
+      "Agent-Native rules (these are the framework's contract — not optional):",
       `- Persist ALL data in SQL via Drizzle. Add tables to apps/${appId}/server/db/schema.ts and migrations to apps/${appId}/server/plugins/db.ts. NEVER use localStorage, sessionStorage, IndexedDB, or in-memory state for anything the user expects to persist — agent and UI must read the same source of truth.`,
       `- Define every create/read/update/delete as an action in apps/${appId}/actions/ using defineAction. The agent calls these as tools and the frontend calls them via useActionQuery / useActionMutation. If you must raw-fetch framework action endpoints, use agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL. Don't add /api/* routes for CRUD.`,
       "- Build the UI from shadcn/ui components in app/components/ui/ (Button, Input, Dialog, Popover, Card, etc.) and Tailwind utilities. Don't author bespoke CSS classes in global.css unless you genuinely need a primitive that shadcn doesn't ship.",

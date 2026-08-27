@@ -32,14 +32,26 @@ describe("EditorToolbar layout contract", () => {
 
   it("pushes the top-right actions to the row edge when the style toolbar moves below", () => {
     expect(editorToolbarSource).toContain(
-      '<div className="ml-auto flex-shrink-0">',
+      '<div className="ml-auto flex shrink-0 items-center gap-1">',
     );
   });
 
-  it("right-aligns the AI presence indicator with the editor actions", () => {
-    expect(editorToolbarSource).toContain(
-      'className="ml-auto flex-shrink-0 mr-0.5 pl-2"',
+  it("keeps the AI presence indicator beside the top-right editor actions", () => {
+    const presenceIndex = editorToolbarSource.indexOf("<PresenceBar");
+    const actionClusterIndex = editorToolbarSource.indexOf(
+      '<div className="ml-auto flex shrink-0 items-center gap-1">',
     );
+    const menuIndex = editorToolbarSource.indexOf("<DropdownMenu>");
+    const shareIndex = editorToolbarSource.indexOf("{/* Framework share");
+
+    expect(presenceIndex).toBeGreaterThan(actionClusterIndex);
+    expect(presenceIndex).toBeLessThan(menuIndex);
+    expect(menuIndex).toBeLessThan(shareIndex);
+    expect(actionClusterIndex).toBeGreaterThan(-1);
+    expect(presenceIndex).toBeGreaterThan(-1);
+    expect(menuIndex).toBeGreaterThan(-1);
+    expect(shareIndex).toBeGreaterThan(-1);
+    expect(editorToolbarSource).toContain('className="flex-shrink-0 pl-2"');
   });
 
   it("lets the overflow menu use most of the viewport height", () => {

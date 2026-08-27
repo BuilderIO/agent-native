@@ -907,6 +907,8 @@ export function useActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    /** Override the default 60s fetch timeout for long-running actions. */
+    timeoutMs?: number;
   },
 ) {
   const queryClient = useQueryClient();
@@ -914,6 +916,7 @@ export function useActionMutation<
     method: methodOpt,
     onSuccess,
     skipActionQueryInvalidation = false,
+    timeoutMs,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -924,7 +927,9 @@ export function useActionMutation<
   return useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: (params) =>
-      actionFetch<D>(actionName, method, params as Record<string, any>),
+      actionFetch<D>(actionName, method, params as Record<string, any>, {
+        timeoutMs,
+      }),
     onSuccess: (...args: [any, any, any]) => {
       // Most mutations change app data broadly. High-volume background
       // mutations can opt out and perform narrower invalidation in onSuccess.

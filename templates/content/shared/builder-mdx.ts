@@ -90,6 +90,8 @@ type MdxNode = {
   type: string;
   name?: string;
   value?: string;
+  depth?: number;
+  ordered?: boolean | null;
   children?: MdxNode[];
   attributes?: Array<{
     type: string;
@@ -146,6 +148,70 @@ export function stableHash(value: unknown): string {
 
 export function stableJson(value: unknown): string {
   return `${JSON.stringify(sortJson(value), null, 2)}\n`;
+}
+
+function hasAmbiguousSemanticUnitIdentity(
+  baselineUnits: Array<{
+    kind: string;
+    markdown: string;
+    segmentIndex: number;
+    segmentKind: ReadableEditableSegment["kind"];
+  }>,
+  currentNodes: Array<{ kind: string; markdown: string }>,
+): boolean {
+  const currentUnits = currentNodes.filter(
+    (unit) => !isReadableUnsupportedBuilderPlaceholder(unit.markdown),
+  );
+  const baselineIndexes = new Map<string, number[]>();
+  const currentIndexes = new Map<string, number[]>();
+  for (const [index, unit] of baselineUnits.entries()) {
+    const key = `${unit.kind}\n${unit.markdown}`;
+    baselineIndexes.set(key, [...(baselineIndexes.get(key) ?? []), index]);
+  }
+  for (const [index, unit] of currentUnits.entries()) {
+    const key = `${unit.kind}\n${unit.markdown}`;
+    currentIndexes.set(key, [...(currentIndexes.get(key) ?? []), index]);
+  }
+
+  for (const [key, indexes] of baselineIndexes) {
+    const nextIndexes = currentIndexes.get(key);
+    if (
+      indexes.length === 1 &&
+      nextIndexes?.length === 1 &&
+      indexes[0] !== nextIndexes[0]
+    ) {
+      return true;
+    }
+  }
+
+  let editableIndex = 0;
+  let previousKind: string | undefined;
+  let previousSegmentKind: ReadableEditableSegment["kind"] | undefined;
+  let changedSegments = new Set<number>();
+  for (const current of currentNodes) {
+    if (isReadableUnsupportedBuilderPlaceholder(current.markdown)) {
+      previousKind = undefined;
+      previousSegmentKind = undefined;
+      changedSegments = new Set<number>();
+      continue;
+    }
+    const baseline = baselineUnits[editableIndex];
+    editableIndex += 1;
+    if (!baseline || baseline.kind !== current.kind) return true;
+    if (
+      previousKind !== current.kind ||
+      previousSegmentKind !== baseline.segmentKind
+    ) {
+      changedSegments = new Set<number>();
+    }
+    if (baseline.markdown !== current.markdown) {
+      changedSegments.add(baseline.segmentIndex);
+    }
+    if (changedSegments.size > 1) return true;
+    previousKind = current.kind;
+    previousSegmentKind = baseline.segmentKind;
+  }
+  return false;
 }
 
 function sortJson(value: unknown): unknown {
@@ -489,9 +555,10 @@ function isReadableUnsupportedBuilderPlaceholder(value: string) {
   );
 }
 
-function countReadableSourceComponentMarkers(markdown: string) {
-  return markdownUnits(markdown).filter(isReadableUnsupportedBuilderPlaceholder)
-    .length;
+async function countReadableSourceComponentMarkers(markdown: string) {
+  return (await readableSemanticUnits(markdown)).filter(
+    isReadableUnsupportedBuilderPlaceholder,
+  ).length;
 }
 
 function sourceComponentMarkerIdForBlock(block: unknown) {
@@ -544,20 +611,21 @@ function parseMarkdownImage(markdown: string) {
 }
 
 async function readableLayoutFingerprint(markdown: string) {
-  const units = markdownUnits(markdown);
   const fingerprint: string[] = [];
-  for (const unit of units) {
-    if (/^>\s*Builder .+ component preserved from source\.$/.test(unit)) {
+  for (const unit of await readableSemanticNodes(markdown)) {
+    if (
+      /^>\s*Builder .+ component preserved from source\.$/.test(unit.markdown)
+    ) {
       fingerprint.push("source:legacy");
       continue;
     }
-    if (/^<SourceComponent\b/.test(unit.trim())) {
-      const parsed = await parseRegistryBlockData(unit);
+    if (/^<SourceComponent\b/.test(unit.markdown.trim())) {
+      const parsed = await parseRegistryBlockData(unit.markdown);
       const id = parsed?.base.id || "missing-id";
       fingerprint.push(`source:${id}`);
       continue;
     }
-    fingerprint.push("prose");
+    fingerprint.push(readableSemanticNodeKind(unit.node));
   }
   return fingerprint;
 }
@@ -571,26 +639,34 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
     if (name === "Text") {
       const table = possibleNativeTableHtml(String(options.text ?? ""));
       if (table) {
-        fingerprint.push("prose");
+        fingerprint.push(...(await readableLayoutFingerprint(table)));
         continue;
       }
-      for (const unit of markdownUnits(
-        htmlToMarkdown(String(options.text ?? "")),
-      )) {
-        if (unit) fingerprint.push("prose");
-      }
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(
+          htmlToMarkdown(String(options.text ?? "")),
+        )),
+      );
       continue;
     }
     if (name === "Code Block" || name === "Blog Code Block") {
-      if (readableCodeBlockMarkdown(options).trim()) fingerprint.push("prose");
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(
+          readableCodeBlockMarkdown(options),
+        )),
+      );
       continue;
     }
     if (name === "Image") {
-      if (builderImageMarkdown(options)) fingerprint.push("prose");
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(builderImageMarkdown(options))),
+      );
       continue;
     }
     if (name === "Video") {
-      if (builderVideoMdx(options)) fingerprint.push("prose");
+      fingerprint.push(
+        ...(await readableLayoutFingerprint(builderVideoMdx(options))),
+      );
       continue;
     }
     if (name === "Tabbed Content") {
@@ -599,7 +675,11 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
         const content =
           isRecord(tab) && Array.isArray(tab.content) ? tab.content : [];
         if (content.some(builderBlockHasReadableOutput)) {
-          fingerprint.push("prose");
+          const label =
+            isRecord(tab) && typeof tab.label === "string" ? tab.label : "Tab";
+          fingerprint.push(
+            ...(await readableLayoutFingerprint(`### ${label}`)),
+          );
           fingerprint.push(
             ...(await expectedReadableLayoutFingerprint(content)),
           );
@@ -622,7 +702,7 @@ async function validateReadableSourceComponentMarkers(
   sidecars: Record<string, string>,
 ) {
   const warnings: string[] = [];
-  const markers = markdownUnits(markdown).filter((unit) =>
+  const markers = (await readableSemanticUnits(markdown)).filter((unit) =>
     /^<SourceComponent\b/.test(unit.trim()),
   );
   for (const marker of markers) {
@@ -1322,37 +1402,40 @@ async function builderBlockToReadableMdx(
   return serializeRegistryBlockToMdx("source-component", { id, data });
 }
 
-function markdownUnits(markdown: string) {
-  const units: string[] = [];
-  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  let current: string[] = [];
-  let fence: string | null = null;
-  const flush = () => {
-    const value = current.join("\n").trim();
-    if (value) units.push(value);
-    current = [];
-  };
+async function readableSemanticUnits(markdown: string) {
+  return (await readableSemanticNodes(markdown)).map((unit) => unit.markdown);
+}
 
-  for (const line of lines) {
-    const fenceMatch = line.match(/^(```|~~~)/);
-    if (fenceMatch) {
-      current.push(line);
-      fence = fence ? null : fenceMatch[1];
-      if (!fence) flush();
-      continue;
-    }
-    if (fence) {
-      current.push(line);
-      continue;
-    }
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-    current.push(line);
+class ReadableSemanticParseError extends Error {}
+
+async function readableSemanticNodes(markdown: string) {
+  const normalized = markdown.replace(/\r\n?/g, "\n");
+  let root: MdxNode;
+  try {
+    root = await parseMdxRoot(normalized);
+  } catch (error) {
+    throw new ReadableSemanticParseError(
+      error instanceof Error ? error.message : String(error),
+    );
   }
-  flush();
-  return units;
+  return (root.children ?? [])
+    .map((node) => ({
+      node,
+      kind: readableSemanticNodeKind(node),
+      markdown: nodeSlice(normalized, node),
+    }))
+    .filter((unit) => unit.markdown);
+}
+
+function readableSemanticNodeKind(node: MdxNode) {
+  if (node.type === "heading") return `heading:${node.depth ?? "unknown"}`;
+  if (node.type === "list") {
+    return node.ordered ? "list:ordered" : "list:unordered";
+  }
+  if (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") {
+    return `mdx:${node.name || "unknown"}`;
+  }
+  return node.type;
 }
 
 function fencedCodeFromMarkdown(markdown: string) {
@@ -1506,7 +1589,7 @@ function countExpectedReadableSourceComponentMarkers(
   return count;
 }
 
-export async function builderReadableBodyToBuilderBlocks(args: {
+async function mergeReadableBodyToBuilderBlocks(args: {
   localContent: string;
   losslessContent: string;
   sidecars: Record<string, string>;
@@ -1518,7 +1601,7 @@ export async function builderReadableBodyToBuilderBlocks(args: {
   const segments = collectReadableEditableSegments(baselineBlocks);
   const expectedSourceMarkerCount =
     countExpectedReadableSourceComponentMarkers(baselineBlocks);
-  const currentSourceMarkerCount = countReadableSourceComponentMarkers(
+  const currentSourceMarkerCount = await countReadableSourceComponentMarkers(
     args.localContent,
   );
   if (expectedSourceMarkerCount !== currentSourceMarkerCount) {
@@ -1555,11 +1638,22 @@ export async function builderReadableBodyToBuilderBlocks(args: {
     return { blocks: baselineBlocks, warnings: [] };
   }
 
-  const baselineUnitCounts = segments.map(
-    (segment) => markdownUnits(segment.baseline).length,
+  const baselineUnitsBySegment = await Promise.all(
+    segments.map(async (segment, segmentIndex) =>
+      (await readableSemanticNodes(segment.baseline)).map((unit) => ({
+        ...unit,
+        segmentIndex,
+        segmentKind: segment.kind,
+      })),
+    ),
   );
-  const currentUnits = markdownUnits(args.localContent).filter(
-    (unit) => !isReadableUnsupportedBuilderPlaceholder(unit),
+  const baselineUnitCounts = baselineUnitsBySegment.map(
+    (units) => units.length,
+  );
+  const baselineUnits = baselineUnitsBySegment.flat();
+  const currentNodes = await readableSemanticNodes(args.localContent);
+  const currentUnits = currentNodes.filter(
+    (unit) => !isReadableUnsupportedBuilderPlaceholder(unit.markdown),
   );
   const expectedUnitCount = baselineUnitCounts.reduce(
     (sum, count) => sum + count,
@@ -1573,6 +1667,14 @@ export async function builderReadableBodyToBuilderBlocks(args: {
       ],
     };
   }
+  if (hasAmbiguousSemanticUnitIdentity(baselineUnits, currentNodes)) {
+    return {
+      blocks: null,
+      warnings: [
+        "Readable Builder body moved existing semantic blocks; refresh or review in Builder before pushing.",
+      ],
+    };
+  }
 
   let offset = 0;
   for (let index = 0; index < segments.length; index += 1) {
@@ -1580,6 +1682,7 @@ export async function builderReadableBodyToBuilderBlocks(args: {
     const count = baselineUnitCounts[index];
     const nextMarkdown = currentUnits
       .slice(offset, offset + count)
+      .map((unit) => unit.markdown)
       .join("\n\n");
     offset += count;
     if (segment.kind === "tab-label") {
@@ -1647,6 +1750,24 @@ export async function builderReadableBodyToBuilderBlocks(args: {
   }
 
   return { blocks: baselineBlocks, warnings: [] };
+}
+
+export async function builderReadableBodyToBuilderBlocks(args: {
+  localContent: string;
+  losslessContent: string;
+  sidecars: Record<string, string>;
+}): Promise<BuilderReadableBodyMergeResult> {
+  try {
+    return await mergeReadableBodyToBuilderBlocks(args);
+  } catch (error) {
+    if (!(error instanceof ReadableSemanticParseError)) throw error;
+    return {
+      blocks: null,
+      warnings: [
+        "Readable Builder body contains text that cannot be parsed safely as MDX; review in Builder before pushing.",
+      ],
+    };
+  }
 }
 
 export async function builderEntryToMdxBundle(

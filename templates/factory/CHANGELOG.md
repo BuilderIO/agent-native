@@ -3,6 +3,34 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-24
+
+### Added
+
+- You can permanently delete a user-created Factory from Settings after typing its name.
+
+### Improved
+
+- Workspace teammates can edit and run Factory jobs, not only the person who created them.
+
+### Fixed
+
+- Slack checking now works for factories created by someone other than the deploy owner.
+- Slack polling now recognizes the Agent-Native bot when Slack reports its handle as @agentnative.
+
+## 2026-08-21
+
+### Improved
+
+- Activity run history labels each run with the automation's display name instead of its full resource path.
+- Create Factory and Settings now share the same labeled source cards, Enable polling toggles, and uncrowded scheduler health rows.
+- Factory settings now show a sticky Save and Discard bar at the top as soon as a field changes, instead of a save button buried below the page.
+
+### Fixed
+
+- Automations remain visible while running, with live status updates in Automations and Activity.
+- Factory Slack, GitHub, and Sentry automations now run for nested factories instead of failing before they can poll.
+
 ## 2026-08-11
 
 ### Fixed
@@ -51,7 +79,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- Clicking the Agent Native logo now toggles the app sidebar.
+- Clicking the Agent-Native logo now toggles the app sidebar.
 
 ## 2026-07-29
 

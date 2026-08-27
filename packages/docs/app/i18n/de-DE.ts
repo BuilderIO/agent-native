@@ -279,7 +279,7 @@ const deDE = {
     },
     comparison: {
       titleLine1: "Wählen Sie nicht zwischen Apps und Agents.",
-      titleAccent: "Agent-native apps sind beides.",
+      titleAccent: "Agent-Native apps sind beides.",
       columns: {
         saas: "SaaS-Tools",
         agents: "Rohe AI-Agenten",
@@ -434,8 +434,107 @@ const deDE = {
     freeAndOpenSource: "100 % kostenlos • Open Source",
     viewAllApps: "Alle Apps anzeigen",
   },
+  homepage: {
+    hero: {
+      title: "Das Framework für agentische Anwendungen",
+      bodyLine1:
+        "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
+      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
+      tryAnApp: "App ausprobieren",
+    },
+    install: {
+      copyCommand: "Installationsbefehl kopieren",
+    },
+    actions: {
+      title: "Eine Action treibt jede Oberfläche an",
+      bodyLine1: "Actions sind die Bausteine einer Agent-Native App.",
+      bodyLine2:
+        "Definiere Funktionalität einmal und nutze sie dann aus deiner UI, dem Agent-Chat, HTTP API, MCP, A2A oder CLI.",
+      diagramAlt:
+        "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
+    },
+    builtIn: {
+      title: "In jede Agent-Native App integriert",
+      body: "Alles, was Nutzer und KI-Agenten brauchen, um zusammenzuarbeiten, bereits in einer Anwendung verdrahtet.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "Gib Nutzern vertraute Bildschirme zum Durchsuchen, Bearbeiten und Prüfen von Arbeit.",
+        },
+        agentChat: {
+          title: "Eingebetteter Agent-Chat",
+          body: "Lass Nutzer Arbeit delegieren, Fragen stellen und Ergebnisse prüfen, ohne die App zu verlassen.",
+        },
+        sharedState: {
+          title: "Geteilter Anwendungsstatus",
+          body: "Der Agent weiß, was Nutzer ansehen, auswählen und bearbeiten.",
+        },
+        sharedSql: {
+          title: "Geteilte SQL-Daten",
+          body: "Nutzer und Agenten lesen und aktualisieren dieselbe Quelle der Wahrheit.",
+        },
+        skillsMemory: {
+          title: "Skills und Gedächtnis",
+          body: "Gib Agenten wiederverwendbares Fachwissen und dauerhaften Kontext.",
+        },
+        automations: {
+          title: "Automatisierungen",
+          body: "Führe Agentenarbeit automatisch nach Zeitplänen oder Anwendungsereignissen aus.",
+        },
+        agentTeams: {
+          title: "Agententeams",
+          body: "Delegiere Arbeit an spezialisierte Agenten innerhalb der App oder über Apps hinweg.",
+        },
+        auth: {
+          title: "Authentifizierung und Organisationen",
+          body: "Anmeldung, Benutzerkonten und Organisationsmitgliedschaft sind eingebaut.",
+        },
+        sharing: {
+          title: "Teilen und Berechtigungen",
+          body: "Kontrolliere, wer jede Ressource ansehen, kommentieren, bearbeiten oder verwalten darf.",
+        },
+      },
+    },
+    stack: {
+      title: "Funktioniert mit deinem Stack",
+      body: "Bring dein LLM, deine Datenbank, Tools und Infrastruktur mit – Agent-Native ist quelloffenes TypeScript, sodass deine Anwendung dir gehört.",
+      exploreApps: "Mit Agent-Native gebaute Apps entdecken",
+    },
+    showcase: {
+      title: "Was kannst du mit Agent-Native bauen?",
+      body: "Starte mit einem Chat, einem fokussierten internen Tool oder einem vollständigen kundenorientierten Produkt. Jede App gibt Nutzern eine UI und Agenten die Werkzeuge für dieselbe Arbeit.",
+      browseApps: "Apps durchsuchen",
+      scrollLeft: "Apps nach links scrollen",
+      scrollRight: "Apps nach rechts scrollen",
+    },
+    bottomCta: {
+      title: "Baue deine erste Agent-Native App",
+      body: "Erstelle eine Anwendung für Nutzer und KI-Agenten. Bring dein eigenes LLM mit und deploye überall.",
+    },
+    footer: {
+      tagline: "Das Framework für agentische Anwendungen.",
+      framework: "Framework",
+      ecosystem: "Ökosystem",
+      community: "Community",
+      legal: "Rechtliches",
+      docs: "Docs",
+      actions: "Actions",
+      apps: "Apps",
+      privacyPolicy: "Datenschutzerklärung",
+      saasTerms: "SaaS-Bedingungen",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Sie möchten nicht lokal entwickeln?",
+      exploreApp: "Erkunden Sie zuerst eine Live-App",
+      between: "oder",
+      joinWaitlist: "tragen Sie sich in die Warteliste ein",
+      end: "um stattdessen im Browser zu entwickeln.",
+    },
+  },
   templatesPage: {
-    title: "Open-Source-Agent-native Apps, die Sie besitzen",
+    title: "Open-Source-Agent-Native Apps, die Sie besitzen",
     eyebrow:
       "Starte mit einer funktionierenden App und lass sie vom Agenten weiterentwickeln.",
     body: "Du kannst alles anpassen.",
@@ -461,7 +560,7 @@ const deDE = {
       "Starte mit dem Framework-Leitfaden oder baue online mit dem Cloud-Coding-Agenten von Builder.io.",
     readDocs: "Dokumentation lesen",
     buildOnline: "Online bauen",
-    popoverTitle: "Online mit Builder.io bauen",
+    popoverTitle: "Im Browser entwickeln",
     popoverBody:
       "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
     emailLabel: "E-Mail",
@@ -502,7 +601,7 @@ const deDE = {
     design: {
       replaces: "Ersetzt oder erweitert Design-Prototyping-Tools",
       description:
-        "Agent-native HTML-Prototyping-Studio. Erzeuge interaktive Alpine/Tailwind-Designs, vergleiche Varianten, verfeinere Live-Kontrollen und exportiere das Ergebnis.",
+        "Agent-Native HTML-Prototyping-Studio. Erzeuge interaktive Alpine/Tailwind-Designs, vergleiche Varianten, verfeinere Live-Kontrollen und exportiere das Ergebnis.",
     },
     content: {
       replaces: "Ersetzt oder erweitert Obsidian für MDX, Notion, Google Docs",
@@ -527,7 +626,7 @@ const deDE = {
     forms: {
       replaces: "Ersetzt oder erweitert Typeform, Google Forms",
       description:
-        "Agent-nativer Formularersteller. Generieren Sie Formulare aus einer Eingabeaufforderung, bearbeiten Sie Felder visuell oder im Dialog und senden Sie Übermittlungen an Slack, Discord, Google Sheets oder Webhooks.",
+        "Agent-Nativer Formularersteller. Generieren Sie Formulare aus einer Eingabeaufforderung, bearbeiten Sie Felder visuell oder im Dialog und senden Sie Übermittlungen an Slack, Discord, Google Sheets oder Webhooks.",
     },
     assets: {
       replaces:
@@ -1020,7 +1119,7 @@ const deDE = {
       s008: "Sprechen Sie mit Ihrem Agenten über Slack, Telegram oder einen beliebigen Messenger und er wird an Ihre anderen Apps weitergeleitet. Jobs, Speicher, Genehmigungen und A2A-Delegierung – alles an einem Ort.",
       s009: "Ausprobieren",
       s010: "Was Sie tun können",
-      s011: "Dispatch ist die dem Messenger zugewandte Eingangstür für Ihren gesamten Agent-native-Stack.",
+      s011: "Dispatch ist die dem Messenger zugewandte Eingangstür für Ihren gesamten Agent-Native-Stack.",
       s012: "Bidirektionale Nachrichtenübermittlung mit Thread-Kontext, Block Kit-Antworten und Inline-Genehmigungen. Sprechen Sie von überall.",
       s013: "Dispatch leitet Arbeit über das A2A-Protokoll an Ihre anderen agentennativen Apps weiter. Mail, Folien, Design – alles über einen Chat erreichbar.",
       s014: "Wiederkehrende Jobs",
@@ -1241,7 +1340,7 @@ const deDE = {
           "Der Planmodus ist Text in Ihrem Terminal, für eine Person sichtbar und nach der Freigabe verschwunden. Plans sind visuell — Wireframes, Diagramme, annotierte Diffs —, teilbar und dauerhaft: Agents erstellen, lesen und aktualisieren sie über den gesamten Lebenszyklus eines Features.",
         question5: "Kann ich Pläne neben meinem Code sehen?",
         answer5:
-          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
+          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent-Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
         question6: "Ist Plans kostenlos?",
         answer6:
           "Ja. Kostenlos, Open Source und MIT-lizenziert. Plans bietet gehostete Freigabelinks, und Sie können alles in lokale Dateien spiegeln.",
@@ -1275,7 +1374,7 @@ const deDE = {
       s026: "Gemeinsam nutzbare Links",
       s027: "Jeder Plan erhält eine öffentliche URL. Teilen Sie sie mit Teamkollegen für asynchrone Überprüfungen, Kommentare und Genehmigungen.",
       s028: "Desktop-Dateisynchronisierung",
-      s029: "Spiegeln Sie gehostete Pläne in lokale MDX-Dateien von Agent Native Desktop, ohne die App zu klonen oder ein CLI auszuführen.",
+      s029: "Spiegeln Sie gehostete Pläne in lokale MDX-Dateien von Agent-Native Desktop, ohne die App zu klonen oder ein CLI auszuführen.",
       s030: "Daher bleibt die Überprüfung neben dem Code.",
       s031: "Wie es funktioniert",
       s032: "Planen Sie Leben in einer gemeinsamen App – sowohl Sie als auch der Agent können sie während des gesamten Lebenszyklus einer Funktion lesen und aktualisieren.",
@@ -1309,7 +1408,7 @@ const deDE = {
       s060: "Alle Vorlagen anzeigen",
       s061: "VS Code-Übergaben",
       s062: "Öffnen Sie Plan-Links in einem VS Code-Seitenbereich mit der",
-      s063: "Agent Native Plans-Erweiterung",
+      s063: "Agent-Native Plans-Erweiterung",
       s064: "Wireframe — skizzenhaftes UI-Modell mit Komponentenplätzen",
       s065: "Kommentierter Code — Quelldatei mit zeilenweisen Notizen",
       s066: "Diagramm — Ablauf, Sequenz oder Architektur",
@@ -1532,9 +1631,9 @@ const deDE = {
     },
   },
   downloadPage: {
-    title: "Agent Native herunterladen",
+    title: "Agent-Native herunterladen",
     body: "Alle agent-native Apps in einer Desktop-Shell. Produktions-Apps sind integriert, mit Dev-Modus für lokale Entwicklung.",
-    openDesktop: "Agent Native öffnen",
+    openDesktop: "Agent-Native öffnen",
     downloadInstaller: "Installer herunterladen",
     downloadStarted: "Download gestartet",
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",

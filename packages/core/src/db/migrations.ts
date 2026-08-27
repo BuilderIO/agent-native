@@ -246,6 +246,11 @@ export interface MigrationEntry {
   version: number;
   sql: MigrationSql;
   /**
+   * SQL was generated for a specific dialect and must not be rewritten by the
+   * portable handwritten-migration adapter or advance the legacy version gate.
+   */
+  dialectSpecific?: boolean;
+  /**
    * Stable, unique slug for this migration (e.g. `"analytics-alert-rules-table"`).
    * When present, this migration is tracked by NAME instead of by version
    * number — see the `runMigrations` doc comment for the full rationale and
@@ -265,6 +270,16 @@ export interface MigrationEntry {
    */
   run?: () => Promise<MigrationRunResult>;
 }
+
+/**
+ * A static migration list or a lazy loader for migration entries.
+ *
+ * Lazy sources are resolved only after the serverless request guard passes, so
+ * release-only migration files do not become request-path work.
+ */
+export type MigrationSource =
+  | Array<MigrationEntry>
+  | (() => Array<MigrationEntry> | Promise<Array<MigrationEntry>>);
 
 function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
   if (typeof sql === "string") return sql;
@@ -311,13 +326,13 @@ function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
  *   unnamed migrations.
  * - Named migrations still execute in list order, interleaved with unnamed
  *   ones exactly as written.
- * - When a named migration's DDL runs, we record BOTH the named row (always)
- *   and — if its `version` is greater than the current legacy max — the
- *   legacy version row too, in the SAME atomic batch/transaction as the DDL.
- *   This keeps the legacy `MAX(version)` gate monotonically advancing for
- *   any unnamed migrations that come after it in the list, while ensuring a
- *   named migration is never "double recorded" in a way that would let it
- *   re-apply.
+ * - When a named migration's DDL runs, we record the named row (always) and,
+ *   unless it is dialect-specific, the legacy version row too when its
+ *   `version` is greater than the current legacy max. The rows land in the
+ *   SAME atomic batch/transaction as the DDL. This keeps the legacy
+ *   `MAX(version)` gate monotonically advancing for handwritten migrations
+ *   while generated dialect-specific entries stay in their name-only
+ *   namespace.
  * - A duplicate `name` across the migration list throws at startup — that's
  *   a programmer error (copy-paste or merge mistake), not a runtime data
  *   problem, and failing loud beats silently tracking the wrong row.
@@ -373,8 +388,25 @@ function appMigratesAtRelease(): boolean {
  */
 export { withMigrationRuntime } from "./migration-runtime.js";
 
-export function runMigrations(
+function validateMigrationNames(
   migrations: Array<MigrationEntry>,
+  table: string,
+): void {
+  const seenNames = new Set<string>();
+  for (const m of migrations) {
+    if (!m.name) continue;
+    if (seenNames.has(m.name)) {
+      throw new Error(
+        `runMigrations: duplicate migration name "${m.name}" in the migration list for table "${table}". ` +
+          "Migration names must be unique - pick a different stable slug.",
+      );
+    }
+    seenNames.add(m.name);
+  }
+}
+
+export function runMigrations(
+  migrationSource: MigrationSource,
   options: RunMigrationsOptions,
 ): NitroPluginDef {
   const table = options?.table;
@@ -391,25 +423,18 @@ export function runMigrations(
   }
 
   // Duplicate-name detection — programmer error, fail loud at startup rather
-  // than silently tracking the wrong migration's applied state.
-  {
-    const seenNames = new Set<string>();
-    for (const m of migrations) {
-      if (!m.name) continue;
-      if (seenNames.has(m.name)) {
-        throw new Error(
-          `runMigrations: duplicate migration name "${m.name}" in the migration list for table "${table}". ` +
-            "Migration names must be unique — pick a different stable slug.",
-        );
-      }
-      seenNames.add(m.name);
-    }
+  // than silently tracking the wrong migration's applied state. Lazy sources
+  // are validated after the request guard, when their entries are available.
+  if (Array.isArray(migrationSource)) {
+    validateMigrationNames(migrationSource, table);
   }
 
   // A plugin with no migrations is intentionally a no-op. Creating or reading
   // a bookkeeping table here turns an empty app plugin into a database cold
   // start on every serverless boot.
-  if (migrations.length === 0) return async () => {};
+  if (Array.isArray(migrationSource) && migrationSource.length === 0) {
+    return async () => {};
+  }
 
   const namedTable = `${table}_named`;
 
@@ -440,6 +465,20 @@ export function runMigrations(
       return;
     }
     try {
+      const migrations =
+        typeof migrationSource === "function"
+          ? await migrationSource()
+          : migrationSource;
+      if (!Array.isArray(migrations)) {
+        throw new Error(
+          "runMigrations: a lazy migration source must return an array of migration entries",
+        );
+      }
+      if (typeof migrationSource === "function") {
+        validateMigrationNames(migrations, table);
+      }
+      if (migrations.length === 0) return;
+
       // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
       const d1 =
         getDialect() === "d1"
@@ -483,6 +522,8 @@ export function runMigrations(
               );
               continue;
             }
+            const advancesLegacyVersion =
+              !m.dialectSpecific && m.version > current;
             const recordStatements = [
               m.name
                 ? d1
@@ -491,7 +532,7 @@ export function runMigrations(
                     )
                     .bind(m.name, m.version)
                 : null,
-              m.version > current
+              advancesLegacyVersion
                 ? d1
                     .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
                     .bind(m.version)
@@ -499,6 +540,12 @@ export function runMigrations(
             ].filter((s): s is NonNullable<typeof s> => s != null);
 
             if (raw == null) {
+              if (m.dialectSpecific) {
+                console.info(
+                  `[db] Skipping dialect-specific migration ${m.name ? `"${m.name}" ` : ""}v${m.version} on D1; generate a SQLite-compatible entry for this runtime`,
+                );
+                continue;
+              }
               // Dialect-gated migration with no SQL for this dialect; still
               // record it so we don't retry forever. Keep the name + legacy
               // version rows atomic: if an isolate is interrupted between
@@ -723,11 +770,12 @@ export function runMigrations(
             ? `"${m.name}" (v${m.version})`
             : `v${m.version}`;
 
-          // Record BOTH the named row (always, when named) and the legacy
-          // version row (only if this migration actually advances the legacy
-          // MAX) — atomically with the DDL below. This keeps the legacy gate
-          // monotonic for any unnamed migrations later in the list, while a
-          // named migration is tracked by name regardless of version.
+          // Record the named row (always, when named) and the legacy version
+          // row only for migrations that advance the legacy MAX. Generated
+          // dialect-specific entries stay in their name-only namespace so
+          // they cannot suppress later handwritten migrations.
+          const advancesLegacyVersion =
+            !m.dialectSpecific && m.version > current;
           const recordSql: Array<{ sql: string; args: unknown[] }> = [];
           if (m.name) {
             recordSql.push({
@@ -735,7 +783,7 @@ export function runMigrations(
               args: [m.name, m.version],
             });
           }
-          if (m.version > current) {
+          if (advancesLegacyVersion) {
             recordSql.push({ sql: insertVersionSql, args: [m.version] });
           }
 
@@ -751,10 +799,16 @@ export function runMigrations(
           }
 
           if (raw == null) {
+            if (m.dialectSpecific) {
+              console.info(
+                `[db] Skipping dialect-specific migration ${label} on SQLite; generate a SQLite-compatible entry for this runtime`,
+              );
+              continue;
+            }
             // Dialect-gated migration with no SQL for this dialect; still mark
             // as applied so we don't retry forever.
             for (const stmt of recordSql) await exec.execute(stmt);
-            if (m.version > current) current = m.version;
+            if (advancesLegacyVersion) current = m.version;
             if (m.name) appliedNames.add(m.name);
             continue;
           }
@@ -764,7 +818,11 @@ export function runMigrations(
           // errors only for those statements.
           const originalStatements = splitSqlStatements(raw);
           const statements = originalStatements.map((orig) => ({
-            sql: pg ? adaptSqlForPostgres(orig) : adaptSqlForSqlite(orig),
+            sql: m.dialectSpecific
+              ? orig
+              : pg
+                ? adaptSqlForPostgres(orig)
+                : adaptSqlForSqlite(orig),
             hadIfNotExists: IF_NOT_EXISTS_ADD_COLUMN_RE.test(orig),
           }));
           let currentStmt = "";
@@ -782,7 +840,7 @@ export function runMigrations(
               }
             }
             for (const stmt of recordSql) await exec.execute(stmt);
-            if (m.version > current) current = m.version;
+            if (advancesLegacyVersion) current = m.version;
             if (m.name) appliedNames.add(m.name);
             console.log(
               `[db] Applied migration ${label} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
