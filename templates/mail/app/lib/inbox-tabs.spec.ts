@@ -1,7 +1,11 @@
 import type { EmailMessage } from "@shared/types";
 import { describe, expect, it } from "vitest";
 
-import { augmentSelfSentLabels, filterInboxTabEmails } from "./inbox-tabs";
+import {
+  augmentSelfSentLabels,
+  filterInboxTabEmails,
+  resolvePinnedLabels,
+} from "./inbox-tabs";
 
 const self = { name: "Steve", email: "steve@builder.io" };
 const other = { name: "Mike", email: "mike@example.com" };
@@ -129,5 +133,20 @@ describe("augmentSelfSentLabels", () => {
     });
 
     expect(augment([sentReply], false)[0].labelIds).toContain("important");
+  });
+});
+
+describe("resolvePinnedLabels", () => {
+  it("uses Important only when no pin choices have been saved", () => {
+    expect(resolvePinnedLabels(undefined, true)).toEqual(["important"]);
+    expect(resolvePinnedLabels(undefined, false)).toEqual([]);
+    expect(resolvePinnedLabels([], true)).toEqual([]);
+  });
+
+  it("preserves the stored pinned-label order", () => {
+    expect(
+      resolvePinnedLabels(["archive", "important", "drafts"], true),
+    ).toEqual(["archive", "important", "drafts"]);
+    expect(resolvePinnedLabels(["archive"], true)).toEqual(["archive"]);
   });
 });
