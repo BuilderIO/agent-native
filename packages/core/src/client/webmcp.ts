@@ -93,7 +93,7 @@ interface NativeContextTool {
   annotations?: AgentNativeWebMcpToolAnnotations;
   execute: (
     input: Record<string, unknown>,
-    options: NativeContextToolExecuteOptions,
+    options?: NativeContextToolExecuteOptions,
   ) => string | Promise<string>;
 }
 
@@ -745,7 +745,7 @@ export function createAgentNativeWebMcpRegistration(
                 : {}),
             },
             execute: async (input, executionOptions) => {
-              if (executionOptions.signal.aborted) {
+              if (executionOptions?.signal.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               validateBoundedJson(
@@ -801,7 +801,7 @@ export function createAgentNativeWebMcpRegistration(
                 input,
                 actionRuntime(options, context, session),
               );
-              if (executionOptions.signal.aborted) {
+              if (executionOptions?.signal.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               return serializeWebMcpResult(
