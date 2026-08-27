@@ -334,11 +334,11 @@ function applyDraftPatch(
   copy("location");
   copy("allDay");
   copy("fullDay");
-  if (patch.allDay === true) {
+  copy("eventType");
+  if (patch.allDay === true && next.eventType !== "outOfOffice") {
     delete next.startTimeZone;
     delete next.endTimeZone;
   }
-  copy("eventType");
   copy("outOfOfficeProperties");
   copy("transparency");
   copy("visibility");
@@ -859,10 +859,11 @@ export default function CalendarView() {
             ? draft.start!
             : start.toISOString(),
         end: semanticFullDay || dateOnlyAllDay ? draft.end! : end.toISOString(),
-        startTimeZone: draft.allDay ? undefined : timezone,
-        endTimeZone: draft.allDay
-          ? undefined
-          : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
+        startTimeZone: draft.allDay && !semanticFullDay ? undefined : timezone,
+        endTimeZone:
+          draft.allDay && !semanticFullDay
+            ? undefined
+            : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
         location: eventType === "outOfOffice" ? "" : location,
         accountEmail,
         allDay: draft.allDay ?? false,

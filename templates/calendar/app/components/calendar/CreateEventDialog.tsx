@@ -14,7 +14,11 @@ import {
   IconUsers,
   IconX,
 } from "@tabler/icons-react";
-import { differenceInMinutes, format } from "date-fns";
+import {
+  differenceInCalendarDays,
+  differenceInMinutes,
+  format,
+} from "date-fns";
 import { useId, useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
@@ -127,12 +131,15 @@ function addMinutesToTimeString(time: string, minutes: number) {
   return `${hh}:${mm}`;
 }
 
-function formatDurationLabel(minutes: number) {
+function formatDurationLabel(minutes: number, t: ReturnType<typeof useT>) {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  if (hours === 0) return `${remainder}min`;
-  if (remainder === 0) return `${hours}h`;
-  return `${hours}h ${remainder}min`;
+  if (hours === 0) return t("bookingLinks.minutesShort", { count: remainder });
+  if (remainder === 0) return t("bookingLinks.hoursShort", { count: hours });
+  return `${t("bookingLinks.hoursShort", { count: hours })} ${t(
+    "bookingLinks.minutesShort",
+    { count: remainder },
+  )}`;
 }
 
 function uniqueAttendees(attendees: AttendeeRecipient[]) {
@@ -994,13 +1001,17 @@ export function CreateEventPopover({
                         const [startHour, startMinute] = startTime
                           .split(":")
                           .map(Number);
+                        const dayOffset = differenceInCalendarDays(
+                          new Date(`${endDate}T12:00:00`),
+                          new Date(`${date}T12:00:00`),
+                        );
                         const duration =
                           hour * 60 +
                           minute -
                           (startHour * 60 + startMinute) +
-                          (endDate !== date ? 24 * 60 : 0);
+                          dayOffset * 24 * 60;
                         return duration > 0
-                          ? formatDurationLabel(duration)
+                          ? formatDurationLabel(duration, t)
                           : undefined;
                       }}
                       onChange={(value) => {
@@ -1011,7 +1022,7 @@ export function CreateEventPopover({
                       }}
                     />
                     <span className="text-xs text-muted-foreground/70">
-                      {formatDurationLabel(findTimeDurationMinutes)}
+                      {formatDurationLabel(findTimeDurationMinutes, t)}
                     </span>
                   </div>
                 ) : (
