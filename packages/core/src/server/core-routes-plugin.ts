@@ -3944,8 +3944,8 @@ export function createCoreRoutesPlugin(
           const userEmail = session?.email;
           const resolveStatus = async () => {
             const active = await getActiveFileUploadProviderForRequest();
-            let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
-            let builderUploadConfigured = builderConfigured;
+            let builderConfigured = false;
+            let builderUploadConfigured = false;
             try {
               const {
                 canAuthorizeBuilderApiRequest,
@@ -3956,7 +3956,8 @@ export function createCoreRoutesPlugin(
                 BUILDER_ASSETS_WRITE_SCOPE,
               );
             } catch {
-              // fall back to env check above
+              builderConfigured = false;
+              builderUploadConfigured = false;
             }
 
             const providers = await Promise.all(
