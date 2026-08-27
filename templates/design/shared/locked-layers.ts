@@ -4,15 +4,17 @@ import {
   type CodeLayerProjection,
 } from "./code-layer.js";
 
+const LOCKED_ATTRIBUTE = "data-agent-native-locked";
+
 export interface LockedLayerSnapshot {
   id: string;
   label: string;
   source: string;
   ancestorIds: string[];
   parentId: string | null;
-  siblingIndex: number;
-  previousSiblingId: string | null;
-  nextSiblingId: string | null;
+  /** Durable identities of every sibling, in document order, including self. */
+  siblingIds: string[];
+  selfId: string;
 }
 
 function durableNodeIdentity(node: CodeLayerNode): string {
@@ -37,16 +39,14 @@ function lockedLayerPlacement(
     parent = parent.parentId ? nodesById.get(parent.parentId) : undefined;
   }
 
-  const siblingIds = node.parentId
-    ? (nodesById.get(node.parentId)?.children ?? [])
-    : projection.rootNodeIds;
-  const siblingIndex = siblingIds.indexOf(node.id);
-  const previousSibling =
-    siblingIndex > 0 ? nodesById.get(siblingIds[siblingIndex - 1]!) : undefined;
-  const nextSibling =
-    siblingIndex >= 0 && siblingIndex < siblingIds.length - 1
-      ? nodesById.get(siblingIds[siblingIndex + 1]!)
-      : undefined;
+  const siblingIds = (
+    node.parentId
+      ? (nodesById.get(node.parentId)?.children ?? [])
+      : projection.rootNodeIds
+  ).flatMap((siblingId) => {
+    const sibling = nodesById.get(siblingId);
+    return sibling ? [durableNodeIdentity(sibling)] : [];
+  });
 
   return {
     ancestorIds: ancestors.map(durableNodeIdentity),
@@ -54,12 +54,22 @@ function lockedLayerPlacement(
       ancestors.length > 0
         ? durableNodeIdentity(ancestors[ancestors.length - 1]!)
         : null,
-    siblingIndex,
-    previousSiblingId: previousSibling
-      ? durableNodeIdentity(previousSibling)
-      : null,
-    nextSiblingId: nextSibling ? durableNodeIdentity(nextSibling) : null,
+    siblingIds,
+    selfId: durableNodeIdentity(node),
   };
+}
+
+/**
+ * Order among the siblings present on BOTH sides. A raw position would make
+ * any insert earlier in the parent read as "the locked layer moved".
+ */
+function orderAmongSurvivingSiblings(
+  siblingIds: string[],
+  selfId: string,
+  otherSiblingIds: readonly string[],
+): number {
+  const shared = new Set(otherSiblingIds);
+  return siblingIds.filter((id) => shared.has(id)).indexOf(selfId);
 }
 
 /**
@@ -70,10 +80,7 @@ function lockedLayerPlacement(
 export function lockedLayerSnapshots(html: string): LockedLayerSnapshot[] {
   const projection = buildCodeLayerProjection(html);
   return projection.nodes.flatMap((node) => {
-    if (
-      node.dataAttributes["data-agent-native-locked"] !== "true" ||
-      !node.source
-    ) {
+    if (node.dataAttributes[LOCKED_ATTRIBUTE] !== "true" || !node.source) {
       return [];
     }
     return [
@@ -102,19 +109,43 @@ export function countLockedLayersAcrossFiles(
   );
 }
 
+function namesFor(labels: string[]): string {
+  return Array.from(new Set(labels)).slice(0, 5).join(", ");
+}
+
 /**
- * Locked layers are immutable for agent-authored whole-file or text edits.
- * The human editor can still unlock a layer through its dedicated layer
- * control; that direct UI path does not call this guard.
+ * Locked layers are immutable for agent-authored whole-file or text edits, in
+ * BOTH directions: an agent that re-adds the flag undoes the human's unlock
+ * and re-blocks itself forever. The human editor's own layer control writes as
+ * `caller: "frontend"`, which does not reach this guard.
  */
 export function assertLockedLayersPreserved(
   before: string,
   after: string,
 ): void {
+  // Comparing lock sets needs BOTH sides projected, and most designs carry no
+  // locked layer. Keep that case off the parser on every guarded write.
+  if (!before.includes(LOCKED_ATTRIBUTE) && !after.includes(LOCKED_ATTRIBUTE)) {
+    return;
+  }
   const locked = lockedLayerSnapshots(before);
+  const nextProjection = buildCodeLayerProjection(after);
+  const lockedBeforeIds = new Set(locked.map((snapshot) => snapshot.id));
+  const nowLocked = nextProjection.nodes.filter(
+    (node) =>
+      node.dataAttributes[LOCKED_ATTRIBUTE] === "true" &&
+      !lockedBeforeIds.has(node.id),
+  );
+  if (nowLocked.length > 0) {
+    throw new Error(
+      `This edit locks layer${nowLocked.length === 1 ? "" : "s"} the editor had unlocked: ` +
+        `${namesFor(nowLocked.map((node) => node.layerName))}. ` +
+        "Only the human editor sets data-agent-native-locked. Re-read the " +
+        "file and rebuild the edit from its current content.",
+    );
+  }
   if (locked.length === 0) return;
 
-  const nextProjection = buildCodeLayerProjection(after);
   const nextById = new Map(nextProjection.nodes.map((node) => [node.id, node]));
   const changed: string[] = [];
 
@@ -129,9 +160,17 @@ export function assertLockedLayersPreserved(
     if (
       nextSource !== snapshot.source ||
       nextPlacement.parentId !== snapshot.parentId ||
-      nextPlacement.siblingIndex !== snapshot.siblingIndex ||
-      nextPlacement.previousSiblingId !== snapshot.previousSiblingId ||
-      nextPlacement.nextSiblingId !== snapshot.nextSiblingId ||
+      nextPlacement.selfId !== snapshot.selfId ||
+      orderAmongSurvivingSiblings(
+        nextPlacement.siblingIds,
+        nextPlacement.selfId,
+        snapshot.siblingIds,
+      ) !==
+        orderAmongSurvivingSiblings(
+          snapshot.siblingIds,
+          snapshot.selfId,
+          nextPlacement.siblingIds,
+        ) ||
       nextPlacement.ancestorIds.length !== snapshot.ancestorIds.length ||
       nextPlacement.ancestorIds.some(
         (ancestorId, index) => ancestorId !== snapshot.ancestorIds[index],
@@ -142,9 +181,8 @@ export function assertLockedLayersPreserved(
   }
 
   if (changed.length > 0) {
-    const names = Array.from(new Set(changed)).slice(0, 5).join(", ");
     throw new Error(
-      `This edit changes locked layer${changed.length === 1 ? "" : "s"}: ${names}. ` +
+      `This edit changes locked layer${changed.length === 1 ? "" : "s"}: ${namesFor(changed)}. ` +
         "Preserve locked layers exactly, or ask the user to unlock them first.",
     );
   }

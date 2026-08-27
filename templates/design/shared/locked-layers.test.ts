@@ -75,6 +75,49 @@ describe("locked layers", () => {
     );
   });
 
+  it("allows inserting and removing unlocked siblings around a locked layer", () => {
+    const artboard = `<!doctype html><html><body>
+  <main data-agent-native-node-id="artboard">
+    <div data-agent-native-node-id="bg" data-agent-native-layer-name="Background" data-agent-native-locked="true"></div>
+    <div data-agent-native-node-id="logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">Northstar</div>
+    <section data-agent-native-node-id="content"><h1>Old</h1></section>
+  </main>
+</body></html>`;
+
+    for (const next of [
+      artboard.replace(
+        '<div data-agent-native-node-id="bg"',
+        '<div class="glow"></div>\n    <div data-agent-native-node-id="bg"',
+      ),
+      artboard.replace(
+        '<section data-agent-native-node-id="content">',
+        '<div class="rule"></div>\n    <section data-agent-native-node-id="content">',
+      ),
+      artboard.replace(
+        '    <section data-agent-native-node-id="content"><h1>Old</h1></section>\n',
+        "",
+      ),
+    ]) {
+      expect(() => assertLockedLayersPreserved(artboard, next)).not.toThrow();
+    }
+  });
+
+  it("rejects an edit that re-locks a layer the editor unlocked", () => {
+    const unlocked = source.replace(' data-agent-native-locked="true"', "");
+    expect(() => assertLockedLayersPreserved(unlocked, source)).toThrow(
+      /locks layer/i,
+    );
+    expect(() =>
+      assertLockedLayersPreserved(
+        unlocked,
+        unlocked.replace(
+          '<main data-agent-native-node-id="content">',
+          '<main data-agent-native-node-id="content" data-agent-native-locked="true">',
+        ),
+      ),
+    ).toThrow(/locks layer/i);
+  });
+
   it("counts only durable DOM locks across files", () => {
     expect(
       countLockedLayersAcrossFiles([
