@@ -35,7 +35,11 @@ describe("summarizeCreativeContextForChat", () => {
         contextMode: "auto",
         contextPackId: "pack_1",
         reuseLabels: [
-          { kind: "brand", label: "Brand DNA", dataRole: "untrusted-reference" },
+          {
+            kind: "brand",
+            label: "Brand DNA",
+            dataRole: "untrusted-reference",
+          },
           {
             kind: "document",
             label: "Q3 style guide",
@@ -52,8 +56,16 @@ describe("summarizeCreativeContextForChat", () => {
         contextMode: "auto",
         contextPackId: "pack_1",
         reuseLabels: [
-          { kind: "brand", label: "Brand DNA", dataRole: "untrusted-reference" },
-          { kind: "brand", label: "Brand DNA", dataRole: "untrusted-reference" },
+          {
+            kind: "brand",
+            label: "Brand DNA",
+            dataRole: "untrusted-reference",
+          },
+          {
+            kind: "brand",
+            label: "Brand DNA",
+            dataRole: "untrusted-reference",
+          },
         ],
       }),
     ).toBe("Found Creative Context: Brand DNA");

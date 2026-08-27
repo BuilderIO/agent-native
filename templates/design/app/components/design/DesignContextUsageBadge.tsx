@@ -39,7 +39,9 @@ export function DesignContextUsageBadge({
         data-design-context-usage="none"
         className="shrink-0 rounded-sm bg-muted-foreground/15 px-1.5 py-0.5 !text-[9px] font-medium text-muted-foreground"
       >
-        {"No Creative Context used" /* i18n-ignore short inspector badge, mirrors other frame-chrome literals in this template */}
+        {
+          "No Creative Context used" /* i18n-ignore short inspector badge, mirrors other frame-chrome literals in this template */
+        }
       </span>
     );
   }
@@ -57,12 +59,16 @@ export function DesignContextUsageBadge({
           )}
         >
           <IconSparkles size={11} />
-          {"Context used" /* i18n-ignore short inspector badge, mirrors other frame-chrome literals in this template */}
+          {
+            "Context used" /* i18n-ignore short inspector badge, mirrors other frame-chrome literals in this template */
+          }
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 text-xs">
         <p className="mb-1.5 font-medium text-foreground">
-          {"Creative Context used for this generation" /* i18n-ignore popover heading, mirrors other frame-chrome literals in this template */}
+          {
+            "Creative Context used for this generation" /* i18n-ignore popover heading, mirrors other frame-chrome literals in this template */
+          }
         </p>
         <ul className="space-y-1">
           {data.items.map((item) => (

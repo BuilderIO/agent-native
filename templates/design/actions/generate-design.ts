@@ -55,7 +55,6 @@ import {
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
-
 import { sendToolActivity } from "./_tool-activity.js";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -727,20 +726,23 @@ const generateDesignAction = defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    designId,
-    prompt,
-    files,
-    designSystemId,
-    projectType,
-    tweaks,
-    canvasFrames,
-    primaryViewport,
-    devices,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }, context?: ActionRunContext) => {
+  run: async (
+    {
+      designId,
+      prompt,
+      files,
+      designSystemId,
+      projectType,
+      tweaks,
+      canvasFrames,
+      primaryViewport,
+      devices,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    context?: ActionRunContext,
+  ) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");

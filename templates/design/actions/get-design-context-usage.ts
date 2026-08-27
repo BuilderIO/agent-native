@@ -62,7 +62,9 @@ export function selectDesignContextUsage(
   );
   const items = matches
     .filter(
-      (entry): entry is typeof entry & { itemId: string; itemVersionId: string } =>
+      (
+        entry,
+      ): entry is typeof entry & { itemId: string; itemVersionId: string } =>
         Boolean(entry.itemId && entry.itemVersionId),
     )
     .map((entry) => ({
@@ -115,9 +117,11 @@ export default defineAction({
 
     const rawSession = (await readAppState(
       designGenerationSessionKey(designId),
+      // coercion-ok: an absent/unreadable session falls back to matching by
+      // fileId alone (see generate-design.ts's identical read); this lookup
+      // only narrows the real generation record read below.
     ).catch(() => null)) as DesignGenerationSession | null;
-    const session =
-      rawSession?.designId === designId ? rawSession : null;
+    const session = rawSession?.designId === designId ? rawSession : null;
 
     const record = await getGenerationCreativeContext({
       appId: "design",

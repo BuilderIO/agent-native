@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { DesignContextUsageBadge } from "./DesignContextUsageBadge";
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
 import {
   alpineDataValueLiteral,
@@ -155,7 +156,6 @@ import {
   type ActiveInteractionState,
   type MotionKeyframeCssProperty,
 } from "./inspector";
-import { DesignContextUsageBadge } from "./DesignContextUsageBadge";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
 import {
