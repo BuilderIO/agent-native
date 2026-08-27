@@ -244,7 +244,17 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
       currentConfig,
     );
     if (!promoted) {
-      await stopGoogleDocsWatchChannel(accessToken, data.id, data.resourceId);
+      const stopped = await stopGoogleDocsWatchChannel(
+        accessToken,
+        data.id,
+        data.resourceId,
+      );
+      if (!stopped) {
+        scheduleOrphanedWatchCleanup({
+          id: data.id,
+          resourceId: data.resourceId,
+        });
+      }
       console.warn(
         `[google-docs] Watch registration lost a concurrent update (channel: ${data.id})`,
       );
