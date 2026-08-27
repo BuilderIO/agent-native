@@ -179,6 +179,24 @@ export function referenceImageDirectives(
   ];
 }
 
+/**
+ * A user-tagged reference selection is a structural specification the same
+ * way an attached screenshot is a visual one (see `referenceImageDirectives`
+ * above) — but grounded in real markup/CSS instead of pixels, so there is
+ * nothing to infer visually. Kept as its own builder rather than folded into
+ * `referenceImageDirectives`: an image directive talks about what a model
+ * can SEE (regions, proportions), while this one talks about what it can
+ * READ (literal color/spacing/typography values), and conflating the two
+ * would make both sets of instructions vaguer.
+ */
+export function structuralReferenceDirectives(label: string): string[] {
+  return [
+    `The user tagged the selected element ("${label}") as a REFERENCE for this generation. Its markup and inline styles/classes follow with the message.`,
+    "Read the real colors, spacing, typography, and hierarchy directly from that markup rather than treating it as loose inspiration, and model the new design after those precise values.",
+    "Reuse literal values you can see (hex/OKLCH colors, font families and sizes, padding/margin/gap numbers, border radii, class names) instead of approximating them. Deviate only where the reference markup is genuinely unreadable or incomplete, or the user's instruction explicitly asks for something different — and say so when you do.",
+  ];
+}
+
 export function designGenerationDirectives(
   designId: string,
   designSystemId?: string | null,

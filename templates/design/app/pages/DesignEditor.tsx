@@ -54,6 +54,7 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
+  CreativeContextShareSheet,
   CreativeContextShareTab,
   parseCreativeContexts,
   useCreativeContexts,
@@ -156,6 +157,7 @@ import {
   IconTemplate,
   IconAdjustmentsHorizontal,
   IconMessageCircle,
+  IconLibraryPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -308,6 +310,7 @@ import {
 } from "@/components/editor/FigmaLinkComposerBubble";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { ReferenceSelectionComposerBubble } from "@/components/editor/ReferenceSelectionComposerBubble";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -361,6 +364,7 @@ import {
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { useReferenceMode } from "@/hooks/use-reference-mode";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   isDesignHotkeyEditableTarget,
@@ -798,6 +802,7 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
 import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text-edit-utils";
+import { getSelectionShortLabel } from "./design-editor/reference-mode";
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
@@ -3481,6 +3486,11 @@ function DesignEditor() {
   });
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
+  // Standalone entry point into the same Creative Context submission flow
+  // the Share popover's "Context" tab already offers — kept as its own
+  // always-visible button because the Share popover buries it behind two
+  // other tabs, which is the opposite of "clearly visible."
+  const [addToContextOpen, setAddToContextOpen] = useState(false);
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
@@ -8772,6 +8782,23 @@ function DesignEditor() {
   const mirroredSelectionIdRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
+  const previousReferenceActiveRef = useRef(false);
+  const referenceMode = useReferenceMode({
+    activeFileId: activeFile?.id,
+    selectedElement,
+  });
+  const referenceSelectionLabel = useMemo(
+    () =>
+      selectedElement
+        ? getSelectionShortLabel({
+            textContent: selectedElement.textContent,
+            layerName: selectedCodeLayerNode?.layerName,
+            elementId: selectedElement.id,
+            tagName: selectedElement.tagName,
+          })
+        : "",
+    [selectedElement, selectedCodeLayerNode?.layerName],
+  );
   useEffect(
     () =>
       runMirrorSelectionToAgentChat({
@@ -8782,6 +8809,8 @@ function DesignEditor() {
         id,
         isSignedIn,
         mirroredSelectionIdRef,
+        referenceActive: referenceMode.referenceActive,
+        previousReferenceActiveRef,
         selectedCodeLayerNode,
         selectedElement,
         sentSelectionIdRef,
@@ -8792,6 +8821,7 @@ function DesignEditor() {
       design?.title,
       id,
       isSignedIn,
+      referenceMode.referenceActive,
       selectedCodeLayerNode,
       selectedElement,
     ],
@@ -8807,9 +8837,21 @@ function DesignEditor() {
     useAgentChatContext(isSignedIn).items;
   useEffect(() => {
     const key = "design:selected-element";
-    composerContextHasOurKeyRef.current =
-      composerContextItemsForBookkeeping.some((item) => item.key === key);
-  }, [composerContextItemsForBookkeeping]);
+    const hasOurKey = composerContextItemsForBookkeeping.some(
+      (item) => item.key === key,
+    );
+    composerContextHasOurKeyRef.current = hasOurKey;
+    // The chip disappearing (send, or the user removing it) means whatever
+    // reference tag rode along with it is consumed — a tag is for "this
+    // generation turn," not every turn until the user reselects.
+    if (!hasOurKey && referenceMode.referenceActive) {
+      referenceMode.disarmReference();
+    }
+  }, [
+    composerContextItemsForBookkeeping,
+    referenceMode.referenceActive,
+    referenceMode.disarmReference,
+  ]);
 
   useEffect(() => {
     const key = "design:design-system";
@@ -19335,12 +19377,22 @@ function DesignEditor() {
                     showHeader={false}
                     showTabBar={false}
                     browserTabId={browserTabId}
-                    onComposerTextChange={handleComposerTextChange}
+                    onComposerTextChange={(text) => {
+                      handleComposerTextChange(text);
+                      referenceMode.onComposerTextChange(text);
+                    }}
                     composerSlot={
                       detectedFigmaComposerLink ? (
                         <FigmaLinkComposerBubble
                           link={detectedFigmaComposerLink}
                           designId={id}
+                        />
+                      ) : referenceMode.referenceEligible ? (
+                        <ReferenceSelectionComposerBubble
+                          label={referenceSelectionLabel}
+                          active={referenceMode.referenceActive}
+                          onArm={referenceMode.armReference}
+                          onClear={referenceMode.disarmReference}
                         />
                       ) : null
                     }

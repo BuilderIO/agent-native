@@ -7,6 +7,12 @@ import type { RefObject } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
 import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
+import { structuralReferenceDirectives } from "@/pages/design-editor/generation-prompt-directives";
+import {
+  getSelectionIdentity,
+  getSelectionShortLabel,
+  referenceModeJustArmedForSelection,
+} from "@/pages/design-editor/reference-mode";
 import { shouldMirrorSelectedElementToAgentChat } from "@/pages/design-editor/selection-state";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
@@ -18,6 +24,9 @@ export interface MirrorSelectionToAgentChatArgs {
   id: string | undefined;
   isSignedIn: boolean;
   mirroredSelectionIdRef: RefObject<string | null>;
+  /** True while the current selection is tagged as a reference for this generation turn. */
+  referenceActive: boolean;
+  previousReferenceActiveRef: RefObject<boolean>;
   selectedCodeLayerNode: CodeLayerNode | null;
   selectedElement: ElementInfo | null;
   sentSelectionIdRef: RefObject<string | null>;
@@ -31,6 +40,8 @@ export function runMirrorSelectionToAgentChat({
   id,
   isSignedIn,
   mirroredSelectionIdRef,
+  referenceActive,
+  previousReferenceActiveRef,
   selectedCodeLayerNode,
   selectedElement,
   sentSelectionIdRef,
@@ -40,14 +51,28 @@ export function runMirrorSelectionToAgentChat({
   if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
     mirroredSelectionIdRef.current = null;
     sentSelectionIdRef.current = null;
+    previousReferenceActiveRef.current = false;
     removeAgentChatContextItem(key);
     return;
   }
 
-  const selectionId = `${activeFile?.id ?? ""}::${selectedElement.sourceId ?? selectedElement.selector}`;
-  if (selectionId !== mirroredSelectionIdRef.current) {
-    // A genuinely new/changed selection always (re)attaches, regardless of
-    // whether the previous one was marked sent.
+  const selectionId = getSelectionIdentity(activeFile?.id, selectedElement)!;
+  // Toggling reference mode on the SAME selection must republish with the
+  // new framing even though the selection itself didn't change — otherwise
+  // the "same selection, nothing to do" branch below (there to prevent a
+  // republish feedback loop while an agent run polls get-design) would also
+  // swallow the plain-to-reference transition.
+  const referenceJustArmed = referenceModeJustArmedForSelection({
+    referenceActive,
+    previousReferenceActive: previousReferenceActiveRef.current,
+    selectionId,
+    previousSelectionId: mirroredSelectionIdRef.current,
+  });
+  previousReferenceActiveRef.current = referenceActive;
+  if (selectionId !== mirroredSelectionIdRef.current || referenceJustArmed) {
+    // A genuinely new/changed selection (or a fresh reference tag on the
+    // current one) always (re)attaches, regardless of whether the previous
+    // state was marked sent.
     sentSelectionIdRef.current = null;
   } else if (
     sentSelectionIdRef.current === selectionId ||
@@ -70,13 +95,12 @@ export function runMirrorSelectionToAgentChat({
   }
   mirroredSelectionIdRef.current = selectionId;
 
-  const labelSource =
-    selectedElement.textContent?.trim() ||
-    selectedCodeLayerNode?.layerName ||
-    selectedElement.id ||
-    selectedElement.tagName.toLowerCase();
-  const shortLabel =
-    labelSource.length > 28 ? `${labelSource.slice(0, 25)}...` : labelSource;
+  const shortLabel = getSelectionShortLabel({
+    textContent: selectedElement.textContent,
+    layerName: selectedCodeLayerNode?.layerName,
+    elementId: selectedElement.id,
+    tagName: selectedElement.tagName,
+  });
   const targetNodeId =
     selectedCodeLayerNode?.dataAttributes[
       "data-agent-native-node-id"
@@ -99,7 +123,9 @@ export function runMirrorSelectionToAgentChat({
       )
     : "";
   const contextLines = [
-    `Selected design element in design "${design?.title ?? id}".`,
+    referenceActive
+      ? `Selected design element in design "${design?.title ?? id}" — tagged as a REFERENCE for this generation.`
+      : `Selected design element in design "${design?.title ?? id}".`,
     `designId: ${id}`,
     activeFile ? `fileId: ${activeFile.id}` : "",
     activeFile ? `Active screen: ${activeFile.filename}` : "",
@@ -114,6 +140,7 @@ export function runMirrorSelectionToAgentChat({
     selectedElement.textContent?.trim()
       ? `Text: ${selectedElement.textContent.trim()}`
       : "",
+    ...(referenceActive ? structuralReferenceDirectives(shortLabel) : []),
     outerHtmlExcerpt
       ? `--- selected element (outerHTML excerpt, truncated) ---\n${outerHtmlExcerpt}`
       : "",
@@ -121,7 +148,7 @@ export function runMirrorSelectionToAgentChat({
 
   setAgentChatContextItem({
     key,
-    title: shortLabel,
+    title: referenceActive ? `Reference: ${shortLabel}` : shortLabel,
     context: contextLines.join("\n"),
     openSidebar: false,
     // Mirror the selection into chat context without stealing focus: this
