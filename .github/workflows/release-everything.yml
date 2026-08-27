@@ -320,11 +320,14 @@ jobs:
               return value;
             };
             const coreVersion = stableVersion(corePackage.version, "Core package");
-            // workflow_dispatch accepts a branch or tag, not a raw commit SHA.
-            // Reuse the immutable core package tag when this release did not version core.
-            const workflowRef = `@agent-native/core@${coreVersion}`;
+            const packageRef = `@agent-native/core@${coreVersion}`;
             const coreVersionChanged = initialCorePackage.version !== corePackage.version;
-            await waitForStablePackagePublish(releaseSha, workflowRef, coreVersionChanged);
+            // workflow_dispatch accepts a branch or tag, not a raw commit SHA.
+            // Use main for the workflow definition when an unchanged package tag
+            // predates the coordinated source_ref input. Every build still checks
+            // out the exact release commit below.
+            const workflowRef = coreVersionChanged ? packageRef : "main";
+            await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
 
             const desktopPackage = await readJsonAt(
               releaseSha,
@@ -359,6 +362,7 @@ jobs:
               dispatch("desktop-release.yml", workflowRef, {
                 channel: "production",
                 version: desktopVersion,
+                source_ref: releaseSha,
               }),
               clipsAlreadyPublished
                 ? Promise.resolve({
@@ -368,6 +372,7 @@ jobs:
                 : dispatch("clips-desktop-release.yml", workflowRef, {
                     channel: "production",
                     version: clipsVersion,
+                    source_ref: releaseSha,
                   }),
               dispatch("deploy-production-sites-prebuilt.yml", workflowRef, {
                 sites: productionSites.join(","),

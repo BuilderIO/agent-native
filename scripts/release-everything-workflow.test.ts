@@ -9,6 +9,12 @@ type Workflow = Record<string, unknown>;
 const workflow = parse(
   readFileSync(".github/workflows/release-everything.yml", "utf8"),
 ) as Workflow;
+const desktopWorkflow = parse(
+  readFileSync(".github/workflows/desktop-release.yml", "utf8"),
+) as Workflow;
+const clipsWorkflow = parse(
+  readFileSync(".github/workflows/clips-desktop-release.yml", "utf8"),
+) as Workflow;
 const trigger = workflow.on as Workflow;
 const schedules = trigger.schedule as Workflow[];
 const dispatch = trigger.workflow_dispatch as Workflow;
@@ -56,7 +62,7 @@ describe("release everything workflow", () => {
     assert.match(source, /git\.getRef/);
     assert.match(
       source,
-      /waitForStablePackagePublish\(releaseSha, workflowRef, coreVersionChanged\)/,
+      /waitForStablePackagePublish\(releaseSha, packageRef, coreVersionChanged\)/,
     );
     assert.match(source, /tagSha !== mergeSha/);
     assert.match(
@@ -70,9 +76,14 @@ describe("release everything workflow", () => {
     assert.match(source, /channel: "production"/);
     assert.match(
       source,
-      /const workflowRef = `@agent-native\/core@\$\{coreVersion\}`/,
+      /const packageRef = `@agent-native\/core@\$\{coreVersion\}`/,
+    );
+    assert.match(
+      source,
+      /const workflowRef = coreVersionChanged \? packageRef : "main"/,
     );
     assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
+    assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /getReleaseByTag/);
     assert.match(source, /hasCompleteClipsRelease/);
     assert.match(source, /Clips_\$\{version\}_universal\.dmg/);
@@ -80,5 +91,14 @@ describe("release everything workflow", () => {
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
+  });
+
+  it("checks out the coordinated release commit for desktop builds", () => {
+    const desktopSource = JSON.stringify(desktopWorkflow);
+    const clipsSource = JSON.stringify(clipsWorkflow);
+    assert.match(desktopSource, /source_ref/);
+    assert.match(desktopSource, /inputs\.source_ref \|\| github\.ref/);
+    assert.match(clipsSource, /source_ref/);
+    assert.match(clipsSource, /inputs\.source_ref \|\| github\.ref/);
   });
 });
