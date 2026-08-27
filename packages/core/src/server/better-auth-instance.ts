@@ -11,7 +11,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { setRequestCookie } from "better-auth/cookies";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
@@ -1218,10 +1217,10 @@ export async function withBetterAuthActionSession<T>(
       .createHmac("sha256", authContext.secret)
       .update(session.token)
       .digest("base64");
-    setRequestCookie(
-      headers,
-      authContext.authCookies.sessionToken.name,
-      `${session.token}.${signature}`,
+    const sessionCookie = `${authContext.authCookies.sessionToken.name}=${encodeURIComponent(`${session.token}.${signature}`)}`;
+    headers.set(
+      "cookie",
+      [headers.get("cookie"), sessionCookie].filter(Boolean).join("; "),
     );
     outcome = { ok: true, value: await action(headers) };
   } catch (error) {
