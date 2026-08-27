@@ -496,6 +496,37 @@ describe("Builder credential auth failure markers", () => {
     ).toBeNull();
   });
 
+  // The back-off is exponential, so without a ceiling a credential that failed
+  // enough times would be pinned for weeks and a server-side recovery (plan
+  // upgrade, gateway re-enabled) would never be noticed. A corrupt strike count
+  // must not be a way to pin one forever either.
+  it("never pins a credential beyond the 24h ceiling", async () => {
+    const dayAndAHalfAgo = Date.now() - 36 * 60 * 60 * 1000;
+
+    for (const strikes of [8, 99, Number.MAX_SAFE_INTEGER]) {
+      mockGetSetting.mockResolvedValue({ strikes, at: dayAndAHalfAgo });
+      expect(
+        await getBuilderCredentialAuthFailure({
+          privateKey: "bpk-secret",
+          publicKey: "pub-secret",
+        }),
+      ).toBeNull();
+    }
+
+    // Still armed just inside the ceiling, so the ceiling is real rather than
+    // the back-off silently collapsing to "always expired".
+    mockGetSetting.mockResolvedValue({
+      strikes: 8,
+      at: Date.now() - 23 * 60 * 60 * 1000,
+    });
+    expect(
+      await getBuilderCredentialAuthFailure({
+        privateKey: "bpk-secret",
+        publicKey: "pub-secret",
+      }),
+    ).not.toBeNull();
+  });
+
   it("counts a repeat failure on the same credential as another strike", async () => {
     mockGetSetting.mockImplementation(async (key: string) =>
       key.startsWith("provider-auth-failure:")
