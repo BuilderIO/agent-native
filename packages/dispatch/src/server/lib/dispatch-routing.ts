@@ -8,13 +8,15 @@ const ONE_PAGER_CREATION_PATTERN =
   /\b(?:assemble|build|create|design|draft|generate|make|prepare|produce|write|put\s+together)\b.{0,64}\bone[-\s]?page(?:r)?s?\b/i;
 
 const EXPLICIT_PLAN_PATTERN =
-  /\b(?:(?:(?:interactive|visual)\s+){1,2}(?:one[-\s]?page(?:r)?s?\s+)?(?:plan|prototype|recap)|one[-\s]?page(?:r)?s?\s+(?:(?:interactive|visual)\s+){1,2}(?:plan|prototype|recap))\b/i;
+  /\b(?:(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:one[-\s]?page(?:r)?s?\s+)?(?:plan|prototype|recap)|one[-\s]?page(?:r)?s?\s+(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:plan|prototype|recap))\b/i;
 const NEGATION_PATTERN =
   /\b(?:do\s+not|don't|dont|never|not(?!\s+only)|no\s+need|instead\s+of|rather\s+than)\b/i;
 const NEGATED_MATCH_PATTERN =
-  /\b(?:without|no)\s+(?:a\s+|an\s+|the\s+)?(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration|design|intake|form|plan|prototype|recap)\b/i;
+  /\b(?:without|no)\s+(?:a\s+|an\s+|the\s+)?(?:(?:interactive|visual)\s+){0,2}(?:one[-\s]?page(?:r)?s?|visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration|design|intake|form|plan|prototype|recap)\b/i;
+const VISUAL_PROSE_EXCLUSION_PATTERN =
+  /\b(?:about|documentation|document|report)\b/i;
 const ACTION_CLAUSE_SPLIT_PATTERN =
-  /[.!?;,]+|\b(?:but\s+rather|but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
+  /[.!?;]+|,(?=\s*(?:do\s+not|don't|dont|never|not|no\b|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|\b(?:but\s+rather|but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
 
 const VISUAL_DESIGN_PATTERNS = [
   /\b(?:assemble|build|design|redesign|create|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
@@ -26,6 +28,7 @@ function hasAffirmativeMatch(
   pattern: RegExp,
   actionPattern?: RegExp,
   rejectNegatedMatch = false,
+  matchExclusionPattern?: RegExp,
 ): boolean {
   return text.split(ACTION_CLAUSE_SPLIT_PATTERN).some((clause) => {
     const match = clause.match(pattern);
@@ -41,6 +44,7 @@ function hasAffirmativeMatch(
       (!rejectNegatedMatch ||
         (!NEGATION_PATTERN.test(matchContext) &&
           !NEGATED_MATCH_PATTERN.test(matchContext))) &&
+      (!matchExclusionPattern || !matchExclusionPattern.test(matchContext)) &&
       (!actionPattern || actionPattern.test(matchPrefix))
     );
   });
@@ -65,6 +69,7 @@ export function dispatchIntegrationRoutingHint(
       normalized,
       EXPLICIT_PLAN_PATTERN,
       /\b(?:assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b/i,
+      true,
     )
   ) {
     return {
@@ -87,7 +92,13 @@ export function dispatchIntegrationRoutingHint(
 
   if (
     VISUAL_DESIGN_PATTERNS.some((pattern) =>
-      hasAffirmativeMatch(normalized, pattern, undefined, true),
+      hasAffirmativeMatch(
+        normalized,
+        pattern,
+        undefined,
+        true,
+        VISUAL_PROSE_EXCLUSION_PATTERN,
+      ),
     )
   ) {
     return {
@@ -97,7 +108,9 @@ export function dispatchIntegrationRoutingHint(
     };
   }
 
-  if (hasAffirmativeMatch(normalized, ONE_PAGER_CREATION_PATTERN)) {
+  if (
+    hasAffirmativeMatch(normalized, ONE_PAGER_CREATION_PATTERN, undefined, true)
+  ) {
     return {
       targetAgent: "content",
       instruction:

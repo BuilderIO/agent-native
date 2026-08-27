@@ -94,10 +94,23 @@ describe("dispatchIntegrationRoutingHint", () => {
   it.each([
     "Create a one-pager without a visual design",
     "Create a one-pager with no visual design",
+    "Create a one-pager, no visual design",
   ])("does not route a visually excluded one-pager to Design: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
       targetAgent: "content",
     });
+  });
+
+  it.each([
+    "Write a one-pager about the website",
+    "Prepare a report about the website",
+  ])("does not route prose about visual artifacts to Design: %s", (text) => {
+    const hint = dispatchIntegrationRoutingHint(text);
+
+    expect(hint?.targetAgent).not.toBe("design");
+    if (text.startsWith("Write a one-pager")) {
+      expect(hint).toMatchObject({ targetAgent: "content" });
+    }
   });
 
   it.each(["Compare these one-page briefs", "Edit the one-pager copy"])(
@@ -110,6 +123,8 @@ describe("dispatchIntegrationRoutingHint", () => {
   it.each([
     "Create an interactive one-page plan for the launch",
     "Create an interactive visual plan for the launch",
+    "Create an interactive, visual plan for the launch",
+    "Create a visual, interactive prototype for the launch",
   ])("keeps explicit interactive visual plan requests on Plan: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
       targetAgent: "plan",
@@ -126,6 +141,10 @@ describe("dispatchIntegrationRoutingHint", () => {
   it.each([
     "Do not create a one-pager",
     "Do not create an interactive visual plan",
+    "Create no one-pager",
+    "Write no one-pager",
+    "Create not a one-pager",
+    "Create no interactive visual plan",
     "No need to create a one-pager",
     "There is no need to create an interactive visual plan",
   ])("does not route negated requests: %s", (text) => {
