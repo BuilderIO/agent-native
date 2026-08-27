@@ -206,7 +206,6 @@ export default function ExplorerDashboardPage() {
     };
   }, [dashboard?.name]);
 
-  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
   const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
     null,
   );
