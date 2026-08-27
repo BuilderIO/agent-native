@@ -58,6 +58,13 @@ export function SlidesTryNow() {
     const prompt = promptRef.current;
     if (!prompt) return;
 
+    const visiblePromptText = extractPromptText(prompt).trim();
+    if (document.activeElement === prompt || visiblePromptText) {
+      stopPromptAnimation();
+      setPromptText(visiblePromptText);
+      return;
+    }
+
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
       prompt.textContent = SLIDES_TRY_NOW_PROMPTS[0];
       setPromptText(SLIDES_TRY_NOW_PROMPTS[0]);

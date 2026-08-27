@@ -8,6 +8,7 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+import { type ReactNode, useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
@@ -19,8 +20,8 @@ import {
   SlidesTryNow,
 } from "./SlidesTryNow";
 
-function renderSlidesTryNow() {
-  return render(
+function slidesTryNowElement() {
+  return (
     <AgentNativeI18nProvider
       catalog={docsI18nCatalog}
       initialLocale="en-US"
@@ -28,8 +29,26 @@ function renderSlidesTryNow() {
       persistPreference={false}
     >
       <SlidesTryNow />
-    </AgentNativeI18nProvider>,
+    </AgentNativeI18nProvider>
   );
+}
+
+function renderSlidesTryNow() {
+  return render(slidesTryNowElement());
+}
+
+function PreEffectPromptEdit({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => {
+    const prompt = document.querySelector<HTMLElement>(
+      "#slides-try-now-prompt",
+    );
+    if (!prompt) return;
+
+    prompt.innerHTML = "Typed before<br>hydration";
+    prompt.focus();
+  }, []);
+
+  return children;
 }
 
 function advanceTimersByTime(milliseconds: number) {
@@ -118,6 +137,23 @@ describe("SlidesTryNow", () => {
     expect(submitLink.getAttribute("href")).toBe(
       "https://slides.agent-native.com/?initialPrompt=Customer%20roadmap%0AFor%20enterprise%20teams",
     );
+  });
+
+  it("preserves and syncs prompt text present before its effect runs", () => {
+    render(<PreEffectPromptEdit>{slidesTryNowElement()}</PreEffectPromptEdit>);
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+
+    expect(promptBox.innerHTML).toBe("Typed before<br>hydration");
+    expect(submitLink.getAttribute("href")).toBe(
+      "https://slides.agent-native.com/?initialPrompt=Typed%20before%0Ahydration",
+    );
+
+    advanceTimersByTime(30_000);
+    expect(promptBox.innerHTML).toBe("Typed before<br>hydration");
   });
 
   it("shows a stable full prompt when reduced motion is preferred", () => {
