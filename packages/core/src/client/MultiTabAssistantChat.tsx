@@ -13,6 +13,7 @@ import React, {
 } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import type { AgentChatAttachment } from "../agent/types.js";
 import {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
@@ -98,6 +99,7 @@ interface ModelSelection {
 interface PendingSend {
   message: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
@@ -124,10 +126,16 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
+  if (
+    send.trackInRunsTray ||
+    send.requestMode ||
+    send.submitMessageId ||
+    send.attachments
+  ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.attachments ? { attachments: send.attachments } : {}),
       ...(send.submitMessageId
         ? { submitMessageId: send.submitMessageId }
         : {}),
@@ -1857,6 +1865,7 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        attachments,
         submitMessageId,
       } = parsed;
       const requestedTabId = parsed.tabId;
@@ -1886,6 +1895,7 @@ export function MultiTabAssistantChat({
       const send: PendingSend = {
         message: fullMessage,
         images,
+        attachments,
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),

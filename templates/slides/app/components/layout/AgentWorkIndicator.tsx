@@ -115,6 +115,8 @@ export function AgentWorkIndicator() {
         clearStopDebounce();
         if (detail.isRunning) {
           setRunning(true);
+        } else if (detail.reason === "stopped") {
+          setRunning(false);
         } else {
           stopDebounceRef.current = setTimeout(() => {
             stopDebounceRef.current = null;
