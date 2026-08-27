@@ -40,6 +40,7 @@ import {
 } from "@/components/editor/NewDeckReferenceStep";
 import PromptPopover, {
   uploadPromptFiles,
+  type PromptAttachmentActions,
   type PromptImportSelection,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
@@ -281,6 +282,8 @@ export default function Index() {
     prompt: string;
     files: UploadedFile[];
   } | null>(null);
+  const pendingDeckAttachmentActionsRef =
+    useRef<PromptAttachmentActions | null>(null);
   const [showNewDeckReferenceStep, setShowNewDeckReferenceStep] =
     useState(false);
   const [isStartingNewDeck, setIsStartingNewDeck] = useState(false);
@@ -582,6 +585,15 @@ export default function Index() {
     navigate(`/deck/${deck.id}`);
   };
 
+  const settlePendingDeckAttachments = useCallback(
+    (result: "commit" | "discard") => {
+      const actions = pendingDeckAttachmentActionsRef.current;
+      pendingDeckAttachmentActionsRef.current = null;
+      actions?.[result]();
+    },
+    [],
+  );
+
   const handleCreateDeckWithPrompt = async (
     prompt: string,
     files: UploadedFile[],
@@ -593,6 +605,7 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
+      settlePendingDeckAttachments("discard");
       preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
       return;
     }
@@ -629,6 +642,7 @@ export default function Index() {
       });
     });
     if (!deck) {
+      settlePendingDeckAttachments("discard");
       setIsStartingNewDeck(false);
       return;
     }
@@ -644,6 +658,7 @@ export default function Index() {
     });
 
     const recoverFromGenerationSetupFailure = (description: string) => {
+      settlePendingDeckAttachments("discard");
       if (!savePromptForRetry(prompt)) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
@@ -816,22 +831,30 @@ export default function Index() {
       reuseEmptyTab: true,
       openSidebar: true,
     });
+    settlePendingDeckAttachments("commit");
   };
 
   const handlePromptSubmit = useCallback(
-    (prompt: string, files: UploadedFile[]) => {
+    (
+      prompt: string,
+      files: UploadedFile[],
+      attachments: PromptAttachmentActions,
+    ) => {
+      pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setPendingDeck({ prompt, files });
       setShowNewDeckReferenceStep(true);
+      return "retain" as const;
     },
     [setNewDeckPromptOpen],
   );
 
   const handlePromptSkip = useCallback(() => {
+    settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setPendingDeck({ prompt: "", files: [] });
     setShowNewDeckReferenceStep(true);
-  }, [setNewDeckPromptOpen]);
+  }, [setNewDeckPromptOpen, settlePendingDeckAttachments]);
 
   const handleDirectImport = useCallback(
     async (selection: PromptImportSelection): Promise<boolean> => {
@@ -1540,6 +1563,7 @@ export default function Index() {
         onOpenChange={(open) => {
           if (!open) {
             const pending = pendingDeck;
+            settlePendingDeckAttachments("discard");
             setShowNewDeckReferenceStep(false);
             setPendingDeck(null);
             if (pending) {

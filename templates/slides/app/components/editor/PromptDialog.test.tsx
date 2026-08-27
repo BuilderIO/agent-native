@@ -367,9 +367,14 @@ describe("PromptPopover import mode", () => {
       ),
     );
     await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledWith("make a deck", [
-        expect.objectContaining({ originalName: "large.pdf" }),
-      ]);
+      expect(onSubmit).toHaveBeenCalledWith(
+        "make a deck",
+        [expect.objectContaining({ originalName: "large.pdf" })],
+        expect.objectContaining({
+          commit: expect.any(Function),
+          discard: expect.any(Function),
+        }),
+      );
     });
     expect(screen.queryByRole("status")).toBeNull();
   });

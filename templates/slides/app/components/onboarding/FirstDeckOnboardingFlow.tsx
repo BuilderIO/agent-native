@@ -153,6 +153,7 @@ export function FirstDeckOnboardingFlow({
 
   const handlePromptAttachmentsChange = useCallback(
     (files: File[]) => {
+      if (files.length === 0 && promptSourceFilesRef.current.length > 0) return;
       syncFiles(files);
       void uploadFiles(files).catch((error) => {
         toast.error(t("raw.uploadFailed"), {

@@ -210,6 +210,13 @@ export type PromptImportSelection =
   | { kind: "pdf" | "pptx"; files: File[] }
   | { kind: "google-slides"; url: string };
 
+export interface PromptAttachmentActions {
+  commit: () => void;
+  discard: () => void;
+}
+
+export type PromptSubmitResult = "commit" | "retain" | "discard";
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -217,7 +224,11 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void | Promise<void>;
+  onSubmit: (
+    prompt: string,
+    files: UploadedFile[],
+    attachments: PromptAttachmentActions,
+  ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -256,6 +267,8 @@ export default function PromptPopover({
 }: PromptPopoverProps) {
   const t = useT();
   const [submitting, setSubmitting] = useState(false);
+  const [retainingAttachments, setRetainingAttachments] = useState(false);
+  const retainingAttachmentsRef = useRef(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
@@ -343,6 +356,7 @@ export default function PromptPopover({
 
   const {
     commitFiles,
+    discardFiles,
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
@@ -353,6 +367,7 @@ export default function PromptPopover({
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
+      if (files.length === 0 && retainingAttachmentsRef.current) return;
       syncFiles(files);
       if (files.length === 0) return;
       const enrichedText = [promptText.trim(), googleDocContext]
@@ -382,8 +397,28 @@ export default function PromptPopover({
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
-        await onSubmit(enrichedText, uploaded);
-        commitFiles(files);
+        const result = await onSubmit(enrichedText, uploaded, {
+          commit: () => {
+            commitFiles(files);
+            retainingAttachmentsRef.current = false;
+            setRetainingAttachments(false);
+          },
+          discard: () => {
+            discardFiles(files);
+            retainingAttachmentsRef.current = false;
+            setRetainingAttachments(false);
+          },
+        });
+        if (result === "retain") {
+          retainingAttachmentsRef.current = true;
+          setRetainingAttachments(true);
+        } else if (result === "discard") {
+          discardFiles(files);
+          retainingAttachmentsRef.current = false;
+        } else {
+          commitFiles(files);
+          retainingAttachmentsRef.current = false;
+        }
         setSubmitting(false);
       } catch (error) {
         setSubmitting(false);
@@ -396,7 +431,15 @@ export default function PromptPopover({
         throw error;
       }
     },
-    [commitFiles, googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
+    [
+      commitFiles,
+      discardFiles,
+      googleDocContext,
+      onBeforeUpload,
+      onSubmit,
+      uploadFiles,
+      t,
+    ],
   );
 
   const runImport = useCallback(
@@ -456,10 +499,12 @@ export default function PromptPopover({
       setImportMode(null);
       setSelectedImportFile(null);
       setImportingSource(null);
-      setSubmitting(false);
-      resetEagerUploads();
+      if (!submitting && !retainingAttachmentsRef.current) {
+        setSubmitting(false);
+        resetEagerUploads();
+      }
     }
-  }, [open, resetEagerUploads]);
+  }, [open, retainingAttachments, resetEagerUploads, submitting]);
 
   if (!open) return null;
 

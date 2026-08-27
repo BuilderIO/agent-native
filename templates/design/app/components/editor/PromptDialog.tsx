@@ -458,6 +458,7 @@ export default function PromptPopover({
   const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   // Restores a typed prompt into the composer after a failed submit. The
@@ -594,8 +595,13 @@ export default function PromptPopover({
   });
 
   useEffect(() => {
-    if (!open) resetEagerUploads();
-  }, [open, resetEagerUploads]);
+    if (!open) {
+      if (!submitting) {
+        setSubmitting(false);
+        resetEagerUploads();
+      }
+    }
+  }, [open, resetEagerUploads, submitting]);
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
@@ -634,10 +640,12 @@ export default function PromptPopover({
       options: PromptComposerSubmitOptions,
     ) => {
       const allFiles = [...files, ...selectedUploadFiles];
+      setSubmitting(true);
       let uploaded: UploadedFile[];
       try {
         uploaded = await uploadFiles(allFiles);
       } catch (error) {
+        setSubmitting(false);
         restorePromptText(text);
         toast.error(
           error instanceof Error
@@ -651,7 +659,9 @@ export default function PromptPopover({
         commitFiles(allFiles);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
+        setSubmitting(false);
       } catch (error) {
+        setSubmitting(false);
         restorePromptText(text);
         toast.error(
           error instanceof Error
@@ -662,6 +672,7 @@ export default function PromptPopover({
     },
     [
       commitFiles,
+      discardFiles,
       onSubmit,
       pickedAssets,
       restorePromptText,
@@ -844,7 +855,7 @@ export default function PromptPopover({
             <CreationModeToggle
               mode={creationMode}
               onChange={onCreationModeChange}
-              disabled={loading || uploading}
+              disabled={loading || uploading || submitting}
             />
           ) : null}
         </div>
@@ -854,7 +865,7 @@ export default function PromptPopover({
             key={placeholder ?? t("home.describeBuild")}
             autoFocus
             attachmentsEnabled
-            disabled={loading || uploading}
+            disabled={loading || uploading || submitting}
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
             onAttachmentsChange={handleAttachmentsChange}
@@ -863,7 +874,7 @@ export default function PromptPopover({
             initialTextKey={restoredPromptKey}
             attachButton={
               <PromptAttachmentMenu
-                disabled={loading || uploading}
+                disabled={loading || uploading || submitting}
                 onUploadFiles={handleUploadFiles}
                 onPickAsset={() => setAssetsPickerOpen(true)}
               />

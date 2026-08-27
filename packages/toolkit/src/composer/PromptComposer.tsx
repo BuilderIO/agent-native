@@ -567,9 +567,13 @@ function PromptComposerInner({
       ),
     [attachments],
   );
+  const onAttachmentsChangeRef = useRef(onAttachmentsChange);
   useEffect(() => {
-    onAttachmentsChange?.(attachmentFiles);
-  }, [attachmentFiles, onAttachmentsChange]);
+    onAttachmentsChangeRef.current = onAttachmentsChange;
+  }, [onAttachmentsChange]);
+  useEffect(() => {
+    onAttachmentsChangeRef.current?.(attachmentFiles);
+  }, [attachmentFiles]);
   const hostManagedModels = Boolean(
     availableModels && selectedModel && onModelChange,
   );
