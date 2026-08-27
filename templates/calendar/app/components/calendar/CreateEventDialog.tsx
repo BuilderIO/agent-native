@@ -496,7 +496,7 @@ export function CreateEventPopover({
     if (!open || !draftId) return;
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
-    const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
+    const effectiveAllDay = allDay && !timedOnlyStatus;
     if (!date || !endDate || (!allDay && (!startTime || !endTime))) {
       return;
     }
@@ -529,8 +529,10 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
-      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      startTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
+      endTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       allDay: effectiveAllDay,
       fullDay: fullDayOutOfOffice,
@@ -696,7 +698,7 @@ export function CreateEventPopover({
     );
   }
 
-  const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
+  const effectiveAllDay = allDay && !timedOnlyStatus;
   const currentStartISO =
     !effectiveAllDay && date && startTime
       ? dateTimeInTimezoneToIso(date, startTime, eventTimezone)
@@ -764,7 +766,7 @@ export function CreateEventPopover({
     }
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
-    const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
+    const effectiveAllDay = allDay && !timedOnlyStatus;
     const allDayEnd = new Date(`${endDate}T00:00:00`);
     allDayEnd.setDate(allDayEnd.getDate() + 1);
     const startValue = fullDayOutOfOffice
@@ -832,8 +834,10 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
-      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      startTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
+      endTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       accountEmail,
       allDay: effectiveAllDay,
@@ -1019,17 +1023,15 @@ export function CreateEventPopover({
                     className="px-1.5 py-1"
                     onChange={handleDateChange}
                   />
-                  {endDate !== date && (
-                    <>
-                      <span className="text-muted-foreground/50">→</span>
-                      <DatePickerPopover
-                        value={endDate}
-                        label={t("eventForm.endDate")}
-                        className="px-1.5 py-1"
-                        onChange={(value) => setEndDate(value || date)}
-                      />
-                    </>
-                  )}
+                  <span className="text-muted-foreground/50">→</span>
+                  <DatePickerPopover
+                    value={endDate}
+                    label={t("eventForm.endDate")}
+                    className="px-1.5 py-1"
+                    onChange={(value) =>
+                      setEndDate(value < date ? date : value || date)
+                    }
+                  />
                 </div>
               </div>
             </div>
@@ -1410,185 +1412,183 @@ export function CreateEventPopover({
                   </>
                 )}
 
-                {!isOutOfOffice && (
-                  <>
-                    {timedOnlyStatus ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex items-center justify-between gap-2">
-                            <Label
-                              htmlFor="all-day"
-                              className="text-sm text-muted-foreground"
-                            >
-                              {t("eventForm.allDay")}
-                            </Label>
-                            <Switch id="all-day" checked={false} disabled />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t("eventForm.focusTimeTimedOnly")}
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor="all-day" className="text-sm">
-                          {t("eventForm.allDay")}
-                        </Label>
-                        <Switch
-                          id="all-day"
-                          checked={allDay}
-                          onCheckedChange={setAllDay}
-                        />
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-recurrence" className="text-xs">
-                        {t("eventForm.repeats")}
+                <>
+                  {timedOnlyStatus ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center justify-between gap-2">
+                          <Label
+                            htmlFor="all-day"
+                            className="text-sm text-muted-foreground"
+                          >
+                            {t("eventForm.allDay")}
+                          </Label>
+                          <Switch id="all-day" checked={false} disabled />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("eventForm.focusTimeTimedOnly")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="all-day" className="text-sm">
+                        {t("eventForm.allDay")}
                       </Label>
-                      <RepeatPicker
-                        preset={recurrencePreset}
-                        referenceDate={
-                          effectiveAllDay ? date : currentStartISO || date
+                      <Switch
+                        id="all-day"
+                        checked={allDay}
+                        onCheckedChange={setAllDay}
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="event-recurrence" className="text-xs">
+                      {t("eventForm.repeats")}
+                    </Label>
+                    <RepeatPicker
+                      preset={recurrencePreset}
+                      referenceDate={
+                        effectiveAllDay ? date : currentStartISO || date
+                      }
+                      onChange={setRecurrencePreset}
+                      onCustomChange={setCustomRecurrence}
+                    />
+                  </div>
+
+                  {(!allDay || isOutOfOffice) && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-timezone" className="text-xs">
+                        {t("eventForm.timezone")}
+                      </Label>
+                      <TimezoneCombobox
+                        id="event-timezone"
+                        value={timezone}
+                        onChange={setTimezone}
+                      />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-availability" className="text-xs">
+                        {t("eventForm.showAs")}
+                      </Label>
+                      <Select
+                        value={
+                          eventType === "workingLocation"
+                            ? "transparent"
+                            : eventType === "default"
+                              ? availability
+                              : "opaque"
                         }
-                        onChange={setRecurrencePreset}
-                        onCustomChange={setCustomRecurrence}
-                      />
-                    </div>
-
-                    {(!allDay || isOutOfOffice) && (
-                      <div className="space-y-1.5">
-                        <Label htmlFor="event-timezone" className="text-xs">
-                          {t("eventForm.timezone")}
-                        </Label>
-                        <TimezoneCombobox
-                          id="event-timezone"
-                          value={timezone}
-                          onChange={setTimezone}
-                        />
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="event-availability" className="text-xs">
-                          {t("eventForm.showAs")}
-                        </Label>
-                        <Select
-                          value={
-                            eventType === "workingLocation"
-                              ? "transparent"
-                              : eventType === "default"
-                                ? availability
-                                : "opaque"
-                          }
-                          onValueChange={(value) =>
-                            setAvailability(value as Availability)
-                          }
-                          disabled={eventType !== "default"}
+                        onValueChange={(value) =>
+                          setAvailability(value as Availability)
+                        }
+                        disabled={eventType !== "default"}
+                      >
+                        <SelectTrigger
+                          id="event-availability"
+                          className="h-8 text-sm"
                         >
-                          <SelectTrigger
-                            id="event-availability"
-                            className="h-8 text-sm"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="opaque">
-                              {t("eventForm.busy")}
-                            </SelectItem>
-                            <SelectItem value="transparent">
-                              {t("eventForm.free")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="event-visibility" className="text-xs">
-                          {t("eventForm.visibility")}
-                        </Label>
-                        <Select
-                          value={
-                            eventType === "workingLocation"
-                              ? "public"
-                              : visibility
-                          }
-                          onValueChange={(value) =>
-                            setVisibility(value as Visibility)
-                          }
-                          disabled={eventType === "workingLocation"}
-                        >
-                          <SelectTrigger
-                            id="event-visibility"
-                            className="h-8 text-sm"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">
-                              {t("eventForm.default")}
-                            </SelectItem>
-                            <SelectItem value="public">
-                              {t("eventForm.public")}
-                            </SelectItem>
-                            <SelectItem value="private">
-                              {t("eventForm.private")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opaque">
+                            {t("eventForm.busy")}
+                          </SelectItem>
+                          <SelectItem value="transparent">
+                            {t("eventForm.free")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs">{t("eventForm.color")}</Label>
-                      <EventColorSwatches
-                        value={colorId}
-                        onChange={setColorId}
-                        includeDefault
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">{t("eventForm.alerts")}</Label>
-                      <ReminderControls
-                        idPrefix="event"
-                        mode={reminderMode}
-                        reminders={reminders}
-                        onModeChange={setReminderMode}
-                        onRemindersChange={setReminders}
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">
-                        {t("eventForm.attachments")}
+                      <Label htmlFor="event-visibility" className="text-xs">
+                        {t("eventForm.visibility")}
                       </Label>
-                      {attachmentsOpen ||
-                      attachments.some(
-                        (attachment) =>
-                          attachment.title.trim() || attachment.fileUrl.trim(),
-                      ) ? (
-                        <AttachmentControls
-                          idPrefix="event"
-                          attachments={attachments}
-                          onChange={setAttachments}
-                        />
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-1.5 text-xs text-muted-foreground"
-                          onClick={() => setAttachmentsOpen(true)}
+                      <Select
+                        value={
+                          eventType === "workingLocation"
+                            ? "public"
+                            : visibility
+                        }
+                        onValueChange={(value) =>
+                          setVisibility(value as Visibility)
+                        }
+                        disabled={eventType === "workingLocation"}
+                      >
+                        <SelectTrigger
+                          id="event-visibility"
+                          className="h-8 text-sm"
                         >
-                          <IconPlus className="mr-1 size-3.5" />
-                          {t("eventForm.addAttachment")}
-                        </Button>
-                      )}
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">
+                            {t("eventForm.default")}
+                          </SelectItem>
+                          <SelectItem value="public">
+                            {t("eventForm.public")}
+                          </SelectItem>
+                          <SelectItem value="private">
+                            {t("eventForm.private")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </>
-                )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t("eventForm.color")}</Label>
+                    <EventColorSwatches
+                      value={colorId}
+                      onChange={setColorId}
+                      includeDefault
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t("eventForm.alerts")}</Label>
+                    <ReminderControls
+                      idPrefix="event"
+                      mode={reminderMode}
+                      reminders={reminders}
+                      onModeChange={setReminderMode}
+                      onRemindersChange={setReminders}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      {t("eventForm.attachments")}
+                    </Label>
+                    {attachmentsOpen ||
+                    attachments.some(
+                      (attachment) =>
+                        attachment.title.trim() || attachment.fileUrl.trim(),
+                    ) ? (
+                      <AttachmentControls
+                        idPrefix="event"
+                        attachments={attachments}
+                        onChange={setAttachments}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1.5 text-xs text-muted-foreground"
+                        onClick={() => setAttachmentsOpen(true)}
+                      >
+                        <IconPlus className="mr-1 size-3.5" />
+                        {t("eventForm.addAttachment")}
+                      </Button>
+                    )}
+                  </div>
+                </>
               </CollapsibleContent>
             </Collapsible>
           </div>
