@@ -292,14 +292,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 5,
-<<<<<<< HEAD
-    name: "better-auth-user-lower-email-index",
-    sql: {
-      postgres:
-        'CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON "user" (LOWER(email))',
-      sqlite:
-        "CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON user (LOWER(email))",
-=======
     name: "better-auth-add-onboarding-role",
     sql: {
       postgres: `
@@ -308,7 +300,16 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       sqlite: `
         ALTER TABLE user ADD COLUMN IF NOT EXISTS onboarding_role TEXT
       `,
->>>>>>> origin/main
+    },
+  },
+  {
+    version: 5,
+    name: "better-auth-user-lower-email-index",
+    sql: {
+      postgres:
+        'CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON "user" (LOWER(email))',
+      sqlite:
+        "CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON user (LOWER(email))",
     },
   },
 ];
