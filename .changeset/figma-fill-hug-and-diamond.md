@@ -37,10 +37,10 @@ distributes space on top of a gap rather than instead of it. A negative
 `itemSpacing` is clamped so the children still fill their container, which is
 where Figma stops an overlap — the same rule the `.fig` walker already used,
 rather than a second one, and applied on a FILL axis as well as a FIXED one
-since a FILL axis takes its parent's definite size. And a rotated auto-layout child now occupies its
-rotated footprint: a CSS transform does not change layout size, so a vertical
-rule stored as a wide line turned 90 degrees was taking its full pre-rotation
-width out of the row.
+since a FILL axis takes its parent's definite size. And a rotated auto-layout
+child now occupies its rotated footprint: a CSS transform does not change
+layout size, so a vertical rule stored as a wide line turned 90 degrees was
+taking its full pre-rotation width out of the row.
 
 Three more sizing rules now follow Figma. A HUG container holding a cross-axis
 FILL child uses the size Figma resolved: a FILL child does not feed Figma's
