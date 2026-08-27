@@ -5612,24 +5612,29 @@ export default function SlideEditor({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
-            <div className="relative h-full bg-[var(--slides-editor-surface)]">
-              {!readOnly && (
-                <ExcalidrawExitButton
-                  // JSON.stringify drops `undefined` properties before the patch
-                  // reaches the network request, so the server's
-                  // `fields.excalidrawData !== undefined` merge check never sees
-                  // the clear — the canvas would reappear after reload. "" is a
-                  // serializable value that survives the round trip and is
-                  // already treated as "no data" everywhere excalidrawData is read.
-                  onExit={() => onUpdateSlide({ excalidrawData: "" })}
-                  label={t("raw.exitExcalidrawCanvas")}
+            <div
+              data-main-slide-canvas="true"
+              className="relative h-full bg-[var(--slides-editor-surface)]"
+            >
+              <div className="slide-content relative h-full">
+                {!readOnly && (
+                  <ExcalidrawExitButton
+                    // JSON.stringify drops `undefined` properties before the patch
+                    // reaches the network request, so the server's
+                    // `fields.excalidrawData !== undefined` merge check never sees
+                    // the clear — the canvas would reappear after reload. "" is a
+                    // serializable value that survives the round trip and is
+                    // already treated as "no data" everywhere excalidrawData is read.
+                    onExit={() => onUpdateSlide({ excalidrawData: "" })}
+                    label={t("raw.exitExcalidrawCanvas")}
+                  />
+                )}
+                <ExcalidrawSlide
+                  initialData={slide.excalidrawData}
+                  onChange={(data) => onUpdateSlide({ excalidrawData: data })}
+                  readOnly={readOnly}
                 />
-              )}
-              <ExcalidrawSlide
-                initialData={slide.excalidrawData}
-                onChange={(data) => onUpdateSlide({ excalidrawData: data })}
-                readOnly={readOnly}
-              />
+              </div>
             </div>
           ) : (
             <div className="relative h-full bg-[var(--slides-editor-surface)]">
