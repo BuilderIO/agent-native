@@ -101,7 +101,10 @@ import {
   resolveSlidesCanvasNudge,
   slidesCanvasInteractionCore,
 } from "./canvas-interactions";
-import type { SlideShapeType } from "./EditorActionCluster";
+import {
+  SLIDE_SHAPE_LABEL_KEYS,
+  type SlideShapeType,
+} from "./EditorActionCluster";
 import ImageOverlay from "./ImageOverlay";
 import {
   shouldPersistInlineEditContent,
@@ -3514,9 +3517,14 @@ export default function SlideEditor({
       if (!canvas) return;
       const { fmdSlide, positioningLayer } = canvas;
       const rect = positioningLayer.getBoundingClientRect();
-      const size = type === "circle" ? 144 : { width: 192, height: 144 };
-      const width = typeof size === "number" ? size : size.width;
-      const height = typeof size === "number" ? size : size.height;
+      const size = {
+        rectangle: { width: 192, height: 144 },
+        circle: { width: 144, height: 144 },
+        arrow: { width: 192, height: 144 },
+        triangle: { width: 144, height: 144 },
+        line: { width: 240, height: 4 },
+      }[type];
+      const { width, height } = size;
       const point = clientPointToSlideCoordinates(
         clientX,
         clientY,
@@ -3533,14 +3541,7 @@ export default function SlideEditor({
       const color = getSlideTextBoxDefaultColor(target, positioningLayer);
       shape.className = `fmd-shape fmd-shape-${type}`;
       shape.setAttribute("data-slide-shape", type);
-      shape.setAttribute(
-        "aria-label",
-        t(
-          type === "circle"
-            ? "editorToolbar.shapeCircle"
-            : "editorToolbar.shapeRectangle",
-        ),
-      );
+      shape.setAttribute("aria-label", t(SLIDE_SHAPE_LABEL_KEYS[type]));
       ensureSlideObjectId(shape);
       ensureBuilderId(shape);
       shape.style.position = "absolute";
@@ -3550,8 +3551,16 @@ export default function SlideEditor({
       shape.style.height = `${height}px`;
       shape.style.boxSizing = "border-box";
       shape.style.backgroundColor = color;
-      shape.style.border = `2px solid ${color}`;
-      shape.style.borderRadius = type === "circle" ? "50%" : "4px";
+      shape.style.border =
+        type === "rectangle" || type === "circle" ? `2px solid ${color}` : "0";
+      shape.style.borderRadius =
+        type === "circle" ? "50%" : type === "line" ? "999px" : "4px";
+      if (type === "arrow") {
+        shape.style.clipPath =
+          "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
+      } else if (type === "triangle") {
+        shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
+      }
       shape.style.opacity = "0.85";
       positioningLayer.appendChild(shape);
 
