@@ -210,33 +210,40 @@ or explanatory comment unless the invocation explicitly asks for it.
 
 For a non-draft PR whose GitHub author login is exactly `dependabot[bot]` (or
 the exact `dependabot` login returned by GitHub), use the merge exception below
-instead of the membership and approval gate. Do not infer Dependabot from a
-title, branch name, or author association.
+instead of the membership gate. Branch-protection approvals still apply. Do
+not infer Dependabot from a title, branch name, or author association.
 
 ## Dependabot merge exception
 
-The user has authorized this review skill to merge safe Dependabot PRs. Merge a
-Dependabot PR immediately, without adding an approval review, only when every
-condition below is true:
+The user has authorized this review skill to merge safe Dependabot PRs. A
+qualifying Dependabot PR may skip the ordinary babysit soak, but it must still
+meet branch-protection requirements. Merge it only when every condition below
+is true:
 
 1. The PR is in `BuilderIO/agent-native`, is not a draft, is mergeable with no
-   conflict, and its update is patch or minor rather than a major upgrade.
+   conflict, and its update is patch or minor rather than a major upgrade. A
+   minor update qualifies only when both its current and proposed major
+   versions are at least `1`; dependencies on major version `0` are patch-only
+   for this exception.
 2. The complete diff changes only dependency manifests and their lockfiles.
    The manifest changes are dependency-version changes only, with no scripts,
    resolutions, package-manager/runtime, workflow, generated source, or other
    configuration edits.
 3. All required checks are successful. No required lane is pending, skipped,
    neutral, unknown, failing, or unavailable, and no active review is
-   `CHANGES_REQUESTED` or leaves an unresolved review thread.
+   `CHANGES_REQUESTED` or leaves an unresolved review thread. Any required
+   approving review is already present, or one reviewer other than the PR
+   author submits a current-head approval before the merge; do not duplicate
+   an existing approval.
 4. The dependency change has no credible auth, permission, tenant-isolation,
    secret, data-loss, remote-code-execution, SSRF, payment, deployment, or
    other ultra-scary production risk. If the dependency or diff touches one of
    those boundaries, flag it for human review.
 
-Use the expected head SHA when merging through GitHub, use the normal protected
-merge path rather than an admin bypass, and re-read the PR after the merge to
-record the merged SHA and result. A failed or unavailable safety check means
-flagged, never “probably safe.”
+Use the expected head SHA with `gh pr merge <number> --squash --match-head-commit <sha>`, use the normal protected merge path rather than an
+admin bypass, and re-read the PR after the merge to record the merged SHA and
+result. A failed or unavailable safety check means flagged, never “probably
+safe.”
 
 For a PR that fails any applicable gate, do not submit an approval. Flag the
 exact concern and the evidence needed to resolve it. External PRs may be

@@ -41,11 +41,13 @@ When a ship run also reviews the open PR queue, it may merge a non-draft PR
 authored by the exact Dependabot bot login when the `review-prs` Dependabot
 merge exception passes. That exception is limited to patch/minor,
 dependency-only manifest/lockfile updates with clean mergeability, all
-required checks successful, no active review blocker, and no ultra-scary
-security, data, or deployment risk. Use the expected head SHA and the normal
-protected merge path, not an admin bypass. Do not auto-merge other external
-PRs or treat this exception as authorization to skip the current branch's
-`/babysit-pr` gates.
+required checks successful, no active review blocker, no ultra-scary security,
+data, or deployment risk, and no minor update for a major-version-0
+dependency. Satisfy any required approving review, then bind the normal
+protected merge to the expected head SHA with `--match-head-commit <sha>`; do
+not use an admin bypass. This queue exception may skip the current branch's
+`/babysit-pr` soak, but it does not skip branch protection. Do not auto-merge
+other external PRs.
 
 ## Branch-wide Push
 
@@ -277,8 +279,11 @@ branch, stay on it.
 
    If this invocation also found a Dependabot PR, apply the dedicated
    `review-prs` exception above and merge each qualifying update with its
-   expected head SHA. Re-read each PR after merging and record its result;
-   never use this path to bypass a failed or unavailable check.
+   expected head SHA. Immediately before each merge, re-read the current head,
+   review state, mergeability, and checks; obtain any required approval from a
+   reviewer other than the PR author, then run `gh pr merge <number> --squash --match-head-commit <sha>` without `--admin`. Re-read each PR after merging
+   and record its result; never use this path to bypass a failed or unavailable
+   check.
 
 8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
