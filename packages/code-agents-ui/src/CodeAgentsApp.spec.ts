@@ -212,11 +212,14 @@ describe("CodeAgentsApp transcript selection", () => {
       "const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);",
     );
     expect(source).toContain("if (runIsActive && !wasRunActiveRef.current) {");
-    expect(source).toContain("if (runId) setUserStoppedRunId(runId);");
+    expect(source).toContain("setUserStoppedRunId(runId);");
     expect(source).toContain(
       "externalUserStopped={userStoppedRunId === run.id}",
     );
     expect(source).toContain("externalUserStopped={externalUserStopped}");
+    expect(source).toContain("const stopSucceeded = await onStop();");
+    expect(source).toContain("if (!stopSucceeded) {");
+    expect(source).toContain("return result.ok;");
   });
 
   it("does not let an older transcript read replace a newly selected chat", () => {

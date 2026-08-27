@@ -2109,10 +2109,12 @@ export default function CodeAgentsApp({
     seedNewPrompt("");
   }
 
-  async function controlRun(command: CodeAgentControlCommand) {
+  async function controlRun(
+    command: CodeAgentControlCommand,
+  ): Promise<boolean> {
     if (!selectedRunId) {
       toast("Select a chat first", { duration: 1800 });
-      return;
+      return false;
     }
     if (command === "resume" && selectedRunUsesAppSurface) {
       setWorkbenchOpen(true);
@@ -2131,7 +2133,7 @@ export default function CodeAgentsApp({
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
-      return;
+      return false;
     }
     if (result.action === "open-ui") setWorkbenchOpen(true);
     if (result.action === "refresh") await loadRuns(true);
@@ -2139,6 +2141,7 @@ export default function CodeAgentsApp({
       duration: result.ok ? 2200 : 3600,
       description: result.error,
     });
+    return result.ok;
   }
 
   async function forkSelectedChat(executionTarget: "local" | "worktree") {
@@ -5279,7 +5282,7 @@ function RunDetailCard({
   modelOptions: CodeAgentModelOption[];
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onStop: () => void;
+  onStop: () => Promise<boolean>;
   onApprove: () => void;
   onApproveAlways: () => void;
   onDeny: () => void;
@@ -5299,9 +5302,16 @@ function RunDetailCard({
   const runId = run?.id;
   const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
   const wasRunActiveRef = useRef(runIsActive);
-  const handleStop = useCallback(() => {
-    if (runId) setUserStoppedRunId(runId);
-    onStop();
+  const handleStop = useCallback(async () => {
+    if (!runId) return false;
+    setUserStoppedRunId(runId);
+    const stopSucceeded = await onStop();
+    if (!stopSucceeded) {
+      setUserStoppedRunId((stoppedRunId) =>
+        stoppedRunId === runId ? null : stoppedRunId,
+      );
+    }
+    return stopSucceeded;
   }, [onStop, runId]);
 
   useEffect(() => {
@@ -5316,7 +5326,7 @@ function RunDetailCard({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      handleStop();
+      void handleStop();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -5526,7 +5536,7 @@ function TranscriptPanel({
   externalUserStopped: boolean;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onStop: () => void;
+  onStop: () => Promise<boolean>;
   /** Resolves the run's pending approval as denied — same command the standalone approval banner uses. */
   onDeny?: () => void;
   /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
@@ -5752,7 +5762,7 @@ function TranscriptSourceBanner({
   );
 }
 
-function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
+function CodeAgentStopButton({ onStop }: { onStop: () => Promise<boolean> }) {
   return (
     <button
       type="button"

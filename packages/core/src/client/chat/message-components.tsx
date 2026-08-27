@@ -1333,7 +1333,7 @@ export function shouldShowAssistantMessageFooter({
     messageRunId != null &&
     activeRunId === messageRunId;
   const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
-  if (chatRunning && ownsActiveRun) return false;
+  if (chatRunning && ownsActiveRun && !userStoppedRun) return false;
   if (hasActiveTool && !userStoppedRun) return false;
   if (!isLast) return true;
   if (hasUnresolvedTool && !userStoppedRun) return false;
