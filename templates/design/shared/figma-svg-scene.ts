@@ -2049,7 +2049,7 @@ function gradientLayerHasUnreadableStop(layer: string): boolean {
     const withoutPosition = part.replace(/\s*(-?[\d.]+)%\s*$/, "").trim();
     if (!withoutPosition) return true;
     if (
-      /(^|\s)-?[\d.]+(px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
+      /(^|\s)-?[\d.]+(%|px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
         withoutPosition,
       )
     )
@@ -2609,7 +2609,7 @@ export function collectRawFigmaSvgScene(
         // spreads those. A residual length or number still glued to the colour
         // is not: it becomes an invalid `stop-color`.
         if (
-          /(^|\s)-?[\d.]+(px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
+          /(^|\s)-?[\d.]+(%|px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(
             withoutPosition,
           )
         )

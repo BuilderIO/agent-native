@@ -1343,6 +1343,25 @@ describe("background-image sizing on export", () => {
     expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
   });
 
+  it("catches a two-position stop whose residue is also a percentage", () => {
+    // `<colour> 20% 30%` strips to `<colour> 20%`, which is still a position
+    // glued to the colour — checking only for a residual bare number or a
+    // non-percent length missed it, and the parser paints it black.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(255, 0, 0) 20% 30%, rgb(0, 0, 255) 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
+  });
+
+  it("does not over-catch ordinary single-percentage stops", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(255, 0, 0) 20%, rgb(0, 0, 255) 80%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["linear-gradient"]);
+  });
+
   it("still reads ordinary percentage-positioned gradient stops", () => {
     const layers = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
