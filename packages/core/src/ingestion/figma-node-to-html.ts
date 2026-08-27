@@ -1860,7 +1860,15 @@ function vectorClipPath(
   node: FigmaNode,
   tracker: FidelityTracker,
 ): string | undefined {
-  const paths = (node.fillGeometry ?? [])
+  // A stroke-only vector — a LINE, an open path — has `strokeGeometry` and no
+  // `fillGeometry`, and its ink IS that outlined stroke region. Reading only
+  // the fill left exactly those nodes with no clip, i.e. back to the
+  // rectangular wrapper this function exists to avoid.
+  const source =
+    (node.fillGeometry?.length ?? 0) > 0
+      ? node.fillGeometry
+      : node.strokeGeometry;
+  const paths = (source ?? [])
     .map((entry) => entry.path?.trim())
     .filter((d): d is string => Boolean(d));
   if (paths.length === 0) {
@@ -1871,8 +1879,7 @@ function vectorClipPath(
     );
     return undefined;
   }
-  const rule =
-    node.fillGeometry?.[0]?.windingRule === "EVENODD" ? "evenodd, " : "";
+  const rule = source?.[0]?.windingRule === "EVENODD" ? "evenodd, " : "";
   return `path(${rule}"${paths.join(" ").replace(/"/g, "'")}")`;
 }
 

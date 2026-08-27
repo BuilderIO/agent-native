@@ -1168,8 +1168,11 @@ function resolveFillPaint(
           "is unknown at export time and the repeat could not be reproduced.",
       });
     } else {
+      // `background-position` on a repeating background sets the tile phase, so
+      // it shifts the pattern's ORIGIN rather than the image inside the tile.
+      const phase = fill.offsetPx ?? { x: 0, y: 0 };
       ctx.defs.push(
-        `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${n(node.rect.x)}" y="${n(node.rect.y)}" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}">` +
+        `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${n(node.rect.x + phase.x)}" y="${n(node.rect.y + phase.y)}" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}">` +
           `<image href="${escapeXmlAttr(fill.href)}" x="0" y="0" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}" preserveAspectRatio="none"${
             node.imageRendering
               ? ` image-rendering="${node.imageRendering}"`
@@ -1994,8 +1997,21 @@ function imageFitFromSize(
   // is not the same fact as `auto`; it cannot be shown to repeat.
   const canShowRepeat = !fillsBox && value !== "";
   if (repeatValue === "repeat" && canShowRepeat) {
-    // The tile size is known, so an SVG pattern reproduces it exactly.
-    if (explicitPx) return { fit: "stretch", sizePx: explicitPx, repeat: true };
+    // The tile size is known, so an SVG pattern reproduces it exactly. Its
+    // `background-position` is the tile PHASE, not a one-off offset — dropping
+    // it anchored every tiling at the box origin.
+    if (explicitPx) {
+      const offsets = Array.from(
+        (position ?? "").matchAll(/(-?[\d.]+)px/g),
+      ).map((m) => Number(m[1]));
+      return {
+        fit: "stretch",
+        sizePx: explicitPx,
+        offsetPx:
+          offsets.length === 2 ? { x: offsets[0]!, y: offsets[1]! } : undefined,
+        repeat: true,
+      };
+    }
     // A real TILE whose size could not be resolved, or a tiled `contain`.
     // Neither is reproducible without the intrinsic size, so keep the honest
     // fit and let `imageFillMarkup` report the tiling it could not draw.

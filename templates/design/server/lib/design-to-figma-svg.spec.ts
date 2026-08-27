@@ -1310,6 +1310,29 @@ describe("background-image sizing on export", () => {
     ]);
   });
 
+  it("keeps a tiled background's phase from background-position", () => {
+    // On a repeating background, `background-position` is the tile PHASE, not
+    // a one-off offset — dropping it anchored every tiling at the box origin.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "8px 4px",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 16, height: 16 },
+        offsetPx: { x: 8, y: 4 },
+        repeat: true,
+      },
+    ]);
+  });
+
   it("does not treat a one-axis repeat as a two-axis tile", () => {
     // An SVG pattern repeats on both axes and has no one-axis form, so
     // `repeat-x` coming back tiled vertically would cover rows the design
