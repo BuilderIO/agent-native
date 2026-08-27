@@ -1435,13 +1435,11 @@ const ptBR = {
         animatedPrompt3:
           "Os últimos quatro trimestres da Nvidia, com base nos relatórios para investidores, no estilo de nvidia.com.",
         animatedPrompt4:
-          "Deck de vendas para uma plataforma de suporte com IA, no estilo de stripe.com.",
+          "Deck de vendas para uma plataforma de suporte com IA, no estilo de stripe.co.",
         animatedPrompt5:
           "Panorama do mercado imobiliário dos EUA, com dados de pesquisa de Census e Zillow.",
         animatedPrompt6:
           "Introdução a LLMs para estudantes de MBA, no estilo de apple.com.",
-        animatedPrompt7:
-          "Adoção global de veículos elétricos desde 2015, usando Our World in Data.",
         promptPlaceholder:
           "Substitua este prompt: Crie uma apresentação alinhada à marca para [público] com o objetivo de [propósito], usando os dados ou anotações colados abaixo: [cole os dados ou anotações aqui].",
         sectionHeading:

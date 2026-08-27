@@ -1413,13 +1413,11 @@ const koKR = {
         animatedPrompt3:
           "Nvidia의 투자자 공시에서 최근 4개 분기를 정리해 nvidia.com 스타일로 만들어 주세요.",
         animatedPrompt4:
-          "AI 지원 플랫폼을 위한 영업 덱을 stripe.com 스타일로 만들어 주세요.",
+          "AI 지원 플랫폼을 위한 영업 덱을 stripe.co 스타일로 만들어 주세요.",
         animatedPrompt5:
           "Census와 Zillow 조사 데이터를 활용한 미국 주택 시장 현황을 만들어 주세요.",
         animatedPrompt6:
           "MBA 학생을 위한 LLM 입문 자료를 apple.com 스타일로 만들어 주세요.",
-        animatedPrompt7:
-          "Our World in Data를 활용해 2015년 이후 전 세계 EV 도입 현황을 만들어 주세요.",
         promptPlaceholder:
           "이 프롬프트를 바꾸세요: 아래에 붙여 넣은 데이터나 메모를 사용해 [대상]을 위한 [목적]의 브랜드 맞춤형 덱을 만들어 주세요: [여기에 데이터 또는 메모 붙여 넣기].",
         sectionHeading: "데이터로 브랜드에 맞는 덱을 즉시 만들어 보세요:",

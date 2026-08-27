@@ -1442,13 +1442,11 @@ const deDE = {
         animatedPrompt3:
           "Die letzten vier Quartale von Nvidia aus den Investorenberichten im Stil von nvidia.com.",
         animatedPrompt4:
-          "Vertriebs-Deck für eine KI-Supportplattform im Stil von stripe.com.",
+          "Vertriebs-Deck für eine KI-Supportplattform im Stil von stripe.co.",
         animatedPrompt5:
           "Momentaufnahme des US-Immobilienmarkts mit Forschungsdaten von Census und Zillow.",
         animatedPrompt6:
           "Einführung in LLMs für MBA-Studierende im Stil von apple.com.",
-        animatedPrompt7:
-          "Globale Einführung von Elektrofahrzeugen seit 2015 mit Our World in Data.",
         promptPlaceholder:
           "Ersetzen Sie diesen Prompt: Erstellen Sie für [Zielgruppe] eine markengerechte Präsentation mit dem Ziel [Zweck] aus den unten eingefügten Daten oder Notizen: [Daten oder Notizen hier einfügen].",
         sectionHeading:

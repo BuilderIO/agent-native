@@ -1420,12 +1420,10 @@ const jaJP = {
         animatedPrompt3:
           "Nvidia の投資家向け資料から直近4四半期をまとめ、nvidia.com のスタイルで。",
         animatedPrompt4:
-          "AI サポートプラットフォーム向け営業デッキを stripe.com のスタイルで。",
+          "AI サポートプラットフォーム向け営業デッキを stripe.co のスタイルで。",
         animatedPrompt5:
           "Census と Zillow の調査データを使った米国住宅市場の概況。",
         animatedPrompt6: "MBA 学生向けの LLM 入門を apple.com のスタイルで。",
-        animatedPrompt7:
-          "Our World in Data を使った2015年以降の世界の EV 普及状況。",
         promptPlaceholder:
           "このプロンプトを置き換えてください：以下に貼り付けたデータやメモを使い、[対象者]向けに[目的]を達成するブランド準拠のデッキを作成してください：[データやメモをここに貼り付け]。",
         sectionHeading: "データからブランドに合ったデッキをすぐに作成：",

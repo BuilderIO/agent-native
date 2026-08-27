@@ -1425,13 +1425,11 @@ const enUS = {
         animatedPrompt3:
           "Nvidia's last four quarters, from their investor filings, in the style of nvidia.com.",
         animatedPrompt4:
-          "A sales deck for an AI support platform, in the style of stripe.com.",
+          "A sales deck for an AI support platform, in the style of stripe.co",
         animatedPrompt5:
           "US housing market snapshot, with Census and Zillow research data.",
         animatedPrompt6:
           "Intro to LLMs for MBA students, in the style of apple.com.",
-        animatedPrompt7:
-          "Global EV adoption since 2015, using Our World in Data.",
         promptPlaceholder:
           "Replace this prompt: Create an on-brand deck for [audience] to [purpose] using the pasted data or notes below: [paste data or notes].",
         sectionHeading: "Build an on-brand deck from your data instantly:",

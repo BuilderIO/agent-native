@@ -1440,13 +1440,11 @@ const frFR = {
         animatedPrompt3:
           "Les quatre derniers trimestres de Nvidia, d'après ses publications investisseurs, dans le style de nvidia.com.",
         animatedPrompt4:
-          "Deck commercial pour une plateforme de support par IA, dans le style de stripe.com.",
+          "Deck commercial pour une plateforme de support par IA, dans le style de stripe.co.",
         animatedPrompt5:
           "Aperçu du marché immobilier américain, avec des données de recherche de Census et Zillow.",
         animatedPrompt6:
           "Introduction aux LLM pour des étudiants en MBA, dans le style de apple.com.",
-        animatedPrompt7:
-          "Adoption mondiale des véhicules électriques depuis 2015, avec Our World in Data.",
         promptPlaceholder:
           "Remplacez ce prompt : créez une présentation fidèle à la marque pour [public] afin de [objectif] à partir des données ou notes collées ci-dessous : [collez les données ou notes ici].",
         sectionHeading:

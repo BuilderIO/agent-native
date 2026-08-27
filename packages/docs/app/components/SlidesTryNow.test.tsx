@@ -23,10 +23,9 @@ const ENGLISH_ANIMATED_PROMPTS = [
   "Launch deck for a running-shoe drop, in the style of nike.com.",
   "Fundraising deck for a coastal cleanup nonprofit, in the style of Patagonia.",
   "Nvidia's last four quarters, from their investor filings, in the style of nvidia.com.",
-  "A sales deck for an AI support platform, in the style of stripe.com.",
+  "A sales deck for an AI support platform, in the style of stripe.co",
   "US housing market snapshot, with Census and Zillow research data.",
   "Intro to LLMs for MBA students, in the style of apple.com.",
-  "Global EV adoption since 2015, using Our World in Data.",
 ] as const;
 
 function slidesTryNowElement() {
@@ -81,7 +80,7 @@ afterEach(() => {
 });
 
 describe("SlidesTryNow", () => {
-  it("keeps the seven English prompt examples in the requested order", () => {
+  it("keeps the six English prompt examples in the requested order", () => {
     const messages = docsI18nCatalog.messages.templateLanding.slides.tryNow;
 
     expect([
@@ -91,7 +90,6 @@ describe("SlidesTryNow", () => {
       messages.animatedPrompt4,
       messages.animatedPrompt5,
       messages.animatedPrompt6,
-      messages.animatedPrompt7,
     ]).toEqual(ENGLISH_ANIMATED_PROMPTS);
   });
 
@@ -195,7 +193,7 @@ describe("SlidesTryNow", () => {
     expect(promptBox.textContent).toBe(ENGLISH_ANIMATED_PROMPTS[0]);
   });
 
-  it("associates the visible prompt label with the editable textbox", () => {
+  it("associates the hidden prompt label with the editable textbox", () => {
     renderSlidesTryNow();
 
     const prompt = screen.getByRole("textbox", {
@@ -204,18 +202,19 @@ describe("SlidesTryNow", () => {
     const labelId = prompt.getAttribute("aria-labelledby");
 
     expect(labelId).toBe("slides-try-now-prompt-label");
-    expect(document.getElementById(labelId || "")?.textContent).toBe(
-      "Presentation generation prompt",
-    );
+    const label = document.getElementById(labelId || "");
+    expect(label?.textContent).toBe("Presentation generation prompt");
+    expect(label).toHaveClass("sr-only");
     expect(prompt.getAttribute("data-placeholder")).toBeNull();
     expect(prompt.getAttribute("contenteditable")).toBe("true");
   });
 
-  it("renders tooltip next to the presentation generation prompt", () => {
+  it("does not render visible prompt header or tooltip chrome", () => {
     renderSlidesTryNow();
 
-    expect(screen.getByRole("tooltip").textContent).toContain(
-      "Be specific. Generic prompts = generic decks.",
-    );
+    expect(
+      screen.queryByRole("button", { name: "Prompt tip" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });

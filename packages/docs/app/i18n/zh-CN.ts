@@ -1395,12 +1395,10 @@ const zhCN = {
         animatedPrompt3:
           "根据 Nvidia 的投资者文件总结最近四个季度，采用 nvidia.com 风格。",
         animatedPrompt4:
-          "为 AI 支持平台制作一份 stripe.com 风格的销售演示文稿。",
+          "为 AI 支持平台制作一份 stripe.co 风格的销售演示文稿。",
         animatedPrompt5: "使用 Census 和 Zillow 研究数据制作美国住房市场概览。",
         animatedPrompt6:
           "为 MBA 学生制作一份 apple.com 风格的大语言模型入门介绍。",
-        animatedPrompt7:
-          "使用 Our World in Data 展示自 2015 年以来全球电动汽车的普及情况。",
         promptPlaceholder:
           "替换此提示词：使用下方粘贴的数据或笔记，为[受众]制作一份用于[目的]的品牌风格演示文稿：[在此粘贴数据或笔记]。",
         sectionHeading: "立即用你的数据制作符合品牌风格的演示文稿：",

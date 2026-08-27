@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowRight, IconInfoCircle } from "@tabler/icons-react";
+import { IconArrowRight } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
@@ -39,12 +39,11 @@ export function SlidesTryNow() {
       tn("animatedPrompt4"),
       tn("animatedPrompt5"),
       tn("animatedPrompt6"),
-      tn("animatedPrompt7"),
     ];
   }
   const animatedPrompts = animatedPromptsRef.current;
   const [promptText, setPromptText] = useState("");
-  const promptRef = useRef<HTMLDivElement>(null);
+  const promptRef = useRef<HTMLParagraphElement>(null);
   const animationStoppedRef = useRef(false);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promptHref = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
@@ -126,34 +125,11 @@ export function SlidesTryNow() {
 
   return (
     <div className="w-full min-w-0 text-start">
-      <div className="flex min-h-[22rem] min-w-0 flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-6">
-        <div className="flex items-center gap-1.5">
-          <span
-            id="slides-try-now-prompt-label"
-            className="text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]"
-          >
-            {tn("composerLabel")}
-          </span>
-          <div className="group relative inline-flex items-center">
-            <button
-              type="button"
-              aria-label={tn("promptTip")}
-              className="inline-flex size-4 items-center justify-center rounded-full text-[var(--fg-secondary)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--docs-accent)]"
-            >
-              <IconInfoCircle size={14} aria-hidden="true" />
-            </button>
-            <div
-              role="tooltip"
-              className="pointer-events-none absolute bottom-full left-0 z-10 mb-2 hidden w-64 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-2.5 text-xs font-normal normal-case leading-relaxed text-[var(--fg)] shadow-lg group-hover:block group-focus-within:block"
-            >
-              {/* i18n-ignore: product guidance copy */}
-              Be specific. Generic prompts = generic decks. Say who it is for,
-              paste your notes, and even reference a website design you want to
-              copy.
-            </div>
-          </div>
-        </div>
-        <div
+      <div className="flex min-h-[22rem] min-w-0 flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 transition-colors focus-within:border-[var(--docs-accent)] focus-within:ring-2 focus-within:ring-[var(--docs-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--bg-secondary)] sm:p-6">
+        <span id="slides-try-now-prompt-label" className="sr-only">
+          {tn("composerLabel")}
+        </span>
+        <p
           ref={promptRef}
           id="slides-try-now-prompt"
           role="textbox"
@@ -171,7 +147,7 @@ export function SlidesTryNow() {
             stopPromptAnimation();
             setPromptText(extractPromptText(event.currentTarget).trim());
           }}
-          className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition-colors focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
+          className="m-0 min-h-48 w-full flex-1 text-sm leading-8 text-[var(--fg)] outline-none"
         />
         <div className="flex justify-end">
           <a

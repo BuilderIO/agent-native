@@ -1393,12 +1393,10 @@ const messages = {
           "為海岸清理非營利組織製作一份 Patagonia 風格的募款簡報。",
         animatedPrompt3:
           "根據 Nvidia 的投資人文件整理最近四個季度，採用 nvidia.com 風格。",
-        animatedPrompt4: "為 AI 支援平台製作一份 stripe.com 風格的銷售簡報。",
+        animatedPrompt4: "為 AI 支援平台製作一份 stripe.co 風格的銷售簡報。",
         animatedPrompt5: "使用 Census 和 Zillow 研究資料製作美國住宅市場概覽。",
         animatedPrompt6:
           "為 MBA 學生製作一份 apple.com 風格的大型語言模型入門介紹。",
-        animatedPrompt7:
-          "使用 Our World in Data 呈現自 2015 年以來全球電動車的普及情況。",
         promptPlaceholder:
           "替換此提示詞：使用下方貼上的資料或筆記，為[受眾]製作一份用於[目的]的品牌風格簡報：[在此貼上資料或筆記]。",
         sectionHeading: "立即用你的資料製作符合品牌風格的簡報：",
