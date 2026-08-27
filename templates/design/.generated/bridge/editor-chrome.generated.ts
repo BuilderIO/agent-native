@@ -2041,13 +2041,21 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var target = selectionTargetForHit(node);
-        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target)) {
+        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
           return;
         }
         seen.add(target);
         elements.push(target);
       });
       return elements;
+    }
+    function isPaddedAwayFromView(el) {
+      var rect = el.getBoundingClientRect();
+      if (rect.width >= MIN_SELECTABLE_EXTENT_PX && rect.height >= MIN_SELECTABLE_EXTENT_PX) {
+        return false;
+      }
+      var cs = window.getComputedStyle(el);
+      return cs.display === "none" || cs.visibility === "hidden";
     }
     function collectSelectableElementInfos() {
       return collectSelectableElements().map(function(target) {

@@ -26,6 +26,8 @@ const FIXTURE = `<!doctype html>
       </svg>
       <div data-agent-native-layer-name="Unnamed"
            style="position:absolute;left:20px;top:320px;width:200px;height:70px;background:#f59e0b"></div>
+      <div data-agent-native-node-id="ghosted" data-agent-native-layer-name="Ghosted"
+           style="display:none;position:absolute;left:20px;top:200px;width:120px;height:40px;background:#000"></div>
       <div data-agent-native-node-id="flat" data-agent-native-layer-name="Flat row"
            style="position:absolute;left:20px;top:440px;width:200px;height:0;overflow:visible">
         <span style="display:block;width:200px;height:24px;background:#a855f7"></span>
@@ -515,5 +517,30 @@ test.describe("dragging out and back onto the same screen", () => {
       top,
       "the layer must land near the release point, not back up at the top",
     ).toBeGreaterThan(150);
+  });
+});
+
+test.describe("hidden layers", () => {
+  test("a band over a display:none layer does not select it", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+
+    // The band spans the hidden layer's coordinates, between the two boxes and
+    // the rule below them.
+    const a = (await node(page, "box-a").boundingBox())!;
+    const rule = (await node(page, "rule").boundingBox())!;
+    const card = await screenCard(page);
+    await sweep(
+      page,
+      { x: Math.max(card.x + 4, a.x - 10), y: a.y + a.height + 4 },
+      { x: rule.x + rule.width, y: rule.y - 4 },
+    );
+
+    expect(
+      (await selectedRows(page).allTextContents()).join("|"),
+      "padding a zero-size box must not make an invisible layer selectable",
+    ).not.toContain("Ghosted");
   });
 });

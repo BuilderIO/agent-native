@@ -885,6 +885,14 @@
         return;
       }
       var rect = node.getBoundingClientRect();
+      if (
+        rect.width < MIN_SELECTABLE_EXTENT_PX ||
+        rect.height < MIN_SELECTABLE_EXTENT_PX
+      ) {
+        // keep in sync with editor-chrome.bridge.ts isPaddedAwayFromView
+        var cs = window.getComputedStyle(node);
+        if (cs.display === "none" || cs.visibility === "hidden") return;
+      }
       var padX =
         rect.width < MIN_SELECTABLE_EXTENT_PX
           ? MIN_SELECTABLE_EXTENT_PX / 2

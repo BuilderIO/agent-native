@@ -958,10 +958,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   /** Ref kept in sync with state so the message handler can read without closures. */
   const crossScreenTargetRef = useRef<CrossScreenDragTarget | null>(null);
   const crossScreenHitTestSeqRef = useRef(0);
-  /** Bumped when a new cross-screen gesture starts. A commit hit-test can
-   *  outlive its gesture, and persisting its reply afterwards moves a layer the
-   *  user is no longer dragging. */
+  /** Bumped when a cross-screen gesture starts, is abandoned, or the canvas
+   *  unmounts. A commit hit-test can outlive its gesture, and persisting its
+   *  reply afterwards moves a layer the user is no longer dragging. */
   const crossScreenDropSeqRef = useRef(0);
+  /** Whether the current gesture already reached its release. The bridge posts
+   *  "cancel" immediately after "end" as cleanup, and that trailing cancel must
+   *  not invalidate the commit the release just started. */
+  const crossScreenEndSeenRef = useRef(false);
+  /** False once this canvas unmounts. Nothing may persist a drop after that.
+   *  Mount-scoped on purpose: the message effect's cleanup also runs on every
+   *  dependency change, and invalidating there kills live commits. */
+  const canvasMountedRef = useRef(true);
   const crossScreenPreviewTargetIdRef = useRef<string | null>(null);
   /** The most-recent drag message payload — kept for use in the "end" handler. */
   const crossScreenDragMsgRef = useRef<{
@@ -1963,6 +1971,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   useEffect(() => clearFileDragState, [clearFileDragState]);
 
+  useEffect(() => {
+    canvasMountedRef.current = true;
+    return () => {
+      canvasMountedRef.current = false;
+    };
+  }, []);
+
   // ── Cross-screen element drag receiver ────────────────────────────────────
   // The source iframe (the active interactive screen) posts
   // { type: "agent-native:cross-screen-drag", phase, selector, sourceId,
@@ -2446,9 +2461,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint,
         selector: payload.selector,
       });
+      crossScreenEndSeenRef.current = true;
       clearCrossScreenDrag();
       const dropSeq = crossScreenDropSeqRef.current;
-      const isCurrentDrop = () => crossScreenDropSeqRef.current === dropSeq;
+      const isCurrentDrop = () =>
+        canvasMountedRef.current && crossScreenDropSeqRef.current === dropSeq;
       crossScreenLastBoardPointRef.current = null;
       const hasIdentifier = !!(payload.selector || payload.sourceId);
       if (!hasIdentifier || !sourceScreenId) return;
@@ -2646,6 +2663,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : undefined;
 
       if (msg.phase === "cancel") {
+        // Abandoned before the release: invalidate any commit still in flight.
+        // A cancel that trails an end is the bridge's own cleanup.
+        if (!crossScreenEndSeenRef.current) {
+          crossScreenDropSeqRef.current += 1;
+        }
         clearCrossScreenDrag();
         return;
       }
@@ -2690,6 +2712,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // the previous one. Only a start does — the bridge posts "cancel"
         // immediately after "end", so clearing must not count.
         crossScreenDropSeqRef.current += 1;
+        crossScreenEndSeenRef.current = false;
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,

@@ -2399,7 +2399,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         isOverlayElement(target) ||
         isLayerInteractionBlocked(target) ||
         isTemplateCloneElement(target) ||
-        seen.has(target)
+        seen.has(target) ||
+        isPaddedAwayFromView(target)
       ) {
         return;
       }
@@ -2407,6 +2408,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       elements.push(target);
     });
     return elements;
+  }
+
+  /** True for a node the padding above would otherwise rescue into the band:
+   *  `display:none` and `visibility:hidden` both measure 0x0, and inflating
+   *  them makes a layer nobody can see selectable. Computed style is read only
+   *  for degenerate boxes, so a whole-document sweep stays cheap. */
+  function isPaddedAwayFromView(el: Element): boolean {
+    var rect = el.getBoundingClientRect();
+    if (
+      rect.width >= MIN_SELECTABLE_EXTENT_PX &&
+      rect.height >= MIN_SELECTABLE_EXTENT_PX
+    ) {
+      return false;
+    }
+    var cs = window.getComputedStyle(el);
+    return cs.display === "none" || cs.visibility === "hidden";
   }
 
   function collectSelectableElementInfos(): unknown[] {
