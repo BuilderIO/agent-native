@@ -50,7 +50,7 @@ describe("GettingStartedPathsBlock", () => {
       screen
         .getByRole("link", { name: "Explore a live app" })
         .getAttribute("href"),
-    ).toBe("/apps");
+    ).toBe("/apps/");
     expect(screen.queryByRole("link", { name: /Build locally/ })).toBeNull();
   });
 
