@@ -761,6 +761,7 @@ export async function migrateAnalyticsArtifacts(
           orgId: row.orgId,
           visibility: row.visibility,
           createdAt: row.createdAt,
+          createdBy: null,
           updatedAt: row.updatedAt,
           updatedBy: ctx.userEmail,
           archivedAt: row.archivedAt,
