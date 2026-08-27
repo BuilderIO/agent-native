@@ -5,6 +5,8 @@ export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
 
 const FIRST_RUN_STATUS_TIMEOUT_MS = 10_000;
 
+let firstRunStatusRequest: Promise<boolean> | null = null;
+
 export interface FirstRunOnboardingStatusDetail {
   firstRun: boolean;
 }
@@ -19,31 +21,35 @@ export function dispatchFirstRunOnboardingStatus(firstRun: boolean): void {
   );
 }
 
-/** Fetch the server-owned first-run decision and notify other initial flows. */
-export async function fetchFirstRunOnboardingStatus(): Promise<boolean> {
+async function requestFirstRunOnboardingStatus(): Promise<boolean> {
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<Response>((_, reject) => {
+  const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
       controller?.abort();
       reject(new Error("first-run status timed out"));
     }, FIRST_RUN_STATUS_TIMEOUT_MS);
   });
   try {
-    const response = await Promise.race([
-      fetch(agentNativePath("/_agent-native/onboarding/first-run/status"), {
-        cache: "no-store",
-        credentials: "same-origin",
-        ...(controller ? { signal: controller.signal } : {}),
-      }),
+    const firstRun = await Promise.race([
+      (async () => {
+        const response = await fetch(
+          agentNativePath("/_agent-native/onboarding/first-run/status"),
+          {
+            cache: "no-store",
+            credentials: "same-origin",
+            ...(controller ? { signal: controller.signal } : {}),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`first-run status: ${response.status}`);
+        }
+        const data = (await response.json()) as { firstRun?: unknown };
+        return data.firstRun === true;
+      })(),
       timeout,
     ]);
-    if (!response.ok) {
-      throw new Error(`first-run status: ${response.status}`);
-    }
-    const data = (await response.json()) as { firstRun?: unknown };
-    const firstRun = data.firstRun === true;
     dispatchFirstRunOnboardingStatus(firstRun);
     return firstRun;
   } catch (error) {
@@ -69,4 +75,13 @@ export async function saveFirstRunOnboardingRole(role: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`first-run role save failed: ${response.status}`);
   }
+}
+
+/** Fetch the server-owned first-run decision and notify other initial flows. */
+export function fetchFirstRunOnboardingStatus(): Promise<boolean> {
+  if (firstRunStatusRequest) return firstRunStatusRequest;
+  firstRunStatusRequest = requestFirstRunOnboardingStatus().finally(() => {
+    firstRunStatusRequest = null;
+  });
+  return firstRunStatusRequest;
 }
