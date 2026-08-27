@@ -6,6 +6,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { useReconciledState } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type {
   FormField,
   FormFieldType,
@@ -225,6 +226,19 @@ export function FormBuilderPage() {
   const [localTitle, setLocalTitle] = useReconciledState(form?.title ?? "", {
     active: titleFocused.current,
   });
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      localTitle,
+      t("forms.untitled"),
+    )} — Forms`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [localTitle, t]);
+
   const [localDescription, setLocalDescription] = useReconciledState(
     form?.description ?? "",
     { active: descriptionFocused.current },
