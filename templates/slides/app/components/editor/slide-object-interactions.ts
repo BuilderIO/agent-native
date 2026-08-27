@@ -540,7 +540,7 @@ export function preserveSlideObjectLayoutSpacer(element: HTMLElement): void {
 /** Preserve a flow element's measured slot after its content is deleted. */
 function preserveSlideElementLayoutSlot(element: HTMLElement): void {
   const computed = window.getComputedStyle(element);
-  const spacer = freezeSlideElementForFreeform(
+  freezeSlideElementForFreeform(
     element,
     {
       x: 0,
