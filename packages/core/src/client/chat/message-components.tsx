@@ -1305,6 +1305,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal,
   hasUnresolvedTool,
   hasActiveTool,
+  userStoppedRun,
 }: {
   isLast: boolean;
   chatRunning: boolean;
@@ -1316,6 +1317,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
   hasActiveTool?: boolean;
+  userStoppedRun?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
   const ownsActiveTurn =
@@ -1332,9 +1334,9 @@ export function shouldShowAssistantMessageFooter({
     activeRunId === messageRunId;
   const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
   if (chatRunning && ownsActiveRun) return false;
-  if (hasActiveTool) return false;
+  if (hasActiveTool && !userStoppedRun) return false;
   if (!isLast) return true;
-  if (hasUnresolvedTool) return false;
+  if (hasUnresolvedTool && !userStoppedRun) return false;
   return statusIsTerminal;
 }
 
@@ -1844,6 +1846,7 @@ export function AssistantMessage() {
       statusIsTerminal,
       hasUnresolvedTool,
       hasActiveTool,
+      userStoppedRun: isUserStoppedRun,
     });
   const cpCtx = React.useContext(CheckpointContext);
 

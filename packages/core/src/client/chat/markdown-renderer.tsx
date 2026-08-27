@@ -770,6 +770,18 @@ export function SmoothMarkdownText({
 
 // ─── MarkdownText ──────────────────────────────────────────────────────────────
 
+export function shouldAnimateMarkdownText({
+  textStreaming,
+  isLastAssistantMessage,
+  statusType,
+}: {
+  textStreaming: boolean;
+  isLastAssistantMessage: boolean;
+  statusType: string;
+}): boolean {
+  return textStreaming && isLastAssistantMessage && statusType === "running";
+}
+
 export function MarkdownText() {
   const t = useT();
   const textPart = useMessagePartText();
@@ -783,7 +795,11 @@ export function MarkdownText() {
   return (
     <SmoothMarkdownText
       text={localizeKnownChatErrorText(textPart.text, t)}
-      streaming={textStreaming && isLastAssistantMessage}
+      streaming={shouldAnimateMarkdownText({
+        textStreaming,
+        isLastAssistantMessage,
+        statusType,
+      })}
       resetKey={message.id}
       statusType={statusType}
     />
