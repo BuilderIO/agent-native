@@ -8,7 +8,10 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
+import {
+  dispatchWebhookDeliveries,
+  enqueueWebhookEvent,
+} from "../server/lib/outbound-webhooks.js";
 import { getDeckAppUrl, getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
@@ -65,22 +68,29 @@ export default defineAction({
     deckData.updatedAt = now;
     deckData.designSystemId = source.designSystemId ?? deckData.designSystemId;
 
-    await db.insert(schema.decks).values({
-      id: newId,
-      title: newTitle,
-      data: JSON.stringify(deckData),
-      designSystemId: source.designSystemId ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail: (() => {
-        const e = getRequestUserEmail();
-        if (!e) throw new Error("no authenticated user");
-        return e;
-      })(),
-      orgId: getRequestOrgId() || null,
+    const deliveryIds = await db.transaction(async (tx) => {
+      await tx.insert(schema.decks).values({
+        id: newId,
+        title: newTitle,
+        data: JSON.stringify(deckData),
+        designSystemId: source.designSystemId ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail: (() => {
+          const e = getRequestUserEmail();
+          if (!e) throw new Error("no authenticated user");
+          return e;
+        })(),
+        orgId: getRequestOrgId() || null,
+      });
+      return enqueueWebhookEvent(
+        "deck.created",
+        { id: newId, ...deckData },
+        { db: tx },
+      );
     });
 
-    await emitWebhookEvent("deck.created", { id: newId, ...deckData });
+    await dispatchWebhookDeliveries(deliveryIds);
     return {
       id: newId,
       title: newTitle,

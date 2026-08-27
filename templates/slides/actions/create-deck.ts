@@ -18,7 +18,10 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
+import {
+  dispatchWebhookDeliveries,
+  enqueueWebhookEvent,
+} from "../server/lib/outbound-webhooks.js";
 import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
@@ -274,15 +277,23 @@ export default defineAction({
         designSystemId: designSystemId ?? prevData.designSystemId,
         creativeContext: creativeContextProvenance,
       };
-      await db
-        .update(schema.decks)
-        .set({
-          title: existingDeckTitle,
-          data: JSON.stringify(data),
-          designSystemId: designSystemId ?? existing[0]?.designSystemId ?? null,
-          updatedAt: now,
-        })
-        .where(eq(schema.decks.id, deckId));
+      const deliveryIds = await db.transaction(async (tx) => {
+        await tx
+          .update(schema.decks)
+          .set({
+            title: existingDeckTitle,
+            data: JSON.stringify(data),
+            designSystemId:
+              designSystemId ?? existing[0]?.designSystemId ?? null,
+            updatedAt: now,
+          })
+          .where(eq(schema.decks.id, deckId));
+        return enqueueWebhookEvent(
+          "deck.updated",
+          { id: deckId, ...data },
+          { db: tx },
+        );
+      });
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
       notifyClients(deckId);
@@ -294,7 +305,7 @@ export default defineAction({
         ...creativeContextProvenance,
         ...(elementProvenance.length ? { elementProvenance } : {}),
       });
-      await emitWebhookEvent("deck.updated", { id: deckId, ...data });
+      await dispatchWebhookDeliveries(deliveryIds);
       return {
         id: deckId,
         title: existingDeckTitle,
@@ -329,19 +340,22 @@ export default defineAction({
     if (aspectRatio) data.aspectRatio = aspectRatio;
     if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
     data.creativeContext = creativeContextProvenance;
-    await db.insert(schema.decks).values({
-      id,
-      title: resolvedTitle,
-      data: JSON.stringify(data),
-      designSystemId: resolvedDesignSystemId ?? null,
-      ownerEmail,
-      orgId: getRequestOrgId(),
-      createdAt: now,
-      updatedAt: now,
+    const deliveryIds = await db.transaction(async (tx) => {
+      await tx.insert(schema.decks).values({
+        id,
+        title: resolvedTitle,
+        data: JSON.stringify(data),
+        designSystemId: resolvedDesignSystemId ?? null,
+        ownerEmail,
+        orgId: getRequestOrgId(),
+        createdAt: now,
+        updatedAt: now,
+      });
+      return enqueueWebhookEvent("deck.created", { id, ...data }, { db: tx });
     });
 
     notifyClients(id);
-    await emitWebhookEvent("deck.created", { id, ...data });
+    await dispatchWebhookDeliveries(deliveryIds);
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     await recordGenerationCreativeContext({
       appId: "slides",
