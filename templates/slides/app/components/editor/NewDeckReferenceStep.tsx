@@ -7,7 +7,6 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
-  IconPaperclip,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
