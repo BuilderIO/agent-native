@@ -377,11 +377,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="m-email"');
     expect(html).toContain('id="magic-link-submit"');
     expect(html).toContain('class="magic-link-submit"');
-    expect(html).toContain(".magic-link-submit { display: none; }");
+    expect(html).toContain(".magic-link-submit { display: block; }");
     expect(html).toContain('id="magic-link-success"');
     expect(html).toContain('id="magic-link-success-email"');
     expect(html).toContain("function showMagicLinkSuccess(email)");
-    expect(html).toContain("button.classList.toggle('is-visible', isValid)");
+    expect(html).toContain("button.disabled = !isValid");
     expect(html).toContain(
       "googleButton.classList.toggle('magic-link-secondary', isValid)",
     );
@@ -407,6 +407,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",
     );
+    expect(html).toContain("} else if (__AN_AUTH_MODE !== 'magic-link') {");
     expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm();");
     expect(html).toContain('class="tabs" id="auth-tabs"');
     expect(html).not.toContain('class="tabs" id="auth-tabs" hidden');
@@ -415,8 +416,56 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain("Create an account or sign in");
     expect(html).not.toContain("Email me a sign-in link");
+    expect(html).toContain("Continue with email");
     expect(html).toContain("magicLinkTitle");
     expect(html).toContain("magicLinkSubtitle");
+  });
+
+  it("does not let a remembered password tab override the magic-link entry view", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+    const start = html.indexOf("    var initial = __AN_AUTH_MODE");
+    const end = html.indexOf("    if (initial === 'magicLink')", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const resolveInitialView = new Function(
+      "__AN_AUTH_MODE",
+      "location",
+      "localStorage",
+      "TAB_STORAGE_KEY",
+      "__anVerificationRedirectError",
+      "__anIsVerifiedRedirectSuccess",
+      `${html.slice(start, end)} return initial;`,
+    ) as (
+      authMode: "magic-link" | "password",
+      location: { search: string; pathname: string },
+      localStorage: { getItem: (key: string) => string | null },
+      storageKey: string,
+      verificationError: () => string | null,
+      verifiedRedirect: () => boolean,
+    ) => string;
+
+    const storage = { getItem: () => "signup" };
+    expect(
+      resolveInitialView(
+        "magic-link",
+        { search: "", pathname: "/" },
+        storage,
+        "an.onboarding.tab",
+        () => null,
+        () => false,
+      ),
+    ).toBe("magicLink");
+    expect(
+      resolveInitialView(
+        "password",
+        { search: "", pathname: "/" },
+        storage,
+        "an.onboarding.tab",
+        () => null,
+        () => false,
+      ),
+    ).toBe("signup");
   });
 
   it("renders a quiet centered auth surface for an initial prompt", () => {
@@ -442,7 +491,7 @@ describe("getOnboardingHtml", () => {
 
     expect(html).toContain("欢迎");
     expect(html).toContain("创建账户或登录");
-    expect(html).toContain("继续");
+    expect(html).toContain("使用邮箱继续");
     expect(html).toContain("我们已向以下邮箱发送安全登录链接：");
     expect(html).toContain("改用密码");
     expect(html).toContain("我們已向以下電子郵件寄送安全登入連結：");
