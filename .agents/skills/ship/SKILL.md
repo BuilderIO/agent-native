@@ -237,10 +237,15 @@ branch, stay on it.
    git rev-list --count HEAD..origin/main
    ```
 
-   Non-zero means reapply the work onto current `origin/main` before pushing —
-   shipping from a stale base conflicts with or reverts whatever landed in the
-   gap. Measured 2026-08-18: four live Codex worktrees sat 1,144 commits behind
-   `origin/main` while reporting themselves clean from the inside.
+   A non-zero count is a freshness signal, not a problem by itself. Do not
+   merge, rebase, or otherwise update the branch merely because `origin/main`
+   advanced; a PR may be behind `main` while remaining valid and mergeable.
+   Keep the branch head stable so its checks remain meaningful. Update from
+   current `origin/main` only when GitHub reports `CONFLICTING` (or a local
+   merge proves a real conflict blocks shipment). In that case, merge
+   `origin/main` once, resolve it, push, and wait for the new checks. Do not
+   repeat the merge while the PR is mergeable or checks are merely pending. A
+   behind count alone never justifies a merge commit.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Push the first safe slice before running `pnpm run prep` or
