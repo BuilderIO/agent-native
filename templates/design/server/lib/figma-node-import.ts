@@ -216,12 +216,58 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/**
+ * Intrinsic pixel size from a PNG or JPEG header. Figma upscales an image fill
+ * with nearest-neighbour sampling while a browser smooths, and the converter
+ * can only match that when it knows the image's own size — which is free here,
+ * since these bytes are already in hand to be mirrored. A format we cannot read
+ * returns null and the fill simply stays on the smooth path.
+ */
+function intrinsicImageSize(
+  bytes: Buffer,
+): { width: number; height: number } | null {
+  if (
+    bytes.length >= 24 &&
+    bytes.readUInt32BE(0) === 0x89504e47 &&
+    bytes.toString("ascii", 12, 16) === "IHDR"
+  ) {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1]!;
+      // SOF0..SOF15, minus the markers in that range that are not frame headers.
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
+        return {
+          height: bytes.readUInt16BE(offset + 5),
+          width: bytes.readUInt16BE(offset + 7),
+        };
+      }
+      offset += 2 + bytes.readUInt16BE(offset + 2);
+    }
+  }
+  return null;
+}
+
 async function mirrorFigmaImageUrls(
   urls: string[],
   options: {
     ownerEmail?: string;
     fetcher?: FigmaImageFetcher;
     uploader?: FigmaImageUploader;
+    /** Filled with each source URL's intrinsic pixel size when it is readable. */
+    sizes?: Map<string, { width: number; height: number }>;
   } = {},
 ): Promise<Map<string, string>> {
   const uniqueUrls = Array.from(new Set(urls));
@@ -287,6 +333,8 @@ async function mirrorFigmaImageUrls(
           "Figma image bytes did not match the advertised image type.",
         );
       }
+      const intrinsic = intrinsicImageSize(data);
+      if (intrinsic) options.sizes?.set(url, intrinsic);
       let uploaded: Awaited<ReturnType<FigmaImageUploader>>;
       try {
         uploaded = await uploader({
@@ -815,10 +863,17 @@ export async function buildScreenFilesFromFigmaNodes(
       `[figma-import] ${missingImageFillRefs.length} image fill ref(s) could not be resolved (likely from a component library file); those fills will be omitted.`,
     );
   }
-  const durableUrls = await mirrorFigmaImageUrls([
-    ...Object.values(fallbackImageUrls),
-    ...Object.values(imageFillUrls),
-  ]);
+  const sourceImageSizes = new Map<string, { width: number; height: number }>();
+  const durableUrls = await mirrorFigmaImageUrls(
+    [...Object.values(fallbackImageUrls), ...Object.values(imageFillUrls)],
+    { sizes: sourceImageSizes },
+  );
+  // Keyed by imageRef for the converter, before the URLs are rewritten below.
+  const imageFillSizes: Record<string, { width: number; height: number }> = {};
+  for (const [imageRef, url] of Object.entries(imageFillUrls)) {
+    const size = sourceImageSizes.get(url);
+    if (size) imageFillSizes[imageRef] = size;
+  }
   for (const [nodeId, url] of Object.entries(fallbackImageUrls)) {
     fallbackImageUrls[nodeId] = durableUrls.get(url)!;
   }
@@ -833,6 +888,7 @@ export async function buildScreenFilesFromFigmaNodes(
     const { html, fidelity } = mapFigmaNodeToHtml(node, {
       fallbackImageUrls,
       imageFillUrls,
+      imageFillSizes,
     });
     fidelityEntries.push(...fidelity.entries);
 

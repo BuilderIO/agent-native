@@ -282,6 +282,16 @@ export interface FidelityReport {
 export interface MapFigmaNodeOptions {
   /** imageRef hash -> resolved public URL, from `/v1/files/:key/images`. */
   imageFillUrls?: Record<string, string>;
+  /**
+   * imageRef hash -> the image's own pixel size. Figma upscales an image fill
+   * with NEAREST-NEIGHBOUR sampling; a browser upscales with bilinear
+   * smoothing. Measured across a checkerboard edge on a 16x16 fill blown up to
+   * 180x90, Figma steps from 119,73,132 to 227,78,52 in ONE pixel
+   * while the browser ramps across twelve. Supplying the size lets the
+   * converter ask for the same sampling; without it the fill still renders,
+   * just smoothed.
+   */
+  imageFillSizes?: Record<string, { width: number; height: number }>;
   /** nodeId -> rendered PNG URL, from `/v1/images/:key` for fallback subtrees. */
   fallbackImageUrls?: Record<string, string>;
   /** Node ids that should be rendered as an image regardless of type. */
@@ -620,6 +630,8 @@ interface BackgroundResult {
   backgroundSize?: string;
   backgroundPosition?: string;
   backgroundRepeat?: string;
+  /** `pixelated` when a fill is magnified; see `imageFillSizes`. */
+  imageRendering?: string;
   /**
    * Paint layers that cannot live in the CSS background stack (see
    * `buildFills`), emitted as absolutely-positioned child divs which must be
@@ -756,6 +768,7 @@ function buildFills(
     }
   }
 
+  let magnified = false;
   for (let index = 0; index < ordered.length; index += 1) {
     const fill = ordered[index]!;
     const isOverlay = index <= overlayThrough;
@@ -794,6 +807,21 @@ function buildFills(
       }
       const mode = imageScaleModeCss(fill, node, tracker);
       layer = { image: `url("${url}")`, ...mode };
+      // Only when magnified: `pixelated` is nearest in BOTH directions, and a
+      // photo scaled down with nearest aliases badly. A small tolerance keeps
+      // a fill that is effectively 1:1 on the smooth path.
+      const intrinsic = fill.imageRef
+        ? options.imageFillSizes?.[fill.imageRef]
+        : undefined;
+      if (
+        intrinsic &&
+        intrinsic.width > 0 &&
+        intrinsic.height > 0 &&
+        (box.width > intrinsic.width * 1.2 ||
+          box.height > intrinsic.height * 1.2)
+      ) {
+        magnified = true;
+      }
     } else {
       const cssImage = paintToCssImage(fill, box, tracker, node);
       if (!cssImage) continue;
@@ -823,6 +851,10 @@ function buildFills(
     result.backgroundPosition = positions.join(", ");
     result.backgroundRepeat = repeats.join(", ");
   }
+  // `image-rendering` is one property for the element, not per background
+  // layer, so a single magnified fill switches the whole stack to nearest —
+  // which is what Figma does too.
+  if (magnified) result.imageRendering = "pixelated";
   if (overlays.length > 0) {
     // Collected top-down; DOM order paints bottom-to-top.
     result.overlayHtml = overlays.reverse().join("\n");
@@ -2099,6 +2131,7 @@ function buildNode(
     "background-size": fills.backgroundSize,
     "background-position": fills.backgroundPosition,
     "background-repeat": fills.backgroundRepeat,
+    "image-rendering": fills.imageRendering,
     color: fills.color,
     "border-radius": cornerRadius,
     "box-shadow":

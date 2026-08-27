@@ -129,6 +129,48 @@ interface ImportCase {
   stresses?: string;
 }
 
+/**
+ * Intrinsic pixel size from a PNG or JPEG header. Only these two: they are what
+ * Figma serves for image fills, and a format we cannot read returns null rather
+ * than a guessed size.
+ */
+function imageSizeFromBytes(
+  bytes: Buffer,
+): { width: number; height: number } | null {
+  if (
+    bytes.length >= 24 &&
+    bytes.readUInt32BE(0) === 0x89504e47 &&
+    bytes.toString("ascii", 12, 16) === "IHDR"
+  ) {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1]!;
+      // SOF0..SOF15, skipping the non-frame markers in that range.
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
+        return {
+          height: bytes.readUInt16BE(offset + 5),
+          width: bytes.readUInt16BE(offset + 7),
+        };
+      }
+      offset += 2 + bytes.readUInt16BE(offset + 2);
+    }
+  }
+  return null;
+}
+
 function cachePath(kind: string, key: string): string {
   const digest = createHash("sha256").update(key).digest("hex").slice(0, 24);
   return join(CACHE_DIR, `${kind}-${digest}`);
@@ -298,9 +340,34 @@ async function runCase(
     }
   }
 
+  // Figma upscales an image fill with nearest-neighbour sampling; the browser
+  // smooths. The converter matches it only when told the image's own size, and
+  // the product gets that for free from the bytes it already mirrors into
+  // storage. Here it comes from the cached asset.
+  const imageFillSizes: Record<string, { width: number; height: number }> = {};
+  const unsizedImageFills: string[] = [];
+  for (const [ref, url] of Object.entries(imageFillUrls)) {
+    let size: { width: number; height: number } | null = null;
+    try {
+      size = imageSizeFromBytes(await fetchBinary(url));
+    } catch (error) {
+      // An unreadable size is not the same fact as a square one: the fill
+      // still renders, but on the smooth path, and the case's number then
+      // carries a blur nobody asked about. Name it rather than swallow it.
+      unsizedImageFills.push(
+        `${ref.slice(0, 8)}: ${error instanceof Error ? error.message.slice(0, 80) : String(error)}`,
+      );
+      continue;
+    }
+    if (size) imageFillSizes[ref] = size;
+    else
+      unsizedImageFills.push(`${ref.slice(0, 8)}: unrecognised image header`);
+  }
+
   const { html, fidelity } = mapFigmaNodeToHtml(node, {
     imageFillUrls,
     fallbackImageUrls,
+    imageFillSizes,
   });
   const fontUsage = collectFontUsage(node);
   const fontsUrl = buildGoogleFontsUrl(fontUsage);
@@ -367,7 +434,18 @@ async function runCase(
     meanDelta: comparison.meanDelta,
     dimensionMismatch: comparison.dimensionMismatch,
     fidelity: fidelity.summary,
-    renderWarnings: rendered.warnings,
+    renderWarnings: [
+      ...rendered.warnings,
+      // One line, not one per fill: an offline replay cannot read any of them,
+      // and thousands of identical warnings bury the render warnings that are
+      // actually about this case.
+      ...(unsizedImageFills.length
+        ? [
+            `${unsizedImageFills.length} image fill size(s) unknown, rendered smoothed ` +
+              `instead of Figma's nearest-neighbour magnification (first: ${unsizedImageFills[0]})`,
+          ]
+        : []),
+    ],
     unrenderableNodes: unrenderable.length || undefined,
   };
 }

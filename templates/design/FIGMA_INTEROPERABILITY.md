@@ -300,6 +300,47 @@ path is the CORRECT one:
 - Positivus service cards: the "Social Media Marketing" title highlight renders
   green where Figma (and the paste path) render white.
 
+## `templates/design` runs core's BUILT dist, not its source
+
+`templates/design/server/lib/figma-node-to-html.ts` is a one-line re-export of
+`@agent-native/core/ingestion`, whose export map points at `dist/`. A change to
+`packages/core/src/ingestion/**` is invisible to the design suite and to every
+fidelity harness until `packages/core` is rebuilt — the numbers keep reporting
+the previous build, unchanged, which reads exactly like "no regression".
+
+Run `npm run build` in `packages/core` before trusting a design-side number
+after touching core, and put specs for core converters in
+`packages/core/src/ingestion/*.spec.ts` where they test the source.
+
+## Image fills are magnified with NEAREST sampling
+
+Figma upscales an image fill with nearest-neighbour sampling; a browser upscales
+with bilinear smoothing. Measured 2026-08-26 across a checkerboard edge on a
+16x16 fill blown up to 180x90, on the same scanline:
+
+```
+x            ... 67           68           69           70
+Figma            119,73,132   119,73,132   227,78,52    227,77,52
+ours (before)    155,74,105   167,75,96    173,75,92    184,76,83
+ours (after)     119,73,132   119,73,132   227,78,52    226,78,52
+```
+
+Figma steps in ONE pixel; the browser ramped across twelve. Every
+low-resolution fill — a pattern, an icon, pixel art, a placeholder — imported
+blurred.
+
+`mapFigmaNodeToHtml` takes `imageFillSizes` (imageRef -> the image's own pixel
+size) and asks for `image-rendering: pixelated` only when the box is
+meaningfully larger than the image. ONLY when magnified: `pixelated` is nearest
+in both directions, and a photo scaled down that way aliases badly. Without a
+size the fill still renders, just smoothed — a missing size must never stop the
+fill appearing.
+
+The importer supplies it for free: `mirrorFigmaImageUrls` already downloads
+every image to mirror it into storage, so the PNG/JPEG header is in hand. The
+REST paint carries no intrinsic size, so there is nowhere else to get it
+without a second fetch.
+
 ## Round-trip fidelity harness
 
 `pnpm figma-fidelity:roundtrip` is the one that answers the question a user

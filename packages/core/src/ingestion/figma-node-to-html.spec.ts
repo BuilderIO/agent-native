@@ -98,3 +98,52 @@ describe("auto-layout children do not shrink", () => {
     expect(html).not.toContain("flex-shrink");
   });
 });
+
+describe("magnified image fills", () => {
+  // Figma upscales an image fill with NEAREST-NEIGHBOUR sampling; a browser
+  // upscales with bilinear smoothing. Measured across a checkerboard edge on a
+  // 16x16 fill blown up to 180x90, Figma steps from rgb(119,73,132) to
+  // rgb(227,78,52) in ONE pixel while the browser ramped across twelve.
+  const imageNode = (width: number, height: number): FigmaNode =>
+    ({
+      id: "1:1",
+      name: "Tile",
+      type: "RECTANGLE",
+      absoluteBoundingBox: box(0, 0, width, height),
+      fills: [{ type: "IMAGE", scaleMode: "FILL", imageRef: "abc" }],
+    }) as FigmaNode;
+
+  const render = (
+    width: number,
+    height: number,
+    sizes?: Record<string, { width: number; height: number }>,
+  ) =>
+    mapFigmaNodeToHtml(imageNode(width, height), {
+      imageFillUrls: { abc: "https://example.com/a.png" },
+      ...(sizes ? { imageFillSizes: sizes } : {}),
+    }).html;
+
+  it("asks for nearest sampling when the fill is magnified", () => {
+    const html = render(180, 90, { abc: { width: 16, height: 16 } });
+    expect(html).toContain("image-rendering: pixelated");
+  });
+
+  it("leaves a downscaled fill smooth", () => {
+    // `pixelated` is nearest in BOTH directions, and a photo scaled down with
+    // nearest aliases badly.
+    const html = render(180, 90, { abc: { width: 1200, height: 800 } });
+    expect(html).not.toContain("image-rendering");
+  });
+
+  it("leaves a roughly 1:1 fill smooth", () => {
+    const html = render(180, 90, { abc: { width: 176, height: 88 } });
+    expect(html).not.toContain("image-rendering");
+  });
+
+  // Without a known size the fill must still render — just smoothed.
+  it("renders the fill normally when the size is unknown", () => {
+    const html = render(180, 90);
+    expect(html).toContain("https://example.com/a.png");
+    expect(html).not.toContain("image-rendering");
+  });
+});
