@@ -272,11 +272,23 @@ colour.
 | untitled UI dashboard | 3.68% | 3.47% (94.3%) | 0.21% |
 | whitepace | 2.95% | 2.52% (85.5%) | 0.43% |
 
-**0.12% to 0.43% of the image is a difference that is not glyph-edge coverage**
-— and looking at the worst of those cells (Whitepace's "100% your data"
-heading) they are the INSIDES of thick glyph stems, where a half-pixel
-difference in advance moves the whole stroke and its interior with it. The
-same cause, one step removed.
+**This ratio is the sharpest instrument in this document.** Two cases stood out
+when it was first run and both turned out to be real defects that the raw
+percentage had buried:
+
+- **Interior single product, 36.4% flat interior** against a corpus norm under
+  5%. Figma's `/images` does not always return a PNG whose aspect matches the
+  `absoluteRenderBounds` it reports for the same node, and 9 of that page's 28
+  fallbacks were being stretched to fit — one by 77%. 3.35% -> 2.09%, and its
+  flat interior fell to 0.17%.
+- **DashStack, 23.6%.** A hugging text node outside auto-layout is emitted at
+  Figma's own resolved width, so a string whose advance runs a hair wider wraps
+  inside a box built to fit it on one line. 1.08% -> 0.98%.
+
+What is left is 0.12% to 0.43% per case, and the worst of those cells
+(Whitepace's "100% your data" heading) are the INSIDES of thick glyph stems,
+where a half-pixel difference in advance moves the whole stroke and its
+interior with it. The same cause, one step removed.
 
 Text position is not the cause. Comparing Figma's `absoluteRenderBounds` — its
 own ink box for each text node — against the browser's rendered ink puts them
@@ -354,6 +366,9 @@ What moved the numbers. Each was a real defect on a real design:
 | dashed strokes drawn solid | whitepace (.fig) | 3.39 | 3.37 |
 | hugging text ignoring the size Figma resolved | whitepace (.fig) | 3.37 | 3.18 |
 | a wrapping auto-layout stack that never wrapped | autolayout (.fig) | 16.79 | 5.20 |
+| Figma's own render stretched into a mismatched box | single product | 3.35 | 2.09 |
+| a line break Figma did not take | dashstack | 1.08 | 0.98 |
+| underline drawn above where Figma draws it | typography | 12.67 | 12.60 |
 | diamond gradient drawn as an ellipse | fills-effects (.fig) | 17.90 | 15.26 |
 | glyphs hinted, not laid out on exact outlines | typography (.fig, vs REST) | 12.49 | 6.55 |
 | fill-container overriding the node's own sizing | dashboard (.fig) | 9.26 | 4.95 |
