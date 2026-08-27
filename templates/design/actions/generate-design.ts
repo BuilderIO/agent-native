@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -54,6 +55,8 @@ import {
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+
+import { sendToolActivity } from "./_tool-activity.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -312,6 +315,36 @@ async function resolveDesignCreativeContext(input: {
     contextPackId: validated.contextPackId,
     reuseLabels: validated.reuseLabels,
   };
+}
+
+/**
+ * Chat-facing summary of resolveDesignCreativeContext's outcome — the same
+ * provenance recorded to the generation record below, not a second guess at
+ * what the lookup found. Returns null when there is nothing worth announcing
+ * (e.g. a repeat call with no new information).
+ */
+export function summarizeCreativeContextForChat(
+  provenance: DesignCreativeContextProvenance,
+): string {
+  if (provenance.contextMode === "off") {
+    return "Creative Context is off for this generation.";
+  }
+  const labels = Array.from(
+    new Set(
+      provenance.reuseLabels
+        .map((label) => label.label.trim())
+        .filter((label) => label.length > 0),
+    ),
+  );
+  if (labels.length === 0) {
+    return "No matching Creative Context found — generating without it.";
+  }
+  const shown = labels.slice(0, 3);
+  const remaining = labels.length - shown.length;
+  return (
+    `Found Creative Context: ${shown.join(", ")}` +
+    (remaining > 0 ? `, +${remaining} more` : "")
+  );
 }
 
 function provenanceForSavedFiles(
@@ -707,7 +740,7 @@ const generateDesignAction = defineAction({
     contextPackId,
     contextModeOverride,
     reuseLabels,
-  }) => {
+  }, context?: ActionRunContext) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
@@ -717,6 +750,7 @@ const generateDesignAction = defineAction({
     ).catch(() => null)) as DesignGenerationSession | null;
     const generationSession =
       rawGenerationSession?.designId === designId ? rawGenerationSession : null;
+    sendToolActivity(context, "🔍 Checking Creative Context…");
     const creativeContextProvenance = await resolveDesignCreativeContext({
       prompt,
       generationSession,
@@ -724,6 +758,10 @@ const generateDesignAction = defineAction({
       contextModeOverride,
       reuseLabels,
     });
+    sendToolActivity(
+      context,
+      summarizeCreativeContextForChat(creativeContextProvenance),
+    );
 
     const db = getDb();
     const now = new Date().toISOString();

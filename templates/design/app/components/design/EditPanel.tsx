@@ -155,6 +155,7 @@ import {
   type ActiveInteractionState,
   type MotionKeyframeCssProperty,
 } from "./inspector";
+import { DesignContextUsageBadge } from "./DesignContextUsageBadge";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
 import {
@@ -1985,7 +1986,12 @@ export const EditPanel = memo(function EditPanel({
           activeTab={resolvedActiveTab}
           readOnly={readOnly}
           onActiveTabChange={handleActiveTabChange}
-          trailing={headerTrailing}
+          trailing={
+            <div className="flex shrink-0 items-center gap-1.5">
+              <DesignContextUsageBadge designId={designId} fileId={fileId} />
+              {headerTrailing}
+            </div>
+          }
           commentsCount={reviewCommentsCount}
         />
 
