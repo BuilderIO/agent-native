@@ -28,6 +28,7 @@ import React, {
   useImperativeHandle,
   useMemo,
 } from "react";
+import { toast } from "sonner";
 
 import {
   Popover,
@@ -741,7 +742,7 @@ export interface TiptapComposerProps {
   slashCommands?: SlashCommand[];
   /** Additional slash skills surfaced in the shared / menu. */
   slashSkills?: SkillResult[];
-  /** Include built-in sidebar slash commands like /clear and /help. Default true. */
+  /** Include built-in sidebar slash commands when onSlashCommand is provided. */
   includeDefaultSlashCommands?: boolean;
   /** Include app-discovered skills from the default agent endpoint. Default true. */
   includeDefaultSlashSkills?: boolean;
@@ -2355,14 +2356,14 @@ export function TiptapComposer({
     isLoading: skillsLoading,
   } = useSkills(includeDefaultSlashSkills && popover?.type === "/");
 
-  const allSlashCommands = useMemo(
-    () =>
-      mergeSlashCommands([
-        ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
-        ...slashCommands,
-      ]),
-    [includeDefaultSlashCommands, slashCommands, t],
-  );
+  const allSlashCommands = useMemo(() => {
+    // A command without a host callback would be deleted as an invisible no-op.
+    if (!onSlashCommand) return [];
+    return mergeSlashCommands([
+      ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
+      ...slashCommands,
+    ]);
+  }, [includeDefaultSlashCommands, onSlashCommand, slashCommands, t]);
 
   const allSlashSkills = useMemo(
     () =>
@@ -2404,6 +2405,15 @@ export function TiptapComposer({
   filteredSkillsRef.current = filteredSkills;
   const onSlashCommandRef = useRef(onSlashCommand);
   onSlashCommandRef.current = onSlashCommand;
+  const announceSlashCommand = useCallback((command: SlashCommand) => {
+    const handler = onSlashCommandRef.current;
+    if (!handler) return;
+    handler(command.name);
+    toast.success(`/${command.name}`, {
+      description: command.description,
+      duration: 1800,
+    });
+  }, []);
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
   const contextItemsRef = useRef(contextItems);
@@ -3336,7 +3346,7 @@ export function TiptapComposer({
         const matched = allSlashCommands.find((c) => c.name === cmdName);
         if (matched) {
           clearEditorAfterSubmit();
-          onSlashCommandRef.current?.(matched.name);
+          announceSlashCommand(matched);
           return;
         }
       }
@@ -3461,6 +3471,7 @@ export function TiptapComposer({
       syncComposerState,
       voice,
       allSlashCommands,
+      announceSlashCommand,
       t,
     ],
   );
@@ -3495,7 +3506,7 @@ export function TiptapComposer({
     ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
     popoverStateRef.current = null;
     setPopover(null);
-    onSlashCommandRef.current?.(command.name);
+    announceSlashCommand(command);
   }
 
   function selectSkill(
@@ -3548,9 +3559,9 @@ export function TiptapComposer({
         .deleteRange({ from: deleteFrom, to: currentPos })
         .run();
       closePopover();
-      onSlashCommand?.(command.name);
+      announceSlashCommand(command);
     },
-    [editor, popover, closePopover, onSlashCommand],
+    [editor, popover, closePopover, announceSlashCommand],
   );
 
   const handleSelectSkill = useCallback(
