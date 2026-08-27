@@ -107,8 +107,13 @@ describe("HeroOceanBackground", () => {
     expect(box.className).toContain("absolute");
     expect(box.className).toContain("inset-0");
     expect(box.className).toContain("z-[-1]");
-    expect(box.className).toContain("opacity-[var(--b-hero-ocean-opacity)]");
     expect(box.querySelector("canvas")).not.toBeNull();
+    // Starts transparent: the halftone is still painting underneath until the
+    // first GPU frame lands, and the two cross-fade from there.
+    expect(box.style.opacity).toBe("0");
+    await waitFor(() =>
+      expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)"),
+    );
     // Settle the lazy import before this test ends: leaving it in flight lets
     // it land mid-way through the next test, against that test's mocks.
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
@@ -167,6 +172,27 @@ describe("HeroOceanBackground", () => {
     unmount();
     await Promise.resolve();
     expect(createRenderer).not.toHaveBeenCalled();
+  });
+
+  it("stays transparent until the first frame and only then reports ready", async () => {
+    let resolveReady: () => void = () => {};
+    renderer.ready = new Promise<void>((resolve) => {
+      resolveReady = resolve;
+    });
+    const onReady = vi.fn();
+    const { container } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={onReady} />,
+    );
+    const box = container.firstElementChild as HTMLElement;
+
+    await waitFor(() => expect(createRenderer).toHaveBeenCalled());
+    expect(onReady).not.toHaveBeenCalled();
+    expect(box.style.opacity).toBe("0");
+
+    resolveReady();
+    await waitFor(() => expect(onReady).toHaveBeenCalled());
+    expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)");
+    renderer.ready = Promise.resolve();
   });
 
   it("reports a construction failure to the caller instead of throwing", async () => {

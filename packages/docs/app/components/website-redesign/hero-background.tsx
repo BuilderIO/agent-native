@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { HeroShaderBackground } from "./hero-shader-background";
-import { HeroOceanBackground } from "./ocean/hero-ocean-background";
+import {
+  HeroOceanBackground,
+  OCEAN_FADE_IN_MS,
+} from "./ocean/hero-ocean-background";
 import { probeWebgpuSupport } from "./ocean/webgpu-support";
 
 type Background = "probing" | "ocean" | "fallback";
@@ -14,6 +17,10 @@ type Background = "probing" | "ocean" | "fallback";
  */
 export function HeroBackground() {
   const [background, setBackground] = useState<Background>("probing");
+  const [oceanShown, setOceanShown] = useState(false);
+  const retireFallback = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(retireFallback.current), []);
 
   useEffect(() => {
     // Reduced motion short-circuits ahead of the probe: the fallback already
@@ -26,6 +33,13 @@ export function HeroBackground() {
     }
 
     let cancelled = false;
+
+    // Overlap the chunk fetch with the adapter request instead of waiting for
+    // it. Gated on the namespace existing, so a browser without WebGPU still
+    // never downloads the renderer -- it only stops the fetch and the probe
+    // from running one after the other on browsers that will use it.
+    if ("gpu" in navigator) void import("./ocean/hero-ocean-background");
+
     void probeWebgpuSupport().then((support) => {
       if (cancelled) return;
       setBackground(support === "supported" ? "ocean" : "fallback");
@@ -45,8 +59,27 @@ export function HeroBackground() {
   // out of memory -- is still a broken hero, so it demotes the same way.
   const handleOceanError = useCallback(() => setBackground("fallback"), []);
 
+  const handleOceanReady = useCallback(() => {
+    clearTimeout(retireFallback.current);
+    retireFallback.current = setTimeout(
+      () => setOceanShown(true),
+      OCEAN_FADE_IN_MS,
+    );
+  }, []);
+
   if (background === "ocean") {
-    return <HeroOceanBackground onError={handleOceanError} />;
+    return (
+      <>
+        {/* Kept mounted until the ocean has finished fading in, so the two
+            cross-fade rather than the hero flashing an empty background for
+            however long the GPU takes to produce its first frame. */}
+        {!oceanShown && <HeroShaderBackground />}
+        <HeroOceanBackground
+          onError={handleOceanError}
+          onReady={handleOceanReady}
+        />
+      </>
+    );
   }
   // "probing" renders the halftone too, so the hero is never bare while the
   // adapter request is in flight.

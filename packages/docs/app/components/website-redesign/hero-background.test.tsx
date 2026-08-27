@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HeroBackground } from "./hero-background";
@@ -18,7 +18,11 @@ vi.mock("./hero-shader-background", () => ({
 }));
 
 vi.mock("./ocean/hero-ocean-background", () => ({
-  HeroOceanBackground: (props: { onError: (error: unknown) => void }) => {
+  OCEAN_FADE_IN_MS: 700,
+  HeroOceanBackground: (props: {
+    onError: (error: unknown) => void;
+    onReady?: () => void;
+  }) => {
     oceanMount(props);
     return <div data-testid="ocean" />;
   },
@@ -75,7 +79,26 @@ describe("HeroBackground", () => {
     stubGpu(async () => ({ name: "adapter" }));
     render(<HeroBackground />);
     expect(await screen.findByTestId("ocean")).toBeDefined();
-    expect(screen.queryByTestId("halftone")).toBeNull();
+  });
+
+  it("keeps the halftone underneath until the ocean has faded in", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    stubGpu(async () => ({ name: "adapter" }));
+    render(<HeroBackground />);
+    await screen.findByTestId("ocean");
+
+    // Both painting: retiring the fallback the moment the ocean mounts would
+    // leave the hero bare for however long the first GPU frame takes.
+    expect(screen.getByTestId("halftone")).toBeDefined();
+
+    const { onReady } = oceanMount.mock.calls.at(-1)![0];
+    act(() => onReady());
+    expect(screen.getByTestId("halftone")).toBeDefined();
+
+    act(() => vi.advanceTimersByTime(700));
+    await waitFor(() => expect(screen.queryByTestId("halftone")).toBeNull());
+    expect(screen.getByTestId("ocean")).toBeDefined();
+    vi.useRealTimers();
   });
 
   it("renders the halftone fallback when WebGPU is absent", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { readOceanColors } from "./brand-colors";
 // Type-only, so this import is erased and the renderer stays off the static
@@ -8,9 +8,15 @@ import { readOceanColors } from "./brand-colors";
 import type { OceanRenderer } from "./renderer";
 import { OCEAN_TUNING } from "./tuning";
 
+/** Matches the halftone shader's own intro fade so the two read as one system. */
+export const OCEAN_FADE_IN_MS = 700;
+
 export interface HeroOceanBackgroundProps {
   /** Called on any GPU failure so the caller can swap in the fallback. */
   onError: (error: unknown) => void;
+  /** Fires once the first frame has been drawn, so the caller can retire the
+   *  fallback only after there is something to retire it in favour of. */
+  onReady?: () => void;
   frameRate?: number;
 }
 
@@ -19,12 +25,16 @@ export interface HeroOceanBackgroundProps {
 // the page-grid column dividers.
 export function HeroOceanBackground({
   onError,
+  onReady,
   frameRate = 30,
 }: HeroOceanBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [ready, setReady] = useState(false);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -46,6 +56,14 @@ export function HeroOceanBackground({
           colors: readOceanColors(container),
           fps: frameRate,
           onError: (error) => onErrorRef.current(error),
+        });
+
+        // Gate the fade on the first drawn frame, not on mount: fading in an
+        // empty canvas while the graph is still building just moves the pop.
+        void renderer.ready.then(() => {
+          if (cancelled) return;
+          setReady(true);
+          onReadyRef.current?.();
         });
 
         const themeObserver = new MutationObserver(() => {
@@ -91,8 +109,15 @@ export function HeroOceanBackground({
     <div
       ref={containerRef}
       aria-hidden="true"
-      className="absolute inset-0 z-[-1] opacity-[var(--b-hero-ocean-opacity)]"
-      style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
+      // Opacity is inline rather than a class because it animates between 0
+      // and a token value; the halftone underneath is still painting until
+      // this reaches full, so the hero never shows a bare background.
+      className="absolute inset-0 z-[-1]"
+      style={{
+        opacity: ready ? "var(--b-hero-ocean-opacity)" : 0,
+        transition: `opacity ${OCEAN_FADE_IN_MS}ms ease-out`,
+        ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}),
+      }}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
     </div>
