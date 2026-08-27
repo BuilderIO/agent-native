@@ -963,6 +963,9 @@ jobs:
       - name: Test production deploy concurrency guard
         run: pnpm test:netlify-prebuilt-workflow
 
+      - name: Test serverless function size baseline guard
+        run: pnpm test:function-size-baseline
+
       # Source-backed guards import published-style package entrypoints, so
       # build the workspace packages they inspect before loading locale data.
       - name: Build packages for source-backed guards
