@@ -202,66 +202,84 @@ Then save `window.__cap` to `.tmp/figma-fidelity/clipboard/` and add a
 
 ## REST import and export, measured on 23 designs
 
-Every case below resolves against a node inside the paid team (see the section
-on getting them there), so the REST path measures again instead of failing on
+Every case resolves against a node inside the paid team (see below for how to
+get one there), so the REST path measures again instead of failing on
 Starter-tier limits. `import%` is our HTML against Figma's own render of the
 same node; `export%` is the SVG Figma receives, scored against that same
-reference; `drift%` is what the export hop alone costs.
+reference; `drift%` is what the export hop alone costs. `non-text%` is the same
+import comparison with every TEXT node's box excluded.
 
 Measured 2026-08-27:
 
-| case | size | import% | export% | drift% |
-| --- | --- | --- | --- | --- |
-| dashstack admin | 1440x1070 | **1.20** | 1.20 | 0.01 |
-| untitled UI settings | 1440x2578 | **1.37** | 1.24 | 0.57 |
-| interior eCommerce | 1440x4835 | **2.06** | 2.70 | 2.38 |
-| constraints | fixture | 2.33 | 2.29 | 0.16 |
-| untitled UI landing | 1440x7060 | 2.65 | 2.76 | 0.61 |
-| untitled UI landing alt | 1440x6734 | 2.69 | 2.56 | 0.89 |
-| untitled UI pricing | 1440x4538 | 2.90 | 2.83 | 0.85 |
-| parity-stress | fixture | 2.94 | 3.28 | 0.94 |
-| untitled UI dashboard tall | 1440x1315 | 3.10 | 3.53 | 2.31 |
-| card-grid | fixture | 3.14 | 3.14 | 0.00 |
-| autolayout | fixture | 3.48 | 4.60 | 1.76 |
-| whitepace SaaS | 1440x9631 | 3.62 | 3.35 | 1.69 |
-| ds table variants | 3350x3277 | 3.69 | 3.69 | 0.00 |
-| untitled UI data table | 1216x899 | 3.96 | 4.45 | 0.84 |
-| landify example | 1440x21306 | 3.98 | 3.60 | 1.57 |
-| untitled UI settings mobile | 375x2366 | 4.06 | 4.04 | 0.81 |
-| untitled UI dashboard | 1440x960 | 4.55 | 4.51 | 1.13 |
-| landify tablet | 768x5585 | 4.88 | 4.66 | 1.54 |
-| positivus landing | 1440x8356 | 5.78 | 6.22 | 2.42 |
-| fills-effects | fixture | 5.98 | 6.48 | 0.02 |
-| untitled UI landing mobile | 375x8925 | 6.45 | 6.53 | 1.13 |
-| typography | fixture | 13.27 | 13.19 | 0.19 |
-| shapes | fixture | 0.54 | 0.29 | 0.31 |
+| case | size | import% | non-text% | export% | drift% |
+| --- | --- | --- | --- | --- | --- |
+| dashstack admin | 1440x1070 | **1.20** | 0.21 | 1.20 | 0.01 |
+| untitled UI settings | 1440x2578 | **1.24** | 0.46 | 1.11 | 0.45 |
+| interior eCommerce | 1440x4835 | **2.06** | 1.30 | 2.70 | 2.38 |
+| constraints | fixture | 2.33 | 0.11 | 2.29 | 0.16 |
+| untitled UI landing alt | 1440x6734 | 2.62 | 0.93 | 2.50 | 0.90 |
+| untitled UI landing | 1440x7060 | 2.65 | **0.52** | 2.76 | 0.62 |
+| untitled UI pricing | 1440x4538 | 2.89 | **0.27** | 2.83 | 0.86 |
+| parity-stress | fixture | 2.94 | 0.87 | 3.28 | 0.94 |
+| untitled UI dashboard tall | 1440x1315 | 3.03 | 1.45 | 3.11 | 1.02 |
+| card-grid | fixture | 3.14 | **0.06** | 3.14 | 0.00 |
+| autolayout | fixture | 3.48 | 1.03 | 4.60 | 1.76 |
+| ds table variants | 3350x3277 | 3.69 | 1.23 | 3.69 | 0.00 |
+| whitepace SaaS | 1440x9631 | 3.77 | 1.44 | 3.50 | 1.69 |
+| untitled UI dashboard | 1440x960 | 3.89 | 1.32 | 4.23 | 1.05 |
+| landify example | 1440x21306 | 3.94 | 2.16 | 3.57 | 1.37 |
+| untitled UI data table | 1216x899 | 3.96 | 0.82 | 4.45 | 0.84 |
+| untitled UI settings mobile | 375x2366 | 4.02 | 0.47 | 3.97 | 0.84 |
+| positivus landing | 1440x8356 | 4.18 | 2.38 | 4.65 | 1.72 |
+| landify tablet | 768x5585 | 4.88 | 2.20 | 4.66 | 1.54 |
+| fills-effects | fixture | 5.98 | 5.98 | 6.48 | 0.02 |
+| untitled UI landing mobile | 375x8925 | 6.43 | 1.32 | 6.53 | 1.15 |
+| typography | fixture | 13.27 | **0.005** | 13.19 | 0.19 |
+| shapes | fixture | **0.54** | 0.54 | 0.29 | 0.31 |
+| **mean** | | **3.74** | **1.18** | | |
 
-The export hop costs under 2.5% on every design, so the number that matters is
-`import%`. What remains there is dominated by glyph rasterisation rather than
-conversion: Figma and Chromium hint and antialias text differently, and a
-one-pixel difference on black-on-white body text scores a full 255 delta. See
-the Inter section below for the measurement that rules out a font-version
-mismatch as the cause. Every mobile case reads higher than its desktop twin for
-the same reason — a narrower column reflows on a smaller difference.
+**The export hop costs under 2.5% on every design**, so `import%` is the number
+that matters — and two thirds of THAT is glyph rasterisation. Excluding text
+boxes the mean falls from 3.74% to 1.18%, and `typography` — the fixture built
+to stress text — falls from 13.27% to **0.005%**. Nothing but glyphs is wrong
+on it. Figma and Chromium hint and antialias differently, and one pixel of
+difference on black-on-white body text scores a full 255 delta; see the Inter
+section for the measurement ruling out a font-version mismatch as the cause.
+Mobile cases read highest because a narrow column reflows on a smaller
+difference. `fills-effects` is the one case where the residual is NOT text: it
+has no text at all, and what is left is the antialiasing of a diamond gradient
+and a background blur.
 
-What moved the numbers, in order of size — each was a real defect on a real
-design, not a harness artifact:
+A per-node geometry audit (every node's laid-out box against its own
+`absoluteBoundingBox`) is the sharper instrument for the parts the converter
+controls, because a 200px layout error is invisible next to glyph noise. After
+this work, 11 of 23 designs have NO node off by more than 1.5px, and only one
+design has any node off by more than 10px — all of them text boxes that wrap
+differently.
+
+What moved the numbers. Each was a real defect on a real design:
 
 | defect | case | before | after |
 | --- | --- | --- | --- |
-| render clamped at 16384px, compared against a full-size render | landify | 24.38 | 3.98 |
+| render clamped at 16384px, compared against a full-size render | landify | 24.38 | 3.94 |
 | whole-file image map cached by path, so later fills resolved to nothing | untitled UI landing | 9.34 | 2.65 |
-| exported artboard clipped content past the frame | dashboard (export) | 12.05 | 4.51 |
-| ink extent vs frame box: a 2px shadow shifted every pixel | data table | 10.33 | 3.96 |
+| exported artboard clipped content past the frame | dashboard (export) | 12.05 | 4.23 |
 | tiled gradient flattened on export | fills-effects (export) | 13.30 | 6.48 |
-| FILL child inside a HUG parent collapsed to zero | landing mobile | 10.65 | 6.45 |
+| ink extent vs frame box: a 2px shadow shifted every pixel | data table | 10.33 | 3.96 |
 | diamond gradient approximated as an ellipse | fills-effects | 12.07 | 5.98 |
+| FILL child inside a HUG parent collapsed to zero | landing mobile | 10.65 | 6.43 |
+| a mirrored group rendered as a 180-degree rotation | positivus | 5.94 | 5.76 |
+| SPACE_BETWEEN row also emitting its stale itemSpacing | positivus | 5.45 | 4.74 |
 | empty hugging frame collapsed to zero | whitepace | 6.23 | 3.62 |
+| negative overlap not clamped to the child's own size | positivus | 4.74 | 4.23 |
+| rotated child taking its pre-rotation width in the row | positivus | 5.76 | 5.45 |
+| HUG container sized from a cross-axis FILL child's content | positivus | 4.23 | 4.18 |
+| trailing CR rendered as an extra line | whitepace | (67 nodes) | (53) |
 
-Three of those eight were defects in the HARNESS rather than the converter —
-it reported a converter defect where the measurement itself was wrong. A
-fidelity number is a claim about the converter, so the harness has to be at
-least as trustworthy as the thing it grades.
+Four of those were defects in the HARNESS rather than the converter — it
+reported conversion error where the measurement itself was wrong. A fidelity
+number is a claim about the converter, so the harness has to be at least as
+trustworthy as the thing it grades.
 
 ## Measured drift between the three import paths
 
