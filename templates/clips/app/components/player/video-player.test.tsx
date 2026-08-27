@@ -233,6 +233,10 @@ describe("VideoPlayer playback", () => {
     expect(
       container.querySelector("[data-player-playback-comment]"),
     ).toBeNull();
+    expect(
+      container.querySelector<HTMLElement>("[data-player-end-cta]")?.style
+        .zIndex,
+    ).toBe("60");
     expect(container.textContent).toContain("Visit site");
   });
 

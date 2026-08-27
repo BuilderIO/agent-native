@@ -1,10 +1,11 @@
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import { useEffect, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
-import { timelineMarkerMs } from "./scrubber-position";
+import { timelineMarkerAlignment, timelineMarkerMs } from "./scrubber-position";
 
 export const PLAYBACK_COMMENT_VISIBLE_MS = 3_000;
 
@@ -88,6 +89,34 @@ export function PlaybackCommentOverlay({
         (activeComment) => getTimelinePositionMs(activeComment) != null,
       )
     : activeComments;
+  const activeCommentId = visibleComments[0]?.id ?? null;
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [overlayWidth, setOverlayWidth] = useState(0);
+  const [previewWidth, setPreviewWidth] = useState(0);
+
+  useEffect(() => {
+    if (!activeCommentId) {
+      setOverlayWidth(0);
+      setPreviewWidth(0);
+      return;
+    }
+
+    const overlay = overlayRef.current;
+    const preview = previewRef.current;
+    if (!overlay || !preview || typeof ResizeObserver === "undefined") return;
+
+    const updateWidths = () => {
+      setOverlayWidth(overlay.getBoundingClientRect().width);
+      setPreviewWidth(preview.getBoundingClientRect().width);
+    };
+    const observer = new ResizeObserver(updateWidths);
+    observer.observe(overlay);
+    observer.observe(preview);
+    updateWidths();
+    return () => observer.disconnect();
+  }, [activeCommentId]);
+
   if (visibleComments.length === 0) return null;
 
   const [comment, ...rest] = visibleComments;
@@ -113,16 +142,29 @@ export function PlaybackCommentOverlay({
       ? Math.min(100, Math.max(0, (markerMs / safeDurationMs) * 100))
       : 50;
   const positionAlignment =
-    positionPercent <= 0 ? "start" : positionPercent >= 100 ? "end" : "center";
+    overlayWidth > 0 && previewWidth > 0
+      ? timelineMarkerAlignment(
+          markerMs,
+          safeDurationMs,
+          previewWidth,
+          overlayWidth,
+        )
+      : positionPercent <= 0
+        ? "start"
+        : positionPercent >= 100
+          ? "end"
+          : "center";
 
   return (
     <div
+      ref={overlayRef}
       data-player-ui
       data-player-playback-comment
       className="pointer-events-none absolute inset-x-3 bottom-[6.5rem] z-40 h-0"
       aria-live="polite"
     >
       <div
+        ref={previewRef}
         className={cn(
           "absolute bottom-0",
           positionAlignment === "start"

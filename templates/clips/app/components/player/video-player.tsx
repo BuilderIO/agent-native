@@ -2053,7 +2053,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {showEndCta ? (
           <div
             data-player-ui
+            data-player-end-cta
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            style={{ zIndex: 60 }}
           >
             <div className="flex flex-col items-center gap-4 text-white">
               <p className="text-lg font-medium">{t("videoPlayer.thanks")}</p>

@@ -171,6 +171,7 @@ export function Scrubber(props: ScrubberProps) {
     () => timelineMarkerLanes(markerTimes, markerWidths, durationMs, barWidth),
     [barWidth, durationMs, markerTimes, markerWidths],
   );
+  const previousMarkerLanesRef = useRef<Map<number, number> | null>(null);
   useEffect(() => {
     const bar = barRef.current;
     if (!bar || typeof ResizeObserver === "undefined") return;
@@ -185,7 +186,22 @@ export function Scrubber(props: ScrubberProps) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    onMarkerLanesChange?.(markerLanes);
+    if (!onMarkerLanesChange) {
+      previousMarkerLanesRef.current = null;
+      return;
+    }
+    const previousMarkerLanes = previousMarkerLanesRef.current;
+    if (
+      previousMarkerLanes &&
+      previousMarkerLanes.size === markerLanes.size &&
+      [...markerLanes].every(
+        ([time, lane]) => previousMarkerLanes.get(time) === lane,
+      )
+    ) {
+      return;
+    }
+    previousMarkerLanesRef.current = markerLanes;
+    onMarkerLanesChange(markerLanes);
   }, [markerLanes, onMarkerLanesChange]);
   const tooltipPositionPercent = tooltip
     ? Math.min(100, Math.max(0, (tooltip.ms / Math.max(1, durationMs)) * 100))

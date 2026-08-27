@@ -367,6 +367,45 @@ describe("Scrubber reaction markers", () => {
     expect(groups[2]?.style.top).toBe("-5.25rem");
   });
 
+  it("does not republish unchanged marker lanes", () => {
+    const onMarkerLanesChange = vi.fn();
+    const comment = {
+      id: "comment-stable",
+      authorEmail: "brent@example.com",
+      authorName: "Brent",
+      content: "Stable lane",
+      videoTimestampMs: 1_000,
+    };
+
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_000}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          onMarkerLanesChange={onMarkerLanesChange}
+          comments={[comment]}
+        />,
+      );
+    });
+    const callsAfterInitialRender = onMarkerLanesChange.mock.calls.length;
+    expect(callsAfterInitialRender).toBeGreaterThan(0);
+
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_500}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          onMarkerLanesChange={onMarkerLanesChange}
+          comments={[{ ...comment }]}
+        />,
+      );
+    });
+
+    expect(onMarkerLanesChange).toHaveBeenCalledTimes(callsAfterInitialRender);
+  });
+
   it("does not reuse a lane while measured marker hit targets overlap", () => {
     const lanes = timelineMarkerLanes(
       [1_000, 1_500, 2_000],
