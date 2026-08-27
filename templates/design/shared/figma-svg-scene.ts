@@ -1968,15 +1968,18 @@ function imageFitFromSize(
   repeatAxis?: string;
 } {
   const value = (size ?? "").trim();
-  // Only a TWO-axis `repeat` is a Figma TILE, which is what an SVG pattern
-  // reproduces. `repeat-x` / `repeat-y` tile on one axis and would come back
-  // repeating on both, so they are deliberately excluded here and reported by
-  // `imageFillMarkup` instead. `no-repeat` is what the other four scale modes
-  // emit; an absent value is CSS's `repeat` initial, but absent here means
-  // "the collector read no background-repeat at all", which is a different
-  // fact, so only an explicit value tiles.
+  // `background-repeat` cannot be read as intent: `repeat` is the CSS INITIAL
+  // value, so getComputedStyle reports it for every background whose author
+  // never mentioned repeating. Our importers always state `no-repeat` for the
+  // four non-TILE scale modes, which is why no corpus case exposed this — but
+  // agent-authored HTML is full of `background-size: cover` with no repeat,
+  // and treating that as a tile exported it stretched instead of covered.
+  //
+  // What actually decides it is whether the image already FILLS the box.
+  // `cover` and `100% 100%` always do, so repetition is invisible there and
+  // the fit is the whole answer. Only a size that can leave the box uncovered
+  // — an explicit tile size, `auto`, or `contain` — can show repetition.
   const repeatValue = (repeat ?? "").trim();
-  const tiles = repeatValue === "repeat";
   const oneAxisRepeat =
     repeatValue === "repeat-x" || repeatValue === "repeat-y";
   const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
@@ -1986,14 +1989,23 @@ function imageFitFromSize(
     px.length === 2 && px[0]! > 0 && px[1]! > 0
       ? { width: px[0]!, height: px[1]! }
       : undefined;
-  if (tiles) {
-    // A tile is drawn at its own size and repeated, so the only geometry that
-    // matters is that size. `auto` (the importers' TILE size) leaves it unknown
-    // here; `imageFillMarkup` reports that rather than guessing a fit.
-    return { fit: "stretch", sizePx: explicitPx, repeat: true };
+  const fillsBox = value === "cover" || /^100%\s+100%$/.test(value);
+  // An empty value means the collector read no background-size at all, which
+  // is not the same fact as `auto`; it cannot be shown to repeat.
+  const canShowRepeat = !fillsBox && value !== "";
+  if (repeatValue === "repeat" && canShowRepeat) {
+    // The tile size is known, so an SVG pattern reproduces it exactly.
+    if (explicitPx) return { fit: "stretch", sizePx: explicitPx, repeat: true };
+    // A real TILE whose size could not be resolved, or a tiled `contain`.
+    // Neither is reproducible without the intrinsic size, so keep the honest
+    // fit and let `imageFillMarkup` report the tiling it could not draw.
+    return { fit: value === "contain" ? "contain" : "cover", repeat: true };
   }
-  if (oneAxisRepeat) {
-    return { fit: "cover", repeatAxis: repeatValue };
+  if (oneAxisRepeat && canShowRepeat) {
+    return {
+      fit: value === "contain" ? "contain" : "cover",
+      repeatAxis: repeatValue,
+    };
   }
   if (value === "contain") return { fit: "contain" };
   if (value === "cover" || value === "" || value === "auto") {

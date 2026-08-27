@@ -1258,7 +1258,8 @@ describe("background-image sizing on export", () => {
   it("marks a TILE whose size stayed `auto` as repeating with no known tile", () => {
     // An unresolved intrinsic size must stay distinguishable from a resolved
     // one: the exporter reports the tile it cannot reproduce instead of
-    // silently painting a single covering image.
+    // silently painting a single covering image. The fit stays the honest one
+    // — claiming a `stretch` we cannot draw would be a second wrong answer.
     expect(
       buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1271,9 +1272,41 @@ describe("background-image sizing on export", () => {
       {
         kind: "image",
         href: "https://img.example/a.png",
-        fit: "stretch",
+        fit: "cover",
         repeat: true,
       },
+    ]);
+  });
+
+  it("does not read CSS's default `repeat` as tiling intent", () => {
+    // `repeat` is the CSS INITIAL value, so getComputedStyle reports it for
+    // every background whose author never mentioned repeating. Our importers
+    // always state `no-repeat`, so no corpus case shows this — but agent
+    // HTML is full of `background-size: cover` with no repeat, and treating
+    // that as a tile exported it stretched instead of covered. What decides
+    // it is whether the image already fills the box.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "cover",
+        "50% 50%",
+        "repeat",
+      ),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "100% 100%",
+        "50% 50%",
+        "repeat",
+      ),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "stretch" },
     ]);
   });
 
