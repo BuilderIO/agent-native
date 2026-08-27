@@ -1273,3 +1273,50 @@ describe("a drop shadow Figma draws behind the layer", () => {
     expect(html).not.toContain("drop-shadow");
   });
 });
+
+describe("a per-side stroke Figma centres on the edge", () => {
+  // The Interior storefront's footer: a 1px top-only stroke, CENTER aligned.
+  // Figma's own strokeGeometry for it runs y -0.5 to +0.5, so it covers half
+  // of each adjacent row and renders both at 50%. A CSS border rendered one
+  // whole row at 100% — same ink, wrong place — on a divider that repeats in
+  // four designs.
+  function footer(strokeAlign: string): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Rectangle 19",
+      type: "RECTANGLE",
+      absoluteBoundingBox: box(0, 0, 1440, 505),
+      fills: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
+      strokes: [
+        { type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 0.17 },
+      ],
+      strokeWeight: 1,
+      strokeAlign,
+      individualStrokeWeights: { top: 1, right: 0, bottom: 0, left: 0 },
+    } as unknown as FigmaNode;
+  }
+
+  it("straddles the edge, half inside and half out", () => {
+    const { html } = mapFigmaNodeToHtml(footer("CENTER"), {});
+    expect(html).toContain("inset 0px 0.5px 0 0 rgba(0, 0, 0, 0.17)");
+    expect(html).toContain("0px -0.5px 0 0 rgba(0, 0, 0, 0.17)");
+    expect(html).not.toContain("border-top");
+  });
+
+  it("keeps an INSIDE stroke wholly inside", () => {
+    const { html } = mapFigmaNodeToHtml(footer("INSIDE"), {});
+    expect(html).toContain("inset 0px 1px 0 0 rgba(0, 0, 0, 0.17)");
+    expect(html).not.toContain("0px -1px 0 0");
+  });
+
+  it("keeps an OUTSIDE stroke wholly outside", () => {
+    const { html } = mapFigmaNodeToHtml(footer("OUTSIDE"), {});
+    expect(html).toContain("0px -1px 0 0 rgba(0, 0, 0, 0.17)");
+    expect(html).not.toContain("inset 0px");
+  });
+
+  it("takes no space from the content box, as a Figma stroke does not", () => {
+    const { html } = mapFigmaNodeToHtml(footer("CENTER"), {});
+    expect(html).not.toContain("border");
+  });
+});

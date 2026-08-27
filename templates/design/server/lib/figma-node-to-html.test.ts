@@ -180,7 +180,7 @@ describe("mapFigmaNodeToHtml - strokes", () => {
     expect(html).toContain("outline-offset: 0px");
   });
 
-  it("renders per-side stroke weights as per-side borders and marks non-INSIDE as approximated", () => {
+  it("places each side's stroke where strokeAlign puts it, not inside the box", () => {
     const node: FigmaNode = {
       id: "2:2",
       type: "RECTANGLE",
@@ -196,12 +196,21 @@ describe("mapFigmaNodeToHtml - strokes", () => {
       children: [node],
     };
     const { html, fidelity } = mapFigmaNodeToHtml(root);
-    expect(html).toContain("border-top: 1px solid");
-    expect(html).toContain("border-right: 2px solid");
-    expect(html).toContain("border-bottom: 3px solid");
-    expect(html).toContain("border-left: 4px solid");
+    // CENTER splits each side's weight either side of the edge: an inset copy
+    // offset INTO the box paints the inside half, a plain copy offset out of
+    // it paints the outside half. A CSS border could only do the first, at
+    // full weight, and would take the space out of the content box too.
+    expect(html).toContain("inset 0px 0.5px 0 0");
+    expect(html).toContain("0px -0.5px 0 0");
+    expect(html).toContain("inset -1px 0px 0 0");
+    expect(html).toContain("1px 0px 0 0");
+    expect(html).toContain("inset 0px -1.5px 0 0");
+    expect(html).toContain("0px 1.5px 0 0");
+    expect(html).toContain("inset 2px 0px 0 0");
+    expect(html).toContain("-2px 0px 0 0");
+    expect(html).not.toContain("border-top");
     expect(fidelity.entries.find((e) => e.nodeId === "2:2")?.level).toBe(
-      "approximated",
+      "exact",
     );
   });
 });

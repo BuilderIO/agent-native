@@ -1037,6 +1037,8 @@ function buildFills(
 interface StrokeResult {
   styles: Record<string, string | undefined>;
   insetShadow?: string;
+  /** Per-side stroke bands, as box-shadow layers. */
+  strokeShadows?: string[];
 }
 
 function buildStrokes(node: FigmaNode, tracker: FidelityTracker): StrokeResult {
@@ -1058,29 +1060,46 @@ function buildStrokes(node: FigmaNode, tracker: FidelityTracker): StrokeResult {
   const uniformWeight = node.strokeWeight ?? 0;
 
   if (hasPerSide) {
-    // CSS `outline`/inset-`box-shadow` tricks are single-weight only; per-side
-    // stroke weights can only be expressed as a real per-side `border`, which
-    // always renders fully inside the border-box regardless of strokeAlign.
-    // This is exact for INSIDE and an approximation for CENTER/OUTSIDE.
-    const top = iw?.top ?? uniformWeight;
-    const right = iw?.right ?? uniformWeight;
-    const bottom = iw?.bottom ?? uniformWeight;
-    const left = iw?.left ?? uniformWeight;
+    // A per-side stroke used to be a CSS `border`, which is always INSIDE the
+    // border box however Figma aligns it, and which eats into the content box
+    // — a Figma stroke does neither. A CENTER-aligned 1px top stroke straddles
+    // the edge: `strokeGeometry` for one runs y -0.5 to +0.5, so Figma covers
+    // half of each adjacent row and renders both at 50%. The border rendered
+    // one whole row at 100% instead: same ink, wrong place, on a divider that
+    // repeats down four designs in the corpus.
+    //
+    // One box-shadow band per side puts each half where Figma puts it: an
+    // `inset` copy offset INTO the box paints the inside half, and a plain
+    // copy offset out of it paints the outside half, since CSS clips an outer
+    // shadow to outside the border box. Neither moves a child.
+    const align = node.strokeAlign ?? "INSIDE";
+    const sides = [
+      { weight: iw?.top ?? uniformWeight, x: 0, y: 1 },
+      { weight: iw?.right ?? uniformWeight, x: -1, y: 0 },
+      { weight: iw?.bottom ?? uniformWeight, x: 0, y: -1 },
+      { weight: iw?.left ?? uniformWeight, x: 1, y: 0 },
+    ];
+    const bands: string[] = [];
+    for (const side of sides) {
+      if (!side.weight) continue;
+      const inside = align === "CENTER" ? side.weight / 2 : side.weight;
+      const outside = align === "CENTER" ? side.weight / 2 : 0;
+      if (align !== "OUTSIDE" && inside) {
+        bands.push(
+          `inset ${px(side.x * inside)} ${px(side.y * inside)} 0 0 ${color}`,
+        );
+      }
+      const out = align === "OUTSIDE" ? side.weight : outside;
+      if (out) {
+        bands.push(`${px(-side.x * out)} ${px(-side.y * out)} 0 0 ${color}`);
+      }
+    }
     tracker.record(
       node,
-      node.strokeAlign === "INSIDE" || !node.strokeAlign
-        ? "exact"
-        : "approximated",
-      `Per-side stroke weights rendered as CSS border (inside-aligned); strokeAlign="${node.strokeAlign ?? "INSIDE"}" cannot vary per-side with outline tricks.`,
+      "exact",
+      `Per-side stroke weights rendered as one box-shadow band per side, placed for strokeAlign="${align}" and taking no space from the content box.`,
     );
-    return {
-      styles: {
-        "border-top": top ? `${px(top)} solid ${color}` : undefined,
-        "border-right": right ? `${px(right)} solid ${color}` : undefined,
-        "border-bottom": bottom ? `${px(bottom)} solid ${color}` : undefined,
-        "border-left": left ? `${px(left)} solid ${color}` : undefined,
-      },
-    };
+    return { styles: {}, strokeShadows: bands };
   }
 
   if (!uniformWeight) return { styles: {} };
@@ -2749,6 +2768,8 @@ function buildNode(
   const boxShadowParts = [...effects.boxShadowLayers];
   const contentShadowProperty = effects.contentShadow;
   if (strokeResult.insetShadow) boxShadowParts.push(strokeResult.insetShadow);
+  if (strokeResult.strokeShadows)
+    boxShadowParts.push(...strokeResult.strokeShadows);
 
   if (linearTransformCss !== undefined) {
     tracker.record(

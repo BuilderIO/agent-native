@@ -345,6 +345,33 @@ approximated -- the checkout and product-comparison headers share one photo and
 show the identical cluster, 3093 and 2363 pixels in the same two cells. On that
 photo the import sits 1.9 grey levels from Figma and the export 7.5.
 
+### A per-side stroke Figma centres on the edge
+
+A Figma stroke does not take space from the layer, and `strokeAlign` decides
+which side of the edge it sits on. A CSS `border` does neither: it is always
+inside the border box, and it eats into the content box, pushing every child.
+
+The Interior storefront's footer is `Rectangle 19`, a 1px TOP-ONLY stroke at
+`strokeAlign: CENTER`. Figma's own `strokeGeometry` for it reads
+`M0 0 L0 0.5 L1440 0.5 L1440 0 L1440 -0.5 L0 -0.5 L0 0Z` — y -0.5 to +0.5,
+straddling the edge — so Figma covers half of each adjacent row and renders
+both at grey **233**. The border rendered one whole row at **212** and left the
+other at 255: the same ink, in the wrong place. That divider repeats across four
+designs in the corpus, and its signature is unmistakable once the classifier
+excludes text: cells of exactly 160 pixels marching along one row.
+
+Each side is now one box-shadow band, placed by `strokeAlign`: an `inset` copy
+offset INTO the box paints the inside half, and a plain copy offset out of it
+paints the outside half, since CSS clips an outer shadow to outside the border
+box. Neither moves a child. That footer now renders **234/234** against Figma's
+233/233.
+
+Measured over the whole corpus: import **3.023% -> 2.994%**, export **3.165%
+-> 3.082%**. Eight designs improve on each hop and none regress; the export
+gains most, because a border that ate the content box was displacing children
+in the exported scene too — Untitled UI's dashboard 4.011 -> 3.250, its data
+table 3.878 -> 3.286.
+
 ### A shadow Figma draws behind the layer
 
 Figma casts a drop shadow from what a layer PAINTS, and `showShadowBehindNode`
