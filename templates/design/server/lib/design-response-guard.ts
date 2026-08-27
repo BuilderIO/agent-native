@@ -32,7 +32,11 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 const DESIGN_MUTATION_VERBS =
   /\b(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|polish|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:asset|background|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|it|layout|mockup|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|style|styles|text|this|theme|typography|variant|version|width|wireframe)\b/i;
+  /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|width|wireframe)\b/i;
+const DESIGN_ADVISORY_WORDS =
+  /\b(?:advise|analy[sz]e|audit|critique|recommend|review|suggest)\b/i;
+const DESIGN_ADVISORY_SKILLS =
+  /\b(?:improve|learn|develop)\s+(?:my|your|design|visual|ui)?\s*(?:design\s+)?skills?\b/i;
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -123,6 +127,7 @@ function hasSuccessfulMutation(
     if (name === "apply-tweaks") {
       return (
         typeof parsed.designId === "string" &&
+        parsed.applied === true &&
         isRecord(parsed.appliedTweaks) &&
         Object.keys(parsed.appliedTweaks).length > 0
       );
@@ -130,6 +135,10 @@ function hasSuccessfulMutation(
 
     if (name === "create-design-system") {
       return typeof parsed.id === "string";
+    }
+
+    if (name === "update-design") {
+      return parsed.updated === true && parsed.stale !== true;
     }
 
     if (name === "update-file") {
@@ -174,6 +183,22 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
     return false;
   }
   if (/\bhow\s+to\b/i.test(normalized)) return false;
+  if (DESIGN_ADVISORY_SKILLS.test(normalized)) return false;
+
+  const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(normalized);
+  if (advisoryMatch) {
+    const beforeAdvisory = normalized.slice(0, advisoryMatch.index);
+    const afterAdvisory = normalized.slice(
+      advisoryMatch.index + advisoryMatch[0].length,
+    );
+    const followsAdvisory =
+      /\b(?:and|also|but|then)\s+(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i.test(
+        afterAdvisory,
+      );
+    if (!DESIGN_MUTATION_VERBS.test(beforeAdvisory) && !followsAdvisory) {
+      return false;
+    }
+  }
 
   return (
     DESIGN_MUTATION_VERBS.test(normalized) &&

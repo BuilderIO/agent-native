@@ -64,6 +64,23 @@ describe("Design final response guard", () => {
     expect(looksLikeDesignMutationRequest("update the color palette")).toBe(
       true,
     );
+    expect(looksLikeDesignMutationRequest("add an animation to the hero")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("change the interaction state")).toBe(
+      true,
+    );
+    expect(
+      looksLikeDesignMutationRequest("I want to improve my design skills"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "can you review this card and recommend changes?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("review this card and fix the button"),
+    ).toBe(true);
   });
 
   it("retries prose-only completion for a design mutation", () => {
@@ -126,11 +143,20 @@ describe("Design final response guard", () => {
       [
         toolResult("apply-tweaks", {
           designId: "design-1",
+          applied: true,
           appliedTweaks: { "theme-accent": "#0EA5E9" },
         }),
       ],
       [toolResult("create-design-system", { id: "design-system-1" })],
       [toolResult("update-file", { id: "file-1", updated: true })],
+      [toolResult("update-design", { id: "design-1", updated: true })],
+      [
+        toolResult("import-figma-clipboard", {
+          designId: "design-1",
+          strategy: "htmlFallback",
+          files: [{ id: "file-1", filename: "screen.html" }],
+        }),
+      ],
       [
         toolResult("import-figma-frame", {
           designId: "design-1",
@@ -174,6 +200,7 @@ describe("Design final response guard", () => {
       [
         toolResult("apply-tweaks", {
           designId: "design-1",
+          applied: false,
           appliedTweaks: {},
         }),
       ],
@@ -182,6 +209,13 @@ describe("Design final response guard", () => {
           id: "file-1",
           updated: true,
           skippedStaleMirror: true,
+        }),
+      ],
+      [
+        toolResult("update-design", {
+          id: "design-1",
+          updated: true,
+          stale: true,
         }),
       ],
     ]) {
