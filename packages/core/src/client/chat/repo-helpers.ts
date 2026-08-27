@@ -372,6 +372,22 @@ export function shouldImportServerThreadData(
   if (currentCount === 0) return true;
   if (incomingCount < currentCount) return false;
 
+  const currentAttachments = repoAttachmentCount(currentRepo);
+  const incomingAttachments = repoAttachmentCount(incomingRepo);
+  if (incomingAttachments < currentAttachments) {
+    return false;
+  }
+  const currentAttachmentIdentities = repoAttachmentIdentities(currentRepo);
+  const incomingAttachmentIdentities = repoAttachmentIdentities(incomingRepo);
+  if (
+    currentAttachments > 0 &&
+    currentAttachmentIdentities.some(
+      (identity, index) => incomingAttachmentIdentities[index] !== identity,
+    )
+  ) {
+    return false;
+  }
+
   if (incomingCount === currentCount) {
     const currentTerminalAssistants = repoTerminalAssistantCount(currentRepo);
     const incomingTerminalAssistants = repoTerminalAssistantCount(incomingRepo);
@@ -391,21 +407,6 @@ export function shouldImportServerThreadData(
       incomingTools.materialized < currentTools.materialized ||
       incomingTools.completed < currentTools.completed ||
       incomingTools.score < currentTools.score
-    ) {
-      return false;
-    }
-    const currentAttachments = repoAttachmentCount(currentRepo);
-    const incomingAttachments = repoAttachmentCount(incomingRepo);
-    if (incomingAttachments < currentAttachments) {
-      return false;
-    }
-    const currentAttachmentIdentities = repoAttachmentIdentities(currentRepo);
-    const incomingAttachmentIdentities = repoAttachmentIdentities(incomingRepo);
-    if (
-      currentAttachments > 0 &&
-      currentAttachmentIdentities.some(
-        (identity, index) => incomingAttachmentIdentities[index] !== identity,
-      )
     ) {
       return false;
     }

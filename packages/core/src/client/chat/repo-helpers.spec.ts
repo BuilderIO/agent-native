@@ -447,6 +447,50 @@ describe("shouldImportServerThreadData", () => {
     );
   });
 
+  it("rejects a longer snapshot that drops an earlier attachment", () => {
+    const currentRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-1",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+          },
+        },
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: "Working on it",
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
   it("accepts regenerated message and attachment ids for the same descriptor", () => {
     const currentRepo: NormalizedRepo = {
       messages: [
