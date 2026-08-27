@@ -515,7 +515,7 @@ export default function EditorToolbar({
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
   return (
-    <div className="deck-editor-toolbar flex h-14 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
+    <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
