@@ -2212,6 +2212,22 @@ describe("assistantChatAutoscrollStatusKey", () => {
 });
 
 describe("chat submit and stop hardening", () => {
+  it("scopes external stop state to the current assistant message", () => {
+    const chatSource = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const messageSource = readFileSync(
+      "src/client/chat/message-components.tsx",
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(chatSource).toContain("ExternalUserStoppedRunContext.Provider");
+    expect(messageSource).toContain("ExternalUserStoppedRunContext");
+    expect(messageSource).toContain("(externalUserStopped && isLast)");
+  });
+
   it("wires reconnect ownership into the inner chat and rejects stale callbacks", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
@@ -2287,8 +2303,19 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
+    expect(source).toContain("onStop?: () => void | Promise<unknown>;");
+    expect(source).toContain(
+      "const handleComposerStop = useCallback(async () => {",
+    );
+    expect(source).toContain("hostStopSucceeded = (await onStop()) !== false;");
+    expect(source).toContain("hostStopSucceeded = false;");
+    expect(source).toContain("if (!hostStopSucceeded) return;");
+    expect(source).toContain(
+      "stopActiveRun({ preserveQueuedMessages: true });",
+    );
+    expect(source).toContain("onClick={handleComposerStop}");
     expect(source).toMatch(
-      /stopActiveRun\(\{\s*preserveQueuedMessages: true,\s*\}\)/,
+      /stopActiveRun\(\{\s*preserveQueuedMessages: true,?\s*\}\)/,
     );
   });
 
