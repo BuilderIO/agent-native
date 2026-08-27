@@ -74,123 +74,125 @@ export default function PrivacyPage() {
   const t = useT();
 
   return (
-    <main className="mx-auto w-full max-w-[980px] px-6 py-14 sm:py-20">
-      <header className="mb-10">
-        <p className="mb-3 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
-          {t("legal.privacy.eyebrow")}
-        </p>
-        <h1 className="mb-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-[var(--fg)] sm:text-5xl">
-          {t("legal.privacy.title")}
-        </h1>
-        <p className="max-w-3xl text-lg leading-8 text-[var(--fg-secondary)]">
-          {t("legal.privacy.intro")}
-        </p>
-        <p className="mt-4 text-sm text-[var(--fg-secondary)]">
-          {t("legal.lastUpdated", { date: UPDATED_AT })}
-        </p>
-      </header>
+    <main className="mx-auto w-full max-w-site px-6 py-14 sm:py-20">
+      <div className="mx-auto w-full max-w-[980px]">
+        <header className="mb-10">
+          <p className="mb-3 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
+            {t("legal.privacy.eyebrow")}
+          </p>
+          <h1 className="mb-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-[var(--fg)] sm:text-5xl">
+            {t("legal.privacy.title")}
+          </h1>
+          <p className="max-w-3xl text-lg leading-8 text-[var(--fg-secondary)]">
+            {t("legal.privacy.intro")}
+          </p>
+          <p className="mt-4 text-sm text-[var(--fg-secondary)]">
+            {t("legal.lastUpdated", { date: UPDATED_AT })}
+          </p>
+        </header>
 
-      <div className="mb-10 grid gap-4 md:grid-cols-3">
-        <ScopeCard
-          title={t("legal.privacy.scopeCards.hosted.title")}
-          body={t("legal.privacy.scopeCards.hosted.body")}
-        />
-        <ScopeCard
-          title={t("legal.privacy.scopeCards.openSource.title")}
-          body={t("legal.privacy.scopeCards.openSource.body")}
-        />
-        <ScopeCard
-          title={t("legal.privacy.scopeCards.selfHosted.title")}
-          body={t("legal.privacy.scopeCards.selfHosted.body")}
-        />
-      </div>
-
-      <Section title={t("legal.privacy.sections.scope")}>
-        <p>{t("legal.privacy.paragraphs.scope1")}</p>
-        <p>
-          {t("legal.privacy.paragraphs.scope2Prefix")}{" "}
-          <a
-            href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
-            className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
-          >
-            {t("legal.privacy.links.builderPrivacy")}
-          </a>{" "}
-          {t("legal.privacy.paragraphs.scope2Suffix")}
-        </p>
-      </Section>
-
-      <Section title={t("legal.privacy.sections.information")}>
-        <div className="grid gap-4 md:grid-cols-2">
-          {DATA_CATEGORY_KEYS.map((categoryKey) => (
-            <article
-              key={categoryKey}
-              className="rounded-lg border border-[var(--docs-border)] p-5"
-            >
-              <h3 className="mb-2 text-base font-semibold text-[var(--fg)]">
-                {t(`legal.privacy.dataCategories.${categoryKey}.title`)}
-              </h3>
-              <p className="m-0 text-sm leading-6">
-                {t(`legal.privacy.dataCategories.${categoryKey}.body`)}
-              </p>
-            </article>
-          ))}
+        <div className="mb-10 grid gap-4 md:grid-cols-3">
+          <ScopeCard
+            title={t("legal.privacy.scopeCards.hosted.title")}
+            body={t("legal.privacy.scopeCards.hosted.body")}
+          />
+          <ScopeCard
+            title={t("legal.privacy.scopeCards.openSource.title")}
+            body={t("legal.privacy.scopeCards.openSource.body")}
+          />
+          <ScopeCard
+            title={t("legal.privacy.scopeCards.selfHosted.title")}
+            body={t("legal.privacy.scopeCards.selfHosted.body")}
+          />
         </div>
-      </Section>
 
-      <Section
-        id="clips-chrome-extension"
-        title={t("legal.privacy.sections.clipsExtension")}
-      >
-        <p>{t("legal.privacy.paragraphs.clips1")}</p>
-        <p>{t("legal.privacy.paragraphs.clips2")}</p>
-        <p>
-          {t("legal.privacy.paragraphs.clipsAnchor")}{" "}
-          <code className="rounded border border-[var(--code-border)] bg-[var(--code-bg)] px-1.5 py-0.5 text-sm text-[var(--fg)]">
-            https://www.agent-native.com/privacy#clips-chrome-extension
-          </code>
-          .
-        </p>
-      </Section>
+        <Section title={t("legal.privacy.sections.scope")}>
+          <p>{t("legal.privacy.paragraphs.scope1")}</p>
+          <p>
+            {t("legal.privacy.paragraphs.scope2Prefix")}{" "}
+            <a
+              href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
+              className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
+            >
+              {t("legal.privacy.links.builderPrivacy")}
+            </a>{" "}
+            {t("legal.privacy.paragraphs.scope2Suffix")}
+          </p>
+        </Section>
 
-      <Section title={t("legal.privacy.sections.use")}>
-        <ul className="m-0 list-disc space-y-2 pl-5">
-          {USE_KEYS.map((useKey) => (
-            <li key={useKey}>{t(`legal.privacy.uses.${useKey}`)}</li>
-          ))}
-        </ul>
-      </Section>
+        <Section title={t("legal.privacy.sections.information")}>
+          <div className="grid gap-4 md:grid-cols-2">
+            {DATA_CATEGORY_KEYS.map((categoryKey) => (
+              <article
+                key={categoryKey}
+                className="rounded-lg border border-[var(--docs-border)] p-5"
+              >
+                <h3 className="mb-2 text-base font-semibold text-[var(--fg)]">
+                  {t(`legal.privacy.dataCategories.${categoryKey}.title`)}
+                </h3>
+                <p className="m-0 text-sm leading-6">
+                  {t(`legal.privacy.dataCategories.${categoryKey}.body`)}
+                </p>
+              </article>
+            ))}
+          </div>
+        </Section>
 
-      <Section title={t("legal.privacy.sections.sharing")}>
-        <p>{t("legal.privacy.paragraphs.sharing1")}</p>
-        <p>{t("legal.privacy.paragraphs.sharing2")}</p>
-      </Section>
+        <Section
+          id="clips-chrome-extension"
+          title={t("legal.privacy.sections.clipsExtension")}
+        >
+          <p>{t("legal.privacy.paragraphs.clips1")}</p>
+          <p>{t("legal.privacy.paragraphs.clips2")}</p>
+          <p>
+            {t("legal.privacy.paragraphs.clipsAnchor")}{" "}
+            <code className="rounded border border-[var(--code-border)] bg-[var(--code-bg)] px-1.5 py-0.5 text-sm text-[var(--fg)]">
+              https://www.agent-native.com/privacy#clips-chrome-extension
+            </code>
+            .
+          </p>
+        </Section>
 
-      <Section title={t("legal.privacy.sections.chromeLimitedUse")}>
-        <p>{t("legal.privacy.paragraphs.chromeLimitedUse")}</p>
-      </Section>
+        <Section title={t("legal.privacy.sections.use")}>
+          <ul className="m-0 list-disc space-y-2 pl-5">
+            {USE_KEYS.map((useKey) => (
+              <li key={useKey}>{t(`legal.privacy.uses.${useKey}`)}</li>
+            ))}
+          </ul>
+        </Section>
 
-      <Section title={t("legal.privacy.sections.retention")}>
-        <p>{t("legal.privacy.paragraphs.retention1")}</p>
-        <p>{t("legal.privacy.paragraphs.retention2")}</p>
-      </Section>
+        <Section title={t("legal.privacy.sections.sharing")}>
+          <p>{t("legal.privacy.paragraphs.sharing1")}</p>
+          <p>{t("legal.privacy.paragraphs.sharing2")}</p>
+        </Section>
 
-      <Section title={t("legal.privacy.sections.security")}>
-        <p>{t("legal.privacy.paragraphs.security")}</p>
-      </Section>
+        <Section title={t("legal.privacy.sections.chromeLimitedUse")}>
+          <p>{t("legal.privacy.paragraphs.chromeLimitedUse")}</p>
+        </Section>
 
-      <Section title={t("legal.privacy.sections.changes")}>
-        <p>{t("legal.privacy.paragraphs.changes1")}</p>
-        <p>
-          {t("legal.privacy.paragraphs.changes2Prefix")}{" "}
-          <a
-            href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
-            className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
-          >
-            {t("legal.privacy.links.builderPrivacyFull")}
-          </a>
-          .
-        </p>
-      </Section>
+        <Section title={t("legal.privacy.sections.retention")}>
+          <p>{t("legal.privacy.paragraphs.retention1")}</p>
+          <p>{t("legal.privacy.paragraphs.retention2")}</p>
+        </Section>
+
+        <Section title={t("legal.privacy.sections.security")}>
+          <p>{t("legal.privacy.paragraphs.security")}</p>
+        </Section>
+
+        <Section title={t("legal.privacy.sections.changes")}>
+          <p>{t("legal.privacy.paragraphs.changes1")}</p>
+          <p>
+            {t("legal.privacy.paragraphs.changes2Prefix")}{" "}
+            <a
+              href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
+              className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
+            >
+              {t("legal.privacy.links.builderPrivacyFull")}
+            </a>
+            .
+          </p>
+        </Section>
+      </div>
     </main>
   );
 }

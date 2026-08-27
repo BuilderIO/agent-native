@@ -434,6 +434,103 @@ const deDE = {
     freeAndOpenSource: "100 % kostenlos • Open Source",
     viewAllApps: "Alle Apps anzeigen",
   },
+  homepage: {
+    hero: {
+      title: "Das Framework für agentische Anwendungen",
+      bodyLine1:
+        "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
+      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
+      learnMore: "Mehr erfahren",
+    },
+    install: {
+      copyCommand: "Installationsbefehl kopieren",
+    },
+    actions: {
+      title: "Eine Action treibt jede Oberfläche an",
+      bodyLine1: "Actions sind die Bausteine einer Agent-Native App.",
+      bodyLine2:
+        "Definiere Funktionalität einmal und nutze sie dann aus deiner UI, dem Agent-Chat, HTTP API, MCP, A2A oder CLI.",
+      diagramAlt:
+        "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
+    },
+    builtIn: {
+      title: "In jede Agent-Native App integriert",
+      body: "Alles, was Nutzer und KI-Agenten brauchen, um zusammenzuarbeiten, bereits in einer Anwendung verdrahtet.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "Gib Nutzern vertraute Bildschirme zum Durchsuchen, Bearbeiten und Prüfen von Arbeit.",
+        },
+        agentChat: {
+          title: "Eingebetteter Agent-Chat",
+          body: "Lass Nutzer Arbeit delegieren, Fragen stellen und Ergebnisse prüfen, ohne die App zu verlassen.",
+        },
+        sharedState: {
+          title: "Geteilter Anwendungsstatus",
+          body: "Der Agent weiß, was Nutzer ansehen, auswählen und bearbeiten.",
+        },
+        sharedSql: {
+          title: "Geteilte SQL-Daten",
+          body: "Nutzer und Agenten lesen und aktualisieren dieselbe Quelle der Wahrheit.",
+        },
+        skillsMemory: {
+          title: "Skills und Gedächtnis",
+          body: "Gib Agenten wiederverwendbares Fachwissen und dauerhaften Kontext.",
+        },
+        automations: {
+          title: "Automatisierungen",
+          body: "Führe Agentenarbeit automatisch nach Zeitplänen oder Anwendungsereignissen aus.",
+        },
+        agentTeams: {
+          title: "Agententeams",
+          body: "Delegiere Arbeit an spezialisierte Agenten innerhalb der App oder über Apps hinweg.",
+        },
+        auth: {
+          title: "Authentifizierung und Organisationen",
+          body: "Anmeldung, Benutzerkonten und Organisationsmitgliedschaft sind eingebaut.",
+        },
+        sharing: {
+          title: "Teilen und Berechtigungen",
+          body: "Kontrolliere, wer jede Ressource ansehen, kommentieren, bearbeiten oder verwalten darf.",
+        },
+      },
+    },
+    stack: {
+      title: "Funktioniert mit deinem Stack",
+      body: "Bring dein LLM, deine Datenbank, Tools und Infrastruktur mit – Agent-Native ist quelloffenes TypeScript, sodass deine Anwendung dir gehört.",
+      exploreApps: "Mit Agent-Native gebaute Apps entdecken",
+    },
+    showcase: {
+      title: "Was kannst du mit Agent-Native bauen?",
+      body: "Starte mit einem Chat, einem fokussierten internen Tool oder einem vollständigen kundenorientierten Produkt. Jede App gibt Nutzern eine UI und Agenten die Werkzeuge für dieselbe Arbeit.",
+      browseApps: "Apps durchsuchen",
+      scrollLeft: "Apps nach links scrollen",
+      scrollRight: "Apps nach rechts scrollen",
+    },
+    bottomCta: {
+      title: "Baue deine erste Agent-Native App",
+      body: "Erstelle eine Anwendung für Nutzer und KI-Agenten. Bring dein eigenes LLM mit und deploye überall.",
+    },
+    getStartedModal: {
+      title: "Loslegen",
+      close: "Schließen",
+      buildLocally: "App lokal bauen",
+      tryAnApp: "App ausprobieren",
+      buildInCloud: "In der Cloud bauen",
+    },
+    footer: {
+      tagline: "Das Framework für agentische Anwendungen.",
+      framework: "Framework",
+      ecosystem: "Ökosystem",
+      community: "Community",
+      legal: "Rechtliches",
+      docs: "Docs",
+      actions: "Actions",
+      apps: "Apps",
+      privacyPolicy: "Datenschutzerklärung",
+      saasTerms: "SaaS-Bedingungen",
+    },
+  },
   templatesPage: {
     title: "Open-Source-Agent-Native Apps, die Sie besitzen",
     eyebrow:
