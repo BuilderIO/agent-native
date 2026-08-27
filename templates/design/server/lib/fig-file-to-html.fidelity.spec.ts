@@ -1384,6 +1384,45 @@ describe("glyph rasterisation", () => {
   });
 });
 
+describe("AUTO line height", () => {
+  // Figma stores AUTO as 100% and never tells us the pixel value it resolved.
+  // `line-height: normal` is the BROWSER's idea of the font's default, not
+  // Figma's — 4px lower on a 32px heading — and AUTO covers 77-83% of the text
+  // in some real designs. For text hugging both axes the box height IS
+  // `round(lines * lineHeight)`, so the ratio falls out of Figma's own numbers.
+  const doc = (extra?: Record<string, unknown>) => {
+    const d = makeDocument([{}]);
+    (d.nodeChanges as unknown[]).push(
+      // The sample the ratio is derived from: 1 line, 32px, box 39px tall.
+      childNode(10, 160, {
+        type: "TEXT",
+        name: "Sample",
+        fontSize: 32,
+        fontName: { family: "Inter", style: "Bold" },
+        lineHeight: { value: 100, units: "PERCENT" },
+        textAutoResize: "WIDTH_AND_HEIGHT",
+        size: { x: 300, y: 39 },
+        textData: { characters: "Bold Display Heading", lines: [{}] },
+        ...extra,
+      }),
+    );
+    return d;
+  };
+
+  it("resolves AUTO to the ratio the document itself reveals", () => {
+    // 39 / 32 = 1.21875, so a 32px line is 39px.
+    expect(renderFrame(doc())).toContain("line-height: 39px");
+  });
+
+  it("falls back to normal for a font the document never resolved", () => {
+    const d = doc({
+      fontName: { family: "Other", style: "Regular" },
+      textAutoResize: "HEIGHT",
+    });
+    expect(renderFrame(d)).toContain("line-height: normal");
+  });
+});
+
 describe("magnified image fills", () => {
   // Figma magnifies an image fill with NEAREST-neighbour sampling; the browser
   // smooths. The fills/effects checkerboard is a 16px tile stretched to 180 and

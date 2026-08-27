@@ -819,11 +819,62 @@ function lengthFromUnits(
  * which is exactly what a CSS percentage line-height means, so it falls
  * through to the shared helper.
  */
+/**
+ * The ratio Figma resolves an AUTO line height to, per font, read out of the
+ * document's own geometry.
+ *
+ * Figma stores AUTO as `{value: 100, units: "PERCENT"}` and never tells us the
+ * pixel value it resolved — but for text that hugs BOTH axes the box height IS
+ * `round(lines * lineHeight)`, so the ratio falls out of numbers Figma already
+ * gave us. It is font-specific: measured across real files it ranges from 1.20
+ * to 1.50, which is why a single constant would be wrong.
+ *
+ * `line-height: normal` was the previous answer and it is the browser's own
+ * idea of the font's default, not Figma's — 4px lower on a 32px heading, and
+ * AUTO covers 77-83% of the text in some real designs.
+ *
+ * The sample with the most `lines * fontSize` wins: the box height is rounded
+ * to a whole pixel, so the largest sample carries the least rounding error.
+ */
+function deriveAutoLineHeights(nodes: FigNode[]): Map<string, number> {
+  const best = new Map<string, { ratio: number; weight: number }>();
+  for (const node of nodes) {
+    if (node.type !== "TEXT") continue;
+    const lineHeight = node.lineHeight;
+    if (!(lineHeight?.units === "PERCENT" && lineHeight.value === 100))
+      continue;
+    if (node.textAutoResize !== "WIDTH_AND_HEIGHT") continue;
+    const lines = node.textData?.lines?.length ?? 0;
+    const fontSize = node.fontSize;
+    const height = node.size?.y;
+    if (!lines || !fontSize || !height) continue;
+    const weight = lines * fontSize;
+    const key = autoLineHeightKey(node.fontName);
+    const current = best.get(key);
+    if (!current || weight > current.weight) {
+      best.set(key, { ratio: height / (lines * fontSize), weight });
+    }
+  }
+  return new Map([...best].map(([key, value]) => [key, value.ratio]));
+}
+
+function autoLineHeightKey(
+  fontName: { family?: string; style?: string } | undefined,
+): string {
+  return `${fontName?.family ?? ""}|${fontName?.style ?? ""}`;
+}
+
 function lineHeightCss(
   v: { value: number; units?: string } | undefined,
   fontSize?: number,
+  autoRatio?: number,
 ): string | number | null {
-  if (v && v.units === "PERCENT" && v.value === 100) return "normal";
+  if (v && v.units === "PERCENT" && v.value === 100) {
+    // Figma's own resolved ratio when the document revealed one; `normal`
+    // only when nothing in it did, since that is the browser's idea of the
+    // font's default rather than Figma's.
+    return autoRatio ? `${num(autoRatio * (fontSize ?? 0))}px` : "normal";
+  }
   return lengthFromUnits(v, fontSize);
 }
 
@@ -1964,7 +2015,11 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
     out.fontStyle = "italic";
   }
   if (typeof fontSize === "number") out.fontSize = `${num(fontSize)}px`;
-  const lh = lineHeightCss(lineHeight, fontSize);
+  const lh = lineHeightCss(
+    lineHeight,
+    fontSize,
+    ctx?.autoLineHeight.get(autoLineHeightKey(fontName)),
+  );
   if (lh !== null && lh !== undefined) out.lineHeight = lh;
   const ls = lengthFromUnits(letterSpacing, fontSize);
   if (ls !== null && ls !== undefined) out.letterSpacing = ls;
@@ -2645,6 +2700,11 @@ interface Ctx {
   blobs: Buffer[];
   /** Hex hash -> on-disk filename (e.g. `<hash>` or `<hash>.png`). */
   imageMap: Map<string, string>;
+  /**
+   * `family|style` -> the line-height ratio Figma resolves AUTO to for that
+   * font, derived from the document's own boxes. See `deriveAutoLineHeights`.
+   */
+  autoLineHeight: Map<string, number>;
   missingImageUrl?: string;
   /** When true, per-node IMAGE fills with no imageMap entry emit data-figma-image-ref. */
   trackUnresolvedImageRefs?: boolean;
@@ -4423,6 +4483,7 @@ export function renderHtmlTemplates(
     imageRefBase: options.imageRefBase,
     blobs,
     imageMap: options.imageMap ?? new Map<string, string>(),
+    autoLineHeight: deriveAutoLineHeights(nodes),
     missingImageUrl: options.missingImageUrl,
     trackUnresolvedImageRefs: options.trackUnresolvedImageRefs,
     unresolvedImageRefs: options.trackUnresolvedImageRefs
