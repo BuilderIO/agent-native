@@ -286,6 +286,56 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("continues JSON detection across leading whitespace chunks", async () => {
+    const encoder = new TextEncoder();
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode("\n"));
+          setTimeout(() => {
+            controller.enqueue(encoder.encode('{"ok":true}'));
+            controller.close();
+          }, 10);
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-whitespace",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(results[0]).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining(
+            "Agent chat endpoint returned JSON instead of an event stream",
+          ),
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+    });
+  });
+
   it("starts parsing a mislabeled SSE response before it closes", async () => {
     const encoder = new TextEncoder();
     let finishResponse: (() => void) | undefined;

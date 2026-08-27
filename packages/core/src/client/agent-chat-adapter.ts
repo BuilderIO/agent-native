@@ -173,6 +173,8 @@ const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
+const MAX_JSON_RESPONSE_PROBE_BYTES = 8_192;
+const JSON_RESPONSE_PROBE_TIMEOUT_MS = 1_000;
 // Tools whose entire input IS the artifact being built (extension HTML, etc.).
 // Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
 // the resumed agent — it can no longer refine the artifact because it sees a
@@ -3916,27 +3918,59 @@ export function createAgentChatAdapter(
               let probeCompleted = false;
               let probePrefix = "";
               if (!hasRunId) {
-                // Read one cloned chunk so a mislabeled live SSE stream is not
+                // Read a bounded prefix so a mislabeled live SSE stream is not
                 // buffered until it closes before the original reader starts.
                 const probeReader = res.clone().body?.getReader();
                 if (probeReader) {
-                  const firstChunk = await probeReader.read();
-                  probeCompleted = firstChunk.done;
-                  probePrefix = firstChunk.value
-                    ? new TextDecoder().decode(firstChunk.value).trimStart()
-                    : "";
+                  const decoder = new TextDecoder();
+                  let probeBytes = 0;
+                  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+                  const timeout = new Promise<null>((resolve) => {
+                    timeoutId = setTimeout(
+                      () => resolve(null),
+                      JSON_RESPONSE_PROBE_TIMEOUT_MS,
+                    );
+                  });
+
+                  try {
+                    while (probeBytes < MAX_JSON_RESPONSE_PROBE_BYTES) {
+                      const read = probeReader.read();
+                      void read.catch(() => {});
+                      const chunk = await Promise.race([read, timeout]);
+                      if (chunk === null) break;
+
+                      probeCompleted = chunk.done;
+                      if (chunk.done) {
+                        probePrefix += decoder.decode();
+                        break;
+                      }
+
+                      const value = chunk.value.subarray(
+                        0,
+                        MAX_JSON_RESPONSE_PROBE_BYTES - probeBytes,
+                      );
+                      probeBytes += value.byteLength;
+                      probePrefix += decoder.decode(value, { stream: true });
+                      if (probePrefix.trimStart() !== "") break;
+                    }
+                    probePrefix += decoder.decode();
+                  } finally {
+                    if (timeoutId) clearTimeout(timeoutId);
+                    void probeReader.cancel().catch(() => {});
+                    probeReader.releaseLock();
+                  }
+
+                  const trimmedProbePrefix = probePrefix.trimStart();
                   looksLikeSSE =
-                    probePrefix.startsWith("data:") ||
-                    probePrefix.startsWith("event:") ||
-                    probePrefix.startsWith("id:") ||
-                    probePrefix.startsWith("retry:") ||
-                    probePrefix.startsWith(":");
-                  void probeReader.cancel().catch(() => {});
-                  probeReader.releaseLock();
+                    trimmedProbePrefix.startsWith("data:") ||
+                    trimmedProbePrefix.startsWith("event:") ||
+                    trimmedProbePrefix.startsWith("id:") ||
+                    trimmedProbePrefix.startsWith("retry:") ||
+                    trimmedProbePrefix.startsWith(":");
                 }
               }
 
-              const firstChar = probePrefix[0] ?? "";
+              const firstChar = probePrefix.trimStart()[0] ?? "";
               const looksLikeJson =
                 probeCompleted ||
                 (firstChar !== "" && '{["-0123456789tfn'.includes(firstChar));
