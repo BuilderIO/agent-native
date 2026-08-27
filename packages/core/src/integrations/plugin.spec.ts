@@ -22,6 +22,10 @@ const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const handlePushNotificationMock = vi.hoisted(() => vi.fn());
+const verifyGoogleDocsPushNotificationMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const recordIntegrationResponseDeliveryMock = vi.hoisted(() => vi.fn());
 const handleWebhookMock = vi.hoisted(() =>
@@ -178,7 +182,8 @@ vi.mock("./integration-durable-dispatch.js", async () => {
 
 vi.mock("./google-docs-poller.js", () => ({
   startGoogleDocsPoller: vi.fn(),
-  handlePushNotification: vi.fn(),
+  handlePushNotification: handlePushNotificationMock,
+  verifyGoogleDocsPushNotification: verifyGoogleDocsPushNotificationMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -388,6 +393,10 @@ describe("integrations plugin routes", () => {
     resolveSecretMock.mockReset();
     resolveSecretMock.mockReturnValue(null);
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    handlePushNotificationMock.mockReset();
+    handlePushNotificationMock.mockResolvedValue(undefined);
+    verifyGoogleDocsPushNotificationMock.mockReset();
+    verifyGoogleDocsPushNotificationMock.mockResolvedValue(true);
     retryStuckPendingTasksMock.mockResolvedValue({
       selected: 0,
       dispatched: 0,
@@ -747,6 +756,52 @@ describe("integrations plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ challenge: "qa-challenge" });
+  });
+
+  it("authenticates Google Drive push notifications with channel headers", async () => {
+    process.env.NODE_ENV = "production";
+    const googleDocsAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "google-docs",
+      label: "Google Docs",
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [googleDocsAdapter] })(nitroApp);
+
+    verifyGoogleDocsPushNotificationMock.mockResolvedValueOnce(false);
+    const rejected = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/webhook",
+      "POST",
+      undefined,
+      {
+        "x-goog-channel-id": "channel-1",
+        "x-goog-channel-token": "token-1",
+        "x-goog-resource-id": "resource-1",
+      },
+    );
+    expect(rejected.status).toBe(401);
+    expect(handlePushNotificationMock).not.toHaveBeenCalled();
+
+    const accepted = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/webhook",
+      "POST",
+      undefined,
+      {
+        "x-goog-channel-id": "channel-1",
+        "x-goog-channel-token": "token-1",
+        "x-goog-resource-id": "resource-1",
+      },
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toBe("ok");
+    expect(verifyGoogleDocsPushNotificationMock).toHaveBeenLastCalledWith({
+      channelId: "channel-1",
+      channelToken: "token-1",
+      resourceId: "resource-1",
+    });
+    expect(handlePushNotificationMock).toHaveBeenCalledTimes(1);
   });
 
   it("refuses unsigned task processing in production when A2A_SECRET is missing", async () => {
