@@ -1,91 +1,373 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Layout stress</title><style>
-  *{box-sizing:border-box}
-  html,body{margin:0;background:#fff;font-family:Inter,Helvetica,Arial,sans-serif;color:#0f172a}
-  .frame{position:relative;width:1440px;height:900px;overflow:hidden;background:#f8fafc;display:flex;flex-direction:column}
-  header{display:flex;align-items:center;justify-content:space-between;padding:0 28px;height:64px;
-    background:#fff;border-bottom:1px solid #e2e8f0}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.01em;font-size:16px}
-  .dot{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#6366f1,#22d3ee)}
-  nav{display:flex;gap:22px;font-size:13px;color:#475569}
-  nav .on{color:#0f172a;font-weight:700;border-bottom:2px solid #6366f1;padding-bottom:3px}
-  .cta{padding:8px 14px;border-radius:8px;background:#0f172a;color:#fff;font-size:13px;font-weight:700}
-  .shell{display:flex;flex:1;min-height:0}
-  aside{width:236px;flex:none;background:#fff;border-right:1px solid #e2e8f0;padding:18px 14px}
-  .grp{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;margin:14px 8px 8px}
-  .item{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;font-size:13px;color:#334155}
-  .item.sel{background:#eef2ff;color:#3730a3;font-weight:700}
-  .pill{padding:1px 7px;border-radius:999px;background:#e2e8f0;font-size:11px;color:#475569}
-  main{flex:1;min-width:0;padding:24px 28px;display:flex;flex-direction:column;gap:20px}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-  .stat{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px}
-  .stat .n{font-size:28px;font-weight:800;letter-spacing:-.03em}
-  .stat .l{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;margin-top:4px}
-  .stat .d{font-size:12px;color:#16a34a;margin-top:8px}
-  .split{display:flex;gap:20px;flex:1;min-height:0}
-  .table{flex:1.6;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
-  .thead{display:flex;padding:11px 16px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;
-    font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#64748b}
-  .tr{display:flex;padding:12px 16px;border-bottom:1px solid #f1f5f9;font-size:13px;align-items:center}
-  .tr:last-child{border-bottom:0}
-  .c1{flex:2}.c2{flex:1}.c3{flex:1;text-align:right}
-  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
-  .tag.ok{background:#dcfce7;color:#166534}.tag.warn{background:#fef3c7;color:#92400e}.tag.err{background:#fee2e2;color:#991b1b}
-  .side{flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px;position:relative;overflow:hidden}
-  .side h3{margin:0 0 4px;font-size:14px;font-weight:700}
-  .side p{margin:0;font-size:12px;line-height:1.6;color:#64748b}
-  .halo{position:absolute;right:-70px;top:-70px;width:220px;height:220px;border-radius:50%;
-    background:radial-gradient(circle at 40% 40%, rgba(99,102,241,.32), transparent 68%)}
-  .bars{display:flex;align-items:flex-end;gap:8px;height:120px;margin-top:18px}
-  .bar{flex:1;border-radius:6px 6px 0 0;background:linear-gradient(180deg,#818cf8,#6366f1)}
-  .float{position:absolute;right:28px;bottom:24px;padding:10px 16px;border-radius:999px;background:#0f172a;color:#fff;
-    font-size:13px;font-weight:700;box-shadow:0 12px 24px -8px rgba(15,23,42,.5)}
-</style></head><body>
-<main class="frame" data-agent-native-node-id="frame">
-  <header>
-    <div class="brand"><span class="dot"></span>Meridian</div>
-    <nav><span class="on">Overview</span><span>Runs</span><span>Datasets</span><span>Alerts</span><span>Settings</span></nav>
-    <span class="cta">New run</span>
-  </header>
-  <div class="shell">
-    <aside>
-      <div class="grp">Workspace</div>
-      <div class="item sel">Overview <span class="pill">9</span></div>
-      <div class="item">Pipelines <span class="pill">24</span></div>
-      <div class="item">Artifacts <span class="pill">7</span></div>
-      <div class="grp">Monitoring</div>
-      <div class="item">Live runs <span class="pill">3</span></div>
-      <div class="item">Incidents <span class="pill">1</span></div>
-      <div class="item">Audit log</div>
-    </aside>
-    <main>
-      <div class="stats">
-        <div class="stat"><div class="n">1,284</div><div class="l">Runs today</div><div class="d">+12.4%</div></div>
-        <div class="stat"><div class="n">99.2%</div><div class="l">Success rate</div><div class="d">+0.6pt</div></div>
-        <div class="stat"><div class="n">3m 41s</div><div class="l">Median time</div><div class="d">-18s</div></div>
-        <div class="stat"><div class="n">$412</div><div class="l">Spend</div><div class="d">-4.1%</div></div>
-      </div>
-      <div class="split">
-        <div class="table">
-          <div class="thead"><span class="c1">Pipeline</span><span class="c2">Status</span><span class="c3">Duration</span></div>
-          <div class="tr"><span class="c1">ingest-events</span><span class="c2"><span class="tag ok">Healthy</span></span><span class="c3">2m 14s</span></div>
-          <div class="tr"><span class="c1">normalize-sessions</span><span class="c2"><span class="tag ok">Healthy</span></span><span class="c3">4m 02s</span></div>
-          <div class="tr"><span class="c1">enrich-accounts</span><span class="c2"><span class="tag warn">Degraded</span></span><span class="c3">9m 47s</span></div>
-          <div class="tr"><span class="c1">rollup-daily</span><span class="c2"><span class="tag ok">Healthy</span></span><span class="c3">1m 08s</span></div>
-          <div class="tr"><span class="c1">export-warehouse</span><span class="c2"><span class="tag err">Failed</span></span><span class="c3">0m 12s</span></div>
-          <div class="tr"><span class="c1">refresh-embeddings</span><span class="c2"><span class="tag ok">Healthy</span></span><span class="c3">6m 30s</span></div>
-        </div>
-        <div class="side"><div class="halo"></div>
-          <h3>Throughput</h3><p>Events processed per hour across the last eight windows.</p>
-          <div class="bars">
-            <div class="bar" style="height:38%"></div><div class="bar" style="height:62%"></div>
-            <div class="bar" style="height:47%"></div><div class="bar" style="height:81%"></div>
-            <div class="bar" style="height:70%"></div><div class="bar" style="height:94%"></div>
-            <div class="bar" style="height:58%"></div><div class="bar" style="height:76%"></div>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Layout stress</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        font-family: Inter, Helvetica, Arial, sans-serif;
+        color: #0f172a;
+      }
+      .frame {
+        position: relative;
+        width: 1440px;
+        height: 900px;
+        overflow: hidden;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 28px;
+        height: 64px;
+        background: #fff;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        font-size: 16px;
+      }
+      .dot {
+        width: 22px;
+        height: 22px;
+        border-radius: 7px;
+        background: linear-gradient(135deg, #6366f1, #22d3ee);
+      }
+      nav {
+        display: flex;
+        gap: 22px;
+        font-size: 13px;
+        color: #475569;
+      }
+      nav .on {
+        color: #0f172a;
+        font-weight: 700;
+        border-bottom: 2px solid #6366f1;
+        padding-bottom: 3px;
+      }
+      .cta {
+        padding: 8px 14px;
+        border-radius: 8px;
+        background: #0f172a;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .shell {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      aside {
+        width: 236px;
+        flex: none;
+        background: #fff;
+        border-right: 1px solid #e2e8f0;
+        padding: 18px 14px;
+      }
+      .grp {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin: 14px 8px 8px;
+      }
+      .item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 13px;
+        color: #334155;
+      }
+      .item.sel {
+        background: #eef2ff;
+        color: #3730a3;
+        font-weight: 700;
+      }
+      .pill {
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        font-size: 11px;
+        color: #475569;
+      }
+      main {
+        flex: 1;
+        min-width: 0;
+        padding: 24px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+      }
+      .stat {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .stat .n {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+      .stat .l {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-top: 4px;
+      }
+      .stat .d {
+        font-size: 12px;
+        color: #16a34a;
+        margin-top: 8px;
+      }
+      .split {
+        display: flex;
+        gap: 20px;
+        flex: 1;
+        min-height: 0;
+      }
+      .table {
+        flex: 1.6;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .thead {
+        display: flex;
+        padding: 11px 16px;
+        background: #f1f5f9;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #64748b;
+      }
+      .tr {
+        display: flex;
+        padding: 12px 16px;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 13px;
+        align-items: center;
+      }
+      .tr:last-child {
+        border-bottom: 0;
+      }
+      .c1 {
+        flex: 2;
+      }
+      .c2 {
+        flex: 1;
+      }
+      .c3 {
+        flex: 1;
+        text-align: right;
+      }
+      .tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .tag.ok {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .tag.warn {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .tag.err {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .side {
+        flex: 1;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 18px;
+        position: relative;
+        overflow: hidden;
+      }
+      .side h3 {
+        margin: 0 0 4px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .side p {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.6;
+        color: #64748b;
+      }
+      .halo {
+        position: absolute;
+        right: -70px;
+        top: -70px;
+        width: 220px;
+        height: 220px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 40% 40%,
+          rgba(99, 102, 241, 0.32),
+          transparent 68%
+        );
+      }
+      .bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        height: 120px;
+        margin-top: 18px;
+      }
+      .bar {
+        flex: 1;
+        border-radius: 6px 6px 0 0;
+        background: linear-gradient(180deg, #818cf8, #6366f1);
+      }
+      .float {
+        position: absolute;
+        right: 28px;
+        bottom: 24px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: #0f172a;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        box-shadow: 0 12px 24px -8px rgba(15, 23, 42, 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="frame" data-agent-native-node-id="frame">
+      <header>
+        <div class="brand"><span class="dot"></span>Meridian</div>
+        <nav>
+          <span class="on">Overview</span><span>Runs</span><span>Datasets</span
+          ><span>Alerts</span><span>Settings</span>
+        </nav>
+        <span class="cta">New run</span>
+      </header>
+      <div class="shell">
+        <aside>
+          <div class="grp">Workspace</div>
+          <div class="item sel">Overview <span class="pill">9</span></div>
+          <div class="item">Pipelines <span class="pill">24</span></div>
+          <div class="item">Artifacts <span class="pill">7</span></div>
+          <div class="grp">Monitoring</div>
+          <div class="item">Live runs <span class="pill">3</span></div>
+          <div class="item">Incidents <span class="pill">1</span></div>
+          <div class="item">Audit log</div>
+        </aside>
+        <main>
+          <div class="stats">
+            <div class="stat">
+              <div class="n">1,284</div>
+              <div class="l">Runs today</div>
+              <div class="d">+12.4%</div>
+            </div>
+            <div class="stat">
+              <div class="n">99.2%</div>
+              <div class="l">Success rate</div>
+              <div class="d">+0.6pt</div>
+            </div>
+            <div class="stat">
+              <div class="n">3m 41s</div>
+              <div class="l">Median time</div>
+              <div class="d">-18s</div>
+            </div>
+            <div class="stat">
+              <div class="n">$412</div>
+              <div class="l">Spend</div>
+              <div class="d">-4.1%</div>
+            </div>
           </div>
-        </div>
+          <div class="split">
+            <div class="table">
+              <div class="thead">
+                <span class="c1">Pipeline</span><span class="c2">Status</span
+                ><span class="c3">Duration</span>
+              </div>
+              <div class="tr">
+                <span class="c1">ingest-events</span
+                ><span class="c2"><span class="tag ok">Healthy</span></span
+                ><span class="c3">2m 14s</span>
+              </div>
+              <div class="tr">
+                <span class="c1">normalize-sessions</span
+                ><span class="c2"><span class="tag ok">Healthy</span></span
+                ><span class="c3">4m 02s</span>
+              </div>
+              <div class="tr">
+                <span class="c1">enrich-accounts</span
+                ><span class="c2"><span class="tag warn">Degraded</span></span
+                ><span class="c3">9m 47s</span>
+              </div>
+              <div class="tr">
+                <span class="c1">rollup-daily</span
+                ><span class="c2"><span class="tag ok">Healthy</span></span
+                ><span class="c3">1m 08s</span>
+              </div>
+              <div class="tr">
+                <span class="c1">export-warehouse</span
+                ><span class="c2"><span class="tag err">Failed</span></span
+                ><span class="c3">0m 12s</span>
+              </div>
+              <div class="tr">
+                <span class="c1">refresh-embeddings</span
+                ><span class="c2"><span class="tag ok">Healthy</span></span
+                ><span class="c3">6m 30s</span>
+              </div>
+            </div>
+            <div class="side">
+              <div class="halo"></div>
+              <h3>Throughput</h3>
+              <p>Events processed per hour across the last eight windows.</p>
+              <div class="bars">
+                <div class="bar" style="height: 38%"></div>
+                <div class="bar" style="height: 62%"></div>
+                <div class="bar" style="height: 47%"></div>
+                <div class="bar" style="height: 81%"></div>
+                <div class="bar" style="height: 70%"></div>
+                <div class="bar" style="height: 94%"></div>
+                <div class="bar" style="height: 58%"></div>
+                <div class="bar" style="height: 76%"></div>
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
+      <span class="float">Export report</span>
     </main>
-  </div>
-  <span class="float">Export report</span>
-</main></body></html>
+  </body>
+</html>

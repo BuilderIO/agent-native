@@ -368,7 +368,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@noble/hashes": "^2.3.0",
     "@agent-native/recap-cli": "workspace:*",
     "@agent-native/toolkit": "workspace:^",
     "@amplitude/analytics-browser": "^2.41.1",
@@ -390,6 +389,7 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@mozilla/readability": "0.6.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@noble/hashes": "^2.3.0",
     "@radix-ui/react-popover": "catalog:",
     "@radix-ui/react-select": "catalog:",
     "@radix-ui/react-tooltip": "catalog:",

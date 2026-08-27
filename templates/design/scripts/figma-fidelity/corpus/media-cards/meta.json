@@ -1,1 +1,5 @@
-{"width":1200,"height":800,"rootSelector":"[data-agent-native-node-id=\"frame\"]"}
+{
+  "width": 1200,
+  "height": 800,
+  "rootSelector": "[data-agent-native-node-id=\"frame\"]"
+}

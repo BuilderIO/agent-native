@@ -23,7 +23,7 @@ product must report them instead of claiming success.
 | Figma clipboard to Design    | Uses private `figmeta.selectedNodeData` ids when present, then the same REST converter. With a token: full fidelity matching `import-figma-frame`. Without a token: local Kiwi binary decode — geometry, auto-layout, text, solid fills, and strokes are editable; image fills are stamped with `data-figma-image-ref="<sha1>"` placeholders and can be resolved retroactively two ways: token-free by uploading the original `.fig` (the paste dialog's "Fill images from .fig" / `hydrateFileIds` on the `.fig` upload route), which matches each placeholder hash to the `.fig`'s embedded image bytes; or with a token via `hydrate-figma-paste-images`. | Exact selection identity while Figma's private metadata shape remains compatible; node fidelity is mixed. No-token imports resolve images retroactively — from the `.fig` (no quota) or a connected token. | Real Chrome copy from single, multi, nested, and 100+ node selections; token-less copy followed by `.fig` hydration and by deferred token connect, verifying image resolution both ways. |
 | `.fig` upload                | Bounded best-effort decoding of known Kiwi/ZIP variants into editable HTML. Embedded images are moved to durable storage. Optionally accepts a Figma frame URL: when its `node-id` matches the decoded file, Design imports only that top-level frame (or its ancestor for a nested node); a mismatch imports all frames with a warning. No Figma REST API calls are made.                                                                                                                                                                                                                                                                                   | Experimental. The format is proprietary and has no compatibility guarantee.                                                                                                                                | Corpus of real files from multiple Figma versions; never only generated containers.                                                                                                      |
 | `.fig` upload + frame URL    | Accepts an optional Figma frame link. Normalizes the node-id and matches the decoded .fig GUID (`sessionID:localID`) to the matching top-level frame. Nested node IDs resolve to their top-level frame. On mismatch, all frames are imported. No Figma API quota is used.                                                                                                                                                                                                                                                                                                                                                                                    | Best-effort. The GUID mapping is reliable for frames in the same file but undocumented — test with real files before relying on it.                                                                        | Real .fig/frame-link pairs from Figma across file versions.                                                                                                                              |
-| Design to Figma clipboard    | Copies an SVG built from the live rendered DOM. Figma imports supported SVG primitives as editable layers, including live editable text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Visual/vector handoff, not a native semantic round trip. Auto layout, variables, components, prototypes, HTML state, and code identity are not recreated by SVG.                                           | Paste into real Figma and inspect layer types, text, images, effects, clipping, and bounds.                                                                                              |
+| Design to Figma clipboard    | Copies an SVG built from the live rendered DOM. Figma imports supported SVG primitives as editable layers, including live editable text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Visual/vector handoff, not a native semantic round trip. Auto layout, variables, components, prototypes, HTML state, and code identity are not recreated by SVG.                                           | Paste into real Figma and inspect layer types, text, images, effects, clipping, and bounds.                                                                                              |
 | Design SVG download          | Same conversion as clipboard, with a server-render fallback when a live DOM is unavailable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Same SVG limits; the export report lists approximations and omissions.                                                                                                                                     | Live and server paths, selected layer and whole screen.                                                                                                                                  |
 | Native Design to Figma write | Use Figma's official MCP `use_figma` write-to-canvas path when the connected client/account supports it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Native Figma structures, subject to Figma MCP beta limitations and permissions.                                                                                                                            | Full-seat/edit-permission account and a real destination file.                                                                                                                           |
 | `.fig` download              | Not supported. There is no documented public `.fig` authoring contract.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Unsupported.                                                                                                                                                                                               | Do not label SVG/ZIP as `.fig`.                                                                                                                                                          |
@@ -88,17 +88,17 @@ place — verified visually for both drop and inset shadows.
 **Silently ignored.** Every one of these was tested and had no effect on the
 imported node:
 
-| SVG mechanism                              | Result in Figma                         |
-| ------------------------------------------ | --------------------------------------- |
-| `letter-spacing` attribute                 | dropped, node reports 0                 |
-| `letter-spacing` in a `style` attribute    | dropped                                 |
-| `textLength` + `lengthAdjust="spacing"`    | ignored, natural width                  |
-| multi-value `tspan x="0 45 90 …"`          | ignored, glyphs set solid               |
-| sibling `tspan`s each with their own `x`   | flattened into one run at the first `x` |
-| `word-spacing`                             | ignored                                 |
-| family-encoded weight (`"Inter Extra Bold"`) | resolves to `Inter Regular`           |
-| `font-weight` 800 or 900                   | both resolve to `Inter Bold`            |
-| `dominant-baseline`                        | ignored; `y` is read as the baseline    |
+| SVG mechanism                                | Result in Figma                         |
+| -------------------------------------------- | --------------------------------------- |
+| `letter-spacing` attribute                   | dropped, node reports 0                 |
+| `letter-spacing` in a `style` attribute      | dropped                                 |
+| `textLength` + `lengthAdjust="spacing"`      | ignored, natural width                  |
+| multi-value `tspan x="0 45 90 …"`            | ignored, glyphs set solid               |
+| sibling `tspan`s each with their own `x`     | flattened into one run at the first `x` |
+| `word-spacing`                               | ignored                                 |
+| family-encoded weight (`"Inter Extra Bold"`) | resolves to `Inter Regular`             |
+| `font-weight` 800 or 900                     | both resolve to `Inter Bold`            |
+| `dominant-baseline`                          | ignored; `y` is read as the baseline    |
 
 Two consequences the export must live with, and reports rather than hides:
 
@@ -217,11 +217,11 @@ independently written walkers landing on the same layout, which is the strongest
 evidence available that neither is wrong. A number that says a path is three
 times worse than it is sends the next fix at the wrong target.
 
-| case | vs Figma | vs the REST import of the same frame |
-| --- | --- | --- |
-| paste-untitledui-landing | 3.026% | 0.756% |
-| paste-positivus-home | 4.018% | 3.880% |
-| paste-dashstack-dashboard | 2.535% | — (REST corpus holds a different frame) |
+| case                      | vs Figma | vs the REST import of the same frame    |
+| ------------------------- | -------- | --------------------------------------- |
+| paste-untitledui-landing  | 3.026%   | 0.756%                                  |
+| paste-positivus-home      | 4.018%   | 3.880%                                  |
+| paste-dashstack-dashboard | 2.535%   | — (REST corpus holds a different frame) |
 
 Payloads are captured from a real Figma copy, never synthesized. To capture one,
 open the file in a browser, select the frame, install a capture hook, and use
@@ -231,13 +231,17 @@ PNG/SVG/text, not the kiwi buffer:
 
 ```js
 window.__cap = null;
-navigator.clipboard.write = new Proxy(navigator.clipboard.write.bind(navigator.clipboard), {
-  apply: async (t, _s, [items]) => {
-    for (const i of items)
-      if (i.types.includes("text/html")) window.__cap = await (await i.getType("text/html")).text();
-    return t(items);
+navigator.clipboard.write = new Proxy(
+  navigator.clipboard.write.bind(navigator.clipboard),
+  {
+    apply: async (t, _s, [items]) => {
+      for (const i of items)
+        if (i.types.includes("text/html"))
+          window.__cap = await (await i.getType("text/html")).text();
+      return t(items);
+    },
   },
-});
+);
 ```
 
 Then save `window.__cap` to `.tmp/figma-fidelity/clipboard/` and add a
@@ -257,35 +261,35 @@ Starter-tier limits.
 
 Measured 2026-08-27:
 
-| case | import% | −text% | −text/img% | export% | drift% |
-| --- | --- | --- | --- | --- | --- |
-| shapes | 0.543 | 0.543 | 0.543 | 0.292 | 0.313 |
-| fills-effects | 0.548 | 0.548 | 0.569 | 1.052 | 0.045 |
-| community-dashstack-admin | 0.825 | 0.069 | 0.055 | 0.823 | 0.009 |
-| app-untitled-ui-settings | 1.092 | 0.456 | 0.084 | 0.946 | 0.494 |
-| community-interior-checkout | 1.362 | 0.218 | 0.220 | 1.859 | 0.692 |
-| community-interior-ecommerce | 1.938 | 1.297 | 0.131 | 2.723 | 2.489 |
-| community-interior-single-product | 2.092 | 0.686 | 0.193 | 2.759 | 1.710 |
-| constraints | 2.277 | 0.110 | 0.110 | 2.498 | 0.425 |
-| parity-stress | 2.301 | 0.272 | 0.272 | 2.295 | 0.092 |
-| community-interior-product-comparison | 2.419 | 0.312 | 0.207 | 2.945 | 0.667 |
-| community-positivus-landing | 2.467 | 0.810 | 0.657 | 3.415 | 1.576 |
-| community-untitled-ui-landing-alt | 2.500 | 0.917 | 0.266 | 2.381 | 0.897 |
-| community-untitled-ui-landing | 2.512 | 0.518 | 0.072 | 2.617 | 0.624 |
-| autolayout | 2.632 | 0.410 | 0.410 | 2.395 | 0.281 |
-| community-untitled-ui-pricing | 2.672 | 0.245 | 0.190 | 2.633 | 0.166 |
-| app-untitled-ui-dashboard-tall | 2.681 | 1.311 | 1.111 | 2.849 | 1.006 |
-| community-whitepace-saas | 2.962 | 0.875 | 0.842 | 2.525 | 0.933 |
-| card-grid | 3.097 | 0.060 | 0.060 | 3.097 | 0.000 |
-| app-untitled-ui-data-table | 3.411 | 0.732 | 0.716 | 3.878 | 0.825 |
-| community-landify-example | 3.467 | 1.563 | 0.589 | 3.306 | 1.208 |
-| app-untitled-ui-settings-mobile | 3.524 | 0.431 | 0.404 | 3.378 | 0.771 |
-| app-untitled-ui-dashboard | 3.679 | 1.294 | 1.027 | 4.011 | 1.042 |
-| ds-untitled-ui-table-variants | 3.689 | 1.229 | 0.952 | 2.747 | 2.392 |
-| community-landify-tablet | 4.709 | 2.190 | 0.718 | 4.505 | 1.546 |
-| community-untitled-ui-landing-mobile | 6.185 | 1.310 | 0.606 | 6.282 | 1.148 |
-| typography | 12.597 | 0.005 | 0.005 | 12.594 | 0.192 |
-| **mean** | **3.01** | **0.71** | **0.42** | | **0.81** |
+| case                                  | import%  | −text%   | −text/img% | export% | drift%   |
+| ------------------------------------- | -------- | -------- | ---------- | ------- | -------- |
+| shapes                                | 0.543    | 0.543    | 0.543      | 0.292   | 0.313    |
+| fills-effects                         | 0.548    | 0.548    | 0.569      | 1.052   | 0.045    |
+| community-dashstack-admin             | 0.825    | 0.069    | 0.055      | 0.823   | 0.009    |
+| app-untitled-ui-settings              | 1.092    | 0.456    | 0.084      | 0.946   | 0.494    |
+| community-interior-checkout           | 1.362    | 0.218    | 0.220      | 1.859   | 0.692    |
+| community-interior-ecommerce          | 1.938    | 1.297    | 0.131      | 2.723   | 2.489    |
+| community-interior-single-product     | 2.092    | 0.686    | 0.193      | 2.759   | 1.710    |
+| constraints                           | 2.277    | 0.110    | 0.110      | 2.498   | 0.425    |
+| parity-stress                         | 2.301    | 0.272    | 0.272      | 2.295   | 0.092    |
+| community-interior-product-comparison | 2.419    | 0.312    | 0.207      | 2.945   | 0.667    |
+| community-positivus-landing           | 2.467    | 0.810    | 0.657      | 3.415   | 1.576    |
+| community-untitled-ui-landing-alt     | 2.500    | 0.917    | 0.266      | 2.381   | 0.897    |
+| community-untitled-ui-landing         | 2.512    | 0.518    | 0.072      | 2.617   | 0.624    |
+| autolayout                            | 2.632    | 0.410    | 0.410      | 2.395   | 0.281    |
+| community-untitled-ui-pricing         | 2.672    | 0.245    | 0.190      | 2.633   | 0.166    |
+| app-untitled-ui-dashboard-tall        | 2.681    | 1.311    | 1.111      | 2.849   | 1.006    |
+| community-whitepace-saas              | 2.962    | 0.875    | 0.842      | 2.525   | 0.933    |
+| card-grid                             | 3.097    | 0.060    | 0.060      | 3.097   | 0.000    |
+| app-untitled-ui-data-table            | 3.411    | 0.732    | 0.716      | 3.878   | 0.825    |
+| community-landify-example             | 3.467    | 1.563    | 0.589      | 3.306   | 1.208    |
+| app-untitled-ui-settings-mobile       | 3.524    | 0.431    | 0.404      | 3.378   | 0.771    |
+| app-untitled-ui-dashboard             | 3.679    | 1.294    | 1.027      | 4.011   | 1.042    |
+| ds-untitled-ui-table-variants         | 3.689    | 1.229    | 0.952      | 2.747   | 2.392    |
+| community-landify-tablet              | 4.709    | 2.190    | 0.718      | 4.505   | 1.546    |
+| community-untitled-ui-landing-mobile  | 6.185    | 1.310    | 0.606      | 6.282   | 1.148    |
+| typography                            | 12.597   | 0.005    | 0.005      | 12.594  | 0.192    |
+| **mean**                              | **3.01** | **0.71** | **0.42**   |         | **0.81** |
 
 Read the last three columns together, because they say what is actually wrong:
 
@@ -307,12 +311,12 @@ two rasterisers disagreeing about partial coverage of the same outline; a pixel
 in a FLAT interior is something genuinely in the wrong place or the wrong
 colour.
 
-| case | differing | on an edge | flat interior |
-| --- | --- | --- | --- |
-| typography | 12.60% | 12.47% (**99.0%** of them) | 0.13% |
-| untitled UI pricing | 2.67% | 2.55% (95.5%) | 0.12% |
-| untitled UI dashboard | 3.68% | 3.47% (94.3%) | 0.21% |
-| whitepace | 2.95% | 2.52% (85.5%) | 0.43% |
+| case                  | differing | on an edge                 | flat interior |
+| --------------------- | --------- | -------------------------- | ------------- |
+| typography            | 12.60%    | 12.47% (**99.0%** of them) | 0.13%         |
+| untitled UI pricing   | 2.67%     | 2.55% (95.5%)              | 0.12%         |
+| untitled UI dashboard | 3.68%     | 3.47% (94.3%)              | 0.21%         |
+| whitepace             | 2.95%     | 2.52% (85.5%)              | 0.43%         |
 
 **This ratio is the sharpest instrument in this document.** Every case that has
 stood out on it has turned out to be a real defect the raw percentage had
@@ -350,10 +354,10 @@ this fixture.
 At 6x in a side-by-side the exported text LOOKS about a pixel low, and that read
 was wrong. Measured instead of eyeballed, the ink is in exactly the same place:
 
-| band | design ink rows | export ink rows | design ink cols | export ink cols |
-| --- | --- | --- | --- | --- |
-| heading | 150..200 | 150..200 | 57..256 | 57..256 |
-| paragraph | 1016..1035 | 1016..1035 | 214..678 | 214..678 |
+| band      | design ink rows | export ink rows | design ink cols | export ink cols |
+| --------- | --------------- | --------------- | --------------- | --------------- |
+| heading   | 150..200        | 150..200        | 57..256         | 57..256         |
+| paragraph | 1016..1035      | 1016..1035      | 214..678        | 214..678        |
 
 Same rows, same columns, same wrap, to the pixel. The classifier then settles
 what the 3% is: **100.0% of the differing pixels sit on a glyph edge, 0.000% in
@@ -424,18 +428,18 @@ difference that is not two rasterisers disagreeing about a glyph edge.
 
 Where they diverge most:
 
-| case | import flat% | export flat% | delta |
-| --- | --- | --- | --- |
-| community-positivus-landing | 0.013 | 0.700 | +0.687 |
-| fills-effects | 0.176 | 0.674 | +0.498 |
-| community-interior-product-comparison | 0.200 | 0.677 | +0.477 |
-| community-interior-checkout | 0.059 | 0.534 | +0.475 |
-| community-untitled-ui-landing-mobile | 0.192 | 0.598 | +0.406 |
-| community-interior-single-product | 0.174 | 0.551 | +0.377 |
-| community-interior-ecommerce | 0.115 | 0.425 | +0.310 |
-| community-landify-tablet | 0.415 | 0.500 | +0.085 |
-| app-untitled-ui-data-table | 0.001 | 0.076 | +0.075 |
-| community-landify-example | 0.390 | 0.443 | +0.053 |
+| case                                  | import flat% | export flat% | delta  |
+| ------------------------------------- | ------------ | ------------ | ------ |
+| community-positivus-landing           | 0.013        | 0.700        | +0.687 |
+| fills-effects                         | 0.176        | 0.674        | +0.498 |
+| community-interior-product-comparison | 0.200        | 0.677        | +0.477 |
+| community-interior-checkout           | 0.059        | 0.534        | +0.475 |
+| community-untitled-ui-landing-mobile  | 0.192        | 0.598        | +0.406 |
+| community-interior-single-product     | 0.174        | 0.551        | +0.377 |
+| community-interior-ecommerce          | 0.115        | 0.425        | +0.310 |
+| community-landify-tablet              | 0.415        | 0.500        | +0.085 |
+| app-untitled-ui-data-table            | 0.001        | 0.076        | +0.075 |
+| community-landify-example             | 0.390        | 0.443        | +0.053 |
 
 Read the ranking by ABSOLUTE flat interior, never by its share of the diff.
 `fills-effects` shows 64.9% of its differing pixels in flat interiors and looks
@@ -566,12 +570,12 @@ The residual is text, so it is worth saying exactly what the text residual IS
 rather than asserting it is irreducible. Four measurements, each of which could
 have come out the other way:
 
-| question | method | answer |
-| --- | --- | --- |
-| Is our text in the wrong PLACE? | search whole- and half-pixel shifts for one that improves the match | **No.** No offset helps on any case; 0,0 is already the best. |
-| Do our line BREAKS match Figma's? | compare Figma's height/line-height against the browser's real line boxes | **98.3%** identical (679 of 691). |
-| Is it Inter's version? | render the same HTML against Google Fonts and against Inter 3.19 | **No.** 3.19 is worse on 15 of 17 Inter designs. |
-| Is it hinting? | render with `text-rendering: geometricPrecision` | **Partly** — worth 0.6pp on `typography`, and now shipped. |
+| question                          | method                                                                   | answer                                                        |
+| --------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Is our text in the wrong PLACE?   | search whole- and half-pixel shifts for one that improves the match      | **No.** No offset helps on any case; 0,0 is already the best. |
+| Do our line BREAKS match Figma's? | compare Figma's height/line-height against the browser's real line boxes | **98.3%** identical (679 of 691).                             |
+| Is it Inter's version?            | render the same HTML against Google Fonts and against Inter 3.19         | **No.** 3.19 is worse on 15 of 17 Inter designs.              |
+| Is it hinting?                    | render with `text-rendering: geometricPrecision`                         | **Partly** — worth 0.6pp on `typography`, and now shipped.    |
 
 What is left after those is the two rasterisers disagreeing about sub-pixel
 coverage on glyph edges, plus a 1.7% tail where a font's Google Fonts variable
@@ -602,47 +606,47 @@ draws wider than the Inter Figma bundles.
 
 What moved the numbers. Each was a real defect on a real design:
 
-| defect | case | before | after |
-| --- | --- | --- | --- |
-| render clamped at 16384px, compared against a full-size render | landify | 24.38 | 3.94 |
-| exported artboard clipped content past the frame | dashboard (export) | 12.05 | 4.23 |
-| tiled gradient flattened on export | fills-effects (export) | 13.30 | 1.05 |
-| angular gradient swept in pixel space, not normalized space | fills-effects | 12.07 | 0.55 |
-| ink extent vs frame box: a 2px shadow shifted every pixel | data table | 10.33 | 3.96 |
-| whole-file image map cached by path, so later fills resolved to nothing | untitled UI landing | 9.34 | 2.65 |
-| FILL child inside a HUG parent collapsed to zero | landing mobile | 10.65 | 6.43 |
-| empty hugging frame collapsed to zero | whitepace | 6.23 | 3.62 |
-| SPACE_BETWEEN row also emitting its stale itemSpacing | positivus | 5.45 | 4.74 |
-| negative overlap not clamped where the children close up | positivus | 4.74 | 4.23 |
-| rotated child taking its pre-rotation width in the row | positivus | 5.76 | 5.45 |
-| a mirrored group rendered as a 180-degree rotation | positivus | 5.94 | 5.76 |
-| HUG container sized from a cross-axis FILL child's content | positivus | 4.23 | 4.18 |
-| kiwi's SPACE_EVENLY unmapped, packing rows left | positivus (paste) | 7.53 | 6.81 |
-| zero-thickness vectors dropped by a degenerate viewBox | (arrows, rules) | — | — |
-| break characters Figma does not lay out as breaks | whitepace | 3.20 | 2.96 |
-| trailing space widening a hugging text box | positivus | 3.05 | 3.03 |
-| image-fallback ink taking layout space | settings-mobile | 3.77 | 3.52 |
-| hugging text height not rounded the way Figma rounds it | parity-stress | 3.24 | 2.47 |
-| an 11.5MB image dropped from the export instead of scaled | single product (export) | 4.69 | 4.02 |
-| vector-network mask not scaled out of normalizedSize | positivus (paste) | 6.97 | 6.37 |
-| a UNION boolean's operands drawn instead of the union | positivus (paste) | 6.37 | 4.33 |
-| counter alignment defaulting to CSS stretch, not Figma's MIN | whitepace (.fig) | 4.94 | 3.39 |
-| dashed strokes drawn solid | whitepace (.fig) | 3.39 | 3.37 |
-| hugging text ignoring the size Figma resolved | whitepace (.fig) | 3.37 | 3.18 |
-| a wrapping auto-layout stack that never wrapped | autolayout (.fig) | 16.79 | 5.20 |
-| Figma's own render stretched into a mismatched box | single product | 3.35 | 2.09 |
-| a line break Figma did not take | dashstack | 1.08 | 0.98 |
-| underline drawn above where Figma draws it | typography | 12.67 | 12.60 |
-| an INSIDE stroke drawn outside its shape | parity-stress | 2.47 | 2.30 |
-| per-side stroke weights read under REST's names | dashboard (.fig) | 4.95 | 4.33 |
-| diamond gradient drawn as an ellipse | fills-effects (.fig) | 17.90 | 15.26 |
-| glyphs hinted, not laid out on exact outlines | typography (.fig, vs REST) | 12.49 | 6.55 |
-| fill-container overriding the node's own sizing | dashboard (.fig) | 9.26 | 4.95 |
-| hugging text 1px tall over, moving every sibling | autolayout (.fig) | 5.15 | 2.38 |
-| Figma's text case and decoration dropped | typography (.fig, vs REST) | 6.55 | 6.00 |
-| image fill opacity and angular sweep unexpressed | fills-effects (.fig) | 15.26 | 3.72 |
-| magnified image fills smoothed, not nearest-sampled | fills-effects (.fig) | 3.72 | 1.46 |
-| AUTO line height left to the browser, not Figma's | autolayout (.fig, vs REST) | 2.04 | 0.00 |
+| defect                                                                  | case                       | before | after |
+| ----------------------------------------------------------------------- | -------------------------- | ------ | ----- |
+| render clamped at 16384px, compared against a full-size render          | landify                    | 24.38  | 3.94  |
+| exported artboard clipped content past the frame                        | dashboard (export)         | 12.05  | 4.23  |
+| tiled gradient flattened on export                                      | fills-effects (export)     | 13.30  | 1.05  |
+| angular gradient swept in pixel space, not normalized space             | fills-effects              | 12.07  | 0.55  |
+| ink extent vs frame box: a 2px shadow shifted every pixel               | data table                 | 10.33  | 3.96  |
+| whole-file image map cached by path, so later fills resolved to nothing | untitled UI landing        | 9.34   | 2.65  |
+| FILL child inside a HUG parent collapsed to zero                        | landing mobile             | 10.65  | 6.43  |
+| empty hugging frame collapsed to zero                                   | whitepace                  | 6.23   | 3.62  |
+| SPACE_BETWEEN row also emitting its stale itemSpacing                   | positivus                  | 5.45   | 4.74  |
+| negative overlap not clamped where the children close up                | positivus                  | 4.74   | 4.23  |
+| rotated child taking its pre-rotation width in the row                  | positivus                  | 5.76   | 5.45  |
+| a mirrored group rendered as a 180-degree rotation                      | positivus                  | 5.94   | 5.76  |
+| HUG container sized from a cross-axis FILL child's content              | positivus                  | 4.23   | 4.18  |
+| kiwi's SPACE_EVENLY unmapped, packing rows left                         | positivus (paste)          | 7.53   | 6.81  |
+| zero-thickness vectors dropped by a degenerate viewBox                  | (arrows, rules)            | —      | —     |
+| break characters Figma does not lay out as breaks                       | whitepace                  | 3.20   | 2.96  |
+| trailing space widening a hugging text box                              | positivus                  | 3.05   | 3.03  |
+| image-fallback ink taking layout space                                  | settings-mobile            | 3.77   | 3.52  |
+| hugging text height not rounded the way Figma rounds it                 | parity-stress              | 3.24   | 2.47  |
+| an 11.5MB image dropped from the export instead of scaled               | single product (export)    | 4.69   | 4.02  |
+| vector-network mask not scaled out of normalizedSize                    | positivus (paste)          | 6.97   | 6.37  |
+| a UNION boolean's operands drawn instead of the union                   | positivus (paste)          | 6.37   | 4.33  |
+| counter alignment defaulting to CSS stretch, not Figma's MIN            | whitepace (.fig)           | 4.94   | 3.39  |
+| dashed strokes drawn solid                                              | whitepace (.fig)           | 3.39   | 3.37  |
+| hugging text ignoring the size Figma resolved                           | whitepace (.fig)           | 3.37   | 3.18  |
+| a wrapping auto-layout stack that never wrapped                         | autolayout (.fig)          | 16.79  | 5.20  |
+| Figma's own render stretched into a mismatched box                      | single product             | 3.35   | 2.09  |
+| a line break Figma did not take                                         | dashstack                  | 1.08   | 0.98  |
+| underline drawn above where Figma draws it                              | typography                 | 12.67  | 12.60 |
+| an INSIDE stroke drawn outside its shape                                | parity-stress              | 2.47   | 2.30  |
+| per-side stroke weights read under REST's names                         | dashboard (.fig)           | 4.95   | 4.33  |
+| diamond gradient drawn as an ellipse                                    | fills-effects (.fig)       | 17.90  | 15.26 |
+| glyphs hinted, not laid out on exact outlines                           | typography (.fig, vs REST) | 12.49  | 6.55  |
+| fill-container overriding the node's own sizing                         | dashboard (.fig)           | 9.26   | 4.95  |
+| hugging text 1px tall over, moving every sibling                        | autolayout (.fig)          | 5.15   | 2.38  |
+| Figma's text case and decoration dropped                                | typography (.fig, vs REST) | 6.55   | 6.00  |
+| image fill opacity and angular sweep unexpressed                        | fills-effects (.fig)       | 15.26  | 3.72  |
+| magnified image fills smoothed, not nearest-sampled                     | fills-effects (.fig)       | 3.72   | 1.46  |
+| AUTO line height left to the browser, not Figma's                       | autolayout (.fig, vs REST) | 2.04   | 0.00  |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
@@ -655,11 +659,11 @@ Three paths reach Design, over two independent walkers, and they are not
 measured to the same depth. Saying which is which matters more than the
 numbers: an unmeasured path looks identical to a passing one in a summary.
 
-| path | walker | measured against Figma | how |
-| --- | --- | --- | --- |
-| REST node import | `figma-node-to-html.ts` | 26 designs, both hops | `run-import` / `run-roundtrip` |
-| Clipboard paste | `fig-file-to-html.ts` | 3 designs | `run-paste`, against the same references |
-| `.fig` upload | `fig-file-to-html.ts` | 11 frames | `run-fig`, against the same references |
+| path             | walker                  | measured against Figma | how                                      |
+| ---------------- | ----------------------- | ---------------------- | ---------------------------------------- |
+| REST node import | `figma-node-to-html.ts` | 26 designs, both hops  | `run-import` / `run-roundtrip`           |
+| Clipboard paste  | `fig-file-to-html.ts`   | 3 designs              | `run-paste`, against the same references |
+| `.fig` upload    | `fig-file-to-html.ts`   | 11 frames              | `run-fig`, against the same references   |
 
 **`Save local copy` is in the browser's File menu**, not desktop-only as this
 document previously claimed — and that wrong belief is the only reason the
@@ -671,19 +675,19 @@ the shape of a REST node id. Keep each file under the 50MB decoder cap; a whole
 multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 46MB.
 
-| case | `.fig` vs Figma | drift vs REST | nodes off >1.5px | REST, same design |
-| --- | --- | --- | --- | --- |
-| fills and effects | **1.46%** | **0.08%** | **0 of 12** | 0.55% |
-| shapes | 1.68% | 1.78% | **0 of 11** | 0.54% |
-| constraints | 2.24% | **0.12%** | **0 of 7** | 2.28% |
-| interior single product | 2.55% | 1.97% | 1 of 136 | 3.35% |
-| auto-layout torture | 2.63% | **0.00%** | **0 of 29** | 2.63% |
-| whitepace | 3.08% | 0.60% | 3 of 1026 | 2.96% |
-| card grid | 3.14% | **0.29%** | **0 of 11** | 3.10% |
-| untitled UI pricing | 3.15% | 0.73% | **0 of 182** | 2.67% |
-| untitled UI dashboard | 4.95% | 2.71% | 6 of 201 | 3.68% |
-| untitled UI landing mobile | 7.45% | 1.87% | **0 of 228** | 6.19% |
-| typography torture | 13.38% | 1.43% | **0 of 9** | 12.67% |
+| case                       | `.fig` vs Figma | drift vs REST | nodes off >1.5px | REST, same design |
+| -------------------------- | --------------- | ------------- | ---------------- | ----------------- |
+| fills and effects          | **1.46%**       | **0.08%**     | **0 of 12**      | 0.55%             |
+| shapes                     | 1.68%           | 1.78%         | **0 of 11**      | 0.54%             |
+| constraints                | 2.24%           | **0.12%**     | **0 of 7**       | 2.28%             |
+| interior single product    | 2.55%           | 1.97%         | 1 of 136         | 3.35%             |
+| auto-layout torture        | 2.63%           | **0.00%**     | **0 of 29**      | 2.63%             |
+| whitepace                  | 3.08%           | 0.60%         | 3 of 1026        | 2.96%             |
+| card grid                  | 3.14%           | **0.29%**     | **0 of 11**      | 3.10%             |
+| untitled UI pricing        | 3.15%           | 0.73%         | **0 of 182**     | 2.67%             |
+| untitled UI dashboard      | 4.95%           | 2.71%         | 6 of 201         | 3.68%             |
+| untitled UI landing mobile | 7.45%           | 1.87%         | **0 of 228**     | 6.19%             |
+| typography torture         | 13.38%          | 1.43%         | **0 of 9**       | 12.67%            |
 
 Read the drift column: **two independently written walkers now draw the same
 picture.** Auto-layout torture is 0.00% — byte-identical output — and card
@@ -766,26 +770,26 @@ Numbers from the Positivus landing page (`330:762`, 1440x8356) and the Untitled
 UI v2 desktop landing page (`1647:376184`, 1440x7060, vertical auto-layout
 throughout), both measured against Figma's own render.
 
-| Fix | paste vs Figma | converter only |
-| --- | --- | --- |
-| baseline | 23.53% | — |
-| AUTO line height | 19.11% | — |
-| masks (fill + stroke) | 14.12% | 12.60% |
-| auto-layout overlap + no-shrink | 8.66% | 7.08% |
-| flipped transforms, ellipses, parametric shapes | 8.37% | 6.75% |
-| kiwi's SPACE_EVENLY mapped to space-between | 7.53% | 5.84% |
-| LINE nodes drawn, rotated footprints compensated | 6.97% | 5.20% |
-| vector-network masks scaled out of normalizedSize | 6.37% | 5.14% |
-| UNION booleans drawn from their operands | 4.33% | 3.02% |
+| Fix                                               | paste vs Figma | converter only |
+| ------------------------------------------------- | -------------- | -------------- |
+| baseline                                          | 23.53%         | —              |
+| AUTO line height                                  | 19.11%         | —              |
+| masks (fill + stroke)                             | 14.12%         | 12.60%         |
+| auto-layout overlap + no-shrink                   | 8.66%          | 7.08%          |
+| flipped transforms, ellipses, parametric shapes   | 8.37%          | 6.75%          |
+| kiwi's SPACE_EVENLY mapped to space-between       | 7.53%          | 5.84%          |
+| LINE nodes drawn, rotated footprints compensated  | 6.97%          | 5.20%          |
+| vector-network masks scaled out of normalizedSize | 6.37%          | 5.14%          |
+| UNION booleans drawn from their operands          | 4.33%          | 3.02%          |
 
 Where the three paste cases stand (2026-08-27), against the same references the
 REST corpus uses:
 
-| case | paste vs Figma | converter only | REST, same design |
-| --- | --- | --- | --- |
-| dashstack admin | 3.16% | 2.50% | 1.08% (a different frame) |
-| positivus landing | 4.30% | 2.97% | 2.63% |
-| untitled UI landing | 9.60% | 2.92% | 2.51% |
+| case                | paste vs Figma | converter only | REST, same design         |
+| ------------------- | -------------- | -------------- | ------------------------- |
+| dashstack admin     | 3.16%          | 2.50%          | 1.08% (a different frame) |
+| positivus landing   | 4.30%          | 2.97%          | 2.63%                     |
+| untitled UI landing | 9.60%          | 2.92%          | 2.51%                     |
 
 Read the middle column against the last one: on both designs where the same
 frame is measured over both paths, the clipboard walker is now within 0.5pp of
@@ -832,7 +836,7 @@ walker:
   own size. Positivus' flipped CTA illustration landed 394px above its frame.
   Anything that is not a pure rotation now goes through the matrix.
 - **Full ellipses were dropped as "geometryless vectors".** `border-radius:
-  50%` reproduces one exactly, fill and stroke included; suppressing it just
+50%` reproduces one exactly, fill and stroke included; suppressing it just
   deleted the shape, and Positivus' three stroke-only CTA rings vanished. An
   arc or donut (`arcData` narrower than a full turn, or a non-zero inner
   radius) is still not expressible and stays suppressed — but is now recorded
@@ -944,18 +948,18 @@ synthetic fixtures.
 
 Measured 2026-08-26:
 
-| case | import | export | export hop |
-| --- | --- | --- | --- |
-| card-grid | 3.14% | 3.14% | **0.000%** |
-| constraints | 2.33% | 2.28% | 0.17% |
-| typography | 13.27% | 13.19% | 0.19% |
-| shapes | 0.54% | 0.29% | 0.31% |
-| parity-stress | 2.79% | 3.27% | 0.73% |
-| community untitled-ui landing | 2.65% | 3.07% | 1.63% |
-| autolayout | 3.48% | 5.72% | 3.11% |
-| untitled-ui (clipboard) | 12.90% | 12.88% | 0.14% |
-| positivus (clipboard) | 8.37% | 8.63% | 2.16% |
-| fills-effects | 14.33% | 23.38% | 9.70% |
+| case                          | import | export | export hop |
+| ----------------------------- | ------ | ------ | ---------- |
+| card-grid                     | 3.14%  | 3.14%  | **0.000%** |
+| constraints                   | 2.33%  | 2.28%  | 0.17%      |
+| typography                    | 13.27% | 13.19% | 0.19%      |
+| shapes                        | 0.54%  | 0.29%  | 0.31%      |
+| parity-stress                 | 2.79%  | 3.27%  | 0.73%      |
+| community untitled-ui landing | 2.65%  | 3.07%  | 1.63%      |
+| autolayout                    | 3.48%  | 5.72%  | 3.11%      |
+| untitled-ui (clipboard)       | 12.90% | 12.88% | 0.14%      |
+| positivus (clipboard)         | 8.37%  | 8.63%  | 2.16%      |
+| fills-effects                 | 14.33% | 23.38% | 9.70%      |
 
 **Load the fonts the SVG names before measuring it.** The exported SVG carries
 `font-family` but no `@font-face` — Figma resolves families against its own font
@@ -975,11 +979,11 @@ Measured 2026-08-27 by rendering the same imported HTML twice — once against
 Google Fonts, once with Inter 3.19 (`inter-ui@3.19.3`) embedded over it — and
 scoring both against Figma's own render:
 
-| direction | cases |
-| --- | --- |
-| Inter 3.19 is WORSE | 15 of 17 (card-grid 3.14 -> 22.54, landify tablet 4.88 -> 29.27, parity-stress 2.94 -> 11.82) |
-| Inter 3.19 is better | 2 (`typography` 13.27 -> 9.98, settings-mobile 4.06 -> 3.65) |
-| unaffected | designs that use no Inter (interior: 0.000 delta, which is the control) |
+| direction            | cases                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| Inter 3.19 is WORSE  | 15 of 17 (card-grid 3.14 -> 22.54, landify tablet 4.88 -> 29.27, parity-stress 2.94 -> 11.82) |
+| Inter 3.19 is better | 2 (`typography` 13.27 -> 9.98, settings-mobile 4.06 -> 3.65)                                  |
+| unaffected           | designs that use no Inter (interior: 0.000 delta, which is the control)                       |
 
 So Figma renders a modern Inter, and the shipped configuration already matches
 it. **Decided 2026-08-26, and now confirmed by measurement: keep Google Fonts
@@ -1101,10 +1105,10 @@ Two limits found while using it, both measured 2026-08-26:
 Measured 2026-08-26, and this corrects an earlier note in this file that said
 the opposite:
 
-| file | status | `x-figma-plan-tier` |
-| --- | --- | --- |
-| a file in the Builder.io team | **200** | *(no rate-limit headers at all)* |
-| a Community file open from Drafts | 429 | `starter`, `rate-limit-type: low` |
+| file                              | status  | `x-figma-plan-tier`               |
+| --------------------------------- | ------- | --------------------------------- |
+| a file in the Builder.io team     | **200** | _(no rate-limit headers at all)_  |
+| a Community file open from Drafts | 429     | `starter`, `rate-limit-type: low` |
 
 A Starter-tier resource gets ~6 Tier 1 requests per MONTH; a paid team's files
 are not capped in practice. Three different personal access tokens were checked
