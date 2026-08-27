@@ -1091,6 +1091,23 @@ function roundedRectanglePath(node: FigNode): string | null {
   );
 }
 
+/**
+ * The rounded rectangle a node still describes itself as, when its own
+ * geometry would lose the rounding. Only when a radius is actually set: a
+ * square-cornered rectangle's decoded network is already right.
+ */
+function roundedRectangleOverride(node: FigNode): string | null {
+  if (node.rectangleTopLeftCornerRadius === undefined) return null;
+  const radii = [
+    node.rectangleTopLeftCornerRadius,
+    node.rectangleTopRightCornerRadius,
+    node.rectangleBottomRightCornerRadius,
+    node.rectangleBottomLeftCornerRadius,
+  ];
+  if (!radii.some((radius) => (radius ?? 0) > 0)) return null;
+  return roundedRectanglePath(node);
+}
+
 function parametricShapePath(node: FigNode): string | null {
   const w = node.size?.x;
   const h = node.size?.y;
@@ -2657,13 +2674,8 @@ function nodeOutlinePath(
   node: FigNode,
   ctx: Ctx,
 ): { d: string; scaleX: number; scaleY: number } | null {
-  // A node Figma still describes as a rectangle takes its parameterization
-  // first: the decoded network carries its corners as points and loses the
-  // rounding, which lives on the node.
-  if (node.rectangleTopLeftCornerRadius !== undefined) {
-    const rect = roundedRectanglePath(node);
-    if (rect) return { d: rect, scaleX: 1, scaleY: 1 };
-  }
+  const rounded = roundedRectangleOverride(node);
+  if (rounded) return { d: rounded, scaleX: 1, scaleY: 1 };
   for (const g of node.fillGeometry ?? []) {
     if (typeof g.commandsBlob !== "number") continue;
     const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
