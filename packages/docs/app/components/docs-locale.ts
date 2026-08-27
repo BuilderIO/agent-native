@@ -39,8 +39,40 @@ function pathSegments(pathname: string) {
   return normalizePath(pathname).split("/").filter(Boolean);
 }
 
-export function isDocsLocale(value: unknown): value is DocsLocale {
-  return normalizeLocaleCode(value) === value;
+/**
+ * Netlify lowercases locale path segments, so an emitted URL must use the
+ * lowercase form to be the one that answers 200. The locale tag itself stays
+ * BCP-47 everywhere else -- `hreflang` values and translation lookups both
+ * depend on the cased form.
+ */
+function localeSegment(locale: DocsLocale) {
+  return locale.toLowerCase();
+}
+
+function docsBasePath(locale: DocsLocale) {
+  return locale === DEFAULT_DOCS_LOCALE
+    ? "/docs"
+    : `/${localeSegment(locale)}/docs`;
+}
+
+/** Markdown twins and machine-readable endpoints answer at an exact URL. */
+function isFileLikePath(pathname: string) {
+  return (pathname.split("/").pop() ?? "").includes(".");
+}
+
+/**
+ * Resolve a URL locale segment to its canonical locale, accepting any casing.
+ * The counterpart to `localeSegment`: emitted paths are lowercase, so route
+ * params arrive lowercase, and comparing them against the BCP-47 tag rejects
+ * every localized URL the site serves. Matches supported locales only -- no
+ * language-prefix fallback, so a real doc slug can never read as a locale.
+ */
+export function docsLocaleFromSegment(
+  segment: unknown,
+): DocsLocale | undefined {
+  if (typeof segment !== "string") return undefined;
+  const lower = segment.toLowerCase();
+  return DOCS_LOCALES.find((locale) => locale.toLowerCase() === lower);
 }
 
 export function routeLocaleFromPathname(
@@ -81,32 +113,32 @@ export function isDocsPath(pathname: string) {
   return docsSlugFromPathname(pathname) !== undefined;
 }
 
+/**
+ * The canonical route path: trailing slash, lowercase locale segment. This is
+ * the form the CDN answers 200 for, so canonical tags, alternates, sitemap
+ * entries, redirect targets, prerender paths, and internal links all use it.
+ * Non-route strings must not be built by appending onto it -- see
+ * `docsMarkdownPathForSlug` and `comparableDocsPath`.
+ */
 export function docsPathForSlug(
   slug: string,
   locale: DocsLocale = DEFAULT_DOCS_LOCALE,
 ) {
-  if (locale === DEFAULT_DOCS_LOCALE) {
-    return slug === "getting-started" ? "/docs" : `/docs/${slug}`;
-  }
-  return slug === "getting-started"
-    ? `/${locale}/docs`
-    : `/${locale}/docs/${slug}`;
+  const base = docsBasePath(locale);
+  return slug === "getting-started" ? `${base}/` : `${base}/${slug}/`;
 }
 
 export function docsMarkdownPathForSlug(
   slug: string,
   locale: DocsLocale = DEFAULT_DOCS_LOCALE,
 ) {
-  const docsPath = docsPathForSlug(slug, locale);
-  return slug === "getting-started"
-    ? `${docsPath}/getting-started.md`
-    : `${docsPath}.md`;
+  return `${docsBasePath(locale)}/${slug}.md`;
 }
 
 export function comparableDocsPath(pathname: string) {
   const slug = docsSlugFromPathname(pathname);
   return slug
-    ? docsPathForSlug(slug, DEFAULT_DOCS_LOCALE)
+    ? normalizePath(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE))
     : normalizePath(pathname);
 }
 
@@ -121,6 +153,8 @@ export function sitePathForLocale(
   locale: DocsLocale = DEFAULT_DOCS_LOCALE,
 ) {
   const normalized = normalizePath(pathname);
+  if (isFileLikePath(normalized)) return normalized;
+
   const docsSlug = docsSlugFromPathname(normalized);
   if (docsSlug) return docsPathForSlug(docsSlug, locale);
 
@@ -128,17 +162,19 @@ export function sitePathForLocale(
   const prefixLocale = normalizeLocaleCode(segments[0]);
   const unprefixedSegments = prefixLocale ? segments.slice(1) : segments;
   const unprefixedPath = unprefixedSegments.length
-    ? `/${unprefixedSegments.join("/")}`
+    ? `/${unprefixedSegments.join("/")}/`
     : "/";
 
   if (locale === DEFAULT_DOCS_LOCALE) return unprefixedPath;
-  return unprefixedPath === "/" ? `/${locale}` : `/${locale}${unprefixedPath}`;
+  return unprefixedPath === "/"
+    ? `/${localeSegment(locale)}/`
+    : `/${localeSegment(locale)}${unprefixedPath}`;
 }
 
 /**
  * Rewrite a same-site `/docs/...` href written in a doc's markdown body so it
  * stays in the given locale, e.g. `/docs/client-data#usedbsync` becomes
- * `/de-DE/docs/client-data#usedbsync` for a non-default locale. Leaves
+ * `/de-de/docs/client-data/#usedbsync` for a non-default locale. Leaves
  * already-locale-prefixed, external, in-page (`#anchor`), and non-docs hrefs
  * untouched.
  */

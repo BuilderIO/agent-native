@@ -19,6 +19,12 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../lib/docs-source";
+import {
+  docsMarkdownPathForSlug,
+  docsPathForSlug,
+  sitePathForLocale,
+  type DocsLocale,
+} from "./components/docs-locale";
 import { isRedirectedDocsPath } from "./components/docs-slug-redirects";
 import enUS from "./i18n/en-US";
 
@@ -171,9 +177,14 @@ export function buildPrerenderPaths(): string[] {
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
-  return buildDocsSitePages(rootDir).map(
-    ({ docSlug: _docSlug, draft: _draft, ...page }) => page,
-  );
+  // A redirected slug answers 301, so advertising it in the sitemap, llms.txt,
+  // or a Markdown twin points crawlers at a redirect. Stale translations
+  // outlive an English rename -- `locales/*/database.mdx` survived the rename
+  // to `server-database` -- so the filter has to run here, not just on the
+  // prerender list.
+  return buildDocsSitePages(rootDir)
+    .filter((page) => !isRedirectedDocsPath(page.path))
+    .map(({ docSlug: _docSlug, draft: _draft, ...page }) => page);
 }
 
 /** An `AgentWebPage` plus the doc-source facts the prerender list filters on. */
@@ -197,11 +208,11 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
     const raw = fs.readFileSync(filePath, "utf8");
     const { data, body } = parseFrontmatter(raw);
     return {
-      path: slug === "getting-started" ? "/docs" : `/docs/${slug}`,
+      path: docsPathForSlug(slug),
       title: data.title || titleFromSlug(slug),
       description: data.description,
       markdown: docsBodyToMarkdownMirror(body),
-      markdownPath: `/docs/${slug}.md`,
+      markdownPath: docsMarkdownPathForSlug(slug),
       lastmod: docsLastmod,
       docSlug: slug,
       draft: data.draft === "true",
@@ -227,14 +238,11 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
             const raw = fs.readFileSync(filePath, "utf8");
             const { data, body } = parseFrontmatter(raw);
             return {
-              path:
-                slug === "getting-started"
-                  ? `/${locale}/docs`
-                  : `/${locale}/docs/${slug}`,
+              path: docsPathForSlug(slug, locale as DocsLocale),
               title: data.title || titleFromSlug(slug),
               description: data.description,
               markdown: docsBodyToMarkdownMirror(body),
-              markdownPath: `/${locale}/docs/${slug}.md`,
+              markdownPath: docsMarkdownPathForSlug(slug, locale as DocsLocale),
               lastmod: docsLastmod,
               docSlug: slug,
               draft: data.draft === "true",
@@ -247,7 +255,7 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
   const templatePages = parseTemplatePages(templateSource).map((template) => {
     const copy = enUS.templates[template.slug];
     return {
-      path: `/apps/${template.slug}`,
+      path: sitePathForLocale(`/apps/${template.slug}`),
       title: `${template.name} app`,
       description: copy.description,
       markdown: [
@@ -280,7 +288,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/_index.tsx")),
     },
     {
-      path: "/download",
+      path: sitePathForLocale("/download"),
       title: "Download Agent-Native",
       description: "Download the Agent-Native desktop app.",
       markdown:
@@ -288,7 +296,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/download.tsx")),
     },
     {
-      path: "/brand",
+      path: sitePathForLocale("/brand"),
       title: "Agent-Native Brand Assets",
       description:
         "Download official Agent-Native logos and symbols for articles, presentations, and community projects.",
@@ -297,7 +305,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/brand.tsx")),
     },
     {
-      path: "/about",
+      path: sitePathForLocale("/about"),
       title: enUS.legal.about.title,
       description: enUS.legal.about.intro,
       markdown: [
@@ -315,7 +323,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/about.tsx")),
     },
     {
-      path: "/contact",
+      path: sitePathForLocale("/contact"),
       title: enUS.legal.contact.title,
       description: enUS.legal.contact.intro,
       markdown: [
@@ -333,7 +341,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/contact.tsx")),
     },
     {
-      path: "/privacy",
+      path: sitePathForLocale("/privacy"),
       title: "Agent-Native Privacy Policy",
       description:
         "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
@@ -342,7 +350,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
     },
     {
-      path: "/terms",
+      path: sitePathForLocale("/terms"),
       title: "Agent-Native Terms of Service",
       description:
         "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
@@ -351,7 +359,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
     },
     {
-      path: "/apps",
+      path: sitePathForLocale("/apps"),
       title: "Agent-Native Apps",
       description: "Cloneable SaaS apps built with Agent-Native.",
       markdown:
@@ -359,7 +367,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/templates.tsx")),
     },
     {
-      path: "/pricing",
+      path: sitePathForLocale("/pricing"),
       title: "Pricing — Agent-Native",
       description:
         "Agent-Native is MIT licensed and free for unlimited users, apps, and environments. Pay only for the infrastructure you choose.",
@@ -368,7 +376,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/pricing.tsx")),
     },
     {
-      path: "/skills",
+      path: sitePathForLocale("/skills"),
       title: "Agent Skills",
       description:
         "Install app-backed skills your coding agent runs as slash commands: /visual-plan and /visual-recap.",

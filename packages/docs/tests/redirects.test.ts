@@ -53,7 +53,7 @@ describe("public docs redirects", () => {
         url: new URL("https://www.agent-native.com/en-US/docs/key-concepts"),
       } as Parameters<typeof localizedDocsLoader>[0]),
     );
-    expectHtmlRedirect(localized, 301, "/docs/key-concepts");
+    expectHtmlRedirect(localized, 301, "/docs/key-concepts/");
 
     const locale = captureRedirect(() =>
       localeLoader({
@@ -61,26 +61,26 @@ describe("public docs redirects", () => {
         url: new URL("https://www.agent-native.com/en-US/docs/key-concepts"),
       } as Parameters<typeof localeLoader>[0]),
     );
-    expectHtmlRedirect(locale, 301, "/docs/key-concepts");
+    expectHtmlRedirect(locale, 301, "/docs/key-concepts/");
 
     const legacySlug = await captureAsyncRedirect(() =>
       docsSlugLoader({
         params: { slug: "fr-FR" },
       } as Parameters<typeof docsSlugLoader>[0]),
     );
-    expectHtmlRedirect(legacySlug, 302, "/fr-FR/docs");
+    expectHtmlRedirect(legacySlug, 302, "/fr-fr/docs/");
   });
 
   it("marks public docs aliases and template paths as shared-cacheable HTML", () => {
     const corePhilosophy = corePhilosophyLoader(
       {} as Parameters<typeof corePhilosophyLoader>[0],
     );
-    expectHtmlRedirect(corePhilosophy, 302, "/docs/key-concepts");
+    expectHtmlRedirect(corePhilosophy, 302, "/docs/key-concepts/");
 
     const databaseAdapters = databaseAdaptersLoader(
       {} as Parameters<typeof databaseAdaptersLoader>[0],
     );
-    expectHtmlRedirect(databaseAdapters, 302, "/docs/deployment");
+    expectHtmlRedirect(databaseAdapters, 302, "/docs/deployment/");
 
     const templates = captureRedirect(() =>
       templatesLoader({
@@ -89,7 +89,7 @@ describe("public docs redirects", () => {
         ),
       } as Parameters<typeof templatesLoader>[0]),
     );
-    expectHtmlRedirect(templates, 301, "/apps/mail?source=docs");
+    expectHtmlRedirect(templates, 301, "/apps/mail/?source=docs");
     expect(templates.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
   });
 });

@@ -23,7 +23,7 @@ describe("docs agent web generation", () => {
   it(
     "includes docs markdown mirrors with getting-started at /docs",
     () => {
-      const gettingStarted = pages.find((page) => page.path === "/docs");
+      const gettingStarted = pages.find((page) => page.path === "/docs/");
 
       expect(gettingStarted).toMatchObject({
         title: "Getting Started",
@@ -40,13 +40,13 @@ describe("docs agent web generation", () => {
       const paths = pages.map((page) => page.path);
 
       expect(paths).toContain("/");
-      expect(paths).toContain("/docs");
-      expect(paths).toContain("/docs/agent-web-surfaces");
-      expect(paths).toContain("/brand");
-      expect(paths).toContain("/about");
-      expect(paths).toContain("/contact");
-      expect(paths).toContain("/terms");
-      expect(paths).toContain("/apps/calendar");
+      expect(paths).toContain("/docs/");
+      expect(paths).toContain("/docs/agent-web-surfaces/");
+      expect(paths).toContain("/brand/");
+      expect(paths).toContain("/about/");
+      expect(paths).toContain("/contact/");
+      expect(paths).toContain("/terms/");
+      expect(paths).toContain("/apps/calendar/");
     },
     AGENT_WEB_GENERATION_TIMEOUT_MS,
   );
@@ -62,7 +62,7 @@ describe("docs agent web generation", () => {
   it(
     "derives lastmod from a Date (from git or mtime fallback)",
     () => {
-      const gettingStarted = pages.find((page) => page.path === "/docs");
+      const gettingStarted = pages.find((page) => page.path === "/docs/");
 
       // lastmod must be a valid Date regardless of whether git log returns a
       // commit timestamp or we fall back to fs mtime
@@ -75,10 +75,18 @@ describe("docs agent web generation", () => {
   );
 
   it("publishes substantial About and Contact Markdown mirrors", () => {
-    for (const path of ["/about", "/contact"]) {
+    for (const path of ["/about/", "/contact/"]) {
       const page = pages.find((candidate) => candidate.path === path);
       expect(page?.markdown?.length).toBeGreaterThan(500);
       expect(page?.markdownPath).toBeUndefined();
     }
+  });
+
+  it("omits redirected slugs, including stale translations of renamed docs", () => {
+    const redirected = pages.filter((page) =>
+      /\/docs\/(database|actions|server|client|routing)\/$/.test(page.path),
+    );
+
+    expect(redirected).toEqual([]);
   });
 });

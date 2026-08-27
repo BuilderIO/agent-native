@@ -10,7 +10,10 @@ import {
   loadDocRespectingDraftVisibility,
   type DocEntry,
 } from "../components/docs-content";
-import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsLocaleFromSegment,
+} from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
@@ -18,7 +21,7 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 const GETTING_STARTED_SLUG = "getting-started";
 
 function routeLocale(params: LoaderFunctionArgs["params"]) {
-  return isDocsLocale(params.locale) ? params.locale : DEFAULT_DOCS_LOCALE;
+  return docsLocaleFromSegment(params.locale) ?? DEFAULT_DOCS_LOCALE;
 }
 
 export async function loader({

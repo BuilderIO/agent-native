@@ -50,7 +50,7 @@ describe("GetStartedCta", () => {
   it("stays a real link to /apps for the no-JS case", () => {
     renderCta();
 
-    expect(trigger().getAttribute("href")).toBe("/apps");
+    expect(trigger().getAttribute("href")).toBe("/apps/");
   });
 
   it("opens the dialog on a plain click instead of navigating", () => {
@@ -73,10 +73,10 @@ describe("GetStartedCta", () => {
     ).toContain("npx @agent-native/core@latest create my-app");
     expect(
       dialog.getByRole("link", { name: "Read the docs" }).getAttribute("href"),
-    ).toBe("/docs");
+    ).toBe("/docs/");
     expect(
       dialog.getByRole("link", { name: "Browse apps" }).getAttribute("href"),
-    ).toBe("/apps");
+    ).toBe("/apps/");
     expect(dialog.getByRole("button", { name: "Build online" })).toBeTruthy();
   });
 

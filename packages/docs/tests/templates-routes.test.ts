@@ -130,9 +130,9 @@ describe("template routes", () => {
   });
 
   it("emits docs canonical paths and hreflang alternates for localized docs", () => {
-    expect(canonicalPathForPath("/docs/getting-started")).toBe("/docs");
+    expect(canonicalPathForPath("/docs/getting-started")).toBe("/docs/");
     expect(canonicalPathForPath("/zh-CN/docs/getting-started")).toBe(
-      "/zh-CN/docs",
+      "/zh-cn/docs/",
     );
 
     const localized = docsAlternateLinksForPath(
@@ -140,15 +140,15 @@ describe("template routes", () => {
     );
     expect(localized).toContainEqual({
       hrefLang: "en-US",
-      path: "/docs/internationalization",
+      path: "/docs/internationalization/",
     });
     expect(localized).toContainEqual({
       hrefLang: "zh-CN",
-      path: "/zh-CN/docs/internationalization",
+      path: "/zh-cn/docs/internationalization/",
     });
     expect(localized).toContainEqual({
       hrefLang: "x-default",
-      path: "/docs/internationalization",
+      path: "/docs/internationalization/",
     });
 
     const defaultLocalized = docsAlternateLinksForPath(
@@ -156,15 +156,15 @@ describe("template routes", () => {
     );
     expect(defaultLocalized).toContainEqual({
       hrefLang: "en-US",
-      path: "/docs/workspace-connections",
+      path: "/docs/workspace-connections/",
     });
     expect(defaultLocalized).toContainEqual({
       hrefLang: "zh-CN",
-      path: "/zh-CN/docs/workspace-connections",
+      path: "/zh-cn/docs/workspace-connections/",
     });
     expect(defaultLocalized).toContainEqual({
       hrefLang: "x-default",
-      path: "/docs/workspace-connections",
+      path: "/docs/workspace-connections/",
     });
     expect(docsAlternateLinksForPath("/templates")).toEqual([]);
   });
@@ -198,10 +198,10 @@ describe("template routes", () => {
     // docs pages (e.g. pr-visual-recap), so don't require the template- prefix.
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
     for (const sidebarPath of sidebarDocPaths) {
-      expect(sidebarPath).toMatch(/^\/docs\/[a-z0-9-]+$/);
+      expect(sidebarPath).toMatch(/^\/docs\/[a-z0-9-]+\/$/);
       expect(sidebarPath).not.toMatch(/^\/apps\//);
 
-      const slug = sidebarPath.replace("/docs/", "");
+      const slug = sidebarPath.replace("/docs/", "").replace(/\/$/, "");
       expect(docsSourceExists(docsDir, slug)).toBe(true);
     }
   });
@@ -211,10 +211,10 @@ describe("template routes", () => {
 
     for (const template of templates) {
       const docsPath = getTemplateDocsPath(template);
-      expect(docsPath).toMatch(/^\/docs\/template-[a-z0-9-]+$/);
+      expect(docsPath).toMatch(/^\/docs\/template-[a-z0-9-]+\/$/);
       expect(docsPath).not.toMatch(/^\/templates\//);
 
-      const slug = docsPath.replace("/docs/template-", "");
+      const slug = docsPath.replace("/docs/template-", "").replace(/\/$/, "");
       expect(docsSourceExists(docsDir, `template-${slug}`)).toBe(true);
     }
   });
@@ -223,29 +223,29 @@ describe("template routes", () => {
     const paths = buildSitemapPaths(docsRoot);
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
     const docPaths = listDocSlugs(docsDir).map((slug) =>
-      slug === "getting-started" ? "/docs" : `/docs/${slug}`,
+      slug === "getting-started" ? "/docs/" : `/docs/${slug}/`,
     );
 
     expect(paths).toContain("/");
-    expect(paths).toContain("/apps");
-    expect(paths).toContain("/brand");
-    expect(paths).toContain("/download");
-    expect(paths).toContain("/privacy");
-    expect(paths).toContain("/terms");
+    expect(paths).toContain("/apps/");
+    expect(paths).toContain("/brand/");
+    expect(paths).toContain("/download/");
+    expect(paths).toContain("/privacy/");
+    expect(paths).toContain("/terms/");
 
     for (const docPath of docPaths) {
       expect(paths).toContain(docPath);
     }
 
     for (const template of templates) {
-      expect(paths).toContain(`/apps/${template.slug}`);
+      expect(paths).toContain(`/apps/${template.slug}/`);
     }
 
-    expect(paths).toContain("/zh-CN/docs/internationalization");
-    expect(paths).toContain("/zh-CN/docs");
-    expect(paths).not.toContain("/docs/zh-CN/internationalization");
+    expect(paths).toContain("/zh-cn/docs/internationalization/");
+    expect(paths).toContain("/zh-cn/docs/");
+    expect(paths).not.toContain("/docs/zh-cn/internationalization/");
 
-    expect(paths).not.toContain("/docs/resources");
-    expect(paths).not.toContain("/apps/starter");
+    expect(paths).not.toContain("/docs/resources/");
+    expect(paths).not.toContain("/apps/starter/");
   }, 60000);
 });
