@@ -1952,7 +1952,13 @@ function needsImageFallback(
     // community landing page it turned 116 of 146 text nodes into PNGs, one of
     // them the single word "Home". Only escalate when the property can actually
     // affect this node's rendering.
-    const paragraphCount = node.lineTypes?.length ?? 1;
+    // `lineTypes` is Figma's own line count. Without it, count the breaks in
+    // the text Figma actually draws — never the raw characters, whose trailing
+    // break would invent a second paragraph and rasterize a one-line label.
+    const paragraphCount =
+      node.lineTypes?.length ??
+      figmaDrawnText(node.characters ?? "", undefined).split(FIGMA_TEXT_BREAK)
+        .length;
     const hasList = node.lineTypes?.some((type) => type !== "NONE") ?? false;
     const hasAdvancedTypography = styles.some(
       (style) =>

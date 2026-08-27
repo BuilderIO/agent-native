@@ -58,7 +58,7 @@ describe("secure image embedding", () => {
         "https://images.example.com/a.png",
         safeFetch as never,
       ),
-    ).resolves.toBe("data:image/png;base64,iVBORw==");
+    ).resolves.toEqual({ ok: true, dataUri: "data:image/png;base64,iVBORw==" });
     expect(safeFetch).toHaveBeenCalledWith(
       "https://images.example.com/a.png",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -66,7 +66,7 @@ describe("secure image embedding", () => {
     );
   });
 
-  it("rejects non-image MIME types and advertised oversized bodies", async () => {
+  it("says WHY an image was not embedded, so a size cap does not read as a block", async () => {
     const htmlFetch = vi.fn(async () =>
       Promise.resolve(
         new Response("<html></html>", {
@@ -76,21 +76,27 @@ describe("secure image embedding", () => {
     );
     await expect(
       fetchImageAsDataUri("https://example.com/not-image", htmlFetch as never),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      ok: false,
+      reason: expect.stringContaining("not an image"),
+    });
 
     const hugeFetch = vi.fn(async () =>
       Promise.resolve(
         new Response(new Uint8Array([1]), {
           headers: {
             "content-type": "image/png",
-            "content-length": String(MAX_EMBEDDED_IMAGE_BYTES + 1),
+            "content-length": String(MAX_EMBEDDED_IMAGE_BYTES * 64),
           },
         }),
       ),
     );
     await expect(
       fetchImageAsDataUri("https://example.com/huge.png", hugeFetch as never),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      ok: false,
+      reason: expect.stringContaining("read limit"),
+    });
   });
 
   it("never leaves expiring remote URLs in a self-contained export", async () => {
@@ -114,7 +120,10 @@ describe("secure image embedding", () => {
         },
       ],
     };
-    const omitted = await embedRemoteImages(root, async () => null);
+    const omitted = await embedRemoteImages(root, async () => ({
+      ok: false,
+      reason: "the fetch failed",
+    }));
 
     expect(root.fills?.[0]).toMatchObject({ href: "" });
     expect(root.children?.[0].image?.href).toBe("");

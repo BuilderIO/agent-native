@@ -192,6 +192,74 @@ export async function cropImageRegion(input: {
   };
 }
 
+export interface ResizedImage {
+  data: Uint8Array;
+  mimeType: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Re-encode an image so it fits a byte budget, keeping its aspect ratio.
+ *
+ * For a caller that must inline an image — an SVG export, an email — an
+ * oversized source is a reason to send fewer pixels, not to send nothing: a
+ * real product page dropped its 11.5MB hero shot rather than embedding it, and
+ * the hole was the largest single difference in the exported file.
+ *
+ * Bytes track pixel count closely enough to jump most of the way in one guess,
+ * then halve until it fits. Alpha keeps the image in PNG; anything else
+ * re-encodes as JPEG, which is far smaller for the photographs that hit a cap.
+ * Returns null when sharp is unavailable or the image cannot fit above
+ * `minEdge` — callers must be able to tell "shrunk" from "could not".
+ */
+export async function downscaleImageToFit(input: {
+  data: Uint8Array;
+  maxBytes: number;
+  /** Stop shrinking here rather than returning an unusably small image. */
+  minEdge?: number;
+}): Promise<ResizedImage | null> {
+  const sharp = await loadSharp();
+  if (!sharp) return null;
+  const minEdge = input.minEdge ?? 256;
+  const source = Buffer.from(input.data);
+  const metadata = await sharp(source, { failOn: "none" }).metadata();
+  if (!metadata.width || !metadata.height) return null;
+
+  const mimeType = metadata.hasAlpha ? "image/png" : "image/jpeg";
+  const encode = (width: number, height: number) => {
+    const pipeline = sharp(source, { failOn: "none" }).resize(width, height, {
+      fit: "inside",
+    });
+    return (
+      metadata.hasAlpha
+        ? pipeline.png({ compressionLevel: 9 })
+        : pipeline.jpeg({ quality: 82 })
+    ).toBuffer();
+  };
+
+  const firstGuess = Math.min(
+    1,
+    Math.sqrt(input.maxBytes / Math.max(1, input.data.byteLength)) * 0.9,
+  );
+  let width = Math.max(1, Math.round(metadata.width * firstGuess));
+  let height = Math.max(1, Math.round(metadata.height * firstGuess));
+  while (true) {
+    const encoded = await encode(width, height);
+    if (encoded.byteLength <= input.maxBytes) {
+      return {
+        data: new Uint8Array(encoded),
+        mimeType,
+        width,
+        height,
+      };
+    }
+    if (Math.min(width, height) <= minEdge) return null;
+    width = Math.max(1, Math.round(width / 2));
+    height = Math.max(1, Math.round(height / 2));
+  }
+}
+
 export async function readBoundedResponseBytes(
   response: Response,
   maxBytes: number,
@@ -233,14 +301,20 @@ interface SharpPipeline {
     options: { fit: "inside" },
   ): SharpPipeline;
   removeAlpha(): SharpPipeline;
-  metadata(): Promise<{ width?: number; height?: number; channels?: number }>;
+  metadata(): Promise<{
+    width?: number;
+    height?: number;
+    channels?: number;
+    hasAlpha?: boolean;
+  }>;
   extract(region: {
     left: number;
     top: number;
     width: number;
     height: number;
   }): SharpPipeline;
-  png(): SharpPipeline;
+  png(options?: { compressionLevel: number }): SharpPipeline;
+  jpeg(options?: { quality: number }): SharpPipeline;
   toBuffer(): Promise<Buffer>;
   raw(): SharpPipeline;
   toBuffer(options: { resolveWithObject: true }): Promise<{ data: Uint8Array }>;

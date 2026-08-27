@@ -118,6 +118,7 @@ export {
 export {
   compareRasterImages,
   cropImageRegion,
+  downscaleImageToFit,
   extractCssColors,
   extractDominantColors,
   fingerprintMedia,
@@ -125,6 +126,7 @@ export {
   readBoundedResponseBytes,
   type CroppedImageRegion,
   type MediaFingerprint,
+  type ResizedImage,
 } from "./media.js";
 export {
   extractStaticWebsiteContext,

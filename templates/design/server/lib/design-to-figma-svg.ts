@@ -26,6 +26,7 @@ import {
   isBlockedExtensionUrlWithDns,
   ssrfSafeFetch,
 } from "@agent-native/core/extensions/url-safety";
+import { downscaleImageToFit } from "@agent-native/core/ingestion";
 
 import {
   buildFigmaSvgDocument,
@@ -42,6 +43,18 @@ import { importPlaywright, launchChromium } from "./playwright-runtime.js";
 export * from "../../shared/figma-svg-scene.js";
 
 export const MAX_EMBEDDED_IMAGE_BYTES = 8 * 1024 * 1024;
+/** How much larger than the embed limit a body may be and still be worth scaling. */
+const MAX_DOWNSCALE_INPUT_MULTIPLE = 8;
+
+/**
+ * An inlined image, or why it is missing. A single null told every caller the
+ * same thing whether the host refused, the body was not an image, or it was
+ * merely too big — and the export report read "could not be safely embedded"
+ * for a file whose only problem was its size.
+ */
+export type EmbeddedImage =
+  | { ok: true; dataUri: string }
+  | { ok: false; reason: string };
 const EMBEDDED_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -69,7 +82,7 @@ export interface RenderFigmaSvgOptions {
 
 export async function embedRemoteImages(
   node: FigmaSvgNode,
-  fetchImage: (url: string) => Promise<string | null> = fetchImageAsDataUri,
+  fetchImage: (url: string) => Promise<EmbeddedImage> = fetchImageAsDataUri,
 ): Promise<Array<{ node: string; reason: string }>> {
   const jobs: Array<Promise<void>> = [];
   const omitted: Array<{ node: string; reason: string }> = [];
@@ -77,33 +90,33 @@ export async function embedRemoteImages(
   function visit(n: FigmaSvgNode) {
     if (n.kind === "image" && n.image && /^https?:\/\//i.test(n.image.href)) {
       jobs.push(
-        fetchImage(n.image.href).then((dataUri) => {
+        fetchImage(n.image.href).then((embedded) => {
           if (!n.image) return;
-          if (dataUri) {
-            n.image.href = dataUri;
-          } else {
-            n.image.href = "";
-            omitted.push({
-              node: n.name || n.id,
-              reason: "Remote image could not be safely embedded",
-            });
+          if (embedded.ok) {
+            n.image.href = embedded.dataUri;
+            return;
           }
+          n.image.href = "";
+          omitted.push({
+            node: n.name || n.id,
+            reason: `Remote image was not embedded: ${embedded.reason}`,
+          });
         }),
       );
     }
     for (const fill of n.fills ?? []) {
       if (fill.kind === "image" && /^https?:\/\//i.test(fill.href)) {
         jobs.push(
-          fetchImage(fill.href).then((dataUri) => {
-            if (dataUri) {
-              fill.href = dataUri;
-            } else {
-              fill.href = "";
-              omitted.push({
-                node: n.name || n.id,
-                reason: "Remote background image could not be safely embedded",
-              });
+          fetchImage(fill.href).then((embedded) => {
+            if (embedded.ok) {
+              fill.href = embedded.dataUri;
+              return;
             }
+            fill.href = "";
+            omitted.push({
+              node: n.name || n.id,
+              reason: `Remote background image was not embedded: ${embedded.reason}`,
+            });
           }),
         );
       }
@@ -120,57 +133,101 @@ type SafeImageFetch = typeof ssrfSafeFetch;
 export async function fetchImageAsDataUri(
   url: string,
   safeFetch: SafeImageFetch = ssrfSafeFetch,
-): Promise<string | null> {
+): Promise<EmbeddedImage> {
   try {
     const res = await safeFetch(
       url,
       { signal: AbortSignal.timeout(10_000) },
       { maxRedirects: 3 },
     );
-    if (!res.ok) return null;
+    if (!res.ok)
+      return { ok: false, reason: `the server answered ${res.status}` };
     const contentType = (res.headers.get("content-type") || "")
       .split(";", 1)[0]
       .trim()
       .toLowerCase();
     if (!EMBEDDED_IMAGE_MIME_TYPES.has(contentType)) {
       await res.body?.cancel().catch(() => {});
-      return null;
+      return {
+        ok: false,
+        reason: `the response was ${contentType || "an unnamed type"}, not an image`,
+      };
     }
-    const advertisedLength = Number(res.headers.get("content-length") || 0);
-    if (
-      Number.isFinite(advertisedLength) &&
-      advertisedLength > MAX_EMBEDDED_IMAGE_BYTES
-    ) {
-      await res.body?.cancel().catch(() => {});
-      return null;
+    const bytes = await readImageBytes(res);
+    if (!bytes) {
+      return {
+        ok: false,
+        reason: `it is larger than the ${MAX_EMBEDDED_IMAGE_BYTES}-byte read limit`,
+      };
     }
-    const reader = res.body?.getReader();
-    if (!reader) {
-      const buffer = Buffer.from(await res.arrayBuffer());
-      if (buffer.byteLength > MAX_EMBEDDED_IMAGE_BYTES) return null;
-      return `data:${contentType};base64,${buffer.toString("base64")}`;
+    if (bytes.byteLength <= MAX_EMBEDDED_IMAGE_BYTES) {
+      return {
+        ok: true,
+        dataUri: `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`,
+      };
     }
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > MAX_EMBEDDED_IMAGE_BYTES) {
-        await reader.cancel().catch(() => {});
-        return null;
-      }
-      chunks.push(value);
+    // Over budget is a reason to send fewer pixels, not to send nothing: a real
+    // product page dropped its 11.5MB hero shot, and the hole it left was the
+    // largest single difference in the exported file.
+    const smaller = await downscaleImageToFit({
+      data: bytes,
+      maxBytes: MAX_EMBEDDED_IMAGE_BYTES,
+    });
+    if (!smaller) {
+      return {
+        ok: false,
+        reason: `it is ${bytes.byteLength} bytes and could not be scaled under the ${MAX_EMBEDDED_IMAGE_BYTES}-byte embed limit`,
+      };
     }
-    const buffer = Buffer.concat(
-      chunks.map((chunk) => Buffer.from(chunk)),
-      total,
-    );
-    return `data:${contentType};base64,${buffer.toString("base64")}`;
-  } catch {
+    return {
+      ok: true,
+      dataUri: `data:${smaller.mimeType};base64,${Buffer.from(smaller.data).toString("base64")}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: (error as Error).message || "the fetch failed",
+    };
+  }
+}
+
+/**
+ * The response body, or null once it passes the read limit. Read separately
+ * from the embed limit: the limit that stops us reading an unbounded body is
+ * not the limit on what may be inlined, and an image between them is one we
+ * can still scale down and keep.
+ */
+async function readImageBytes(res: Response): Promise<Uint8Array | null> {
+  const maxRead = MAX_EMBEDDED_IMAGE_BYTES * MAX_DOWNSCALE_INPUT_MULTIPLE;
+  const advertisedLength = Number(res.headers.get("content-length") || 0);
+  if (Number.isFinite(advertisedLength) && advertisedLength > maxRead) {
+    await res.body?.cancel().catch(() => {});
     return null;
   }
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const buffer = new Uint8Array(await res.arrayBuffer());
+    return buffer.byteLength > maxRead ? null : buffer;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxRead) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return new Uint8Array(
+    Buffer.concat(
+      chunks.map((chunk) => Buffer.from(chunk)),
+      total,
+    ),
+  );
 }
 
 export async function isAllowedFigmaSvgRenderRequest(
