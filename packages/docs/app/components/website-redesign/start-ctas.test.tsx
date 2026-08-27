@@ -43,10 +43,10 @@ describe("StartCtas", () => {
     renderCtas();
 
     const link = screen.getByRole("link", { name: "Get started" });
-    expect(link.getAttribute("href")).toBe("/docs");
+    expect(link.getAttribute("href")).toBe("/docs/");
 
     fireEvent.click(link);
-    expect(screen.getByTestId("pathname").textContent).toBe("/docs");
+    expect(screen.getByTestId("pathname").textContent).toBe("/docs/");
     expect(trackEvent).toHaveBeenCalledWith("click get started", {
       location: "hero",
     });
@@ -56,10 +56,10 @@ describe("StartCtas", () => {
     renderCtas();
 
     const link = screen.getByRole("link", { name: "Try an app" });
-    expect(link.getAttribute("href")).toBe("/apps");
+    expect(link.getAttribute("href")).toBe("/apps/");
 
     fireEvent.click(link);
-    expect(screen.getByTestId("pathname").textContent).toBe("/apps");
+    expect(screen.getByTestId("pathname").textContent).toBe("/apps/");
     expect(trackEvent).toHaveBeenCalledWith("choose get started path", {
       option: "browse_apps",
       location: "hero",
