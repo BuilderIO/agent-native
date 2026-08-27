@@ -82,6 +82,7 @@ import {
 } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
 import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
@@ -94,7 +95,10 @@ import {
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
-import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  extractOAuthStateAppId,
+  extractOAuthStateProvider,
+} from "../shared/oauth-state.js";
 import {
   PASSWORD_MIN_LENGTH,
   PASSWORD_MAX_LENGTH,
@@ -570,6 +574,7 @@ function oauthDebugUrlPath(value: unknown): string | undefined {
     const url = new URL(value);
     return url.pathname;
   } catch {
+    // coercion-ok: invalid OAuth URLs cannot safely derive an app id.
     return undefined;
   }
 }
@@ -2378,18 +2383,93 @@ function workspaceOAuthCallbackRelayResponse(
     search.startsWith("?") ? search.slice(1) : search,
   ).get("state");
   const appId = extractOAuthStateAppId(state);
+  const provider = extractOAuthStateProvider(state);
+  const cookieAppId =
+    !appId && !provider && normalizedPath === "/_agent-native/google/callback"
+      ? extractMcpOAuthCookieAppId(event, state)
+      : undefined;
+  const effectiveAppId = appId ?? cookieAppId;
+  const effectiveProvider = provider ?? (cookieAppId ? "mcp" : undefined);
+  const providerCallbackPath =
+    normalizedPath === "/_agent-native/google/callback" &&
+    effectiveProvider === "mcp"
+      ? "/_agent-native/mcp/servers/oauth/callback"
+      : normalizedPath === "/_agent-native/google/callback" &&
+          isWorkspaceGoogleOAuthProvider(effectiveProvider)
+        ? `/_agent-native/connections/oauth/${effectiveProvider}/callback`
+        : normalizedPath;
   if (
-    !appId ||
-    appId === getOAuthStateAppId() ||
-    !isValidWorkspaceAppIdFormat(appId)
+    !effectiveAppId ||
+    (effectiveAppId === getOAuthStateAppId() &&
+      providerCallbackPath === normalizedPath) ||
+    !isValidWorkspaceAppIdFormat(effectiveAppId)
   ) {
     return undefined;
   }
 
   return new Response("", {
     status: 302,
-    headers: { Location: `/${appId}${normalizedPath}${search}` },
+    headers: {
+      Location: `/${effectiveAppId}${providerCallbackPath}${search}`,
+    },
   });
+}
+
+function extractMcpOAuthCookieAppId(
+  event: H3Event,
+  state: string | null,
+): string | undefined {
+  if (!state) return undefined;
+  const result = readMcpOAuthFlowCookiePayload(event);
+  if (result.status !== "ok") return undefined;
+  if (
+    result.value.state !== state ||
+    typeof result.value.redirectUri !== "string"
+  ) {
+    return undefined;
+  }
+
+  let redirectUri: URL;
+  let requestOrigin: URL;
+  try {
+    redirectUri = new URL(result.value.redirectUri);
+    requestOrigin = new URL(getOrigin(event));
+  } catch {
+    // coercion-ok: invalid OAuth URLs cannot safely derive an app id.
+    return undefined;
+  }
+  if (
+    redirectUri.origin !== requestOrigin.origin ||
+    redirectUri.search ||
+    redirectUri.hash
+  ) {
+    return undefined;
+  }
+
+  const match = redirectUri.pathname.match(
+    /^\/([a-z0-9][a-z0-9-]*)\/_agent-native\/mcp\/servers\/oauth\/callback$/,
+  );
+  const appId = match?.[1];
+  return appId && isValidWorkspaceAppIdFormat(appId) ? appId : undefined;
+}
+
+function isWorkspaceGoogleOAuthProvider(
+  provider: string | undefined,
+): provider is
+  | "gmail"
+  | "google_calendar"
+  | "google_docs"
+  | "google_drive"
+  | "google_sheets"
+  | "google_slides" {
+  return (
+    provider === "gmail" ||
+    provider === "google_calendar" ||
+    provider === "google_docs" ||
+    provider === "google_drive" ||
+    provider === "google_sheets" ||
+    provider === "google_slides"
+  );
 }
 
 function verifiedBuilderConnectOwnerFromUrl(url: string): string | null {
