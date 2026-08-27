@@ -2066,6 +2066,68 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("does not let a read that spans a local save revert the saved slide", async () => {
+    // The write starts AFTER the read is issued, so nothing is pending at
+    // either endpoint to reveal that the response predates it. Only the local
+    // write counter can see this; without it the clean-deck branch adopts the
+    // stale snapshot wholesale and the user's edit visibly reverts.
+    window.history.pushState({}, "", "/deck/race-deck");
+    const original: Deck = {
+      id: "race-deck",
+      title: "Race Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Server before save</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck, deferNextGetDeck, resolveDeferredGetDeck } =
+      setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("race-deck")?.slides).toHaveLength(1),
+    );
+
+    // Read starts while the deck is clean — the server still holds the old body.
+    deferNextGetDeck();
+    const staleRefresh = result.current.refreshOpenDeck("race-deck");
+
+    // ...then the user edits and the save completes, entirely inside the read.
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide("race-deck", "slide-1", {
+        content: "<h1>Just typed</h1>",
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    vi.useRealTimers();
+    await waitFor(() =>
+      expect(hasUncommittedDeckChanges("race-deck", new Set())).toBe(false),
+    );
+
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleRefresh;
+    });
+
+    expect(result.current.getDeck("race-deck")?.slides[0]?.content).toBe(
+      "<h1>Just typed</h1>",
+    );
+  });
+
   it("does not let a stale baseline reload resurrect a deleted slide", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const original: Deck = {

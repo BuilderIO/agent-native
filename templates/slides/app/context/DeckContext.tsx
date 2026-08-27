@@ -407,6 +407,13 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 
+// Bumped on every local write enqueued for a deck. A deck read that spans a
+// local write is stale for that deck no matter what the pending state looks
+// like at either endpoint — the write can be enqueued, debounced, flushed and
+// drained entirely inside one GET, leaving nothing pending to notice it.
+// Comparing this counter across the read is the only way to see that.
+const deckLocalWriteSeq = new Map<string, number>();
+
 // The ops a deck's current in-flight save actually sent, so a slide-scoped
 // check can tell "this slide's save is in flight" from "some other slide in
 // this deck has a save in flight" — `inFlightSaves` alone can't, since it is
@@ -754,6 +761,7 @@ function enqueueDeckOp(
     onSaveSuccess?: (ops: GranularOp[]) => void;
   },
 ) {
+  deckLocalWriteSeq.set(deckId, (deckLocalWriteSeq.get(deckId) ?? 0) + 1);
   const existing = pendingSaves.get(deckId);
   if (existing) clearTimeout(existing);
   if (
@@ -2050,8 +2058,20 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const pendingAtReadStart = pendingWriteSlideIds(
         decksRef.current.find((d) => d.id === currentOpenId),
       );
+      const writeSeqAtReadStart = deckLocalWriteSeq.get(currentOpenId) ?? 0;
       const fetchedServerDeck = await fetchDeckFromAPI(currentOpenId);
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
+        return null;
+      }
+      // A local write started AFTER this read did, so the response predates it
+      // and nothing is pending at either endpoint to reveal that. Drop this
+      // snapshot rather than adopt it; the next reconcile starts after the
+      // write and carries the truth. `pendingAtReadStart` covers the mirror
+      // case — a write already outstanding when the read began.
+      if (
+        !options?.clearPendingWrites &&
+        (deckLocalWriteSeq.get(currentOpenId) ?? 0) !== writeSeqAtReadStart
+      ) {
         return null;
       }
       // Null means 404 (row not created yet), a transient failure, or a
