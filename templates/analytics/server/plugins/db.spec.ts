@@ -313,7 +313,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
     );
     expect(migration).toContain(
-      'sqlite:\n          "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT"',
+      'sqlite: "ALTER TABLE dashboards ADD COLUMN created_by TEXT"',
     );
   });
 
