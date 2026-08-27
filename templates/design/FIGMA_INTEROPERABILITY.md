@@ -327,6 +327,7 @@ What moved the numbers. Each was a real defect on a real design:
 | dashed strokes drawn solid | whitepace (.fig) | 3.39 | 3.37 |
 | hugging text ignoring the size Figma resolved | whitepace (.fig) | 3.37 | 3.18 |
 | a wrapping auto-layout stack that never wrapped | autolayout (.fig) | 16.79 | 5.20 |
+| diamond gradient drawn as an ellipse | fills-effects (.fig) | 17.90 | 15.26 |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
@@ -367,7 +368,7 @@ multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 | untitled UI landing mobile | 7.65% | **0 of 228** | 6.19% |
 | untitled UI dashboard | 9.37% | 25 of 201 | 3.68% |
 | typography torture | 14.83% | 1 of 9 | 12.67% |
-| fills and effects | 17.90% | **0 of 12** | 0.55% |
+| fills and effects | 15.26% | **0 of 12** | 0.55% |
 
 The image-heavy case is the one to read first: the `.fig` path BEATS the REST
 path on it, because **a `.fig` container carries image bytes** where the REST
@@ -387,14 +388,26 @@ could line its output up against Figma's own boxes, and the whole class of
 defect was invisible.
 
 Where a case still scores high with ZERO nodes out of place, the difference is
-paint, not layout, and the fixtures say which: `fills and effects` is 17.90%
-with nothing misplaced because this walker drops an IMAGE fill's opacity, sweeps
-an angular gradient in pixel space rather than Figma's normalized space, and
-draws a diamond gradient as an ellipse instead of the four-pointed star its L1
-falloff actually makes. The REST walker fixes all three; each needs an overlay
-element rather than a background layer, and each is now REPORTED here rather
-than rendered silently wrong. `typography torture` is the same story as on the
-REST path — glyph rasterisation, with one node out of place.
+paint, not layout, and the fixtures say which. `fills and effects` is 15.26%
+with nothing misplaced, and what is left there is two things, both of which
+would need an overlay element rather than a background layer — and **neither of
+which any real design in the corpus hits**:
+
+- An IMAGE fill's opacity is dropped, because a CSS background layer carries
+  none. Measured across six `.fig` files and three clipboard payloads: one
+  occurrence, in the fixture built to catch it.
+- An angular gradient is swept in pixel space where Figma sweeps it in the
+  node's normalized space. Same measurement: seven angular gradients in real
+  designs, **all seven on a square box**, where the two definitions agree
+  exactly. The one non-square case is again the fixture.
+
+Both are reported rather than rendered silently wrong, and the counts above are
+why they are reported rather than fixed. The diamond gradient WAS fixed — its
+L1 falloff is linear inside each quadrant, so four quadrant-tiled linear
+gradients are the shape Figma draws and they fit the background stack as-is.
+
+`typography torture` is the same story as on the REST path — glyph
+rasterisation, with one node out of place.
 
 Adding the synthetic fixtures is what made this legible: each isolates one
 Figma feature, so a defect in one names itself instead of hiding in a page.
