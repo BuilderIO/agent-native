@@ -59,6 +59,7 @@ describe("release everything workflow", () => {
     assert.match(source, /auto-publish\.yml/);
     assert.match(source, /waitForStablePackagePublish/);
     assert.match(source, /async function getRemoteTagSha\(tag\)/);
+    assert.match(source, /github\.rest\.git\.getTag/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
       source,
@@ -114,12 +115,14 @@ describe("release everything workflow", () => {
       desktopSourceText,
       /ref: \$\{\{ inputs\.source_ref \|\| github\.sha \}\}/,
     );
+    assert.match(desktopSourceText, /SOURCE_REF,,/);
     assert.match(desktopSourceText, /get_tag_sha\(\)/);
     assert.match(
       desktopSourceText,
       /EXISTING_TAG_SHA[\s\S]*needs\.resolve-version/,
     );
     assert.match(clipsSourceText, /get_tag_sha\(\)/);
+    assert.match(clipsSourceText, /SOURCE_REF,,/);
     assert.match(clipsSourceText, /EXISTING_TAG_SHA[\s\S]*RELEASE_SOURCE_REF/);
     assert.match(desktopSource, /source_ref.*steps\.v\.outputs\.source_ref/);
     assert.match(desktopSource, /full 40-character commit SHA/);
