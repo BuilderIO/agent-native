@@ -15,6 +15,7 @@ interface GoogleDocsStatus {
   configured: boolean;
   connected: boolean;
   googleSlidesUrlImportReady?: boolean;
+  googleSlidesUrlImportError?: string;
   error?: string;
   message?: string;
 }
@@ -147,6 +148,11 @@ export function GoogleDriveConnectionCta({
             ? t("home.googleSlidesReferenceConnect")
             : t("raw.googleOAuthNotConfigured")}
         </p>
+        {displayStatus.googleSlidesUrlImportError && (
+          <p className="mt-1 text-[11px] text-destructive">
+            {displayStatus.googleSlidesUrlImportError}
+          </p>
+        )}
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
       {displayStatus.configured && (

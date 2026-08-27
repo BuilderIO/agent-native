@@ -164,18 +164,25 @@ export const getGoogleDocsStatus = defineEventHandler(
 
     try {
       const accounts = await listGoogleDocsAccounts(owner);
+      let googleSlidesUrlImportError: string | undefined;
       if (
         !accounts.some((account) => hasGoogleDriveExportScope(account.scope))
       ) {
-        const managed = await withSlidesRequestContext(event, () =>
-          resolveManagedGoogleDriveAccount(),
-        );
-        if (managed) {
-          accounts.push({
-            email: managed.email,
-            scope: managed.scope,
-            shared: true,
-          });
+        try {
+          const managed = await withSlidesRequestContext(event, () =>
+            resolveManagedGoogleDriveAccount(),
+          );
+          if (managed) {
+            accounts.push({
+              email: managed.email,
+              scope: managed.scope,
+              shared: true,
+            });
+          }
+        } catch (error) {
+          // Keep the status response actionable so a revoked managed token can
+          // still be repaired through the Connect Google CTA.
+          googleSlidesUrlImportError = formatGoogleOAuthError(error);
         }
       }
       const picker = await getGooglePickerConfig(owner);
@@ -185,6 +192,7 @@ export const getGoogleDocsStatus = defineEventHandler(
         googleSlidesUrlImportReady: accounts.some((account) =>
           hasGoogleDriveExportScope(account.scope),
         ),
+        googleSlidesUrlImportError,
         accounts,
         pickerConfigured: !!(picker.apiKey && picker.appId),
         pickerApiKey: picker.apiKey,

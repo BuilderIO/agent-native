@@ -133,6 +133,31 @@ describe("<GoogleDriveConnectionCta>", () => {
     ).toBeTruthy();
   });
 
+  it("keeps the reconnect button available when managed OAuth needs repair", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              configured: true,
+              connected: true,
+              googleSlidesUrlImportReady: false,
+              googleSlidesUrlImportError: "Google authorization expired",
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(<GoogleDriveConnectionCta />);
+
+    expect(
+      await screen.findByText("Google authorization expired"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect Google" })).toBeTruthy();
+  });
+
   it("starts the managed Drive OAuth flow", async () => {
     render(<GoogleDriveConnectionCta />);
     fireEvent.click(
