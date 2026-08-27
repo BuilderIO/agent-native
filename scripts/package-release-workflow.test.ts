@@ -137,11 +137,14 @@ describe("npm package release workflow", () => {
     );
     assert(changesets);
     const options = changesets.with as Workflow;
-    assert.equal(
-      options.version,
-      "pnpm changeset version && pnpm changelog:compact",
-    );
+    assert.equal(options.version, "pnpm changeset:release-version");
     assert.equal(options["version-script"], undefined);
+    const packageScripts = JSON.parse(readFileSync("package.json", "utf8"))
+      .scripts as Record<string, string>;
+    assert.equal(
+      packageScripts["changeset:release-version"],
+      "pnpm changeset:version && pnpm changelog:compact",
+    );
 
     const consume = releaseSteps.find(
       (step) => step.name === "Consume concurrent public-package changesets",
