@@ -2037,15 +2037,20 @@ function gradientLayerHasUnreadableStop(layer: string): boolean {
   const open = layer.indexOf("(");
   if (open < 0) return false;
   const inner = layer.slice(open + 1, layer.lastIndexOf(")"));
-  for (const raw of splitTopLevelCommas(inner)) {
-    const part = raw.trim();
+  const parts = splitTopLevelCommas(inner);
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i]!.trim();
     if (!part) continue;
-    if (
-      /^(to\s|[-\d.]+(deg|rad|grad|turn)\b|circle\b|ellipse\b|at\s|closest|farthest)/i.test(
-        part,
-      )
-    )
-      continue;
+    // A stop contains a colour; radial geometry like `90% 40% at 50% 0%` does
+    // not, and matching geometry by shape missed exactly that form.
+    const hasColor =
+      /rgba?\(/i.test(part) ||
+      /(^|\s)(transparent|currentcolor)(\s|$)/i.test(part) ||
+      /#[0-9a-f]{3,8}(\s|$)/i.test(part);
+    if (!hasColor) {
+      if (i === 0) continue;
+      return true;
+    }
     const withoutPosition = part.replace(/\s*(-?[\d.]+)%\s*$/, "").trim();
     if (!withoutPosition) return true;
     if (
@@ -2588,16 +2593,26 @@ export function collectRawFigmaSvgScene(
       const open = layer.indexOf("(");
       if (open < 0) continue;
       const inner = layer.slice(open + 1, layer.lastIndexOf(")"));
-      for (const raw of splitTop(inner)) {
-        const part = raw.trim();
+      const parts = splitTop(inner);
+      for (let i = 0; i < parts.length; i += 1) {
+        const part = parts[i]!.trim();
         if (!part) continue;
-        // The leading geometry argument carries no colour.
-        if (
-          /^(to\s|[-\d.]+(deg|rad|grad|turn)\b|circle\b|ellipse\b|at\s|closest|farthest)/i.test(
-            part,
-          )
-        )
-          continue;
+        // A STOP contains a colour; the leading geometry argument does not.
+        // Matching geometry by shape instead missed `90% 40% at 50% 0%`, and
+        // stripping its trailing position left `... at 50%`, which then read
+        // as a colour with a position glued on — the whole gradient was
+        // dropped. Computed styles always spell colours as rgb()/rgba().
+        const hasColor =
+          /rgba?\(/i.test(part) ||
+          /(^|\s)(transparent|currentcolor)(\s|$)/i.test(part) ||
+          /#[0-9a-f]{3,8}(\s|$)/i.test(part);
+        if (!hasColor) {
+          // Position 0 is the angle / `to <side>` / radial geometry.
+          if (i === 0) continue;
+          // Anywhere else it is a standalone colour hint, which has no SVG
+          // equivalent — the raster fallback preserves it exactly.
+          return true;
+        }
         // The parser strips ONE trailing percentage and treats the rest as the
         // colour, so checking only "ends in %" passes `<colour> 0 50%` — the
         // two-position form — and leaves `<colour> 0` as the colour. Strip the

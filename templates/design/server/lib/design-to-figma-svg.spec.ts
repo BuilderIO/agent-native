@@ -1354,6 +1354,27 @@ describe("background-image sizing on export", () => {
     expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
   });
 
+  it("does not mistake radial geometry for an unreadable stop", () => {
+    // `90% 40% at 50% 0%` is the gradient's GEOMETRY, not a colour stop.
+    // Recognising geometry by its shape missed this form, and stripping its
+    // trailing position left `... at 50%`, which read as a colour carrying a
+    // position — the whole gradient was dropped from the export. A stop is
+    // identified by containing a colour, which geometry never does.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "radial-gradient(90% 40% at 50% 0%, rgba(129, 140, 248, 0.28), rgba(0, 0, 0, 0) 65%)",
+      ).map((l) => l.kind),
+    ).toEqual(["radial-gradient"]);
+
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "radial-gradient(ellipse 70% 55% at 78% 12%, rgba(99, 102, 241, 0.3), transparent 62%)",
+      ).map((l) => l.kind),
+    ).toEqual(["radial-gradient"]);
+  });
+
   it("does not over-catch ordinary single-percentage stops", () => {
     const layers = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
