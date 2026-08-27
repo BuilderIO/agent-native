@@ -1,5 +1,8 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import {
+  PromptComposer,
+  useEagerFileUploads,
+} from "@agent-native/core/client/composer";
 import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -252,7 +255,6 @@ export default function PromptPopover({
   children,
 }: PromptPopoverProps) {
   const t = useT();
-  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
@@ -327,17 +329,29 @@ export default function PromptPopover({
     };
   }, [open, onOpenChange, anchorRef]);
 
-  const uploadFiles = useCallback(
-    async (files: File[]): Promise<UploadedFile[]> => {
-      if (files.length === 0) return [];
-      setUploading(true);
-      try {
-        return await uploadPromptFiles(files);
-      } finally {
-        setUploading(false);
-      }
+  const {
+    uploadFiles,
+    uploading,
+    reset: resetEagerUploads,
+  } = useEagerFileUploads(uploadPromptFiles);
+
+  const handleAttachmentsChange = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      const enrichedText = [promptText.trim(), googleDocContext]
+        .filter(Boolean)
+        .join("\n\n");
+      if (onBeforeUpload?.(enrichedText, files) === false) return;
+      void uploadFiles(files).catch((error) => {
+        toast.error(t("raw.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("raw.uploadAttachedFailed"),
+        });
+      });
     },
-    [],
+    [googleDocContext, onBeforeUpload, promptText, t, uploadFiles],
   );
 
   const handleSubmit = useCallback(
@@ -425,8 +439,9 @@ export default function PromptPopover({
       setSelectedImportFile(null);
       setImportingSource(null);
       setSubmitting(false);
+      resetEagerUploads();
     }
-  }, [open]);
+  }, [open, resetEagerUploads]);
 
   if (!open) return null;
 
@@ -526,6 +541,7 @@ export default function PromptPopover({
                 }
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}
                 initialText={initialText}
@@ -533,7 +549,7 @@ export default function PromptPopover({
               />
             </div>
 
-            {submitting && (
+            {uploading && (
               <div
                 className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
                 role="status"

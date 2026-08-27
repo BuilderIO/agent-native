@@ -46,6 +46,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
       </button>
     </div>
   ),
+  useEagerFileUploads: () => ({
+    uploadFiles: async () => [],
+    uploading: false,
+    reset: () => {},
+  }),
 }));
 
 vi.mock("@agent-native/core/embedding/react", () => ({

@@ -1568,7 +1568,6 @@ export default function Index() {
         skipLabel={t("home.referenceDeckNone")}
         searchDecksLabel={t("root.searchDecks")}
         promptSummary={pendingDeck?.prompt}
-        promptFiles={pendingDeck?.files}
       />
 
       {/* Sign-in required to create a deck. Shown when an unauthenticated

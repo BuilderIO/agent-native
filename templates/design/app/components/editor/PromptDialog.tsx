@@ -2,6 +2,7 @@ import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
+  useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -453,7 +454,6 @@ export default function PromptPopover({
   draftScope,
 }: PromptPopoverProps) {
   const t = useT();
-  const [uploading, setUploading] = useState(false);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
@@ -525,7 +525,7 @@ export default function PromptPopover({
     setRestoredPromptText(undefined);
   }, [open]);
 
-  const uploadFiles = useCallback(
+  const uploadFilesToServer = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
       if (files.length === 0) return [];
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
@@ -534,46 +534,78 @@ export default function PromptPopover({
           t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
         );
       }
-      setUploading(true);
-      try {
-        const formData = new FormData();
-        files.forEach((f) => formData.append("files", f));
-        const res = await fetch(`${appBasePath()}/api/uploads`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(
-            typeof body?.error === "string"
-              ? body.error
-              : `Upload failed (${res.status})`,
-          );
-        }
-        const uploaded = (await res.json()) as UploadedFile[];
-        const imageFileCount =
-          files.filter((file) =>
-            CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
-          ).length || 1;
-        const maxImageDataUrlBytes = Math.min(
-          DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
-          Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+      const formData = new FormData();
+      files.forEach((f) => formData.append("files", f));
+      const res = await fetch(`${appBasePath()}/api/uploads`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
+        const body = await res.json().catch(() => null);
+        throw new Error(
+          typeof body?.error === "string"
+            ? body.error
+            : `Upload failed (${res.status})`,
         );
-        const visualAttachments = await Promise.all(
-          files.map((file) =>
-            readChatImageAttachment(file, maxImageDataUrlBytes),
-          ),
-        );
-        return uploaded.map((file, index) =>
-          visualAttachments[index]
-            ? { ...file, dataUrl: visualAttachments[index] }
-            : file,
-        );
-      } finally {
-        setUploading(false);
       }
+      const uploaded = (await res.json()) as UploadedFile[];
+      const imageFileCount =
+        files.filter((file) =>
+          CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
+        ).length || 1;
+      const maxImageDataUrlBytes = Math.min(
+        DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+        Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+      );
+      const visualAttachments = await Promise.all(
+        files.map((file) =>
+          readChatImageAttachment(file, maxImageDataUrlBytes),
+        ),
+      );
+      return uploaded.map((file, index) =>
+        visualAttachments[index]
+          ? { ...file, dataUrl: visualAttachments[index] }
+          : file,
+      );
     },
     [t],
+  );
+  const {
+    uploadFiles,
+    uploading,
+    reset: resetEagerUploads,
+  } = useEagerFileUploads(uploadFilesToServer);
+
+  useEffect(() => {
+    if (!open) resetEagerUploads();
+  }, [open, resetEagerUploads]);
+
+  const handleAttachmentsChange = useCallback(
+    (files: File[]) => {
+      void uploadFiles(files).catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToUploadFile"),
+        );
+      });
+    },
+    [t, uploadFiles],
+  );
+
+  const handleUploadFiles = useCallback(
+    (files: File[]) => {
+      setSelectedUploadFiles((current) => [...current, ...files]);
+      void uploadFiles(files).catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToUploadFile"),
+        );
+      });
+    },
+    [t, uploadFiles],
   );
 
   const handleSubmit = useCallback(
@@ -798,15 +830,14 @@ export default function PromptPopover({
             disabled={loading || uploading}
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
+            onAttachmentsChange={handleAttachmentsChange}
             draftScope={draftScope ?? title}
             initialText={restoredPromptText}
             initialTextKey={restoredPromptKey}
             attachButton={
               <PromptAttachmentMenu
                 disabled={loading || uploading}
-                onUploadFiles={(files) =>
-                  setSelectedUploadFiles((current) => [...current, ...files])
-                }
+                onUploadFiles={handleUploadFiles}
                 onPickAsset={() => setAssetsPickerOpen(true)}
               />
             }

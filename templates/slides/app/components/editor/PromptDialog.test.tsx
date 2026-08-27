@@ -6,36 +6,83 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { useCallback, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+const promptFile = new File(["pdf"], "large.pdf", {
+  type: "application/pdf",
+});
+
+function useEagerFileUploadsMock<T>(
+  upload: (files: File[]) => Promise<readonly T[]>,
+) {
+  const uploadsRef = useRef(new Map<File, Promise<T>>());
+  const [uploading, setUploading] = useState(false);
+  const uploadFiles = useCallback(
+    async (files: readonly File[]) => {
+      const newFiles = [...new Set(files)].filter(
+        (file) => !uploadsRef.current.has(file),
+      );
+      if (newFiles.length > 0) {
+        const batch = upload(newFiles);
+        newFiles.forEach((file, index) => {
+          uploadsRef.current.set(
+            file,
+            batch.then((results) => results[index]!),
+          );
+        });
+        setUploading(true);
+        void batch.then(
+          () => setUploading(false),
+          () => setUploading(false),
+        );
+      }
+      return Promise.all(files.map((file) => uploadsRef.current.get(file)!));
+    },
+    [upload],
+  );
+  const reset = useCallback(() => {
+    uploadsRef.current.clear();
+    setUploading(false);
+  }, []);
+  return { uploadFiles, uploading, reset };
+}
 
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
+    onAttachmentsChange?: (files: File[]) => void;
     onSubmit: (
       text: string,
       files: File[],
       references: unknown[],
       options: Record<string, unknown>,
     ) => void | Promise<void>;
-  }) => (
-    <button
-      type="button"
-      data-testid="prompt-composer"
-      disabled={props.disabled}
-      onClick={() =>
-        void props.onSubmit(
-          "make a deck",
-          [new File(["pdf"], "large.pdf", { type: "application/pdf" })],
-          [],
-          {},
-        )
-      }
-    >
-      Prompt composer
-    </button>
-  ),
+  }) => {
+    return (
+      <>
+        <button
+          type="button"
+          data-testid="prompt-composer-attach"
+          onClick={() => props.onAttachmentsChange?.([promptFile])}
+        >
+          Attach
+        </button>
+        <button
+          type="button"
+          data-testid="prompt-composer"
+          disabled={props.disabled}
+          onClick={() =>
+            void props.onSubmit("make a deck", [promptFile], [], {})
+          }
+        >
+          Prompt composer
+        </button>
+      </>
+    );
+  },
+  useEagerFileUploads: useEagerFileUploadsMock,
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
@@ -318,5 +365,44 @@ describe("PromptPopover import mode", () => {
       ]);
     });
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("starts uploading when a prompt attachment is added and reuses it on submit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/large.pdf",
+            originalName: "large.pdf",
+            filename: "large.pdf",
+            type: "application/pdf",
+            size: 3,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const onSubmit = vi.fn();
+
+    render(
+      <PromptPopover
+        open
+        centered
+        onOpenChange={vi.fn()}
+        title="New presentation"
+        onSubmit={onSubmit}
+        onSkip={vi.fn()}
+        skipLabel="Skip prompt"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

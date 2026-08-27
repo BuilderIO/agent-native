@@ -1,4 +1,7 @@
-import { PromptComposer } from "@agent-native/core/client/composer";
+import {
+  PromptComposer,
+  useEagerFileUploads,
+} from "@agent-native/core/client/composer";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
@@ -54,7 +57,6 @@ export function FirstDeckOnboardingFlow({
   const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
   const [promptInitialText, setPromptInitialText] = useState<string>();
   const [promptInitialTextKey, setPromptInitialTextKey] = useState<number>();
-  const [uploading, setUploading] = useState(false);
   const [referenceImporting, setReferenceImporting] = useState(false);
   const [recentReferences, setRecentReferences] = useState<RecentReference[]>(
     [],
@@ -80,6 +82,7 @@ export function FirstDeckOnboardingFlow({
   const initialDesignSystemId =
     lastUsedDesignSystemId ?? workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
+  const { uploadFiles, uploading } = useEagerFileUploads(uploadPromptFiles);
 
   useEffect(() => {
     const result = readRecentReferences();
@@ -114,9 +117,8 @@ export function FirstDeckOnboardingFlow({
 
   const handlePromptSubmit = useCallback(
     async (text: string, files: File[]) => {
-      setUploading(true);
       try {
-        const uploaded = await uploadPromptFiles(files);
+        const uploaded = await uploadFiles(files);
         setPrompt(text.trim());
         setPromptFiles(uploaded);
         setStep("references");
@@ -127,11 +129,23 @@ export function FirstDeckOnboardingFlow({
               ? error.message
               : t("raw.uploadAttachedFailed"),
         });
-      } finally {
-        setUploading(false);
       }
     },
-    [t],
+    [t, uploadFiles],
+  );
+
+  const handlePromptAttachmentsChange = useCallback(
+    (files: File[]) => {
+      void uploadFiles(files).catch((error) => {
+        toast.error(t("raw.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("raw.uploadAttachedFailed"),
+        });
+      });
+    },
+    [t, uploadFiles],
   );
 
   const startGeneration = useCallback(
@@ -452,6 +466,7 @@ export function FirstDeckOnboardingFlow({
             disabled={uploading}
             placeholder={t("home.newDeckPlaceholder")}
             onSubmit={handlePromptSubmit}
+            onAttachmentsChange={handlePromptAttachmentsChange}
             draftScope="slides-first-deck"
             initialText={promptInitialText}
             initialTextKey={promptInitialTextKey}

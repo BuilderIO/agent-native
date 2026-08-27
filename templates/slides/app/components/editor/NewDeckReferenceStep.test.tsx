@@ -283,20 +283,9 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Last used deck");
   });
 
-  it("lists files attached to the prompt so the upload is visibly kept", () => {
-    renderStep({
-      promptSummary: "Some prompt",
-      promptFiles: [
-        {
-          path: "uploads/article-setup.pdf",
-          originalName: "Article Setup Requirements.pdf",
-          filename: "article-setup.pdf",
-          type: "application/pdf",
-          size: 1024,
-        },
-      ],
-    });
+  it("does not render an Attached section on the reference step", () => {
+    renderStep({ promptSummary: "Some prompt" });
 
-    expect(screen.getByText("Article Setup Requirements.pdf")).toBeTruthy();
+    expect(screen.queryByText("Attached")).toBeNull();
   });
 });

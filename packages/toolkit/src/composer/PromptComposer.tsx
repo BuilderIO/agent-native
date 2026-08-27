@@ -174,6 +174,8 @@ export interface PromptComposerProps {
   modelStatusChecksEnabled?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  /** Called whenever attached files change, before the composer is submitted. */
+  onAttachmentsChange?: (files: PromptComposerFile[]) => void;
   /**
    * Override the Builder.io connect action in the model picker. When provided,
    * clicking "Connect Builder.io" calls this instead of opening a browser popup.
@@ -543,6 +545,7 @@ function PromptComposerInner({
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   onTextChange,
+  onAttachmentsChange,
   onConnectProvider,
   onConnectLocalRuntime,
   composerRef,
@@ -554,6 +557,17 @@ function PromptComposerInner({
   const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
   const localRef = useRef<TiptapComposerHandle>(null);
   const handleRef = composerRef ?? localRef;
+  const attachments = useComposer((state) => state.attachments);
+  const attachmentFiles = useMemo(
+    () =>
+      attachments.flatMap((attachment) =>
+        attachment.file ? [attachment.file] : [],
+      ),
+    [attachments],
+  );
+  useEffect(() => {
+    onAttachmentsChange?.(attachmentFiles);
+  }, [attachmentFiles, onAttachmentsChange]);
   const hostManagedModels = Boolean(
     availableModels && selectedModel && onModelChange,
   );
