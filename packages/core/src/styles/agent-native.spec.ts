@@ -12,13 +12,13 @@ describe("agent-native shell surface tokens", () => {
     );
 
     expect(css).toMatch(
-      /\.agent-conversation-markdown ul:not\(\.contains-task-list\) \{[^}]*list-style-type: disc;/s,
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\),\s*\.agent-markdown ul:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: disc;/s,
     );
     expect(css).toMatch(
-      /\.agent-conversation-markdown ol:not\(\.contains-task-list\) \{[^}]*list-style-type: decimal;/s,
+      /\.agent-conversation-markdown ol:not\(\.contains-task-list\),\s*\.agent-markdown ol:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: decimal;/s,
     );
     expect(css).toMatch(
-      /\.agent-conversation-markdown ul\.contains-task-list,\s*\.agent-conversation-markdown ol\.contains-task-list \{[^}]*list-style-type: none;/s,
+      /\.agent-conversation-markdown ul\.contains-task-list,\s*\.agent-conversation-markdown ol\.contains-task-list,\s*\.agent-markdown ul\.contains-task-list,\s*\.agent-markdown ol\.contains-task-list\s*\{[^}]*list-style-type: none;/s,
     );
   });
 
@@ -132,6 +132,23 @@ describe("agent-native shell surface tokens", () => {
     expect(css).toContain("black var(--message-scroller-top-fade-size)");
     expect(source).toContain("message-scroller-viewport--top-fade");
     expect(source).not.toContain("bg-gradient-to-b from-background");
+  });
+
+  it("restores markers for standard markdown lists without affecting task lists", () => {
+    const css = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\),\s*\.agent-markdown ul:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: disc;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ol:not\(\.contains-task-list\),\s*\.agent-markdown ol:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: decimal;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul\.contains-task-list,[\s\S]*\.agent-markdown ol\.contains-task-list\s*\{[^}]*list-style-type: none;/s,
+    );
   });
 });
 
