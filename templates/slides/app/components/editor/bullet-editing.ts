@@ -261,11 +261,18 @@ function hasNonPlaceholderElement(element: Element): boolean {
   return Array.from(element.children).some(hasNonPlaceholderElement);
 }
 
-function hasNativeListItemContent(row: HTMLElement): boolean {
-  if ((row.textContent ?? "").replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "") {
-    return true;
-  }
-  return Array.from(row.children).some(hasNonPlaceholderElement);
+function hasMeaningfulContent(nodes: Node[]): boolean {
+  return nodes.some((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "";
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    const element = node as Element;
+    return (
+      element.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "" ||
+      hasNonPlaceholderElement(element)
+    );
+  });
 }
 
 function selectedEmptyBulletRow(list: HTMLElement): HTMLElement | null {
@@ -285,7 +292,7 @@ function selectedEmptyBulletRow(list: HTMLElement): HTMLElement | null {
   if (!row) return null;
 
   if (isNativeListItem(row)) {
-    return hasNativeListItemContent(row) ? null : row;
+    return hasMeaningfulContent(Array.from(row.childNodes)) ? null : row;
   }
 
   const marker =
@@ -307,7 +314,12 @@ function selectedEmptyBulletRow(list: HTMLElement): HTMLElement | null {
           .map((child) => child.textContent ?? "")
           .join("")
       : (textContainer.textContent ?? "");
-  return text.replaceAll(ZERO_WIDTH_SPACE, "").trim() === "" ? row : null;
+  if (text.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "") return null;
+  return hasMeaningfulContent(
+    Array.from(row.childNodes).filter((child) => child !== marker),
+  )
+    ? null
+    : row;
 }
 
 function setCaretAtRowBoundary(row: HTMLElement, atEnd: boolean): void {
@@ -496,7 +508,17 @@ export function removeEmptyBulletAtCaret(
 
   const previous = rows[rowIndex - 1];
   const next = rows[rowIndex + 1];
+  const parsedStart = Number.parseInt(list.getAttribute("start") ?? "", 10);
+  const implicitReversedStart =
+    list.tagName === "OL" &&
+    list.hasAttribute("reversed") &&
+    !Number.isFinite(parsedStart)
+      ? effectiveOrderedListStart(list, rows.length)
+      : null;
   row.remove();
+  if (implicitReversedStart !== null) {
+    list.setAttribute("start", String(implicitReversedStart));
+  }
   setCaretAtRowBoundary(previous ?? next, Boolean(previous));
   return { handled: true, editingElement: null };
 }

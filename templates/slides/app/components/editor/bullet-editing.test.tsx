@@ -246,6 +246,23 @@ describe("styled bullet editing", () => {
   });
 
   it.each([
+    ["an image", `<img alt="kept image" />`],
+    ["nested content", `<span><svg aria-label="kept icon"></svg></span>`],
+  ] as const)("does not treat styled rows with %s as empty", (_name, item) => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span>${item}</div>` +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const placeholder = list.children[0].children[1].firstChild as Text;
+    placeCaret(placeholder, placeholder.length);
+
+    expect(exitEmptyBulletAtCaret(list)).toBeNull();
+    expect(removeEmptyBulletAtCaret(list)).toBeNull();
+    expect(list.children.length).toBe(1);
+  });
+
+  it.each([
     ["default", " reversed", "3", "1"],
     ["explicit", ' reversed start="8"', "8", "6"],
   ] as const)(
@@ -267,6 +284,24 @@ describe("styled bullet editing", () => {
       expect(children[2].getAttribute("start")).toBe(trailingStart);
     },
   );
+
+  it("preserves the implicit reversed start when Backspace removes an item", () => {
+    document.body.innerHTML =
+      `<div class="slide-content"><ol reversed><li>First</li>` +
+      `<li>${ZERO_WIDTH_SPACE}</li><li>Third</li></ol></div>`;
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.firstElementChild as HTMLElement;
+    const emptyText = list.children[1].firstChild as Text;
+    placeCaret(emptyText, emptyText.length);
+
+    expect(removeEmptyBulletAtCaret(list)).toEqual({
+      handled: true,
+      editingElement: null,
+    });
+    expect(list.getAttribute("start")).toBe("3");
+    expect(list.children[0].textContent).toBe("First");
+    expect(list.children[1].textContent).toBe("Third");
+  });
 
   it("preserves a tolerated child when Enter exits its only bullet", () => {
     document.body.innerHTML =
