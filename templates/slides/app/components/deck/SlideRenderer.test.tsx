@@ -301,6 +301,25 @@ describe("SlideInner autofit", () => {
     });
   });
 
+  it("measures direct text in a container instead of skipping its children", async () => {
+    const slide: Slide = {
+      id: "visible-container",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><div class="visible-container">Visible label <div class="inner-content">Fits</div></div></div>',
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
+    });
+  });
+
   it("keeps design-system tokens on raw semantic slides", () => {
     const slide: Slide = {
       id: "semantic-raw",

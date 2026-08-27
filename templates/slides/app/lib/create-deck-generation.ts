@@ -10,6 +10,7 @@ import type { NewDeckReferenceSelection } from "@/components/editor/NewDeckRefer
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { Deck, DeckPersistenceResult } from "@/context/DeckContext";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
+import { canInlineImageDataUrl } from "@/lib/image-drop-to-agent";
 import {
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
@@ -186,7 +187,9 @@ export function getUploadedImageAgentOptions(
   for (const file of files) {
     if (!file.type.startsWith("image/")) continue;
     if (file.url) referenceImagePaths.push(file.url);
-    if (file.dataUrl) images.push(file.dataUrl);
+    if (file.dataUrl && canInlineImageDataUrl(file.dataUrl)) {
+      images.push(file.dataUrl);
+    }
   }
 
   return {

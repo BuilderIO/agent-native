@@ -3,11 +3,13 @@
  *
  * Prefer a hosted CDN URL from `/api/assets/upload` when a file-upload
  * provider is configured. When nothing is configured (or the upload fails),
- * fall back to an inline data URL so the agent can still see the image —
- * chat already accepts `images: string[]` data URLs without a storage
- * provider. The agent can call `upload-image` later if the slide needs a
- * durable hosted URL.
+ * fall back to an inline data URL when it fits Core's request limit so the
+ * agent can still see the image. Chat already accepts `images: string[]` data
+ * URLs without a storage provider. The agent can call `upload-image` later if
+ * the slide needs a durable hosted URL.
  */
+
+import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../../shared/upload-types";
 
 export interface HostedImageUploadResult {
   ok: boolean;
@@ -51,6 +53,10 @@ export function buildImageDropAgentPayload(args: {
   upload: HostedImageUploadResult;
   dataUrl?: string;
 }): ImageDropAgentPayload {
+  const inlineDataUrl =
+    args.dataUrl && canInlineImageDataUrl(args.dataUrl)
+      ? args.dataUrl
+      : undefined;
   const intentLine =
     args.intent.trim().length > 0
       ? args.intent.trim()
@@ -63,7 +69,7 @@ export function buildImageDropAgentPayload(args: {
 
   if (args.upload.ok && args.upload.url) {
     contextLines.push(`Image URL (already uploaded): ${args.upload.url}`);
-    if (args.dataUrl) {
+    if (inlineDataUrl) {
       contextLines.push(
         "The original image is also attached for visual inspection.",
       );
@@ -73,11 +79,11 @@ export function buildImageDropAgentPayload(args: {
       message: intentLine,
       context: contextLines.join("\n\n"),
       referenceImagePaths: [args.upload.url],
-      ...(args.dataUrl ? { images: [args.dataUrl] } : {}),
+      ...(inlineDataUrl ? { images: [inlineDataUrl] } : {}),
     };
   }
 
-  if (!args.dataUrl) {
+  if (!inlineDataUrl) {
     throw new Error(
       args.upload.error ||
         "Image upload failed. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
@@ -100,8 +106,30 @@ export function buildImageDropAgentPayload(args: {
     kind: "inline",
     message: intentLine,
     context: contextLines.join("\n\n"),
-    images: [args.dataUrl],
+    images: [inlineDataUrl],
   };
+}
+
+// Keep browser-side vision payloads below Core's encoded request boundary. A
+// hosted URL remains available for larger files, but those bytes cannot be
+// sent inline without making the chat request itself too large.
+
+export function canInlineImageFile(file: File): boolean {
+  const mediaType = file.type || "application/octet-stream";
+  const encodedLength = Math.ceil(file.size / 3) * 4;
+  return (
+    encodedLength + `data:${mediaType};base64,`.length <=
+    MAX_INLINE_IMAGE_BASE64_CHARS
+  );
+}
+
+export function canInlineImageDataUrl(dataUrl: string): boolean {
+  const match = /^data:(image\/[^;]+);base64,(.*)$/s.exec(dataUrl);
+  return Boolean(
+    match &&
+    match[2].length + `data:${match[1]};base64,`.length <=
+      MAX_INLINE_IMAGE_BASE64_CHARS,
+  );
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {

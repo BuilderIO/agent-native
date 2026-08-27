@@ -218,6 +218,36 @@ describe("uploadPromptFiles", () => {
       "small.pdf",
     ]);
   });
+
+  it("keeps oversized hosted images URL-only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/large.png",
+            url: "https://cdn.example.test/large.png",
+            originalName: "large.png",
+            filename: "large.png",
+            type: "image/png",
+            size: 750_000,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [upload] = await uploadPromptFiles([
+      new File([new Uint8Array(750_000)], "large.png", {
+        type: "image/png",
+      }),
+    ]);
+
+    expect(upload).toMatchObject({
+      url: "https://cdn.example.test/large.png",
+    });
+    expect(upload.dataUrl).toBeUndefined();
+  });
 });
 
 describe("PromptPopover import mode", () => {

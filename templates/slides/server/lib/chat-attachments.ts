@@ -4,12 +4,12 @@ import type { AgentChatAttachment } from "@agent-native/core/server";
 
 import {
   isSlidesReferenceFileExtension,
+  MAX_INLINE_IMAGE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
 const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
-const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

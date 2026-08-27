@@ -46,11 +46,15 @@ function setVisibleRect(element: HTMLElement) {
     }) as DOMRect;
 }
 
-function dispatchRunning(isRunning: boolean, reason?: string) {
+function dispatchRunning(
+  isRunning: boolean,
+  reason?: string,
+  tabId = "slides-chat",
+) {
   act(() => {
     window.dispatchEvent(
       new CustomEvent("agentNative.chatRunning", {
-        detail: { isRunning, ...(reason ? { reason } : {}) },
+        detail: { isRunning, tabId, ...(reason ? { reason } : {}) },
       }),
     );
   });
@@ -149,6 +153,24 @@ describe("AgentWorkIndicator", () => {
     dispatchRunning(false, "stopped");
 
     expect(screen.queryByText("Agent is working")).toBeNull();
+  });
+
+  it("does not let another chat stop the active indicator", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true, undefined, "slides-chat");
+    dispatchRunning(true, undefined, "other-chat");
+
+    dispatchRunning(false, "stopped", "other-chat");
+
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+  });
+
+  it("ignores an unscoped stop while a scoped chat is active", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true, undefined, "slides-chat");
+    dispatchRunning(false, "stopped", "");
+
+    expect(screen.getByText("Agent is working")).toBeTruthy();
   });
 
   it("stays visible across brief continuation gaps", () => {

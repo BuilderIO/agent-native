@@ -1,9 +1,36 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../../shared/upload-types";
 import {
   buildImageDropAgentPayload,
+  canInlineImageDataUrl,
+  canInlineImageFile,
   isMissingUploadProviderError,
 } from "./image-drop-to-agent";
+
+describe("inline image size boundary", () => {
+  it("keeps inline bytes below the core request limit", () => {
+    expect(
+      canInlineImageFile(
+        new File([new Uint8Array(749_000)], "small.png", {
+          type: "image/png",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      canInlineImageFile(
+        new File([new Uint8Array(750_000)], "large.png", {
+          type: "image/png",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      canInlineImageDataUrl(
+        `data:image/png;base64,${"a".repeat(MAX_INLINE_IMAGE_BASE64_CHARS)}`,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("isMissingUploadProviderError", () => {
   it("treats 503 as missing provider", () => {
@@ -59,6 +86,27 @@ describe("buildImageDropAgentPayload", () => {
     expect(payload.context).not.toContain(
       "place it to the right of the text on this slide.",
     );
+  });
+
+  it("keeps hosted-only payloads for oversized uploads", () => {
+    const payload = buildImageDropAgentPayload({
+      intent: "use this image",
+      filename: "large.png",
+      upload: {
+        ok: true,
+        status: 200,
+        url: "https://cdn.example.com/large.png",
+      },
+      dataUrl: `data:image/png;base64,${"a".repeat(MAX_INLINE_IMAGE_BASE64_CHARS)}`,
+    });
+
+    expect(payload.kind).toBe("hosted");
+    if (payload.kind !== "hosted") return;
+    expect(payload.referenceImagePaths).toEqual([
+      "https://cdn.example.com/large.png",
+    ]);
+    expect(payload.images).toBeUndefined();
+    expect(payload.context).not.toContain("original image is also attached");
   });
 
   it("falls back to an inline data URL when no provider is configured", () => {

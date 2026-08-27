@@ -1822,7 +1822,7 @@ export function promoteQueuedMessage<T extends { id: string }>(
   messages: readonly T[],
   id: string,
 ): T[] {
-  return messages.map((message) =>
+  return hoistQueuedMessageToFront(messages, id).map((message) =>
     message.id === id ? { ...message, promoted: true } : message,
   );
 }

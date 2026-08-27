@@ -480,10 +480,10 @@ describe("hoistQueuedMessageToFront", () => {
 });
 
 describe("promoteQueuedMessage", () => {
-  it("marks the promoted turn sent without reordering the pending queue", () => {
+  it("marks the promoted turn sent and keeps it ahead of pending messages", () => {
     expect(promoteQueuedMessage([{ id: "a" }, { id: "b" }], "b")).toEqual([
-      { id: "a" },
       { id: "b", promoted: true },
+      { id: "a" },
     ]);
   });
 });
@@ -498,7 +498,8 @@ describe("send-now promotion", () => {
     const promotionSource = source.slice(start, end);
 
     expect(promotionSource).toContain("startRun: false");
-    expect(promotionSource).toContain("promoteQueuedMessage");
+    expect(promotionSource).toContain("promoteQueuedMessage(prev, id)");
+    expect(source).toContain("return hoistQueuedMessageToFront(messages, id)");
     expect(promotionSource).not.toContain("stopActiveRunRef.current");
     expect(source).toContain("if (next.promoted)");
     expect(source).toContain("threadRuntime.startRun({");

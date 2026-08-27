@@ -415,7 +415,7 @@ describe("sendToAgentChat", () => {
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
 
-    sendToAgentChat({
+    const tabId = sendToAgentChat({
       message: "continue with this selection",
       context: "Selected item ids: a, b",
       submit: true,
@@ -434,7 +434,7 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false },
+        detail: { isRunning: false, tabId },
       }),
     );
   });
@@ -496,7 +496,7 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false },
+        detail: { isRunning: false, tabId },
       }),
     );
   });

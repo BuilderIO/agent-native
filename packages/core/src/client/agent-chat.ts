@@ -926,11 +926,11 @@ function isDirectMcpAppEmbedSession(): boolean {
   return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
 }
 
-function dispatchAgentChatRunning(isRunning: boolean): void {
+function dispatchAgentChatRunning(isRunning: boolean, tabId?: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("agentNative.chatRunning", {
-      detail: { isRunning },
+      detail: { isRunning, ...(tabId ? { tabId } : {}) },
     }),
   );
 }
@@ -1114,7 +1114,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
           }
         })
         .finally(() => {
-          dispatchAgentChatRunning(false);
+          dispatchAgentChatRunning(false, tabId);
         });
       return tabId;
     }

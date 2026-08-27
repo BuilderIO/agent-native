@@ -12,10 +12,32 @@ vi.mock("react-dom", () => ({
 }));
 
 import {
+  getUploadedImageAgentOptions,
   isSourceImprovementRequest,
   requestedSlideCount,
   startDeckGeneration,
 } from "./create-deck-generation";
+
+describe("getUploadedImageAgentOptions", () => {
+  it("does not forward oversized inline image data", () => {
+    const oversizedDataUrl = `data:image/png;base64,${"a".repeat(1_000_000)}`;
+    expect(
+      getUploadedImageAgentOptions([
+        {
+          path: "/uploads/large.png",
+          url: "https://cdn.example.test/large.png",
+          originalName: "large.png",
+          filename: "large.png",
+          type: "image/png",
+          size: 750_000,
+          dataUrl: oversizedDataUrl,
+        },
+      ]),
+    ).toEqual({
+      referenceImagePaths: ["https://cdn.example.test/large.png"],
+    });
+  });
+});
 
 describe("startDeckGeneration", () => {
   it("extracts an explicit target slide count for continuation", () => {

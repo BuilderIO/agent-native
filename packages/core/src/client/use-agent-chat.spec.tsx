@@ -100,4 +100,31 @@ describe("useAgentChatGenerating", () => {
     expect(hook![0]).toBe(false);
     expect(hook![2]).toBe("stopped");
   });
+
+  it("ignores unscoped completion events for an active scoped run", () => {
+    act(() => {
+      hook![1]({ message: "Create a presentation", newTab: true });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, reason: "stopped" },
+        }),
+      );
+    });
+
+    expect(hook![0]).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "requested-new-tab",
+            reason: "stopped",
+          },
+        }),
+      );
+    });
+
+    expect(hook![0]).toBe(false);
+  });
 });

@@ -14,7 +14,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
-import { readFileAsDataUrl } from "@/lib/image-drop-to-agent";
+import {
+  canInlineImageDataUrl,
+  canInlineImageFile,
+  readFileAsDataUrl,
+} from "@/lib/image-drop-to-agent";
 
 import {
   MAX_REFERENCE_FILE_BYTES,
@@ -46,7 +50,13 @@ export async function addInlineImageFallbacks(
       const isImage =
         uploadedFile.type.startsWith("image/") ||
         Boolean(file?.type.startsWith("image/"));
-      if (!isImage || !file || uploadedFile.dataUrl) return uploadedFile;
+      if (!isImage || !file) return uploadedFile;
+      if (uploadedFile.dataUrl) {
+        if (canInlineImageDataUrl(uploadedFile.dataUrl)) return uploadedFile;
+        const { dataUrl: _dataUrl, ...withoutDataUrl } = uploadedFile;
+        return withoutDataUrl;
+      }
+      if (!canInlineImageFile(file)) return uploadedFile;
       return { ...uploadedFile, dataUrl: await readFileAsDataUrl(file) };
     }),
   );

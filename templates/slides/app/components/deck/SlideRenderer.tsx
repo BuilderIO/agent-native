@@ -314,7 +314,10 @@ function measureContentBounds(target: HTMLElement): {
     // A normal-flow wrapper can spill because of its own box model while its
     // visible child still fits. Measure the child boundary instead of making
     // the wrapper itself an overflow warning.
-    if (!isFreeform && el.children.length > 0) continue;
+    const hasDirectText = Array.from(el.childNodes).some(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+    );
+    if (!isFreeform && el.children.length > 0 && !hasDirectText) continue;
 
     contentMinX = Math.min(contentMinX, left);
     contentMaxX = Math.max(contentMaxX, right);
