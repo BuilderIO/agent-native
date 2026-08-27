@@ -643,6 +643,69 @@ interface BackgroundResult {
   color?: string; // for TEXT nodes, fill paints color the glyphs, not a background
 }
 
+/**
+ * A diamond gradient's iso-lines are rotated rectangles: the value at a point
+ * is `|dx|/rx + |dy|/ry`, an L1 distance rather than the L2 distance a radial
+ * gradient draws. CSS has no diamond gradient, and approximating it with an
+ * ellipse produced a soft blob where Figma draws a four-pointed star — 12% of
+ * the whole fills/effects fixture came from that one tile.
+ *
+ * Inside a single quadrant, though, that expression is LINEAR in (dx, dy), so
+ * four quadrant-sized linear gradients tiled around the centre reproduce it
+ * exactly. Each tile runs at atan2(ry, rx) mirrored into its own quadrant, and
+ * Figma's 0..1 stop range occupies the first half of the CSS gradient line:
+ * `t` reaches 1 at the diamond's points and 2 at the tile's outer corner, so
+ * the last colour holding from 50% on is Figma's own clamp, not a fudge.
+ */
+function diamondGradientLayers(
+  paint: FigmaPaint,
+  box: { width: number; height: number },
+  node: FigmaNode,
+  tracker: FidelityTracker,
+): PaintLayer[] | null {
+  const geometry = resolveGradientGeometry(paint);
+  if (!geometry) return null;
+  const rx = vectorLength(geometry.start, geometry.end, box);
+  const ry = vectorLength(geometry.start, geometry.width, box);
+  if (!(rx > 0) || !(ry > 0)) return null;
+  const cx = geometry.start.x * box.width;
+  const cy = geometry.start.y * box.height;
+  const stops = gradientStopsCss(paint, (position) => position / 2);
+  const angle = (Math.atan2(ry, rx) * 180) / Math.PI;
+  const size = `${round(rx, 2)}px ${round(ry, 2)}px`;
+  const quadrants = [
+    { angle: 360 - angle, left: cx - rx, top: cy - ry },
+    { angle, left: cx, top: cy - ry },
+    { angle: 180 - angle, left: cx, top: cy },
+    { angle: 180 + angle, left: cx - rx, top: cy },
+  ];
+  const layers: PaintLayer[] = quadrants.map((quadrant) => ({
+    image: `linear-gradient(${round(quadrant.angle, 2)}deg, ${stops})`,
+    size,
+    position: `${round(quadrant.left, 2)}px ${round(quadrant.top, 2)}px`,
+    repeat: "no-repeat",
+  }));
+  // The four tiles only cover the diamond's bounding box. Figma clamps to the
+  // final stop everywhere beyond it, so a flat layer of that colour sits
+  // underneath — without it the rest of the node would be transparent.
+  const lastStop = (paint.gradientStops ?? []).at(-1);
+  const clampColor = lastStop
+    ? (colorToCss(lastStop.color, paint.opacity ?? 1) ?? "transparent")
+    : "transparent";
+  layers.push({
+    image: `linear-gradient(${clampColor}, ${clampColor})`,
+    size: "100% 100%",
+    position: "center",
+    repeat: "no-repeat",
+  });
+  tracker.record(
+    node,
+    "exact",
+    "Diamond gradient reproduced as four quadrant-tiled linear gradients; its falloff is linear within each quadrant, so this is the same shape Figma draws rather than an elliptical approximation.",
+  );
+  return layers;
+}
+
 /** One resolved paint layer, before routing to a background layer or an overlay div. */
 interface PaintLayer {
   image: string;
@@ -824,6 +887,22 @@ function buildFills(
       ) {
         magnified = true;
       }
+    } else if (fill.type === "GRADIENT_DIAMOND") {
+      // The only paint that needs more than one CSS layer to draw correctly.
+      const quadrants = diamondGradientLayers(fill, box, node, tracker);
+      if (!quadrants) continue;
+      if (isOverlay) {
+        for (const quadrant of quadrants)
+          overlays.push(paintOverlayDiv(quadrant, fill));
+        continue;
+      }
+      for (const quadrant of quadrants) {
+        images.push(quadrant.image);
+        sizes.push(quadrant.size);
+        positions.push(quadrant.position);
+        repeats.push(quadrant.repeat);
+      }
+      continue;
     } else {
       const cssImage = paintToCssImage(fill, box, tracker, node);
       if (!cssImage) continue;

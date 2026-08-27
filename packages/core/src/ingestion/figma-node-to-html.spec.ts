@@ -197,3 +197,53 @@ describe("a main-axis FILL child whose parent hugs that axis", () => {
     expect(html).not.toContain("flex-basis: 0%");
   });
 });
+
+describe("diamond gradients", () => {
+  // Figma's diamond falloff is an L1 distance (|dx|/rx + |dy|/ry), which draws
+  // a four-pointed star. A radial-gradient draws the L2 blob instead, and that
+  // one tile was 12% of the whole fills/effects fixture. The L1 expression is
+  // linear inside each quadrant, so four quadrant-tiled linear gradients are
+  // the exact shape rather than an approximation.
+  function diamondNode(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Diamond",
+      type: "RECTANGLE",
+      absoluteBoundingBox: box(0, 0, 200, 100),
+      fills: [
+        {
+          type: "GRADIENT_DIAMOND",
+          gradientHandlePositions: [
+            { x: 0.5, y: 0.5 },
+            { x: 1, y: 0.5 },
+            { x: 0.5, y: 1 },
+          ],
+          gradientStops: [
+            { position: 0, color: { r: 1, g: 1, b: 1, a: 1 } },
+            { position: 1, color: { r: 0, g: 0, b: 0, a: 1 } },
+          ],
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("emits four quadrant tiles plus a clamp layer, not a radial-gradient", () => {
+    const { html } = mapFigmaNodeToHtml(diamondNode(), {});
+    expect(html).not.toContain("radial-gradient");
+    expect(html.match(/linear-gradient/g)?.length).toBe(5);
+  });
+
+  it("halves the stop offsets so the ramp ends at the diamond's points", () => {
+    const { html } = mapFigmaNodeToHtml(diamondNode(), {});
+    // Figma's 1.0 stop sits at the points, which is half of the CSS gradient
+    // line; the final colour then holds out to the tile's outer corner.
+    expect(html).toContain("50%");
+    expect(html).not.toContain("rgba(0, 0, 0, 1) 100%");
+  });
+
+  it("counts as exact rather than approximated", () => {
+    const { fidelity } = mapFigmaNodeToHtml(diamondNode(), {});
+    const entry = fidelity.entries.find((e) => e.nodeId === "1:1");
+    expect(entry?.level).toBe("exact");
+  });
+});
