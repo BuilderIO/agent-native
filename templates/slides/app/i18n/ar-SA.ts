@@ -669,9 +669,6 @@ const messages = {
     sourceGitHub: "مستودع GitHub",
     sourceMixed: "مصادر متعددة",
     sourceBuilder: "ذكاء أنظمة التصميم من Builder",
-    sourceIndexing: "جارٍ الفهرسة",
-    sourceIndexed: "تمت الفهرسة",
-    sourceUnavailable: "النتائج غير متاحة",
     sourceIndexingDescription:
       "لا يزال Builder يعالج هذا المصدر. ستظهر النتائج هنا عند جاهزيتها.",
     sourceIndexedDescription: "تمت فهرسة {{docs}} مستندات · {{tokens}} رموز",

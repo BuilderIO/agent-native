@@ -1472,12 +1472,6 @@ function BuilderSourceStatus({
           : sourceKind === "mixed"
             ? t("designSystemSetup.sourceMixed")
             : t("designSystemSetup.sourceBuilder");
-  const statusTitle =
-    state === "unavailable"
-      ? t("designSystemSetup.sourceUnavailable")
-      : state === "indexed"
-        ? t("designSystemSetup.sourceIndexed")
-        : t("designSystemSetup.sourceIndexing");
   const statusDescription =
     state === "unavailable"
       ? t("designSystemSetup.sourceUnavailableDescription")
@@ -1493,12 +1487,6 @@ function BuilderSourceStatus({
                   docs,
                   tokens,
                 });
-  const statusClassName =
-    state === "unavailable"
-      ? "text-destructive"
-      : state === "indexed"
-        ? "text-primary"
-        : "text-muted-foreground";
 
   return (
     <section
@@ -1519,20 +1507,6 @@ function BuilderSourceStatus({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {statusDescription}
           </p>
-        </div>
-        <div
-          className={cn(
-            "flex shrink-0 items-center gap-1.5 text-xs font-medium",
-            statusClassName,
-          )}
-          role="status"
-          aria-live="polite"
-        >
-          <span
-            className="size-1.5 rounded-full bg-current"
-            aria-hidden="true"
-          />
-          {statusTitle}
         </div>
       </div>
       {builder.builderUrl || onSync ? (
