@@ -204,6 +204,12 @@ const messages = {
       successMessage: "Erfolgsmeldung",
       defaultSuccessMessage: "Danke! Deine Antwort wurde gespeichert.",
       redirectUrl: "Weiterleitungs-URL (optional)",
+      completionMode: "Nach dem Absenden",
+      completionMessage: "Nachricht bis zur Aktualisierung anzeigen",
+      completionRedirect: "Zu einer URL weiterleiten",
+      completionMessageThenRefresh: "Nachricht anzeigen, dann aktualisieren",
+      completionRefresh: "Mit einem neuen Formular aktualisieren",
+      completionRefreshSeconds: "Aktualisieren nach (Sekunden)",
       anonymousResponses: "Anonyme Antworten",
       anonymousResponsesDescription:
         "IP-Adressen, Identität der antwortenden Person und Quellmetadaten nicht speichern.",
