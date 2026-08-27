@@ -214,9 +214,33 @@ export function decideFigmaPasteStrategy(
   return "rest";
 }
 
-// 8 MB decoded binary hard cap for clipboard buffer transport. Buffers above
-// this threshold should use an upload handle instead (Phase 1 future work).
-const MAX_CLIPBOARD_BUFFER_DECODED_BYTES = 8 * 1024 * 1024;
+/**
+ * Ceiling on the base64 buffer this paste may carry, measured in base64
+ * characters because that is what actually crosses the wire. The action POST is
+ * JSON and the serverless gateway base64-encodes the whole body into a 6 MB
+ * payload, so a buffer past this point is rejected by the platform with an
+ * empty body before any handler runs — indistinguishable from "paste did
+ * nothing". Oversized selections must go through the `.fig` upload instead, and
+ * `clipboardBufferOmittedBytes` tells the server to say so.
+ */
+const MAX_CLIPBOARD_BUFFER_BASE64_CHARS = 3.5 * 1024 * 1024;
+
+function decodedBytes(base64: string): number {
+  return Math.floor((base64.length * 3) / 4);
+}
+
+/** Either the buffer fits on the wire, or the caller learns how big it was. */
+function bufferPayloadFor(content: string): {
+  clipboardBuffer?: string;
+  clipboardBufferOmittedBytes?: number;
+} {
+  const base64 = extractFigmaBuffer(content);
+  if (!base64) return {};
+  if (base64.length <= MAX_CLIPBOARD_BUFFER_BASE64_CHARS) {
+    return { clipboardBuffer: base64 };
+  }
+  return { clipboardBufferOmittedBytes: decodedBytes(base64) };
+}
 
 export type FigmaPasteImportCall =
   | {
@@ -228,6 +252,9 @@ export type FigmaPasteImportCall =
         clipboardHtml: string;
         /** Base64-encoded fig-kiwi buffer, present when strategy is local-kiwi. */
         clipboardBuffer?: string;
+        /** Decoded size of a buffer too large to send, so the server can name
+         * the reason instead of returning an empty import. */
+        clipboardBufferOmittedBytes?: number;
         originalName?: string;
       };
     }
@@ -265,16 +292,7 @@ export function resolveFigmaPasteImportCall(
   // action payload lean; the server reconstructs the full document from the
   // buffer instead of the HTML.
   if (strategy === "local-kiwi") {
-    const bufferBase64 = extractFigmaBuffer(content);
-    const bufferPayload: { clipboardBuffer?: string } = {};
-    if (bufferBase64) {
-      // Enforce the decoded-byte cap before base64 decoding on the server to
-      // prevent the action schema from accepting an oversized payload.
-      const decodedBytes = Math.floor((bufferBase64.length * 3) / 4);
-      if (decodedBytes <= MAX_CLIPBOARD_BUFFER_DECODED_BYTES) {
-        bufferPayload.clipboardBuffer = bufferBase64;
-      }
-    }
+    const bufferPayload = bufferPayloadFor(content);
     return {
       action: "import-figma-clipboard",
       payload: {
@@ -295,14 +313,7 @@ export function resolveFigmaPasteImportCall(
   // REST strategy: strip the buffer from clipboardHtml when exact node ids are
   // available (they make the buffer redundant), but always include clipboardBuffer
   // so the server can fall back to local-kiwi decode if the token is missing.
-  const restBufferPayload: { clipboardBuffer?: string } = {};
-  const restBufferBase64 = extractFigmaBuffer(content);
-  if (restBufferBase64) {
-    const restDecodedBytes = Math.floor((restBufferBase64.length * 3) / 4);
-    if (restDecodedBytes <= MAX_CLIPBOARD_BUFFER_DECODED_BYTES) {
-      restBufferPayload.clipboardBuffer = restBufferBase64;
-    }
-  }
+  const restBufferPayload = bufferPayloadFor(content);
   return {
     action: "import-figma-clipboard",
     payload: {
