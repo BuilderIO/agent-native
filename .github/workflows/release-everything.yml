@@ -406,6 +406,10 @@ jobs:
                 }
               }
               core.info(`Desktop v${desktopVersion} is already published with its required assets; treating it as complete.`);
+            } else if (existingDesktopRelease && !existingDesktopRelease.draft) {
+              throw new Error(
+                `Desktop release v${desktopVersion} is published but incomplete; refusing to rebuild a published release. Repair it manually or choose a new version.`,
+              );
             }
 
             const existingClipsRelease = await getPublishedRelease(`clips-v${clipsVersion}`);
@@ -423,6 +427,10 @@ jobs:
                 }
               }
               core.info(`Clips v${clipsVersion} is already published with its required assets; treating it as complete.`);
+            } else if (existingClipsRelease && !existingClipsRelease.draft) {
+              throw new Error(
+                `Clips release clips-v${clipsVersion} is published but incomplete; refusing to rebuild a published release. Repair it manually or choose a new version.`,
+              );
             }
 
             const [desktop, clips, production] = await Promise.all([
