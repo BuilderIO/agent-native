@@ -3926,18 +3926,37 @@ export function createAgentChatAdapter(
                   const decoder = new TextDecoder();
                   let probeBytes = 0;
                   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+                  let onAbort: (() => void) | undefined;
                   const timeout = new Promise<null>((resolve) => {
                     timeoutId = setTimeout(
                       () => resolve(null),
                       JSON_RESPONSE_PROBE_TIMEOUT_MS,
                     );
                   });
+                  const abort = new Promise<"abort">((resolve) => {
+                    const handleAbort = () => resolve("abort");
+                    onAbort = handleAbort;
+                    if (abortSignal.aborted) handleAbort();
+                    else
+                      abortSignal.addEventListener("abort", handleAbort, {
+                        once: true,
+                      });
+                  });
 
                   try {
                     while (probeBytes < MAX_JSON_RESPONSE_PROBE_BYTES) {
                       const read = probeReader.read();
                       void read.catch(() => {});
-                      const chunk = await Promise.race([read, timeout]);
+                      const chunk = await Promise.race([read, timeout, abort]);
+                      if (chunk === "abort") {
+                        throw (
+                          abortSignal.reason ??
+                          new DOMException(
+                            "The operation was aborted.",
+                            "AbortError",
+                          )
+                        );
+                      }
                       if (chunk === null) {
                         probeTimedOut = true;
                         break;
@@ -3959,7 +3978,10 @@ export function createAgentChatAdapter(
                     }
                     probePrefix += decoder.decode();
                   } finally {
-                    if (timeoutId) clearTimeout(timeoutId);
+                    if (timeoutId !== undefined) clearTimeout(timeoutId);
+                    if (onAbort) {
+                      abortSignal.removeEventListener("abort", onAbort);
+                    }
                     void probeReader.cancel().catch(() => {});
                     probeReader.releaseLock();
                   }

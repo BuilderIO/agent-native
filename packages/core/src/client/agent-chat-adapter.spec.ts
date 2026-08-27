@@ -403,6 +403,58 @@ describe("createAgentChatAdapter", () => {
     }
   });
 
+  it("stops a silent JSON probe when the caller aborts", async () => {
+    let finishResponse: (() => void) | undefined;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          finishResponse = () => {
+            try {
+              controller.close();
+            } catch {
+              // The probe may have already cancelled the response body.
+            }
+          };
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+    const abortController = new AbortController();
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-abort",
+    });
+    const iterator = adapter
+      .run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: abortController.signal,
+      } as any)
+      [Symbol.asyncIterator]();
+
+    const abortTimer = setTimeout(() => abortController.abort(), 0);
+    try {
+      const result = await iterator.next();
+
+      expect(result.done).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      clearTimeout(abortTimer);
+      finishResponse?.();
+      await iterator.return?.();
+    }
+  });
+
   it("starts parsing a mislabeled SSE response before it closes", async () => {
     const encoder = new TextEncoder();
     let finishResponse: (() => void) | undefined;
