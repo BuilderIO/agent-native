@@ -8682,6 +8682,29 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
+        var previewStyles = {
+          position: resizeEl.style.position,
+          left: resizeEl.style.left,
+          top: resizeEl.style.top
+        };
+        if (widthTouched) previewStyles.width = resizeEl.style.width;
+        if (heightTouched) previewStyles.height = resizeEl.style.height;
+        if (scaleToolEnabled && originBorderWidth > 0) {
+          previewStyles.borderWidth = resizeEl.style.borderWidth;
+        }
+        if (scaleToolEnabled && originFontSize > 0) {
+          previewStyles.fontSize = resizeEl.style.fontSize;
+        }
+        window.parent.postMessage(
+          {
+            type: "visual-style-change",
+            phase: "preview",
+            selector: getSelector(resizeEl),
+            styles: previewStyles,
+            payload: getElementInfo(resizeEl)
+          },
+          "*"
+        );
         refreshOverlays();
       }
       function cleanupResizeDrag() {
@@ -8745,6 +8768,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "visual-style-change",
+            phase: "commit",
             selector: getSelector(resizeEl),
             styles,
             originalStyles: originalInlineStylesForPatch(resizeEl, styles),

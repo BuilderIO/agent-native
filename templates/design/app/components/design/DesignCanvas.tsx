@@ -504,6 +504,7 @@ interface DesignCanvasProps {
     styles: Record<string, string>,
     info?: ElementInfo,
     metadata?: {
+      phase?: "preview" | "commit";
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
     },
@@ -2785,6 +2786,7 @@ export function DesignCanvas({
             styles,
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
+              phase: e.data.phase === "preview" ? "preview" : "commit",
               originalStyles,
               preserveSelection: e.data.preserveSelection === true,
             },

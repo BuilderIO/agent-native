@@ -12531,6 +12531,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
+      // Keep the host Inspector in lockstep with the live DOM. This is a
+      // preview only: the final pointerup message is still the one persistence
+      // boundary, so a drag does not create a history entry per pixel.
+      var previewStyles: Record<string, string> = {
+        position: resizeEl.style.position,
+        left: resizeEl.style.left,
+        top: resizeEl.style.top,
+      };
+      if (widthTouched) previewStyles.width = resizeEl.style.width;
+      if (heightTouched) previewStyles.height = resizeEl.style.height;
+      if (scaleToolEnabled && originBorderWidth > 0) {
+        previewStyles.borderWidth = resizeEl.style.borderWidth;
+      }
+      if (scaleToolEnabled && originFontSize > 0) {
+        previewStyles.fontSize = resizeEl.style.fontSize;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          phase: "preview",
+          selector: getSelector(resizeEl),
+          styles: previewStyles,
+          payload: getElementInfo(resizeEl),
+        },
+        "*",
+      );
       refreshOverlays();
     }
     function cleanupResizeDrag() {
@@ -12603,6 +12629,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       (window.parent as Window).postMessage(
         {
           type: "visual-style-change",
+          phase: "commit",
           selector: getSelector(resizeEl),
           styles: styles,
           originalStyles: originalInlineStylesForPatch(resizeEl, styles),
