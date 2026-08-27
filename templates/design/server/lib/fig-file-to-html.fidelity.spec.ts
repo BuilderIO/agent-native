@@ -231,7 +231,7 @@ describe("A3 — gradient geometry", () => {
     expect(html).toContain("radial-gradient(ellipse");
   });
 
-  it("approximates DIAMOND gradient as radial-gradient and records verdict", () => {
+  it("draws a DIAMOND gradient as quadrant tiles and records the verdict", () => {
     const doc = makeDocument([
       {
         fillPaints: [
@@ -249,7 +249,12 @@ describe("A3 — gradient geometry", () => {
       },
     ]);
     const result = renderHtmlTemplates(doc as unknown);
-    expect(result.frames[0]!.html).toContain("radial-gradient");
+    // Four quadrant tiles plus the clamp layer beneath them — the shape Figma
+    // draws, since a diamond's L1 falloff is linear inside each quadrant.
+    expect(result.frames[0]!.html).not.toContain("radial-gradient");
+    expect(
+      (result.frames[0]!.html.match(/linear-gradient/g) ?? []).length,
+    ).toBe(5);
     expect(
       result.approximatedNodes.some((n) => n.notes[0]?.includes("DIAMOND")),
     ).toBe(true);
@@ -1252,6 +1257,56 @@ describe("a hugging TEXT box takes the size Figma resolved", () => {
   it("leaves a FIXED text box to its stated size", () => {
     const html = renderFrame(textNode("NONE"));
     expect(html).not.toContain("min-height");
+  });
+});
+
+describe("diamond gradients", () => {
+  // A diamond's falloff is an L1 distance, which is LINEAR inside each
+  // quadrant — so four quadrant-tiled linear gradients are the same shape
+  // Figma draws, where an ellipse only resembles it.
+  const diamond = () => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 100, {
+        type: "ROUNDED_RECTANGLE",
+        name: "Diamond",
+        size: { x: 180, y: 90 },
+        fillPaints: [
+          {
+            type: "GRADIENT_DIAMOND",
+            visible: true,
+            transform: {
+              m00: 0.5,
+              m01: 0,
+              m02: 0.25,
+              m10: 0,
+              m11: 0.5,
+              m12: 0.25,
+            },
+            stops: [
+              { position: 0, color: { r: 1, g: 1, b: 1, a: 1 } },
+              { position: 1, color: { r: 0, g: 0, b: 0.5, a: 1 } },
+            ],
+          },
+        ],
+      }),
+    );
+    return doc;
+  };
+
+  it("draws four quadrant tiles, not one ellipse", () => {
+    const html = renderFrame(diamond());
+    expect(html).not.toContain("radial-gradient");
+    expect((html.match(/linear-gradient/g) ?? []).length).toBe(5);
+  });
+
+  it("puts the clamp layer UNDER the tiles, not over them", () => {
+    // The stack is assembled bottom-first and reversed, so a clamp pushed last
+    // ends up on top and paints over the four tiles it exists to sit under.
+    const html = renderFrame(diamond());
+    const images = /background-image: ([^;]+);/.exec(html)?.[1] ?? "";
+    // CSS lists topmost first, so the flat clamp must be LAST.
+    expect(images.split(/,(?![^(]*\))/).at(-1)).toContain("rgb(0, 0, 128)");
   });
 });
 

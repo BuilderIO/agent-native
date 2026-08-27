@@ -1295,6 +1295,24 @@ function backgroundShorthand(
   const bgRepeats: string[] = [];
   const bgBlends: string[] = [];
   for (const f of fills) {
+    // A diamond needs FOUR tiles plus a clamp, not one layer.
+    const diamond =
+      f.type === "GRADIENT_DIAMOND"
+        ? diamondBackgroundLayers(f, node, ctx)
+        : null;
+    if (diamond) {
+      // The stack is assembled bottom-first and reversed at the end, so this
+      // fill's own layers go in bottom-first too — otherwise the clamp layer
+      // ends up ON TOP and paints over the four tiles it exists to sit under.
+      for (const layer of [...diamond].reverse()) {
+        bgImages.push(layer.image);
+        bgBlends.push(blendModeCss(f.blendMode) ?? "normal");
+        bgSizes.push(layer.size);
+        bgPositions.push(layer.position);
+        bgRepeats.push(layer.repeat);
+      }
+      continue;
+    }
     const image = paintToBackground(f, node, ctx);
     if (!image) continue;
     // A CSS background LAYER has no opacity of its own. `colorToCss` folds a
@@ -1341,6 +1359,74 @@ function backgroundShorthand(
     }
   }
   return result;
+}
+
+/**
+ * A Figma diamond gradient as the four-pointed shape it actually is.
+ *
+ * Its falloff is an L1 distance, which is LINEAR inside each quadrant — so
+ * four quadrant-tiled linear gradients reproduce it exactly, where an ellipse
+ * only resembles it. The same construction the REST walker uses.
+ *
+ * Returns the background layers top-first, or null when the paint carries no
+ * usable geometry.
+ */
+function diamondBackgroundLayers(
+  p: Paint,
+  node: FigNode,
+  ctx: Ctx,
+): BackgroundLayer[] | null {
+  const box = node.size ? { width: node.size.x, height: node.size.y } : null;
+  if (!box || !p.transform || !p.stops?.length) return null;
+  const geometry = gradientGeometryFromTransform("DIAMOND", p.transform, box);
+  if (!geometry || !(geometry.rx > 0) || !(geometry.ry > 0)) return null;
+  const { rx, ry, center } = geometry;
+  // Each tile spans one quadrant, so a stop at 1 sits on the tile's far edge.
+  const stops = p.stops
+    .map(
+      (stop) =>
+        `${colorToCss(stop.color, p.opacity ?? 1)} ${num((stop.position / 2) * 100)}%`,
+    )
+    .join(", ");
+  const angle = (Math.atan2(ry, rx) * 180) / Math.PI;
+  const size = `${num(rx)}px ${num(ry)}px`;
+  const layers: BackgroundLayer[] = [
+    { angle: 360 - angle, left: center.x - rx, top: center.y - ry },
+    { angle, left: center.x, top: center.y - ry },
+    { angle: 180 - angle, left: center.x, top: center.y },
+    { angle: 180 + angle, left: center.x - rx, top: center.y },
+  ].map((quadrant) => ({
+    image: `linear-gradient(${num(quadrant.angle)}deg, ${stops})`,
+    size,
+    position: `${num(quadrant.left)}px ${num(quadrant.top)}px`,
+    repeat: "no-repeat",
+  }));
+  // The tiles only cover the diamond's bounding box; Figma clamps to the final
+  // stop everywhere beyond it, so a flat layer of that colour sits underneath.
+  const last = p.stops[p.stops.length - 1];
+  const clamp = last
+    ? (colorToCss(last.color, p.opacity ?? 1) ?? "transparent")
+    : "transparent";
+  layers.push({
+    image: `linear-gradient(${clamp}, ${clamp})`,
+    size: "100% 100%",
+    position: "center",
+    repeat: "no-repeat",
+  });
+  recordApproximation(
+    node,
+    ctx,
+    "GRADIENT_DIAMOND drawn as four quadrant-tiled linear gradients — the same shape Figma draws, since its falloff is linear within each quadrant",
+  );
+  return layers;
+}
+
+/** One resolved background layer. */
+interface BackgroundLayer {
+  image: string;
+  size: string;
+  position: string;
+  repeat: string;
 }
 
 function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
