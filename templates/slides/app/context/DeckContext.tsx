@@ -400,6 +400,7 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Per-deck queue of granular ops waiting to be flushed. Keys are deck IDs.
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
+const deckSaveSuccessHandlers = new Map<string, (ops: GranularOp[]) => void>();
 
 // The ops a deck's current in-flight save actually sent, so a slide-scoped
 // check can tell "this slide's save is in flight" from "some other slide in
@@ -629,9 +630,13 @@ function drainPendingDeckOps(
   const ops = pendingOpsQueue.get(deckId) ?? [];
   pendingOpsQueue.delete(deckId);
   if (ops.length === 0) {
+    deckSaveSuccessHandlers.delete(deckId);
     notifySaveListeners();
     return Promise.resolve();
   }
+
+  const onSaveSuccess = deckSaveSuccessHandlers.get(deckId);
+  deckSaveSuccessHandlers.delete(deckId);
 
   const generation = deckSaveGenerations.get(deckId) ?? 0;
   const controller =
@@ -644,6 +649,7 @@ function drainPendingDeckOps(
   const next = persistDeckOps(deckId, ops, controller?.signal, options)
     .then(() => {
       if (!isCurrentGeneration()) return;
+      onSaveSuccess?.(ops);
       deckSaveRetryAttempts.delete(deckId);
       failedSaveDecks.delete(deckId);
     })
@@ -652,6 +658,7 @@ function drainPendingDeckOps(
       // resurrect the old queue or schedule a retry after the boundary.
       if (!isCurrentGeneration()) return;
       console.error(`Failed to save deck ${deckId}:`, err);
+      if (onSaveSuccess) deckSaveSuccessHandlers.set(deckId, onSaveSuccess);
       const pending = pendingOpsQueue.get(deckId) ?? [];
       pendingOpsQueue.set(deckId, [...ops, ...pending]);
       const attempt = (deckSaveRetryAttempts.get(deckId) ?? 0) + 1;
@@ -736,8 +743,12 @@ function enqueueDeckOp(
   options?: {
     persistence?: "debounced" | "immediate";
     coalesceContent?: boolean;
+    onSaveSuccess?: (ops: GranularOp[]) => void;
   },
 ) {
+  if (options?.onSaveSuccess) {
+    deckSaveSuccessHandlers.set(deckId, options.onSaveSuccess);
+  }
   const existing = pendingSaves.get(deckId);
   if (existing) clearTimeout(existing);
   if (
@@ -749,6 +760,7 @@ function enqueueDeckOp(
   }
 
   if (op.op === "full-replace") {
+    if (!options?.onSaveSuccess) deckSaveSuccessHandlers.delete(deckId);
     // Discard any accumulated granular ops — this is a wholesale replacement
     pendingOpsQueue.set(deckId, [op]);
   } else {
@@ -816,6 +828,7 @@ function discardPendingDeckOps(deckId: string) {
   if (timer) clearTimeout(timer);
   pendingSaves.delete(deckId);
   pendingOpsQueue.delete(deckId);
+  deckSaveSuccessHandlers.delete(deckId);
   deckSaveRetryAttempts.delete(deckId);
   failedSaveDecks.delete(deckId);
   immediateFlushRequests.delete(deckId);
@@ -1512,6 +1525,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deletedSlideTombstonesRef = useRef<Map<string, Set<string>>>(new Map());
   const deckBaselineRequestIdRef = useRef(0);
+  const deckListRequestIdRef = useRef(0);
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
   // True only while the SSE channel is actually open. Stays false when SSE is
   // never started (embed auth), so the poll keeps its fast intervals there.
@@ -1540,6 +1554,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const markDeckDirty = useCallback((deckId: string) => {
     lastExternalUpdateRef.current = 0;
     dirtyDeckIdsRef.current.add(deckId);
+    if (failedSaveDecks.has(deckId)) {
+      const tombstones =
+        deletedSlideTombstonesRef.current.get(deckId) ?? new Set<string>();
+      for (const op of pendingOpsQueue.get(deckId) ?? []) {
+        if (op.op === "delete-slide") tombstones.add(op.slideId);
+      }
+      if (tombstones.size > 0) {
+        deletedSlideTombstonesRef.current.set(deckId, tombstones);
+      }
+    }
   }, []);
 
   const markSlideDeleteTombstone = useCallback(
@@ -1566,6 +1590,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const clearDeckDeleteTombstones = useCallback((deckId: string) => {
     deletedSlideTombstonesRef.current.delete(deckId);
+  }, []);
+
+  const clearReplacedSlideDeleteTombstones = useCallback(
+    (ops: GranularOp[]) => {
+      for (const op of ops) {
+        if (op.op !== "full-replace") continue;
+        clearDeckDeleteTombstones(op.deck.id);
+      }
+    },
+    [clearDeckDeleteTombstones],
+  );
+
+  const nextOpenDeckRequestId = useCallback((deckId: string) => {
+    const requestId = (openDeckRequestIdByDeckRef.current.get(deckId) ?? 0) + 1;
+    openDeckRequestIdByDeckRef.current.set(deckId, requestId);
+    return requestId;
   }, []);
 
   const reconcileServerDeckWithDeleteTombstones = useCallback(
@@ -1652,7 +1692,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             discardPendingDeckOps(op.deckId);
             deleteDeckAfterPendingCreate(op.deckId);
           } else if (op.op === "restore-deck" || op.op === "replace-deck") {
-            enqueueDeckOp(op.deckId, { op: "full-replace", deck: op.deck });
+            enqueueDeckOp(
+              op.deckId,
+              { op: "full-replace", deck: op.deck },
+              { onSaveSuccess: clearReplacedSlideDeleteTombstones },
+            );
           } else {
             const { deckId, ...granular } = op;
             if (granular.op === "delete-slide") {
@@ -1747,8 +1791,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // (rare — usually zero per poll) get a follow-up full fetch so DeckCard can
   // still render an immediate preview for them.
   const refetchDeckListIfChanged = useCallback(async () => {
+    const requestId = ++deckListRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
     const fresh = await fetchDeckListLightFromAPI();
+    if (requestId !== deckListRequestIdRef.current) return;
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
@@ -1774,6 +1820,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const addedDecks = (
       await Promise.all(addedIds.map((id) => fetchDeckFromAPI(id)))
     ).filter((d): d is Deck => d !== null);
+    if (requestId !== deckListRequestIdRef.current) return;
 
     lastExternalUpdateRef.current = Date.now();
     const removedIds = new Set(removed.map((d) => d.id));
@@ -1809,9 +1856,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       currentOpenId: string,
       options?: { clearPendingWrites?: boolean; changedSlideId?: string },
     ): Promise<Deck | null> => {
-      const requestId =
-        (openDeckRequestIdByDeckRef.current.get(currentOpenId) ?? 0) + 1;
-      openDeckRequestIdByDeckRef.current.set(currentOpenId, requestId);
+      const requestId = nextOpenDeckRequestId(currentOpenId);
       const fetchedServerDeck = await fetchDeckFromAPI(currentOpenId);
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
         return null;
@@ -1870,6 +1915,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [
       applyRemoteDeckUpdate,
       clearDeckDeleteTombstones,
+      nextOpenDeckRequestId,
       reconcileServerDeckWithDeleteTombstones,
     ],
   );
@@ -1929,12 +1975,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const requestId = ++deckBaselineRequestIdRef.current;
       const createSeqAtRequest = localCreateSeqRef.current;
       const requestedOpenDeckId = currentOpenDeckIdFromWindow();
+      const openDeckRequestId = requestedOpenDeckId
+        ? nextOpenDeckRequestId(requestedOpenDeckId)
+        : null;
       setLoading(true);
       const loaded = await fetchDecksForCurrentRoute();
       if (
         requestId !== deckBaselineRequestIdRef.current ||
-        requestedOpenDeckId !== currentOpenDeckIdFromWindow()
+        requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
+        (requestedOpenDeckId !== null &&
+          openDeckRequestId !==
+            openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
       ) {
+        setLoading(false);
         return "stale";
       }
       if (loaded === null) {
@@ -1947,7 +2000,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setLoadError(false);
       setLoading(false);
       return "loaded";
-    }, [resetDeckBaseline]);
+    }, [nextOpenDeckRequestId, resetDeckBaseline]);
 
   const reloadDecks = useCallback(async () => {
     await reloadDecksWithStatus();
@@ -1962,10 +2015,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const requestId = ++deckBaselineRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
+    const openDeckRequestId = requestedOpenDeckId
+      ? nextOpenDeckRequestId(requestedOpenDeckId)
+      : null;
     fetchDecksForCurrentRoute().then(async (loaded) => {
       if (
         requestId !== deckBaselineRequestIdRef.current ||
-        requestedOpenDeckId !== currentOpenDeckIdFromWindow()
+        requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
+        (requestedOpenDeckId !== null &&
+          openDeckRequestId !==
+            openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
       ) {
         setLoading(false);
         return;
@@ -1979,7 +2038,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setLoadError(loaded === null);
       setLoading(false);
     });
-  }, [orgLoading, resetDeckBaseline]);
+  }, [nextOpenDeckRequestId, orgLoading, resetDeckBaseline]);
 
   // Switching orgs re-scopes list-decks server-side but leaves this context's
   // in-memory list untouched, so the previous org's decks linger. Reload when
@@ -2628,7 +2687,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
         return;
       }
-      if (!options?.preserveLocalState) markDeckDirty(deckId);
+      markDeckDirty(deckId);
       if (!options?.preserveLocalState) {
         setDecksLocal((prev: Deck[]) =>
           prev.map((d) => {
@@ -2787,7 +2846,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const slides = reorderSlidesById(
-            d.slides,
+            d.slides.filter(
+              (slide) => !hasPendingDeleteForSlide(deckId, slide.id),
+            ),
             activeSlideId,
             overSlideId,
           );
@@ -2807,9 +2868,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[]) => {
       const before = decksRef.current.find((deck) => deck.id === deckId);
-      for (const slide of slides) {
-        clearSlideDeleteTombstone(deckId, slide.id);
-      }
       const after = before
         ? { ...before, slides, updatedAt: new Date().toISOString() }
         : null;
@@ -2832,7 +2890,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             slides,
             updatedAt: new Date().toISOString(),
           };
-          enqueueDeckOp(deckId, { op: "full-replace", deck: next });
+          enqueueDeckOp(
+            deckId,
+            { op: "full-replace", deck: next },
+            { onSaveSuccess: clearReplacedSlideDeleteTombstones },
+          );
           return next;
         }),
       );
@@ -2844,7 +2906,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [clearSlideDeleteTombstone, markDeckDirty, setDecksLocal],
+    [clearReplacedSlideDeleteTombstones, markDeckDirty, setDecksLocal],
   );
 
   return (

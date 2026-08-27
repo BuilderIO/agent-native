@@ -2162,6 +2162,88 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("re-establishes delete protection when a later edit retries a failed delete", async () => {
+    window.history.pushState({}, "", "/deck/retry-delete-deck");
+    const original: Deck = {
+      id: "retry-delete-deck",
+      title: "Retry delete deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      setAccessibleDeck,
+      getPatchAttempts,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+    } = setupFetch({
+      patchFailures: { deckId: "retry-delete-deck", count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide("retry-delete-deck", "slide-2");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_250);
+    });
+    expect(getPatchAttempts("retry-delete-deck")).toBe(3);
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(
+      result.current
+        .getDeck("retry-delete-deck")
+        ?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+
+    act(() => {
+      result.current.updateSlide("retry-delete-deck", "slide-1", {
+        content: "<h1>Edited after retry</h1>",
+      });
+    });
+
+    deferNextGetDeck();
+    const delayedRefresh = result.current.refreshOpenDeck("retry-delete-deck");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(hasDeferredGetDeck()).toBe(true);
+
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await delayedRefresh;
+    });
+    expect(
+      result.current
+        .getDeck("retry-delete-deck")
+        ?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-1", "slide-2"]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getPatchAttempts("retry-delete-deck")).toBe(4);
+    vi.useRealTimers();
+  });
+
   it("waits for an in-flight granular save before restoring an authoritative version", async () => {
     window.history.pushState({}, "", "/deck/restore-patch-race-deck");
     const initial: Deck = {
