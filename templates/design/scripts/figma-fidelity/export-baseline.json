@@ -1,16 +1,16 @@
 {
   "effects-transforms": {
-    "maxDiffPercent": 1.514,
+    "maxDiffPercent": 1.371,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "layout-stress": {
-    "maxDiffPercent": 0.547,
+    "maxDiffPercent": 0.365,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "media-cards": {
-    "maxDiffPercent": 2.507,
+    "maxDiffPercent": 1.244,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
@@ -20,22 +20,22 @@
     "maxApproximated": 0
   },
   "preset-display-ad": {
-    "maxDiffPercent": 0.269,
+    "maxDiffPercent": 0.102,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "preset-landing-page": {
-    "maxDiffPercent": 0.208,
+    "maxDiffPercent": 0.105,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "preset-one-pager": {
-    "maxDiffPercent": 0.23,
+    "maxDiffPercent": 0.105,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "preset-social-square": {
-    "maxDiffPercent": 0.168,
+    "maxDiffPercent": 0.109,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
@@ -45,7 +45,7 @@
     "maxApproximated": 0
   },
   "whole-screen-padded-body": {
-    "maxDiffPercent": 0.336,
+    "maxDiffPercent": 0.125,
     "maxOmitted": 0,
     "maxApproximated": 0
   }

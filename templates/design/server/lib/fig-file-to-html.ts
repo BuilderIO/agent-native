@@ -1393,12 +1393,14 @@ function overlapSpacing(node: FigNode, ctx: Ctx): number | null {
   if ((node.stackPrimarySizing ?? "RESIZE_TO_FIT") !== "FIXED") return spacing;
   const total = horizontal ? node.size?.x : node.size?.y;
   if (!total) return spacing;
+  // Start side is `stackHorizontalPadding`/`stackVerticalPadding`; the end side
+  // is its own field and is absent when zero. See `autolayoutStyles`.
   const padStart = horizontal
-    ? (node.stackPaddingLeft ?? node.stackHorizontalPadding ?? 0)
-    : (node.stackPaddingTop ?? node.stackVerticalPadding ?? 0);
+    ? (node.stackHorizontalPadding ?? 0)
+    : (node.stackVerticalPadding ?? 0);
   const padEnd = horizontal
-    ? (node.stackPaddingRight ?? node.stackHorizontalPadding ?? 0)
-    : (node.stackPaddingBottom ?? node.stackVerticalPadding ?? 0);
+    ? (node.stackPaddingRight ?? 0)
+    : (node.stackPaddingBottom ?? 0);
   const available = total - padStart - padEnd;
   const children = getChildren(node, ctx).filter(
     (child) => child.visible !== false && child.stackPositioning !== "ABSOLUTE",
@@ -1435,11 +1437,21 @@ function autolayoutStyles(
   // children instead (see `buildCss`).
   if (typeof node.stackSpacing === "number" && node.stackSpacing > 0)
     out.gap = `${num(node.stackSpacing)}px`;
-  // Padding: prefer per-side; fall back to horizontal/vertical.
-  const pl = node.stackPaddingLeft ?? node.stackHorizontalPadding;
-  const pr = node.stackPaddingRight ?? node.stackHorizontalPadding;
-  const pt = node.stackPaddingTop ?? node.stackVerticalPadding;
-  const pb = node.stackPaddingBottom ?? node.stackVerticalPadding;
+  // `stackHorizontalPadding` and `stackVerticalPadding` are the LEFT and TOP
+  // fields, not symmetric shorthands — the end sides live in
+  // `stackPaddingRight` / `stackPaddingBottom`, which kiwi omits when they are
+  // 0. Mirroring the start side into a missing end side invented padding on
+  // every top-only or left-only frame: Untitled UI's hero section came out
+  // 1036px tall against Figma's 940, and every section below it sat 96px low.
+  //
+  // Measured across four captured payloads: `stackPaddingLeft` and
+  // `stackPaddingTop` never appear at all, and of 1655 nodes carrying a
+  // vertical padding 1603 also carry an explicit bottom — so kiwi does NOT
+  // drop the end side when it happens to match. Absent means zero.
+  const pl = node.stackHorizontalPadding;
+  const pr = node.stackPaddingRight;
+  const pt = node.stackVerticalPadding;
+  const pb = node.stackPaddingBottom;
   if ([pl, pr, pt, pb].some((v) => typeof v === "number" && v !== 0)) {
     out.padding = `${num(pt ?? 0)}px ${num(pr ?? 0)}px ${num(pb ?? 0)}px ${num(pl ?? 0)}px`;
   }

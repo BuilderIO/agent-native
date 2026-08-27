@@ -190,6 +190,16 @@ export interface FigmaSvgNode {
   rotationDeg?: number;
   /** 0-1; omit or 1 for fully opaque. */
   opacity?: number;
+  /**
+   * A lone `blur(Npx)`. Figma's SVG importer maps `feGaussianBlur` to a real
+   * LAYER_BLUR, so this survives the trip; any other filter is rasterized
+   * instead, never dropped.
+   */
+  blurPx?: number;
+  /** CSS `mix-blend-mode`, when it is not `normal`. Figma has native layer blend modes. */
+  blendMode?: string;
+  /** `pixelated` / `crisp-edges`, passed through to `<image>`. */
+  imageRendering?: string;
   cornerRadii?: FigmaSvgCornerRadii;
   /** CSS order: index 0 is the TOPMOST paint layer (painted last in SVG). */
   fills?: FigmaSvgFillLayer[];
@@ -476,18 +486,49 @@ export function linearGradientEndpoints(
   };
 }
 
+/**
+ * CSS lets a colour stop sit outside the gradient line — `... 110.36%` is legal
+ * and shifts where the ramp lands. SVG CLAMPS an offset to [0,1], so those
+ * stops silently collapsed onto the ends and the ramp came out wrong. Extend
+ * the gradient VECTOR to span the stops' real range and rescale the offsets
+ * into [0,1]; the painted result is identical and nothing is clamped away.
+ */
+function spanOutOfRangeStops(stops: FigmaSvgColorStop[]): {
+  stops: FigmaSvgColorStop[];
+  lo: number;
+  hi: number;
+} {
+  if (!stops.length) return { stops, lo: 0, hi: 1 };
+  const lo = Math.min(0, ...stops.map((stop) => stop.offset));
+  const hi = Math.max(1, ...stops.map((stop) => stop.offset));
+  if (lo === 0 && hi === 1) return { stops, lo, hi };
+  const span = hi - lo;
+  return {
+    lo,
+    hi,
+    stops: stops.map((stop) => ({
+      ...stop,
+      offset: (stop.offset - lo) / span,
+    })),
+  };
+}
+
 export function buildLinearGradientDef(
   id: string,
   angleDeg: number,
   stops: FigmaSvgColorStop[],
   box?: { x?: number; y?: number; width: number; height: number },
 ): string {
+  const spanned = spanOutOfRangeStops(stops);
+  stops = spanned.stops;
   if (box && box.width > 0 && box.height > 0) {
-    const { x1, y1, x2, y2 } = linearGradientEndpoints(
-      angleDeg,
-      box.width,
-      box.height,
-    );
+    const base = linearGradientEndpoints(angleDeg, box.width, box.height);
+    const dx = base.x2 - base.x1;
+    const dy = base.y2 - base.y1;
+    const x1 = base.x1 + dx * spanned.lo;
+    const y1 = base.y1 + dy * spanned.lo;
+    const x2 = base.x1 + dx * spanned.hi;
+    const y2 = base.y1 + dy * spanned.hi;
     // `userSpaceOnUse` resolves against the document's coordinate system, not
     // the element's box, so endpoints computed box-relative must be translated
     // to where the box actually sits. Without this a gradient on any element
@@ -497,7 +538,7 @@ export function buildLinearGradientDef(
     return `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${n(x1 + originX)}" y1="${n(y1 + originY)}" x2="${n(x2 + originX)}" y2="${n(y2 + originY)}">${stopMarkup(stops)}</linearGradient>`;
   }
   const rotation = gradientAngleToRotation(angleDeg);
-  return `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0" gradientTransform="rotate(${n(rotation)} 0.5 0.5)">${stopMarkup(stops)}</linearGradient>`;
+  return `<linearGradient id="${id}" x1="${n(spanned.lo)}" y1="0" x2="${n(spanned.hi)}" y2="0" gradientTransform="rotate(${n(rotation)} 0.5 0.5)">${stopMarkup(stops)}</linearGradient>`;
 }
 
 export function buildRadialGradientDef(
@@ -882,9 +923,23 @@ interface RenderCtx {
 
 function wrapGroup(
   markup: string,
-  node: Pick<FigmaSvgNode, "rect" | "rotationDeg" | "opacity">,
+  node: Pick<
+    FigmaSvgNode,
+    "rect" | "rotationDeg" | "opacity" | "blurPx" | "blendMode"
+  >,
+  ctx?: RenderCtx,
 ): string {
   const attrs: string[] = [];
+  if (node.blurPx !== undefined && node.blurPx > 0 && ctx) {
+    const id = ctx.nextId("blur");
+    ctx.defs.push(buildBlurFilterDef(id, node.blurPx));
+    attrs.push(`filter="url(#${id})"`);
+  }
+  if (node.blendMode && node.blendMode !== "normal") {
+    // CSS Compositing applies to SVG content, and Figma imports it as the
+    // layer's own blend mode.
+    attrs.push(`style="mix-blend-mode:${node.blendMode}"`);
+  }
   if (node.rotationDeg) {
     const cx = node.rect.x + node.rect.width / 2;
     const cy = node.rect.y + node.rect.height / 2;
@@ -978,8 +1033,14 @@ function resolveFillPaint(
   }
   const id = ctx.nextId("img-fill");
   const par = objectFitToPreserveAspectRatio(fill.fit);
+  // Figma magnifies an image fill with nearest-neighbour sampling and the
+  // importer asks for it with `image-rendering`; dropping it here would smooth
+  // on the way back out what the import deliberately kept crisp.
+  const rendering = node.imageRendering
+    ? ` image-rendering="${node.imageRendering}"`
+    : "";
   ctx.defs.push(
-    `<pattern id="${id}" patternUnits="objectBoundingBox" width="1" height="1"><image href="${escapeXmlAttr(fill.href)}" x="0" y="0" width="${n(node.rect.width)}" height="${n(node.rect.height)}" preserveAspectRatio="${par}"/></pattern>`,
+    `<pattern id="${id}" patternUnits="objectBoundingBox" width="1" height="1"><image href="${escapeXmlAttr(fill.href)}" x="0" y="0" width="${n(node.rect.width)}" height="${n(node.rect.height)}" preserveAspectRatio="${par}"${rendering}/></pattern>`,
   );
   ctx.report.approximated.push({
     node: node.name || node.id,
@@ -1301,7 +1362,7 @@ function renderBox(node: FigmaSvgNode, ctx: RenderCtx): string {
   // A container that also owns direct text (an icon plus its label, a row plus
   // its badge) paints that text alongside its children.
   const ownText = node.text ? renderTextMarkup(node, ctx) : "";
-  return wrapGroup(body + childrenMarkup + ownText, node);
+  return wrapGroup(body + childrenMarkup + ownText, node, ctx);
 }
 
 /**
@@ -1353,7 +1414,7 @@ function renderText(node: FigmaSvgNode, ctx: RenderCtx): string {
   ctx.report.vectorized.push(node.name || node.id);
   // A text leaf that also carries box paint (button, pill, badge, chip) must
   // draw its background/border/shadow beneath the glyphs.
-  return wrapGroup(`${boxPaintMarkup(node, ctx)}${markup}`, node);
+  return wrapGroup(`${boxPaintMarkup(node, ctx)}${markup}`, node, ctx);
 }
 
 function renderImage(node: FigmaSvgNode, ctx: RenderCtx): string {
@@ -1372,7 +1433,7 @@ function renderImage(node: FigmaSvgNode, ctx: RenderCtx): string {
   }
   ctx.report.vectorized.push(node.name || node.id);
   const markup = `<image x="${n(rect.x)}" y="${n(rect.y)}" width="${n(rect.width)}" height="${n(rect.height)}" href="${escapeXmlAttr(node.image.href)}" preserveAspectRatio="${par}"${clipAttr}/>`;
-  return wrapGroup(markup, node);
+  return wrapGroup(markup, node, ctx);
 }
 
 /**
@@ -1390,7 +1451,7 @@ function renderVector(node: FigmaSvgNode, ctx: RenderCtx): string {
     (_opening, attributes: string) =>
       `<svg x="${n(rect.x)}" y="${n(rect.y)}" width="${n(rect.width)}" height="${n(rect.height)}"${attributes.replace(/\s(?:x|y|width|height)="[^"]*"/gi, "")}>`,
   );
-  return wrapGroup(markup, node);
+  return wrapGroup(markup, node, ctx);
 }
 
 function renderRaster(node: FigmaSvgNode, ctx: RenderCtx): string {
@@ -1401,7 +1462,7 @@ function renderRaster(node: FigmaSvgNode, ctx: RenderCtx): string {
   });
   const rect = node.rect;
   const markup = `<image x="${n(rect.x)}" y="${n(rect.y)}" width="${n(rect.width)}" height="${n(rect.height)}" href="${escapeXmlAttr(node.raster.href)}" preserveAspectRatio="none"/>`;
-  return wrapGroup(markup, node);
+  return wrapGroup(markup, node, ctx);
 }
 
 export function renderFigmaSvgNode(node: FigmaSvgNode, ctx: RenderCtx): string {
@@ -1544,6 +1605,12 @@ export interface RawFigmaSvgNode {
   borderColors?: [string, string, string, string];
   borderStyles?: [string, string, string, string];
   backdropFilter: string;
+  /** Raw computed `filter`; `none` unless the element is filtered. */
+  filter: string;
+  /** Raw computed `mix-blend-mode`. */
+  mixBlendMode: string;
+  /** Raw computed `image-rendering`. */
+  imageRendering: string;
   isLeafText: boolean;
   textLines?: RawFigmaSvgTextLine[];
   textStyle?: RawFigmaSvgTextStyle;
@@ -1677,6 +1744,20 @@ function buildBorderSides(
 export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
   const rotationDeg = raw.rotationDeg ? raw.rotationDeg : undefined;
   const opacity = raw.opacity !== 1 ? raw.opacity : undefined;
+  // A non-blur filter never reaches here — the walk rasterizes it — so the only
+  // filter left to carry is a lone blur.
+  const blurMatch = /^blur\(\s*([\d.]+)px\s*\)$/.exec(
+    (raw.filter ?? "none").trim(),
+  );
+  const blurPx = blurMatch ? Number(blurMatch[1]) : undefined;
+  const blendMode =
+    raw.mixBlendMode && raw.mixBlendMode !== "normal"
+      ? raw.mixBlendMode
+      : undefined;
+  const imageRendering =
+    raw.imageRendering === "pixelated" || raw.imageRendering === "crisp-edges"
+      ? raw.imageRendering
+      : undefined;
 
   if (raw.rasterReason) {
     return {
@@ -1686,6 +1767,9 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       rect: raw.rect,
       rotationDeg,
       opacity,
+      blurPx,
+      blendMode,
+      imageRendering,
       raster: { href: raw.rasterHref ?? "", reason: raw.rasterReason },
       layout: raw.layout,
     };
@@ -1699,6 +1783,9 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       rect: raw.rect,
       rotationDeg,
       opacity,
+      blurPx,
+      blendMode,
+      imageRendering,
       vector: { markup: raw.svgMarkup },
       layout: raw.layout,
     };
@@ -1726,6 +1813,9 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       rect: raw.rect,
       rotationDeg,
       opacity,
+      blurPx,
+      blendMode,
+      imageRendering,
       cornerRadii: isZeroRadii(raw.cornerRadiiRaw)
         ? undefined
         : raw.cornerRadiiRaw,
@@ -1769,6 +1859,9 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       rect: raw.rect,
       rotationDeg,
       opacity,
+      blurPx,
+      blendMode,
+      imageRendering,
       cornerRadii: isZeroRadii(raw.cornerRadiiRaw)
         ? undefined
         : raw.cornerRadiiRaw,
@@ -1801,6 +1894,9 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
     rect: raw.rect,
     rotationDeg,
     opacity,
+    blurPx,
+    blendMode,
+    imageRendering,
     cornerRadii: isZeroRadii(raw.cornerRadiiRaw)
       ? undefined
       : raw.cornerRadiiRaw,
@@ -2515,6 +2611,27 @@ export function collectRawFigmaSvgScene(
         const tr = axis(style.borderTopRightRadius, w, h);
         const br = axis(style.borderBottomRightRadius, w, h);
         const bl = axis(style.borderBottomLeftRadius, w, h);
+        // CSS shrinks every corner by one shared factor when the radii along
+        // an edge would overlap, and getComputedStyle reports the value BEFORE
+        // that — a pill written `border-radius: 999px` comes back as literally
+        // "999px". Testing the raw value said "999 >= half the width AND half
+        // the height", so every pill exported as a true ellipse (rx = w/2)
+        // instead of a stadium (rx = ry = h/2). Scaling first is also what
+        // makes the emitted radius correct, not just the flag: a `<rect
+        // rx="999">` would be clamped by the renderer to the same ellipse.
+        const ratio = (edge: number, a: number, b: number) =>
+          a + b > 0 ? edge / (a + b) : Number.POSITIVE_INFINITY;
+        const f = Math.min(
+          1,
+          ratio(w, tl.x, tr.x),
+          ratio(w, bl.x, br.x),
+          ratio(h, tl.y, bl.y),
+          ratio(h, tr.y, br.y),
+        );
+        for (const r of [tl, tr, br, bl]) {
+          r.x *= f;
+          r.y *= f;
+        }
         const halves = (r: { x: number; y: number }) =>
           w > 0 && h > 0 && r.x >= w / 2 - 0.01 && r.y >= h / 2 - 0.01;
         const ellipse = halves(tl) && halves(tr) && halves(br) && halves(bl);
@@ -2549,6 +2666,14 @@ export function collectRawFigmaSvgScene(
       backdropFilter:
         (style as CSSStyleDeclaration & { backdropFilter?: string })
           .backdropFilter || "none",
+      // The walk used to snapshot a fixed whitelist that omitted these three,
+      // and the rasterize escape hatch below did not mention them either — so a
+      // blur, a blend mode and a nearest-neighbour image fill were dropped from
+      // the export with NOTHING in the report. `fills-effects` lost a multiply
+      // blend and a layer blur that way and still reported "0 omitted".
+      filter: style.filter || "none",
+      mixBlendMode: style.mixBlendMode || "normal",
+      imageRendering: style.imageRendering || "auto",
       // `row-gap`/`column-gap` compute to "normal" outside a flex/grid
       // container, and `flex-basis` keeps the SPECIFIED keyword/length —
       // unlike width/height, which compute to used pixels and so cannot tell
@@ -2588,6 +2713,19 @@ export function collectRawFigmaSvgScene(
         ...base,
         rasterReason:
           "backdrop-filter cannot be expressed in SVG — rasterized this element's region via screenshot.",
+      };
+    }
+    // A lone blur maps to feGaussianBlur, which Figma imports as a real
+    // LAYER_BLUR. Anything else — a drop-shadow, a saturate, a chain — has no
+    // SVG equivalent this exporter builds, so it rasterizes rather than
+    // silently losing the effect.
+    if (
+      base.filter !== "none" &&
+      !/^blur\(\s*[\d.]+px\s*\)$/.test(base.filter.trim())
+    ) {
+      return {
+        ...base,
+        rasterReason: `CSS filter "${base.filter.slice(0, 60)}" has no SVG equivalent here — rasterized this element's region via screenshot.`,
       };
     }
     // A CSS clip-path or mask reshapes what the element paints, and the box
