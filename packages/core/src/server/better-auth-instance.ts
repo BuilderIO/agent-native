@@ -70,6 +70,7 @@ import {
 } from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   type SignupOrigin,
@@ -83,7 +84,11 @@ import {
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { getEmailReadiness, sendEmail } from "./email.js";
+import {
+  getDeploymentEmailReadiness,
+  sendEmail,
+  type EmailReadiness,
+} from "./email.js";
 import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
@@ -507,31 +512,34 @@ export function isDeployPreview(): boolean {
   return deployContext === "deploy-preview";
 }
 
-export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
+export function resolveEmailPasswordAuthPolicy(
+  emailReadiness: EmailReadiness,
+): {
   requireEmailVerification: boolean;
   disableSignUp: boolean;
 } {
+  const emailConfigured = emailReadiness.status === "ready";
+  const emailProviderMissing = emailReadiness.status === "not-configured";
   const declared = getAppConfig().auth.requireEmailVerification;
   if (declared !== undefined) {
-    // A declared policy is the whole policy — it outranks both the hosted
-    // derivation below and AUTH_SKIP_EMAIL_VERIFICATION. Choosing `false` is
-    // choosing to accept an unverified email as a login credential, so the
-    // signup lock that exists to prevent exactly that comes off with it.
+    // A declared policy is the verification policy — it outranks both the
+    // hosted derivation below and AUTH_SKIP_EMAIL_VERIFICATION. The signup
+    // lock still fails closed for a configured transport that cannot be read.
     return {
       requireEmailVerification: declared && emailConfigured,
       // Verification that no provider can deliver would strand every new
-      // account on an unverifiable signup, so refuse the signup instead.
-      disableSignUp: declared && !emailConfigured,
+      // account on an unverifiable signup, so refuse the signup instead. An
+      // explicitly absent provider is the documented password-only mode.
+      disableSignUp: emailProviderMissing ? declared : !emailConfigured,
     };
   }
   const hosted = process.env.NODE_ENV === "production" || isDeployPreview();
   return {
     requireEmailVerification:
       emailConfigured && (hosted || !shouldSkipEmailVerification()),
-    // A hosted deployment without an email provider cannot prove ownership of
-    // an email address. Keeping password signup enabled there turns an email
-    // into an account-claim credential.
-    disableSignUp: hosted && !emailConfigured,
+    // Only an explicitly absent provider enables unverified password signup.
+    // Misconfigured or unavailable transports fail closed instead.
+    disableSignUp: !emailConfigured && !emailProviderMissing,
   };
 }
 
@@ -549,7 +557,12 @@ export interface BetterAuthInstance {
   handler: (request: Request) => Promise<Response>;
   api: {
     getSession: (opts: { headers: Headers }) => Promise<{
-      user: { id: string; email: string; name: string };
+      user: {
+        id: string;
+        email: string;
+        name: string;
+        emailVerified: boolean;
+      };
       session: {
         id: string;
         token: string;
@@ -1295,6 +1308,19 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     throw new Error("Google identity is missing an email or account id");
   }
 
+  const reconcilePendingInvitations = async (): Promise<void> => {
+    try {
+      // Google verification can bypass Better Auth's user-create hook, so
+      // reconcile invitations only after the verified identity is committed.
+      await acceptPendingInvitationsForEmail(email);
+    } catch (error) {
+      console.error(
+        "[auth] failed to reconcile pending invitations after Google verification",
+        error,
+      );
+    }
+  };
+
   const name = identity.name?.trim() || email.split("@")[0] || "User";
   const image = googleProfileImage(identity);
   const user = {
@@ -1356,6 +1382,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
         providerId: "google",
         accountId,
       });
+      await reconcilePendingInvitations();
       return true;
     }
   }
@@ -1395,6 +1422,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       accountId,
     });
     await syncGoogleProfile(adapter, existing, email, identity);
+    await reconcilePendingInvitations();
     return false;
   }
   await adapter.linkAccount({
@@ -1519,12 +1547,59 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
-  const emailReadiness = await getEmailReadiness();
+  const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
-    resolveEmailPasswordAuthPolicy(emailReadiness.status === "ready");
+    resolveEmailPasswordAuthPolicy(emailReadiness);
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
+
+  const magicLinkPlugin = magicLink({
+    expiresIn: 60 * 5,
+    storeToken: "hashed",
+    rateLimit: { window: 60, max: 5 },
+    disableSignUp,
+    sendMagicLink: async ({ email, url, token }) => {
+      let urlPath: string | undefined;
+      let urlQueryKeys: string[] | undefined;
+      try {
+        const parsedURL = new URL(url);
+        urlPath = parsedURL.pathname;
+        urlQueryKeys = [...parsedURL.searchParams.keys()].sort();
+      } catch {
+        // coercion-ok: diagnostics must never make email delivery fail.
+        // Better Auth owns URL construction; keep diagnostics non-fatal.
+      }
+      if (typeof token === "string") {
+        console.info("[agent-native][magic-link]", {
+          phase: "issued",
+          tokenDigest: crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex")
+            .slice(0, 16),
+          expectedStoredIdentifierPrefix: crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("base64url")
+            .slice(0, 16),
+          urlPath,
+          urlQueryKeys,
+        });
+      }
+      const appBasePath = getConfiguredAppBasePath();
+      const magicLinkUrl = appBasePath
+        ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
+        : url;
+      const deliveredMagicLinkUrl =
+        desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
+      const { subject, html, text, appSender } = renderMagicLinkEmail({
+        email,
+        magicLinkUrl: deliveredMagicLinkUrl,
+      });
+      await sendEmail({ to: email, subject, html, text, appSender });
+    },
+  });
 
   const auth = betterAuth({
     basePath,
@@ -1540,9 +1615,8 @@ async function createBetterAuthInstance(
       disableSignUp,
       minPasswordLength: PASSWORD_MIN_LENGTH,
       maxPasswordLength: PASSWORD_MAX_LENGTH,
-      // Hosted deployments always require a working email provider before
-      // password signup can create a session. Local dev/test retain the fast
-      // path; hosted deployments without a provider disable password signup.
+      // Email verification is enabled only when a provider is ready. Without
+      // one, hosted deployments keep password signup available.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
@@ -1661,6 +1735,7 @@ async function createBetterAuthInstance(
               id?: string;
               email?: string;
               name?: string | null;
+              emailVerified?: boolean;
             },
             // Better Auth (1.6.x) passes the endpoint context as the 2nd arg.
             // It carries the originating request's headers (and on OAuth
@@ -1676,8 +1751,9 @@ async function createBetterAuthInstance(
 
             await emitSignupEventForCreatedUser(user, context);
 
-            // Invitations and domain auto-join are about the row existing, not
-            // about how it got here, so they run for backfills too.
+            // Email-based org access requires proof of control of the address.
+            if (user.emailVerified !== true) return;
+
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
@@ -1776,56 +1852,7 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
-      magicLink({
-        expiresIn: 60 * 5,
-        storeToken: "hashed",
-        rateLimit: { window: 60, max: 5 },
-        disableSignUp,
-        sendMagicLink: async ({ email, url, token }) => {
-          let urlPath: string | undefined;
-          let urlQueryKeys: string[] | undefined;
-          try {
-            const parsedURL = new URL(url);
-            urlPath = parsedURL.pathname;
-            urlQueryKeys = [...parsedURL.searchParams.keys()].sort();
-          } catch {
-            // coercion-ok: diagnostics must never make email delivery fail.
-            // Better Auth owns URL construction; keep diagnostics non-fatal.
-          }
-          if (typeof token === "string") {
-            console.info("[agent-native][magic-link]", {
-              phase: "issued",
-              tokenDigest: crypto
-                .createHash("sha256")
-                .update(token)
-                .digest("hex")
-                .slice(0, 16),
-              expectedStoredIdentifierPrefix: crypto
-                .createHash("sha256")
-                .update(token)
-                .digest("base64url")
-                .slice(0, 16),
-              urlPath,
-              urlQueryKeys,
-            });
-          }
-          const appBasePath = (
-            process.env.VITE_APP_BASE_PATH ||
-            process.env.APP_BASE_PATH ||
-            ""
-          ).replace(/\/$/, "");
-          const magicLinkUrl = appBasePath
-            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
-            : url;
-          const deliveredMagicLinkUrl =
-            desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
-          const { subject, html, text, appSender } = renderMagicLinkEmail({
-            email,
-            magicLinkUrl: deliveredMagicLinkUrl,
-          });
-          await sendEmail({ to: email, subject, html, text, appSender });
-        },
-      }),
+      magicLinkPlugin,
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {

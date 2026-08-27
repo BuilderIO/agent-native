@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+const mockAcceptPendingInvitationsForEmail = vi.hoisted(() => vi.fn());
+
+vi.mock("../org/accept-pending.js", () => ({
+  acceptPendingInvitationsForEmail: mockAcceptPendingInvitationsForEmail,
+}));
+
 import {
   buildDatabaseConfig,
   configureLocalSqlite,
@@ -241,6 +247,14 @@ describe("resolveAuthSecret", () => {
 });
 
 describe("ensureGoogleAuthIdentityWithAdapter", () => {
+  beforeEach(() => {
+    mockAcceptPendingInvitationsForEmail.mockReset();
+    mockAcceptPendingInvitationsForEmail.mockResolvedValue({
+      accepted: [],
+      activeOrgId: null,
+    });
+  });
+
   function adapterFor(user: any = null) {
     const linkAccount = vi.fn(async () => undefined);
     const replaceUnverifiedCredentialWithGoogle = vi.fn(async () => undefined);
@@ -280,6 +294,22 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     expect(createOAuthUser).toHaveBeenCalledWith(
       { email: "owner@example.com", name: "Owner", emailVerified: true },
       { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("reconciles pending invitations for a fallback-created Google user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+    delete adapter.createOAuthUser;
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: " Owner@Example.com ",
+      accountId: "google-sub-1",
+    });
+
+    expect(created).toBe(true);
+    expect(createOAuthUser).not.toHaveBeenCalled();
+    expect(mockAcceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+      "owner@example.com",
     );
   });
 
@@ -415,6 +445,33 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       accountId: "google-sub-1",
     });
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("reconciles pending invitations when Google verifies a password identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+      ],
+    };
+    const { adapter } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: " Owner@Example.com ",
+      accountId: "google-sub-1",
+    });
+
+    expect(mockAcceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
   });
 
   it("keeps account-claim protection for an unverified user with another account", async () => {
