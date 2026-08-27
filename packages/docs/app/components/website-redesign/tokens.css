@@ -190,6 +190,7 @@
   --spacing-35: 150px;
   --spacing-40: 160px;
   --spacing-50: 200px;
+  --spacing-60: 240px;
 
   /* Typography scale */
   --b-t-heading-1: 56px;
@@ -310,6 +311,7 @@
     --spacing-35: 88px;
     --spacing-40: 88px;
     --spacing-50: 80px;
+    --spacing-60: 96px;
 
     --b-t-heading-1: 32px;
     --b-t-heading-2: 28px;
