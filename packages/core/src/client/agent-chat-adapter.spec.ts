@@ -250,8 +250,8 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
-  it("reports successful JSON responses instead of passing them to SSE parsing", async () => {
-    const response = jsonResponse({ ok: true });
+  it("reports primitive JSON responses instead of passing them to SSE parsing", async () => {
+    const response = jsonResponse(null);
     const fetchSpy = vi.fn().mockResolvedValue(response);
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -403,6 +403,7 @@ describe("createAgentChatAdapter", () => {
 
   it("stops a silent JSON probe for a custom caller abort reason", async () => {
     let finishResponse: (() => void) | undefined;
+    const cancelResponse = vi.fn();
     const response = new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
@@ -414,6 +415,7 @@ describe("createAgentChatAdapter", () => {
             }
           };
         },
+        cancel: cancelResponse,
       }),
       {
         status: 200,
@@ -449,6 +451,8 @@ describe("createAgentChatAdapter", () => {
 
       expect(result.done).toBe(true);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      expect(cancelResponse).toHaveBeenCalledTimes(1);
     } finally {
       clearTimeout(abortTimer);
       finishResponse?.();

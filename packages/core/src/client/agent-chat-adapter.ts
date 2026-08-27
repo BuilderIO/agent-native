@@ -3923,6 +3923,7 @@ export function createAgentChatAdapter(
                 if (probeReader) {
                   const decoder = new TextDecoder();
                   let probeBytes = 0;
+                  let probeAborted = false;
                   let onAbort: (() => void) | undefined;
                   const abort = new Promise<"abort">((resolve) => {
                     const handleAbort = () => resolve("abort");
@@ -3940,6 +3941,7 @@ export function createAgentChatAdapter(
                       void read.catch(() => {});
                       const chunk = await Promise.race([read, abort]);
                       if (chunk === "abort") {
+                        probeAborted = true;
                         throw abortSignal.reason instanceof Error &&
                           abortSignal.reason.name === "AbortError"
                           ? abortSignal.reason
@@ -3965,6 +3967,9 @@ export function createAgentChatAdapter(
                     }
                     probePrefix += decoder.decode();
                   } finally {
+                    if (probeAborted && res.body) {
+                      void res.body.cancel().catch(() => {});
+                    }
                     if (onAbort) {
                       abortSignal.removeEventListener("abort", onAbort);
                     }
@@ -3988,8 +3993,13 @@ export function createAgentChatAdapter(
                 (firstChar !== "" && '{["-0123456789tfn'.includes(firstChar));
               if (!looksLikeSSE && looksLikeJson) {
                 const body = await res.text();
-                const parsed = JSON.parse(body) as { error?: unknown };
-                if (parsed.error) {
+                const parsed: unknown = JSON.parse(body);
+                if (
+                  parsed !== null &&
+                  typeof parsed === "object" &&
+                  "error" in parsed &&
+                  parsed.error
+                ) {
                   throw new Error(String(parsed.error));
                 }
                 throw new Error(
