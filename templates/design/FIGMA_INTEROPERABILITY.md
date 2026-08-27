@@ -332,6 +332,9 @@ What moved the numbers. Each was a real defect on a real design:
 | fill-container overriding the node's own sizing | dashboard (.fig) | 9.26 | 4.95 |
 | hugging text 1px tall over, moving every sibling | autolayout (.fig) | 5.15 | 2.38 |
 | Figma's text case and decoration dropped | typography (.fig, vs REST) | 6.55 | 6.00 |
+| image fill opacity and angular sweep unexpressed | fills-effects (.fig) | 15.26 | 3.72 |
+| magnified image fills smoothed, not nearest-sampled | fills-effects (.fig) | 3.72 | 1.46 |
+| AUTO line height left to the browser, not Figma's | autolayout (.fig, vs REST) | 2.04 | 0.00 |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
@@ -360,23 +363,31 @@ the shape of a REST node id. Keep each file under the 50MB decoder cap; a whole
 multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 46MB.
 
-| case | `.fig` vs Figma | nodes off >1.5px | REST, same design |
-| --- | --- | --- | --- |
-| shapes | 1.68% | **0 of 11** | 0.54% |
-| card grid | 2.15% | **0 of 11** | 3.10% |
-| interior single product | **2.26%** | 1 of 136 | 3.35% |
-| auto-layout torture | **2.38%** | **0 of 29** | 2.63% |
-| constraints | 3.00% | **0 of 7** | 2.28% |
-| whitepace | 3.07% | 3 of 1026 | 2.96% |
-| untitled UI pricing | 3.15% | **0 of 182** | 2.67% |
-| untitled UI dashboard | 4.95% | 6 of 201 | 3.68% |
-| untitled UI landing mobile | 7.45% | **0 of 228** | 6.19% |
-| typography torture | 14.13% | 1 of 9 | 12.67% |
-| fills and effects | 15.26% | **0 of 12** | 0.55% |
+| case | `.fig` vs Figma | drift vs REST | nodes off >1.5px | REST, same design |
+| --- | --- | --- | --- | --- |
+| fills and effects | **1.46%** | **0.08%** | **0 of 12** | 0.55% |
+| shapes | 1.68% | 1.78% | **0 of 11** | 0.54% |
+| constraints | 2.24% | **0.12%** | **0 of 7** | 2.28% |
+| interior single product | 2.55% | 1.97% | 1 of 136 | 3.35% |
+| auto-layout torture | 2.63% | **0.00%** | **0 of 29** | 2.63% |
+| whitepace | 3.08% | 0.60% | 3 of 1026 | 2.96% |
+| card grid | 3.14% | **0.29%** | **0 of 11** | 3.10% |
+| untitled UI pricing | 3.15% | 0.73% | **0 of 182** | 2.67% |
+| untitled UI dashboard | 4.95% | 2.71% | 6 of 201 | 3.68% |
+| untitled UI landing mobile | 7.45% | 1.87% | **0 of 228** | 6.19% |
+| typography torture | 13.38% | 1.43% | **0 of 9** | 12.67% |
 
-Nine of the eleven frames are within 0.5pp of the REST walker or ahead of it,
-and three now BEAT it. The dashboard's six remaining offenders are the same six
-the REST walker has on that design — all of them the one glyph.
+Read the drift column: **two independently written walkers now draw the same
+picture.** Auto-layout torture is 0.00% — byte-identical output — and card
+grid, constraints and fills/effects are all under 0.3%. That is the strongest
+statement available about the `.fig` path, because it says the remaining
+difference from Figma is one both walkers share rather than anything this one
+does differently.
+
+Nine of the eleven frames have NO node off by more than 1.5px. The dashboard's
+six are the same six the REST walker has on that design — all of them the one
+glyph — and Whitepace's three are zero-thickness LINE boxes given a minimal
+size so the browser does not drop a 0-size SVG viewport.
 
 The image-heavy case is the one to read first: the `.fig` path BEATS the REST
 path on it, because **a `.fig` container carries image bytes** where the REST
