@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -28,7 +34,7 @@ import { chromium } from "@playwright/test";
 
 import { renderDesignToFigmaSvg } from "../../server/lib/design-to-figma-svg.js";
 import { comparePngs } from "./lib/compare.js";
-import { renderSvgToPng } from "./lib/render.js";
+import { renderHtmlToPng } from "./lib/render.js";
 
 const OUT_DIR = ".tmp/figma-fidelity/roundtrip";
 const MANIFEST =
@@ -44,7 +50,66 @@ interface RoundTripCase {
   importPng?: string;
   width: number;
   height: number;
+  /**
+   * The region Figma actually rendered, when it differs from the design box —
+   * see `run-import.ts`. Carried over verbatim rather than re-derived, so the
+   * export hop is scored over exactly the pixels the import hop was.
+   */
+  canvas?: { width: number; height: number };
+  contentOffset?: { left: number; top: number };
+  renderScale?: number;
   notes?: string;
+}
+
+const IMPORT_DIR = ".tmp/figma-fidelity/import";
+
+/**
+ * Every import case that produced artifacts is a round-trip case for free: the
+ * document the product persists is on disk next to Figma's own render of the
+ * same node. Deriving them beats listing them — the hand-written manifest
+ * covered 10 designs while the import corpus had grown to 23, so the export
+ * hop was simply unmeasured on more than half of them, including every mobile,
+ * tablet, and dashboard case.
+ */
+function discoverImportCases(): RoundTripCase[] {
+  if (!existsSync(IMPORT_DIR)) return [];
+  const cases: RoundTripCase[] = [];
+  for (const id of readdirSync(IMPORT_DIR)) {
+    const base = join(IMPORT_DIR, id);
+    const html = join(base, "stored.html");
+    const referencePng = join(base, "figma.png");
+    const importPng = join(base, "import.png");
+    const metaPath = join(base, "render.json");
+    if (![html, referencePng, importPng, metaPath].every(existsSync)) continue;
+    let meta: {
+      box?: { width?: number; height?: number };
+      ink?: { width?: number; height?: number };
+      contentOffset?: { left: number; top: number };
+      renderScale?: number;
+    };
+    try {
+      meta = JSON.parse(readFileSync(metaPath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!meta.box?.width || !meta.box?.height) continue;
+    cases.push({
+      id: `rt-${id}`,
+      html,
+      referencePng,
+      importPng,
+      width: meta.box.width,
+      height: meta.box.height,
+      canvas:
+        meta.ink?.width && meta.ink?.height
+          ? { width: meta.ink.width, height: meta.ink.height }
+          : undefined,
+      contentOffset: meta.contentOffset,
+      renderScale: meta.renderScale,
+      notes: "derived from the import run",
+    });
+  }
+  return cases;
 }
 
 interface Score {
@@ -155,10 +220,23 @@ async function runCase(
   // silently substitutes Arial for every custom face, which shifts every glyph
   // and would report a font the harness did not load as an export defect.
   const fontsUrl = googleFontsUrlForSvg(svg);
-  const rendered = await renderSvgToPng(browser, svg, {
-    width: testCase.width,
-    height: testCase.height,
-    deviceScaleFactor: 1,
+  // The SVG is the design at its own size; the canvas is the region Figma
+  // rendered. They differ whenever ink spills outside the frame box, so size
+  // the SVG explicitly and composite it at the same offset the import used
+  // rather than stretching it to the canvas.
+  const sizedSvg = svg.replace(
+    /<svg\b([^>]*)>/,
+    (match: string, attrs: string) =>
+      /\bwidth=/.test(attrs) && /\bheight=/.test(attrs)
+        ? match
+        : `<svg${attrs} width="${testCase.width}" height="${testCase.height}">`,
+  );
+  const rendered = await renderHtmlToPng(browser, sizedSvg, {
+    width: testCase.canvas?.width ?? testCase.width,
+    height: testCase.canvas?.height ?? testCase.height,
+    contentOffset: testCase.contentOffset,
+    contentSize: { width: testCase.width, height: testCase.height },
+    deviceScaleFactor: testCase.renderScale ?? 1,
     headHtml: fontsUrl
       ? `<link rel="stylesheet" href="${fontsUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
       : "",
@@ -208,9 +286,19 @@ if (!existsSync(MANIFEST)) {
   );
 }
 const filter = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
-const cases = (
-  JSON.parse(readFileSync(MANIFEST, "utf8")) as RoundTripCase[]
-).filter((testCase) => !filter || testCase.id.includes(filter));
+const manifestCases = JSON.parse(
+  readFileSync(MANIFEST, "utf8"),
+) as RoundTripCase[];
+// Discovered cases carry the import run's exact framing, so they win over a
+// hand-written entry for the same id; the manifest keeps the ones no import
+// run produces (the clipboard paths).
+const discovered = discoverImportCases();
+const byId = new Map<string, RoundTripCase>();
+for (const testCase of manifestCases) byId.set(testCase.id, testCase);
+for (const testCase of discovered) byId.set(testCase.id, testCase);
+const cases = [...byId.values()].filter(
+  (testCase) => !filter || testCase.id.includes(filter),
+);
 if (!cases.length) {
   throw new Error(
     `No round-trip cases matched${filter ? ` filter "${filter}"` : ""}.`,

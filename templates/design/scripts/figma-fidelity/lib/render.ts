@@ -38,6 +38,14 @@ export interface RenderOptions {
    * ink-sized canvas so both sides cover the same region.
    */
   contentOffset?: { left: number; top: number };
+  /**
+   * The frame's own size. The offset wrapper is a containing block, so it must
+   * carry the frame's dimensions: anything inside sized against its container
+   * (`inset: 0`, percentage widths) otherwise resolves against a zero-sized box
+   * and collapses. Defaults to the full canvas, which is the frame box whenever
+   * no offset is in play.
+   */
+  contentSize?: { width: number; height: number };
 }
 
 export interface RenderResult {
@@ -52,14 +60,15 @@ const DOCUMENT_SHELL = (
   width: number,
   height: number,
   offset: { left: number; top: number },
+  content: { width: number; height: number },
 ) => `<!doctype html>
 <html><head><meta charset="utf-8">
 <style>
   html,body{margin:0;padding:0;background:transparent}
   /* The canvas is the region Figma rendered; nothing may reflow it. */
   #figma-fidelity-root{position:relative;width:${width}px;height:${height}px;overflow:hidden}
-  /* The frame's own origin, which is not the canvas origin when ink spills up/left. */
-  #figma-fidelity-frame{position:absolute;left:${offset.left}px;top:${offset.top}px}
+  /* The frame's own origin and size; the origin is not the canvas origin when ink spills up/left. */
+  #figma-fidelity-frame{position:absolute;left:${offset.left}px;top:${offset.top}px;width:${content.width}px;height:${content.height}px}
 </style>
 ${head}
 </head>
@@ -151,6 +160,7 @@ export async function renderHtmlToPng(
         width,
         height,
         options.contentOffset ?? { left: 0, top: 0 },
+        options.contentSize ?? { width, height },
       ),
       { waitUntil: "load", timeout: timeoutMs },
     );

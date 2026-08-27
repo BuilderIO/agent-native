@@ -474,6 +474,7 @@ async function runCase(
       width: ink.width,
       height: ink.height,
       contentOffset,
+      contentSize: { width: box.width, height: box.height },
       deviceScaleFactor: renderScale,
       headHtml: fontsUrl
         ? `<link rel="stylesheet" href="${fontsUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
