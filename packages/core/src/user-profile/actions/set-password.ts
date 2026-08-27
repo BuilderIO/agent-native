@@ -3,7 +3,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import {
   getBetterAuth,
-  getBetterAuthActionHeaders,
+  withBetterAuthActionSession,
 } from "../../server/better-auth-instance.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -28,20 +28,21 @@ export default defineAction({
     }
 
     const auth = await getBetterAuth();
-    const headers = await getBetterAuthActionHeaders(
+    return withBetterAuthActionSession(
       ctx.userEmail,
       ctx.requestHeaders,
+      async (headers) =>
+        (
+          auth.api as unknown as {
+            setPassword: (options: {
+              body: { newPassword: string };
+              headers: Headers;
+            }) => Promise<{ status: boolean }>;
+          }
+        ).setPassword({
+          body: { newPassword },
+          headers,
+        }),
     );
-    return (
-      auth.api as unknown as {
-        setPassword: (options: {
-          body: { newPassword: string };
-          headers: Headers;
-        }) => Promise<{ status: boolean }>;
-      }
-    ).setPassword({
-      body: { newPassword },
-      headers,
-    });
   },
 });

@@ -253,6 +253,7 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       linkAccount,
       createUser: vi.fn(async () => ({ id: "created-user" })),
       createOAuthUser,
+      deleteSession: vi.fn(async () => undefined),
       findAccountByProviderId: vi.fn(async () => null),
       replaceUnverifiedCredentialWithGoogle,
     };

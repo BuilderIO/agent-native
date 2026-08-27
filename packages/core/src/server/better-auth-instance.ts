@@ -998,6 +998,7 @@ export interface BetterAuthInternalAdapter {
     userId: string,
     dontRememberMe?: boolean,
   ) => Promise<{ token: string }>;
+  deleteSession: (token: string) => Promise<void>;
   createOAuthUser?: (
     user: { email: string; name: string; emailVerified?: boolean },
     account: { providerId: string; accountId: string },
@@ -1152,6 +1153,7 @@ export async function getBetterAuthInternalAdapter(
       typeof ia.linkAccount === "function" &&
       typeof ia.createUser === "function" &&
       typeof ia.createSession === "function" &&
+      typeof ia.deleteSession === "function" &&
       typeof ia.findAccountByProviderId === "function"
     ) {
       return {
@@ -1166,14 +1168,14 @@ export async function getBetterAuthInternalAdapter(
 }
 
 /**
- * Supply Better Auth with a session for password actions invoked through the
- * framework's legacy session boundary. Those requests have a trusted
- * `ctx.userEmail`, but may not carry Better Auth's own session cookie.
+ * Run a password action with a Better Auth session for the framework's legacy
+ * session boundary, deleting a session created only for this operation.
  */
-export async function getBetterAuthActionHeaders(
+export async function withBetterAuthActionSession<T>(
   email: string,
   requestHeaders: Headers,
-): Promise<Headers> {
+  action: (headers: Headers) => Promise<T>,
+): Promise<T> {
   const auth = await getBetterAuth();
   const existingSession = await auth.api.getSession({
     headers: requestHeaders,
@@ -1185,7 +1187,7 @@ export async function getBetterAuthActionHeaders(
     ) {
       throw new Error("Authenticated user mismatch.");
     }
-    return new Headers(requestHeaders);
+    return action(new Headers(requestHeaders));
   }
 
   const session = await createBetterAuthSessionForEmail(email);
@@ -1193,7 +1195,14 @@ export async function getBetterAuthActionHeaders(
 
   const headers = new Headers(requestHeaders);
   headers.set("authorization", `Bearer ${session.token}`);
-  return headers;
+  try {
+    return await action(headers);
+  } finally {
+    const adapter = await getBetterAuthInternalAdapter();
+    if (!adapter)
+      throw new Error("Better Auth session cleanup is unavailable.");
+    await adapter.deleteSession(session.token);
+  }
 }
 
 /** Create a real Better Auth session for an existing user without credentials. */
