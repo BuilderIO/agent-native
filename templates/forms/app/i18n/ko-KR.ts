@@ -199,6 +199,12 @@ const messages = {
       successMessage: "성공 메시지",
       defaultSuccessMessage: "감사합니다! 응답이 기록되었습니다.",
       redirectUrl: "리디렉션 URL(선택 사항)",
+      completionMode: "제출 후",
+      completionMessage: "새로 고칠 때까지 메시지 표시",
+      completionRedirect: "URL로 리디렉션",
+      completionMessageThenRefresh: "메시지를 표시한 후 새로 고침",
+      completionRefresh: "새 양식으로 새로 고침",
+      completionRefreshSeconds: "새로 고침까지(초)",
       anonymousResponses: "익명 응답",
       anonymousResponsesDescription:
         "IP 주소, 응답자 신원 또는 출처 메타데이터를 저장하지 않습니다.",

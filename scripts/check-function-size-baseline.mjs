@@ -33,11 +33,14 @@ const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const BASELINE_FILE = path.join(
-  REPO_ROOT,
-  "scripts",
-  "serverless-function-baseline.json",
-);
+/**
+ * The committed baseline. Overridable only so the guard's own test can record
+ * and compare against a throwaway file instead of the tracked one — a test that
+ * had to `--update` the real baseline would rewrite the thing it is asserting.
+ */
+const BASELINE_FILE =
+  process.env.AGENT_NATIVE_FUNCTION_SIZE_BASELINE_FILE ||
+  path.join(REPO_ROOT, "scripts", "serverless-function-baseline.json");
 
 /**
  * Growth under this is normal drift — a dependency patch, a few new routes.
@@ -224,11 +227,75 @@ function dirSize(dir) {
   return total;
 }
 
+/**
+ * Payloads whose presence is decided by the deploy environment rather than by
+ * anything in the app, so the same commit emits them in one build context and
+ * not another. These are reported, never subtracted — see below for why.
+ *
+ * `ffmpeg-static` is bundled only when `AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH`
+ * names an architecture matching the serverless target (`build.ts`,
+ * `shouldBundleFfmpegStaticForServerless`). Production sets it, beta does not,
+ * and the gap is ~76MB per emitted function.
+ *
+ * One baseline map serves both contexts, so whichever context recorded it last
+ * decides what the other is measured against, and it fails in both directions:
+ *
+ *   - Recorded on beta, checked on production: clips read 112.6MB against a
+ *     36.1MB baseline. Every production promotion of the media apps failed on
+ *     a 76MB "regression" that was the same binary both builds intended, and
+ *     clips served a stale build for two days because of it.
+ *   - Recorded on production, checked on beta: the inverse, and worse, because
+ *     it fails open — beta can absorb a real 76MB regression unnoticed.
+ *
+ * Printing the split does not fix that. It makes an otherwise inexplicable
+ * ±76MB swing legible at the moment someone hits it, which is the part that
+ * cost two days. Subtracting it here would NOT be safe while the committed
+ * baselines are a mix of both units: a build measured after subtraction and
+ * compared against a payload-inclusive baseline silently passes anything under
+ * the payload's own size. Making the metric context-independent means
+ * recording every baseline in one unit — a change to the baseline format, not
+ * to this measurement.
+ */
+const DEPLOY_GATED_RUNTIME_PAYLOADS = [
+  {
+    relativePath: path.join("node_modules", "ffmpeg-static"),
+    reason: "bundled only when AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH matches",
+  },
+];
+
+/** Deploy-gated payloads present in one emitted function, for reporting. */
+function deployGatedPayloads(functionDir) {
+  const found = [];
+  for (const payload of DEPLOY_GATED_RUNTIME_PAYLOADS) {
+    const payloadDir = path.join(functionDir, payload.relativePath);
+    if (!existsSync(payloadDir)) continue;
+    found.push({ ...payload, bytes: dirSize(payloadDir) });
+  }
+  return found;
+}
+
 function measure(functionsDir) {
   const sizes = {};
+  const gated = [];
   for (const entry of readdirSync(functionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    sizes[entry.name] = dirSize(path.join(functionsDir, entry.name));
+    const functionDir = path.join(functionsDir, entry.name);
+    sizes[entry.name] = dirSize(functionDir);
+    for (const payload of deployGatedPayloads(functionDir)) {
+      gated.push({ fn: entry.name, ...payload });
+    }
+  }
+  if (gated.length > 0) {
+    console.log(
+      `\n[size-baseline] ${gated.length} deploy-gated runtime payload(s) are in this ` +
+        "build and counted in the sizes below. A baseline recorded in the other " +
+        "build context differs by this much before any app code changes:",
+    );
+    for (const item of gated) {
+      console.log(
+        `  ${item.fn}: ${item.relativePath} ${mb(item.bytes)}MB (${item.reason})`,
+      );
+    }
   }
   return sizes;
 }

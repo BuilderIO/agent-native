@@ -14,6 +14,8 @@ import { getMethod, getRequestURL, type H3Event } from "h3";
 import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import { SENSITIVE_QUERY_PARAMS } from "../../shared/page-url.js";
 import {
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
   toPublicFormSettings,
   type FormField,
   type FormSettings,
@@ -164,9 +166,10 @@ function normalizeOptions(options: unknown): string[] {
 }
 
 /**
- * Validate a form-author-supplied post-submit redirect URL. Returns the
- * value verbatim only if it parses as `http:` or `https:` — falls back to
- * an empty string otherwise (caller treats empty as "no redirect").
+ * Validate a form-author-supplied post-submit redirect URL. Returns a
+ * root-relative path or the value verbatim when it parses as `http:` or
+ * `https:`. Falls back to an empty string otherwise (caller treats empty as
+ * "no redirect").
  *
  * Form publishers control `settings.redirectUrl` and the rendered page
  * assigns it to `window.location.href`. Without scheme validation a
@@ -180,6 +183,7 @@ export function safeRedirectUrl(value: unknown): string {
   // Reject control characters and protocol-relative URLs outright.
   if (/[\x00-\x1f]/.test(trimmed)) return "";
   if (trimmed.startsWith("//")) return "";
+  if (trimmed.startsWith("/")) return trimmed.includes("\\") ? "" : trimmed;
   try {
     const parsed = new URL(trimmed);
     return parsed.protocol === "http:" || parsed.protocol === "https:"
@@ -353,6 +357,9 @@ function renderFormPage(
 ): string {
   const settings: PublicFormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
+  const completionMode = getFormCompletionMode(settings);
+  const completionRefreshMilliseconds =
+    getFormCompletionRefreshSeconds(settings.completionRefreshSeconds) * 1000;
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
   const appBasePath = getAppBasePath();
   const submitPath = `${appBasePath}/api/submit/`;
@@ -444,6 +451,8 @@ function renderFormPage(
   var FORM_ID = ${JSON.stringify(form.id)};
   var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
   var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
+  var COMPLETION_MODE = ${JSON.stringify(completionMode)};
+  var COMPLETION_REFRESH_MS = ${completionRefreshMilliseconds};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
@@ -692,10 +701,14 @@ function renderFormPage(
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {
       if (!res.ok) { throw new Error(res.data.error || "Failed to submit"); }
-      if (REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "redirect" && REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "refresh") { window.location.reload(); return; }
       document.querySelector(".container").style.display = "none";
       document.getElementById("successView").style.display = "flex";
-      if (html.classList.contains("embedded") && window.parent !== window) {
+      if (COMPLETION_MODE === "message_then_refresh") {
+        window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);
+      }
+      if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded") && window.parent !== window) {
         try { window.parent.postMessage({ type: "agent-native-feedback-submitted" }, "*"); } catch (_) {}
       }
     })

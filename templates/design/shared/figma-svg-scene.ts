@@ -2689,6 +2689,13 @@ export function collectRawFigmaSvgScene(
     const style = view.getComputedStyle(el);
     const textAlign = style.textAlign;
     const elRect = el.getBoundingClientRect();
+    // Vertical centers use the ELEMENT's own CSS line-height box, not the
+    // Range's tight glyph-metrics rect: Chromium's getClientRects() height
+    // reflects font ascent/descent, which is usually shorter than the
+    // line-height the surrounding layout actually reserves, so
+    // `dominant-baseline="central"` measured against the tight rect lands a
+    // few px off from where the line visually centers (this was the global
+    // baseline-offset bug).
     // Emit the true alphabetic baseline instead of a line centre plus
     // `dominant-baseline="central"`. Figma's SVG importer ignores
     // dominant-baseline and reads `y` as the baseline, which lifted every
