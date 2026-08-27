@@ -1146,6 +1146,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
   const workspaceRuntime = isWorkspaceRuntime();
+  const trackingApp =
+    getAppConfig().app.slug ??
+    getAppConfig().app.template ??
+    getAppConfig().app.id ??
+    "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
@@ -2540,6 +2545,38 @@ ${signInJourneyInlineScript()}
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
     var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
+    var __AN_AUTH_APP = ${JSON.stringify(trackingApp)};
+    function __anTrackAuth(name, properties) {
+      try {
+        var config = window.__AGENT_NATIVE_CONFIG__ || {};
+        if (!config.agentNativeAnalyticsPublicKey) return;
+        var anonymousId = '';
+        // coercion-ok: privacy-restricted storage means this public event cannot be attributed
+        try { anonymousId = localStorage.getItem('agent-native.anonymous_id') || ''; } catch (e) {}
+        if (!anonymousId) return;
+        var sessionId = '';
+        // coercion-ok: privacy-restricted storage means this public event has no session id
+        try { sessionId = sessionStorage.getItem('agent-native.session_id') || ''; } catch (e) {}
+        var body = JSON.stringify({
+          publicKey: config.agentNativeAnalyticsPublicKey,
+          event: name,
+          properties: Object.assign({ app: __AN_AUTH_APP }, properties || {}),
+          anonymousId: anonymousId,
+          sessionId: sessionId || undefined,
+          timestamp: new Date().toISOString()
+        });
+        var endpoint = config.agentNativeAnalyticsEndpoint || 'https://analytics.agent-native.com/track';
+        if (navigator.sendBeacon && navigator.sendBeacon(endpoint, body)) return;
+        fetch(endpoint, {
+          method: 'POST',
+          body: body,
+          keepalive: true,
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+        // coercion-ok: analytics delivery is best effort and cannot block auth
+        }).catch(function() {});
+      // coercion-ok: analytics delivery is best effort and cannot block auth
+      } catch (e) {}
+    }
     function __anAuthLocaleIsSupported(value) {
       return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
     }
@@ -3998,6 +4035,7 @@ ${
       __anShowEmailValidationError(emailInput, msg);
       return;
     }
+    __anTrackAuth('auth.signup_clicked', { surface: 'signup', method: 'magic_link', auth_view: __anAuthView });
     var originalLabel = btn.textContent;
     btn.disabled = true;
     __anMagicLinkInFlight = isDesktopMagicLink;
@@ -4070,6 +4108,7 @@ ${
         __anShowEmailValidationError(emailInput, msg);
         return;
       }
+      __anTrackAuth('auth.signup_clicked', { surface: 'signup', method: 'password', auth_view: __anAuthView });
       var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4246,6 +4285,7 @@ ${
   renderGoogleButton
     ? `
     async function signInWithGoogle() {
+    __anTrackAuth(__anAuthView === 'login' ? 'auth.login_clicked' : 'auth.signup_clicked', { surface: 'signup', method: 'google', auth_view: __anAuthView });
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     var ret = __anResumeHref();
@@ -4314,6 +4354,13 @@ ${
   `
     : ""
 }
+  if (__anAuthView === 'signup' || __anAuthView === 'magicLink' || __anAuthView === 'googleOnly') {
+    __anTrackAuth('auth.signup_viewed', {
+      surface: 'signup',
+      auth_mode: __AN_AUTH_MODE,
+      auth_view: __anAuthView
+    });
+  }
 </script>
 </body>
 </html>`;

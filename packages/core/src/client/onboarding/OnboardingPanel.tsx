@@ -30,7 +30,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { useDevMode } from "../use-dev-mode.js";
-import { useOnboarding } from "./use-onboarding.js";
+import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
@@ -78,6 +78,18 @@ export function OnboardingPanel({
   // `allComplete` was true and `expanded` got locked to false even after the
   // real incomplete steps loaded.)
   const [expanded, setExpanded] = useState(true);
+
+  useEffect(() => {
+    if (previewMode || steps.length === 0) return;
+    trackOnboardingEvent("onboarding_started", { flow: "checklist" });
+    for (const [stepIndex, step] of steps.entries()) {
+      trackOnboardingEvent("onboarding_step_viewed", {
+        flow: "checklist",
+        step_id: step.id,
+        step_index: stepIndex,
+      });
+    }
+  }, [previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
   // Preview mode (dev overlay) bypasses the auto-hide so template authors

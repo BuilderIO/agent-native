@@ -157,6 +157,10 @@ export const FIRST_PARTY_TEMPLATE_SCOPED_METRIC_KEYS = [
   "seven-day-retention-by-template",
   "dau-over-time",
   "wau-over-time",
+  "activation-funnel",
+  "signup-method-conversion",
+  "onboarding-step-dropoff",
+  "sharing-actions-by-app",
 ] as const;
 const FIRST_PARTY_TEMPLATE_SQL_LIST = FIRST_PARTY_TEMPLATE_NAMES.map(
   (name) => `'${name}'`,
@@ -262,6 +266,19 @@ export const FIRST_PARTY_DASHBOARD_FILTERS: FirstPartyDashboardFilter[] = [
       { value: "only_builder", label: "Only @builder.io" },
     ],
   },
+  {
+    id: "appFilter",
+    type: "select",
+    label: "App",
+    default: "all",
+    options: [
+      { value: "all", label: "All Agent-Native apps" },
+      ...FIRST_PARTY_TEMPLATE_NAMES.map((value) => ({
+        value,
+        label: value[0].toUpperCase() + value.slice(1),
+      })),
+    ],
+  },
 ];
 
 export function buildFirstPartyDashboardFilters(): FirstPartyDashboardFilter[] {
@@ -272,7 +289,11 @@ export function buildFirstPartyDashboardFilters(): FirstPartyDashboardFilter[] {
 }
 
 export function usesFirstPartyDashboardFilters(sql: string): boolean {
-  return sql.includes("{{timeRange}}") || sql.includes("{{emailFilter}}");
+  return (
+    sql.includes("{{timeRange}}") ||
+    sql.includes("{{emailFilter}}") ||
+    sql.includes("{{appFilter}}")
+  );
 }
 
 const TOTAL_SIGNUPS_SQL = `SELECT COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
@@ -590,6 +611,17 @@ const REPEAT_USERS_SQL = PRE_MARKETING_SITE_REPEAT_USERS_SQL.replace(
   PRODUCT_ACTIVITY_TEMPLATE_FILTER,
   `${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
 );
+
+const DASHBOARD_APP_FILTER = `('{{appFilter}}' IN ('', 'all') OR lower(${TEMPLATE_EXPR}) = lower('{{appFilter}}'))`;
+const FUNNEL_EMAIL_FILTER =
+  "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(funnel_user_email, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io'))";
+const FUNNEL_SCOPE_FILTER = `${DASHBOARD_TIME_RANGE_FILTER} AND ${FUNNEL_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
+const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (SELECT NULLIF(anonymous_id, '') AS anonymous_id, MIN(NULLIF(user_id, '')) AS signup_user_id FROM analytics_events WHERE event_name = 'signup' AND NULLIF(anonymous_id, '') IS NOT NULL AND NULLIF(user_id, '') IS NOT NULL GROUP BY NULLIF(anonymous_id, '')), funnel_events AS (SELECT e.*, COALESCE(si.signup_user_id, NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key, COALESCE(si.signup_user_id, NULLIF(e.user_id, '')) AS funnel_user_email FROM analytics_events e LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous_id, ''))`;
+const SIGNIFICANT_ACTION_FILTER = `(event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
+const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE} SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'auth.signup_viewed' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 2 AS stage_order, 'Signup CTA clicked' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 3 AS stage_order, 'Signed up' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 4 AS stage_order, 'Onboarding started' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'onboarding_started' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 5 AS stage_order, 'Onboarding step reached' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 6 AS stage_order, 'Onboarding completed' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'onboarding_completed' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 7 AS stage_order, 'Entered app' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE (event_name = 'onboarding_app_entered' OR (event_name = 'session status' AND signed_in = 'true')) AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 8 AS stage_order, 'First significant action' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE ${SIGNIFICANT_ACTION_FILTER} AND ${FUNNEL_SCOPE_FILTER} ORDER BY stage_order`;
+const SIGNUP_METHOD_CONVERSION_SQL = `${FUNNEL_EVENTS_CTE}, clicks AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'method', ''), 'unknown') AS method, COUNT(DISTINCT funnel_user_key) AS clicks FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), signups AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'signup_method', ''), CASE WHEN lower(properties::jsonb ->> 'auth_provider') = 'google' THEN 'google' ELSE 'unknown' END) AS method, COUNT(DISTINCT funnel_user_key) AS signups FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), methods AS (SELECT method FROM clicks UNION SELECT method FROM signups) SELECT methods.method, COALESCE(clicks.clicks, 0) AS clicks, COALESCE(signups.signups, 0) AS signups, COALESCE(signups.signups::float / NULLIF(clicks.clicks, 0), 0) AS conversion_rate FROM methods LEFT JOIN clicks ON clicks.method = methods.method LEFT JOIN signups ON signups.method = methods.method ORDER BY clicks DESC NULLS LAST, methods.method`;
+const ONBOARDING_STEP_DROPOFF_SQL = `${FUNNEL_EVENTS_CTE}, views AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COALESCE(NULLIF(properties::jsonb ->> 'step_index', ''), '999') AS step_index, COUNT(DISTINCT funnel_user_key) AS users_reached FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2), completions AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COUNT(DISTINCT funnel_user_key) AS users_completed FROM funnel_events WHERE event_name = 'onboarding_step_completed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1) SELECT views.step_id, views.step_index, views.users_reached, COALESCE(completions.users_completed, 0) AS users_completed, COALESCE(completions.users_completed::float / NULLIF(views.users_reached, 0), 0) AS completion_rate FROM views LEFT JOIN completions ON completions.step_id = views.step_id ORDER BY views.step_index, views.step_id`;
+const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
 
 /**
  * Catalog entries. Order here is the default panel order when a caller passes
@@ -1320,6 +1352,82 @@ const ENTRIES: FirstPartyMetric[] = [
       color: "var(--brand-teal)",
       description:
         "View to click to signup funnel for shared surfaces over the window: share_view, share_cta_click, then clip_share signups.",
+    },
+  },
+  {
+    key: "activation-funnel",
+    title: "Agent-Native Activation Funnel",
+    chartType: "bar",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ACTIVATION_FUNNEL_SQL),
+    config: {
+      xKey: "stage",
+      yKey: "users",
+      yFormatter: "number",
+      color: "var(--brand-purple)",
+      description:
+        "Distinct visitors through the Agent-Native funnel: signup page, signup CTA, signup, onboarding, app entry, and first significant action. Anonymous pre-signup events are joined to their signup identity when available. Use the App and Email filters to isolate a product or cohort.",
+    },
+  },
+  {
+    key: "signup-method-conversion",
+    title: "Signup Method Usage & Conversion",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(SIGNUP_METHOD_CONVERSION_SQL),
+    config: {
+      description:
+        "Distinct signup CTA users, completed signups, and signup conversion by Google, magic link, password, or unknown method.",
+      columns: [
+        { key: "method", label: "Method" },
+        { key: "clicks", label: "CTA users", format: "number" },
+        { key: "signups", label: "Signups", format: "number" },
+        { key: "conversion_rate", label: "Conversion", format: "percent" },
+      ],
+    },
+  },
+  {
+    key: "onboarding-step-dropoff",
+    title: "Onboarding Step Drop-off",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(ONBOARDING_STEP_DROPOFF_SQL),
+    config: {
+      xKey: "step_id",
+      description:
+        "Distinct visitors who reached and completed each first-run or checklist onboarding step, ordered by the emitted step index.",
+      columns: [
+        { key: "step_index", label: "Order" },
+        { key: "step_id", label: "Step" },
+        { key: "users_reached", label: "Reached", format: "number" },
+        { key: "users_completed", label: "Completed", format: "number" },
+        { key: "completion_rate", label: "Completion", format: "percent" },
+      ],
+    },
+  },
+  {
+    key: "sharing-actions-by-app",
+    title: "Sharing Actions by App",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(SHARING_ACTIONS_BY_APP_SQL),
+    config: {
+      description:
+        "Sharing views, CTA clicks, invitations, public visibility changes, and copied links by Agent-Native app. Counts users as well as events.",
+      columns: [
+        { key: "app", label: "App" },
+        { key: "action", label: "Action" },
+        { key: "events", label: "Events", format: "number" },
+        { key: "users", label: "Users", format: "number" },
+      ],
     },
   },
   {

@@ -53,6 +53,70 @@
           "label": "Only @builder.io"
         }
       ]
+    },
+    {
+      "id": "appFilter",
+      "type": "select",
+      "label": "App",
+      "default": "all",
+      "options": [
+        {
+          "value": "all",
+          "label": "All Agent-Native apps"
+        },
+        {
+          "value": "analytics",
+          "label": "Analytics"
+        },
+        {
+          "value": "assets",
+          "label": "Assets"
+        },
+        {
+          "value": "brain",
+          "label": "Brain"
+        },
+        {
+          "value": "calendar",
+          "label": "Calendar"
+        },
+        {
+          "value": "chat",
+          "label": "Chat"
+        },
+        {
+          "value": "clips",
+          "label": "Clips"
+        },
+        {
+          "value": "content",
+          "label": "Content"
+        },
+        {
+          "value": "design",
+          "label": "Design"
+        },
+        {
+          "value": "dispatch",
+          "label": "Dispatch"
+        },
+        {
+          "value": "forms",
+          "label": "Forms"
+        },
+        {
+          "value": "mail",
+          "label": "Mail"
+        },
+        {
+          "value": "plan",
+          "label": "Plan"
+        },
+        {
+          "value": "slides",
+          "label": "Slides"
+        }
+      ]
     }
   ],
   "panels": [

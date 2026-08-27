@@ -184,6 +184,7 @@ describe("compose-dashboard", () => {
         id: "emailFilter",
         default: "exclude_builder",
       }),
+      expect.objectContaining({ id: "appFilter", default: "all" }),
     ]);
 
     // Each panel has the canonical first-party shape.
@@ -281,6 +282,21 @@ describe("compose-dashboard", () => {
       expect(panel.sql).toContain("<= to_char(CURRENT_DATE, 'YYYY-MM-DD')");
       expect(panel.sql).not.toContain("AT TIME ZONE");
       expect(panel.sql).not.toContain("now() AT TIME ZONE");
+    }
+  });
+
+  it("builds the Agent-Native funnel panels with shared filters", () => {
+    for (const metric of [
+      "activation-funnel",
+      "signup-method-conversion",
+      "onboarding-step-dropoff",
+      "sharing-actions-by-app",
+    ]) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("analytics_events");
+      expect(panel.sql).toContain("{{timeRange}}");
+      expect(panel.sql).toContain("{{emailFilter}}");
+      expect(panel.sql).toContain("{{appFilter}}");
     }
   });
 
@@ -420,6 +436,7 @@ describe("compose-dashboard", () => {
       { id: "region", label: "Region", type: "text" },
       expect.objectContaining({ id: "timeRange" }),
       expect.objectContaining({ id: "emailFilter" }),
+      expect.objectContaining({ id: "appFilter" }),
     ]);
   });
 

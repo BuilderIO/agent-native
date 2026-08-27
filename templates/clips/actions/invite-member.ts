@@ -20,6 +20,7 @@ import {
   renderEmail,
   emailStrong,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -150,6 +151,20 @@ export default defineAction({
       status: "pending",
       role,
     });
+
+    track(
+      "share_invite_sent",
+      {
+        app: "clips",
+        template: "clips",
+        resource_type: "organization",
+        resource_id: organizationId,
+        principal_type: "user",
+        role,
+        notified: await isEmailConfigured(),
+      },
+      { userId: inviter },
+    );
 
     const orgName = await fetchOrgName(organizationId);
     const inviteUrl = `${baseUrl()}/invite/${token}`;

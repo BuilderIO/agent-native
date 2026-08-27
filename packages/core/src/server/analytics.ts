@@ -1,3 +1,5 @@
+import { getAppConfig } from "../app-config/index.js";
+
 /**
  * Opt-in analytics injection for SSR streams.
  * Supported environment variables:
@@ -28,6 +30,9 @@
 
 declare const __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: string | undefined;
 declare const __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: string | undefined;
+
+const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
+  "https://analytics.agent-native.com/track";
 
 function normalizeMeasurementId(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -65,6 +70,32 @@ function getGaMeasurementId(): string | null {
     normalizeMeasurementId(process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID) ||
     normalizeMeasurementId(getViteBakedGaMeasurementId())
   );
+}
+
+function getAgentNativeAnalyticsPublicKey(): string | null {
+  return normalizeMeasurementId(getAppConfig().analytics.agentNativePublicKey);
+}
+
+function getAgentNativeAnalyticsEndpoint(): string {
+  return (
+    normalizeMeasurementId(getAppConfig().analytics.agentNativeEndpoint) ||
+    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+  );
+}
+
+/** Project public first-party Analytics config into static auth HTML. */
+export function getAgentNativeAnalyticsConfigScript(): string | null {
+  const publicKey = getAgentNativeAnalyticsPublicKey();
+  if (!publicKey) return null;
+  return [
+    "<script data-agent-native-analytics-config>",
+    "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
+    JSON.stringify({
+      agentNativeAnalyticsPublicKey: publicKey,
+      agentNativeAnalyticsEndpoint: getAgentNativeAnalyticsEndpoint(),
+    }),
+    ");</script>",
+  ].join("");
 }
 
 /**
@@ -115,16 +146,20 @@ type AnalyticsInjection = {
 };
 
 function getAnalyticsInjection(): AnalyticsInjection | null {
+  const agentNativeAnalytics = getAgentNativeAnalyticsConfigScript();
   const containerId = getGtmContainerId();
   if (containerId) {
     return {
-      head: getGtmHeadScript(containerId),
+      head: [agentNativeAnalytics, getGtmHeadScript(containerId)]
+        .filter(Boolean)
+        .join(""),
       body: getGtmBodyFallback(containerId),
     };
   }
 
   const gaScript = getGaScript();
-  return gaScript ? { head: gaScript, body: "" } : null;
+  const head = [agentNativeAnalytics, gaScript].filter(Boolean).join("");
+  return head ? { head, body: "" } : null;
 }
 
 const HEAD_CLOSE_PATTERN = /<\/head>/i;

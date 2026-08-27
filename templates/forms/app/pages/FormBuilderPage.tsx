@@ -2,6 +2,7 @@ import {
   AgentToggleButton,
   useSendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useReconciledState } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
@@ -578,7 +579,15 @@ export function FormBuilderPage() {
       toast.info(t("builder.publishBeforeCopyToast"));
       return;
     }
-    navigator.clipboard.writeText(publishedFormUrl);
+    void navigator.clipboard.writeText(publishedFormUrl).then(
+      () =>
+        trackEvent("share_link_copied", {
+          resource_type: "form",
+          resource_id: loadedForm.id,
+          link_type: "share",
+        }),
+      () => undefined,
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success(t("builder.linkCopiedToast"));

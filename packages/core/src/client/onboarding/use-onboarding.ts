@@ -13,11 +13,32 @@ import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
 } from "./first-run-status.js";
+
+const seenOnboardingEvents = new Set<string>();
+
+export function trackOnboardingEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  if (typeof window === "undefined") return;
+  const key = [
+    name,
+    properties.flow,
+    properties.step_id,
+    properties.extension_id,
+  ]
+    .map((value) => String(value ?? ""))
+    .join(":");
+  if (seenOnboardingEvents.has(key)) return;
+  seenOnboardingEvents.add(key);
+  trackEvent(name, properties);
+}
 
 export interface UseOnboardingResult {
   steps: OnboardingStepStatus[];
@@ -148,7 +169,7 @@ export function useOnboarding(
 
   const complete = useCallback(
     async (id: string) => {
-      await fetch(
+      const response = await fetch(
         agentNativePath(
           `/_agent-native/onboarding/steps/${encodeURIComponent(id)}/complete`,
         ),
@@ -158,6 +179,12 @@ export function useOnboarding(
           body: "{}",
         },
       );
+      if (!response.ok)
+        throw new Error(`onboarding step failed: ${response.status}`);
+      trackOnboardingEvent("onboarding_step_completed", {
+        flow: "checklist",
+        step_id: id,
+      });
       await fetchAll();
     },
     [fetchAll],
@@ -218,6 +245,7 @@ export function useOnboarding(
       setCompleteFirstRunError(message);
       throw new Error(message);
     }
+    trackOnboardingEvent("onboarding_completed", { flow: "first_run" });
     setFirstRun(false);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));

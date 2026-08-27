@@ -805,6 +805,7 @@ export async function createOAuthSession(
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         origin: "google_oauth",
+        signupMethod: "google",
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,

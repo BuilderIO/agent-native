@@ -1,5 +1,5 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
-import { track } from "@agent-native/core/client/analytics";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -407,7 +407,7 @@ export default function ShareRoute() {
   const fireShareCtaClick = useCallback(
     (cta: "signup" | "download" | "try_clips" | "signin") => {
       try {
-        void track("share_cta_click", {
+        void trackEvent("share_cta_click", {
           surface: "clip",
           recording_id: recordingId,
           cta,
@@ -433,7 +433,7 @@ export default function ShareRoute() {
     if (shareViewFiredRef.current) return;
     shareViewFiredRef.current = true;
     try {
-      void track("share_view", {
+      void trackEvent("share_view", {
         surface: "clip",
         recording_id: recordingId,
         ref: attribution.ref,

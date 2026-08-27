@@ -572,6 +572,8 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain("function __anSyncAnalyticsAnonymousId()");
     expect(html).toContain("localStorage.getItem('agent-native.anonymous_id')");
     expect(html).toContain("document.cookie = 'an_aid='");
+    expect(html).toContain("auth.signup_viewed");
+    expect(html).toContain("auth.signup_clicked");
   });
 
   it("omits hosted terms and privacy links on unhosted email signup", () => {

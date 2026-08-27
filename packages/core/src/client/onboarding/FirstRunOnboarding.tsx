@@ -9,7 +9,7 @@ import {
   IconLoader2,
   IconSearch,
 } from "@tabler/icons-react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   OnboardingAppProfile,
@@ -42,7 +42,7 @@ import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
-import { useOnboarding } from "./use-onboarding.js";
+import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FirstRunScreen =
@@ -110,6 +110,28 @@ export function FirstRunOnboarding({
     () => filterMcpIntegrations(integrationQuery, mcpCatalog),
     [integrationQuery, mcpCatalog],
   );
+  useEffect(() => {
+    if (!previewMode && firstRun) {
+      trackOnboardingEvent("onboarding_started", { flow: "first_run" });
+    }
+  }, [firstRun, previewMode]);
+  useEffect(() => {
+    if (previewMode || !firstRun) return;
+    const extension =
+      screen === "extension" ? extensions[extensionIndex] : undefined;
+    const stepId = extension ? `extension:${extension.id}` : screen;
+    const stepIndex = extension
+      ? 6 + extensionIndex
+      : (
+          ["intro", "choice", "manual", "tools", "connecting", "ready"] as const
+        ).indexOf(screen as Exclude<FirstRunScreen, "extension">);
+    trackOnboardingEvent("onboarding_step_viewed", {
+      flow: "first_run",
+      step_id: stepId,
+      step_index: stepIndex,
+      ...(extension ? { extension_id: extension.id } : {}),
+    });
+  }, [extensionIndex, extensions, firstRun, previewMode, screen]);
   const connectedUrls = useMemo(() => {
     if (previewMode) return new Set<string>();
     const servers = [

@@ -10,6 +10,7 @@ import React, {
 import { DefaultSpinner } from "../DefaultSpinner.js";
 import { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
 import { fetchFirstRunOnboardingStatus } from "./first-run-status.js";
+import { trackOnboardingEvent } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 const FirstRunOnboarding = lazy(() =>
@@ -45,6 +46,7 @@ export function FirstRunOnboardingStartupGate({
 
     let cancelled = false;
     const handleFirstRunCompleted = () => {
+      trackOnboardingEvent("onboarding_app_entered", { flow: "first_run" });
       cancelled = true;
       setDecision("ineligible");
     };
