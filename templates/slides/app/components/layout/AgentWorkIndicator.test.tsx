@@ -46,11 +46,11 @@ function setVisibleRect(element: HTMLElement) {
     }) as DOMRect;
 }
 
-function dispatchRunning(isRunning: boolean) {
+function dispatchRunning(isRunning: boolean, reason?: string) {
   act(() => {
     window.dispatchEvent(
       new CustomEvent("agentNative.chatRunning", {
-        detail: { isRunning },
+        detail: { isRunning, ...(reason ? { reason } : {}) },
       }),
     );
   });
@@ -139,6 +139,16 @@ describe("AgentWorkIndicator", () => {
     });
     expect(focusAgentChat).toHaveBeenCalledTimes(1);
     window.removeEventListener("agent-panel:set-mode", modeListener);
+  });
+
+  it("hides immediately when the user explicitly stops the run", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(false, "stopped");
+
+    expect(screen.queryByText("Agent is working")).toBeNull();
   });
 
   it("stays visible across brief continuation gaps", () => {
