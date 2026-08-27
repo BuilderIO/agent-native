@@ -104,3 +104,40 @@ describe("useLabels", () => {
     expect(source).toContain("export const EMPTY_LABELS: Label[] = [];");
   });
 });
+
+describe("serializePinnedLabelsUpdate", () => {
+  it("runs pinned-label writes in order", async () => {
+    const { serializePinnedLabelsUpdate } = await import("./use-emails");
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+
+    const first = serializePinnedLabelsUpdate(
+      () =>
+        new Promise<void>((resolve) => {
+          events.push("first");
+          releaseFirst = resolve;
+        }),
+    );
+    const second = serializePinnedLabelsUpdate(async () => {
+      events.push("second");
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["first"]);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(["first", "second"]);
+  });
+});
+
+describe("useUpdateSettings", () => {
+  it("serializes pinned-label snapshots without touching other settings writes", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain('"pinnedLabels" in data');
+    expect(source).toContain("serializePinnedLabelsUpdate(() =>");
+    expect(source).toContain("requestSource: TAB_ID");
+  });
+});

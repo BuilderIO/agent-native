@@ -1482,6 +1482,20 @@ export function useLabels() {
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
+let pinnedLabelsUpdateTail: Promise<void> = Promise.resolve();
+let pinnedLabelsUpdateToken = 0;
+
+export function serializePinnedLabelsUpdate<T>(
+  task: () => Promise<T>,
+): Promise<T> {
+  const run = pinnedLabelsUpdateTail.then(task, task);
+  pinnedLabelsUpdateTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export function useSettings() {
   return useQuery<UserSettings>({
     queryKey: ["settings"],
@@ -1494,23 +1508,51 @@ export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<UserSettings>) =>
-      callAction(
-        "update-mail-preferences",
-        { ...data, requestSource: TAB_ID },
-        { method: "PUT" },
-      ),
+      "pinnedLabels" in data
+        ? serializePinnedLabelsUpdate(() =>
+            callAction(
+              "update-mail-preferences",
+              { ...data, requestSource: TAB_ID },
+              { method: "PUT" },
+            ),
+          )
+        : callAction(
+            "update-mail-preferences",
+            { ...data, requestSource: TAB_ID },
+            { method: "PUT" },
+          ),
     onMutate: async (data) => {
       // Optimistic update: immediately merge into cached settings
       await qc.cancelQueries({ queryKey: ["settings"] });
       const prev = qc.getQueryData<UserSettings>(["settings"]);
+      const hasPinnedLabels = "pinnedLabels" in data;
+      const token = hasPinnedLabels ? ++pinnedLabelsUpdateToken : undefined;
       if (prev) {
         qc.setQueryData(["settings"], { ...prev, ...data });
       }
-      return { prev };
+      return { prev, data, token };
     },
     onError: (_err, _data, ctx) => {
-      // Rollback on error
-      if (ctx?.prev) qc.setQueryData(["settings"], ctx.prev);
+      if (!ctx?.prev) return;
+
+      const current = qc.getQueryData<UserSettings>(["settings"]);
+      if (!current) return;
+
+      if (ctx.token !== undefined && ctx.token !== pinnedLabelsUpdateToken) {
+        return;
+      }
+
+      const rollback: Partial<UserSettings> = {};
+      let changed = false;
+      for (const key of Object.keys(ctx.data) as (keyof UserSettings)[]) {
+        if (current[key] === ctx.data[key]) {
+          rollback[key] = ctx.prev[key];
+          changed = true;
+        }
+      }
+
+      if (!changed) return;
+      qc.setQueryData(["settings"], { ...current, ...rollback });
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
