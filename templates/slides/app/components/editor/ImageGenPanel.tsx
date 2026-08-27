@@ -30,6 +30,15 @@ export interface BuildImageGenerationContextArgs {
   referenceImageUrls?: string[];
 }
 
+export function getImageGenerationLabel(
+  prompt: string,
+  slideIndex?: number,
+): string {
+  return prompt.trim()
+    ? prompt
+    : `Generate image for slide ${slideIndex === undefined ? "" : slideIndex + 1}`;
+}
+
 export function buildImageGenerationContext({
   prompt,
   slideContext,
@@ -141,10 +150,7 @@ export default function ImageGenPanel({
       referenceImageUrls: activeRefs,
     });
 
-    const label =
-      prompt.length > 0
-        ? prompt
-        : `Generate image for slide ${slideContext ? slideContext.slideIndex + 1 : ""}`;
+    const label = getImageGenerationLabel(prompt, slideContext?.slideIndex);
 
     agentSubmit(label, context);
     setPrompt("");

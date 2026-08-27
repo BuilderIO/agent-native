@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildImageGenerationContext } from "./ImageGenPanel";
+import {
+  buildImageGenerationContext,
+  getImageGenerationLabel,
+} from "./ImageGenPanel";
 
 describe("buildImageGenerationContext", () => {
   it("emits an explicit referenceImageUrls instruction for selected style refs", () => {
@@ -28,6 +31,20 @@ describe("buildImageGenerationContext", () => {
     );
     expect(context).toContain(
       "Pass deckId, slideId, slideContent, and referenceImageUrls to the action so Assets can ground the generation in this slide.",
+    );
+  });
+});
+
+describe("getImageGenerationLabel", () => {
+  it("preserves nonempty prompt text exactly", () => {
+    expect(getImageGenerationLabel("  a warm editorial hero image  ", 0)).toBe(
+      "  a warm editorial hero image  ",
+    );
+  });
+
+  it("uses the slide fallback for whitespace-only prompts", () => {
+    expect(getImageGenerationLabel("  \n", 1)).toBe(
+      "Generate image for slide 2",
     );
   });
 });

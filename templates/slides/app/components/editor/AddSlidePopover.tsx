@@ -18,6 +18,7 @@ import {
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
+import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 
@@ -195,6 +196,7 @@ export function AddSlidePopover({
             `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
             `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
             "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+            WEBSITE_STYLE_REFERENCE_DIRECTIVE,
             googleDocSourceForContext.text,
             googleDocSourceForContext.truncated
               ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
