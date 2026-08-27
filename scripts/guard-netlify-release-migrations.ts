@@ -14,6 +14,15 @@ const BETA_SCHEMA_OWNER_RUNTIME_FILES = [
 ] as const;
 const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
 const BETA_SCHEMA_OWNER_CONFIG_CONSUMER = "migration.betaSchemaOwner";
+const MANAGED_DRIZZLE_SKILL_FILES = [
+  ".agents/skills/storing-data/SKILL.md",
+  "packages/core/src/templates/default/.agents/skills/storing-data/SKILL.md",
+  "templates/chat/.agents/skills/storing-data/SKILL.md",
+] as const;
+const FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES = [
+  "packages/core/src/templates/default/scripts/migrate-production.ts",
+  "templates/chat/scripts/migrate-production.ts",
+] as const;
 const RELEASE_COMMAND = /\bmigrate:production\b/;
 const RELEASE_FLAG =
   /^\s*AGENT_NATIVE_RELEASE_MIGRATIONS\s*=\s*["']1["']\s*(?:#.*)?$/m;
@@ -197,6 +206,52 @@ export function validateBetaSchemaOwnerRuntimeContract(
   return issues;
 }
 
+export function validateManagedDrizzleMigrationOwnership(
+  repoRoot = REPO_ROOT,
+): string[] {
+  const issues: string[] = [];
+
+  for (const relativeFile of MANAGED_DRIZZLE_SKILL_FILES) {
+    const file = path.join(repoRoot, relativeFile);
+    if (!existsSync(file)) {
+      issues.push(
+        `${relativeFile}: managed Drizzle migration guidance is missing`,
+      );
+      continue;
+    }
+    const source = readFileSync(file, "utf8");
+    if (
+      !source.includes("drizzle/schema.ts") ||
+      !source.includes("db:generate") ||
+      !source.includes("scripts/migrate-production.ts` is framework-only") ||
+      !source.includes("do not create a parallel `runMigrations([...])` list")
+    ) {
+      issues.push(
+        `${relativeFile}: must keep managed app migrations in generated Drizzle files and the release script framework-only`,
+      );
+    }
+  }
+
+  for (const relativeFile of FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES) {
+    const file = path.join(repoRoot, relativeFile);
+    if (!existsSync(file)) {
+      issues.push(
+        `${relativeFile}: framework release migration script is missing`,
+      );
+      continue;
+    }
+    const source = readFileSync(file, "utf8");
+    if (!source.includes("runFrameworkReleaseMigrations(null)")) {
+      issues.push(`${relativeFile}: must run framework release migrations`);
+    }
+    if (/from\s+["'][^"']*server\/plugins\/db(?:\.js)?["']/.test(source)) {
+      issues.push(`${relativeFile}: must not import an app migration runner`);
+    }
+  }
+
+  return issues;
+}
+
 function readTomlSection(source: string, header: string): string | null {
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === `[${header}]`);
@@ -241,6 +296,7 @@ export function findNetlifyReleaseMigrationIssues(
     );
   }
   issues.push(...validateBetaSchemaOwnerRuntimeContract(repoRoot));
+  issues.push(...validateManagedDrizzleMigrationOwnership(repoRoot));
   return issues;
 }
 

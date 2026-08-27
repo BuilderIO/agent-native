@@ -8,6 +8,7 @@ import {
   findNetlifyReleaseMigrationIssues,
   validateBetaPrebuiltReleaseEnvironment,
   validateBetaSchemaOwnerRuntimeContract,
+  validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
 } from "./guard-netlify-release-migrations.ts";
@@ -142,6 +143,10 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
 
   it("passes for every checked repository Netlify project", () => {
     assert.deepEqual(findNetlifyReleaseMigrationIssues(), []);
+  });
+
+  it("keeps managed app migrations out of framework release scripts", () => {
+    assert.deepEqual(validateManagedDrizzleMigrationOwnership(), []);
   });
 
   it("requires the beta schema owner marker to reach runtime", () => {
