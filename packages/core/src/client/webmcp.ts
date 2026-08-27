@@ -522,7 +522,8 @@ function sensitiveAction(action: AgentNativeClientAction): boolean {
 function actionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeWebMcpActionManifest {
-  const { name: _name, description: _description, ...manifest } = action;
+  const manifest = { ...action };
+  delete (manifest as Partial<AgentNativeClientAction>).run;
   return manifest;
 }
 

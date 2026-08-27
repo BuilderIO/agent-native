@@ -581,7 +581,8 @@ async function handleExtensionDataUpsert(
     return { error: "data is required" };
   }
   const itemId = String(body.id || randomUUID());
-  const data = String(body.data);
+  const data =
+    typeof body.data === "string" ? body.data : JSON.stringify(body.data);
   if (Buffer.byteLength(data, "utf8") > MAX_EXTENSION_DATA_BYTES) {
     setResponseStatus(event, 413);
     return {
@@ -766,7 +767,7 @@ async function handleProxy(
 
     if (rawBody) {
       const bodyResult = await resolveKeyReferencesWithRequestScopes(
-        String(rawBody),
+        typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody),
         userEmail,
       );
       resolvedBody = bodyResult.resolved;

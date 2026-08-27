@@ -3158,12 +3158,14 @@ function installNetworkCapture(
   }
 
   if (typeof XMLHttpRequest !== "undefined" && XMLHttpRequest.prototype) {
-    const originalOpen = XMLHttpRequest.prototype.open.bind(
+    const originalOpen = Reflect.get(
       XMLHttpRequest.prototype,
-    );
-    const originalSend = XMLHttpRequest.prototype.send.bind(
+      "open",
+    ) as typeof XMLHttpRequest.prototype.open;
+    const originalSend = Reflect.get(
       XMLHttpRequest.prototype,
-    );
+      "send",
+    ) as typeof XMLHttpRequest.prototype.send;
     const xhrInfo = new WeakMap<
       XMLHttpRequest,
       { method: string; url: string }
