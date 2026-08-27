@@ -33,8 +33,59 @@ import {
   extractSelectedNodeIds,
 } from "../../app/lib/figma-clipboard.js";
 import { importFigmaClipboardFromBuffer } from "../../server/lib/figma-clipboard-local-decode.js";
+import {
+  collectImageRefHashes,
+  hydrateImageRefsInHtml,
+} from "../../server/lib/figma-image-hydration.js";
 import { comparePngs } from "./lib/compare.js";
 import { renderHtmlToPng } from "./lib/render.js";
+
+/**
+ * Resolve the clipboard's image hashes to Figma's own CDN URLs. Unlike the
+ * product's action this does not mirror them to durable storage: a harness
+ * renders once and throws the page away, and the mirror needs app blob storage
+ * a script does not have. Returns null when no token is configured, so the run
+ * still produces its unhydrated number instead of failing.
+ */
+async function hydratePasteImages(
+  html: string,
+  fileKey: string,
+): Promise<{ html: string; resolved: number; missing: number } | null> {
+  if (!process.env.FIGMA_FIDELITY_TOKEN) return null;
+  const hashes = collectImageRefHashes(html);
+  if (hashes.length === 0) return null;
+  // Straight to Figma, not through the app's provider API: that path resolves
+  // a workspace credential from an authenticated request context, which a
+  // script does not have.
+  const response = await fetch(
+    `https://api.figma.com/v1/files/${fileKey}/images`,
+    {
+      headers: { "X-Figma-Token": process.env.FIGMA_FIDELITY_TOKEN! },
+      signal: AbortSignal.timeout(60_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Figma image-fill lookup failed: ${response.status} ${await response.text()}`,
+    );
+  }
+  const body = (await response.json()) as {
+    meta?: { images?: Record<string, string | null | undefined> };
+    images?: Record<string, string | null | undefined>;
+  };
+  const json = { images: body.meta?.images ?? body.images };
+  const urls = new Map<string, string>();
+  for (const hash of hashes) {
+    const url = json.images?.[hash];
+    if (typeof url === "string" && url) urls.set(hash, url);
+  }
+  const out = hydrateImageRefsInHtml(html, urls);
+  return {
+    html: out.html,
+    resolved: out.resolved,
+    missing: out.missing.length,
+  };
+}
 
 const OUT_DIR = ".tmp/figma-fidelity/paste";
 const IMPORT_DIR = ".tmp/figma-fidelity/import";
@@ -66,6 +117,8 @@ interface CaseOutcome {
   nodeCount?: number;
   /** Image fills the clipboard could not carry; they render as placeholders. */
   unresolvedImages?: number;
+  /** Image fills resolved from Figma's CDN, as the connected product does. */
+  hydratedImages?: number;
   warnings?: string[];
   vsFigma?: {
     diffPercent: number;
@@ -176,6 +229,14 @@ async function runCase(
     );
   }
   const file = result.files[0]!;
+  // The clipboard carries image HASHES, never bytes. The product resolves them
+  // through `hydrate-figma-paste-images` once Figma is connected, so measuring
+  // the unhydrated HTML scores a documented absence rather than the converter:
+  // on the Untitled UI landing page the placeholders alone cover 16% of the
+  // page. Hydrate here when a token is available so the number matches what a
+  // connected user actually gets, and keep the unhydrated one beside it.
+  const hydration = await hydratePasteImages(file.content, figmeta.fileKey);
+  if (hydration) file.content = hydration.html;
   const width = file.preferredFrame?.width;
   const height = file.preferredFrame?.height;
   if (!width || !height) {
@@ -216,7 +277,10 @@ async function runCase(
     bufferBytes: Buffer.from(bufferBase64, "base64").length,
     frameCount: result.stats.frameCount,
     nodeCount: result.stats.nodeCount,
-    unresolvedImages: result.stats.unresolvedImageCount,
+    unresolvedImages: hydration
+      ? hydration.missing
+      : result.stats.unresolvedImageCount,
+    hydratedImages: hydration?.resolved ?? 0,
     warnings: result.warnings,
     renderWarnings: rendered.warnings,
   };

@@ -175,10 +175,24 @@ with no DOCUMENT/CANVAS above it, so it goes through `normalizeClipboardDocument
 first, and it carries NO image bytes — only 20-byte hashes that
 `hydrate-figma-paste-images` resolves later once a token is connected.
 
-Read the number accordingly: every image fill renders as an `about:blank`
-placeholder, so a photography-heavy design scores a large diff by design. The
-table prints `noImg` beside the diff so the number stays interpretable instead
-of looking like a converter regression.
+With `FIGMA_FIDELITY_TOKEN` set the harness resolves those hashes the way the
+connected product does, so the number is what a connected user actually gets.
+Without one, every image fill renders as an `about:blank` placeholder and the
+`noImg` column beside the diff says how many.
+
+Measuring the unhydrated HTML was overstating this path by 3x, and it is worth
+saying why that mattered: the Untitled UI landing page read **9.61%** against
+Figma with its placeholders in, and **3.03%** once hydrated. Its drift against
+the REST import of the same frame fell from 7.62% to **0.76%** — two
+independently written walkers landing on the same layout, which is the strongest
+evidence available that neither is wrong. A number that says a path is three
+times worse than it is sends the next fix at the wrong target.
+
+| case | vs Figma | vs the REST import of the same frame |
+| --- | --- | --- |
+| paste-untitledui-landing | 3.026% | 0.756% |
+| paste-positivus-home | 4.018% | 3.880% |
+| paste-dashstack-dashboard | 2.535% | — (REST corpus holds a different frame) |
 
 Payloads are captured from a real Figma copy, never synthesized. To capture one,
 open the file in a browser, select the frame, install a capture hook, and use
