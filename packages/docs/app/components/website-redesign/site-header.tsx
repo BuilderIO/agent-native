@@ -234,7 +234,10 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
       </div>
 
       {mobileOpen && (
-        <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] py-[var(--spacing-4)] backdrop-blur-[12px] lg:hidden">
+        // Opaque, not the header's translucent fill: this panel is a child of
+        // the blurred header, so its own backdrop-filter samples the header
+        // rather than the page and leaves the content behind it fully legible.
+        <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-page)] px-[var(--spacing-10)] py-[var(--spacing-4)] lg:hidden">
           {navLinks.map((link) => (
             <NavLink
               key={link.label}
