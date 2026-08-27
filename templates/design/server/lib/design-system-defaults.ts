@@ -1,5 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
-import { and, asc, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, type SQL } from "drizzle-orm";
 
 import { isUniqueConstraintViolation } from "../../shared/db-conflict.js";
 import { getDb, schema } from "../db/index.js";
