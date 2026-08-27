@@ -734,6 +734,53 @@ describe("which break characters Figma actually lays out", () => {
   });
 });
 
+describe("Figma rounds a hugging text box's height", () => {
+  // `round(lines * lineHeight)` — and it rounds DOWN as often as up, so a
+  // minimum cannot reach it. Two Space Grotesk headings at 38.28px line height
+  // hugged to 38.28 each where Figma laid out 38, and the 0.56px pushed their
+  // whole column down 2px.
+  function headingInStack(autoResize: string): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Heading",
+      type: "FRAME",
+      layoutMode: "VERTICAL",
+      layoutSizingHorizontal: "HUG",
+      layoutSizingVertical: "HUG",
+      absoluteBoundingBox: box(0, 0, 119, 38),
+      children: [
+        {
+          id: "1:2",
+          name: "Label",
+          type: "TEXT",
+          absoluteBoundingBox: box(0, 0, 119, 38),
+          layoutSizingHorizontal: "HUG",
+          layoutSizingVertical: "HUG",
+          characters: "Content",
+          style: {
+            fontFamily: "Space Grotesk",
+            fontSize: 30,
+            lineHeightPx: 38.279998779296875,
+            textAutoResize: autoResize,
+          },
+        },
+      ],
+    } as unknown as FigmaNode;
+  }
+
+  it("pins the height when the text hugs both axes and so cannot wrap", () => {
+    const { html } = mapFigmaNodeToHtml(headingInStack("WIDTH_AND_HEIGHT"), {});
+    expect(html).toMatch(/(?<!min-)height: 38px/);
+    expect(html).not.toContain("height: auto");
+  });
+
+  it("keeps it a minimum when the text can wrap, where our line count may differ", () => {
+    const { html } = mapFigmaNodeToHtml(headingInStack("HEIGHT"), {});
+    expect(html).toContain("min-height: 38px");
+    expect(html).toContain("height: auto");
+  });
+});
+
 describe("an image fallback's ink must not take layout space", () => {
   // Figma stacks siblings against the GEOMETRIC box and paints ink outside it.
   // The fallback <img> is sized from render bounds so the artwork is not

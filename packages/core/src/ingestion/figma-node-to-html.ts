@@ -1629,8 +1629,19 @@ function buildChildSizingStyles(
         : undefined;
     if (roundedTextHeight !== undefined)
       styles["min-height"] = px(roundedTextHeight);
-    styles.height =
-      hasContentToHug(node) && !hugIsCircularInCss(node, false)
+    // Text hugging BOTH axes cannot wrap, so its line count is fixed by the
+    // break characters and always matches Figma's. That removes the reason the
+    // height is only a minimum, and a minimum cannot help here anyway: Figma
+    // rounds `lines * lineHeight` to a whole pixel, and rounds DOWN as often as
+    // up. Two Space Grotesk headings at 38.28px line height hugged to 38.28
+    // each where Figma laid out 38, and the 0.56px pushed their whole column
+    // down. Wrapping text keeps the minimum — there our line count can differ.
+    const pinsTextHeight =
+      roundedTextHeight !== undefined &&
+      node.style?.textAutoResize === "WIDTH_AND_HEIGHT";
+    styles.height = pinsTextHeight
+      ? px(roundedTextHeight)
+      : hasContentToHug(node) && !hugIsCircularInCss(node, false)
         ? "auto"
         : px(node.absoluteBoundingBox?.height ?? 0);
   }
