@@ -294,6 +294,31 @@ reported conversion error where the measurement itself was wrong. A fidelity
 number is a claim about the converter, so the harness has to be at least as
 trustworthy as the thing it grades.
 
+## What each import path's number actually covers
+
+Three paths reach Design, over two independent walkers, and they are not
+measured to the same depth. Saying which is which matters more than the
+numbers: an unmeasured path looks identical to a passing one in a summary.
+
+| path | walker | measured against Figma | how |
+| --- | --- | --- | --- |
+| REST node import | `figma-node-to-html.ts` | 23 designs, both hops | `run-import` / `run-roundtrip` |
+| Clipboard paste | `fig-file-to-html.ts` | 3 designs | `run-paste`, against the same references |
+| `.fig` upload | `fig-file-to-html.ts` | **no frame** | `run-fig` — decode/render smoke only |
+
+The `.fig` case is render-only because measuring it needs a `.fig` OF a design
+we hold a Figma reference for, and Figma's browser UI has no way to produce one
+— `Save local copy` is desktop-only, and the REST API has no `.fig` export. The
+35MB file in the corpus proves the container decodes and every frame renders,
+and a 127MB one proves the size cap refuses loudly rather than truncating.
+
+That gap is narrower than it looks, and it is worth being precise about why:
+the `.fig` path shares its whole walker with the clipboard path, which IS
+measured against Figma on three designs. What stays unmeasured is the container
+around it — the zip decode and image extraction — not the conversion. Do not
+report the `.fig` path as verified against Figma; report it as decoded and
+rendered.
+
 ## Measured drift between the three import paths
 
 Numbers from the Positivus landing page (`330:762`, 1440x8356) and the Untitled
