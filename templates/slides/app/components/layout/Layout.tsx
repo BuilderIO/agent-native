@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
@@ -18,6 +19,7 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
+import { GoogleDriveConnectionCta } from "../editor/GoogleDriveConnectionCta";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
@@ -51,6 +53,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
     useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
   const [editorSidebarOverride, setEditorSidebarOverride] =
@@ -141,7 +144,15 @@ export function Layout({ children }: LayoutProps) {
         browserTabId={TAB_ID}
         agentPageHref="/settings/agent"
         suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
-        composerSlot={<CreativeContextComposerChip />}
+        onComposerTextChange={setComposerText}
+        composerSlot={
+          <>
+            <GoogleDriveConnectionCta
+              active={extractGoogleSlidesUrls(composerText).length > 0}
+            />
+            <CreativeContextComposerChip />
+          </>
+        }
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
           {!isEmptyDecksState && showAppSidebar && (
