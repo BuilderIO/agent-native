@@ -12,6 +12,9 @@ vi.mock("dom-to-pptx", () => ({
 
 import {
   addSpeakerNotesToPptxBlob,
+  pinTextBoxesInXml,
+  retypeThemeFonts,
+  usedFontFamilies,
   blankRasterResult,
   buildDeckPptxBlob,
   exportDeckAsPptx,
@@ -188,7 +191,7 @@ describe("exportDeckAsPptx", () => {
     expect(target.style.height).toBe("540px");
     expect(target.isConnected).toBe(false);
     expect(options).toMatchObject({
-      autoEmbedFonts: true,
+      autoEmbedFonts: false,
       fileName: "Quarterly-Review.pptx",
       height: 7.5,
       skipDownload: true,
@@ -435,6 +438,11 @@ describe("waitForImagesToSettle", () => {
     ]);
 
     await vi.runAllTimersAsync();
+    // The export finishes with a JSZip round-trip (wrap/autofit pinning,
+    // bullet indents, notes), and JSZip schedules its own work on real timers.
+    // The image wait is what these tests drive with fake ones, so hand the
+    // clock back before awaiting the file itself.
+    vi.useRealTimers();
 
     expect(await settled).toBe(true);
     await exportPromise;
@@ -470,6 +478,12 @@ describe("waitForImagesToSettle", () => {
     ]);
 
     await vi.advanceTimersByTimeAsync(0);
+    // The export finishes with a JSZip round-trip (wrap/autofit pinning,
+    // bullet indents, notes), and JSZip schedules its own work on real timers.
+    // The image wait is what these tests drive with fake ones, so hand the
+    // clock back before awaiting the file itself.
+    vi.useRealTimers();
+
     expect(await settled).toBe(true);
     await exportPromise;
     expect(mocks.exportToPptx).toHaveBeenCalledTimes(1);
@@ -855,5 +869,117 @@ describe("blank shape rasters", () => {
     expect(blankRasterResult(new Uint8ClampedArray([255, 255, 255, 255]))).toBe(
       false,
     );
+  });
+});
+
+/**
+ * Google Slides has no text-wrap property in its shape model, so it drops
+ * `wrap="none"` on import and rewraps the text at whatever width the box
+ * states — a width Chrome measured for one unbroken line. It *does* honour
+ * `spAutoFit`, so the shape then grows downward over its neighbours. That pair
+ * is what turned Oliver's deck into overlapping text one import later.
+ */
+describe("pinTextBoxesForImport", () => {
+  it("replaces every wrap=none with wrap=square", () => {
+    const xml = pinTextBoxesInXml(
+      '<a:bodyPr wrap="none" lIns="0" rtlCol="0" anchor="t"><a:spAutoFit/></a:bodyPr>' +
+        '<a:bodyPr wrap="none" lIns="0"/>',
+    );
+    expect(xml).not.toContain('wrap="none"');
+    expect(xml.match(/wrap="square"/g)).toHaveLength(2);
+  });
+
+  it("turns autofit off so the receiving app cannot re-grow the measured box", () => {
+    const xml = pinTextBoxesInXml("<a:bodyPr><a:spAutoFit/></a:bodyPr>");
+    expect(xml).toContain("<a:noAutofit/>");
+    expect(xml).not.toContain("spAutoFit");
+  });
+
+  it("leaves a body that already wraps alone", () => {
+    const original = '<a:bodyPr wrap="square" lIns="0"/>';
+    expect(pinTextBoxesInXml(original)).toBe(original);
+  });
+
+  it("does not corrupt a wrap attribute belonging to some other element", () => {
+    const xml = pinTextBoxesInXml('<a:other wrap="none"/>');
+    expect(xml).toBe('<a:other wrap="none"/>');
+  });
+});
+
+/**
+ * dom-to-pptx resolves fonts by walking document.styleSheets, and a
+ * cross-origin sheet throws SecurityError, which it swallows. Every deck font
+ * that arrives through the design system's Google Fonts <link> is invisible to
+ * it, so it shipped 700KB of the app's self-hosted Poppins for a deck set in
+ * Geist. We resolve the families ourselves instead.
+ */
+describe("usedFontFamilies", () => {
+  it("orders families by how much text each one sets, so the theme font is the deck's own", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      `<p style="font-family: Geist">${"a".repeat(200)}</p>` +
+      `<p style="font-family: Poppins">short</p>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])[0]).toBe("Geist");
+    root.remove();
+  });
+
+  it("reports the first family of each text element's stack", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      `<h1 style="font-family: 'Geist', Inter, sans-serif">Title</h1>` +
+      `<p style="font-family: 'Geist Mono', monospace">01</p>`;
+    document.body.appendChild(root);
+
+    const families = usedFontFamilies([root]);
+    expect(families).toContain("Geist");
+    expect(families).toContain("Geist Mono");
+    root.remove();
+  });
+
+  it("skips generic families, which name no font to embed", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<p style="font-family: monospace">code</p>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])).not.toContain("monospace");
+    root.remove();
+  });
+
+  it("ignores elements with no text to paint", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<div style="font-family: Nothing"></div>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])).not.toContain("Nothing");
+    root.remove();
+  });
+});
+
+describe("retypeThemeFonts", () => {
+  it("points the theme's major and minor latin faces at the deck's family", () => {
+    const xml = retypeThemeFonts(
+      '<a:majorFont><a:latin typeface="Calibri Light" panose="020F0302"/></a:majorFont>' +
+        '<a:minorFont><a:latin typeface="Calibri" panose="020F0502"/></a:minorFont>',
+      "Geist",
+    );
+    expect(xml).not.toContain("Calibri");
+    expect(xml.match(/typeface="Geist"/g)).toHaveLength(2);
+    // The rest of the element survives — this is a retype, not a rewrite.
+    expect(xml).toContain('panose="020F0302"');
+  });
+
+  it("escapes a family name that would otherwise break the attribute", () => {
+    const xml = retypeThemeFonts(
+      '<a:minorFont><a:latin typeface="Calibri"/></a:minorFont>',
+      'Ampersand & "Quote"',
+    );
+    expect(xml).toContain('typeface="Ampersand &amp; &quot;Quote&quot;"');
+  });
+
+  it("leaves east-asian and complex-script faces alone", () => {
+    const original = '<a:minorFont><a:ea typeface="MS Gothic"/></a:minorFont>';
+    expect(retypeThemeFonts(original, "Geist")).toBe(original);
   });
 });
