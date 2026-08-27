@@ -588,7 +588,6 @@ export default function TemplateEditorRoute() {
     if (!library?.id || !library?.title || !preset?.id || !preset?.title) {
       return;
     }
-    const encodedLibraryId = encodeURIComponent(library.id);
     insertAgentComposerReference({
       label: preset.title,
       icon: "document",
