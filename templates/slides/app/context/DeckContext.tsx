@@ -1472,9 +1472,14 @@ function hasPendingDeleteForSlide(deckId: string, slideId: string): boolean {
  * plus save-deck / apply-design-system / restore-deck-version / the imports)
  * or when that one slide happened to be busy at the instant the event landed
  * — sync events do not replay, and the poll never named a slide, so nothing
- * re-checked afterwards. Measured on 60 days of production slides chats: in
- * 68% of "I don't see the change" complaints the edit was already committed
- * to SQL, a median of two minutes before the user said it had not happened.
+ * re-checked afterwards.
+ *
+ * Measured on production by chaining `update-slide`'s returned `contentHash`
+ * to a later `get-deck` hash: of 160 successful writes read back with no
+ * intervening agent write, 128 were still exactly what the write claimed and
+ * ZERO had reverted. On the complaint turns themselves, 7 of 8 found the edit
+ * already committed — 6s to 360s before the user said nothing had changed.
+ * The writes were landing; this function was hiding them.
  */
 export function mergeServerSlideUpdate(
   local: Deck,
