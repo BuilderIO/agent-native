@@ -257,7 +257,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             </NavLink>
           ))}
           <div className="mt-[var(--spacing-2)] flex items-center justify-between gap-[var(--spacing-3)]">
-            <GithubStarsButton starCount={starCount} className="grow" />
+            <GithubStarsButton starCount={starCount} className="h-10" />
             <LanguagePicker dimBorder />
             <ThemeIconButton dimBorder />
             <FeedbackIconButton align="start" />
