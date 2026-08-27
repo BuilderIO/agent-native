@@ -693,6 +693,9 @@ interface SlideEditorProps {
    *  (see the slide-switch effect), so callers must not substitute their own
    *  "current slide" state for this argument. */
   onInlineEditEnd?: (slideId: string) => void;
+  /** Called by the editor shell before a navigation that must persist the
+   *  current contentEditable draft. Returns true when a draft was active. */
+  flushInlineEditRef?: { current: (() => boolean) | null };
   /** Other users (besides the current user) currently viewing/editing THIS
    *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
    *  knows before they clobber someone else's last-writer-wins text edit. */
@@ -1130,6 +1133,7 @@ export default function SlideEditor({
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
+  flushInlineEditRef,
   presentUsers = [],
   recentEdits = [],
 }: SlideEditorProps) {
@@ -1578,43 +1582,6 @@ export default function SlideEditor({
   );
   const previousSlideIdRef = useRef(slide.id);
 
-  // Inline editing keeps its latest HTML in the DOM until blur so React does
-  // not rerender the contentEditable on every keystroke. Hand that draft to
-  // the keepalive queue before browser teardown.
-  useEffect(() => {
-    const flushInlineEditDraft = () => {
-      // Input captures already enqueue the current draft. Keep the ref while
-      // the editor remains mounted so the first edit after tab restore queues
-      // against the previous snapshot instead of being mistaken for setup.
-      if (!inlineEditDraftRef.current) return;
-      flushPendingSaves();
-    };
-    const flushWhenHidden = () => {
-      if (document.visibilityState === "hidden") flushInlineEditDraft();
-    };
-
-    window.addEventListener("beforeunload", flushInlineEditDraft, {
-      capture: true,
-    });
-    window.addEventListener("pagehide", flushInlineEditDraft, {
-      capture: true,
-    });
-    document.addEventListener("visibilitychange", flushWhenHidden, {
-      capture: true,
-    });
-    return () => {
-      window.removeEventListener("beforeunload", flushInlineEditDraft, {
-        capture: true,
-      });
-      window.removeEventListener("pagehide", flushInlineEditDraft, {
-        capture: true,
-      });
-      document.removeEventListener("visibilitychange", flushWhenHidden, {
-        capture: true,
-      });
-    };
-  }, []);
-
   const readCurrentSlideContentHtml = useCallback(() => {
     const slideContent = containerRef.current?.querySelector(
       ".slide-content",
@@ -1690,6 +1657,54 @@ export default function SlideEditor({
     },
     [readCurrentSlideContentHtml, slide.id],
   );
+
+  const flushInlineEditDraft = useCallback(() => {
+    const draft = inlineEditDraftRef.current;
+    if (!draft) return false;
+    if (draft.slideId === slide.id) captureInlineEditDraft(draft.slideId);
+    flushPendingSaves();
+    return true;
+  }, [captureInlineEditDraft, slide.id]);
+
+  useEffect(() => {
+    if (!flushInlineEditRef) return;
+    flushInlineEditRef.current = flushInlineEditDraft;
+    return () => {
+      if (flushInlineEditRef.current === flushInlineEditDraft) {
+        flushInlineEditRef.current = null;
+      }
+    };
+  }, [flushInlineEditDraft, flushInlineEditRef]);
+
+  // Inline editing keeps its latest HTML in the DOM until blur so React does
+  // not rerender the contentEditable on every keystroke. Hand that draft to
+  // the keepalive queue before browser teardown.
+  useEffect(() => {
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushInlineEditDraft();
+    };
+
+    window.addEventListener("beforeunload", flushInlineEditDraft, {
+      capture: true,
+    });
+    window.addEventListener("pagehide", flushInlineEditDraft, {
+      capture: true,
+    });
+    document.addEventListener("visibilitychange", flushWhenHidden, {
+      capture: true,
+    });
+    return () => {
+      window.removeEventListener("beforeunload", flushInlineEditDraft, {
+        capture: true,
+      });
+      window.removeEventListener("pagehide", flushInlineEditDraft, {
+        capture: true,
+      });
+      document.removeEventListener("visibilitychange", flushWhenHidden, {
+        capture: true,
+      });
+    };
+  }, [flushInlineEditDraft]);
 
   /** Resolve the slide-content root element (where selectable items live) */
   const getSlideContent = useCallback((): HTMLElement | null => {
