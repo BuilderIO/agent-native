@@ -314,7 +314,7 @@ export function flattenMcpToolResult(result: unknown): string {
     if ((result as any).isError) return `Error: ${fallback}`;
     return fallback;
   }
-  return String(result);
+  return typeof result === "string" ? result : (JSON.stringify(result) ?? "");
 }
 
 function formatMcpContentPart(part: Record<string, any>): string {

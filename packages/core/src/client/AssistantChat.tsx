@@ -4122,7 +4122,10 @@ const AssistantChatInner = forwardRef<
               if (shouldCacheServerSnapshot) {
                 const { title, preview } = extractThreadMeta(repo);
                 writeCachedThreadSnapshot(apiUrl, threadId, {
-                  threadData: String(data.threadData),
+                  threadData:
+                    typeof data.threadData === "string"
+                      ? data.threadData
+                      : JSON.stringify(data.threadData),
                   title: data.title || title,
                   preview,
                   messageCount: Array.isArray(repo.messages)

@@ -242,7 +242,8 @@ async function handleTransientExtensionData(
       extensionId,
       toolId: extensionId,
       collection: parsed.collection,
-      data: String(body.data),
+      data:
+        typeof body.data === "string" ? body.data : JSON.stringify(body.data),
       ownerEmail: "",
       scope: requestedScope,
       orgId: requestedScope === "org" ? "inline" : null,

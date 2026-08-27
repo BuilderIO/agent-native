@@ -24,7 +24,7 @@ export interface AgentNativeCommandCallbackInfo {
 export type AgentNativeCommandCallback = (
   payload: unknown,
   info: AgentNativeCommandCallbackInfo,
-) => Promise<unknown>;
+) => unknown;
 
 export interface AgentNativeProps extends Omit<
   AgentNativeFrameProps,
