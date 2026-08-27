@@ -40,14 +40,15 @@ export default defineConfig({
       // code still landed in the SSR bundle. lowlight stays real (core's doc
       // block highlighter runs server-side via preloadDocBlocksContent), and so
       // do yjs/y-protocols/lib0 (core collab uses yjs on the server).
+      // Deliberately NOT stubbing "vgpu": the hero ocean renderer imports its
+      // named exports at module scope, and a stub exports nothing, so the SSR
+      // build fails on MISSING_EXPORT rather than tree-shaking cleanly. It is
+      // also unnecessary -- the Dawn native adapter is reachable only through
+      // the `vgpu/node` entry, which nothing here imports. The browser runtime
+      // that does land in the server graph is inert JS, and
+      // tests/hero-background-bundle.test.ts holds the line that matters:
+      // no @vgpu/adapter-node and no .node binary in dist/server.
       ssrStubs: [
-        // The hero ocean is WebGPU, so it only ever runs in a browser -- but
-        // the `vgpu` entrypoint pulls @vgpu/adapter-node, which carries a Dawn
-        // native binary. Left unstubbed that lands in the docs server function
-        // and every cold Lambda pays for it. Same mechanism as the entries
-        // below: core classifies browser-only libs, but Vite's SSR build
-        // resolves to relative chunk paths before Nitro sees the specifier.
-        "vgpu",
         "shiki",
         "mermaid",
         "@excalidraw/excalidraw",

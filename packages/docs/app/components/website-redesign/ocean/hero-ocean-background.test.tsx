@@ -107,15 +107,22 @@ describe("HeroOceanBackground", () => {
     expect(box.className).toContain("absolute");
     expect(box.className).toContain("inset-0");
     expect(box.className).toContain("z-[-1]");
-    expect(box.className).toContain("opacity-[var(--b-hero-shader-opacity)]");
+    expect(box.className).toContain("opacity-[var(--b-hero-ocean-opacity)]");
     expect(box.querySelector("canvas")).not.toBeNull();
+    // Settle the lazy import before this test ends: leaving it in flight lets
+    // it land mid-way through the next test, against that test's mocks.
+    await waitFor(() => expect(createRenderer).toHaveBeenCalled());
   });
 
   it("loads the GPU runtime in an effect, not during render", async () => {
-    render(<HeroOceanBackground onError={vi.fn()} />);
+    const onError = vi.fn();
+    render(<HeroOceanBackground onError={onError} />);
     // Present in the DOM before the renderer module has been constructed.
     expect(createRenderer).not.toHaveBeenCalled();
-    await waitFor(() => expect(createRenderer).toHaveBeenCalled());
+    await waitFor(() => {
+      if (onError.mock.calls.length) throw onError.mock.calls[0]![0];
+      expect(createRenderer).toHaveBeenCalled();
+    });
   });
 
   it("pushes brand colours through on a theme change", async () => {

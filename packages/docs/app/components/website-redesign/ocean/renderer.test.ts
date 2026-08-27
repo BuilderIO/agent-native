@@ -1,6 +1,7 @@
 import { frame, init, target } from "vgpu/mock";
 import { describe, expect, it } from "vitest";
 
+import type { OceanColors } from "./ocean-colors";
 import { createIfftStageTable, OCEAN_RESOLUTION } from "./ocean-graph";
 import {
   bloomSizes,
@@ -8,7 +9,6 @@ import {
   destroyGraph,
   renderGraph,
   setPresentColors,
-  type OceanColors,
 } from "./renderer";
 
 const DARK: OceanColors = { fg: [0.68, 0.68, 0.67], bg: [0.04, 0.04, 0.04] };

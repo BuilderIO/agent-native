@@ -1,5 +1,4 @@
-import type { OceanColors } from "./renderer";
-import { DEFAULT_OCEAN_COLORS } from "./renderer";
+import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors";
 
 /**
  * `--b-bg-page` and `--b-text-secondary` are authored as hex in tokens.css and

@@ -31,6 +31,7 @@ import ifftStageWgsl from "./ifft-stage.wgsl";
 import initialSpectrumWgsl from "./initial-spectrum.wgsl";
 import noiseWgsl from "./noise.wgsl";
 import normalFoamWgsl from "./normal-foam.wgsl";
+import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors";
 import {
   createIfftStageTable,
   OCEAN_RESOLUTION,
@@ -43,17 +44,6 @@ import spectrumWgsl from "./spectrum.wgsl";
 import { gaussianCoefficients, OCEAN_TUNING } from "./tuning";
 
 type Output = Surface | Target;
-
-/** Linear 0-1 RGB, resolved from brand tokens by the mounting component. */
-export interface OceanColors {
-  readonly fg: readonly [number, number, number];
-  readonly bg: readonly [number, number, number];
-}
-
-export const DEFAULT_OCEAN_COLORS: OceanColors = {
-  fg: OCEAN_TUNING.present.fgColor,
-  bg: OCEAN_TUNING.present.bgColor,
-};
 
 interface RendererOptions {
   readonly canvas: HTMLCanvasElement;
@@ -109,9 +99,10 @@ export function createRenderer({
     failed = true;
     try {
       dispose();
-    } catch {
-      // Teardown must not replace the render, resize, or preparation failure.
-    }
+      // The original failure is rethrown or handed to onError immediately
+      // below; a teardown error raised here would replace that real cause.
+      // coercion-ok: the caller still receives the failure that started this.
+    } catch {}
     if (!onError) throw error;
     // Only the first failure is reported: dispose() can cascade, and the
     // caller swaps backgrounds on the first one anyway.
@@ -132,7 +123,9 @@ export function createRenderer({
       try {
         destroyGraph(next);
       } catch {
-        // A newer resize owns the renderer; this stale graph is best-effort only.
+        // coercion-ok: a newer resize already owns the live graph, so freeing
+        // this superseded one is best-effort -- failing wastes GPU memory but
+        // cannot corrupt the frame on screen.
       }
       return;
     }

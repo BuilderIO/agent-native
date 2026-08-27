@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 
 import { readOceanColors } from "./brand-colors";
+// Type-only, so this import is erased and the renderer stays off the static
+// graph. Importing any *value* from ./renderer here (or from brand-colors)
+// pulls the whole vgpu runtime into the homepage entry chunk -- which is
+// exactly the regression ocean-colors.ts exists to prevent.
 import type { OceanRenderer } from "./renderer";
 
 export interface HeroOceanBackgroundProps {
