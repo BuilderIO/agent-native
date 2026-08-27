@@ -1150,6 +1150,26 @@ describe("parseComputedDropShadowFilter", () => {
     ]);
   });
 
+  it("ignores a custom property that describes a different shadow", () => {
+    // Custom properties inherit, so a descendant sees its ancestor's value, and
+    // a layer whose filter changed later still carries the old one.
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(0, 0, 0, 0.5))",
+        "rgba(9, 9, 9, 0.4) 0px 90px 10px -3px",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 24,
+        spread: 0,
+        color: "rgba(0, 0, 0, 0.5)",
+        castFromContent: true,
+      },
+    ]);
+  });
+
   it("ignores anything that is not a lone drop-shadow", () => {
     expect(parseComputedDropShadowFilter("none")).toEqual([]);
     expect(parseComputedDropShadowFilter("blur(4px)")).toEqual([]);

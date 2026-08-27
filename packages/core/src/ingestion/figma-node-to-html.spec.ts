@@ -1264,6 +1264,28 @@ describe("a drop shadow Figma draws behind the layer", () => {
     );
   });
 
+  it("needs the flag set, since Figma defaults it to false", () => {
+    const node = mockup([]) as FigmaNode & {
+      effects: Array<Record<string, unknown>>;
+    };
+    delete node.effects[0]!.showShadowBehindNode;
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("box-shadow");
+    expect(html).not.toContain("drop-shadow");
+  });
+
+  it("keeps box-shadow when a layer has more than one, since CSS chains them", () => {
+    // A second `drop-shadow()` casts from the first one's output rather than
+    // from the source alpha; `box-shadow` composes each independently.
+    const node = mockup([]) as FigmaNode & {
+      effects: Array<Record<string, unknown>>;
+    };
+    node.effects.push({ ...node.effects[0]!, offset: { x: 0, y: 4 } });
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("box-shadow");
+    expect(html).not.toContain("drop-shadow");
+  });
+
   it("leaves a layer that paints its own box on box-shadow", () => {
     const { html } = mapFigmaNodeToHtml(
       mockup([{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }]),

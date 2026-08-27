@@ -1225,8 +1225,21 @@ function buildEffects(
   const paintsOwnBox =
     (node.fills ?? []).some((fill) => fill.visible !== false) ||
     (node.strokes ?? []).some((stroke) => stroke.visible !== false);
+  // Figma's REST `DropShadowEffect` documents `showShadowBehindNode` as
+  // defaulting to FALSE, so an omitted flag must not opt a layer into this
+  // path. And CSS chains `drop-shadow()` functions — the second casts from the
+  // first one's output, not from the source alpha — so a layer with more than
+  // one of these keeps `box-shadow`, which composes each shadow independently
+  // the way Figma does.
+  const contentCastShadows = effects.filter(
+    (effect) =>
+      effect.type === "DROP_SHADOW" && effect.showShadowBehindNode === true,
+  );
   const castsFromContentAlpha =
-    !isTextNode && !paintsOwnBox && (node.children?.length ?? 0) > 0;
+    !isTextNode &&
+    !paintsOwnBox &&
+    (node.children?.length ?? 0) > 0 &&
+    contentCastShadows.length === 1;
 
   for (const effect of effects) {
     if (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW") {
@@ -1241,7 +1254,7 @@ function buildEffects(
       if (
         effect.type === "DROP_SHADOW" &&
         castsFromContentAlpha &&
-        effect.showShadowBehindNode !== false
+        effect.showShadowBehindNode === true
       ) {
         // drop-shadow()'s third length is a standard deviation, half the
         // box-shadow blur LENGTH; spread has no equivalent and is folded in.

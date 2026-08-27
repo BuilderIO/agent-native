@@ -99,6 +99,14 @@ export function FigmaPasteImagesNotice({
           { count: resolved, plural: resolved === 1 ? "" : "s" },
         ),
       });
+    } catch (error) {
+      // `hydrateImagesFromFig` rejects on transport, timeout, an unreadable
+      // response or a failed chunk. Without this the rejection escaped
+      // silently and left the notice sitting open with no explanation.
+      toast.error(t("designEditor.import.figmaHydrationFigError"), {
+        description:
+          error instanceof Error ? error.message : t("common.genericError"),
+      });
     } finally {
       setBusy(false);
     }

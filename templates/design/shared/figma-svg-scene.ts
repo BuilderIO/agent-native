@@ -615,13 +615,6 @@ export function parseComputedDropShadowFilter(
   exact?: string | null,
 ): FigmaSvgShadow[] {
   if (!value || value === "none") return [];
-  // The importer's own values, with the spread `drop-shadow()` cannot carry.
-  if (exact) {
-    const parsed = parseComputedBoxShadow(exact);
-    if (parsed.length > 0) {
-      return parsed.map((shadow) => ({ ...shadow, castFromContent: true }));
-    }
-  }
   const match = /^drop-shadow\(\s*(.+?)\s*\)$/.exec(value.trim());
   if (!match?.[1]) return [];
   const inner = match[1];
@@ -632,16 +625,33 @@ export function parseComputedDropShadowFilter(
     (colorMatch ? inner.slice(0, colorMatch.index) : inner).matchAll(LENGTH_RE),
   ).map((m) => Number(m[1]));
   if (lengths.length < 2) return [];
-  return [
-    {
-      offsetX: lengths[0] ?? 0,
-      offsetY: lengths[1] ?? 0,
-      blur: (lengths[2] ?? 0) * 2,
-      spread: 0,
-      color,
-      castFromContent: true,
-    },
-  ];
+  const fromFilter: FigmaSvgShadow = {
+    offsetX: lengths[0] ?? 0,
+    offsetY: lengths[1] ?? 0,
+    blur: (lengths[2] ?? 0) * 2,
+    spread: 0,
+    color,
+    castFromContent: true,
+  };
+  // `--figma-content-shadow` carries the spread `drop-shadow()` cannot, but a
+  // custom property INHERITS: a descendant with a drop-shadow of its own sees
+  // its ancestor's value, and a layer whose filter was edited afterwards still
+  // carries the old one. Only trust it when it describes THIS filter, matched
+  // on the offsets the two forms share.
+  if (exact) {
+    const declared = parseComputedBoxShadow(exact);
+    const first = declared[0];
+    if (
+      declared.length === 1 &&
+      first &&
+      !first.inset &&
+      Math.abs(first.offsetX - fromFilter.offsetX) < 0.51 &&
+      Math.abs(first.offsetY - fromFilter.offsetY) < 0.51
+    ) {
+      return [{ ...first, castFromContent: true }];
+    }
+  }
+  return [fromFilter];
 }
 
 export function parseComputedBoxShadow(
@@ -1477,7 +1487,13 @@ function renderBox(node: FigmaSvgNode, ctx: RenderCtx): string {
   // A container that also owns direct text (an icon plus its label, a row plus
   // its badge) paints that text alongside its children.
   const ownText = node.text ? renderTextMarkup(node, ctx) : "";
-  const contentShadow = contentShadowMarkup(node, ctx, childrenMarkup);
+  // The browser's filter reads the element's WHOLE alpha, its own text
+  // included, so the shadow source has to be everything the node paints.
+  const contentShadow = contentShadowMarkup(
+    node,
+    ctx,
+    childrenMarkup + ownText,
+  );
   return wrapGroup(contentShadow + body + childrenMarkup + ownText, node, ctx);
 }
 
@@ -2908,7 +2924,10 @@ export function collectRawFigmaSvgScene(
     // This walk is serialized into the page, so the drop-shadow test is inlined
     // rather than calling a module-scope helper that is not defined there.
     const filterText = base.filter.trim();
+    // Not for an `<img>`: the image branch of the hydrator carries no shadows,
+    // so vectorizing one would silently drop a shadow the raster path keeps.
     const isLoneDropShadow =
+      tag !== "IMG" &&
       filterText.startsWith("drop-shadow(") &&
       filterText.endsWith(")") &&
       filterText.indexOf("drop-shadow(", 12) === -1 &&
