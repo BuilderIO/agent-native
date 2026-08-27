@@ -351,6 +351,14 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("/_agent-native/auth/login");
   });
 
+  it("does not autofocus auth inputs on initial load", () => {
+    expect(getOnboardingHtml()).not.toContain("autofocus");
+    expect(getOnboardingHtml({ authMode: "magic-link" })).not.toContain(
+      "autofocus",
+    );
+    expect(getResetPasswordHtml()).not.toContain("autofocus");
+  });
+
   it("renders the email-only magic-link view with a progressive password fallback", () => {
     const html = getOnboardingHtml({ authMode: "magic-link" });
 
