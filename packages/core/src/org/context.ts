@@ -266,7 +266,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   // to set `allowed_domain` to a free provider), so it needs no TTL at all.
   const shouldTryDomainAutoJoin =
     !explicitPersonal &&
-    session.emailVerified !== false &&
+    session.emailVerified === true &&
     emailDomain !== null &&
     !isFreeEmailProvider(emailDomain) &&
     !memberships.some((m) => m.allowedDomain?.toLowerCase() === emailDomain);
