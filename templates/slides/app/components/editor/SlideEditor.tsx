@@ -3704,7 +3704,7 @@ export default function SlideEditor({
       const restorePromotedElement = () => {
         removeFreeformLayoutSpacer();
         restoreMarkdownTree?.();
-        if (!restoreMarkdownTree) {
+        if (!restoreTree) {
           element.className = originalClassName;
           if (originalStyle === null) element.removeAttribute("style");
           else element.setAttribute("style", originalStyle);
@@ -3945,22 +3945,6 @@ export default function SlideEditor({
       let restoreMarkdownTree: (() => void) | undefined;
       let promotedToFreeform = false;
 
-      if (!origin) {
-        const frozen = freezeElementForFreeformSelection(element);
-        if (!frozen || getComputedStyle(element).position !== "absolute") {
-          frozen?.restoreMarkdownTree?.();
-          return;
-        }
-        restoreMarkdownTree = frozen.restoreMarkdownTree;
-        promotedToFreeform = true;
-        origin = getObjectGeometry(element);
-      }
-      if (!origin || origin.width <= 0 || origin.height <= 0) {
-        if (promotedToFreeform) restoreMarkdownTree?.();
-        return;
-      }
-      const resizeOrigin = origin;
-
       const removeFreeformLayoutSpacer = () => {
         const objectId = element.getAttribute("data-slide-object-id");
         if (!objectId) return;
@@ -3978,9 +3962,12 @@ export default function SlideEditor({
 
       const restorePromotedElement = () => {
         if (!promotedToFreeform) return;
+        promotedToFreeform = false;
         removeFreeformLayoutSpacer();
-        restoreMarkdownTree?.();
-        if (!restoreMarkdownTree) {
+        const restoreTree = restoreMarkdownTree;
+        restoreMarkdownTree = undefined;
+        restoreTree?.();
+        if (!restoreTree) {
           element.className = originalClassName;
           if (originalStyle === null) element.removeAttribute("style");
           else element.setAttribute("style", originalStyle);
@@ -4001,6 +3988,22 @@ export default function SlideEditor({
           element.removeAttribute("data-slide-object-id");
         }
       };
+
+      if (!origin) {
+        const frozen = freezeElementForFreeformSelection(element);
+        if (!frozen || getComputedStyle(element).position !== "absolute") {
+          frozen?.restoreMarkdownTree?.();
+          return;
+        }
+        restoreMarkdownTree = frozen.restoreMarkdownTree;
+        promotedToFreeform = true;
+        origin = getObjectGeometry(element);
+      }
+      if (!origin || origin.width <= 0 || origin.height <= 0) {
+        restorePromotedElement();
+        return;
+      }
+      const resizeOrigin = origin;
 
       if (selector) selectElementForStyling(element, selector, "resizing");
 
@@ -4110,6 +4113,7 @@ export default function SlideEditor({
       const onCancel = () => {
         stop();
         controller.cancel();
+        restorePromotedElement();
         const currentSelector = getBuilderSelector(element);
         if (currentSelector) selectElementForStyling(element, currentSelector);
       };
