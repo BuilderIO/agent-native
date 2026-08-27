@@ -112,7 +112,9 @@ jobs:
           TAG="v${{ needs.resolve-version.outputs.version }}"
           get_tag_sha() {
             local ref_json object_type object_sha
-            ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1")
+            if ! ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1"); then
+              return 1
+            fi
             object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
             object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
             if [ "$object_type" = "tag" ]; then
@@ -137,6 +139,22 @@ jobs:
             fi
             echo "Draft release $TAG already points to the coordinated source; build jobs will upload to it."
           elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
+            TAG_ERROR=$(mktemp)
+            if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
+              if [ "$TAG_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
+                echo "::error::Existing tag $TAG points to $TAG_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
+                rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+                exit 1
+              fi
+              echo "Existing tag $TAG already points to the coordinated source; creating its release."
+            elif grep -q 'HTTP 404' "$TAG_ERROR"; then
+              :
+            else
+              cat "$TAG_ERROR"
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+              exit 1
+            fi
+            rm -f "$TAG_ERROR"
             if [ "$RELEASE_CHANNEL" = "nightly" ]; then
               gh release create "$TAG" \
                 --draft \

@@ -217,7 +217,9 @@ jobs:
             TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
             get_tag_sha() {
               local ref_json object_type object_sha
-              ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1")
+              if ! ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1"); then
+                return 1
+              fi
               object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
               object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
               if [ "$object_type" = "tag" ]; then
@@ -242,7 +244,22 @@ jobs:
               fi
               echo "Existing production release $TAG is still a draft; resuming it."
             elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
-              echo "No existing production release found for $TAG; creating it."
+              TAG_ERROR=$(mktemp)
+              if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
+                if [ "$TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
+                  echo "::error::Existing tag $TAG points to $TAG_SHA, expected $RELEASE_SOURCE_REF."
+                  rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+                  exit 1
+                fi
+                echo "Existing tag $TAG already points to the coordinated source; creating its release."
+              elif grep -q 'HTTP 404' "$TAG_ERROR"; then
+                echo "No existing production release or tag found for $TAG; creating it."
+              else
+                cat "$TAG_ERROR"
+                rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+                exit 1
+              fi
+              rm -f "$TAG_ERROR"
             else
               cat "$RELEASE_ERROR"
               rm -f "$RELEASE_ERROR"

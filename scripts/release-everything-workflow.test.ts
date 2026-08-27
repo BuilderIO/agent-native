@@ -93,6 +93,8 @@ describe("release everything workflow", () => {
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /getReleaseByTag/);
     assert.match(source, /hasCompleteClipsRelease/);
+    assert.match(source, /const clipsTagSha = await getRemoteTagSha/);
+    assert.match(source, /clipsTagSha !== releaseSha/);
     assert.match(source, /Clips_\$\{version\}_universal\.dmg/);
     assert.match(source, /clipsAlreadyPublished/);
     assert.match(source, /source_ref: releaseSha/);
@@ -118,12 +120,10 @@ describe("release everything workflow", () => {
     assert.match(desktopSourceText, /SOURCE_REF,,/);
     assert.match(desktopSourceText, /get_tag_sha\(\)/);
     assert.match(desktopSourceText, /\.draft/);
-    assert.match(
-      desktopSourceText,
-      /EXISTING_TAG_SHA[\s\S]*needs\.resolve-version/,
-    );
+    assert.match(desktopSourceText, /TAG_SHA[\s\S]*needs\.resolve-version/);
+    assert.match(clipsSourceText, /\.draft/);
     assert.match(clipsSourceText, /get_tag_sha\(\)/);
-    assert.match(clipsSourceText, /EXISTING_TAG_SHA[\s\S]*RELEASE_SOURCE_REF/);
+    assert.match(clipsSourceText, /TAG_SHA[\s\S]*RELEASE_SOURCE_REF/);
     assert.match(clipsSourceText, /SOURCE_REF,,/);
     assert.match(desktopSource, /source_ref.*steps\.v\.outputs\.source_ref/);
     assert.match(desktopSource, /full 40-character commit SHA/);
