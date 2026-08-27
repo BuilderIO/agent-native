@@ -214,35 +214,35 @@ Starter-tier limits.
 
 Measured 2026-08-27:
 
-| case | size | import% | −text% | −text/img% | export% | drift% |
-| --- | --- | --- | --- | --- | --- | --- |
-| dashstack admin | 1440x1070 | 1.20 | 0.21 | **0.19** | 1.20 | 0.01 |
-| interior checkout | 1440x3070 | 1.57 | 0.23 | **0.23** | 1.63 | 0.55 |
-| untitled UI settings | 1440x2578 | 1.24 | 0.46 | **0.10** | 1.11 | 0.45 |
-| interior eCommerce | 1440x4835 | 2.06 | 1.30 | **0.13** | 2.70 | 2.38 |
-| constraints | fixture | 2.33 | 0.11 | 0.11 | 2.29 | 0.16 |
-| untitled UI landing alt | 1440x6734 | 2.62 | 0.93 | **0.28** | 2.50 | 0.90 |
-| untitled UI landing | 1440x7060 | 2.65 | 0.52 | **0.08** | 2.76 | 0.62 |
-| untitled UI pricing | 1440x4538 | 2.89 | 0.27 | **0.22** | 2.83 | 0.86 |
-| interior comparison | 1440x3998 | 2.76 | 0.33 | **0.22** | 2.71 | 0.72 |
-| parity-stress | fixture | 2.94 | 0.87 | 0.87 | 3.28 | 0.94 |
-| untitled UI dashboard tall | 1440x1315 | 3.03 | 1.45 | 1.26 | 3.11 | 1.02 |
-| card-grid | fixture | 3.14 | 0.06 | **0.06** | 3.14 | 0.00 |
-| autolayout | fixture | 3.48 | 1.03 | 1.03 | 4.60 | 1.76 |
-| ds table variants | 3350x3277 | 3.69 | 1.23 | 0.95 | 3.69 | 0.00 |
-| whitepace SaaS | 1440x9631 | 3.77 | 1.44 | 1.00 | 3.50 | 1.69 |
-| untitled UI dashboard | 1440x960 | 3.89 | 1.32 | 1.06 | 4.23 | 1.05 |
-| landify example | 1440x21306 | 3.94 | 2.16 | 1.42 | 3.57 | 1.37 |
-| interior single product | 1440x3107 | 3.56 | 2.09 | **0.24** | 3.60 | 2.33 |
-| untitled UI data table | 1216x899 | 3.96 | 0.82 | 0.81 | 4.45 | 0.84 |
-| untitled UI settings mobile | 375x2366 | 4.02 | 0.47 | **0.45** | 3.97 | 0.84 |
-| positivus landing | 1440x8356 | 4.19 | 2.39 | 1.44 | 4.65 | 1.72 |
-| landify tablet | 768x5585 | 4.88 | 2.21 | **0.74** | 4.66 | 1.54 |
-| untitled UI landing mobile | 375x8925 | 6.43 | 1.32 | **0.62** | 6.53 | 1.15 |
-| fills-effects | fixture | 0.55 | 0.55 | 0.57 | 1.05 | 0.05 |
-| shapes | fixture | 0.54 | 0.54 | 0.54 | 0.29 | 0.31 |
-| typography | fixture | 13.27 | **0.005** | **0.005** | 13.19 | 0.19 |
-| **mean** | | **3.41** | **0.94** | **0.56** | | |
+| case | import% | −text% | −text/img% | export% | drift% |
+| --- | --- | --- | --- | --- | --- |
+| shapes | 0.543 | 0.543 | 0.543 | 0.292 | 0.313 |
+| fills-effects | 0.548 | 0.548 | 0.569 | 1.052 | 0.045 |
+| community-dashstack-admin | 1.078 | 0.198 | 0.183 | 1.076 | 0.009 |
+| app-untitled-ui-settings | 1.145 | 0.456 | 0.084 | 1.014 | 0.451 |
+| community-interior-checkout | 1.362 | 0.218 | 0.220 | 1.859 | 0.692 |
+| community-interior-ecommerce | 1.938 | 1.297 | 0.131 | 2.581 | 2.384 |
+| constraints | 2.277 | 0.110 | 0.110 | 2.524 | 0.450 |
+| community-interior-product-comparison | 2.419 | 0.312 | 0.207 | 3.051 | 0.765 |
+| community-untitled-ui-landing-alt | 2.500 | 0.917 | 0.266 | 2.381 | 0.897 |
+| community-untitled-ui-landing | 2.512 | 0.518 | 0.072 | 2.618 | 0.624 |
+| autolayout | 2.632 | 0.410 | 0.410 | 3.792 | 1.679 |
+| community-untitled-ui-pricing | 2.672 | 0.245 | 0.190 | 2.633 | 0.166 |
+| app-untitled-ui-dashboard-tall | 2.776 | 1.418 | 1.221 | 2.849 | 1.006 |
+| community-positivus-landing | 3.045 | 1.426 | 1.058 | 3.903 | 1.833 |
+| card-grid | 3.097 | 0.060 | 0.060 | 3.097 | 0.000 |
+| community-whitepace-saas | 3.201 | 0.957 | 0.923 | 2.833 | 0.969 |
+| parity-stress | 3.235 | 1.334 | 1.334 | 3.633 | 0.814 |
+| community-interior-single-product | 3.353 | 2.087 | 0.244 | 4.690 | 2.323 |
+| app-untitled-ui-data-table | 3.411 | 0.732 | 0.716 | 3.878 | 0.825 |
+| community-landify-example | 3.467 | 1.563 | 0.589 | 3.306 | 1.208 |
+| app-untitled-ui-dashboard | 3.679 | 1.293 | 1.027 | 4.011 | 1.042 |
+| ds-untitled-ui-table-variants | 3.689 | 1.229 | 0.952 | 3.689 | 0.000 |
+| app-untitled-ui-settings-mobile | 3.770 | 0.431 | 0.404 | 3.726 | 0.840 |
+| community-landify-tablet | 4.709 | 2.190 | 0.718 | 4.505 | 1.546 |
+| community-untitled-ui-landing-mobile | 6.186 | 1.311 | 0.607 | 6.282 | 1.149 |
+| typography | 12.669 | 0.005 | 0.005 | 12.594 | 0.192 |
+| **mean** | **3.15** | **0.84** | **0.49** | | **0.85** |
 
 Read the last three columns together, because they say what is actually wrong:
 
