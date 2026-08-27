@@ -451,6 +451,7 @@ describe("Builder callback CSRF state", () => {
       process.env.NODE_ENV = "production";
       process.env.APP_URL = "https://default-template.netlify.app";
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host": "the-grand-tour.builder.cloud",
         "x-forwarded-proto": "https",
       });
@@ -475,6 +476,23 @@ describe("Builder callback CSRF state", () => {
           event,
         ),
       ).toBe(false);
+    });
+
+    it("ignores a spoofed Builder Cloud forwarded host from a direct request", () => {
+      process.env.NODE_ENV = "production";
+      process.env.APP_URL = "https://default-template.netlify.app";
+      const event = createBuilderBrowserEvent({
+        host: "app.example.com",
+        "x-forwarded-host": "attacker.builder.cloud",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
     });
 
     it("recovers state from the callback cookie when Builder omits query state", () => {

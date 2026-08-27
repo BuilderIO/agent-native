@@ -1241,6 +1241,20 @@ function readEventHeader(event: H3Event, name: string): string | undefined {
   }
 }
 
+function getBuilderRequestHost(event: H3Event): string | undefined {
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  const forwardedHost = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-host"),
+  );
+  // Only the local proxy boundary may replace the request host with a
+  // forwarded Builder preview host. Direct requests keep their own Host so a
+  // caller cannot steer OAuth redirects with an arbitrary forwarded header.
+  return forwardedHost &&
+    (!requestHost || isLoopbackBuilderRequestHost(requestHost))
+    ? forwardedHost
+    : requestHost;
+}
+
 function isTrustedBuilderRequestHost(host: string | undefined): boolean {
   if (!host) return false;
   try {
@@ -1280,10 +1294,7 @@ function isBuilderCloudRequestHost(host: string | undefined): boolean {
 }
 
 function getBuilderConnectCallbackOrigin(event: H3Event): string {
-  const headerHost = firstHeaderValue(
-    readEventHeader(event, "x-forwarded-host") ||
-      readEventHeader(event, "host"),
-  );
+  const headerHost = getBuilderRequestHost(event);
   return isBuilderCloudRequestHost(headerHost)
     ? getBuilderBrowserOriginForEvent(event)
     : getOrigin(event);
@@ -1332,10 +1343,7 @@ function firstPublicBuilderPreviewOriginFromEnv(): string | null {
  * the same deployment that minted the signed connect token.
  */
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
-  const headerHost = firstHeaderValue(
-    readEventHeader(event, "x-forwarded-host") ||
-      readEventHeader(event, "host"),
-  );
+  const headerHost = getBuilderRequestHost(event);
   if (!isTrustedBuilderRequestHost(headerHost)) return getOrigin(event);
   if (isLoopbackBuilderRequestHost(headerHost)) {
     const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
