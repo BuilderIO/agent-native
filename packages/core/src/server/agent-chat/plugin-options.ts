@@ -99,9 +99,10 @@ export interface AgentChatPluginOptions {
    */
   backgroundMcpTools?: "requested" | "all";
   /**
-   * Resolve approval metadata for connected MCP tools as they enter the agent
-   * action registry. This can require approval for selected tools and disable
-   * persistent approval for actions that must be confirmed on every call.
+   * Resolve approval and per-call authorization for connected MCP tools.
+   * Authorization runs at the shared MCP invocation boundary for agent and
+   * app calls; use `resolveActionSurface` separately to hide unavailable tools
+   * from an interactive request.
    */
   resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];
   /**

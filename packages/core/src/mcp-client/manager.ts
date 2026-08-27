@@ -8,7 +8,12 @@
  * lets callers add or remove servers at runtime without restarting the process.
  */
 
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  MCP_APP_EXTENSION_ID,
+  MCP_APP_MIME_TYPE,
+  type ActionAuthorize,
+  type ActionRunContext,
+} from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
 import {
@@ -97,6 +102,17 @@ export interface McpClientManagerOptions {
    */
   connectTimeoutMs?: number;
 }
+
+export interface McpToolCallOptions {
+  /** Identity and invocation source forwarded to the authorization callback. */
+  context?: ActionRunContext;
+  /** Fallback used by standalone action wrappers without a manager resolver. */
+  authorize?: ActionAuthorize<Record<string, unknown>>;
+}
+
+export type McpToolAuthorizationResolver = (
+  tool: McpTool,
+) => ActionAuthorize<Record<string, unknown>> | undefined;
 
 function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
   const typeA = a.type ?? "stdio";
@@ -198,6 +214,7 @@ export class McpClientManager {
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
   private readonly listeners: Set<() => void> = new Set();
+  private resolveToolAuthorization?: McpToolAuthorizationResolver;
   /** Serialises reconfigure()/start() — two concurrent callers would
    * otherwise race on `this.config` and on connect/disconnect ordering. */
   private reconfigureQueue: Promise<unknown> = Promise.resolve();
@@ -206,6 +223,15 @@ export class McpClientManager {
     this.config = config;
     this.debug = !!options.debug;
     this.connectTimeoutMs = options.connectTimeoutMs;
+  }
+
+  /**
+   * Install the app-owned authorization resolver used by every MCP tool-call
+   * surface. Passing `undefined` restores the backwards-compatible no-policy
+   * behavior.
+   */
+  setToolAuthorizationResolver(resolver?: McpToolAuthorizationResolver): void {
+    this.resolveToolAuthorization = resolver;
   }
 
   /** True when the manager has any configured servers. */
@@ -668,7 +694,11 @@ export class McpClientManager {
    * Invoke an MCP tool by prefixed name. Routes to the owning server based on
    * the `mcp__<serverId>__` prefix.
    */
-  async callTool(prefixedName: string, args: unknown): Promise<unknown> {
+  async callTool(
+    prefixedName: string,
+    args: unknown,
+    options: McpToolCallOptions = {},
+  ): Promise<unknown> {
     const parsed = parseMcpToolName(prefixedName);
     if (!parsed) {
       throw new Error(
@@ -691,12 +721,39 @@ export class McpClientManager {
         `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
       );
     }
-    const result = await entry.client.callTool({
+    const client = entry.client;
+    const normalizedArgs =
+      args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+    const authorize = this.resolveToolAuthorization
+      ? this.resolveToolAuthorization(known)
+      : options.authorize;
+    if (authorize) {
+      const verdict = await authorize(normalizedArgs, options.context);
+      if (verdict === false) {
+        const error = new Error("Not authorized") as Error & {
+          statusCode: number;
+        };
+        error.name = "ForbiddenError";
+        error.statusCode = 403;
+        throw error;
+      }
+    }
+    const liveEntry = this.servers.get(parsed.serverId);
+    const liveTool = liveEntry?.tools.find(
+      (tool) => tool.name === prefixedName,
+    );
+    if (
+      liveEntry !== entry ||
+      liveEntry.client !== client ||
+      liveTool !== known
+    ) {
+      throw new Error(
+        `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+      );
+    }
+    const result = await client.callTool({
       name: parsed.toolName,
-      arguments:
-        args && typeof args === "object"
-          ? (args as Record<string, unknown>)
-          : {},
+      arguments: normalizedArgs,
     });
     return result;
   }

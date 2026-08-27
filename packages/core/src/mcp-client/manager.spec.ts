@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  MCP_APP_EXTENSION_ID,
+  MCP_APP_MIME_TYPE,
+  type ActionRunContext,
+} from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   McpClientManager,
@@ -390,6 +394,92 @@ describe("McpClientManager", () => {
       { tool: "a:ping", args: { hello: 1 } },
       { tool: "b:ping", args: { hello: 2 } },
     ]);
+  });
+
+  it("enforces configured authorization before calling the remote tool", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["secured-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl,
+    };
+    let allowed = false;
+    const authorize = vi.fn(async () => allowed);
+    const mgr = new McpClientManager({
+      servers: { secured: { command: "secured-bin" } },
+    });
+    mgr.setToolAuthorizationResolver(() => authorize);
+    await mgr.start();
+    const args = { recordId: "record-1" };
+    const context = {
+      caller: "frontend",
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    } satisfies ActionRunContext;
+
+    await expect(
+      mgr.callTool("mcp__secured__mutate", args, { context }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message: "Not authorized",
+    });
+    expect(authorize).toHaveBeenCalledWith(args, context);
+    expect(callImpl).not.toHaveBeenCalled();
+
+    allowed = true;
+    await expect(
+      mgr.callTool("mcp__secured__mutate", args, { context }),
+    ).resolves.toEqual({ content: [{ type: "text", text: "updated" }] });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(callImpl).toHaveBeenCalledWith("mutate", args);
+  });
+
+  it("does not call a stale server after asynchronous authorization", async () => {
+    const staleCall = vi.fn(() => ({
+      content: [{ type: "text", text: "stale" }],
+    }));
+    const replacementCall = vi.fn(() => ({
+      content: [{ type: "text", text: "replacement" }],
+    }));
+    serverFixtures["stale-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: staleCall,
+    };
+    serverFixtures["replacement-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: replacementCall,
+    };
+    let authorizationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      authorizationStarted = resolve;
+    });
+    let resolveAuthorization!: (allowed: boolean) => void;
+    const authorize = vi.fn(async () => {
+      authorizationStarted();
+      return new Promise<boolean>((resolve) => {
+        resolveAuthorization = resolve;
+      });
+    });
+    const mgr = new McpClientManager({
+      servers: { secured: { command: "stale-bin" } },
+    });
+    mgr.setToolAuthorizationResolver(() => authorize);
+    await mgr.start();
+
+    const call = mgr.callTool("mcp__secured__mutate", {});
+    await started;
+    await mgr.reconfigure({
+      servers: { secured: { command: "replacement-bin" } },
+    });
+    resolveAuthorization(true);
+
+    await expect(call).rejects.toThrow(
+      'MCP server "secured" changed while authorizing tool "mutate"',
+    );
+    expect(staleCall).not.toHaveBeenCalled();
+    expect(replacementCall).not.toHaveBeenCalled();
   });
 
   it(

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   extractMcpToolResultImages,
@@ -222,7 +223,140 @@ describe("mcpToolsToActionEntries", () => {
     expect(entries["mcp__x__mutate"].allowPersistentApproval).toBe(false);
   });
 
-  it("updates existing MCP ActionEntry metadata when the manager tool set changes", () => {
+  it("rechecks app authorization immediately before every MCP invocation", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    let allowed = false;
+    const authorize = vi.fn(
+      async (_args: Record<string, unknown>, _context?: ActionRunContext) =>
+        allowed,
+    );
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+    const context = {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      caller: "tool",
+    } satisfies ActionRunContext;
+    const args = { recordId: "record-1" };
+
+    await expect(entry.run(args, context)).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message: "Not authorized",
+    });
+    expect(callImpl).not.toHaveBeenCalled();
+
+    allowed = true;
+    const result = await entry.run(args, context);
+
+    expect(isMcpActionResult(result)).toBe(true);
+    expect(callImpl).toHaveBeenCalledWith("mutate", args);
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(authorize).toHaveBeenNthCalledWith(1, args, context);
+    expect(authorize).toHaveBeenNthCalledWith(2, args, context);
+  });
+
+  it("authorizes once when the manager resolver supersedes the wrapper fallback", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const authorize = vi.fn(async () => true);
+    mgr.setToolAuthorizationResolver(() => authorize);
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+    const context = {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      caller: "tool",
+    } satisfies ActionRunContext;
+    const args = { recordId: "record-1" };
+
+    const result = await entry.run(args, context);
+
+    expect(isMcpActionResult(result)).toBe(true);
+    expect(authorize).toHaveBeenCalledOnce();
+    expect(authorize).toHaveBeenCalledWith(args, context);
+    expect(callImpl).toHaveBeenCalledOnce();
+  });
+
+  it("propagates a custom 403 authorization error", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const denied = Object.assign(new Error("Workspace access revoked"), {
+      statusCode: 403,
+    });
+    const authorize = vi.fn(async () => {
+      throw denied;
+    });
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+
+    await expect(
+      entry.run(
+        { recordId: "record-1" },
+        {
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+          caller: "tool",
+        },
+      ),
+    ).rejects.toBe(denied);
+    expect(callImpl).not.toHaveBeenCalled();
+  });
+
+  it("updates existing MCP ActionEntry policy when the manager tool set changes", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "inspected" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [
+        {
+          name: "inspect",
+          description: "New description",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      callImpl,
+    };
+    const manager = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await manager.start();
     const target: Record<string, ActionEntry> = {
       mcp__x__inspect: {
         tool: {
@@ -233,30 +367,13 @@ describe("mcpToolsToActionEntries", () => {
         run: async () => "old",
       },
     };
-    const manager = {
-      getTools: () => [
-        {
-          source: "x",
-          name: "mcp__x__inspect",
-          originalName: "inspect",
-          description: "New description",
-          inputSchema: {
-            type: "object",
-            properties: { id: { type: "string" } },
-            required: ["id"],
-          },
-          annotations: { readOnlyHint: true },
-          raw: { annotations: { readOnlyHint: true } },
-        },
-      ],
-      callTool: vi.fn(),
-      readResourceForTool: vi.fn(),
-    } as unknown as McpClientManager;
+    const authorize = vi.fn(async () => false);
 
     syncMcpActionEntries(manager, target, {
       resolveActionEntry: () => ({
         needsApproval: true,
         allowPersistentApproval: false,
+        authorize,
       }),
     });
 
@@ -271,6 +388,17 @@ describe("mcpToolsToActionEntries", () => {
     expect(target["mcp__x__inspect"].readOnly).toBe(true);
     expect(target["mcp__x__inspect"].needsApproval).toBe(true);
     expect(target["mcp__x__inspect"].allowPersistentApproval).toBe(false);
+    await expect(
+      target["mcp__x__inspect"].run(
+        { id: "record-1" },
+        { caller: "tool", userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
+    expect(authorize).toHaveBeenCalledWith(
+      { id: "record-1" },
+      { caller: "tool", userEmail: "owner@example.com" },
+    );
+    expect(callImpl).not.toHaveBeenCalled();
   });
 
   it("prefixes error-flagged results with 'Error:'", async () => {

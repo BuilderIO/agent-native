@@ -750,6 +750,12 @@ export function createAgentChatPlugin(
       // manager, then hydrate it after every live action registry has subscribed
       // to manager changes.
       const mcpManager = new McpClientManager(null);
+      if (options?.resolveMcpActionEntry) {
+        const resolveMcpActionEntry = options.resolveMcpActionEntry;
+        mcpManager.setToolAuthorizationResolver(
+          (tool) => resolveMcpActionEntry(tool)?.authorize,
+        );
+      }
       setGlobalMcpManager(mcpManager);
       const mcpActionEntries: Record<string, ActionEntry> = {};
       let mcpInitializationPromise: Promise<void> | null = null;

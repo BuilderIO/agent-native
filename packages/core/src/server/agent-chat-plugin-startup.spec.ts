@@ -27,6 +27,7 @@ describe("agent chat startup", () => {
     );
 
     expect(mcpSetup).toContain("new McpClientManager(null)");
+    expect(mcpSetup).toContain("setToolAuthorizationResolver");
     expect(mcpSetup).not.toContain("await mcpManager.start()");
     expect(
       source.indexOf("if (!isProductionServerlessFunctionRuntime()) {"),
