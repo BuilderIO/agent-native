@@ -3702,8 +3702,12 @@ export default function SlideEditor({
       };
 
       const restorePromotedElement = () => {
+        if (!promotedToFreeform) return;
+        promotedToFreeform = false;
         removeFreeformLayoutSpacer();
-        restoreMarkdownTree?.();
+        const restoreTree = restoreMarkdownTree;
+        restoreMarkdownTree = undefined;
+        restoreTree?.();
         if (!restoreTree) {
           element.className = originalClassName;
           if (originalStyle === null) element.removeAttribute("style");
