@@ -560,7 +560,7 @@ const frFR = {
       "Commencez avec le guide du framework ou créez en ligne avec l'agent de code cloud de Builder.io.",
     readDocs: "Lire la documentation",
     buildOnline: "Créer en ligne",
-    popoverTitle: "Créer en ligne avec Builder.io",
+    popoverTitle: "Créer dans le navigateur",
     popoverBody:
       "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
     emailLabel: "E-mail",

@@ -558,7 +558,7 @@ const jaJP = {
       "フレームワークガイドから始めるか、Builder.io のクラウドコーディングエージェントでオンライン構築できます。",
     readDocs: "ドキュメントを読む",
     buildOnline: "オンラインで構築",
-    popoverTitle: "Builder.io でオンライン構築",
+    popoverTitle: "ブラウザで構築",
     popoverBody:
       "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
     emailLabel: "メール",

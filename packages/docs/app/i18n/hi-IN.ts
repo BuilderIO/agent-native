@@ -554,7 +554,7 @@ const hiIN = {
       "फ़्रेमवर्क गाइड से शुरू करें या Builder.io के क्लाउड कोडिंग एजेंट के साथ ऑनलाइन बनाएँ.",
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
-    popoverTitle: "Builder.io के साथ ऑनलाइन बनाएँ",
+    popoverTitle: "Browser में बनाएँ",
     popoverBody:
       "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
     emailLabel: "ईमेल",

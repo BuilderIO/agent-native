@@ -64,7 +64,7 @@ describe("GettingStartedPathsBlock", () => {
     );
 
     const popover = screen
-      .getByText("Join the waitlist")
+      .getByText("Build in the browser")
       .closest("[role=dialog]");
     expect(popover).not.toBeNull();
     expect(popover?.className).toContain("data-[state=open]:animate-in");

@@ -558,7 +558,7 @@ const koKR = {
       "프레임워크 가이드로 시작하거나 Builder.io의 클라우드 코딩 에이전트로 온라인에서 빌드하세요.",
     readDocs: "문서 읽기",
     buildOnline: "온라인에서 빌드",
-    popoverTitle: "Builder.io로 온라인에서 빌드",
+    popoverTitle: "브라우저에서 빌드",
     popoverBody:
       "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
     emailLabel: "이메일",

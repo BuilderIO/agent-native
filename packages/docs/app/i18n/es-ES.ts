@@ -561,7 +561,7 @@ const esES = {
       "Empieza con la guía del framework o crea en línea con el agente de programación en la nube de Builder.io.",
     readDocs: "Leer documentación",
     buildOnline: "Crear en línea",
-    popoverTitle: "Crear en línea con Builder.io",
+    popoverTitle: "Crear en el navegador",
     popoverBody:
       "Builder.io puede crear y personalizar una app agent-native en la nube: acciones, autenticación, estado SQL y chat del agente incluidos. Únete a la lista de espera para acceso anticipado.",
     emailLabel: "Correo electrónico",
