@@ -8,6 +8,7 @@ import {
   findNetlifyReleaseMigrationIssues,
   validateBetaPrebuiltReleaseEnvironment,
   validateBetaSchemaOwnerRuntimeContract,
+  validateFrameworkOnlyReleaseScript,
   validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
@@ -147,6 +148,46 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
 
   it("keeps managed app migrations out of framework release scripts", () => {
     assert.deepEqual(validateManagedDrizzleMigrationOwnership(), []);
+  });
+
+  it("rejects any release entrypoint beyond the framework migration", () => {
+    const frameworkOnly = `
+import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+
+async function main(): Promise<void> {
+  await withMigrationRuntime(async () => {
+    await runFrameworkReleaseMigrations(null);
+  });
+}
+
+try {
+  await main();
+} finally {
+  await closeDbExec();
+}
+`;
+    assert.deepEqual(
+      validateFrameworkOnlyReleaseScript(
+        frameworkOnly,
+        "migrate-production.ts",
+      ),
+      [],
+    );
+    assert.notDeepEqual(
+      validateFrameworkOnlyReleaseScript(
+        `import { runMigrations } from "../server/plugins/db.ts";\n${frameworkOnly}`,
+        "migrate-production.ts",
+      ),
+      [],
+    );
+    assert.notDeepEqual(
+      validateFrameworkOnlyReleaseScript(
+        `${frameworkOnly}\nasync function runAppMigrations() { await main(); }`,
+        "migrate-production.ts",
+      ),
+      [],
+    );
   });
 
   it("requires the beta schema owner marker to reach runtime", () => {
