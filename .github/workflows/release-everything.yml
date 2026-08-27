@@ -394,8 +394,11 @@ jobs:
             const existingDesktopRelease = await getPublishedRelease(`v${desktopVersion}`);
             const desktopAlreadyPublished = hasCompleteDesktopRelease(existingDesktopRelease);
             if (desktopAlreadyPublished) {
+              const desktopTagSha = await getRemoteTagSha(`v${desktopVersion}`);
+              if (!desktopTagSha) {
+                throw new Error(`Complete Desktop release v${desktopVersion} has no resolvable tag.`);
+              }
               if (desktopVersionChanged) {
-                const desktopTagSha = await getRemoteTagSha(`v${desktopVersion}`);
                 if (desktopTagSha !== releaseSha) {
                   throw new Error(
                     `Complete Desktop release v${desktopVersion} points to ${desktopTagSha}, expected ${releaseSha}.`,
@@ -408,8 +411,11 @@ jobs:
             const existingClipsRelease = await getPublishedRelease(`clips-v${clipsVersion}`);
             const clipsAlreadyPublished = hasCompleteClipsRelease(existingClipsRelease, clipsVersion);
             if (clipsAlreadyPublished) {
+              const clipsTagSha = await getRemoteTagSha(`clips-v${clipsVersion}`);
+              if (!clipsTagSha) {
+                throw new Error(`Complete Clips release clips-v${clipsVersion} has no resolvable tag.`);
+              }
               if (clipsVersionChanged) {
-                const clipsTagSha = await getRemoteTagSha(`clips-v${clipsVersion}`);
                 if (clipsTagSha !== releaseSha) {
                   throw new Error(
                     `Complete Clips release clips-v${clipsVersion} points to ${clipsTagSha}, expected ${releaseSha}.`,
