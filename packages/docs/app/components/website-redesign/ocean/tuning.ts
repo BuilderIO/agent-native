@@ -194,7 +194,30 @@ function applyPreset(name: OceanPresetName): OceanTuning {
   };
 }
 
-export const OCEAN_TUNING: OceanTuning = applyPreset(selectedPreset());
+export const OCEAN_PRESET_NAMES = Object.keys(
+  OCEAN_PRESETS,
+) as readonly OceanPresetName[];
+
+/**
+ * `let`, not `const`, so the dev preset switcher can swap it: ES module
+ * bindings are live, so renderer.ts's twenty read sites pick the new table up
+ * without tuning having to be threaded through the whole graph builder. The
+ * renderer reads it while building, so a swap only takes effect on the next
+ * graph -- the switcher remounts the background to force one.
+ *
+ * DEV-ONLY MUTATION. Nothing in a production build calls setOceanPreset.
+ */
+export let OCEAN_TUNING: OceanTuning = applyPreset(selectedPreset());
+
+/** No-ops outside dev. Remove with the dev preset switcher. */
+export function setOceanPreset(name: OceanPresetName): void {
+  if (!import.meta.env.DEV) return;
+  OCEAN_TUNING = applyPreset(name);
+}
+
+export function currentOceanPreset(): OceanPresetName {
+  return selectedPreset();
+}
 
 /** Matches front's `gaussianCoefficients`: sigma=radius/3, no normalization pass. */
 export function gaussianCoefficients(kernelRadius: number): readonly number[] {

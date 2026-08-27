@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { HeroShaderBackground } from "./hero-shader-background";
+// DEV-ONLY import -- remove with the ocean preset switcher.
+import { useOceanPreset } from "./ocean/dev-preset-switcher";
 import { HeroOceanBackground } from "./ocean/hero-ocean-background";
 import { probeWebgpuSupport } from "./ocean/webgpu-support";
 
@@ -14,6 +16,8 @@ type Background = "probing" | "ocean" | "fallback";
  */
 export function HeroBackground() {
   const [background, setBackground] = useState<Background>("probing");
+  // DEV-ONLY -- remove with the ocean preset switcher.
+  const { remountKey } = useOceanPreset();
 
   useEffect(() => {
     // Reduced motion short-circuits ahead of the probe: the fallback already
@@ -46,7 +50,7 @@ export function HeroBackground() {
   const handleOceanError = useCallback(() => setBackground("fallback"), []);
 
   if (background === "ocean") {
-    return <HeroOceanBackground onError={handleOceanError} />;
+    return <HeroOceanBackground key={remountKey} onError={handleOceanError} />;
   }
   // "probing" renders the halftone too, so the hero is never bare while the
   // adapter request is in flight.
