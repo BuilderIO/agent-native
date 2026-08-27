@@ -51,15 +51,6 @@ jobs:
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-            async function getMainSha() {
-              const response = await github.rest.git.getRef({
-                owner,
-                repo,
-                ref: "heads/main",
-              });
-              return response.data.object.sha;
-            }
-
             async function readJsonAt(ref, path) {
               const response = await github.rest.repos.getContent({
                 owner,
@@ -146,6 +137,19 @@ jobs:
                 if (error.status === 404) return null;
                 throw error;
               }
+            }
+
+            async function getFirstParentSha(ref) {
+              const response = await github.rest.repos.getCommit({
+                owner,
+                repo,
+                ref,
+              });
+              const parentSha = response.data.parents?.[0]?.sha;
+              if (!parentSha) {
+                throw new Error(`Release commit ${ref} has no parent commit.`);
+              }
+              return parentSha;
             }
 
             async function waitForRun(run, label, timeoutMs) {
@@ -282,7 +286,6 @@ jobs:
               throw new Error(`Stable npm publication was not started for ${mergeSha}.`);
             }
 
-            const initialMainSha = await getMainSha();
             const previousReleaseNumbers = new Set(
               (await listReleasePullRequests())
                 .filter(isStableReleasePullRequest)
@@ -305,8 +308,9 @@ jobs:
 
             const releasePr = await waitForReleasePullRequest(previousReleaseNumbers);
             const releaseSha = await waitForReleaseMerge(releasePr);
+            const releaseBaseSha = await getFirstParentSha(releaseSha);
             const initialCorePackage = await readJsonAt(
-              initialMainSha,
+              releaseBaseSha,
               "packages/core/package.json",
             );
             const corePackage = await readJsonAt(
@@ -412,4 +416,4 @@ jobs:
               .addLink("Production fleet run", production.url)
               .write();
 
-            core.info(`Release everything completed from ${initialMainSha} through ${releaseSha}.`);
+            core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
