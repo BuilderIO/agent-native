@@ -2274,8 +2274,7 @@ ${
   .auth-mode-link { text-decoration: none; }
   .link-button:hover { color: #bbb; }
   .link-button:disabled { cursor: wait; opacity: 0.5; }
-  .magic-link-submit { display: none; }
-  .magic-link-submit.is-visible { display: block; }
+  .magic-link-submit { display: block; }
   .magic-link-success { display: none; }
   .magic-link-success.is-visible { display: block; }
   .magic-link-success-copy {
@@ -3637,8 +3636,7 @@ ${
       var button = document.getElementById('magic-link-submit');
       if (!emailInput || !button) return;
       var isValid = __anIsValidAuthEmail(emailInput.value);
-      button.classList.toggle('is-visible', isValid);
-      button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
+      button.disabled = !isValid;
       var googleButton = document.getElementById('google-btn');
       if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
     }
@@ -3924,7 +3922,7 @@ ${
         initial = 'login';
       } else if (path === '/signup' || path.endsWith('/signup')) {
         initial = 'signup';
-      } else {
+      } else if (__AN_AUTH_MODE !== 'magic-link') {
         var stored = localStorage.getItem(TAB_STORAGE_KEY);
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
