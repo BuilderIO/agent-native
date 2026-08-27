@@ -174,6 +174,7 @@ const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
 const MAX_JSON_RESPONSE_PROBE_BYTES = 8_192;
+const JSON_RESPONSE_PROBE_TIMEOUT_MS = 1_000;
 // Tools whose entire input IS the artifact being built (extension HTML, etc.).
 // Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
 // the resumed agent — it can no longer refine the artifact because it sees a
@@ -3915,16 +3916,18 @@ export function createAgentChatAdapter(
               const hasRunId = Boolean(res.headers.get("X-Run-Id"));
               let looksLikeSSE = hasRunId;
               let probeCompleted = false;
+              let probeTimedOut = false;
               let probePrefix = "";
+              let probeBytes = 0;
               if (!hasRunId) {
                 // Read a bounded prefix so a mislabeled live SSE stream is not
                 // buffered until it closes before the original reader starts.
                 const probeReader = res.clone().body?.getReader();
                 if (probeReader) {
                   const decoder = new TextDecoder();
-                  let probeBytes = 0;
                   let probeAborted = false;
                   let onAbort: (() => void) | undefined;
+                  let timeoutId: ReturnType<typeof setTimeout> | undefined;
                   const abort = new Promise<"abort">((resolve) => {
                     const handleAbort = () => resolve("abort");
                     onAbort = handleAbort;
@@ -3934,12 +3937,18 @@ export function createAgentChatAdapter(
                         once: true,
                       });
                   });
+                  const timeout = new Promise<"timeout">((resolve) => {
+                    timeoutId = setTimeout(
+                      () => resolve("timeout"),
+                      JSON_RESPONSE_PROBE_TIMEOUT_MS,
+                    );
+                  });
 
                   try {
                     while (probeBytes < MAX_JSON_RESPONSE_PROBE_BYTES) {
                       const read = probeReader.read();
                       void read.catch(() => {});
-                      const chunk = await Promise.race([read, abort]);
+                      const chunk = await Promise.race([read, timeout, abort]);
                       if (chunk === "abort") {
                         probeAborted = true;
                         throw abortSignal.reason instanceof Error &&
@@ -3949,6 +3958,12 @@ export function createAgentChatAdapter(
                               "The operation was aborted.",
                               "AbortError",
                             );
+                      }
+                      if (chunk === "timeout") {
+                        probeTimedOut = true;
+                        // The timeout only releases the diagnostic clone; the
+                        // original body remains available for SSE parsing.
+                        break;
                       }
 
                       probeCompleted = chunk.done;
@@ -3967,6 +3982,7 @@ export function createAgentChatAdapter(
                     }
                     probePrefix += decoder.decode();
                   } finally {
+                    if (timeoutId !== undefined) clearTimeout(timeoutId);
                     if (probeAborted && res.body) {
                       void res.body.cancel().catch(() => {});
                     }
@@ -3989,8 +4005,12 @@ export function createAgentChatAdapter(
 
               const firstChar = probePrefix.trimStart()[0] ?? "";
               const looksLikeJson =
-                probeCompleted ||
-                (firstChar !== "" && '{["-0123456789tfn'.includes(firstChar));
+                !probeTimedOut &&
+                (probeCompleted ||
+                  probeBytes >= MAX_JSON_RESPONSE_PROBE_BYTES ||
+                  (firstChar !== "" &&
+                    (firstChar === '"' ||
+                      "{[-0123456789tfn".includes(firstChar))));
               if (!looksLikeSSE && looksLikeJson) {
                 const body = await res.text();
                 const parsed: unknown = JSON.parse(body);

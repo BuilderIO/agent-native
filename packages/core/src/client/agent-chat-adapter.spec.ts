@@ -286,14 +286,16 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
-  it("continues JSON detection across leading whitespace chunks", async () => {
+  it("detects a chunked top-level JSON string after leading whitespace", async () => {
     const encoder = new TextEncoder();
     const response = new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(encoder.encode("\n"));
           setTimeout(() => {
-            controller.enqueue(encoder.encode('{"ok":true}'));
+            controller.enqueue(
+              encoder.encode(JSON.stringify("Authentication required")),
+            );
             controller.close();
           }, 10);
         },
@@ -379,7 +381,7 @@ describe("createAgentChatAdapter", () => {
 
     try {
       const resultPromise = iterator.next();
-      await vi.advanceTimersByTimeAsync(1_001);
+      await vi.advanceTimersByTimeAsync(500);
       finishResponse?.();
       const result = await resultPromise;
 
