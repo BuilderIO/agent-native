@@ -433,6 +433,103 @@ const koKR = {
     freeAndOpenSource: "100% 무료 • 오픈 소스",
     viewAllApps: "모든 앱 보기",
   },
+  homepage: {
+    hero: {
+      title: "에이전틱 애플리케이션 프레임워크",
+      bodyLine1:
+        "사용자를 위한 두 번째 제품을 따로 만들지 않고도 AI 에이전트를 위해 개발하세요.",
+      bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
+      learnMore: "자세히 알아보기",
+    },
+    install: {
+      copyCommand: "설치 명령 복사",
+    },
+    actions: {
+      title: "하나의 Action이 모든 표면을 구동합니다",
+      bodyLine1: "Action은 Agent-Native 앱의 기본 구성 요소입니다.",
+      bodyLine2:
+        "기능을 한 번만 정의하고 UI, 에이전트 채팅, HTTP API, MCP, A2A, CLI에서 그대로 사용하세요.",
+      diagramAlt:
+        "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
+    },
+    builtIn: {
+      title: "모든 Agent-Native 앱에 기본으로 내장",
+      body: "사용자와 AI 에이전트가 함께 일하는 데 필요한 모든 것이 하나의 애플리케이션에 이미 연결되어 있습니다.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "사용자에게 탐색, 편집, 검토에 익숙한 화면을 제공합니다.",
+        },
+        agentChat: {
+          title: "내장된 에이전트 채팅",
+          body: "앱을 벗어나지 않고 작업을 위임하고, 질문하고, 결과를 검토할 수 있습니다.",
+        },
+        sharedState: {
+          title: "공유 애플리케이션 상태",
+          body: "에이전트가 사용자가 무엇을 보고, 선택하고, 편집하는지 알고 있습니다.",
+        },
+        sharedSql: {
+          title: "공유 SQL 데이터",
+          body: "사용자와 에이전트가 동일한 신뢰 출처를 읽고 업데이트합니다.",
+        },
+        skillsMemory: {
+          title: "스킬과 메모리",
+          body: "에이전트에게 재사용 가능한 전문성과 지속적인 컨텍스트를 제공합니다.",
+        },
+        automations: {
+          title: "자동화",
+          body: "일정이나 애플리케이션 이벤트에 따라 에이전트 작업을 자동으로 실행합니다.",
+        },
+        agentTeams: {
+          title: "에이전트 팀",
+          body: "앱 내부 또는 여러 앱에 걸쳐 전문 에이전트에게 작업을 위임합니다.",
+        },
+        auth: {
+          title: "인증과 조직",
+          body: "로그인, 사용자 계정, 조직 멤버십이 기본으로 포함되어 있습니다.",
+        },
+        sharing: {
+          title: "공유와 권한",
+          body: "모든 리소스를 누가 보고, 댓글을 달고, 편집하고, 관리할 수 있는지 제어합니다.",
+        },
+      },
+    },
+    stack: {
+      title: "기존 스택과 함께 작동",
+      body: "LLM, 데이터베이스, 도구, 인프라를 그대로 사용하세요. Agent-Native는 오픈 소스 TypeScript이므로 애플리케이션은 계속 여러분의 것입니다.",
+      exploreApps: "Agent-Native로 만든 앱 살펴보기",
+    },
+    showcase: {
+      title: "Agent-Native로 무엇을 만들 수 있나요?",
+      body: "채팅, 집중된 내부 도구, 또는 완전한 고객 대면 제품으로 시작하세요. 모든 앱은 사용자에게 UI를, 에이전트에게 같은 일을 할 수 있는 도구를 제공합니다.",
+      browseApps: "앱 살펴보기",
+      scrollLeft: "앱 왼쪽으로 스크롤",
+      scrollRight: "앱 오른쪽으로 스크롤",
+    },
+    bottomCta: {
+      title: "첫 Agent-Native 앱을 만들어 보세요",
+      body: "사용자와 AI 에이전트를 위한 하나의 애플리케이션을 만드세요. 원하는 LLM을 사용하고 어디에나 배포하세요.",
+    },
+    getStartedModal: {
+      title: "시작하기",
+      close: "닫기",
+      buildLocally: "로컬에서 앱 만들기",
+      tryAnApp: "앱 사용해 보기",
+      buildInCloud: "클라우드에서 만들기",
+    },
+    footer: {
+      tagline: "에이전틱 애플리케이션 프레임워크.",
+      framework: "프레임워크",
+      ecosystem: "에코시스템",
+      community: "커뮤니티",
+      legal: "법적 고지",
+      docs: "문서",
+      actions: "액션",
+      apps: "앱",
+      privacyPolicy: "개인정보 처리방침",
+      saasTerms: "SaaS 약관",
+    },
+  },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
     eyebrow: "작동하는 app에서 시작하고 agent가 발전시키게 하세요.",
@@ -498,7 +595,7 @@ const koKR = {
     design: {
       replaces: "디자인 프로토타이핑 도구를 대체하거나 보강",
       description:
-        "Agent-native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
+        "Agent-Native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
     },
     content: {
       replaces:
@@ -1231,7 +1328,7 @@ const koKR = {
       s026: "공유 가능한 링크",
       s027: "모든 계획에는 공개 URL이 있습니다. 비동기식 검토, 댓글 및 승인을 위해 팀원과 공유하세요.",
       s028: "데스크탑 파일 동기화",
-      s029: "앱을 복제하거나 CLI을 실행하지 않고 Agent Native Desktop에서 로컬 MDX 파일로 호스팅된 계획을 미러링합니다.",
+      s029: "앱을 복제하거나 CLI을 실행하지 않고 Agent-Native Desktop에서 로컬 MDX 파일로 호스팅된 계획을 미러링합니다.",
       s030: "이므로 리뷰는 코드 옆에 유지됩니다.",
       s031: "작동 원리",
       s032: "계획은 공유 앱에 있습니다. 귀하와 상담원 모두 기능 수명 주기 동안 계획을 읽고 업데이트할 수 있습니다.",
@@ -1265,7 +1362,7 @@ const koKR = {
       s060: "모든 템플릿 보기",
       s061: "VS Code 핸드오프",
       s062: "다음을 사용해 VS Code 사이드 패널에서 계획 링크를 여세요:",
-      s063: "Agent Native Plans 확장",
+      s063: "Agent-Native Plans 확장",
       s064: "와이어프레임 — 컴포넌트 슬롯이 있는 스케치 UI 모형",
       s065: "주석 코드 — 줄별 메모가 있는 소스 파일",
       s066: "다이어그램 — 흐름, 시퀀스 또는 아키텍처",
@@ -1293,7 +1390,7 @@ const koKR = {
           "plan mode는 터미널의 텍스트로, 한 사람만 볼 수 있고 승인하면 사라집니다. Plans는 와이어프레임, 다이어그램, 주석이 달린 차이를 포함한 시각적 계획입니다. 공유하고 계속 보관할 수 있으며, 에이전트가 기능의 전체 수명 주기 동안 만들고 읽고 업데이트할 수 있습니다.",
         question5: "코드 옆에서 계획을 볼 수 있나요?",
         answer5:
-          "네. VS Code 확장 프로그램이 계획을 사이드 패널에서 열고, Agent Native Desktop은 호스팅된 계획을 로컬 MDX 파일로 미러링합니다.",
+          "네. VS Code 확장 프로그램이 계획을 사이드 패널에서 열고, Agent-Native Desktop은 호스팅된 계획을 로컬 MDX 파일로 미러링합니다.",
         question6: "Plans는 무료인가요?",
         answer6:
           "네. 무료 오픈 소스이며 MIT 라이선스입니다. Plans는 호스팅된 공유 링크를 제공하고, 모든 내용을 로컬 파일로 미러링할 수도 있습니다.",
@@ -1516,9 +1613,9 @@ const koKR = {
     },
   },
   downloadPage: {
-    title: "Agent Native 다운로드",
+    title: "Agent-Native 다운로드",
     body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
-    openDesktop: "Agent Native 열기",
+    openDesktop: "Agent-Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
     downloadStarted: "다운로드가 시작되었습니다",
     downloadAgain: "작동하지 않았나요? 다시 다운로드해 보세요",

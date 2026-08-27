@@ -84,7 +84,7 @@ agent should know.
 
 ## Framework Docs
 
-Version-matched Agent Native docs and a source-only corpus of core and
+Version-matched Agent-Native docs and a source-only corpus of core and
 first-party template patterns ship with `@agent-native/core`. From an app
 directory, use `pnpm action docs-search --query "<topic>"` and
 `pnpm action source-search --query "<pattern>"`. Read `workspace-conventions`

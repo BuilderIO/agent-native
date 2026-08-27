@@ -1,4 +1,4 @@
-# Agent Native Content capability encyclopedia
+# Agent-Native Content capability encyclopedia
 
 <!-- Generated from the atomic records in chapters/, features/, and capabilities/. Do not edit this projection directly. -->
 
@@ -308,7 +308,7 @@ graph LR
 
 | Capability                                                       | State          | User promise                                                                                                        |
 | ---------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------- |
-| [Shared Form engine](capabilities/content.form.shared-engine.md) | Approved Shape | Content Form Views and Agent Native Forms use one schema, validation, permission, and idempotent submission engine. |
+| [Shared Form engine](capabilities/content.form.shared-engine.md) | Approved Shape | Content Form Views and Agent-Native Forms use one schema, validation, permission, and idempotent submission engine. |
 
 ## History
 

@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconRefresh,
   IconTrash,
@@ -141,6 +142,18 @@ export default function AnalysisDetail() {
   const { mutateAsync: deleteAnalysis } = useActionMutation("delete-analysis", {
     method: "DELETE",
   });
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      analysis?.name,
+      "Analysis",
+    )} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [analysis?.name]);
 
   useEffect(() => {
     if (analysis?.id) incrementItemView("analysis", analysis.id);

@@ -203,7 +203,7 @@ npx @agent-native/core@latest connect https://dispatch.agent-native.com
 
 使用 `--client codex`（或 `--client claude-code`、`--client claude-code-cli`、`--client cursor`、`--client opencode`、`--client github-copilot`、`--client cowork`、`--client all`）跳過指令碼選取器或一次性安裝。
 
-第一方應用 skills 安裝說明和託管 MCP 連線器以及 Agent Native CLI：
+第一方應用 skills 安裝說明和託管 MCP 連線器以及 Agent-Native CLI：
 
 ```bash
 npx @agent-native/core@latest skills add assets              # alias: image-generation
@@ -415,7 +415,7 @@ Core `db-schema` 與 `db-query` 不會自動公開為外部讀取。它們仍可
 
 提供 `resolveExecutionContext` 的應用程式會明確取代這套預設身分判定流程。其解析器必須在傳回主體之前，自行拒絕未經驗證的呼叫者、訪客、外部成員以及未連結的工作區。
 
-經過驗證的 Slack 私訊會在代理執行前配對現有的 Agent Native 組織成員，並儲存工作區/使用者身分連結；由此產生的使用者/組織內容會載入該使用者的資源、指示和技能。預設情況下，已成功取得資料但缺少電子郵件或尚未成為組織成員的工作區成員會被拒絕。應用程式可以明確設定 `allowAnonymousOrgScopedSlackDm: true`，讓這些成員改用組織範圍的匿名服務主體執行——其組織級可見性與共用頻道相同，但絕不包含使用者私人存取——同時向代理顯示說明，並透過 Slack 一次性提示如何取得個人存取權。這項選擇加入絕不允許資料取得失敗、未經驗證的呼叫者、訪客、外部（Slack Connect）成員或尚未連接組織的工作區；這些情況會收到禮貌的拒絕回覆。Slack 共用頻道使用服務主體，不會借用任何參與者的私人權限。託管 OAuth 與產生的 Slack 應用程式 manifest 都會要求 bot scope `users:read.email`。現有安裝必須重新連接/安裝，才能授予新增的 scope；舊版 bot token 安裝則必須在 Slack 中手動加入該 scope。若沒有此 scope，私訊會被拒絕，除非應用程式明確啟用 `allowAnonymousOrgScopedSlackDm`。
+經過驗證的 Slack 私訊會在代理執行前配對現有的 Agent-Native 組織成員，並儲存工作區/使用者身分連結；由此產生的使用者/組織內容會載入該使用者的資源、指示和技能。預設情況下，已成功取得資料但缺少電子郵件或尚未成為組織成員的工作區成員會被拒絕。應用程式可以明確設定 `allowAnonymousOrgScopedSlackDm: true`，讓這些成員改用組織範圍的匿名服務主體執行——其組織級可見性與共用頻道相同，但絕不包含使用者私人存取——同時向代理顯示說明，並透過 Slack 一次性提示如何取得個人存取權。這項選擇加入絕不允許資料取得失敗、未經驗證的呼叫者、訪客、外部（Slack Connect）成員或尚未連接組織的工作區；這些情況會收到禮貌的拒絕回覆。Slack 共用頻道使用服務主體，不會借用任何參與者的私人權限。託管 OAuth 與產生的 Slack 應用程式 manifest 都會要求 bot scope `users:read.email`。現有安裝必須重新連接/安裝，才能授予新增的 scope；舊版 bot token 安裝則必須在 Slack 中手動加入該 scope。若沒有此 scope，私訊會被拒絕，除非應用程式明確啟用 `allowAnonymousOrgScopedSlackDm`。
 
 ### 完整層（僅限明確選取加入） {#full-tier}
 

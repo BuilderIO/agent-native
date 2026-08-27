@@ -1,7 +1,7 @@
 {
   "type": "keyboard",
   "name": "AgentNativeKeyboard",
-  "displayName": "Agent Native Dictation",
+  "displayName": "Agent-Native Dictation",
   "bundleIdentifier": ".keyboard",
   "deploymentTarget": "17.0",
   "frameworks": ["UIKit"],

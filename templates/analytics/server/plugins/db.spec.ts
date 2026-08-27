@@ -301,6 +301,21 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
   });
 
+  it("adds nullable dashboard creator provenance without rewriting existing rows", () => {
+    const migrationStart = dbTsSource.indexOf("version: 147,");
+    const migrationEnd = dbTsSource.indexOf("\n    },", migrationStart);
+    const migration = dbTsSource.slice(migrationStart, migrationEnd);
+
+    expect(migrationStart).toBeGreaterThan(-1);
+    expect(migrationEnd).toBeGreaterThan(migrationStart);
+    expect(migration).toContain('name: "analytics-dashboard-created-by"');
+    expect(migration).toContain("run: ensureAnalyticsDashboardCreatedByColumn");
+    expect(migration).toContain(
+      "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
+    );
+    expect(migration).toContain('sqlite: "SELECT 1"');
+  });
+
   it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {
     const shardStart = dbTsSource.indexOf("version: 142,");
     const shardEnd = dbTsSource.indexOf("\n    },", shardStart);

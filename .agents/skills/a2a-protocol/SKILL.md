@@ -281,7 +281,7 @@ for await (const update of client.stream({
 
 ### Agent activity in delegated chat
 
-Agent Native peers attach a bounded `data` part with
+Agent-Native peers attach a bounded `data` part with
 `kind: "agent-native/agent-activity"` to in-progress and terminal task status
 messages. It contains the same user-visible reasoning summaries shown in the
 receiving app, tool names and completion states, elapsed time, and progressive

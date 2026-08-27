@@ -38,8 +38,6 @@ import {
 } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq } from "drizzle-orm";
@@ -66,8 +64,6 @@ import {
   type TranscriptSegment,
 } from "../shared/transcript-segments.js";
 import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status.js";
-import cleanupTranscript from "./cleanup-transcript.js";
-import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
   AudioOnlyExtractionError,
   assertAudioHasAudibleSignal,
@@ -107,7 +103,6 @@ type RecordingMediaRow = {
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
   "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
-const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
 const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
@@ -856,27 +851,11 @@ async function failAudioOnlyPreparation({
   throw new Error(reason);
 }
 
-async function transcriptCleanupEnabled(): Promise<boolean> {
-  const userEmail = getRequestUserEmail();
-  if (userEmail) {
-    const userSettings = await getUserSetting(
-      userEmail,
-      CLIPS_USER_PREFS_KEY,
-    ).catch(() => null);
-    if (userSettings && "transcriptCleanupEnabled" in userSettings) {
-      return userSettings.transcriptCleanupEnabled !== false;
-    }
-  }
-
-  const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
-  return settings?.transcriptCleanupEnabled !== false;
-}
-
 /**
  * Read the language already detected/stored on this recording's transcript row.
- * Cleanup and renormalization must preserve a detected non-English language
- * rather than clobbering it back to "en". Falls back to "en" only when no row
- * (or no language) exists yet.
+ * Renormalization must preserve a detected non-English language rather than
+ * clobbering it back to "en". Falls back to "en" only when no row (or no
+ * language) exists yet.
  */
 async function resolveStoredLanguage(
   db: ReturnType<typeof getDb>,
@@ -888,140 +867,6 @@ async function resolveStoredLanguage(
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
     .limit(1);
   return row?.language?.trim() || "en";
-}
-
-async function cleanupNativeTranscript({
-  db,
-  recordingId,
-  ownerEmail,
-  fullText,
-  durationMs,
-  segmentsJson,
-}: {
-  db: ReturnType<typeof getDb>;
-  recordingId: string;
-  ownerEmail: string;
-  fullText: string;
-  durationMs: number | null | undefined;
-  segmentsJson?: string | null;
-}): Promise<{ cleaned: boolean; provider?: string }> {
-  const sourceText = fullText.trim();
-  if (!sourceText) return { cleaned: false };
-
-  if (!(await transcriptCleanupEnabled())) {
-    await writeTranscriptCleanupState(recordingId, {
-      status: "disabled",
-    });
-    return { cleaned: false };
-  }
-
-  await writeTranscriptCleanupState(recordingId, {
-    status: "running",
-    provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-    startedAt: new Date().toISOString(),
-  });
-
-  try {
-    const agentsContext = await loadAgentsMdContext({
-      ownerEmail,
-      purpose: "cleanup",
-    });
-    const result = await cleanupTranscript.run({
-      transcript: sourceText,
-      task: "cleanup",
-      context: agentsContext,
-    });
-    const cleanedText = result.cleanedText?.trim();
-    if (!cleanedText || cleanedText === sourceText) {
-      await writeTranscriptCleanupState(recordingId, {
-        status: "unchanged",
-        provider: result.provider,
-      });
-      return { cleaned: false, provider: result.provider };
-    }
-    if (!isSafeTranscriptCleanupReplacement(sourceText, cleanedText)) {
-      await writeTranscriptCleanupState(recordingId, {
-        status: "failed",
-        provider: result.provider,
-        failureReason:
-          "Cleanup output was incomplete; the original transcript was kept.",
-        sourceChars: sourceText.length,
-        cleanedChars: cleanedText.length,
-      });
-      return { cleaned: false, provider: result.provider };
-    }
-
-    const cleanupSegmentsJson = resolveCleanupSegmentsJson(
-      segmentsJson,
-      cleanedText,
-      durationMs,
-    );
-    if (!cleanupSegmentsJson) {
-      await writeTranscriptCleanupState(recordingId, {
-        status: "unchanged",
-        provider: result.provider,
-        failureReason:
-          "Cleanup output could not be aligned with measured speaker cues; the original transcript was kept.",
-      });
-      return { cleaned: false, provider: result.provider };
-    }
-
-    const now = new Date().toISOString();
-    const language = await resolveStoredLanguage(db, recordingId);
-    const updated = await db
-      .update(schema.recordingTranscripts)
-      .set({
-        ownerEmail,
-        status: "ready",
-        failureReason: null,
-        language,
-        segmentsJson: cleanupSegmentsJson,
-        fullText: cleanedText,
-        retryCount: 0,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.recordingTranscripts.recordingId, recordingId),
-          eq(schema.recordingTranscripts.status, "ready"),
-          eq(schema.recordingTranscripts.fullText, sourceText),
-        ),
-      )
-      .returning({ recordingId: schema.recordingTranscripts.recordingId });
-    if (!updated.length) {
-      await writeTranscriptCleanupState(recordingId, {
-        status: "failed",
-        provider: result.provider,
-        failureReason:
-          "Transcript changed during cleanup; the newer transcript was kept.",
-      });
-      return { cleaned: false, provider: result.provider };
-    }
-    await writeTranscriptCleanupState(recordingId, {
-      status: "ready",
-      provider: result.provider,
-    });
-
-    return { cleaned: true, provider: result.provider };
-  } catch (err) {
-    const details = serializeError(err);
-    console.warn(
-      `[clips] native transcript cleanup skipped for ${recordingId}: ${summarizeError(err)}`,
-    );
-    if (verboseTranscriptErrors()) {
-      console.warn(
-        "[clips] native transcript cleanup error details",
-        serializeError(err, { includeStack: true }),
-      );
-    }
-    await writeTranscriptCleanupState(recordingId, {
-      status: "failed",
-      provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-      failureReason: (err as Error)?.message ?? String(err),
-      details,
-    });
-    return { cleaned: false };
-  }
 }
 
 async function generateRecordingMetadata({
@@ -1120,21 +965,6 @@ async function completeReadyTranscript({
     }
   }
 
-  const cleanupPromise = cleanupNativeTranscript({
-    db,
-    recordingId,
-    ownerEmail,
-    fullText,
-    durationMs: recForTitle?.durationMs,
-    segmentsJson,
-  }).catch((err) => {
-    console.warn(
-      `[clips] native transcript cleanup failed for ${recordingId}:`,
-      (err as Error)?.message ?? String(err),
-    );
-    return { cleaned: false };
-  });
-
   const metadataPromise = recForTitle
     ? generateRecordingMetadata({
         recordingId,
@@ -1151,12 +981,7 @@ async function completeReadyTranscript({
       })
     : Promise.resolve({ titleQueued: false, summaryQueued: false });
 
-  // Both calls are independent. Await them together so the durable worker stays
-  // alive without serially stacking two model-call timeouts.
-  const [cleanupResult, metadataResult] = await Promise.all([
-    cleanupPromise,
-    metadataPromise,
-  ]);
+  const metadataResult = await metadataPromise;
 
   if (!recForTitle) {
     console.warn(
@@ -1175,9 +1000,7 @@ async function completeReadyTranscript({
     );
   }
 
-  // Wake the player polling so it picks up the queued cleanup state row
-  // (`transcript-cleanup-${recordingId}`) before its next 2s tick lands —
-  // otherwise the "Cleaning up…" badge can lag for one full poll interval.
+  // Wake the player polling after transcript metadata generation completes.
   await writeAppState("refresh-signal", { ts: Date.now() });
   await finalizeEndedMeetingsForRecording(db, recordingId);
   await queueBrainExport(recordingId);
@@ -1185,7 +1008,7 @@ async function completeReadyTranscript({
   return {
     recordingId,
     status: "ready",
-    cleaned: cleanupResult.cleaned,
+    cleaned: false,
     provider: segmentsJson && segmentsJson !== "[]" ? "existing" : "native",
     cleanupQueued: false,
     titleQueued: metadataResult.titleQueued,

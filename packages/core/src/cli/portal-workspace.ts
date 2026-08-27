@@ -183,7 +183,7 @@ export async function createPortalHandoff(input: {
           executeGit,
           ["config", "--get", "user.name"],
           repositoryPath,
-        )) ?? "Agent Native Portal";
+        )) ?? "Agent-Native Portal";
       const authorEmail =
         (await optionalGitOutput(
           executeGit,

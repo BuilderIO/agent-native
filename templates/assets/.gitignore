@@ -45,7 +45,6 @@ data/*.db-wal
 data/uploads/
 data/settings.json
 data/.sessions.json
-data/sync-config.json
 
 # Stray SQLite files at the template root. The real DB lives under data/.
 /app.db

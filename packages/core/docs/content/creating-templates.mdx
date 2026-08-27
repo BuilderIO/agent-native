@@ -5,6 +5,8 @@ description: "How to create and publish your own agent-native app templates."
 
 # Creating Templates
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 Templates are complete, cloneable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, Drizzle SQL for data, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
 
 Use `@agent-native/core` for the runtime contract: actions, server plugins,
@@ -210,7 +212,16 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-Schema changes must be additive. Add tables and columns through `runMigrations()` in `server/plugins/db.ts`; never use destructive SQL, `drizzle-kit push`, table renames, or column drops.
+Schema changes must be additive. For new app-owned tables and columns, use
+`drizzle-kit generate` to create reviewed SQL under
+`server/db/migrations/<id_name>.sql`, then load it through
+`runDrizzleMigrations()` from the release migration command on Node.js
+deployments. Cloudflare Workers/Pages and D1 have no deployable filesystem, so
+keep generated SQL in entries embedded in the worker bundle and pass them to
+`runMigrations()`. Keep using `runMigrations()` for existing handwritten history
+and cases that need dialect-specific SQL, D1-specific behavior, data backfills,
+or deferred JavaScript steps. Never use destructive SQL, `drizzle-kit push`,
+table renames, or column drops.
 
 For app reads and writes, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not write product code with raw SQL when Drizzle can express the query, and do not import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in templates.
 
@@ -511,7 +522,7 @@ Before sharing:
 5. Include examples or seed rows through additive migrations, not tracked runtime data files.
 
 Community templates install directly from a public GitHub repository. Put the
-Agent Native app at the repository root:
+Agent-Native app at the repository root:
 
 ```bash
 npx @agent-native/core@latest create my-app --template community:owner/repo
@@ -531,7 +542,7 @@ repository, license, dependencies, and install scripts before running
 
 To be listed in the community catalog, include:
 
-- A focused, complete Agent Native app at the repository root.
+- A focused, complete Agent-Native app at the repository root.
 - A public repository with a license and a README that covers setup, required
   environment variables, and what the template does.
 - A root `package.json` that depends on `@agent-native/core`.
