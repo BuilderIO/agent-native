@@ -45,9 +45,12 @@ required checks successful, no active review blocker, no ultra-scary security,
 data, or deployment risk, and no minor update for a major-version-0
 dependency. Satisfy any required approving review, then bind the normal
 protected merge to the expected head SHA with `--match-head-commit <sha>`; do
-not use an admin bypass. This queue exception may skip the current branch's
-`/babysit-pr` soak, but it does not skip branch protection. Do not auto-merge
-other external PRs.
+not use an admin bypass. Any required approval must come from a verified
+BuilderIO human member who is not the PR author or a bot. Verify the
+approver's GitHub user type is `User` and
+`gh api orgs/BuilderIO/members/<login>` succeeds. This queue exception may
+skip the current branch's `/babysit-pr` soak, but it does not skip branch
+protection. Do not auto-merge other external PRs.
 
 ## Branch-wide Push
 
@@ -281,9 +284,12 @@ branch, stay on it.
    `review-prs` exception above and merge each qualifying update with its
    expected head SHA. Immediately before each merge, re-read the current head,
    review state, mergeability, and checks; obtain any required approval from a
-   reviewer other than the PR author, then run `gh pr merge <number> --squash --match-head-commit <sha>` without `--admin`. Re-read each PR after merging
-   and record its result; never use this path to bypass a failed or unavailable
-   check.
+   verified BuilderIO human member other than the PR author or a bot, after
+   verifying the GitHub user type is `User` and organization membership with
+   `gh api orgs/BuilderIO/members/<login>`. Then run:
+   `gh pr merge <number> --squash --match-head-commit <sha>` without `--admin`.
+   Re-read each PR after merging and record its result; never use this path to
+   bypass a failed or unavailable check.
 
 8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,

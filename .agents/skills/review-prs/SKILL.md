@@ -232,9 +232,12 @@ is true:
 3. All required checks are successful. No required lane is pending, skipped,
    neutral, unknown, failing, or unavailable, and no active review is
    `CHANGES_REQUESTED` or leaves an unresolved review thread. Any required
-   approving review is already present, or one reviewer other than the PR
-   author submits a current-head approval before the merge; do not duplicate
-   an existing approval.
+   approving review must be from a verified BuilderIO human member who is not
+   the PR author or a bot. If it is absent, verify the approver's GitHub user
+   type is `User` and `gh api orgs/BuilderIO/members/<login>` succeeds, then
+   have that reviewer submit one current-head approval; do not duplicate an
+   existing approval. If the approver or membership cannot be verified, flag
+   the PR.
 4. The dependency change has no credible auth, permission, tenant-isolation,
    secret, data-loss, remote-code-execution, SSRF, payment, deployment, or
    other ultra-scary production risk. If the dependency or diff touches one of
