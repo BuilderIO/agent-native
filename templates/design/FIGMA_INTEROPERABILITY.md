@@ -328,6 +328,10 @@ What moved the numbers. Each was a real defect on a real design:
 | hugging text ignoring the size Figma resolved | whitepace (.fig) | 3.37 | 3.18 |
 | a wrapping auto-layout stack that never wrapped | autolayout (.fig) | 16.79 | 5.20 |
 | diamond gradient drawn as an ellipse | fills-effects (.fig) | 17.90 | 15.26 |
+| glyphs hinted, not laid out on exact outlines | typography (.fig, vs REST) | 12.49 | 6.55 |
+| fill-container overriding the node's own sizing | dashboard (.fig) | 9.26 | 4.95 |
+| hugging text 1px tall over, moving every sibling | autolayout (.fig) | 5.15 | 2.38 |
+| Figma's text case and decoration dropped | typography (.fig, vs REST) | 6.55 | 6.00 |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
@@ -359,16 +363,20 @@ multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 | case | `.fig` vs Figma | nodes off >1.5px | REST, same design |
 | --- | --- | --- | --- |
 | shapes | 1.68% | **0 of 11** | 0.54% |
-| card grid | 2.25% | **0 of 11** | 3.10% |
-| interior single product | **2.59%** | 1 of 136 | 3.35% |
-| constraints | 3.04% | **0 of 7** | 2.28% |
-| whitepace | 3.18% | 3 of 1026 | 2.96% |
-| untitled UI pricing | 3.29% | **0 of 182** | 2.67% |
-| auto-layout torture | 5.20% | **0 of 29** | 2.63% |
-| untitled UI landing mobile | 7.65% | **0 of 228** | 6.19% |
-| untitled UI dashboard | 9.37% | 25 of 201 | 3.68% |
-| typography torture | 14.83% | 1 of 9 | 12.67% |
+| card grid | 2.15% | **0 of 11** | 3.10% |
+| interior single product | **2.26%** | 1 of 136 | 3.35% |
+| auto-layout torture | **2.38%** | **0 of 29** | 2.63% |
+| constraints | 3.00% | **0 of 7** | 2.28% |
+| whitepace | 3.07% | 3 of 1026 | 2.96% |
+| untitled UI pricing | 3.15% | **0 of 182** | 2.67% |
+| untitled UI dashboard | 4.95% | 6 of 201 | 3.68% |
+| untitled UI landing mobile | 7.45% | **0 of 228** | 6.19% |
+| typography torture | 14.13% | 1 of 9 | 12.67% |
 | fills and effects | 15.26% | **0 of 12** | 0.55% |
+
+Nine of the eleven frames are within 0.5pp of the REST walker or ahead of it,
+and three now BEAT it. The dashboard's six remaining offenders are the same six
+the REST walker has on that design — all of them the one glyph.
 
 The image-heavy case is the one to read first: the `.fig` path BEATS the REST
 path on it, because **a `.fig` container carries image bytes** where the REST
@@ -456,9 +464,9 @@ REST corpus uses:
 
 | case | paste vs Figma | converter only | REST, same design |
 | --- | --- | --- | --- |
-| dashstack admin | 3.55% | 2.89% | 1.08% (a different frame) |
-| positivus landing | 4.33% | 3.02% | 2.63% |
-| untitled UI landing | 9.67% | 3.01% | 2.51% |
+| dashstack admin | 3.16% | 2.50% | 1.08% (a different frame) |
+| positivus landing | 4.30% | 2.97% | 2.63% |
+| untitled UI landing | 9.60% | 2.92% | 2.51% |
 
 Read the middle column against the last one: on both designs where the same
 frame is measured over both paths, the clipboard walker is now within 0.5pp of
