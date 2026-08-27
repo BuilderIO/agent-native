@@ -1171,6 +1171,41 @@ describe("auto line height", () => {
   });
 });
 
+describe("an auto-layout frame's default counter alignment", () => {
+  // Figma defaults to MIN, CSS `align-items` to `stretch`. Emitting nothing
+  // when Figma says nothing let every child of an unaligned stack grow to the
+  // full width — a 195px "Read more" button came out 695px.
+  const stack = (counterAlign?: string) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 60, {
+        type: "FRAME",
+        name: "Heading",
+        stackMode: "VERTICAL",
+        stackCounterAlignItems: counterAlign,
+        size: { x: 695, y: 200 },
+      }),
+    );
+    (doc.nodeChanges as Array<Record<string, unknown>>).push({
+      guid: { sessionID: 1, localID: 61 },
+      parentIndex: { guid: { sessionID: 1, localID: 60 }, position: "a" },
+      type: "FRAME",
+      name: "Btn-try",
+      size: { x: 195, y: 63 },
+      transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+    });
+    return doc;
+  };
+
+  it("pins flex-start when Figma states no counter alignment", () => {
+    expect(renderFrame(stack(undefined))).toContain("align-items: flex-start");
+  });
+
+  it("still honours an explicit one", () => {
+    expect(renderFrame(stack("CENTER"))).toContain("align-items: center");
+  });
+});
+
 describe("BOOLEAN_OPERATION UNION", () => {
   // A clipboard paste carries only the operands, never the flattened outline
   // Figma computes. A UNION does not need it: filling the operands together IS

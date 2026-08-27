@@ -1546,8 +1546,12 @@ function autolayoutStyles(
   if (node.stackPrimaryAlignItems)
     out.justifyContent =
       STACK_ALIGN[node.stackPrimaryAlignItems] ?? "flex-start";
-  if (node.stackCounterAlignItems)
-    out.alignItems = STACK_ALIGN[node.stackCounterAlignItems] ?? "flex-start";
+  // Always emitted, because the two defaults disagree: Figma's counter
+  // alignment defaults to MIN, CSS's `align-items` to `stretch`. Leaving it
+  // unset let every child of an unaligned stack grow to the full width — a
+  // 195px "Read more" button came out 695px, and its whole section with it.
+  out.alignItems =
+    STACK_ALIGN[node.stackCounterAlignItems ?? "MIN"] ?? "flex-start";
   // A negative `stackSpacing` overlaps the children. CSS rejects a negative
   // `gap` outright, which drops the declaration and silently falls back to 0,
   // overflowing the stack; the overlap is applied as a negative margin on the
