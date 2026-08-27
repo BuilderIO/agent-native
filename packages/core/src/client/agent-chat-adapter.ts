@@ -3911,20 +3911,44 @@ export function createAgentChatAdapter(
               contentType.includes("application/json") &&
               !contentType.includes("text/event-stream")
             ) {
-              try {
-                // Probe a clone so the original body stays available to the SSE reader.
+              const hasRunId = Boolean(res.headers.get("X-Run-Id"));
+              let looksLikeSSE = hasRunId;
+              let probeCompleted = false;
+              let probePrefix = "";
+              if (!hasRunId) {
+                // Read one cloned chunk so a mislabeled live SSE stream is not
+                // buffered until it closes before the original reader starts.
+                const probeReader = res.clone().body?.getReader();
+                if (probeReader) {
+                  const firstChunk = await probeReader.read();
+                  probeCompleted = firstChunk.done;
+                  probePrefix = firstChunk.value
+                    ? new TextDecoder().decode(firstChunk.value).trimStart()
+                    : "";
+                  looksLikeSSE =
+                    probePrefix.startsWith("data:") ||
+                    probePrefix.startsWith("event:") ||
+                    probePrefix.startsWith("id:") ||
+                    probePrefix.startsWith("retry:") ||
+                    probePrefix.startsWith(":");
+                  void probeReader.cancel().catch(() => {});
+                  probeReader.releaseLock();
+                }
+              }
+
+              const firstChar = probePrefix[0] ?? "";
+              const looksLikeJson =
+                probeCompleted ||
+                (firstChar !== "" && '{["-0123456789tfn'.includes(firstChar));
+              if (!looksLikeSSE && looksLikeJson) {
                 const body = await res.clone().text();
                 const parsed = JSON.parse(body) as { error?: unknown };
                 if (parsed.error) {
                   throw new Error(String(parsed.error));
                 }
-              } catch (e) {
-                if (
-                  e instanceof Error &&
-                  e.message !== "Unexpected end of JSON input"
-                ) {
-                  throw e;
-                }
+                throw new Error(
+                  "Agent chat endpoint returned JSON instead of an event stream.",
+                );
               }
             }
 

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep the chat response stream unlocked while checking JSON auth errors.
+Keep chat response streams available during JSON checks and reject unexpected successful JSON responses explicitly.
