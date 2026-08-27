@@ -237,10 +237,12 @@ Measured 2026-08-27:
 | shapes | fixture | 0.54 | 0.29 | 0.31 |
 
 The export hop costs under 2.5% on every design, so the number that matters is
-`import%`. Two entries are not converter error: `typography` is dominated by
-Inter's version skew (see above — accepted, not a defect), and every mobile
-case carries more of it because a narrow column reflows on a smaller advance
-difference.
+`import%`. What remains there is dominated by glyph rasterisation rather than
+conversion: Figma and Chromium hint and antialias text differently, and a
+one-pixel difference on black-on-white body text scores a full 255 delta. See
+the Inter section below for the measurement that rules out a font-version
+mismatch as the cause. Every mobile case reads higher than its desktop twin for
+the same reason — a narrower column reflows on a smaller difference.
 
 What moved the numbers, in order of size — each was a real defect on a real
 design, not a harness artifact:
@@ -438,15 +440,35 @@ apparent export cost (typography 17.32% -> 0.19%, card-grid 2.99% -> 0.000%).
 The caveat that survives is real, though: a family Figma does not have will
 fall back there too.
 
-**Inter's version skew is accepted, not a bug to chase.** Figma renders Inter
-3.x; Google Fonts now serves 4.001, whose advances differ by 0.157–0.249%. Over
-a long line that accumulates into a visible glyph shift and is most of what is
-left in the `typography` case. Self-hosting Inter 3.19 (OFL, so redistributable)
-would recover roughly 3.3 points there and help every Inter design. **Decided
-2026-08-26: keep Google Fonts and its latest version, and accept the
-difference** — shipping and pinning font binaries costs more than the pixels are
-worth. Do not re-open this as a converter defect; it is neither ours nor fixable
-in the mapping.
+**Inter: Google Fonts' current version is the right match — measured, not
+assumed.** An earlier note here claimed Figma renders Inter 3.x, that Google
+Fonts' 4.001 therefore drifts by 0.157-0.249% per advance, and that
+self-hosting Inter 3.19 would recover about 3.3 points on `typography` and help
+every Inter design. That was reasoning from release notes, and it is wrong.
+
+Measured 2026-08-27 by rendering the same imported HTML twice — once against
+Google Fonts, once with Inter 3.19 (`inter-ui@3.19.3`) embedded over it — and
+scoring both against Figma's own render:
+
+| direction | cases |
+| --- | --- |
+| Inter 3.19 is WORSE | 15 of 17 (card-grid 3.14 -> 22.54, landify tablet 4.88 -> 29.27, parity-stress 2.94 -> 11.82) |
+| Inter 3.19 is better | 2 (`typography` 13.27 -> 9.98, settings-mobile 4.06 -> 3.65) |
+| unaffected | designs that use no Inter (interior: 0.000 delta, which is the control) |
+
+So Figma renders a modern Inter, and the shipped configuration already matches
+it. **Decided 2026-08-26, and now confirmed by measurement: keep Google Fonts
+at its latest version.** Do not self-host 3.19 — it would cost several points
+across the corpus.
+
+What that leaves is the more useful conclusion: the residual on text-heavy
+pages is NOT a font-version mismatch. It is glyph rasterisation — hinting and
+antialiasing differ between Figma's renderer and Chromium — and a one-pixel
+difference on black-on-white body text scores a full 255 delta. That is why
+`positivus` carries the corpus' highest mean delta while looking identical side
+by side, and why every mobile case reads higher than its desktop twin: a
+narrower column reflows on a smaller difference. It is not reducible by
+choosing a different font file.
 
 Three export defects the round trip found, none of which the single-hop export
 harness could see because its own preset designs use none of them:
