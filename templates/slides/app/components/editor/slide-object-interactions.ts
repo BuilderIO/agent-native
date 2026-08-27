@@ -182,16 +182,15 @@ export function findSlideObjectById(
 
 /**
  * Absolute offsets resolve against the nearest ancestor that establishes a
- * containing block, not necessarily the slide's autofit layer. Keeping the
- * original parent preserves nested layout semantics while this resolver keeps
- * the measured viewport position stable when that child becomes freeform.
+ * containing block, not necessarily the slide's autofit layer. Keep walking
+ * past a static layer so measured and authored coordinates use the same root.
  */
 export function resolveSlideObjectContainingBlock(
   element: HTMLElement,
   slideLayer: HTMLElement,
 ): HTMLElement {
   let ancestor = element.parentElement;
-  while (ancestor && ancestor !== slideLayer) {
+  while (ancestor) {
     const style = window.getComputedStyle(ancestor);
     const position = style.position || "static";
     const hasTransform = Boolean(style.transform && style.transform !== "none");
@@ -328,6 +327,12 @@ export function removeTransientBuilderIds(element: HTMLElement): void {
   });
 }
 
+export function stripTransientSlideLayoutSpacers(root: Element): void {
+  root
+    .querySelectorAll(".fmd-layout-spacer:not([data-slide-layout-preserved])")
+    .forEach((spacer) => spacer.remove());
+}
+
 const ID_REFERENCE_ATTRIBUTES = [
   "aria-activedescendant",
   "aria-controls",
@@ -447,6 +452,17 @@ export function freezeSlideElementForFreeform(
   const objectId = ensureSlideObjectId(element);
   const spacer = element.cloneNode(false) as HTMLElement;
   removeTransientBuilderIds(spacer);
+  for (const className of Array.from(spacer.classList)) {
+    if (className.startsWith("fmd-pptx-")) spacer.classList.remove(className);
+  }
+  for (const attribute of Array.from(spacer.attributes)) {
+    if (
+      attribute.name === "data-imported-pptx" ||
+      attribute.name.startsWith("data-pptx-")
+    ) {
+      spacer.removeAttribute(attribute.name);
+    }
+  }
   spacer.removeAttribute("id");
   spacer.removeAttribute("data-slide-object-id");
   spacer.removeAttribute("contenteditable");
@@ -515,8 +531,55 @@ export function freezeSlideElementForFreeform(
   return spacer;
 }
 
+export function preserveSlideObjectLayoutSpacer(element: HTMLElement): void {
+  const objectId = element.getAttribute("data-slide-object-id");
+  if (!objectId) return;
+  const owner = element.parentElement ?? element.ownerDocument;
+  for (const spacer of Array.from(
+    owner.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
+  )) {
+    if (spacer.getAttribute("data-slide-layout-spacer-for") !== objectId) {
+      continue;
+    }
+    spacer.setAttribute("data-slide-layout-preserved", "true");
+  }
+}
+
+/** Preserve a flow element's measured slot after its content is deleted. */
+function preserveSlideElementLayoutSlot(element: HTMLElement): void {
+  const computed = window.getComputedStyle(element);
+  freezeSlideElementForFreeform(
+    element,
+    {
+      x: 0,
+      y: 0,
+      width: element.offsetWidth,
+      height: element.offsetHeight,
+    },
+    {
+      display: computed.display,
+      flexGrow: computed.flexGrow,
+      flexShrink: computed.flexShrink,
+      flexBasis: computed.flexBasis,
+      alignSelf: computed.alignSelf,
+    },
+  );
+  preserveSlideObjectLayoutSpacer(element);
+  element.remove();
+}
+
 /** Remove a freeform object and the invisible layout slot that anchors it. */
-export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
+export function removeSlideObjectAndLayoutSpacer(
+  element: HTMLElement,
+  { preserveLayoutSlot = false }: { preserveLayoutSlot?: boolean } = {},
+): void {
+  if (
+    preserveLayoutSlot &&
+    window.getComputedStyle(element).position !== "absolute"
+  ) {
+    preserveSlideElementLayoutSlot(element);
+    return;
+  }
   const objectId = element.getAttribute("data-slide-object-id");
   if (objectId) {
     const owner = element.parentElement ?? element.ownerDocument;

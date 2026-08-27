@@ -29,14 +29,15 @@ export const COLLAPSIBLE_VIEW_IDS = [
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
 
-/** Pinned labels include a virtual "important" tab when Google is connected. */
+/** Use the default Important tab only before the user has saved pin choices. */
 export function resolvePinnedLabels(
-  userPinnedLabels: readonly string[],
+  userPinnedLabels: readonly string[] | undefined,
   isGoogleConnected: boolean,
 ): string[] {
-  return isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : [...userPinnedLabels];
+  if (userPinnedLabels === undefined) {
+    return isGoogleConnected ? ["important"] : [];
+  }
+  return [...userPinnedLabels];
 }
 
 /** Pinned labels that act as inbox triage tabs (drop system views). */
