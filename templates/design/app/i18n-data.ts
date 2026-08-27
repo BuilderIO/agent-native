@@ -1673,6 +1673,13 @@ const enUS = {
       saving: "Saving...",
       saveChanges: "Save changes",
     },
+    preview: {
+      title: "Preview",
+      description:
+        "This design system is managed by Builder Design System Intelligence. Open the linked project to see the full design system, including all tokens, components, and usage guidance.",
+      pending:
+        "Builder is still indexing this design system. The preview will be available once indexing completes.",
+    },
     tokenPreview: {
       title: "Token preview",
       description:

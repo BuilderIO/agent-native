@@ -1,6 +1,8 @@
 export interface DesignSystemData {
   source?: string;
   builderJobId?: string;
+  builderProjectId?: string;
+  builderUrl?: string;
   builderStatus?: string;
   builderSyncedAt?: string;
   colors?: {
