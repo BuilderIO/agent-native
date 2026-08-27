@@ -96,6 +96,13 @@ export type FigmaSvgFillLayer =
       sizePx?: { width: number; height: number };
       /** The matching `background-position` in px, when the size is explicit. */
       offsetPx?: { x: number; y: number };
+      /**
+       * `background-repeat` asked for tiling, i.e. a Figma TILE fill. The tile
+       * is `sizePx` when the importer resolved the image's intrinsic size; a
+       * repeating fill WITHOUT one cannot be tiled correctly and is reported
+       * rather than drawn as a single stretched copy.
+       */
+      repeat?: boolean;
     }
   /** A background-image layer with no SVG equivalent (conic, repeating, …). */
   | { kind: "unsupported"; css: string };
@@ -1128,6 +1135,37 @@ function resolveFillPaint(
   }
   const id = ctx.nextId("img-fill");
   const par = objectFitToPreserveAspectRatio(fill.fit);
+  // A Figma TILE fill: the image is drawn at its own size and repeated, which
+  // is exactly an SVG pattern whose tile IS that size. Pattern content is
+  // tile-relative under `userSpaceOnUse`, so the image sits at the tile origin
+  // while the tile itself is anchored to the box. This must precede the CROP
+  // branch below, which would otherwise claim the same explicit pixel size and
+  // draw one copy.
+  if (fill.repeat) {
+    if (!fill.sizePx) {
+      // `background-size: auto` leaves the tile size unknown here. Falling
+      // through to `cover` draws one stretched copy over the node's whole
+      // fill area; an unknown tile size and a full-bleed image are not the
+      // same fact, so say so rather than paint a confident wrong answer.
+      ctx.report.approximated.push({
+        node: node.name || node.id,
+        note:
+          "Tiled (TILE) image fill exported as a single covering image: the " +
+          "computed background-size was `auto`, so the tile's intrinsic size " +
+          "is unknown at export time and the repeat could not be reproduced.",
+      });
+    } else {
+      ctx.defs.push(
+        `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${n(node.rect.x)}" y="${n(node.rect.y)}" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}">` +
+          `<image href="${escapeXmlAttr(fill.href)}" x="0" y="0" width="${n(fill.sizePx.width)}" height="${n(fill.sizePx.height)}" preserveAspectRatio="none"${
+            node.imageRendering
+              ? ` image-rendering="${node.imageRendering}"`
+              : ""
+          }/></pattern>`,
+      );
+      return `url(#${id})`;
+    }
+  }
   // An explicit pixel size is Figma's CROP: the image is drawn at that size at
   // that offset, not fitted to the box. `objectBoundingBox` cannot express it,
   // so place the image in user space instead — exactly, with no approximation
@@ -1823,6 +1861,13 @@ export interface RawFigmaSvgNode {
    */
   backgroundSize?: string;
   backgroundPosition?: string;
+  /**
+   * Computed `background-repeat`, one entry per layer. TILE is the one scale
+   * mode `background-size` alone cannot express: both importers emit it as
+   * `auto` + `repeat`, and `auto` is indistinguishable from an absent size, so
+   * reading only the size exported a tiled fill as a single stretched copy.
+   */
+  backgroundRepeat?: string;
   /** Computed `box-shadow`, e.g. "none" or a Chromium-normalized shadow list. */
   boxShadow: string;
   /**
@@ -1901,27 +1946,44 @@ function objectFitFromRaw(raw?: string): "cover" | "contain" | "stretch" {
 function imageFitFromSize(
   size: string | undefined,
   position: string | undefined,
+  repeat?: string,
 ): {
   fit: "cover" | "contain" | "stretch";
   sizePx?: { width: number; height: number };
   offsetPx?: { x: number; y: number };
+  repeat?: boolean;
 } {
   const value = (size ?? "").trim();
+  // Any repeating value means a Figma TILE. `no-repeat` is what the other four
+  // scale modes emit, and an absent value is CSS's `repeat` initial — but an
+  // absent value here means "the collector read no background-repeat at all",
+  // which is not the same fact, so only an explicit repeat tiles.
+  const tiles = /^repeat(-x|-y)?$/.test((repeat ?? "").trim());
+  const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
+    Number(m[1]),
+  );
+  const explicitPx =
+    px.length === 2 && px[0]! > 0 && px[1]! > 0
+      ? { width: px[0]!, height: px[1]! }
+      : undefined;
+  if (tiles) {
+    // A tile is drawn at its own size and repeated, so the only geometry that
+    // matters is that size. `auto` (the importers' TILE size) leaves it unknown
+    // here; `imageFillMarkup` reports that rather than guessing a fit.
+    return { fit: "stretch", sizePx: explicitPx, repeat: true };
+  }
   if (value === "contain") return { fit: "contain" };
   if (value === "cover" || value === "" || value === "auto") {
     return { fit: "cover" };
   }
   if (/^100%\s+100%$/.test(value)) return { fit: "stretch" };
-  const px = Array.from(value.matchAll(/(-?[\d.]+)px/g)).map((m) =>
-    Number(m[1]),
-  );
-  if (px.length === 2 && px[0]! > 0 && px[1]! > 0) {
+  if (explicitPx) {
     const offsets = Array.from((position ?? "").matchAll(/(-?[\d.]+)px/g)).map(
       (m) => Number(m[1]),
     );
     return {
       fit: "stretch",
-      sizePx: { width: px[0]!, height: px[1]! },
+      sizePx: explicitPx,
       offsetPx:
         offsets.length === 2 ? { x: offsets[0]!, y: offsets[1]! } : undefined,
     };
@@ -1934,10 +1996,12 @@ export function buildFillLayersFromComputedStyle(
   backgroundImage: string,
   backgroundSize?: string,
   backgroundPosition?: string,
+  backgroundRepeat?: string,
 ): FigmaSvgFillLayer[] {
   const layers: FigmaSvgFillLayer[] = [];
   const sizes = splitTopLevelCommas(backgroundSize ?? "");
   const positions = splitTopLevelCommas(backgroundPosition ?? "");
+  const repeats = splitTopLevelCommas(backgroundRepeat ?? "");
 
   if (backgroundImage && backgroundImage !== "none") {
     let layerIndex = -1;
@@ -1980,6 +2044,7 @@ export function buildFillLayersFromComputedStyle(
               positions.length
                 ? positions[layerIndex % positions.length]
                 : undefined,
+              repeats.length ? repeats[layerIndex % repeats.length] : undefined,
             ),
           });
       } else {
@@ -2110,6 +2175,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       raw.backgroundImage,
       raw.backgroundSize,
       raw.backgroundPosition,
+      raw.backgroundRepeat,
     );
     const textBoxShadows = parseComputedBoxShadow(raw.boxShadow);
     return {
@@ -2187,6 +2253,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
     raw.backgroundImage,
     raw.backgroundSize,
     raw.backgroundPosition,
+    raw.backgroundRepeat,
   );
   const shadows = [
     ...parseComputedBoxShadow(raw.boxShadow),
@@ -3061,6 +3128,7 @@ export function collectRawFigmaSvgScene(
       backgroundImage: style.backgroundImage,
       backgroundSize: style.backgroundSize,
       backgroundPosition: style.backgroundPosition,
+      backgroundRepeat: style.backgroundRepeat,
       boxShadow: style.boxShadow,
       // `el.style`, not the computed value: a custom property INHERITS, so
       // `getComputedStyle` hands every descendant its ancestor's shadow. The

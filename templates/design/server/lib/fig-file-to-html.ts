@@ -22,6 +22,7 @@ import {
 import {
   cssBlendMode,
   figmaDrawnText,
+  FIGMA_BLUR_RADIUS_TO_CSS_BLUR,
   hasPrivateUseCharacters,
   gradientAngleDegreesFromHandles,
   gradientGeometryFromTransform,
@@ -1456,8 +1457,59 @@ function backgroundShorthand(
     const mode = f.imageScaleMode ?? "FILL";
     if (mode === "FILL") bgSizes.push("cover");
     else if (mode === "FIT") bgSizes.push("contain");
-    else if (mode === "STRETCH") bgSizes.push("100% 100%");
-    else bgSizes.push("auto");
+    else if (mode === "STRETCH") {
+      // STRETCH plus a paint transform is Figma's CROP: the matrix picks a
+      // sub-rectangle of the image — origin (m02, m12), size (m00, m11) in the
+      // image's own normalized space — and stretches THAT to fill the box.
+      // Drawing the whole image instead reads as the artwork zoomed out. The
+      // REST walker has done this since the Positivus service cards exposed
+      // it; this walker decoded `transform` for gradients only and never for
+      // an image, so the same designs came in wrong through .fig and paste.
+      const t = f.transform;
+      const axisAligned =
+        !t || (Math.abs(t.m01) < 1e-6 && Math.abs(t.m10) < 1e-6);
+      const box = node.size;
+      if (
+        t &&
+        axisAligned &&
+        t.m00 > 1e-6 &&
+        t.m11 > 1e-6 &&
+        box &&
+        box.x > 0 &&
+        box.y > 0
+      ) {
+        const displayWidth = box.x / t.m00;
+        const displayHeight = box.y / t.m11;
+        bgSizes.push(`${num(displayWidth)}px ${num(displayHeight)}px`);
+        bgPositions.push(
+          `${num(-(t.m02 ?? 0) * displayWidth)}px ${num(-(t.m12 ?? 0) * displayHeight)}px`,
+        );
+        bgRepeats.push("no-repeat");
+        continue;
+      }
+      if (t && !axisAligned) {
+        recordApproximation(
+          node,
+          ctx,
+          "Image fill has a non-axis-aligned paint transform (rotated/skewed crop); approximated with the scale-mode-only CSS mapping, without the transform matrix",
+        );
+      }
+      bgSizes.push("100% 100%");
+    } else if (mode === "TILE") {
+      // `auto` is what a tile's size means, and it renders identically — but
+      // it is also what an unset size looks like, so the export hop could not
+      // tell a tile's dimensions and drew one stretched copy. Stating the
+      // intrinsic size explicitly is the same pixels here and a recoverable
+      // tile there. When it cannot be resolved, `auto` stays and the exporter
+      // reports the tile it could not reproduce.
+      const tileHex = hashToHex(f.image?.hash);
+      const tile = tileHex ? intrinsicImageSize(imageUrl(tileHex, ctx)) : null;
+      bgSizes.push(
+        tile && tile.width > 0 && tile.height > 0
+          ? `${num(tile.width)}px ${num(tile.height)}px`
+          : "auto",
+      );
+    } else bgSizes.push("auto");
     bgPositions.push(mode === "TILE" ? "0% 0%" : "center");
     bgRepeats.push(mode === "TILE" ? "repeat" : "no-repeat");
   }
@@ -1844,9 +1896,15 @@ function effectStyles(
         `inset ${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num(e.radius ?? 0)}px ${num(e.spread ?? 0)}px ${c}`,
       );
     } else if (e.type === "FOREGROUND_BLUR" || e.type === "LAYER_BLUR") {
-      filters.push(`blur(${num((e.radius ?? 0) / 2)}px)`);
+      // The REST walker's 0.45 is fitted against Figma's own renders; this
+      // walker's 0.5 was a guess, and an 11% wider kernel changes every pixel
+      // of a blurred region. One constant, so the two import routes cannot
+      // drift apart again.
+      filters.push(
+        `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`,
+      );
     } else if (e.type === "BACKGROUND_BLUR") {
-      backdropBlur = `blur(${num((e.radius ?? 0) / 2)}px)`;
+      backdropBlur = `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`;
     }
   }
   const out: Record<string, string> = {};
@@ -3376,27 +3434,83 @@ function emitSvgBody(
   }
   // Stroke paths
   if (strokePaint && strokeWeight > 0) {
-    for (const g of node.strokeGeometry ?? node.fillGeometry ?? []) {
-      if (typeof g.commandsBlob !== "number") continue;
-      const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
-      if (!d) continue;
-      emittedFlat = true;
-      const attrs = [
-        `d="${d}"`,
-        `fill="none"`,
-        `stroke="${strokePaint.color}"`,
-        `stroke-width="${num(strokeWeight)}"`,
-      ];
-      if (strokePaint.opacity !== undefined)
-        attrs.push(`stroke-opacity="${strokePaint.opacity}"`);
-      if (node.strokeJoin)
-        attrs.push(`stroke-linejoin="${node.strokeJoin.toLowerCase()}"`);
-      if (node.strokeCap)
-        attrs.push(`stroke-linecap="${node.strokeCap.toLowerCase()}"`);
-      const dashes = dashArrayAttr(node);
-      if (dashes) attrs.push(dashes);
-      lines.push(`${indent}  <path ${attrs.join(" ")} />`);
-    }
+    // `strokeGeometry` is the stroke ALREADY OUTLINED into a closed region —
+    // weight, joins, caps and dashes are baked into its outline. Re-stroking
+    // it draws a band of `strokeWeight` around that outline, so every vector
+    // stroke came out roughly twice as thick and spilled past Figma's
+    // silhouette. It is filled, exactly as the REST walker does
+    // (figma-node-to-html.ts, `emit(node.strokeGeometry, ...)`).
+    const outlined = node.strokeGeometry ?? [];
+    if (outlined.length > 0) {
+      const strokeStart = lines.length;
+      for (const g of outlined) {
+        if (typeof g.commandsBlob !== "number") continue;
+        const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+        if (!d) continue;
+        emittedFlat = true;
+        const attrs = [
+          `d="${d}"`,
+          `fill="${strokePaint.color}"`,
+          `fill-rule="${g.windingRule === "ODD" ? "evenodd" : "nonzero"}"`,
+        ];
+        if (strokePaint.opacity !== undefined)
+          attrs.push(`fill-opacity="${strokePaint.opacity}"`);
+        lines.push(`${indent}  <path ${attrs.join(" ")} />`);
+      }
+      // That outlined region is not clipped to the alignment Figma states: on
+      // an INSIDE stroke it still reaches outside the shape, and a mitred
+      // corner reaches a long way. Clipping it to the fill shape is what
+      // INSIDE means. Node-scoped id: a bare one would collide across the many
+      // inline SVGs in a document, and `url(#id)` takes the first match.
+      if (
+        node.strokeAlign === "INSIDE" &&
+        lines.length > strokeStart &&
+        (node.fillGeometry?.length ?? 0) > 0
+      ) {
+        const clipId = `fig-stroke-inside-${guidKey(node.guid).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+        const clipPaths = (node.fillGeometry ?? [])
+          .map((g) => {
+            if (typeof g.commandsBlob !== "number") return "";
+            const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+            return d
+              ? `<path d="${d}"${g.windingRule === "ODD" ? ' clip-rule="evenodd"' : ""} />`
+              : "";
+          })
+          .join("");
+        if (clipPaths) {
+          defs.push(`<clipPath id="${clipId}">${clipPaths}</clipPath>`);
+          lines.splice(
+            strokeStart,
+            0,
+            `${indent}  <g clip-path="url(#${clipId})">`,
+          );
+          lines.push(`${indent}  </g>`);
+        }
+      }
+    } else
+      for (const g of node.fillGeometry ?? []) {
+        // No outlined region: the stroke is described only by the shape's own
+        // path, so a real centred SVG stroke IS the right rendering here.
+        if (typeof g.commandsBlob !== "number") continue;
+        const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+        if (!d) continue;
+        emittedFlat = true;
+        const attrs = [
+          `d="${d}"`,
+          `fill="none"`,
+          `stroke="${strokePaint.color}"`,
+          `stroke-width="${num(strokeWeight)}"`,
+        ];
+        if (strokePaint.opacity !== undefined)
+          attrs.push(`stroke-opacity="${strokePaint.opacity}"`);
+        if (node.strokeJoin)
+          attrs.push(`stroke-linejoin="${node.strokeJoin.toLowerCase()}"`);
+        if (node.strokeCap)
+          attrs.push(`stroke-linecap="${node.strokeCap.toLowerCase()}"`);
+        const dashes = dashArrayAttr(node);
+        if (dashes) attrs.push(dashes);
+        lines.push(`${indent}  <path ${attrs.join(" ")} />`);
+      }
   }
 
   // Vector-network fallback (clipboard paste ships only the editable network,

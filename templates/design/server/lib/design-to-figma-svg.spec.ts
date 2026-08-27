@@ -1232,6 +1232,77 @@ describe("background-image sizing on export", () => {
     ]);
   });
 
+  it("carries a TILE's repeat and its tile size", () => {
+    // TILE is the one scale mode `background-size` alone cannot express: both
+    // importers emit it as a size plus `repeat`, and reading only the size
+    // exported a tiled fill as one stretched copy over the whole box.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "0% 0%",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 16, height: 16 },
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("marks a TILE whose size stayed `auto` as repeating with no known tile", () => {
+    // An unresolved intrinsic size must stay distinguishable from a resolved
+    // one: the exporter reports the tile it cannot reproduce instead of
+    // silently painting a single covering image.
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "auto",
+        "0% 0%",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("does not treat the other scale modes' `no-repeat` as a tile", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "cover",
+      "center",
+      "no-repeat",
+    );
+    expect(layers).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+  });
+
+  it("repeats a shorter repeat list across the layers, as CSS does", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "8px 8px",
+      "0% 0%",
+      "repeat",
+    );
+    expect(
+      layers.map((l) => (l as { repeat?: boolean }).repeat ?? false),
+    ).toEqual([true, true]);
+  });
+
   it("still defaults to cover, which is FILL and the common case", () => {
     expect(
       buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "cover"),

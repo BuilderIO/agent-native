@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Image scale modes</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #f4f4f5;
+        font-family: Inter, Helvetica, Arial, sans-serif;
+        color: #18181b;
+      }
+      .frame {
+        position: relative;
+        width: 900px;
+        height: 640px;
+        overflow: hidden;
+        background: #fafafa;
+        padding: 40px;
+      }
+      h1 {
+        margin: 0 0 24px;
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: -0.028em;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 260px);
+        gap: 20px;
+      }
+      .cell {
+        margin: 0;
+      }
+      .fill {
+        width: 260px;
+        height: 190px;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      figcaption {
+        margin-top: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: #52525b;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Figma's five image scale modes reach the DOM only through background-size
+      and background-repeat. TILE is the one that needs both: it is a size plus
+      `repeat`, and reading only the size exported a tiled fill as a single
+      stretched copy over the whole box. The two TILE cells differ only in tile
+      size, so a pattern emitted at the wrong scale shows as a mismatch rather
+      than as two identical swatches. Both images are embedded: the export hop
+      fetches remote images with a timeout, which makes any fixture that
+      depends on the network measure the network.
+    -->
+    <div class="frame" data-agent-native-node-id="frame">
+      <h1>Image scale modes</h1>
+      <div class="grid">
+        <figure class="cell">
+          <div
+            class="fill"
+            data-agent-native-node-id="fill-0"
+            style="background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzBlYTVlOSIvPjxjaXJjbGUgY3g9IjkwIiBjeT0iODAiIHI9IjYwIiBmaWxsPSIjZmRlMDQ3Ii8+PHBhdGggZD0iTTAgMzAwIEwxNTAgMTQwIEwyNjAgMzAwIFoiIGZpbGw9IiMxNmEzNGEiLz48cGF0aCBkPSJNMjAwIDMwMCBMMzIwIDE4MCBMNDAwIDMwMCBaIiBmaWxsPSIjMTY2NTM0Ii8+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMTgyNyIgc3Ryb2tlLXdpZHRoPSI2Ii8+PC9zdmc+'); background-size: cover; background-position: center; background-repeat: no-repeat"
+          ></div>
+          <figcaption>FILL</figcaption>
+        </figure>
+        <figure class="cell">
+          <div
+            class="fill"
+            data-agent-native-node-id="fill-1"
+            style="background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzBlYTVlOSIvPjxjaXJjbGUgY3g9IjkwIiBjeT0iODAiIHI9IjYwIiBmaWxsPSIjZmRlMDQ3Ii8+PHBhdGggZD0iTTAgMzAwIEwxNTAgMTQwIEwyNjAgMzAwIFoiIGZpbGw9IiMxNmEzNGEiLz48cGF0aCBkPSJNMjAwIDMwMCBMMzIwIDE4MCBMNDAwIDMwMCBaIiBmaWxsPSIjMTY2NTM0Ii8+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMTgyNyIgc3Ryb2tlLXdpZHRoPSI2Ii8+PC9zdmc+'); background-size: contain; background-position: center; background-repeat: no-repeat"
+          ></div>
+          <figcaption>FIT</figcaption>
+        </figure>
+        <figure class="cell">
+          <div
+            class="fill"
+            data-agent-native-node-id="fill-2"
+            style="background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzBlYTVlOSIvPjxjaXJjbGUgY3g9IjkwIiBjeT0iODAiIHI9IjYwIiBmaWxsPSIjZmRlMDQ3Ii8+PHBhdGggZD0iTTAgMzAwIEwxNTAgMTQwIEwyNjAgMzAwIFoiIGZpbGw9IiMxNmEzNGEiLz48cGF0aCBkPSJNMjAwIDMwMCBMMzIwIDE4MCBMNDAwIDMwMCBaIiBmaWxsPSIjMTY2NTM0Ii8+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMTgyNyIgc3Ryb2tlLXdpZHRoPSI2Ii8+PC9zdmc+'); background-size: 100% 100%; background-position: center; background-repeat: no-repeat"
+          ></div>
+          <figcaption>STRETCH</figcaption>
+        </figure>
+        <figure class="cell">
+          <div
+            class="fill"
+            data-agent-native-node-id="fill-3"
+            style="background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzBlYTVlOSIvPjxjaXJjbGUgY3g9IjkwIiBjeT0iODAiIHI9IjYwIiBmaWxsPSIjZmRlMDQ3Ii8+PHBhdGggZD0iTTAgMzAwIEwxNTAgMTQwIEwyNjAgMzAwIFoiIGZpbGw9IiMxNmEzNGEiLz48cGF0aCBkPSJNMjAwIDMwMCBMMzIwIDE4MCBMNDAwIDMwMCBaIiBmaWxsPSIjMTY2NTM0Ii8+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMTgyNyIgc3Ryb2tlLXdpZHRoPSI2Ii8+PC9zdmc+'); background-size: 560px 420px; background-position: -140px -105px; background-repeat: no-repeat"
+          ></div>
+          <figcaption>CROP</figcaption>
+        </figure>
+        <figure class="cell">
+          <div
+            class="fill"
+            data-agent-native-node-id="fill-4"
+            style="background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAJ0lEQVR42mO4rV6OFfEtfYkVMYxqoImGX2dEsSIJCWmsaFQDTTQAANq+TtCyRaUIAAAAAElFTkSuQmCC'); background-size: 16px 16px; background-position: 0% 0%; background-repeat: repeat"
+          ></div>
+          <figcaption>TILE</figcaption>
+        </figure>
+        <figure class="cell">
+          <div
+            class="fill"
+            data-agent-native-node-id="fill-5"
+            style="background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAJ0lEQVR42mO4rV6OFfEtfYkVMYxqoImGX2dEsSIJCWmsaFQDTTQAANq+TtCyRaUIAAAAAElFTkSuQmCC'); background-size: 32px 32px; background-position: 0% 0%; background-repeat: repeat"
+          ></div>
+          <figcaption>TILE 2x</figcaption>
+        </figure>
+      </div>
+    </div>
+  </body>
+</html>

@@ -892,6 +892,101 @@ path is the CORRECT one:
 - Positivus service cards: the "Social Media Marketing" title highlight renders
   green where Figma (and the paste path) render white.
 
+## The `.fig` walker lagged the REST walker, measured
+
+Three fixes had landed on the REST walker and were never mirrored into the
+`.fig`/clipboard walker. That walker is what community-design paste and `.fig`
+import actually use, so the divergence was live on exactly the designs this
+work exists to serve. `run-fig.ts`'s `vsRest%` column measures it directly: it
+is the same design through both walkers, so it isolates walker disagreement
+from anything either walker shares with Figma.
+
+Measured over the five real `.fig` designs (2026-08-27):
+
+| case                   | vs Figma        | vs REST walker  |
+| ---------------------- | --------------- | --------------- |
+| interior-single-product| 2.497% -> 2.151%| 0.757% -> 0.390%|
+| uui-dashboard          | 4.327% -> 4.049%| 1.564% -> 1.231%|
+| whitepace              | 3.111% -> 3.019%| 0.630% -> 0.472%|
+| uui-landing-mobile     | 7.438% -> 7.381%| 1.880% -> 1.792%|
+| uui-pricing            | 3.150% -> 3.130%| 0.732% -> 0.712%|
+| **mean**               | **4.105% -> 3.946%** | **1.112% -> 0.919%** |
+
+Every case improved and none regressed; the synthetic fixture frames in
+`fig-fixtures` were unchanged. Walker divergence fell 17.4% relative, which is
+the number that matters here — it is the part attributable to one walker being
+behind, rather than to anything both walkers approximate.
+
+What was behind, in order of measured effect:
+
+- **`strokeGeometry` was re-stroked instead of filled.** Kiwi's
+  `strokeGeometry` is the stroke ALREADY OUTLINED into a closed region, with
+  weight, joins, caps and dashes baked in — the REST walker has said so in a
+  comment since it was fixed there. Emitting `fill="none" stroke=... stroke-width=W`
+  around that region drew a band of W around an outline that already had width,
+  so every vector stroke came out roughly twice as thick and spilled outside
+  Figma's silhouette. It is now filled, with REST's INSIDE clip: the outlined
+  region is not itself clipped to the alignment Figma states, and a mitred
+  corner reaches a long way past the shape.
+- **The image CROP transform was ignored.** `scaleMode: STRETCH` plus a paint
+  transform is Figma's CROP; this walker decoded `transform` for gradients only
+  and never for an image paint, so a cropped illustration imported as the whole
+  artwork zoomed out. Ported from the REST branch that the Positivus service
+  cards exposed. Small on this corpus (it moved only
+  interior-single-product, -0.016 on divergence) because few `.fig` paints use
+  it — correct, and now it cannot silently diverge again.
+- **The blur radius factor was a guess.** This walker used `radius / 2`; the
+  REST walker uses 0.45, fitted against Figma's own renders at two radii. An
+  11% wider Gaussian changes every pixel of a blurred region. Both now import
+  one exported `FIGMA_BLUR_RADIUS_TO_CSS_BLUR`, so they cannot drift again —
+  the two constants drifting apart is what produced the gap in the first place.
+
+## A tiled fill exported as one stretched copy
+
+Figma's TILE is the one image scale mode `background-size` alone cannot
+express: both importers emit it as a size plus `background-repeat: repeat`. The
+exporter never read `background-repeat` at all, and `imageFitFromSize` folded
+`auto` — exactly what TILE emitted — into the same branch as `cover`. A tiled
+fill therefore exported as a single image stretched over the whole node, with
+no report entry: the paint area was wrong and nothing said so.
+
+`background-repeat` is now carried through the DOM snapshot into the fill
+layers, and a repeating fill is emitted as a `patternUnits="userSpaceOnUse"`
+pattern whose tile IS the image's own size, anchored to the box. Pattern
+content is tile-relative under `userSpaceOnUse` — verified in Chromium rather
+than read off the spec, the same way the CROP placement was.
+
+Both importers now state a TILE's intrinsic size explicitly rather than
+emitting `auto`. It renders identically in a browser (`auto` IS the intrinsic
+size) and is recoverable at export, where `auto` was not: an unset size and a
+tile's size are not the same fact. Where the intrinsic size genuinely cannot be
+resolved the exporter records an approximation naming the lost tiling instead
+of painting a confident wrong answer.
+
+**This had no fixture, so no number could see it.** The whole 28-case
+round-trip corpus contains no TILE fill — the six layers that looked tiled on a
+first pass are `background-size: 100% 100%` STRETCH, which an inline-style grep
+mis-attributes and only the computed values settle. `corpus/image-scale-modes/`
+now covers all five scale modes plus a second tile at 2x, so a pattern emitted
+at the wrong scale shows as a mismatch rather than as two identical swatches.
+It exports at 2.032% with 0 omissions, and its two tiles emit as 16px and 32px
+user-space patterns.
+
+## The export number depends on the network
+
+`rt-community-interior-single-product` measured 5.106% on one run and 2.691% on
+the next with no code change between them. The difference was eight omissions:
+`Remote background image was not embedded: The operation was aborted due to
+timeout`. `embedRemoteImages` fetches with a 10s timeout, so any case whose
+images are remote measures the network as much as the converter, and a bad run
+inflates the corpus mean by ~0.09pp on its own.
+
+Two consequences. Any export delta under about 0.1pp on a corpus containing
+remote images is indistinguishable from a flaky fetch, so attribute it to a
+change only after re-running. And a new fixture should embed its images —
+`corpus/image-scale-modes/` does — because a fixture that depends on the
+network is measuring the network.
+
 ## `templates/design` runs core's BUILT dist, not its source
 
 `templates/design/server/lib/figma-node-to-html.ts` is a one-line re-export of

@@ -798,6 +798,7 @@ function imageScaleModeCss(
   node: FigmaNode,
   tracker: FidelityTracker,
   box: { width: number; height: number },
+  intrinsic: { width: number; height: number } | undefined,
 ): { size: string; position: string; repeat: string } {
   const transform = paint.imageTransform;
   const isAxisAligned =
@@ -816,7 +817,20 @@ function imageScaleModeCss(
     case "FIT":
       return { size: "contain", position: "center", repeat: "no-repeat" };
     case "TILE":
-      return { size: "auto", position: "top left", repeat: "repeat" };
+      // `auto` IS a tile's size and renders identically, but it is also what
+      // an unset size looks like, so the export hop could not recover the
+      // tile's dimensions and drew one stretched copy over the whole box.
+      // Stating the size explicitly is the same pixels here and a recoverable
+      // tile there; without a resolved size `auto` stays and the exporter
+      // reports the tile it could not reproduce.
+      return {
+        size:
+          intrinsic && intrinsic.width > 0 && intrinsic.height > 0
+            ? `${px(intrinsic.width)} ${px(intrinsic.height)}`
+            : "auto",
+        position: "top left",
+        repeat: "repeat",
+      };
     case "STRETCH": {
       // STRETCH plus an `imageTransform` is Figma's CROP mode: the matrix
       // picks a sub-rectangle of the image — origin (tx, ty), size (a, d) in
@@ -951,14 +965,14 @@ function buildFills(
         );
         continue;
       }
-      const mode = imageScaleModeCss(fill, node, tracker, box);
+      const intrinsic = fill.imageRef
+        ? options.imageFillSizes?.[fill.imageRef]
+        : undefined;
+      const mode = imageScaleModeCss(fill, node, tracker, box, intrinsic);
       layer = { image: `url("${url}")`, ...mode };
       // Only when magnified: `pixelated` is nearest in BOTH directions, and a
       // photo scaled down with nearest aliases badly. A small tolerance keeps
       // a fill that is effectively 1:1 on the smooth path.
-      const intrinsic = fill.imageRef
-        ? options.imageFillSizes?.[fill.imageRef]
-        : undefined;
       if (
         intrinsic &&
         intrinsic.width > 0 &&
@@ -1200,7 +1214,7 @@ interface EffectResult {
  * Still recorded as `approximated`: this is a two-radius empirical fit against
  * one renderer, not a published Figma constant.
  */
-const FIGMA_BLUR_RADIUS_TO_CSS_BLUR = 0.45;
+export const FIGMA_BLUR_RADIUS_TO_CSS_BLUR = 0.45;
 
 function buildEffects(
   node: FigmaNode,
@@ -1283,7 +1297,14 @@ function buildEffects(
       tracker.record(
         node,
         "exact",
-        `${effect.type} rendered as ${isTextNode ? "text-shadow" : "box-shadow"}.`,
+        // Always `box-shadow`: this walker has no `text-shadow` path. Saying
+        // otherwise made the report claim a glyph-shaped shadow where a text
+        // layer actually gets a rectangular one around its whole box.
+        `${effect.type} rendered as box-shadow${
+          isTextNode
+            ? ", which follows the text layer's box rather than its glyphs"
+            : ""
+        }.`,
       );
     } else if (effect.type === "LAYER_BLUR") {
       const radius =
