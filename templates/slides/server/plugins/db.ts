@@ -302,6 +302,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS deck_shares_resource_user_principal_uidx
 ON deck_shares (resource_id, LOWER(principal_id))
 WHERE principal_type = 'user'`,
     },
+    {
+      version: 25,
+      name: "slides-comment-canvas-anchors",
+      sql: `ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS anchor TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

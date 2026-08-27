@@ -90,7 +90,10 @@ import {
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
-import { shouldSuppressSlidesItalicShortcut } from "@/lib/editor-shortcuts";
+import {
+  shouldActivateSlidesCommentShortcut,
+  shouldSuppressSlidesItalicShortcut,
+} from "@/lib/editor-shortcuts";
 import {
   exportDeckToGoogleSlides,
   fetchDeckPptxFromServer,
@@ -983,6 +986,35 @@ export default function DeckEditor() {
   }, [canEdit]);
 
   useEffect(() => {
+    const handleCommentShortcut = (event: KeyboardEvent) => {
+      const activeElement = document.activeElement;
+      if (
+        !shouldActivateSlidesCommentShortcut(event, {
+          canComment,
+          activeElement,
+          focusedCanvas:
+            activeElement?.closest("[data-slide-canvas-focus='true']") !== null,
+          blockingSurfaceOpen:
+            document.querySelector(
+              "[role='dialog'], [role='menu'], [role='listbox'], [data-slide-comment-popover], [data-pin-popover]",
+            ) !== null,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      setDrawMode(false);
+      setTextBoxMode(false);
+      setPinMode(true);
+    };
+
+    document.addEventListener("keydown", handleCommentShortcut);
+    return () => document.removeEventListener("keydown", handleCommentShortcut);
+  }, [canComment]);
+
+  useEffect(() => {
     const handleItalicShortcut = (event: KeyboardEvent) => {
       if (!shouldSuppressSlidesItalicShortcut(event)) return;
       event.preventDefault();
@@ -1784,6 +1816,8 @@ export default function DeckEditor() {
             slide={currentSlide}
             deckId={id}
             readOnly={!canEdit}
+            canComment={canComment}
+            comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
             contextToolbarLeading={
@@ -1858,15 +1892,6 @@ export default function DeckEditor() {
             onOpenAnimations={openAnimationsForTarget}
             onSelectedAnimationTargetChange={setAnimationTarget}
             slideId={currentSlide.id}
-            slideTitle={(() => {
-              const m = currentSlide.content?.match(
-                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-              );
-              return (
-                m?.[1]?.trim() ||
-                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-              );
-            })()}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}

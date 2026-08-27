@@ -30,6 +30,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { SlideCommentPins } from "@/components/comments/SlideCommentPins";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
@@ -54,16 +55,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  DrawOverlay,
-  CanvasCommentPins,
-  MultiSelectChip,
-} from "@/components/visual-editor";
+import { DrawOverlay, MultiSelectChip } from "@/components/visual-editor";
 import {
   flushPendingSaves,
   type Slide,
   type UpdateSlideOptions,
 } from "@/context/DeckContext";
+import type { CommentThread } from "@/hooks/use-slide-comments";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import {
   computeCanvasFitZoom,
@@ -639,6 +637,8 @@ interface SlideEditorProps {
   recentEdits?: AttributedRecentEdit[];
   /** Called when the user selects text and clicks the comment button */
   onComment?: (quotedText: string) => void;
+  /** Existing persisted threads used to render slide-positioned markers. */
+  comments?: CommentThread[];
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -651,6 +651,8 @@ interface SlideEditorProps {
   onExitDrawMode?: () => void;
   /** Whether comment-pin mode is active on the canvas */
   pinMode?: boolean;
+  /** Whether the current viewer can create and reply to comments. */
+  canComment?: boolean;
   /** Called when pin mode should exit */
   onExitPinMode?: () => void;
   /** Whether the "add text box" tool is active — the next click on the slide
@@ -672,8 +674,6 @@ interface SlideEditorProps {
   ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
-  /** Slide title for pin mode contextLabel */
-  slideTitle?: string;
   /** Owning deck id — surfaced in the slide-fit-check app-state payload so
    *  `_await-fit-check` can build correct `update-slide --deckId=<id>`
    *  agent retry commands. */
@@ -1114,6 +1114,7 @@ export default function SlideEditor({
   drawMode,
   onExitDrawMode,
   pinMode,
+  canComment = false,
   onExitPinMode,
   textBoxMode,
   onExitTextBoxMode,
@@ -1123,7 +1124,7 @@ export default function SlideEditor({
   onOpenAnimations,
   onSelectedAnimationTargetChange,
   slideId,
-  slideTitle,
+  comments = [],
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
@@ -4717,6 +4718,9 @@ export default function SlideEditor({
       ) {
         return;
       }
+      if (e.currentTarget instanceof HTMLElement) {
+        e.currentTarget.focus({ preventScroll: true });
+      }
 
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
@@ -5658,7 +5662,11 @@ export default function SlideEditor({
                       <ContextMenuTrigger asChild disabled={readOnly}>
                         <div
                           ref={slideCanvasRef}
-                          className="slide-image-clickable relative"
+                          className={`slide-image-clickable relative outline-none ${
+                            pinMode ? "cursor-crosshair" : ""
+                          }`}
+                          data-slide-canvas-focus="true"
+                          tabIndex={0}
                           data-editable={!readOnly ? "true" : undefined}
                           onClick={handleSlideClick}
                           onContextMenu={handleSlideContextMenu}
@@ -5990,13 +5998,14 @@ export default function SlideEditor({
           onExitDrawMode?.();
         }}
       />
-      <CanvasCommentPins
+      <SlideCommentPins
         key={slideId || slide.id}
         active={!!pinMode}
-        onClose={() => onExitPinMode?.()}
+        canComment={canComment}
+        comments={comments}
+        deckId={deckId ?? null}
+        slideId={slideId || slide.id}
         canvasSelector="[data-main-slide-canvas='true'] .slide-content"
-        contextId={slideId || slide.id}
-        contextLabel={slideTitle || `slide ${slideIndex + 1}`}
       />
     </div>
   );
