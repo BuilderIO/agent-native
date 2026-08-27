@@ -37,7 +37,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq } from "drizzle-orm";
@@ -1263,11 +1263,12 @@ const requestTranscriptAction = defineAction({
     }
 
     // ── Builder transcription (cloud fallback) ────────────────────────
-    // Builder proxy is available when the current user has connected
-    // Builder via OAuth (per-user app_secrets) OR when BUILDER_PRIVATE_KEY
-    // is set at the deployment level. Use the per-user-aware resolver so
-    // a sidebar OAuth connection actually wires through to transcription.
-    if (await resolveHasBuilderPrivateKey()) {
+    // Gate on the gateway credential, not on Builder connection custody:
+    // `transcribeWithBuilder` authenticates through `resolveBuilderGatewayAuth`,
+    // which reads gateway credentials and a legacy private key and never
+    // consults an OAuth grant. Gating on custody would select this path for an
+    // OAuth-only user, write pending state, prepare audio, and only then fail.
+    if (await resolveHasBuilderGatewayCredential()) {
       if (!regeneratingReadyTranscript) {
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,

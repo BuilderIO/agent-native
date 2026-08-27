@@ -565,6 +565,7 @@ export {
   // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
