@@ -52,11 +52,15 @@ export function HeroOceanBackground({
           onError: (error) => onErrorRef.current(error),
         });
 
-        // Gate the fade on the first drawn frame, not on mount: fading in an
-        // empty canvas while the graph is still building just moves the pop.
-        void renderer.ready.then(() => {
-          if (!cancelled) setReady(true);
-        });
+        // firstFrame, not ready: `ready` only means initialize() returned, so
+        // the loop is registered but has not drawn yet, and it also fulfils
+        // after a failed init. Fading on it shows an empty -- or dead --
+        // canvas. It rejects on failure, which onError already handles.
+        void renderer.firstFrame
+          .then(() => {
+            if (!cancelled) setReady(true);
+          })
+          .catch(() => {});
 
         const themeObserver = new MutationObserver(() => {
           renderer?.setColors(readOceanColors(container));

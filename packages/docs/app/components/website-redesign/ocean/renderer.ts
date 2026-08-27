@@ -73,6 +73,23 @@ export function createRenderer({
   let loop: FrameLoopHandle | undefined;
   let paused = false;
   let failed = false;
+  let rebuilding = false;
+  let resizePending = false;
+  let releaseErrorListener: (() => void) | undefined;
+
+  // Distinct from `ready`, which only means initialize() returned -- the frame
+  // loop is registered by then but has not run. Callers that reveal the canvas
+  // need the first drawn frame, or they fade in an empty surface.
+  let signalFirstFrame: () => void = () => {};
+  let signalFirstFrameFailed: (error: unknown) => void = () => {};
+  const firstFrame = new Promise<void>((resolve, reject) => {
+    signalFirstFrame = resolve;
+    signalFirstFrameFailed = reject;
+  });
+  // Failure is delivered through onError; this keeps the rejection from
+  // surfacing as an unhandled promise when no caller awaits firstFrame.
+  firstFrame.catch(() => {});
+  let drewOnce = false;
   let gpu: Gpu | undefined;
   let output: Surface | undefined;
   let graph: OceanGraph | undefined;
@@ -89,6 +106,7 @@ export function createRenderer({
         if (resizeFrame) cancelAnimationFrame(resizeFrame);
       },
       () => loop?.stop(),
+      () => releaseErrorListener?.(),
       () => unsubscribeResize?.(),
       () => gpu?.dispose(),
     ]);
@@ -103,6 +121,9 @@ export function createRenderer({
       // below; a teardown error raised here would replace that real cause.
       // coercion-ok: the caller still receives the failure that started this.
     } catch {}
+    // Never resolves after a failure: fulfilling it would let a caller fade in
+    // a dead canvas at the same moment onError demotes to the fallback.
+    if (first) signalFirstFrameFailed(error);
     if (!onError) throw error;
     // Only the first failure is reported: dispose() can cascade, and the
     // caller swaps backgrounds on the first one anyway.
@@ -135,14 +156,32 @@ export function createRenderer({
   };
 
   const scheduleResize = () => {
-    if (disposed || resizeFrame) return;
+    if (disposed) return;
+    // A rebuild allocates six 512x512 rgba32float simulation targets plus the
+    // HDR and bloom chain. resizeFrame alone does not stop a drag-resize from
+    // starting the next one mid-flight, because it is cleared before the await
+    // -- so overlapping rebuilds would each pay that cost concurrently and the
+    // generation check would only free them afterwards. One at a time, then
+    // one more pass for whatever size the drag settled on.
+    if (rebuilding) {
+      resizePending = true;
+      return;
+    }
+    if (resizeFrame) return;
     const generation = ++resizeGeneration;
     resizeFrame = requestAnimationFrame(async () => {
       resizeFrame = 0;
+      rebuilding = true;
       try {
         await rebuild(generation);
       } catch (error) {
         if (!disposed && generation === resizeGeneration) fail(error);
+      } finally {
+        rebuilding = false;
+      }
+      if (resizePending && !disposed) {
+        resizePending = false;
+        scheduleResize();
       }
     });
   };
@@ -163,6 +202,17 @@ export function createRenderer({
 
     unsubscribeResize = output.onResize(scheduleResize);
 
+    // The frame callback's try/catch only covers what runs inside it. vgpu
+    // reports validation failures asynchronously, and a lost device surfaces
+    // on the GPUDevice itself -- neither reaches that catch, so without these
+    // the hero keeps a frozen ocean mounted and never demotes.
+    releaseErrorListener = nextGpu.onError((error) => {
+      if (!disposed) fail(error);
+    });
+    void nextGpu.gpu.lost.then((info) => {
+      if (!disposed) fail(new Error(`WebGPU device lost: ${info.reason}`));
+    });
+
     const time = clock(gpu);
     loop = frameLoop(
       gpu,
@@ -171,6 +221,10 @@ export function createRenderer({
         try {
           setDynamics(graph, time.time * OCEAN_TUNING.simulation.timeScale);
           renderGraph(currentFrame, graph, output);
+          if (!drewOnce) {
+            drewOnce = true;
+            signalFirstFrame();
+          }
         } catch (error) {
           fail(error);
         }
@@ -203,7 +257,7 @@ export function createRenderer({
     if (graph) setPresentColors(graph, next);
   }
 
-  return { ready, dispose, setColors, setPaused };
+  return { ready, firstFrame, dispose, setColors, setPaused };
 }
 
 export type OceanRenderer = ReturnType<typeof createRenderer>;

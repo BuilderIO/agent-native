@@ -84,12 +84,15 @@ describeBuilt("client bundle", () => {
 
 describeServer("server bundle", () => {
   it("keeps the Dawn native adapter out of the docs function", () => {
-    const offenders = walk(SERVER_DIR)
-      .filter((file) => /\.(js|mjs|cjs|node)$/.test(file))
-      .filter((file) => {
-        if (file.endsWith(".node")) return true;
-        return readFileSync(file, "utf8").includes("@vgpu/adapter-node");
-      });
+    // Scoped to vgpu/Dawn on purpose. The docs build legitimately copies a
+    // resvg native binary for OG image rendering, so asserting "no .node file
+    // anywhere" fails on Linux for a reason that has nothing to do with this
+    // change -- and passes on macOS, where that binary is not emitted.
+    const offenders = walk(SERVER_DIR).filter((file) => {
+      if (/(?:vgpu|dawn)/i.test(file) && file.endsWith(".node")) return true;
+      if (!/\.(js|mjs|cjs)$/.test(file)) return false;
+      return readFileSync(file, "utf8").includes("@vgpu/adapter-node");
+    });
     expect(offenders.map((file) => path.relative(DOCS_ROOT, file))).toEqual([]);
   });
 

@@ -9,6 +9,7 @@ import { HeroOceanBackground } from "./hero-ocean-background";
 const { createRenderer, renderer, importSpy } = vi.hoisted(() => {
   const renderer = {
     ready: Promise.resolve(),
+    firstFrame: Promise.resolve(),
     dispose: vi.fn(),
     setColors: vi.fn(),
     setPaused: vi.fn(),
@@ -175,9 +176,9 @@ describe("HeroOceanBackground", () => {
   });
 
   it("stays fully transparent until the first frame is drawn", async () => {
-    let resolveReady: () => void = () => {};
-    renderer.ready = new Promise<void>((resolve) => {
-      resolveReady = resolve;
+    let drawFirstFrame: () => void = () => {};
+    renderer.firstFrame = new Promise<void>((resolve) => {
+      drawFirstFrame = resolve;
     });
     const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
     const box = container.firstElementChild as HTMLElement;
@@ -186,11 +187,24 @@ describe("HeroOceanBackground", () => {
     // Still building the graph: fading in here would show an empty canvas.
     expect(box.style.opacity).toBe("0");
 
-    resolveReady();
+    drawFirstFrame();
     await waitFor(() =>
       expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)"),
     );
-    renderer.ready = Promise.resolve();
+    renderer.firstFrame = Promise.resolve();
+  });
+
+  it("never fades in when the renderer fails before drawing", async () => {
+    renderer.firstFrame = Promise.reject(new Error("device lost"));
+    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const box = container.firstElementChild as HTMLElement;
+
+    await waitFor(() => expect(createRenderer).toHaveBeenCalled());
+    await Promise.resolve();
+    // A failed init must not reveal a dead canvas: the caller is demoting to
+    // the fallback at the same moment.
+    expect(box.style.opacity).toBe("0");
+    renderer.firstFrame = Promise.resolve();
   });
 
   it("reports a construction failure to the caller instead of throwing", async () => {
