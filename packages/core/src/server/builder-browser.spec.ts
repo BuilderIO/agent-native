@@ -584,6 +584,25 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("fails closed for a direct Builder Cloud host without origin config", () => {
+      process.env.NODE_ENV = "production";
+      clearBuilderOriginEnv();
+      const event = createBuilderBrowserEvent(
+        {
+          host: "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserOriginForEvent(event)).toBe("");
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe("");
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe("");
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        null,
+      );
+    });
+
     it("does not reuse a rejected forwarded host without a configured origin", () => {
       process.env.NODE_ENV = "production";
       clearBuilderOriginEnv();
