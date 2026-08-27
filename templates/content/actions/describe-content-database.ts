@@ -21,6 +21,7 @@ import listContentDatabases, {
 export default defineAction({
   description:
     "Describe one exact ordinary Content database, including its live metadata, views, and property schema but not its rows. Resolve the stable database or document ID with list-content-databases first.",
+  mcpTool: true,
   schema: z
     .object({
       databaseId: z.string().min(1).optional().describe("Exact database ID"),
