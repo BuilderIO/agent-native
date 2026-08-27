@@ -324,14 +324,21 @@ export async function disconnectGoogleDocs(owner: string): Promise<void> {
   );
 }
 
-export async function getGoogleDocsAccessToken(owner: string): Promise<{
+export async function getGoogleDocsAccessToken(
+  owner: string,
+  options: GoogleDocsAccessTokenOptions = {},
+): Promise<{
   accessToken: string;
   accountEmail: string;
 } | null> {
   const accounts = await listGoogleProviderAccounts(owner);
-  if (accounts.length === 0) return null;
+  const account = options.requireDriveExportScope
+    ? accounts.find((candidate) =>
+        hasGoogleDriveExportScope(String(candidate.tokens.scope ?? "")),
+      )
+    : accounts[0];
+  if (!account) return null;
 
-  const account = accounts[0];
   const stored = await getOAuthTokens(
     account.provider,
     account.accountId,
@@ -346,6 +353,10 @@ export async function getGoogleDocsAccessToken(owner: string): Promise<{
     stored as unknown as GoogleDocsTokens,
   );
   return { accessToken, accountEmail: account.accountId };
+}
+
+export interface GoogleDocsAccessTokenOptions {
+  requireDriveExportScope?: boolean;
 }
 
 async function listGoogleProviderAccounts(owner: string): Promise<
