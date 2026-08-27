@@ -28,7 +28,7 @@ import {
   ensureUniqueSlideIds,
   rebindCreativeContextSlideLabels,
 } from "../shared/slide-ids.js";
-import { getDeckUrl } from "./_app-url.js";
+import { getDeckAppUrl, getDeckUrl } from "./_app-url.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -150,17 +150,19 @@ export default defineAction({
       height: 680,
     }),
   },
-  http: false,
-  run: async ({
-    title,
-    slides: rawSlides,
-    deckId,
-    aspectRatio,
-    designSystemId,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) => {
+  run: async (
+    {
+      title,
+      slides: rawSlides,
+      deckId,
+      aspectRatio,
+      designSystemId,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    ctx,
+  ) => {
     const db = getDb();
     const now = new Date().toISOString();
     const normalizedSlides = ensureUniqueSlideIds(
@@ -296,6 +298,7 @@ export default defineAction({
         title: existingDeckTitle,
         slideCount: slides.length,
         url: getDeckUrl(deckId),
+        appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders),
         deepLink: deckDeepLink(deckId),
         slides,
         ...creativeContextProvenance,
@@ -349,6 +352,7 @@ export default defineAction({
       title: resolvedTitle,
       slideCount: slides.length,
       url: getDeckUrl(id),
+      appUrl: getDeckAppUrl(id, ctx?.requestHeaders),
       deepLink: deckDeepLink(id),
       slides,
       ...creativeContextProvenance,

@@ -1,5 +1,3 @@
-import path from "path";
-
 import { readBody, runWithRequestContext } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
@@ -31,22 +29,7 @@ export default defineEventHandler(async (event) => {
       () => exportHtmlAction.run({ deckId: body.deckId! }),
     );
 
-    if ("error" in result) {
-      setResponseStatus(event, 400);
-      return { error: result.error };
-    }
-
-    event.node!.res!.setHeader("Content-Type", "text/html; charset=utf-8");
-    event.node!.res!.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${path.basename(result.filename)}"`,
-    );
-
-    // Return the in-memory HTML string directly. Writing to disk first
-    // would break on serverless: a separate /api/exports/:filename GET
-    // would hit a different Lambda's empty filesystem and 404 with
-    // "file doesn't exist on site".
-    return result.html;
+    return Response.redirect(result.downloadUrl, 302);
   } catch (error) {
     const message =
       error instanceof Error

@@ -15,6 +15,7 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckAppUrl } from "./_app-url.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
@@ -229,6 +230,7 @@ export default defineAction({
         slideCount: slides.length,
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
+        appUrl: getDeckAppUrl(row.id, ctx?.requestHeaders),
         deepLink: deckDeepLink(row.id),
         ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
         slides: slideEntries.map(({ slide: s, index: i }) => ({
@@ -280,6 +282,7 @@ export default defineAction({
       createdAt:
         typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
       updatedAt: row.updatedAt,
+      appUrl: getDeckAppUrl(row.id, ctx?.requestHeaders),
       deepLink: deckDeepLink(row.id),
       ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
       slides: fullSlides,

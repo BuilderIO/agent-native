@@ -126,6 +126,10 @@ beforeEach(() => {
 });
 
 describe("create-deck — aspectRatio", () => {
+  it("uses the standard POST action exposure", () => {
+    expect(action.http).toBeUndefined();
+  });
+
   it("defaults omitted slides to an empty deck", async () => {
     await action.run({
       title: "T",
@@ -187,6 +191,9 @@ describe("create-deck — aspectRatio", () => {
     const result = await action.run({ title: "T", slides: [] });
 
     expect(result.url).toMatch(
+      /^https:\/\/workspace\.example\.test\/slides\/deck\/deck-/,
+    );
+    expect(result.appUrl).toMatch(
       /^https:\/\/workspace\.example\.test\/slides\/deck\/deck-/,
     );
   });

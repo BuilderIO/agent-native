@@ -1,7 +1,4 @@
-import fs from "fs";
-import path from "path";
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -9,16 +6,15 @@ import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { createExportArtifact } from "../server/lib/export-artifacts.js";
 import { readLocalImportedAsset } from "../server/lib/import-asset-storage.js";
-import {
-  safeGeneratedFilename,
-  tenantExportDir,
-} from "../server/lib/tenant-files.js";
+import { safeGeneratedFilename } from "../server/lib/tenant-files.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import { getSlidesAppUrl } from "./_app-url.js";
 
 type TableCell = PptxGenJS.TableCell;
 type TableRow = PptxGenJS.TableRow;
@@ -1925,6 +1921,12 @@ export default defineAction({
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    if (!Array.isArray(slides) || slides.length === 0) {
+      throw fail("Cannot export an empty deck.", {
+        errorCode: "empty_export",
+        statusCode: 400,
+      });
+    }
     const rawAspectRatio = deckData.aspectRatio;
     const aspectRatio: AspectRatio | undefined = ASPECT_RATIO_VALUES.includes(
       rawAspectRatio,
@@ -1973,7 +1975,6 @@ export default defineAction({
     if (headFontFace) pptx.theme = { headFontFace, bodyFontFace };
 
     const slideGradients = new Map<number, string>();
-    let backgroundGradientsFlattened = 0;
 
     for (const [slideIndex, slide] of slides.entries()) {
       const pptxSlide = pptx.addSlide();
@@ -2001,7 +2002,6 @@ export default defineAction({
         if (gradFill) {
           slideGradients.set(slideIndex, gradFill);
         } else {
-          backgroundGradientsFlattened++;
           console.warn(
             `[export-pptx] slide ${slideIndex + 1} background "${bgGradient}" has no DrawingML equivalent; exported as flat #${bgColor}`,
           );
@@ -2175,30 +2175,21 @@ export default defineAction({
     );
     const filename = safeGeneratedFilename(row.title, ".pptx");
 
-    // Disk write is only useful when the same process can later serve the
-    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
-    // vanishes between invocations, so `/api/exports/:filename` requests land
-    // on a different container that doesn't have the file — the user sees
-    // "file doesn't exist on site". Skip the disk write entirely on those
-    // hosts; the route handler streams `buffer` directly. CLI and local-dev
-    // still get a real file path.
-    let filePath: string | undefined;
-    if (!isServerless()) {
-      const exportDir = tenantExportDir(userEmail);
-      fs.mkdirSync(exportDir, { recursive: true });
-      filePath = path.join(exportDir, filename);
-      fs.writeFileSync(filePath, buffer);
-    }
-
-    return {
-      buffer,
-      filePath,
+    const artifact = await createExportArtifact({
+      data: new Uint8Array(buffer),
       filename,
-      slideCount: slides.length,
-      ...(backgroundGradientsFlattened > 0
-        ? { backgroundGradientsFlattened }
-        : {}),
-    };
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ownerEmail: userEmail,
+      downloadBaseUrl: getSlidesAppUrl(),
+    });
+    if (!artifact) {
+      throw fail("Private export storage is unavailable.", {
+        errorCode: "export_storage_unavailable",
+        statusCode: 503,
+      });
+    }
+    return artifact;
   },
 });
 
@@ -2234,14 +2225,4 @@ function deckThemeFonts(
       ? (fonts[index] as string)
       : undefined;
   return [face(0), face(1) ?? face(0)];
-}
-
-function isServerless(): boolean {
-  return Boolean(
-    process.env.NETLIFY ||
-    process.env.VERCEL ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.cwd() === "/var/task" ||
-    process.cwd().startsWith("/var/task/"),
-  );
 }

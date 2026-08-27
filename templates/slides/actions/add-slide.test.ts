@@ -155,6 +155,10 @@ beforeEach(() => {
 });
 
 describe("add-slide", () => {
+  it("uses the standard POST action exposure", () => {
+    expect(action.http).toBeUndefined();
+  });
+
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
   });

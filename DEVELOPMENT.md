@@ -34,6 +34,10 @@ pnpm --filter @agent-native/core dev   # watch-build core
 pnpm --filter @agent-native/docs dev   # run the docs site
 ```
 
+### Public action API contracts
+
+Any template action exposed at `/_agent-native/actions/<action-name>` is a versioned public API. Do not silently rename its action name, change its parameter schema, or remove or rename response fields. Additive action or response fields require a user-facing app changelog entry.
+
 ### Electron desktop app
 
 ```bash

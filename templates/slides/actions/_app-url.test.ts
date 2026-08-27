@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getDeckUrl, getExportUrl, getSlidesAppUrl } from "./_app-url.js";
+import {
+  getDeckAppUrl,
+  getDeckUrl,
+  getExportUrl,
+  getSlidesAppUrl,
+} from "./_app-url.js";
 
 beforeEach(() => {
   vi.unstubAllEnvs();
@@ -45,7 +50,31 @@ describe("slides app URLs", () => {
     );
   });
 
+  it("uses the request-aware framework URL resolver for canonical deck links", () => {
+    expect(
+      getDeckAppUrl(
+        "deck-5",
+        new Headers({
+          host: "slides.self-hosted.test",
+          "x-forwarded-proto": "https",
+        }),
+      ),
+    ).toBe("https://slides.self-hosted.test/deck/deck-5");
+  });
+
   it("falls back to the first-party Slides host when no app URL is configured", () => {
+    for (const key of [
+      "WORKSPACE_GATEWAY_URL",
+      "APP_URL",
+      "URL",
+      "DEPLOY_URL",
+      "BETTER_AUTH_URL",
+      "VERCEL_PROJECT_PRODUCTION_URL",
+      "VERCEL_URL",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+
     expect(getDeckUrl("deck-3")).toBe(
       "https://slides.agent-native.com/deck/deck-3",
     );

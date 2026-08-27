@@ -3,12 +3,39 @@ import { isPostgres } from "@agent-native/core/db";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, sql } from "drizzle-orm";
+import { and, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
-import { getDeckUrl } from "./_app-url.js";
+import { getDeckAppUrl, getDeckUrl } from "./_app-url.js";
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+
+type DeckCursor = { updatedAt: string; id: string };
+
+function decodeCursor(cursor: string): DeckCursor {
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (
+      !value ||
+      typeof value.updatedAt !== "string" ||
+      Number.isNaN(Date.parse(value.updatedAt)) ||
+      typeof value.id !== "string" ||
+      !value.id
+    ) {
+      throw new Error("Invalid cursor");
+    }
+    return value;
+  } catch {
+    throw new Error("Invalid cursor");
+  }
+}
+
+function encodeCursor(cursor: DeckCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
 
 function slidesDeepLink(): string {
   return buildDeepLink({ app: "slides", view: "list" });
@@ -56,6 +83,23 @@ export default defineAction({
       .enum(["all", "me"])
       .optional()
       .describe("Set to 'me' to list only decks created by the current user"),
+    updatedSince: z
+      .string()
+      .datetime()
+      .optional()
+      .describe("Return decks updated strictly after this ISO timestamp"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_PAGE_SIZE)
+      .optional()
+      .describe("Page size when using updatedSince or cursor (1-100)"),
+    cursor: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Opaque cursor returned by a prior paginated response"),
   }),
   http: { method: "GET" },
   link: () => ({
@@ -82,13 +126,54 @@ export default defineAction({
     }
 
     const visibleDecks = accessFilter(schema.decks, schema.deckShares);
-    const where =
-      args.createdBy === "me" && normalizedOwnerEmail !== null
-        ? and(
-            visibleDecks,
+    const paginationRequested =
+      args.updatedSince !== undefined ||
+      args.limit !== undefined ||
+      args.cursor !== undefined;
+    const cursor = args.cursor ? decodeCursor(args.cursor) : undefined;
+    const pageSize = args.limit ?? DEFAULT_PAGE_SIZE;
+    const paginationFilters = [
+      ...(args.updatedSince
+        ? [gt(schema.decks.updatedAt, args.updatedSince)]
+        : []),
+      ...(cursor
+        ? [
+            or(
+              lt(schema.decks.updatedAt, cursor.updatedAt),
+              and(
+                eq(schema.decks.updatedAt, cursor.updatedAt),
+                lt(schema.decks.id, cursor.id),
+              ),
+            ),
+          ]
+        : []),
+    ];
+    const where = and(
+      visibleDecks,
+      ...(args.createdBy === "me" && normalizedOwnerEmail !== null
+        ? [
             sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
-          )
-        : visibleDecks;
+          ]
+        : []),
+      ...paginationFilters,
+    );
+    const orderBy = [
+      desc(schema.decks.updatedAt),
+      ...(paginationRequested ? [desc(schema.decks.id)] : []),
+    ];
+    const finalizePage = <T extends { id: string; updatedAt: string | null }>(
+      rows: T[],
+    ) => {
+      const pageRows = paginationRequested ? rows.slice(0, pageSize) : rows;
+      const lastRow = pageRows.at(-1);
+      const nextCursor =
+        paginationRequested &&
+        rows.length > pageSize &&
+        typeof lastRow?.updatedAt === "string"
+          ? encodeCursor({ id: lastRow.id, updatedAt: lastRow.updatedAt })
+          : undefined;
+      return { pageRows, ...(nextCursor ? { nextCursor } : {}) };
+    };
 
     if (args.light === "true") {
       // Column-projected listing for cheap add/remove diffing (the client's
@@ -112,7 +197,7 @@ export default defineAction({
           : sql<
               string | null
             >`json_extract(${schema.decks.data}, '$.aspectRatio')`;
-        const rows = await db
+        const rows = db
           .select({
             id: schema.decks.id,
             title: schema.decks.title,
@@ -124,11 +209,15 @@ export default defineAction({
           })
           .from(schema.decks)
           .where(where)
-          .orderBy(desc(schema.decks.updatedAt));
+          .orderBy(...orderBy);
+        const fetchedRows = paginationRequested
+          ? await rows.limit(pageSize + 1)
+          : await rows;
+        const { pageRows, nextCursor } = finalizePage(fetchedRows);
 
         return {
-          count: rows.length,
-          decks: rows.map((row) => {
+          count: pageRows.length,
+          decks: pageRows.map((row) => {
             const previewSlide = parseJsonProjection(
               row.previewSlide,
               "first slide preview",
@@ -149,10 +238,11 @@ export default defineAction({
                 : {}),
             };
           }),
+          ...(nextCursor ? { nextCursor } : {}),
         };
       }
 
-      const rows = await db
+      const rows = db
         .select({
           id: schema.decks.id,
           title: schema.decks.title,
@@ -162,10 +252,14 @@ export default defineAction({
         })
         .from(schema.decks)
         .where(where)
-        .orderBy(desc(schema.decks.updatedAt));
+        .orderBy(...orderBy);
+      const fetchedRows = paginationRequested
+        ? await rows.limit(pageSize + 1)
+        : await rows;
+      const { pageRows, nextCursor } = finalizePage(fetchedRows);
       return {
-        count: rows.length,
-        decks: rows.map((row) => ({
+        count: pageRows.length,
+        decks: pageRows.map((row) => ({
           id: row.id,
           title: row.title,
           updatedAt: row.updatedAt,
@@ -174,6 +268,7 @@ export default defineAction({
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
         })),
+        ...(nextCursor ? { nextCursor } : {}),
       };
     }
 
@@ -181,7 +276,7 @@ export default defineAction({
       // The deck body is an opaque JSON blob containing every slide's HTML.
       // Metadata callers must opt into it explicitly; the frontend opens one
       // deck at a time through get-deck instead of downloading every body.
-      const rows = await db
+      const rows = db
         .select({
           id: schema.decks.id,
           title: schema.decks.title,
@@ -193,14 +288,19 @@ export default defineAction({
         })
         .from(schema.decks)
         .where(where)
-        .orderBy(desc(schema.decks.updatedAt));
+        .orderBy(...orderBy);
+      const fetchedRows = paginationRequested
+        ? await rows.limit(pageSize + 1)
+        : await rows;
+      const { pageRows, nextCursor } = finalizePage(fetchedRows);
 
       return {
-        count: rows.length,
-        decks: rows.map((row) => ({
+        count: pageRows.length,
+        decks: pageRows.map((row) => ({
           id: row.id,
           title: row.title,
           url: getDeckUrl(row.id),
+          appUrl: getDeckAppUrl(row.id, ctx?.requestHeaders),
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
           createdByMe:
@@ -209,20 +309,25 @@ export default defineAction({
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         })),
+        ...(nextCursor ? { nextCursor } : {}),
       };
     }
 
-    const rows = await db
+    const rows = db
       .select()
       .from(schema.decks)
       .where(where)
-      .orderBy(desc(schema.decks.updatedAt));
+      .orderBy(...orderBy);
+    const fetchedRows = paginationRequested
+      ? await rows.limit(pageSize + 1)
+      : await rows;
+    const { pageRows, nextCursor } = finalizePage(fetchedRows);
 
-    if (rows.length === 0) {
+    if (pageRows.length === 0) {
       return { count: 0, decks: [] };
     }
 
-    const items = rows.map((row) => {
+    const items = pageRows.map((row) => {
       const data = JSON.parse(row.data);
       const slides = data?.slides;
       if (args.includeSlides === "true") {
@@ -238,6 +343,7 @@ export default defineAction({
           createdAt:
             typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
           updatedAt: row.updatedAt,
+          appUrl: getDeckAppUrl(row.id, ctx?.requestHeaders),
           slides: Array.isArray(slides) ? slides : [],
         };
       }
@@ -247,6 +353,7 @@ export default defineAction({
           id: row.id,
           title: row.title,
           url: getDeckUrl(row.id),
+          appUrl: getDeckAppUrl(row.id, ctx?.requestHeaders),
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
@@ -266,6 +373,10 @@ export default defineAction({
       };
     });
 
-    return { count: items.length, decks: items };
+    return {
+      count: items.length,
+      decks: items,
+      ...(nextCursor ? { nextCursor } : {}),
+    };
   },
 });

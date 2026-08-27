@@ -1,21 +1,17 @@
-import fs from "fs";
-import path from "path";
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import {
-  safeGeneratedFilename,
-  tenantExportDir,
-} from "../server/lib/tenant-files.js";
+import { createExportArtifact } from "../server/lib/export-artifacts.js";
+import { safeGeneratedFilename } from "../server/lib/tenant-files.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import { getSlidesAppUrl } from "./_app-url.js";
 
 /**
  * Minimal server-side HTML sanitizer for exported slide content.
@@ -281,38 +277,28 @@ export default defineAction({
       ? rawAspectRatio
       : undefined;
 
-    if (slides.length === 0) {
-      return { error: "Cannot export empty deck" };
+    if (!Array.isArray(slides) || slides.length === 0) {
+      throw fail("Cannot export an empty deck.", {
+        errorCode: "empty_export",
+        statusCode: 400,
+      });
     }
 
     const html = buildStandaloneHtml(row.title, slides, aspectRatio);
     const filename = safeGeneratedFilename(row.title, ".html");
-
-    // Disk write is only useful when the same process can later serve the
-    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
-    // vanishes between invocations, so `/api/exports/:filename` requests land
-    // on a different container that doesn't have the file — the user sees
-    // "file doesn't exist on site". Skip the disk write entirely on those
-    // hosts; the route handler streams `html` directly. CLI and local-dev
-    // still get a real file path.
-    let filePath: string | undefined;
-    if (!isServerless()) {
-      const exportDir = tenantExportDir(userEmail);
-      fs.mkdirSync(exportDir, { recursive: true });
-      filePath = path.join(exportDir, filename);
-      fs.writeFileSync(filePath, html);
+    const artifact = await createExportArtifact({
+      data: new TextEncoder().encode(html),
+      filename,
+      mimeType: "text/html; charset=utf-8",
+      ownerEmail: userEmail,
+      downloadBaseUrl: getSlidesAppUrl(),
+    });
+    if (!artifact) {
+      throw fail("Private export storage is unavailable.", {
+        errorCode: "export_storage_unavailable",
+        statusCode: 503,
+      });
     }
-
-    return { html, filePath, filename, slideCount: slides.length };
+    return artifact;
   },
 });
-
-function isServerless(): boolean {
-  return Boolean(
-    process.env.NETLIFY ||
-    process.env.VERCEL ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.cwd() === "/var/task" ||
-    process.cwd().startsWith("/var/task/"),
-  );
-}

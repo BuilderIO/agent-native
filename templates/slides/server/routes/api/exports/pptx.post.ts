@@ -1,13 +1,8 @@
-import path from "path";
-
 import { readBody, runWithRequestContext } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
 import exportPptxAction from "../../../../actions/export-pptx.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
-
-const PPTX_CONTENT_TYPE =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 export default defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
@@ -44,20 +39,7 @@ export default defineEventHandler(async (event) => {
         }),
     );
 
-    const bytes = new Uint8Array(result.buffer);
-    const responseBody = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    );
-
-    return new Response(responseBody, {
-      headers: {
-        "Content-Type": PPTX_CONTENT_TYPE,
-        "Content-Disposition": `attachment; filename="${path.basename(
-          result.filename,
-        )}"`,
-      },
-    });
+    return Response.redirect(result.downloadUrl, 302);
   } catch (error) {
     const message =
       error instanceof Error

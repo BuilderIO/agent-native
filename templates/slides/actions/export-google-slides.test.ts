@@ -16,9 +16,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   mockExportPptxRun.mockResolvedValue({
-    filePath: "/tmp/deck.pptx",
+    downloadUrl:
+      "https://workspace.example.test/slides/api/exports/download?artifact=export-example&token=test-token",
     filename: "deck.pptx",
-    slideCount: 3,
+    expiresAt: "2026-08-27T12:10:00.000Z",
   });
 });
 
@@ -37,8 +38,10 @@ describe("export-google-slides", () => {
       includeNotes: true,
     });
     expect(result.downloadUrl).toBe(
-      "https://workspace.example.test/slides/api/exports/deck.pptx",
+      "https://workspace.example.test/slides/api/exports/download?artifact=export-example&token=test-token",
     );
+    expect(result.expiresAt).toBe("2026-08-27T12:10:00.000Z");
+    expect(result.filename).toBe("deck.pptx");
     expect(result.googleSlidesImportDialogUrl).toBe(
       "https://docs.google.com/presentation/u/0/?usp=import",
     );

@@ -27,6 +27,7 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckAppUrl } from "./_app-url.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
@@ -68,7 +69,7 @@ export default defineAction({
   }),
   http: { method: "PUT" },
   agentTool: false,
-  run: async (args) =>
+  run: async (args, ctx) =>
     withDeckLock(args.deckId, async () => {
       const deckId = args.deckId;
       const deck = args.deck as DeckPayload;
@@ -176,7 +177,7 @@ export default defineAction({
       }
 
       notifyClients(deckId);
-      return deck;
+      return { ...deck, appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders) };
     }),
 });
 

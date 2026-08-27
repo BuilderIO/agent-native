@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const deckRows = [
+let deckRows = [
   {
     id: "deck_123",
     title: "Roadmap",
@@ -17,7 +17,10 @@ const deckRows = [
 
 let requestUserEmail = "alice@example.com";
 
-const orderByFn = vi.fn(async () => deckRows);
+const limitFn = vi.fn(async (limit: number) => deckRows.slice(0, limit));
+const orderByFn = vi.fn(() =>
+  Object.assign(Promise.resolve(deckRows), { limit: limitFn }),
+);
 const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
 const fromFn = vi.fn(() => ({ where: whereFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
@@ -56,6 +59,9 @@ vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
   desc: (value: unknown) => ({ desc: value }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  gt: (column: unknown, value: unknown) => ({ gt: [column, value] }),
+  lt: (column: unknown, value: unknown) => ({ lt: [column, value] }),
+  or: (...values: unknown[]) => ({ or: values }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -75,6 +81,7 @@ describe("list-decks", () => {
       id: "deck_123",
       title: "Roadmap",
       url: "https://slides.agent.test/deck/deck_123",
+      appUrl: "https://slides.agent.test/deck/deck_123",
     });
     expect(selectFn).toHaveBeenCalledWith({
       id: "id_col",
@@ -168,6 +175,29 @@ describe("list-decks", () => {
         },
       ],
     });
+  });
+
+  it("returns a cursor only for paginated calls with another page", async () => {
+    deckRows = [
+      ...deckRows,
+      {
+        ...deckRows[0],
+        id: "deck_124",
+        updatedAt: "2026-05-02T00:00:00.000Z",
+      },
+    ];
+
+    const result = await action.run({ limit: 1 });
+
+    expect(result.decks).toHaveLength(1);
+    expect(result.nextCursor).toEqual(expect.any(String));
+    expect(limitFn).toHaveBeenCalledWith(2);
+  });
+
+  it("rejects malformed opaque cursors", async () => {
+    await expect(action.run({ cursor: "not-a-cursor" })).rejects.toThrow(
+      "Invalid cursor",
+    );
   });
 
   it("does not bypass Mine filtering for a whitespace-only identity", async () => {

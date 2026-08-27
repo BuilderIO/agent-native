@@ -98,6 +98,7 @@ describe("get-deck", () => {
       id: "slide-b",
     });
     expect(result.createdByMe).toBe(true);
+    expect(result.appUrl).toBe("http://127.0.0.1:8080/deck/deck-1");
     expect(result.slides[0]).not.toHaveProperty("index");
   });
 

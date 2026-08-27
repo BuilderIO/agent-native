@@ -191,9 +191,9 @@ export function resolveImportedDeckTitle(
 }
 
 export function assertHumanReadableDeckTitle(title: string): void {
-  if (isOpaqueDeckTitle(title)) {
+  if (!title.trim() || isOpaqueDeckTitle(title)) {
     throw new Error(
-      "Deck title must be a concise, human-readable title; generated ids are not valid titles.",
+      "Give the deck a descriptive, human-readable title — slug-like titles are rejected.",
     );
   }
 }

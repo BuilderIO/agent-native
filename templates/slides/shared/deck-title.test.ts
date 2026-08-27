@@ -72,7 +72,10 @@ describe("deck title safeguards", () => {
 
   it("fails loudly when an opaque title cannot be recovered", () => {
     expect(() => assertHumanReadableDeckTitle("H3sVsnns-TEVUOpz9w")).toThrow(
-      /human-readable title/,
+      "Give the deck a descriptive, human-readable title — slug-like titles are rejected.",
+    );
+    expect(() => assertHumanReadableDeckTitle("   ")).toThrow(
+      "Give the deck a descriptive, human-readable title — slug-like titles are rejected.",
     );
   });
 });

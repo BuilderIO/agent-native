@@ -164,7 +164,6 @@ export default defineAction({
       height: 680,
     }),
   },
-  http: false,
   run: async ({
     deckId,
     content,

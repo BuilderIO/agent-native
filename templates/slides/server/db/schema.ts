@@ -101,3 +101,12 @@ export const deckAccessRequestLimits = table("deck_access_request_limits", {
   windowStartedAt: text("window_started_at").notNull(),
   requestCount: integer("request_count").notNull().default(0),
 });
+
+export const exportArtifacts = table("export_artifacts", {
+  id: text("id").primaryKey(),
+  blobHandle: text("blob_handle").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});

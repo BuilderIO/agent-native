@@ -8,7 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getDeckUrl } from "./_app-url.js";
+import { getDeckAppUrl, getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
   description:
@@ -18,6 +18,7 @@ export default defineAction({
     deckId: z.string().describe("Source deck ID to duplicate"),
     title: z
       .string()
+      .nullable()
       .optional()
       .describe("Title for the copy (defaults to 'Copy of ...')"),
     newId: z
@@ -34,7 +35,7 @@ export default defineAction({
         "Optional client-supplied ids for the copied slides, in slide order. Same purpose as `newId`: when the UI opens an optimistic copy the user can edit immediately, its slide ids must match the persisted copy or those edits address slides the server never had.",
       ),
   }),
-  run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
+  run: async ({ deckId, title, newId: clientNewId, slideIds }, ctx) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
@@ -83,6 +84,7 @@ export default defineAction({
       title: newTitle,
       slideCount: (deckData.slides || []).length,
       url: getDeckUrl(newId),
+      appUrl: getDeckAppUrl(newId, ctx?.requestHeaders),
     };
   },
 });

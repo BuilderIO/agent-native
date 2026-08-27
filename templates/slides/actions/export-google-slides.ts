@@ -1,7 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { getExportUrl } from "./_app-url.js";
 import exportPptxAction from "./export-pptx.js";
 
 /**
@@ -29,10 +28,10 @@ export default defineAction({
       .describe("Include speaker notes"),
   }),
   run: async ({ deckId, includeNotes }) => {
-    const result = await exportPptxAction.run({ deckId, includeNotes });
-    const { filename, slideCount } = result;
-
-    const downloadUrl = getExportUrl(filename);
+    const { downloadUrl, expiresAt, filename } = await exportPptxAction.run({
+      deckId,
+      includeNotes,
+    });
 
     // The dialog version of the importer — always works, just requires the
     // user to pick the file themselves.
@@ -40,11 +39,11 @@ export default defineAction({
       "https://docs.google.com/presentation/u/0/?usp=import";
 
     return {
-      ...result,
       downloadUrl,
+      filename,
+      expiresAt,
       googleSlidesImportUrl: googleSlidesImportDialogUrl,
       googleSlidesImportDialogUrl,
-      slideCount,
       note: "Download the .pptx and import it via Google Slides → File → Import slides. Google Slides cannot fetch this app's private export URL directly.",
     };
   },

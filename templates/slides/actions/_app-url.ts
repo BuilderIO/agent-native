@@ -1,4 +1,7 @@
-import { withConfiguredAppBasePath } from "@agent-native/core/server";
+import {
+  getAppUrl,
+  withConfiguredAppBasePath,
+} from "@agent-native/core/server";
 
 const FALLBACK_SLIDES_APP_URL = "https://slides.agent-native.com";
 
@@ -36,6 +39,22 @@ export function getSlidesAppUrl(): string {
 
 export function getDeckUrl(deckId: string): string {
   return `${getSlidesAppUrl()}/deck/${deckId}`;
+}
+
+/**
+ * Canonical URL for a signed-in person opening a deck. HTTP action calls use
+ * the framework's request-aware resolver so mounted and self-hosted apps keep
+ * their actual public origin; non-request callers retain the legacy fallback.
+ */
+export function getDeckAppUrl(
+  deckId: string,
+  requestHeaders?: Headers,
+): string {
+  if (!requestHeaders) return getDeckUrl(deckId);
+  return getAppUrl(
+    { req: { headers: requestHeaders } } as never,
+    `/deck/${deckId}`,
+  );
 }
 
 export function getExportUrl(filename: string): string {

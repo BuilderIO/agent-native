@@ -63,6 +63,7 @@ export default createAgentChatPlugin({
   actionRoutePublicPaths: [
     "/_agent-native/actions/get-deck-access-status",
     "/_agent-native/actions/request-deck-access",
+    "/api/exports/download",
   ],
   prepareRequest: prepareSlidesChatAttachments,
   systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. For a newly created presentation, use create-deck with slides: [] only when you are creating the deck yourself, then add-slide sequentially with full rendered HTML. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow. When speaker notes are requested, keep presenter-only text in each slide's notes field rather than the slide HTML, and preserve notes during source-preserving edits.

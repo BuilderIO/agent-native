@@ -271,7 +271,7 @@ export const runSlidesMigrations = runMigrations(
       // survivors deterministic, and lower the retained principal so the
       // repaired row is canonical as well as uniquely indexed.
       sql: `DELETE FROM deck_shares
-WHERE principal_type = 'user'
+	WHERE principal_type = 'user'
   AND id NOT IN (
     SELECT id
     FROM (
@@ -301,6 +301,19 @@ WHERE principal_type = 'user'
 CREATE UNIQUE INDEX IF NOT EXISTS deck_shares_resource_user_principal_uidx
 ON deck_shares (resource_id, LOWER(principal_id))
 WHERE principal_type = 'user'`,
+    },
+    {
+      version: 25,
+      name: "slides-export-artifacts-table",
+      sql: `CREATE TABLE IF NOT EXISTS export_artifacts (
+    id TEXT PRIMARY KEY,
+    blob_handle TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS export_artifacts_expires_at_idx ON export_artifacts (expires_at)`,
     },
   ],
   { table: "slides_migrations" },
