@@ -1860,7 +1860,36 @@ function buildVectorSvg(
   emit(node.fillGeometry, node.fills, "fill");
   // `strokeGeometry` is the stroke already outlined into a region, so it is
   // painted with `fill` (and the node's stroke paints), never re-stroked.
+  const strokeStart = paths.length;
   emit(node.strokeGeometry, node.strokes, "stroke");
+  // ...but that outline is NOT clipped to the alignment Figma states. On an
+  // INSIDE stroke the region still reaches outside the shape, and a mitred
+  // corner reaches a long way: the parity fixture's star has a 5px inside
+  // stroke whose outline runs 16px past its top point, and it drew a band
+  // three times too thick over a silhouette bigger than Figma's own ink.
+  // Clipping the stroke region to the fill shape is what INSIDE means.
+  if (
+    node.strokeAlign === "INSIDE" &&
+    paths.length > strokeStart &&
+    (node.fillGeometry?.length ?? 0) > 0
+  ) {
+    // Node-scoped: a bare `stroke-inside` would collide across the many
+    // inline SVGs in one document, and `url(#id)` takes the first match.
+    const clipId = `stroke-inside-${node.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    defs.push(
+      `<clipPath id="${clipId}">` +
+        (node.fillGeometry ?? [])
+          .map((entry) =>
+            entry.path?.trim()
+              ? `<path d="${escapeAttr(entry.path.trim())}"${entry.windingRule === "EVENODD" ? ' clip-rule="evenodd"' : ""} />`
+              : "",
+          )
+          .join("") +
+        `</clipPath>`,
+    );
+    const stroked = paths.splice(strokeStart).join("");
+    paths.push(`<g clip-path="url(#${clipId})">${stroked}</g>`);
+  }
 
   if (paths.length === 0) return null;
   const defsMarkup = defs.length > 0 ? `<defs>${defs.join("")}</defs>` : "";

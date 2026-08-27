@@ -822,6 +822,39 @@ describe("Figma rounds a hugging text box's height", () => {
   });
 });
 
+describe("an INSIDE stroke stays inside its shape", () => {
+  // `strokeGeometry` is the stroke already outlined into a region, but that
+  // outline is NOT clipped to the alignment Figma states — and a mitred corner
+  // reaches a long way. The parity fixture's star has a 5px inside stroke whose
+  // outline runs 16px past its top point: it drew a band three times too thick
+  // over a silhouette bigger than Figma's own ink (114x109 in a 120x120 box).
+  function star(strokeAlign: string): FigmaNode {
+    return {
+      id: "5:6",
+      name: "Multi Stroke Star",
+      type: "STAR",
+      absoluteBoundingBox: box(0, 0, 120, 120),
+      strokeWeight: 5,
+      strokeAlign,
+      fills: [{ type: "SOLID", color: { r: 0.4, g: 0.25, b: 0.9, a: 1 } }],
+      strokes: [{ type: "SOLID", color: { r: 0.25, g: 0.85, b: 1, a: 1 } }],
+      fillGeometry: [{ path: "M60 0L117 41L82 67L60 109L38 67L3 41Z" }],
+      strokeGeometry: [{ path: "M60 0L64.7 -1.5L60 -16.2L55.2 -1.5Z" }],
+    } as unknown as FigmaNode;
+  }
+
+  it("clips the outlined stroke to the fill shape", () => {
+    const { html } = mapFigmaNodeToHtml(star("INSIDE"), {});
+    expect(html).toContain("<clipPath");
+    expect(html).toMatch(/<g clip-path="url\(#stroke-inside-5-6\)">/);
+  });
+
+  it("leaves a CENTER stroke unclipped, which is what CENTER means", () => {
+    const { html } = mapFigmaNodeToHtml(star("CENTER"), {});
+    expect(html).not.toContain("stroke-inside");
+  });
+});
+
 describe("text Figma laid out on one line must not wrap", () => {
   // Our advances run a hair wider than Figma's on some strings, and a second
   // line pushes every sibling down and reads as broken where a few pixels of
