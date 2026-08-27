@@ -134,6 +134,15 @@ export interface FigNode {
   strokeWeight?: number;
   strokeAlign?: string;
   strokeTopWeight?: number;
+  // Kiwi's own spelling of the per-side weights. The variable-binding pass
+  // writes resolved values into the `stroke*Weight` fields above, but a raw
+  // node carries these — and only the sides that are actually set.
+  borderTopWeight?: number;
+  borderRightWeight?: number;
+  borderBottomWeight?: number;
+  borderLeftWeight?: number;
+  /** True when the four sides carry their own weights rather than one. */
+  borderStrokeWeightsIndependent?: boolean;
   strokeRightWeight?: number;
   strokeBottomWeight?: number;
   strokeLeftWeight?: number;
@@ -1648,7 +1657,15 @@ function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
   const color = colorToCss(first.color, first.opacity ?? 1);
   if (!color) return {};
 
+  // Kiwi states per-side weights with `borderStrokeWeightsIndependent` and
+  // writes ONLY the sides that are set — an Untitled UI table cell carries
+  // `borderBottomWeight: 1` and nothing else, meaning a bottom rule and no
+  // others. Reading only the REST-shaped `stroke*Weight` names missed that
+  // entirely and fell back to the uniform weight on all four sides, drawing a
+  // vertical rule between every column of a table that has none.
+  const independent = node.borderStrokeWeightsIndependent === true;
   const hasPerSide =
+    independent ||
     node.strokeTopWeight !== undefined ||
     node.strokeRightWeight !== undefined ||
     node.strokeBottomWeight !== undefined ||
@@ -1692,11 +1709,18 @@ function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
     );
   }
 
-  // Per-side stroke weights: fall back to uniformW for unspecified sides
-  const topW = node.strokeTopWeight ?? uniformW;
-  const rightW = node.strokeRightWeight ?? uniformW;
-  const bottomW = node.strokeBottomWeight ?? uniformW;
-  const leftW = node.strokeLeftWeight ?? uniformW;
+  // Per-side weights. When Figma says the sides are independent, a side it
+  // did not write is ZERO — not the uniform weight, which would invent the
+  // very borders the independence flag exists to remove. Otherwise an
+  // unspecified side still falls back to the uniform weight.
+  const side = (
+    resolved: number | undefined,
+    raw: number | undefined,
+  ): number => resolved ?? raw ?? (independent ? 0 : uniformW);
+  const topW = side(node.strokeTopWeight, node.borderTopWeight);
+  const rightW = side(node.strokeRightWeight, node.borderRightWeight);
+  const bottomW = side(node.strokeBottomWeight, node.borderBottomWeight);
+  const leftW = side(node.strokeLeftWeight, node.borderLeftWeight);
 
   if (!topW && !rightW && !bottomW && !leftW) return {};
 

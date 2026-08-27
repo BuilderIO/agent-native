@@ -1623,6 +1623,50 @@ describe("diamond gradients", () => {
   });
 });
 
+describe("per-side stroke weights", () => {
+  // Kiwi states these with `borderStrokeWeightsIndependent` and writes ONLY
+  // the sides that are set. An Untitled UI table cell carries
+  // `borderBottomWeight: 1` and nothing else — a bottom rule and no others.
+  // Reading only the REST-shaped `stroke*Weight` names missed it and fell back
+  // to the uniform weight on all four sides, drawing a vertical rule between
+  // every column of a table that has none.
+  const cell = (fields: Record<string, unknown>) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 180, {
+        type: "FRAME",
+        name: "Table cell",
+        size: { x: 120, y: 44 },
+        strokeWeight: 1,
+        strokeAlign: "INSIDE",
+        strokePaints: [
+          {
+            type: "SOLID",
+            visible: true,
+            color: { r: 0.9, g: 0.9, b: 0.9, a: 1 },
+          },
+        ],
+        ...fields,
+      }),
+    );
+    return doc;
+  };
+
+  it("draws only the sides Figma set when they are independent", () => {
+    const html = renderFrame(
+      cell({ borderStrokeWeightsIndependent: true, borderBottomWeight: 1 }),
+    );
+    expect(html).toContain("border-bottom");
+    expect(html).not.toContain("border-left");
+    expect(html).not.toContain("border-right");
+  });
+
+  it("still falls back to the uniform weight when they are not", () => {
+    const html = renderFrame(cell({}));
+    expect(html).toContain("inset 0 0 0 1px");
+  });
+});
+
 describe("dashed strokes", () => {
   // REST hands over dashes already outlined into `strokeGeometry`, so that path
   // gets them for free. A .fig or clipboard payload carries the pattern as
