@@ -241,6 +241,177 @@ function rowTextContainer(
   return textSpan ?? row;
 }
 
+function listRows(list: HTMLElement): HTMLElement[] {
+  return Array.from(list.children).filter((child) => {
+    const element = child as HTMLElement;
+    return element.tagName === "LI" || isBulletRow(element);
+  }) as HTMLElement[];
+}
+
+function selectedEmptyBulletRow(list: HTMLElement): HTMLElement | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount !== 1 || !sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  let node: Node | null = range.startContainer;
+  let row: HTMLElement | null = null;
+  while (node && node !== list) {
+    if (node.parentNode === list && node.nodeType === Node.ELEMENT_NODE) {
+      const candidate = node as HTMLElement;
+      if (candidate.tagName === "LI" || isBulletRow(candidate)) row = candidate;
+      break;
+    }
+    node = node.parentNode;
+  }
+  if (!row) return null;
+
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+  if (marker?.contains(range.startContainer)) return null;
+  const textContainer = rowTextContainer(row, marker);
+  if (
+    range.startContainer !== row &&
+    !textContainer.contains(range.startContainer)
+  ) {
+    return null;
+  }
+  const text =
+    textContainer === row
+      ? Array.from(row.childNodes)
+          .filter((child) => child !== marker)
+          .map((child) => child.textContent ?? "")
+          .join("")
+      : (textContainer.textContent ?? "");
+  return text.replaceAll(ZERO_WIDTH_SPACE, "").trim() === "" ? row : null;
+}
+
+function setCaretAtRowBoundary(row: HTMLElement, atEnd: boolean): void {
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+  const textContainer = rowTextContainer(row, marker);
+  const range = document.createRange();
+  const textWalker = document.createTreeWalker(
+    textContainer,
+    NodeFilter.SHOW_TEXT,
+  );
+  let firstText: Text | null = null;
+  let lastText: Text | null = null;
+  for (let node = textWalker.nextNode(); node; node = textWalker.nextNode()) {
+    if (marker?.contains(node)) continue;
+    firstText ??= node as Text;
+    lastText = node as Text;
+  }
+  const textNode = atEnd ? lastText : firstText;
+  if (textNode) {
+    range.setStart(textNode, atEnd ? textNode.data.length : 0);
+    range.collapse(true);
+  } else if (textContainer !== row) {
+    range.selectNodeContents(textContainer);
+    range.collapse(!atEnd);
+  } else if (atEnd) {
+    range.selectNodeContents(row);
+    range.collapse(false);
+  } else if (marker) {
+    range.setStartAfter(marker);
+    range.collapse(true);
+  } else {
+    range.selectNodeContents(row);
+    range.collapse(true);
+  }
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+function createRootLine(
+  list: HTMLElement,
+  row: HTMLElement,
+): HTMLElement | null {
+  const parent = list.parentElement;
+  if (!parent) return null;
+
+  const line = list.ownerDocument.createElement("div");
+  line.style.cssText = list.style.cssText;
+  for (let i = 0; i < row.style.length; i++) {
+    const property = row.style.item(i);
+    line.style.setProperty(
+      property,
+      row.style.getPropertyValue(property),
+      row.style.getPropertyPriority(property),
+    );
+  }
+  for (const property of [
+    "display",
+    "flex-direction",
+    "flex-wrap",
+    "align-items",
+    "justify-content",
+    "gap",
+    "list-style",
+    "list-style-position",
+    "list-style-type",
+    "padding-left",
+  ]) {
+    line.style.removeProperty(property);
+  }
+
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+  const textContainer = rowTextContainer(row, marker);
+  if (textContainer !== row) {
+    const text = textContainer.cloneNode(false) as HTMLElement;
+    text.replaceChildren(list.ownerDocument.createTextNode(ZERO_WIDTH_SPACE));
+    line.appendChild(text);
+  } else {
+    line.appendChild(list.ownerDocument.createTextNode(ZERO_WIDTH_SPACE));
+  }
+  return line;
+}
+
+/** Remove the empty bullet under the caret for a single Backspace press. */
+export function removeEmptyBulletAtCaret(
+  list: HTMLElement,
+): { handled: true; editingElement: HTMLElement | null } | null {
+  const row = selectedEmptyBulletRow(list);
+  if (!row) return null;
+
+  const rows = listRows(list);
+  const rowIndex = rows.indexOf(row);
+  if (rowIndex < 0) return null;
+  if (rows.length === 1) {
+    const line = createRootLine(list, row);
+    if (!line) return null;
+    list.replaceWith(line);
+    setCaretAtRowBoundary(line, false);
+    return { handled: true, editingElement: line };
+  }
+
+  const previous = rows[rowIndex - 1];
+  const next = rows[rowIndex + 1];
+  row.remove();
+  setCaretAtRowBoundary(previous ?? next, Boolean(previous));
+  return { handled: true, editingElement: null };
+}
+
+/** Exit an empty bullet into a plain root-level line under the current list. */
+export function exitEmptyBulletAtCaret(list: HTMLElement): HTMLElement | null {
+  const row = selectedEmptyBulletRow(list);
+  if (!row) return null;
+  const line = createRootLine(list, row);
+  if (!line) return null;
+
+  row.remove();
+  if (listRows(list).length > 0) list.after(line);
+  else list.replaceWith(line);
+  setCaretAtRowBoundary(line, false);
+  return line;
+}
+
 /**
  * Seed a freshly-inserted row with the caret's trailing content and place the
  * caret at the start of its editable text. `tail` is a DOM fragment (not a

@@ -35,9 +35,11 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
   convertMarkdownPrefixToBullet,
+  exitEmptyBulletAtCaret,
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletList,
+  removeEmptyBulletAtCaret,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
@@ -2194,9 +2196,44 @@ export default function SlideEditor({
       ) {
         return;
       }
+
+      const sel = window.getSelection();
+      const anchor = sel?.anchorNode ?? null;
+      const anchorEl = anchor
+        ? anchor.nodeType === Node.TEXT_NODE
+          ? anchor.parentElement
+          : (anchor as HTMLElement)
+        : null;
+      const liveList =
+        anchorEl && slideContent && slideContent.contains(anchorEl)
+          ? findEnclosingList(anchorEl, slideContent)
+          : null;
+
+      if (
+        e.key === "Backspace" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        liveList
+      ) {
+        const result = removeEmptyBulletAtCaret(liveList);
+        if (result) {
+          e.preventDefault();
+          if (result.editingElement) {
+            liveList.contentEditable = "false";
+            liveList.removeAttribute("data-editing-block");
+            enterInlineEdit(result.editingElement);
+          } else {
+            captureInlineEditDraft(slide.id);
+          }
+          return;
+        }
+      }
+
       if (e.key === "Enter") {
         // Smart Enter:
         //  - Shift+Enter always inserts a <br>.
+        //  - Enter on an empty bullet exits the list into a root-level line.
         //  - Inside a styled bullet list, Enter clones the current row so a
         //    new bullet (marker + empty text) appears — contentEditable's
         //    native split can't recreate the marker glyph.
@@ -2208,17 +2245,16 @@ export default function SlideEditor({
 
         // Re-derive the list from the LIVE caret so a re-render that swapped
         // the edited node can't drop us into native Enter.
-        const sel = window.getSelection();
-        const anchor = sel?.anchorNode ?? null;
-        const anchorEl = anchor
-          ? anchor.nodeType === Node.TEXT_NODE
-            ? anchor.parentElement
-            : (anchor as HTMLElement)
-          : null;
-        const liveList =
-          anchorEl && slideContent && slideContent.contains(anchorEl)
-            ? findEnclosingList(anchorEl, slideContent)
-            : null;
+        if (liveList) {
+          const rootLine = exitEmptyBulletAtCaret(liveList);
+          if (rootLine) {
+            e.preventDefault();
+            liveList.contentEditable = "false";
+            liveList.removeAttribute("data-editing-block");
+            enterInlineEdit(rootLine);
+            return;
+          }
+        }
         if (liveList && insertBulletAfterCaret(liveList)) {
           e.preventDefault();
           captureInlineEditDraft(slide.id);
@@ -2235,6 +2271,7 @@ export default function SlideEditor({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [
     exitInlineEdit,
+    enterInlineEdit,
     editingEl,
     captureInlineEditDraft,
     selectAllEditableText,

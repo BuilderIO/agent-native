@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   convertMarkdownPrefixToBullet,
+  exitEmptyBulletAtCaret,
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletList,
   isBulletRow,
+  removeEmptyBulletAtCaret,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 
@@ -88,6 +90,44 @@ describe("styled bullet editing", () => {
       "",
     );
     expect((newRow as HTMLElement).style.fontSize).toBe("22px");
+  });
+
+  it("removes a fresh empty bullet on the first Backspace", () => {
+    const { list } = setup();
+    const thirdText = list.children[2].children[1] as HTMLElement;
+    const textNode = thirdText.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const result = removeEmptyBulletAtCaret(list);
+
+    expect(result).toEqual({ handled: true, editingElement: null });
+    expect(list.children.length).toBe(3);
+    const selection = window.getSelection();
+    expect(selection?.anchorNode).toBe(thirdText.firstChild);
+    expect(selection?.anchorOffset).toBe(textNode.length);
+  });
+
+  it("turns an empty bullet Enter into a root-level line", () => {
+    const { root, list } = setup();
+    const thirdText = list.children[2].children[1] as HTMLElement;
+    const textNode = thirdText.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const line = exitEmptyBulletAtCaret(list);
+
+    expect(line).not.toBeNull();
+    expect(list.children.length).toBe(3);
+    expect(line?.parentElement).toBe(
+      root.querySelector("[data-fmd-autofit-content]"),
+    );
+    expect(line?.previousElementSibling).toBe(list);
+    expect(isBulletRow(line as HTMLElement)).toBe(false);
+    expect(line?.textContent).toBe(ZERO_WIDTH_SPACE);
+    expect(line?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
   });
 
   it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
@@ -268,6 +308,24 @@ describe("markdown prefix autoformat", () => {
     expect(insertBulletAfterCaret(el)).toBe(true);
     expect(el.children.length).toBe(2);
     expect(isBulletRow(el.children[1] as HTMLElement)).toBe(true);
+  });
+
+  it("replaces a one-item markdown bullet with a root-level line on Enter", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div style="font-size: 28px;">- </div></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const el = root.firstElementChild as HTMLElement;
+    const textNode = el.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(convertMarkdownPrefixToBullet(el)).toBe(true);
+    const line = exitEmptyBulletAtCaret(el);
+
+    expect(line).not.toBeNull();
+    expect(root.firstElementChild).toBe(line);
+    expect(isBulletRow(line as HTMLElement)).toBe(false);
+    expect(line?.style.fontSize).toBe("28px");
+    expect(line?.textContent).toBe(ZERO_WIDTH_SPACE);
   });
 
   it("does not convert once the block is already a bullet row", () => {
