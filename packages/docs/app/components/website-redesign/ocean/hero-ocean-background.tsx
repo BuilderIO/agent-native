@@ -6,6 +6,7 @@ import { readOceanColors } from "./brand-colors";
 // pulls the whole vgpu runtime into the homepage entry chunk -- which is
 // exactly the regression ocean-colors.ts exists to prevent.
 import type { OceanRenderer } from "./renderer";
+import { OCEAN_TUNING } from "./tuning";
 
 export interface HeroOceanBackgroundProps {
   /** Called on any GPU failure so the caller can swap in the fallback. */
@@ -77,11 +78,21 @@ export function HeroOceanBackground({
     };
   }, [frameRate]);
 
+  // Inline because the stop position is a tuning value, and no Tailwind mask
+  // utility takes an arbitrary percentage from a runtime constant. 100 means
+  // the preset wants the canvas to reach the section edge unmasked.
+  const { bottomFadeStartPercent } = OCEAN_TUNING;
+  const mask =
+    bottomFadeStartPercent >= 100
+      ? undefined
+      : `linear-gradient(to bottom, #000 ${bottomFadeStartPercent}%, transparent 100%)`;
+
   return (
     <div
       ref={containerRef}
       aria-hidden="true"
       className="absolute inset-0 z-[-1] opacity-[var(--b-hero-ocean-opacity)]"
+      style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
     </div>
