@@ -30,6 +30,19 @@ describe("dispatchIntegrationRoutingHint", () => {
     });
   });
 
+  it.each([
+    "Create a one-pager for the launch",
+    "Draft a one pager about our new product",
+    "Put together a one-page brief for sales",
+    "Design a visual one-pager for the new feature",
+  ])("routes one-pagers to Content or inline output: %s", (text) => {
+    const hint = dispatchIntegrationRoutingHint(text);
+
+    expect(hint).toMatchObject({ targetAgent: "content" });
+    expect(hint?.instruction).toContain("inline");
+    expect(hint?.instruction).toContain("Do not route a one-pager to Plan");
+  });
+
   it("lets unrelated domain questions use normal agent discovery", () => {
     expect(
       dispatchIntegrationRoutingHint(

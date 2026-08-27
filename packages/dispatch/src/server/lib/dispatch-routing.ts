@@ -4,6 +4,8 @@ const STRUCTURED_INTAKE_PATTERNS = [
   /\b(?:database|table|board|form|queue)\b.{0,64}\b(?:asks?|requests?|tickets?|intake|priority|deadline|urgency)\b/i,
 ];
 
+const ONE_PAGER_PATTERN = /\bone[-\s]?page(?:r)?\b/i;
+
 const VISUAL_DESIGN_PATTERNS = [
   /\b(?:design|redesign|create|make|generate|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
   /\b(?:visual|ui|website|product|brand)\s+design\b/i,
@@ -23,6 +25,14 @@ export function dispatchIntegrationRoutingHint(
   // Route by the requested artifact type, not organization-specific names.
   // Exact destinations, schemas, and required fields come from workspace
   // resources such as shared LEARNINGS.md rather than this classifier.
+  if (ONE_PAGER_PATTERN.test(normalized)) {
+    return {
+      targetAgent: "content",
+      instruction:
+        "Use Content for this one-pager: create a single document when it should be saved or shared, or return the finished copy inline when it does not need persistence. Do not route a one-pager to Plan; use Plan only when the user explicitly asks for an interactive visual plan, prototype, or recap.",
+    };
+  }
+
   if (STRUCTURED_INTAKE_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return {
       instruction:
