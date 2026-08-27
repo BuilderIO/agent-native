@@ -9,6 +9,7 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   DndContext,
   closestCenter,
@@ -160,7 +161,6 @@ export default function DeckEditor() {
     addSlide,
     flushDeckSave,
     reorderSlides,
-    markDeckDirty,
     undo,
     loading,
     loadError,
@@ -180,9 +180,13 @@ export default function DeckEditor() {
   }, []);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
-  const hasPendingDeckEdits =
-    inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
-  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  // useSaveState re-renders this component when a preserved inline draft enters
+  // or leaves the shared save queue, so the deck-specific read stays current.
+  const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
+  const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
+  // Inline drafts flush through SlideEditor keepalive handlers. The native
+  // prompt only needs to cover queued or in-flight writes now.
+  usePendingDeckUnloadGuard(hasPendingDeckWrites);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -336,6 +340,17 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+
+  useEffect(() => {
+    if (!deck) return;
+    const nextTitle = `${normalizeDocumentTitle(deck.title, "Untitled deck")} — Slides`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deck?.title]);
+
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
@@ -691,11 +706,7 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      const oldIndex = deck.slides.findIndex((s) => s.id === active.id);
-      const newIndex = deck.slides.findIndex((s) => s.id === over.id);
-      if (oldIndex !== -1 && newIndex !== -1) {
-        reorderSlides(id, oldIndex, newIndex);
-      }
+      reorderSlides(id, String(active.id), String(over.id));
     },
     [deck, id, reorderSlides],
   );
@@ -1773,7 +1784,6 @@ export default function DeckEditor() {
             }
             onInlineEditStart={(slideId) => {
               setInlineEditActive(true);
-              markDeckDirty(id);
               if (id) markSlideEditingActive(id, slideId);
             }}
             onInlineEditEnd={(slideId) => {

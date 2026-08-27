@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
@@ -274,6 +275,7 @@ const EMPTY_LABELS: string[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
 export function InboxPage() {
+  const t = useT();
   const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
@@ -580,6 +582,27 @@ export function InboxPage() {
     prevThreadsRef.current = rawThreads;
     return rawThreads;
   }, [rawThreads]);
+  const activeSubject = threadId
+    ? threads.find(
+        (thread) =>
+          (thread.latestMessage.threadId || thread.latestMessage.id) ===
+          threadId,
+      )?.latestMessage.subject
+    : undefined;
+
+  useEffect(() => {
+    if (!activeSubject) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      activeSubject,
+      t("mail.routeTitles.emailThread"),
+    )} — Mail`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [activeSubject, t]);
+
   const threadIds = useMemo(
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],

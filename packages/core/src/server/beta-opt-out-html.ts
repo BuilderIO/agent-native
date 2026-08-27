@@ -31,7 +31,7 @@ function insertBeforeClosingTag(
 const environmentSwitcherMarkup = `<div class="environment-switcher" id="environment-switcher" ${ENVIRONMENT_SWITCHER_MARKER} hidden>
   <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
   <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent Native Beta</div>
+    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Beta</div>
     <div class="environment-popover-copy">Choose where you want to continue.</div>
     <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
     <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>

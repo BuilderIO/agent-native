@@ -35,9 +35,9 @@ Other agent-native apps discover and call it over A2A. Use it when a second app 
 
 </Cards>
 
-Most apps build a separate API layer between the frontend and the database, one that only the browser can call. An agent that wants the same capability needs its own, separate integration, written and maintained again. Agent-native apps skip that split. The UI and the agent call the exact same action, so there is only one implementation to write, and only one place for a bug to hide.
+Most apps build a separate API layer between the frontend and the database, one that only the browser can call. An agent that wants the same capability needs its own, separate integration, written and maintained again. Agent-Native apps skip that split. The UI and the agent call the exact same action, so there is only one implementation to write, and only one place for a bug to hide.
 
-<Diagram id="doc-block-actions-overview-2" title="Traditional frontend vs. Agent Native" summary="A traditional frontend calls its own API layer, which only it can reach. In Agent Native, app/ and the agent both call the same actions, so every capability built here is agent-callable for free.">
+<Diagram id="doc-block-actions-overview-2" title="Traditional frontend vs. Agent-Native" summary="A traditional frontend calls its own API layer, which only it can reach. In Agent-Native, app/ and the agent both call the same actions, so every capability built here is agent-callable for free.">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Most apps build a separate API layer between the frontend and the database, one 
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React frontend)</div>
       <div class="diagram-node">Agent</div>

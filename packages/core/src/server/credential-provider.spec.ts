@@ -142,6 +142,8 @@ beforeEach(() => {
   delete process.env.SENDGRID_API_KEY;
   delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.NOTION_CLIENT_ID;
+  delete process.env.NOTION_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
@@ -456,9 +458,71 @@ describe("Builder credential auth failure markers", () => {
     });
 
     expect(failure).toBeNull();
-    expect(mockDeleteSetting).toHaveBeenCalledWith(
-      `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
+    // The row deliberately outlives its TTL: deleting it here reset the strike
+    // count, so a credential that is simply wrong was re-admitted on the same
+    // flat cadence forever, spending one real user's turn on a 401 each time.
+    expect(mockDeleteSetting).not.toHaveBeenCalled();
+  });
+
+  // Prod, 2026-08-26 (slides): two users got "The saved provider key was
+  // rejected" minutes apart, each on their first prompt, each followed by the
+  // run succeeding on its own once the marker armed and the next lane served
+  // the turn. 15 minutes later the same credential was re-admitted and the
+  // next person paid for the same rediscovery.
+  it("backs off re-admission for a credential that keeps failing", async () => {
+    const staleByBaseTtl = {
+      message: "Missing Authentication header",
+      status: 401,
+      code: "http_401",
+      at: Date.now() - BUILDER_AUTH_FAILURE_TTL_MS - 1,
+    };
+
+    mockGetSetting.mockResolvedValue({ ...staleByBaseTtl, strikes: 3 });
+    expect(
+      await getBuilderCredentialAuthFailure({
+        privateKey: "bpk-secret",
+        publicKey: "pub-secret",
+      }),
+    ).not.toBeNull();
+
+    // A first-strike marker still releases on the base TTL, so a genuinely
+    // transient 401 is not punished.
+    mockGetSetting.mockResolvedValue({ ...staleByBaseTtl, strikes: 1 });
+    expect(
+      await getBuilderCredentialAuthFailure({
+        privateKey: "bpk-secret",
+        publicKey: "pub-secret",
+      }),
+    ).toBeNull();
+  });
+
+  it("counts a repeat failure on the same credential as another strike", async () => {
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key.startsWith("provider-auth-failure:")
+        ? { strikes: 2, at: Date.now() }
+        : null,
     );
+
+    await recordProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+      status: 401,
+      code: "http_401",
+      message: "Missing Authentication header",
+    });
+    expect(mockPutSetting.mock.calls.at(-1)?.[1]).toMatchObject({ strikes: 3 });
+
+    // First failure for a credential we have never rejected before starts at 1,
+    // so a one-off transient 401 still releases on the base TTL.
+    mockGetSetting.mockResolvedValue(null);
+    await recordProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+      status: 401,
+      code: "http_401",
+      message: "Missing Authentication header",
+    });
+    expect(mockPutSetting.mock.calls.at(-1)?.[1]).toMatchObject({ strikes: 1 });
   });
 });
 
@@ -540,9 +604,9 @@ describe("provider credential auth failure markers", () => {
         value: "sk-example-invalid",
       }),
     ).resolves.toBeNull();
-    expect(mockDeleteSetting).toHaveBeenCalledWith(
-      `provider-auth-failure:${fingerprint}`,
-    );
+    // Retained on purpose — see the Builder-side twin: the row carries the
+    // strike count that makes re-admission back off.
+    expect(mockDeleteSetting).not.toHaveBeenCalled();
   });
 });
 
@@ -1377,6 +1441,28 @@ describe("resolveSecret (generic)", () => {
     );
     expect(
       canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_SECRET"),
+    ).toBe(true);
+  });
+
+  it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NOTION_CLIENT_ID = "notion-deploy-client-id";
+    process.env.NOTION_CLIENT_SECRET = "notion-deploy-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("NOTION_CLIENT_ID")).toBe(
+      "notion-deploy-client-id",
+    );
+    expect(await resolveSecret("NOTION_CLIENT_SECRET")).toBe(
+      "notion-deploy-secret",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(
+      canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_SECRET"),
     ).toBe(true);
   });
 

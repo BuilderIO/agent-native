@@ -15,7 +15,7 @@ export function initializeDesktopRendererSentry() {
         ...event.contexts,
         app: {
           ...event.contexts?.app,
-          app_name: "Agent Native",
+          app_name: "Agent-Native",
         },
       };
       return event;

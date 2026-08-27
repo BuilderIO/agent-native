@@ -206,7 +206,14 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-スキーマの変更は追加的である必要があります。 `server/plugins/db.ts` の `runMigrations()` を通じてテーブルと列を追加します。破壊的な SQL、`drizzle-kit push`、テーブル名の変更、または列の削除は決して使用しないでください。
+スキーマの変更は追加的である必要があります。新しいアプリ固有のテーブルや
+列には `drizzle-kit generate` を使って
+`server/db/migrations/<id_name>.sql` にレビュー可能な SQL を生成し、Node.js
+デプロイのリリース手順から `runDrizzleMigrations()` で読み込みます。
+Cloudflare Workers/Pages と D1 にはデプロイ可能なファイルシステムがないため、
+生成した SQL を worker bundle に埋め込み、`runMigrations()` に渡します。手書きの
+履歴や特殊なケースには `runMigrations()` を使います。破壊的な SQL、
+`drizzle-kit push`、テーブル名の変更、または列の削除は決して使用しないでください。
 
 アプリの読み取りと書き込みには、Drizzle のクエリ ビルダーと `drizzle-orm` のポータブル オペレーターを使用します。 Drizzle でクエリを表現できる場合は、生の SQL を使用して製品コードを記述しないでください。また、テンプレートで `drizzle-orm/sqlite-core` または `drizzle-orm/pg-core` からインポートしないでください。
 
@@ -503,7 +510,7 @@ export default defineNitroPlugin(() => {
 4. 必要な環境変数とオンボーディング手順を文書化します。
 5. 追跡されるランタイム データ ファイルではなく、追加的な移行を通じてサンプルまたはシード行を含めます。
 
-コミュニティテンプレートは公開 GitHub リポジトリから直接インストールします。Agent Native アプリをリポジトリのルートに配置してください。
+コミュニティテンプレートは公開 GitHub リポジトリから直接インストールします。Agent-Native アプリをリポジトリのルートに配置してください。
 
 ```bash
 npx @agent-native/core@latest create my-app --template community:owner/repo

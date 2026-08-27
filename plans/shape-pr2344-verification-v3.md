@@ -9,8 +9,8 @@ authority-source: "$work invoked by Alice on 2026-08-14, approving shape-pr2344-
 authorized_scope:
   repositories: [BuilderIO/agent-native]
   product_surfaces:
-    - Agent Native Content Builder source hydration and Load More
-    - Agent Native Content Builder Review Diff dialog
+    - Agent-Native Content Builder source hydration and Load More
+    - Agent-Native Content Builder Review Diff dialog
   outcome: >-
     Preserve the repaired zero-phantom-change boundary, visibly expose the one
     real body edit in Review Diff, and re-prove the user-visible latency bounds
@@ -44,7 +44,7 @@ architecture-fingerprint:
   shipping-surfaces:
     - id: content-builder-source-review
       repository: BuilderIO/agent-native
-      product-surface: Agent Native Content Builder source and Review Diff
+      product-surface: Agent-Native Content Builder source and Review Diff
       constituency: authenticated Content editors
       durable-destination: repository main lineage
       integration-action: merge
@@ -73,7 +73,7 @@ architecture-fingerprint:
       modality: real-interface
       independence: preferred
       custody: same-context-allowed
-      interface: authenticated local Agent Native Content browser surface
+      interface: authenticated local Agent-Native Content browser surface
       rationale: >-
         The change is bounded and non-destructive; same-context evidence is
         allowed, while independent QA is preferred when available.
@@ -173,7 +173,7 @@ what changed, not merely receive the software's assurances on the matter.
 
 - **Outcome:** hydration and continuation remain outbound-no-op operations; one
   frozen local body edit produces one inspectable semantic Review Diff row.
-- **Shipping surface:** the public Agent Native Content template in
+- **Shipping surface:** the public Agent-Native Content template in
   `BuilderIO/agent-native`, specifically the Builder source list/attach state
   and `BuilderSourceReviewDialog`, for authenticated Content editors. The
   durable destination is the repository's `main` lineage through an ordinary

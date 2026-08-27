@@ -260,7 +260,7 @@ export default function SkillsPage() {
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
-    <main className="mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
+    <main className="mx-auto w-full max-w-site overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
         <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-center lg:gap-12">

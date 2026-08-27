@@ -1189,7 +1189,7 @@ async function processIncomingMessage(
     await Promise.resolve(
       progress.onEvent({
         type: "agent_call_progress",
-        agent: "Agent Native",
+        agent: "Agent-Native",
         state: "working",
         elapsedSeconds: 0,
         detail: "Continuing in the background",

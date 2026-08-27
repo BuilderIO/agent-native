@@ -1108,6 +1108,68 @@ describe("run() — layout fit re-check", () => {
     expect(result.message).toBeUndefined();
   });
 
+  it("broadcasts the changed slide for a single-slide agent patch", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
+      slideId: "slide-1",
+      actor: "agent",
+    });
+  });
+
+  it("does not target a mixed structural batch at one slide", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-2" },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("does not target a slide when deck fields are also patched", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "patch-deck-fields", fields: { title: "Updated deck" } },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+  });
+
   it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {
     mockFitCheckResults = {};
 

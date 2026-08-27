@@ -26,10 +26,13 @@ export {
 } from "../use-demo-mode-status.js";
 export { useReconciledState } from "../use-external-value.js";
 export {
+  beginSignOut,
+  isSigningOut,
   notifySessionInvalidated,
   useSession,
   type AuthSession,
 } from "../use-session.js";
+export { signOut, type SignOutOptions } from "../sign-out.js";
 export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
@@ -59,6 +62,14 @@ export {
   type AppChatSidebarState,
 } from "../app-chat-sidebar.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "../use-pinch-zoom.js";
+export {
+  isPinchZoomDelta,
+  normalizeWheelDeltaPx,
+  resolveZoomGestureDevice,
+  MAX_PINCH_DELTA_PX,
+  ZOOM_GESTURE_IDLE_RESET_MS,
+  type ZoomGestureDevice,
+} from "../zoom-gesture.js";
 export {
   useAvatarUrl,
   uploadAvatar,

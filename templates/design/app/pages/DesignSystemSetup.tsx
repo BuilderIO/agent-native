@@ -215,10 +215,8 @@ export default function DesignSystemSetup() {
     [],
   );
 
-  const handleBuilderIndexUpload = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
+  const processBuilderIndexFile = useCallback(
+    async (file: File | undefined) => {
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
         setBuilderIndexError(t("designSystemSetup.errors.chooseFig"));
@@ -256,6 +254,23 @@ export default function DesignSystemSetup() {
       }
     },
     [companyInfo, t, startDecodePolling, stopDecodePolling],
+  );
+
+  const handleBuilderIndexUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      void processBuilderIndexFile(e.target.files?.[0]);
+      e.target.value = "";
+    },
+    [processBuilderIndexFile],
+  );
+
+  const handleBuilderIndexDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void processBuilderIndexFile(e.dataTransfer.files?.[0]);
+    },
+    [processBuilderIndexFile],
   );
 
   useEffect(() => {
@@ -406,12 +421,8 @@ export default function DesignSystemSetup() {
     [readTextFiles],
   );
 
-  const handleDesignMdUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
-      const file = files[0];
-      e.target.value = "";
+  const processDesignMdFile = useCallback(
+    (file: File | undefined) => {
       if (!file) return;
       const uploadGeneration = ++designMdUploadGenerationRef.current;
       setDesignMdFiles([]);
@@ -448,49 +459,102 @@ export default function DesignSystemSetup() {
     [t],
   );
 
-  const handleDocUpload = useCallback(
+  const handleDesignMdUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type || f.name.split(".").pop() || "",
-        size: f.size,
-      }));
-      setDocFiles((prev) => [...prev, ...newFiles]);
+      processDesignMdFile(e.target.files?.[0]);
       e.target.value = "";
     },
-    [],
+    [processDesignMdFile],
   );
+
+  const handleDesignMdDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDesignMdFile(e.dataTransfer.files?.[0]);
+    },
+    [processDesignMdFile],
+  );
+
+  const processDocFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type || f.name.split(".").pop() || "",
+      size: f.size,
+    }));
+    setDocFiles((prev) => [...prev, ...newFiles]);
+  }, []);
+
+  const handleDocUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files) processDocFiles(e.target.files);
+      e.target.value = "";
+    },
+    [processDocFiles],
+  );
+
+  const handleDocDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDocFiles(e.dataTransfer.files);
+    },
+    [processDocFiles],
+  );
+
+  const processImageFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setImageFiles((prev) => [...prev, ...newFiles]);
+  }, []);
 
   const handleImageUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setImageFiles((prev) => [...prev, ...newFiles]);
+      if (e.target.files) processImageFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processImageFiles],
   );
+
+  const handleImageDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processImageFiles(e.dataTransfer.files);
+    },
+    [processImageFiles],
+  );
+
+  const processAssetFiles = useCallback((files: FileList) => {
+    const newAssets: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setAssets((prev) => [...prev, ...newAssets]);
+  }, []);
 
   const handleAssetUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newAssets: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setAssets((prev) => [...prev, ...newAssets]);
+      if (e.target.files) processAssetFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processAssetFiles],
+  );
+
+  const handleAssetDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processAssetFiles(e.dataTransfer.files);
+    },
+    [processAssetFiles],
   );
 
   const handleFolderDrop = useCallback(
@@ -962,6 +1026,8 @@ export default function DesignSystemSetup() {
                   <button
                     type="button"
                     onClick={() => realFigInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleBuilderIndexDrop}
                     disabled={builderIndexing}
                     className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-[#609FF8]/40 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                   >
@@ -1256,6 +1322,8 @@ export default function DesignSystemSetup() {
               <button
                 type="button"
                 onClick={() => designMdInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDesignMdDrop}
                 className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-foreground/15 cursor-pointer"
               >
                 <div className="flex flex-col items-center gap-2">
@@ -1307,6 +1375,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => docInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDocDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1339,6 +1409,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => imageInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleImageDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1371,6 +1443,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => assetInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleAssetDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">

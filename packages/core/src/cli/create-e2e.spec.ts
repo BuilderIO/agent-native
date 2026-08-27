@@ -384,7 +384,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
       coreVersion: expect.any(String),
       shape: "standalone",
     });
-    expect(agents).toContain("This is a headless Agent Native app");
+    expect(agents).toContain("This is a headless Agent-Native app");
     expect(agents).toContain("This app is not stateless");
     expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");

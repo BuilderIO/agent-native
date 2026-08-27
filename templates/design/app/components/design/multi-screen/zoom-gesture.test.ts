@@ -1,34 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accumulateZoomFactor,
   clampZoomFactor,
-  isPinchZoomDelta,
   MAX_ZOOM_FACTOR_PER_FRAME,
   MOUSE_WHEEL_NOTCH_PX,
   resolveExternalZoomAnchor,
-  resolveZoomFactor,
+  resolveZoomGestureDevice,
   ZOOM_STEP_PER_NOTCH,
   zoomFactorForWheelDelta,
 } from "./zoom-gesture";
-
-describe("isPinchZoomDelta", () => {
-  it("treats whole notch-sized deltas as a mouse wheel", () => {
-    expect(isPinchZoomDelta(100)).toBe(false);
-    expect(isPinchZoomDelta(-100)).toBe(false);
-    expect(isPinchZoomDelta(120)).toBe(false);
-  });
-
-  it("treats small or fractional deltas as a trackpad pinch", () => {
-    expect(isPinchZoomDelta(4)).toBe(true);
-    expect(isPinchZoomDelta(-6)).toBe(true);
-    expect(isPinchZoomDelta(66.7)).toBe(true);
-  });
-
-  it("does not classify non-finite deltas as pinch", () => {
-    expect(isPinchZoomDelta(Number.NaN)).toBe(false);
-    expect(isPinchZoomDelta(Number.POSITIVE_INFINITY)).toBe(false);
-  });
-});
 
 describe("zoomFactorForWheelDelta", () => {
   it("zooms one mouse notch by exactly one Figma-sized step", () => {
@@ -88,16 +69,79 @@ describe("clampZoomFactor", () => {
   });
 });
 
-describe("resolveZoomFactor", () => {
+describe("accumulateZoomFactor", () => {
   it("caps a single frame's change even for an absurd accumulated delta", () => {
     // deltaMode 2 (page) can produce an 800px delta in one event.
-    const factor = resolveZoomFactor(800, false);
+    const factor = clampZoomFactor(accumulateZoomFactor(1, 800, false));
     expect(factor).toBeCloseTo(1 / MAX_ZOOM_FACTOR_PER_FRAME, 10);
     expect(factor).toBeGreaterThan(0);
   });
 
   it("keeps an ordinary notch below the cap", () => {
-    expect(resolveZoomFactor(-100, false)).toBeCloseTo(ZOOM_STEP_PER_NOTCH, 6);
+    expect(clampZoomFactor(accumulateZoomFactor(1, -100, false))).toBeCloseTo(
+      ZOOM_STEP_PER_NOTCH,
+      6,
+    );
+  });
+
+  it("matches a same-curve delta sum, so per-event folding is lossless", () => {
+    const summed = zoomFactorForWheelDelta(-30, true);
+    const folded = accumulateZoomFactor(
+      accumulateZoomFactor(1, -10, true),
+      -20,
+      true,
+    );
+    expect(folded).toBeCloseTo(summed, 10);
+  });
+
+  it("keeps both curves' travel when one frame catches a pinch and a notch", () => {
+    const folded = accumulateZoomFactor(
+      accumulateZoomFactor(1, -10, true),
+      -100,
+      false,
+    );
+    expect(folded).toBeCloseTo(
+      zoomFactorForWheelDelta(-10, true) * zoomFactorForWheelDelta(-100, false),
+      10,
+    );
+  });
+
+  it("recovers from a degenerate accumulator instead of zeroing the frame", () => {
+    expect(accumulateZoomFactor(0, -100, false)).toBeCloseTo(
+      ZOOM_STEP_PER_NOTCH,
+      6,
+    );
+    expect(accumulateZoomFactor(Number.NaN, -100, false)).toBeCloseTo(
+      ZOOM_STEP_PER_NOTCH,
+      6,
+    );
+  });
+
+  it("moves one real mouse notch by a Figma-sized step on every platform", () => {
+    // A Windows notch at fractional display scaling, a macOS accelerated
+    // notch, and Cmd+wheel — the three shapes a real mouse emits.
+    const notches = [
+      { deltaY: -66.7, ctrlKey: true, metaKey: false },
+      { deltaY: -240, ctrlKey: true, metaKey: false },
+      { deltaY: -120, ctrlKey: false, metaKey: true },
+    ];
+    for (const notch of notches) {
+      const device = resolveZoomGestureDevice({
+        deltaY: notch.deltaY,
+        deltaMode: 0,
+        ctrlKey: notch.ctrlKey,
+        metaKey: notch.metaKey,
+        atMs: 0,
+        previous: null,
+      });
+      const factor = clampZoomFactor(
+        accumulateZoomFactor(1, notch.deltaY, device.pinch),
+      );
+      expect(factor).toBeGreaterThan(1);
+      expect(factor).toBeLessThanOrEqual(
+        Math.pow(ZOOM_STEP_PER_NOTCH, 240 / MOUSE_WHEEL_NOTCH_PX),
+      );
+    }
   });
 });
 

@@ -29,7 +29,6 @@ export type ClipsUserPrefs = ClipsAiPrefs & {
   defaultPlaybackSpeed?: string;
   /** Activity emails (comments, replies, reactions) only — never share invites. */
   emailNotifications?: boolean;
-  transcriptCleanupEnabled?: boolean;
   /** Overrides the organization default visibility for new recordings. */
   defaultRecordingVisibility?: ClipsDefaultVisibility;
 };

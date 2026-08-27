@@ -1,11 +1,11 @@
 ---
 title: "カスタムデザインシステム"
-description: "Agent Native の動作を置き換えることなく、自社の React デザインシステムを Agent Native アプリと共有 Toolkit エクスペリエンスで利用します。"
+description: "Agent-Native の動作を置き換えることなく、自社の React デザインシステムを Agent-Native アプリと共有 Toolkit エクスペリエンスで利用します。"
 ---
 
 # カスタムデザインシステム
 
-Agent Native では、自社の React コンポーネントを使ってアプリ所有の画面と共有 Toolkit エクスペリエンスを描画できます。明示的で型付きのアダプターを一度登録すれば、同じフィーチャーコントローラーがアクション、状態、アクセシビリティ要件、エージェントに見える動作を引き続き管理します。
+Agent-Native では、自社の React コンポーネントを使ってアプリ所有の画面と共有 Toolkit エクスペリエンスを描画できます。明示的で型付きのアダプターを一度登録すれば、同じフィーチャーコントローラーがアクション、状態、アクセシビリティ要件、エージェントに見える動作を引き続き管理します。
 
 アダプターのコントラクトは Tailwind、shadcn、Radix、`className`、特定のスタイリングランタイムを必要としません。コンポーネントはテーマプロバイダー、CSS-in-JS、CSS Modules、React Aria、通常の CSS のいずれも利用できます。`className` と `style` は任意の相互運用フックであり、スタイリング要件ではありません。
 
@@ -24,7 +24,7 @@ Agent Native では、自社の React コンポーネントを使ってアプリ
 
 ## アダプターを登録する
 
-カスタマーアダプターは通常の npm パッケージです。`app/design-system.ts` で 1 つを明示的に import してください。Agent Native は依存関係をスキャンしたり、ライブラリを自動検出したり、JSON からコンポーネントを読み込んだりしません。
+カスタマーアダプターは通常の npm パッケージです。`app/design-system.ts` で 1 つを明示的に import してください。Agent-Native は依存関係をスキャンしたり、ライブラリを自動検出したり、JSON からコンポーネントを読み込んだりしません。
 
 ビルド時のテーマは依存関係の少ないモジュールに置き、Vite が設定を読み込む際にカスタマーの React パッケージを評価せずに済むようにします。
 
@@ -83,7 +83,7 @@ export function AppToolkitProvider({
 }
 ```
 
-部分的なアダプターもサポートされます。省略したコンポーネントには Agent Native のデフォルトアダプターが使われます。カスタムコンポーネントの 1 つが描画中に例外を投げると、コンポーネント単位のエラーバウンダリーが失敗をログに記録し、そのコントロールにはデフォルトコンポーネントを描画します。カスタムシステムの残りは有効なままです。
+部分的なアダプターもサポートされます。省略したコンポーネントには Agent-Native のデフォルトアダプターが使われます。カスタムコンポーネントの 1 つが描画中に例外を投げると、コンポーネント単位のエラーバウンダリーが失敗をログに記録し、そのコントロールにはデフォルトコンポーネントを描画します。カスタムシステムの残りは有効なままです。
 
 2 つの完全な Chat アプリが実際のデザインシステムに対してこのコントラクトを検証します。[Material UI の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) は Emotion、`ThemeProvider`、MUI のオーバーレイスタックを使い、[Ant Design の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) は `ConfigProvider` と Ant Design のフォームおよびオーバーレイプリミティブを使います。それぞれの `app/design-system.tsx` が主な統合リファレンスです。上記の Acme フィクスチャは意図的に小さく、ユニットテストで使われます。
 
@@ -91,7 +91,7 @@ export function AppToolkitProvider({
 
 ## ビルド時のテーマトークン
 
-`defineTheme` は hex、`rgb()`、`hsl()`、OKLCH を含む標準 CSS カラーを受け付けます。Core の Vite プラグインは値を検証し、Agent Native の既存のセマンティック変数へ正規化します。ダークカラーはトークンごとにライトパレットへフォールバックします。Agent Native がダークパレットを自動生成することはありません。
+`defineTheme` は hex、`rgb()`、`hsl()`、OKLCH を含む標準 CSS カラーを受け付けます。Core の Vite プラグインは値を検証し、Agent-Native の既存のセマンティック変数へ正規化します。ダークカラーはトークンごとにライトパレットへフォールバックします。Agent-Native がダークパレットを自動生成することはありません。
 
 テーマを Vite プラグインに渡します。
 
@@ -200,7 +200,7 @@ import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance
 import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
 import { acmeComponents } from "@acme/agent-native-design-system";
 
-describe("Acme Agent Native adapter", () => {
+describe("Acme Agent-Native adapter", () => {
   it("conforms", async () => {
     await assertDesignSystemConformance({
       adapterName: "Acme",
@@ -223,9 +223,9 @@ describe("Acme Agent Native adapter", () => {
 
 ### MUI 風のテーマプロバイダーシステム
 
-[Chat + Material UI の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) が主な実装リファレンスです。単一の `app/design-system.tsx` モジュールがセマンティックアダプター、MUI の light/dark `createTheme` の値、`defineTheme` のトークンソースを export します。アプリの `AppToolkitProvider` は共有 Toolkit サーフェスの上に MUI `ThemeProvider` を保ち、`vite.config.ts` は同じ `theme` の値をビルド時 CSS 生成のために import します。これにより Emotion のスタイル、MUI のポータル、Agent Native のトークンが 1 つの source of truth に揃います。
+[Chat + Material UI の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) が主な実装リファレンスです。単一の `app/design-system.tsx` モジュールがセマンティックアダプター、MUI の light/dark `createTheme` の値、`defineTheme` のトークンソースを export します。アプリの `AppToolkitProvider` は共有 Toolkit サーフェスの上に MUI `ThemeProvider` を保ち、`vite.config.ts` は同じ `theme` の値をビルド時 CSS 生成のために import します。これにより Emotion のスタイル、MUI のポータル、Agent-Native のトークンが 1 つの source of truth に揃います。
 
-会社のテーマプロバイダーを `AppToolkitProvider` の上に置き、パッケージ境界でセマンティック props を適応させます。`intent`、`emphasis`、`size` をアダプター内部で自社システムの語彙にマッピングし、Agent Native のフィーチャーコードには入れないでください。オーバーレイでは `portalContainer` をデザインシステムのコンテナーまたは portal prop に転送し、そのフォーカスマネージャーを使って `initialFocusRef`/`restoreFocusRef` を実装します。
+会社のテーマプロバイダーを `AppToolkitProvider` の上に置き、パッケージ境界でセマンティック props を適応させます。`intent`、`emphasis`、`size` をアダプター内部で自社システムの語彙にマッピングし、Agent-Native のフィーチャーコードには入れないでください。オーバーレイでは `portalContainer` をデザインシステムのコンテナーまたは portal prop に転送し、そのフォーカスマネージャーを使って `initialFocusRef`/`restoreFocusRef` を実装します。
 
 ```tsx
 export const ActionButton: DesignSystemComponents["ActionButton"] = ({

@@ -215,6 +215,50 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
   });
 
+  it("projects first-party app URLs onto the beta request lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.find((app) => app.id === "analytics")?.url).toBe(
+      "https://beta.analytics.agent-native.com/",
+    );
+  });
+
+  it("projects the workspace Netlify alias onto the beta request lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        id: "cs-account-health",
+        name: "CS Account Health",
+        url: "https://builder-agent-native-workspace.netlify.app/cs-account-health",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.find((app) => app.id === "cs-account-health")?.url).toBe(
+      "https://beta.agent-workspace.builder.io/cs-account-health",
+    );
+  });
+
   it("includes Dispatch itself so agents can target extension routes", async () => {
     mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
     const apps = await runWithRequestContext(
@@ -1254,6 +1298,73 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
     });
     expect(mocks.managerConstructor).toHaveBeenCalled();
+  });
+
+  it("keeps canonical workspace SSO apps eligible on the beta lane", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: [],
+    });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://beta.analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "analytics",
+          path: "/overview",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      startUrl:
+        "https://beta.analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalled();
+  });
+
+  it("rejects beta workspace SSO apps on the production lane", async () => {
+    mocks.discoverAgents.mockResolvedValue([]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "analytics",
+        name: "Analytics",
+        description: "Dashboards and metrics",
+        path: "/",
+        url: "https://beta.analytics.agent-native.com",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "analytics",
+            path: "/overview",
+          }),
+      ),
+    ).rejects.toThrow(/not registered/);
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
   });
 
   it("uses a built-in home URL when discovery returns a deep agent link", async () => {
