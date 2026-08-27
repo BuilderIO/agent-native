@@ -163,6 +163,7 @@ export const runAnalyticsMigrations = runMigrations(
       title TEXT NOT NULL DEFAULT 'Untitled',
       config TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -1797,6 +1798,15 @@ export const runAnalyticsMigrations = runMigrations(
       sql: {
         postgres: "SELECT 1",
         sqlite: "SELECT 1",
+      },
+    },
+    {
+      version: 147,
+      name: "analytics-dashboard-created-by",
+      sql: {
+        postgres:
+          "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
+        sqlite: "ALTER TABLE dashboards ADD COLUMN created_by TEXT",
       },
     },
   ],

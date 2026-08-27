@@ -21,6 +21,7 @@ import {
   DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+  DAU_BY_TEMPLATE_SQL,
   LEGACY_DAU_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
@@ -443,6 +444,18 @@ describe("dashboard catalog", () => {
     expect(panels.find((panel) => panel.id === legacyWau.id)).toMatchObject({
       sql: legacyWau.sql,
     });
+    const repairedWauFromDau = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        {
+          ...legacyWau,
+          sql: DAU_BY_TEMPLATE_SQL,
+        },
+      ],
+    });
+    expect(repairedWauFromDau.changed).toBe(true);
+    expect(
+      (repairedWauFromDau.config.panels as Array<{ sql: string }>)[0]?.sql,
+    ).toBe(legacyWau.sql);
     expect(
       panels.find((panel) => panel.id === "recurring-users-by-template-copy"),
     ).toEqual(legacyConfig.panels[7]);

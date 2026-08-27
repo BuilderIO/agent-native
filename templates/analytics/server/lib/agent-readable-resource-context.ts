@@ -104,11 +104,14 @@ export function buildDashboardAgentContext(
     hiddenAt: dashboard.hiddenAt,
     hiddenBy: dashboard.hiddenBy,
     createdAt: dashboard.createdAt,
+    createdBy: dashboard.createdBy,
     updatedAt: dashboard.updatedAt,
     updatedBy: dashboard.updatedBy,
     url: `/dashboards/${dashboard.id}`,
   };
-  return options.includeConfig === false ? base : { ...base, ...config };
+  return options.includeConfig === false
+    ? base
+    : { ...base, ...config, createdBy: base.createdBy };
 }
 
 export function buildDashboardSeedAgentContext(
@@ -135,9 +138,12 @@ export function buildDashboardSeedAgentContext(
     archivedAt: null,
     hiddenAt: null,
     hiddenBy: null,
+    createdBy: null,
     url: `/dashboards/${id}`,
   };
-  return options.includeConfig === false ? base : { ...base, ...seed };
+  return options.includeConfig === false
+    ? base
+    : { ...base, ...seed, createdBy: base.createdBy };
 }
 
 export function buildAnalysisAgentContext(

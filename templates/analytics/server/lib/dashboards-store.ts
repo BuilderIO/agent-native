@@ -53,6 +53,7 @@ export interface DashboardRecord {
   orgId: string | null;
   visibility: "private" | "org" | "public";
   createdAt: string;
+  createdBy: string | null;
   updatedAt: string;
   updatedBy: string | null;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
@@ -467,6 +468,7 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
     orgId: row.orgId ?? null,
     visibility: row.visibility,
     createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy ?? null,
     archivedAt: row.archivedAt ?? null,
@@ -546,6 +548,7 @@ async function migrateDashboardFromSettings(
     (typeof (settingsValue as any).updatedAt === "string" &&
       (settingsValue as any).updatedAt) ||
     createdAt;
+  const createdBy = visibility === "private" ? ownerEmail : null;
   await db
     .insert(schema.dashboards)
     .values({
@@ -557,6 +560,7 @@ async function migrateDashboardFromSettings(
       orgId,
       visibility,
       createdAt,
+      createdBy,
       updatedAt,
       updatedBy: ownerEmail,
     })
@@ -1389,6 +1393,7 @@ export async function upsertDashboard(
         ownerEmail: ctx.email,
         orgId: ctx.orgId,
         visibility: "private",
+        createdBy: ctx.email,
         updatedBy: ctx.email,
       });
     }
