@@ -237,9 +237,18 @@ async function runCase(
     contentOffset: testCase.contentOffset,
     contentSize: { width: testCase.width, height: testCase.height },
     deviceScaleFactor: testCase.renderScale ?? 1,
-    headHtml: fontsUrl
-      ? `<link rel="stylesheet" href="${fontsUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
-      : "",
+    // Match the import render's text settings. The imported document asks for
+    // `geometricPrecision` (Figma lays glyphs on exact outlines), and rendering
+    // the SVG with the browser's default hinting instead makes the two sides
+    // disagree on every glyph edge — `drift` read 9.2% on the typography
+    // fixture while export-vs-Figma had not moved at all. Figma does its own
+    // text layout on import, so this is about comparing like with like here,
+    // not about what ships.
+    headHtml:
+      `<style>*{text-rendering:geometricPrecision}</style>` +
+      (fontsUrl
+        ? `<link rel="stylesheet" href="${fontsUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
+        : ""),
   });
   writeFileSync(join(dir, "export.png"), rendered.png);
 
