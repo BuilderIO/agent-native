@@ -34,13 +34,31 @@ describe("dispatchIntegrationRoutingHint", () => {
     "Create a one-pager for the launch",
     "Draft a one pager about our new product",
     "Put together a one-page brief for sales",
-    "Design a visual one-pager for the new feature",
   ])("routes one-pagers to Content or inline output: %s", (text) => {
     const hint = dispatchIntegrationRoutingHint(text);
 
     expect(hint).toMatchObject({ targetAgent: "content" });
     expect(hint?.instruction).toContain("inline");
     expect(hint?.instruction).toContain("Do not route a one-pager to Plan");
+  });
+
+  it.each([
+    "Create a one-page intake form",
+    "Add a one-pager to the request queue",
+  ])("preserves structured-intake routing for one-pagers: %s", (text) => {
+    const hint = dispatchIntegrationRoutingHint(text);
+
+    expect(hint?.targetAgent).toBeUndefined();
+    expect(hint?.instruction).toContain("workspace instructions/resources");
+  });
+
+  it.each([
+    "Design a visual one-pager for the new feature",
+    "Design a one-page website for the launch",
+  ])("preserves visual-design routing for one-pagers: %s", (text) => {
+    expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
+      targetAgent: "design",
+    });
   });
 
   it("lets unrelated domain questions use normal agent discovery", () => {
