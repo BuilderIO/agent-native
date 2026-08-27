@@ -50,17 +50,25 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      source_ref: ${{ steps.v.outputs.source_ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ github.sha }}
 
       - name: Resolve version
         id: v
         shell: bash
         env:
           RELEASE_VERSION_INPUT: ${{ inputs.version }}
+          RELEASE_SOURCE_REF_INPUT: ${{ inputs.source_ref }}
         run: |
+          if [ -n "$RELEASE_SOURCE_REF_INPUT" ] && [[ ! "$RELEASE_SOURCE_REF_INPUT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::source_ref must be a full 40-character commit SHA."
+            exit 1
+          fi
+          echo "source_ref=${RELEASE_SOURCE_REF_INPUT:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
           if [ -n "$RELEASE_VERSION_INPUT" ]; then
             if [ "$RELEASE_CHANNEL" = "nightly" ]; then
               if [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -108,7 +116,7 @@ jobs:
               --draft \
               --prerelease \
               --latest=false \
-              --target "${{ github.sha }}" \
+              --target "${{ needs.resolve-version.outputs.source_ref }}" \
               --title "Agent-Native Nightly v${{ needs.resolve-version.outputs.version }}" \
               --notes "Auto-updating Nightly build of the Agent-Native desktop app." \
               -R "${{ github.repository }}"
@@ -116,7 +124,7 @@ jobs:
             gh release create "$TAG" \
               --draft \
               --latest=false \
-              --target "${{ github.sha }}" \
+              --target "${{ needs.resolve-version.outputs.source_ref }}" \
               --title "Agent-Native v${{ needs.resolve-version.outputs.version }}" \
               --notes "Stable release of the Agent-Native desktop app." \
               -R "${{ github.repository }}"
@@ -128,7 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ needs.resolve-version.outputs.source_ref }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -217,7 +225,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ needs.resolve-version.outputs.source_ref }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -290,7 +298,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ needs.resolve-version.outputs.source_ref }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 

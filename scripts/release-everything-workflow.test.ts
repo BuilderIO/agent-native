@@ -102,9 +102,14 @@ describe("release everything workflow", () => {
   it("checks out the coordinated release commit for desktop builds", () => {
     const desktopSource = JSON.stringify(desktopWorkflow);
     const clipsSource = JSON.stringify(clipsWorkflow);
-    assert.match(desktopSource, /source_ref/);
-    assert.match(desktopSource, /inputs\.source_ref \|\| github\.ref/);
-    assert.match(clipsSource, /source_ref/);
-    assert.match(clipsSource, /inputs\.source_ref \|\| github\.ref/);
+    assert.match(desktopSource, /source_ref.*steps\.v\.outputs\.source_ref/);
+    assert.match(desktopSource, /full 40-character commit SHA/);
+    assert.match(desktopSource, /needs\.resolve-version\.outputs\.source_ref/);
+    assert.match(clipsSource, /resolve-source-ref/);
+    assert.match(clipsSource, /full 40-character commit SHA/);
+    assert.match(clipsSource, /needs\.resolve-source-ref\.outputs\.source_ref/);
+    assert.match(clipsSource, /needs\.build-tauri\.outputs\.source_ref/);
+    assert.match(desktopSource, /--target \\"\$\{\{ needs\.resolve-version/);
+    assert.match(clipsSource, /releaseCommitish/);
   });
 });
