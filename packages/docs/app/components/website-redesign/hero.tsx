@@ -1,15 +1,12 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 
-import { sitePathForLocale } from "../docs-locale";
-import { Button } from "./ds/button";
-import { GetStartedCta } from "./ds/get-started-modal";
 import { HeroShaderBackground } from "./hero-shader-background";
 import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
+import { StartCtas } from "./start-ctas";
 
 export function Hero() {
   const t = useT();
-  const { locale } = useLocale();
 
   return (
     <PageSection>
@@ -17,7 +14,7 @@ export function Hero() {
       {/* No top border on the GridInner below: the sticky SiteHeader already
           draws the border directly above this section, so a second one would
           double the line. */}
-      <GridInner className="flex flex-col items-center gap-[var(--spacing-12)] px-[var(--spacing-10)] pt-[var(--spacing-50)] pb-[var(--spacing-40)]">
+      <GridInner className="flex flex-col items-center gap-[var(--spacing-12)] px-[var(--spacing-10)] pt-[var(--spacing-60)] pb-[var(--spacing-40)]">
         <div className="flex w-full max-w-[875px] flex-col items-center gap-[var(--spacing-6)]">
           <h1 className="m-0 text-center font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-1)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)] mobile:leading-[1.2]">
             {t("homepage.hero.title")}
@@ -29,23 +26,7 @@ export function Hero() {
         </div>
 
         <div className="flex flex-col items-center gap-[var(--spacing-6)]">
-          <div className="flex flex-wrap items-center justify-center gap-[var(--spacing-6)]">
-            {/* Caps come from CSS, not the label: an all-caps string becomes
-                the accessible name and screen readers spell it out letter by
-                letter. */}
-            <GetStartedCta location="hero" className="uppercase">
-              {t("common.getStarted")}
-            </GetStartedCta>
-            <Button
-              variant="secondary"
-              icon={null}
-              href={sitePathForLocale("/docs", locale)}
-              className="uppercase"
-            >
-              {t("homepage.hero.learnMore")}
-            </Button>
-          </div>
-
+          <StartCtas location="hero" />
           <InstallCommand />
         </div>
       </GridInner>
