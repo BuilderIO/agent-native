@@ -19,11 +19,11 @@ import {
   buildFillLayersFromComputedStyle,
   buildLinearGradientDef,
   buildRadialGradientDef,
-  buildShadowFilterDef,
   embedRemoteImages,
   escapeXmlAttr,
   escapeXmlText,
   fetchImageAsDataUri,
+  figmaSvgSceneExtent,
   type FigmaSvgNode,
   gradientAngleToRotation,
   hydrateRawFigmaSvgNode,
@@ -34,6 +34,7 @@ import {
   isZeroRadii,
   objectFitToPreserveAspectRatio,
   parseComputedBoxShadow,
+  parseComputedDropShadowFilter,
   parseComputedLinearGradient,
   parseComputedRadialGradient,
   type RawFigmaSvgNode,
@@ -58,7 +59,7 @@ describe("secure image embedding", () => {
         "https://images.example.com/a.png",
         safeFetch as never,
       ),
-    ).resolves.toBe("data:image/png;base64,iVBORw==");
+    ).resolves.toEqual({ ok: true, dataUri: "data:image/png;base64,iVBORw==" });
     expect(safeFetch).toHaveBeenCalledWith(
       "https://images.example.com/a.png",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -66,7 +67,7 @@ describe("secure image embedding", () => {
     );
   });
 
-  it("rejects non-image MIME types and advertised oversized bodies", async () => {
+  it("says WHY an image was not embedded, so a size cap does not read as a block", async () => {
     const htmlFetch = vi.fn(async () =>
       Promise.resolve(
         new Response("<html></html>", {
@@ -76,21 +77,27 @@ describe("secure image embedding", () => {
     );
     await expect(
       fetchImageAsDataUri("https://example.com/not-image", htmlFetch as never),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      ok: false,
+      reason: expect.stringContaining("not an image"),
+    });
 
     const hugeFetch = vi.fn(async () =>
       Promise.resolve(
         new Response(new Uint8Array([1]), {
           headers: {
             "content-type": "image/png",
-            "content-length": String(MAX_EMBEDDED_IMAGE_BYTES + 1),
+            "content-length": String(MAX_EMBEDDED_IMAGE_BYTES * 64),
           },
         }),
       ),
     );
     await expect(
       fetchImageAsDataUri("https://example.com/huge.png", hugeFetch as never),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      ok: false,
+      reason: expect.stringContaining("read limit"),
+    });
   });
 
   it("never leaves expiring remote URLs in a self-contained export", async () => {
@@ -114,11 +121,40 @@ describe("secure image embedding", () => {
         },
       ],
     };
-    const omitted = await embedRemoteImages(root, async () => null);
+    const omitted = await embedRemoteImages(root, async () => ({
+      ok: false,
+      reason: "the fetch failed",
+    }));
 
     expect(root.fills?.[0]).toMatchObject({ href: "" });
     expect(root.children?.[0].image?.href).toBe("");
     expect(omitted).toHaveLength(2);
+  });
+});
+
+describe("objectFitToPreserveAspectRatio", () => {
+  it("anchors top-left when the element does", async () => {
+    // The importer anchors a fallback render top-left, because Figma's
+    // `absoluteRenderBounds` states where the ink STARTS. Centring it in the
+    // export moved the artwork back — 1.26 points of round-trip drift.
+    const { objectFitToPreserveAspectRatio } =
+      await import("../../shared/figma-svg-scene.js");
+    expect(objectFitToPreserveAspectRatio("contain", "0px 0px")).toBe(
+      "xMinYMin meet",
+    );
+    expect(objectFitToPreserveAspectRatio("cover", "0% 0%")).toBe(
+      "xMinYMin slice",
+    );
+  });
+
+  it("keeps the centred default otherwise", async () => {
+    const { objectFitToPreserveAspectRatio } =
+      await import("../../shared/figma-svg-scene.js");
+    expect(objectFitToPreserveAspectRatio("contain")).toBe("xMidYMid meet");
+    expect(objectFitToPreserveAspectRatio("contain", "50% 50%")).toBe(
+      "xMidYMid meet",
+    );
+    expect(objectFitToPreserveAspectRatio("stretch", "0px 0px")).toBe("none");
   });
 });
 
@@ -283,10 +319,18 @@ describe("buildRadialGradientDef", () => {
     ]);
     expect(def).toBe(
       '<radialGradient id="rg-1" cx="0.5" cy="0.5" r="0.5">' +
-        '<stop offset="0%" stop-color="#fff"/>' +
-        '<stop offset="100%" stop-color="#000"/>' +
+        '<stop offset="0%" stop-color="rgb(255, 255, 255)"/>' +
+        '<stop offset="100%" stop-color="rgb(0, 0, 0)"/>' +
         "</radialGradient>",
     );
+  });
+
+  it("carries stop alpha in stop-opacity, which Figma reads and rgba() stop-color does not", () => {
+    const def = buildRadialGradientDef("rg-2", [
+      { offset: 0, color: "rgba(255, 0, 0, 0.25)" },
+      { offset: 1, color: "rgb(0, 0, 0)" },
+    ]);
+    expect(def).toContain('stop-color="rgb(255, 0, 0)" stop-opacity="0.25"');
   });
 });
 
@@ -421,50 +465,6 @@ describe("objectFitToPreserveAspectRatio", () => {
 // Shadow filters
 // ---------------------------------------------------------------------------
 
-describe("buildShadowFilterDef", () => {
-  it("emits a feDropShadow chain when every shadow has zero spread", () => {
-    const def = buildShadowFilterDef("shadow-1", [
-      {
-        offsetX: 0,
-        offsetY: 4,
-        blur: 12,
-        spread: 0,
-        color: "rgba(0, 0, 0, 0.25)",
-      },
-    ]);
-    expect(def).toContain("<feDropShadow");
-    expect(def).toContain('dx="0" dy="4" stdDeviation="6"');
-    expect(def).toContain('flood-color="rgb(0, 0, 0)"');
-    expect(def).toContain('flood-opacity="0.25"');
-    expect(def).not.toContain("feMorphology");
-  });
-
-  it("emits a decomposed feMorphology chain when spread is non-zero", () => {
-    const def = buildShadowFilterDef("shadow-2", [
-      { offsetX: 2, offsetY: 2, blur: 4, spread: 3, color: "rgb(0, 0, 0)" },
-    ]);
-    expect(def).toContain(
-      '<feMorphology in="SourceAlpha" operator="dilate" radius="3"',
-    );
-    expect(def).toContain("<feGaussianBlur");
-    expect(def).toContain("<feMerge>");
-  });
-
-  it("returns an empty string when every shadow is inset (caller's responsibility to report)", () => {
-    const def = buildShadowFilterDef("shadow-3", [
-      {
-        offsetX: 0,
-        offsetY: 2,
-        blur: 2,
-        spread: 0,
-        color: "#000",
-        inset: true,
-      },
-    ]);
-    expect(def).toBe("");
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Full node -> SVG document rendering
 // ---------------------------------------------------------------------------
@@ -486,10 +486,10 @@ describe("buildFigmaSvgDocument", () => {
     });
 
     expect(svg).toContain(
-      '<rect x="0" y="0" width="200" height="100" fill="#ffffff"/>',
+      '<rect x="0" y="0" width="200" height="100" fill="rgb(255, 255, 255)"/>',
     );
     expect(svg).toContain(
-      '<rect x="2" y="2" width="196" height="96" fill="none" stroke="#111111" stroke-width="4"/>',
+      '<rect x="2" y="2" width="196" height="96" fill="none" stroke="rgb(17, 17, 17)" stroke-width="4"/>',
     );
     expect(report.vectorized).toContain("Card");
     expect(report.rasterized).toHaveLength(0);
@@ -539,12 +539,13 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain("<linearGradient");
     expect(svg).toContain('<stop offset="0%" stop-color="rgb(255, 0, 0)"/>');
     expect(svg).toContain('<stop offset="100%" stop-color="rgb(0, 0, 255)"/>');
-    expect(svg).toContain('gradientTransform="rotate(45 0.5 0.5)"');
-    // Square box: no aspect-ratio approximation note for this fill.
+    // 135deg on a 300x300 box runs corner to corner, top-right to bottom-left.
+    expect(svg).toContain('gradientUnits="userSpaceOnUse"');
+    expect(svg).toContain('x1="0" y1="0" x2="300" y2="300"');
     expect(report.approximated).toHaveLength(0);
   });
 
-  it("flags a non-square element's gradient angle as approximated", () => {
+  it("maps a non-square element's gradient exactly instead of approximating it", () => {
     const root: FigmaSvgNode = {
       id: "root",
       name: "Banner",
@@ -561,8 +562,15 @@ describe("buildFigmaSvgDocument", () => {
         },
       ],
     };
-    const { report } = buildFigmaSvgDocument({ width: 400, height: 100, root });
-    expect(report.approximated.some((a) => a.node === "Banner")).toBe(true);
+    const { svg, report } = buildFigmaSvgDocument({
+      width: 400,
+      height: 100,
+      root,
+    });
+    // 90deg is left-to-right; user-space endpoints span the real 400px width,
+    // which an objectBoundingBox rotation could not express on a 4:1 box.
+    expect(svg).toContain('x1="0" y1="50" x2="400" y2="50"');
+    expect(report.approximated.some((a) => a.node === "Banner")).toBe(false);
   });
 
   it("stacks multiple background layers in reverse so the first CSS layer paints on top", () => {
@@ -576,8 +584,9 @@ describe("buildFigmaSvgDocument", () => {
       ],
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 100, root });
-    const blueIndex = svg.indexOf('fill="blue"');
-    const redIndex = svg.indexOf('fill="rgba(255,0,0,0.5)"');
+    const blueIndex = svg.indexOf('fill="rgb(0, 0, 255)"');
+    // Alpha moves to fill-opacity; SVG ignores the alpha channel of `fill`.
+    const redIndex = svg.indexOf('fill="rgb(255, 0, 0)" fill-opacity="0.5"');
     expect(blueIndex).toBeGreaterThan(-1);
     expect(redIndex).toBeGreaterThan(blueIndex); // painted later == on top
   });
@@ -611,8 +620,9 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain('<tspan x="10" y="48">World</tspan>');
     expect(svg).toContain('font-family="Inter"');
     expect(svg).toContain('font-weight="700"');
-    expect(svg).toContain('dominant-baseline="central"');
-    expect(report.vectorizedTextCaveat).toContain("outlined vector paths");
+    expect(svg).not.toContain("dominant-baseline");
+    expect(report.vectorizedTextCaveat).toContain("live, editable type");
+    expect(report.vectorizedTextCaveat).not.toContain("outlined vector paths");
   });
 
   it("clips a cover-fit image to its rounded rect and reports it as vectorized geometry", () => {
@@ -768,7 +778,7 @@ describe("buildFigmaSvgDocument", () => {
     });
     expect(svg).not.toContain('fill="none"');
     expect(svg).toContain(
-      '<rect x="0" y="0" width="400" height="300" fill="#ffffff"/>',
+      '<rect x="0" y="0" width="400" height="300" fill="rgb(255, 255, 255)"/>',
     );
     // Exactly one <rect> — the child's — no phantom shape for the wrapper.
     expect((svg.match(/<rect /g) || []).length).toBe(1);
@@ -776,7 +786,7 @@ describe("buildFigmaSvgDocument", () => {
     expect(report.vectorized).toContain("Wrapper");
   });
 
-  it("still emits a carrier shape for a box that has a shadow filter but no fill", () => {
+  it("paints a shadow-only box as its own geometry, not a fill-less carrier", () => {
     const root: FigmaSvgNode = {
       id: "root",
       name: "ShadowOnly",
@@ -793,8 +803,13 @@ describe("buildFigmaSvgDocument", () => {
       ],
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 50, root });
-    expect(svg).toContain('fill="none"');
+    // Figma's importer drops filter-based shadows, so the shadow is emitted as
+    // an offset, blurred, shadow-coloured shape of its own. A `fill="none"`
+    // carrier would arrive there as an invisible layer.
+    expect(svg).toContain('y="4"');
+    expect(svg).toContain('fill="rgb(0, 0, 0)" fill-opacity="0.3"');
     expect(svg).toContain("filter=");
+    expect(svg).not.toContain('fill="none"');
   });
 });
 
@@ -865,6 +880,9 @@ function rawBoxFixture(
     rotationDeg: 0,
     opacity: 1,
     cornerRadiiRaw: { tl: 0, tr: 0, br: 0, bl: 0 },
+    filter: "none",
+    mixBlendMode: "normal",
+    imageRendering: "auto",
     backgroundColor: "rgba(0, 0, 0, 0)",
     backgroundImage: "none",
     boxShadow: "none",
@@ -980,5 +998,353 @@ describe("hydrateRawFigmaSvgNode", () => {
     );
     expect(node.children).toHaveLength(1);
     expect(node.children?.[0].name).toBe("Child");
+  });
+});
+
+describe("paints the box model cannot carry", () => {
+  // These reach the SVG as a screenshot of the element's region rather than as
+  // geometry. Each one previously left a visible hole in what Figma received:
+  // a blank tile where an angular gradient should be, and a masked element
+  // painted at full size — the Positivus contact block covered its own form
+  // with the black rectangle the mask is supposed to reveal a starburst of.
+  it("hydrates a conic-gradient leaf as a raster", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason:
+          "conic-gradient has no SVG equivalent — rasterized this element's region via screenshot.",
+        rasterHref: "data:image/png;base64,AAA",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.reason).toContain("conic-gradient");
+  });
+
+  it("hydrates a clip-path / mask element as a raster", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason:
+          "clip-path / mask has no SVG equivalent here — rasterized this element's region via screenshot.",
+        rasterHref: "data:image/png;base64,AAA",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.reason).toContain("clip-path");
+  });
+
+  // A raster whose screenshot could not be taken must still be reported, not
+  // quietly emitted as a normal box that paints its background over the design.
+  it("keeps a raster node a raster even when the screenshot failed", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason: "clip-path / mask has no SVG equivalent here.",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.href).toBe("");
+  });
+});
+
+describe("image fills with no resolvable source", () => {
+  const imageFillNode = (href: string) =>
+    hydrateRawFigmaSvgNode(
+      rawBoxFixture({ backgroundImage: `url("${href}")` }),
+    );
+
+  // A clipboard import cannot carry image bytes, so it points unresolved fills
+  // at about:blank until hydrate-figma-paste-images fills them in. Passing that
+  // through hands Figma a broken reference — and a renderer whose own document
+  // URL is about:blank resolves it to the document ITSELF, painting a recursive
+  // smear of the page where the design has a placeholder.
+  it("keeps a resolvable http/data/blob source", () => {
+    for (const href of [
+      "https://example.com/a.png",
+      "data:image/png;base64,AAA",
+      "blob:https://example.com/x",
+    ]) {
+      const node = imageFillNode(href);
+      expect(node.fills?.some((f) => f.kind === "image")).toBe(true);
+    }
+  });
+
+  it("still records an unresolvable source as an image fill for the paint builder to reject", () => {
+    const node = imageFillNode("about:blank");
+    expect(node.fills?.some((f) => f.kind === "image")).toBe(true);
+  });
+});
+
+describe("figmaSvgSceneExtent", () => {
+  // An SVG root clips to its viewBox, so an artboard sized to the frame drops
+  // whatever the design draws past it. The Untitled UI dashboard runs 106px
+  // below its 960px frame and shipped to Figma with that strip missing.
+  const child = (rect: FigmaSvgNode["rect"]): FigmaSvgNode => ({
+    id: "c",
+    name: "child",
+    kind: "box",
+    rect,
+    fills: [{ kind: "solid", color: "#000000" }],
+  });
+
+  it("reports how far content reaches past the frame's right and bottom", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Screen",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 1440, height: 960 },
+      children: [child({ x: 0, y: 900, width: 1440, height: 166 })],
+    };
+    expect(figmaSvgSceneExtent(root)).toEqual({ right: 1440, bottom: 1066 });
+  });
+
+  // Growing up or left would move the viewBox ORIGIN, shifting every
+  // coordinate in the document at once — that scored 63% on a design whose
+  // only stray node was a shadow just off the left edge.
+  it("never reports past the top or left edge", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Screen",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 400, height: 300 },
+      children: [child({ x: -40, y: -30, width: 100, height: 100 })],
+    };
+    expect(figmaSvgSceneExtent(root)).toEqual({ right: 400, bottom: 300 });
+  });
+});
+
+describe("parseComputedDropShadowFilter", () => {
+  // The REST importer emits `drop-shadow()` for a layer whose shadow Figma
+  // casts from its CONTENT and does not knock out. drop-shadow() has no
+  // spread, so the importer carries the original values in a custom property.
+  it("prefers the importer's exact values, spread included", () => {
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(17, 24, 39, 0.25))",
+        "rgba(17, 24, 39, 0.25) 0px 24px 48px -12px",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 48,
+        spread: -12,
+        color: "rgba(17, 24, 39, 0.25)",
+        inset: false,
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("falls back to the filter alone, doubling the standard deviation", () => {
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(0, 0, 0, 0.5))",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 24,
+        spread: 0,
+        color: "rgba(0, 0, 0, 0.5)",
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("ignores a custom property that describes a different shadow", () => {
+    // Custom properties inherit, so a descendant sees its ancestor's value, and
+    // a layer whose filter changed later still carries the old one.
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(0, 0, 0, 0.5))",
+        "rgba(9, 9, 9, 0.4) 0px 90px 10px -3px",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 24,
+        spread: 0,
+        color: "rgba(0, 0, 0, 0.5)",
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("ignores anything that is not a lone drop-shadow", () => {
+    expect(parseComputedDropShadowFilter("none")).toEqual([]);
+    expect(parseComputedDropShadowFilter("blur(4px)")).toEqual([]);
+  });
+});
+
+describe("background-image sizing on export", () => {
+  // Figma's four image scale modes reach the DOM only through
+  // `background-size`: FILL is cover, FIT is contain, STRETCH is 100% 100%,
+  // and a CROP is an explicit pixel size with an offset. Every layer used to
+  // export as cover, which crops the three that are not.
+  const url = 'url("https://img.example/a.png")';
+
+  it("keeps FIT as contain rather than cropping it", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "contain"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "contain" },
+    ]);
+  });
+
+  it("keeps STRETCH from being cropped like cover", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "100% 100%"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "stretch" },
+    ]);
+  });
+
+  it("carries a CROP's own size and offset", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "1193.32px 706px",
+        "-40px -12px",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 1193.32, height: 706 },
+        offsetPx: { x: -40, y: -12 },
+      },
+    ]);
+  });
+
+  it("repeats a shorter size list across the layers, as CSS does", () => {
+    // One `contain` with two images applies to both; leaving the tail unset
+    // silently exported the second layer as cover.
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "contain",
+    );
+    expect(layers.map((l) => (l as { fit: string }).fit)).toEqual([
+      "contain",
+      "contain",
+    ]);
+  });
+
+  it("still defaults to cover, which is FILL and the common case", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "cover"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+  });
+
+  it("matches each layer to its own size in a multi-layer background", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "contain, cover",
+    );
+    expect(layers.map((l) => (l as { fit: string }).fit)).toEqual([
+      "contain",
+      "cover",
+    ]);
+  });
+});
+
+describe("a CROP background at a non-zero origin", () => {
+  // Figma's CROP reaches the DOM as an explicit `background-size` plus a
+  // `background-position` offset. It is placed with a `userSpaceOnUse` pattern
+  // whose TILE sits at the layer's own origin; SVG pattern content is
+  // tile-relative, verified against Chromium — a tile at (100, 100) holding an
+  // `<image>` at x=0 paints, it does not come out blank. So the image carries
+  // only the background-position offset, never the layer origin as well.
+  it("puts the tile at the layer origin and the image at the offset", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Cropped",
+      kind: "box",
+      rect: { x: 240, y: 180, width: 320, height: 200 },
+      fills: [
+        {
+          kind: "image",
+          href: "https://img.example/a.png",
+          fit: "stretch",
+          sizePx: { width: 640, height: 400 },
+          offsetPx: { x: -80, y: -30 },
+        },
+      ],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 900, height: 600, root });
+
+    expect(svg).toContain(
+      '<pattern id="img-fill-1" patternUnits="userSpaceOnUse" x="240" y="180" width="320" height="200">',
+    );
+    expect(svg).toContain(
+      '<image href="https://img.example/a.png" x="-80" y="-30" width="640" height="400" preserveAspectRatio="none"/>',
+    );
+    // The layer origin must NOT be added to the image as well.
+    expect(svg).not.toContain(
+      '<image href="https://img.example/a.png" x="160"',
+    );
+  });
+});
+
+describe("a skewed layer on export", () => {
+  // A rotation alone cannot express a skew: the box exported as a plain
+  // rectangle where the design drew a parallelogram.
+  it("emits the skew alongside the rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Skewed",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 200, height: 100 },
+      reflection: [1, 0, -0.2126, 1],
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+    expect(svg).toContain(
+      'transform="translate(100 50) matrix(1 0 -0.213 1 0 0) translate(-100 -50)"',
+    );
+  });
+});
+
+describe("a mirrored layer on export", () => {
+  // `rotationFromTransform` reduces a matrix to `atan2(b, a)`, which reads
+  // `matrix(-1, 0, 0, 1)` as 180 degrees — so a mirror exported as a half turn.
+  // The two are identical on a symmetric shape and wrong on every other one,
+  // and Positivus alone carries 11 of them.
+  it("emits the reflection alongside the rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Mirrored",
+      kind: "box",
+      rect: { x: 100, y: 50, width: 200, height: 100 },
+      rotationDeg: 180,
+      reflection: [1, 0, 0, -1],
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+
+    // Rotation first in the string, so SVG applies the reflection first: the
+    // pair composes back to the original matrix about the rect centre.
+    expect(svg).toContain(
+      'transform="rotate(180 200 100) translate(200 100) matrix(1 0 0 -1 0 0) translate(-200 -100)"',
+    );
+  });
+
+  it("leaves an unmirrored layer on a plain rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Rotated",
+      kind: "box",
+      rect: { x: 100, y: 50, width: 200, height: 100 },
+      rotationDeg: 180,
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+    expect(svg).toContain('transform="rotate(180 200 100)"');
+    expect(svg).not.toContain("matrix(");
   });
 });
