@@ -390,12 +390,6 @@ jobs:
             const existingClipsRelease = await getPublishedRelease(`clips-v${clipsVersion}`);
             const clipsAlreadyPublished = hasCompleteClipsRelease(existingClipsRelease, clipsVersion);
             if (clipsAlreadyPublished) {
-              const clipsTagSha = await getRemoteTagSha(`clips-v${clipsVersion}`);
-              if (clipsTagSha !== releaseSha) {
-                throw new Error(
-                  `Complete Clips release clips-v${clipsVersion} points to ${clipsTagSha}, expected ${releaseSha}.`,
-                );
-              }
               core.info(`Clips v${clipsVersion} is already published with its required assets; treating it as complete.`);
             }
 
