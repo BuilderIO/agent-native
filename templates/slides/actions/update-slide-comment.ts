@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 
 export default defineAction({
   description:
@@ -57,6 +58,11 @@ export default defineAction({
             eq(schema.slideComments.threadId, comment.threadId),
           ),
         );
+      await emitWebhookEvent("comment.updated", {
+        ...comment,
+        resolved: true,
+        updatedAt,
+      });
       return { ok: true, resolved: true };
     }
 
@@ -70,6 +76,11 @@ export default defineAction({
             eq(schema.slideComments.threadId, comment.threadId),
           ),
         );
+      await emitWebhookEvent("comment.updated", {
+        ...comment,
+        resolved: false,
+        updatedAt,
+      });
       return { ok: true, resolved: false };
     }
 
@@ -88,6 +99,11 @@ export default defineAction({
         ),
       );
 
+    await emitWebhookEvent("comment.updated", {
+      ...comment,
+      content: args.content,
+      updatedAt,
+    });
     return { ok: true };
   },
 });

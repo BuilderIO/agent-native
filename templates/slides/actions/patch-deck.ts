@@ -26,6 +26,7 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
@@ -909,6 +910,8 @@ export default defineAction({
       ];
       const finalSlides: Array<{ id?: unknown; content?: unknown }> =
         Array.isArray(deck.slides) ? deck.slides : [];
+      await emitWebhookEvent("deck.updated", deck);
+
       const fitResults: SlideFitResult[] = await Promise.all(
         contentChangedSlideIds.map((slideId) => {
           const slide = finalSlides.find((s) => s.id === slideId);

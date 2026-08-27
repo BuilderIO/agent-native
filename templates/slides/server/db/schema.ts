@@ -110,3 +110,31 @@ export const exportArtifacts = table("export_artifacts", {
   expiresAt: text("expires_at").notNull(),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+export const webhookSubscriptions = table("webhook_subscriptions", {
+  id: text("id").primaryKey(),
+  url: text("url").notNull(),
+  events: text("events").notNull(),
+  secret: text("secret").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  disabledReason: text("disabled_reason"),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const webhookDeliveries = table("webhook_deliveries", {
+  id: text("id").primaryKey(),
+  subscriptionId: text("subscription_id").notNull(),
+  event: text("event").notNull(),
+  payload: text("payload").notNull(),
+  status: text("status").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: text("next_attempt_at"),
+  lastError: text("last_error"),
+  deliveredAt: text("delivered_at"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});

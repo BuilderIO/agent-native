@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 import { deckHttpError } from "./_deck-write.js";
 
 export default defineAction({
@@ -78,6 +79,7 @@ export default defineAction({
       if (result.length === 0) {
         throw deckHttpError(404, "Deck not found");
       }
+      await emitWebhookEvent("deck.deleted", access.resource);
       if (access.resource.visibility === "public") {
         notifyClients(id, { type: "deck-deleted", visibility: "public" });
       } else {

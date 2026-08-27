@@ -19,6 +19,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -177,6 +178,7 @@ export default defineAction({
       }
 
       notifyClients(deckId);
+      await emitWebhookEvent(access ? "deck.updated" : "deck.created", deck);
       return { ...deck, appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders) };
     }),
 });

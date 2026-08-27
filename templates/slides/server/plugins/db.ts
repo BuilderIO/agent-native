@@ -315,6 +315,24 @@ WHERE principal_type = 'user'`,
   );
   CREATE INDEX IF NOT EXISTS export_artifacts_expires_at_idx ON export_artifacts (expires_at)`,
     },
+    {
+      version: 26,
+      name: "slides-outbound-webhooks",
+      sql: `CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+    id TEXT PRIMARY KEY, url TEXT NOT NULL, events TEXT NOT NULL, secret TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1, consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    disabled_reason TEXT, owner_email TEXT NOT NULL, org_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, event TEXT NOT NULL, payload TEXT NOT NULL,
+    status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT,
+    last_error TEXT, delivered_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS webhook_subscriptions_owner_org_idx ON webhook_subscriptions (owner_email, org_id);
+  CREATE INDEX IF NOT EXISTS webhook_deliveries_status_due_idx ON webhook_deliveries (status, next_attempt_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );

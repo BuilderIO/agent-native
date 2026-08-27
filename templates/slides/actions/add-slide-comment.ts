@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 
 function displayNameFromEmail(email: string): string {
   const local = email.split("@")[0] || email;
@@ -67,6 +68,18 @@ export default defineAction({
       isReply: Boolean(parentId ?? args.threadId),
     });
 
+    await emitWebhookEvent("comment.added", {
+      id,
+      deckId,
+      slideId,
+      threadId,
+      parentId: parentId ?? null,
+      content,
+      quotedText: quotedText ?? null,
+      authorEmail,
+      authorName,
+      resolved: false,
+    });
     return { id, threadId, notified };
   },
 });

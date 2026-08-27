@@ -106,3 +106,7 @@ Deck data lives in SQL and all writes go through server-side actions. Read
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read
 `customizing-agent-native` before adapting shared UI.
+
+## Outbound Webhooks
+
+- Slides owns `deck.created`, `deck.updated`, `deck.deleted`, `comment.added`, and `comment.updated` subscriptions and deliveries. Use the authenticated `/_agent-native/slides/webhooks` API; the create response is the only time its HMAC secret is returned. Read `docs/webhooks.md` before integrating a receiver.

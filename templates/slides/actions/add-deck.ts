@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 import { assertHumanReadableDeckTitle } from "../shared/deck-title.js";
 import {
   ensureUniqueSlideIds,
@@ -90,6 +91,7 @@ export default defineAction({
       });
 
     notifyClients(id);
+    await emitWebhookEvent("deck.created", deck);
     return deck;
   },
 });

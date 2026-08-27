@@ -18,6 +18,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
@@ -293,6 +294,7 @@ export default defineAction({
         ...creativeContextProvenance,
         ...(elementProvenance.length ? { elementProvenance } : {}),
       });
+      await emitWebhookEvent("deck.updated", { id: deckId, ...data });
       return {
         id: deckId,
         title: existingDeckTitle,
@@ -339,6 +341,7 @@ export default defineAction({
     });
 
     notifyClients(id);
+    await emitWebhookEvent("deck.created", { id, ...data });
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     await recordGenerationCreativeContext({
       appId: "slides",

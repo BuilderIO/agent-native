@@ -156,3 +156,7 @@ The framework provides **Extensions** — mini sandboxed Alpine.js apps that run
 - **Security**: Iframe sandbox + CSP + SSRF protection on the proxy
 
 See the `extensions` skill in `.agents/skills/extensions/SKILL.md` for full implementation details.
+
+## Outbound webhook contract
+
+`/_agent-native/slides/webhooks` is a versioned public integration contract. It owns Slides event subscriptions and a SQL-backed delivery outbox; core only provides SSRF-safe transport and signed internal dispatch. Do not change event names, envelope fields, HMAC bytes, action request/response shapes, sharing semantics, or token minting without a versioned migration. See `docs/webhooks.md` for the public catalog, API, retry policy, and the placement rationale. Self-hosted Node has a best-effort recovery interval; serverless needs an external signed recovery invocation when self-dispatch is interrupted.

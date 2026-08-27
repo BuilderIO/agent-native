@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { emitWebhookEvent } from "../server/lib/outbound-webhooks.js";
 import { getDeckAppUrl, getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
@@ -79,6 +80,7 @@ export default defineAction({
       orgId: getRequestOrgId() || null,
     });
 
+    await emitWebhookEvent("deck.created", { id: newId, ...deckData });
     return {
       id: newId,
       title: newTitle,

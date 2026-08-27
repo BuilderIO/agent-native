@@ -47,4 +47,20 @@ describe("webhook delivery primitives", () => {
       { maxRedirects: 3 },
     );
   });
+
+  it("preserves a pre-serialized body for signatures covering raw JSON", async () => {
+    ssrfSafeFetch.mockResolvedValue(new Response(null, { status: 202 }));
+    const serializedBody = '{"id":"evt_1","data":{"title":"A"}}';
+
+    await deliverJsonWebhook({
+      url: "https://hooks.example.com/slides",
+      serializedBody,
+    });
+
+    expect(ssrfSafeFetch).toHaveBeenCalledWith(
+      "https://hooks.example.com/slides",
+      expect.objectContaining({ body: serializedBody }),
+      { maxRedirects: 3 },
+    );
+  });
 });

@@ -5,6 +5,11 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-08-26
 
+### Added
+
+- Slides can send HMAC-signed lifecycle webhooks for deck and comment events, with durable retries and automatic failure disablement.
+
+
 ### Fixed
 
 - Export docs now distinguish the exact PPTX/HTML download contract from Google Slides import-dialog metadata.

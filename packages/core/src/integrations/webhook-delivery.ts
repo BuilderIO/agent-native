@@ -16,7 +16,9 @@ export function isWebhookUrlAllowed(url: string): boolean {
 
 export interface DeliverJsonWebhookOptions {
   url: string;
-  payload: unknown;
+  payload?: unknown;
+  /** Exact already-serialized JSON body, used when a signature covers raw bytes. */
+  serializedBody?: string;
   headers?: Record<string, string>;
   timeoutMs?: number;
   maxRedirects?: number;
@@ -41,7 +43,7 @@ export async function deliverJsonWebhook(
           "Content-Type": "application/json",
           ...options.headers,
         },
-        body: JSON.stringify(options.payload),
+        body: options.serializedBody ?? JSON.stringify(options.payload),
         signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
       },
       { maxRedirects: options.maxRedirects ?? 3 },
