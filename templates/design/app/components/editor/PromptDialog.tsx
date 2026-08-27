@@ -458,6 +458,7 @@ export default function PromptPopover({
   const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
+  const composerFilesRef = useRef<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
@@ -586,6 +587,7 @@ export default function PromptPopover({
   const {
     commitFiles,
     discardFiles,
+    retainFiles,
     syncFiles,
     uploadFiles,
     uploading,
@@ -605,6 +607,7 @@ export default function PromptPopover({
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
+      composerFilesRef.current = files;
       syncFiles([...files, ...selectedUploadFiles]);
       void uploadFiles(files).catch((error) => {
         toast.error(
@@ -620,7 +623,11 @@ export default function PromptPopover({
   const handleUploadFiles = useCallback(
     (files: File[]) => {
       setSelectedUploadFiles((current) => [...current, ...files]);
-      syncFiles([...files, ...selectedUploadFiles]);
+      syncFiles([
+        ...composerFilesRef.current,
+        ...selectedUploadFiles,
+        ...files,
+      ]);
       void uploadFiles(files).catch((error) => {
         toast.error(
           error instanceof Error
@@ -655,12 +662,14 @@ export default function PromptPopover({
         return;
       }
       try {
+        retainFiles(allFiles);
         await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
         commitFiles(allFiles);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
         setSubmitting(false);
       } catch (error) {
+        discardFiles(allFiles);
         setSubmitting(false);
         restorePromptText(text);
         toast.error(
@@ -675,6 +684,7 @@ export default function PromptPopover({
       discardFiles,
       onSubmit,
       pickedAssets,
+      retainFiles,
       restorePromptText,
       selectedUploadFiles,
       t,

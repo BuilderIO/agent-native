@@ -119,6 +119,8 @@ export function AddSlidePopover({
   }, []);
   const {
     commitFiles,
+    discardFiles,
+    retainFiles,
     syncFiles,
     uploadFiles,
     uploading,
@@ -231,13 +233,22 @@ export function AddSlidePopover({
               "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
             ].join("\n");
 
-        const started = await agentSubmit(
-          addSlideAgentMessage(trimmedText),
-          context,
-        );
-        if (!started) return;
-        commitFiles(files);
-        onOpenChange(false);
+        retainFiles(files);
+        try {
+          const started = await agentSubmit(
+            addSlideAgentMessage(trimmedText),
+            context,
+          );
+          if (!started) {
+            discardFiles(files);
+            return;
+          }
+          commitFiles(files);
+          onOpenChange(false);
+        } catch (error) {
+          discardFiles(files);
+          throw error;
+        }
       } finally {
         submittingRef.current = false;
         setSubmitting(false);
@@ -248,11 +259,13 @@ export function AddSlidePopover({
       activeSlideIndex,
       agentSubmit,
       commitFiles,
+      discardFiles,
       deckId,
       deckTitle,
       googleDocContext,
       onOpenChange,
       slideCount,
+      retainFiles,
       t,
       targetSlideId,
       uploadFiles,

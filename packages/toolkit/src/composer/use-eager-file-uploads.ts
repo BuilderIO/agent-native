@@ -14,6 +14,7 @@ export function useEagerFileUploads<T>(
 ) {
   const uploadsRef = useRef(new Map<File, UploadEntry<T>>());
   const pendingRef = useRef(new Set<File>());
+  const retainedFilesRef = useRef(new Set<File>());
   const mountedRef = useRef(true);
   const [uploading, setUploading] = useState(false);
 
@@ -25,6 +26,7 @@ export function useEagerFileUploads<T>(
 
   const discardFile = useCallback(
     (file: File) => {
+      retainedFilesRef.current.delete(file);
       const entry = uploadsRef.current.get(file);
       if (!entry) return;
       uploadsRef.current.delete(file);
@@ -59,6 +61,12 @@ export function useEagerFileUploads<T>(
     },
     [discardFile, syncUploading],
   );
+
+  const retainFiles = useCallback((files: readonly File[]) => {
+    for (const file of new Set(files)) {
+      if (uploadsRef.current.has(file)) retainedFilesRef.current.add(file);
+    }
+  }, []);
 
   const startUploads = useCallback(
     (files: File[]) => {
@@ -118,6 +126,7 @@ export function useEagerFileUploads<T>(
   const commitFiles = useCallback(
     (files: readonly File[]) => {
       for (const file of new Set(files)) {
+        retainedFilesRef.current.delete(file);
         if (!uploadsRef.current.has(file)) continue;
         uploadsRef.current.delete(file);
         pendingRef.current.delete(file);
@@ -128,8 +137,9 @@ export function useEagerFileUploads<T>(
   );
 
   const reset = useCallback(() => {
-    for (const file of uploadsRef.current.keys()) discardFile(file);
-    pendingRef.current.clear();
+    for (const file of uploadsRef.current.keys()) {
+      if (!retainedFilesRef.current.has(file)) discardFile(file);
+    }
     syncUploading();
   }, [discardFile, syncUploading]);
 
@@ -143,6 +153,7 @@ export function useEagerFileUploads<T>(
   return {
     commitFiles,
     discardFiles,
+    retainFiles,
     syncFiles,
     uploadFiles,
     uploading,

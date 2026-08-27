@@ -49,6 +49,7 @@ function useEagerFileUploadsMock<T>(
   return {
     commitFiles: () => {},
     discardFiles: () => {},
+    retainFiles: () => {},
     syncFiles: () => {},
     uploadFiles,
     uploading,

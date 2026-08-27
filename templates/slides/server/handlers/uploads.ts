@@ -254,29 +254,45 @@ export const uploadFiles = defineEventHandler(async (event) => {
         return { error: `File too large (max ${formatMaxFileSize(limit)})` };
       }
 
-      let results;
-      try {
-        results = await Promise.all(
-          fileParts.map(async (part) => {
-            return saveUploadedReferenceFile({
-              email,
-              orgId,
-              originalName: part.filename || "upload",
-              data: part.data,
-              type: part.type,
-            });
-          }),
+      const results = await Promise.allSettled(
+        fileParts.map(async (part) => {
+          return saveUploadedReferenceFile({
+            email,
+            orgId,
+            originalName: part.filename || "upload",
+            data: part.data,
+            type: part.type,
+          });
+        }),
+      );
+      const successfulResults = results.filter(
+        (result): result is PromiseFulfilledResult<UploadedReferenceFile> =>
+          result.status === "fulfilled",
+      );
+      const failedResult = results.find(
+        (result) => result.status === "rejected",
+      );
+      if (failedResult) {
+        await Promise.allSettled(
+          successfulResults.map((result) =>
+            deleteUploadedReferenceBlob(result.value.path, email),
+          ),
         );
-      } catch (err) {
         const statusCode =
-          typeof (err as { statusCode?: unknown })?.statusCode === "number"
-            ? (err as { statusCode: number }).statusCode
+          typeof (failedResult.reason as { statusCode?: unknown })
+            ?.statusCode === "number"
+            ? (failedResult.reason as { statusCode: number }).statusCode
             : 400;
         setResponseStatus(event, statusCode);
-        return { error: err instanceof Error ? err.message : "Invalid upload" };
+        return {
+          error:
+            failedResult.reason instanceof Error
+              ? failedResult.reason.message
+              : "Invalid upload",
+        };
       }
 
-      return results;
+      return successfulResults.map((result) => result.value);
     },
     authContext,
   );

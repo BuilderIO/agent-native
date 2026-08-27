@@ -49,6 +49,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
   useEagerFileUploads: () => ({
     commitFiles: () => {},
     discardFiles: () => {},
+    retainFiles: () => {},
     syncFiles: () => {},
     uploadFiles: async () => [],
     uploading: false,

@@ -85,6 +85,29 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
   return data as UploadedFile[];
 }
 
+async function deleteUploadedPromptFile(file: UploadedFile): Promise<void> {
+  const response = await fetch(`${appBasePath()}/api/uploads`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ path: file.path }),
+  });
+  if (!response.ok) {
+    throw new Error(`Upload cleanup failed (${response.status})`);
+  }
+}
+
+async function cleanupUploadedPromptFiles(files: UploadedFile[]) {
+  const results = await Promise.allSettled(
+    files.map((file) => deleteUploadedPromptFile(file)),
+  );
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      console.error("Eager upload cleanup failed", result.reason);
+    }
+  });
+}
+
 async function uploadFileChunked(file: File): Promise<UploadedFile> {
   const startResponse = await fetch(
     `${appBasePath()}/api/uploads-chunked/start`,
@@ -171,12 +194,38 @@ export async function uploadPromptFiles(
   const largeIndices = files.flatMap((file, index) =>
     file.size > CHUNK_UPLOAD_THRESHOLD_BYTES ? [index] : [],
   );
-  const [smallUploads, largeUploads] = await Promise.all([
+  const smallPromise =
     smallIndices.length > 0
       ? uploadFilesMultipart(smallIndices.map((index) => files[index]))
-      : [],
-    Promise.all(largeIndices.map((index) => uploadFileChunked(files[index]))),
+      : Promise.resolve([] as UploadedFile[]);
+  const [smallResult, largeResults] = await Promise.all([
+    smallPromise.then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason) => ({ status: "rejected" as const, reason }),
+    ),
+    Promise.allSettled(
+      largeIndices.map((index) => uploadFileChunked(files[index])),
+    ),
   ]);
+  const successfulLargeUploads = largeResults.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+  const failedLargeResult = largeResults.find(
+    (result) => result.status === "rejected",
+  );
+  if (smallResult.status === "rejected") {
+    await cleanupUploadedPromptFiles([...successfulLargeUploads]);
+    throw smallResult.reason;
+  }
+  if (failedLargeResult) {
+    await cleanupUploadedPromptFiles([
+      ...smallResult.value,
+      ...successfulLargeUploads,
+    ]);
+    throw failedLargeResult.reason;
+  }
+  const smallUploads = smallResult.value;
+  const largeUploads = successfulLargeUploads;
   if (smallUploads.length !== smallIndices.length) {
     throw new Error("Upload failed: response file count did not match request");
   }
@@ -342,21 +391,12 @@ export default function PromptPopover({
     };
   }, [open, onOpenChange, anchorRef]);
 
-  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
-    const response = await fetch(`${appBasePath()}/api/uploads`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ path: file.path }),
-    });
-    if (!response.ok) {
-      throw new Error(`Upload cleanup failed (${response.status})`);
-    }
-  }, []);
+  const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
 
   const {
     commitFiles,
     discardFiles,
+    retainFiles,
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
@@ -397,6 +437,7 @@ export default function PromptPopover({
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
+        retainFiles(files);
         const result = await onSubmit(enrichedText, uploaded, {
           commit: () => {
             commitFiles(files);
@@ -421,6 +462,7 @@ export default function PromptPopover({
         }
         setSubmitting(false);
       } catch (error) {
+        discardFiles(files);
         setSubmitting(false);
         toast.error(t("raw.uploadFailed"), {
           description:
@@ -437,6 +479,7 @@ export default function PromptPopover({
       googleDocContext,
       onBeforeUpload,
       onSubmit,
+      retainFiles,
       uploadFiles,
       t,
     ],
