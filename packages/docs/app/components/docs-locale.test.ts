@@ -104,6 +104,20 @@ describe("localizeDocsHref", () => {
     );
   });
 
+  // A query would otherwise be read as part of the slug and end up inside the
+  // path, as `/docs/client-data?tab=api/`.
+  it("keeps a query string after the trailing slash", () => {
+    expect(localizeDocsHref("/docs/client-data?tab=api", "de-DE")).toBe(
+      "/de-de/docs/client-data/?tab=api",
+    );
+  });
+
+  it("keeps a query and a fragment together, in order", () => {
+    expect(
+      localizeDocsHref("/docs/client-data?tab=api#overview", "de-DE"),
+    ).toBe("/de-de/docs/client-data/?tab=api#overview");
+  });
+
   it("leaves a Markdown twin link alone", () => {
     expect(localizeDocsHref("/docs/client-data.md", "de-DE")).toBe(
       "/docs/client-data.md",
@@ -142,6 +156,29 @@ describe("localizeDocsMarkdownLinks", () => {
     const body = "[x](https://example.com/docs/a) [y](/docs/a.md)";
 
     expect(localizeDocsMarkdownLinks(body, "es-ES")).toBe(body);
+  });
+
+  // Docs teach syntax by example. Rewriting a link inside a fence edits the
+  // sample the reader is meant to copy.
+  it("leaves links inside fenced code alone", () => {
+    const body = [
+      "Prose [a](/docs/actions-overview).",
+      "",
+      "```md",
+      "Copy this: [Actions](/docs/actions-overview)",
+      "```",
+    ].join("\n");
+
+    const out = localizeDocsMarkdownLinks(body, "en-US");
+
+    expect(out).toContain("Prose [a](/docs/actions-overview/).");
+    expect(out).toContain("Copy this: [Actions](/docs/actions-overview)");
+  });
+
+  it("leaves links inside inline code alone", () => {
+    expect(localizeDocsMarkdownLinks("use `[a](/docs/x)` here", "en-US")).toBe(
+      "use `[a](/docs/x)` here",
+    );
   });
 });
 

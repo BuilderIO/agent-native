@@ -183,15 +183,17 @@ export function sitePathForLocale(
  * and non-docs hrefs alone.
  */
 export function localizeDocsHref(href: string, locale: DocsLocale): string {
-  const hashIndex = href.indexOf("#");
-  const path = hashIndex === -1 ? href : href.slice(0, hashIndex);
-  const hash = hashIndex === -1 ? "" : href.slice(hashIndex);
+  // Split on whichever comes first: a query would otherwise be read as part of
+  // the slug and land inside the path, as `/docs/x?tab=api/`.
+  const suffixIndex = href.search(/[?#]/);
+  const path = suffixIndex === -1 ? href : href.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : href.slice(suffixIndex);
   if (!path || !path.startsWith("/") || isFileLikePath(path)) return href;
   if (!isDocsPath(path)) return href;
   const slug = docsSlugFromPathname(path);
   if (!slug) return href;
   const target = routeLocaleFromPathname(path) ?? locale;
-  return `${docsPathForSlug(slug, target)}${hash}`;
+  return `${docsPathForSlug(slug, target)}${suffix}`;
 }
 
 /**
@@ -203,11 +205,21 @@ export function localizeDocsMarkdownLinks(
   markdown: string,
   locale: DocsLocale,
 ): string {
-  return markdown.replace(
-    /(\]\()(\/[^)\s]+)(\))/g,
-    (_match, open: string, href: string, close: string) =>
-      `${open}${localizeDocsHref(href, locale)}${close}`,
-  );
+  // Fenced and inline code are literal samples a reader copies. Rewriting a
+  // link inside one edits the example instead of the page's own links, so the
+  // split keeps code spans out of the rewrite.
+  return markdown
+    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part.replace(
+            /(\]\()(\/[^)\s]+)(\))/g,
+            (_match, open: string, href: string, close: string) =>
+              `${open}${localizeDocsHref(href, locale)}${close}`,
+          ),
+    )
+    .join("");
 }
 
 export function browserDocsLocale() {

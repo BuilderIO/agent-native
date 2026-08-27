@@ -101,7 +101,10 @@ describe("docs agent web generation", () => {
 
     const bare: string[] = [];
     for (const page of withLinks) {
-      for (const [, href] of page.markdown!.matchAll(
+      // Fenced examples are literal samples and stay exactly as authored, so
+      // scanning them would flag the very links the rewrite must not touch.
+      const prose = page.markdown!.replace(/```[\s\S]*?(?:```|$)/g, "");
+      for (const [, href] of prose.matchAll(
         /\]\((\/[a-zA-Z][^)\s]*)\)/g,
       )) {
         if (!href.includes("/docs/")) continue;
