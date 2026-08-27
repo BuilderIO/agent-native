@@ -1,5 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
-import { and, asc, eq, isNull, ne, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
 
 import { isUniqueConstraintViolation } from "../../shared/db-conflict.js";
 import { getDb, schema } from "../db/index.js";
@@ -8,10 +8,61 @@ type DesignSystemTx = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
 
-let oneDefaultIndexPromise: Promise<void> | null = null;
+export const DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX =
+  "design_systems_one_default_per_scope_idx";
 
 /**
- * Best-effort unique index enforcing at most one default design system per
+ * Clear every default in a scope except the earliest-created row, across
+ * every owner/org at once. Release-time maintenance, not a per-request
+ * helper -- reconciles duplicate defaults left by the pre-fix race so
+ * `createDesignSystemsOneDefaultIndex` below can actually be created (a
+ * UNIQUE INDEX creation fails outright while duplicates exist). Returns the
+ * number of rows healed.
+ *
+ * Uses Drizzle's query builder rather than raw SQL specifically to avoid
+ * hand-rolling a dialect-portable boolean literal in an UPDATE ... SET
+ * clause; `schema.designSystems.isDefault`'s `{ mode: "boolean" }` column
+ * type already handles that conversion for both dialects.
+ */
+export async function healDuplicateDesignSystemDefaults(): Promise<number> {
+  const db = getDb();
+  // guard:allow-unscoped — release-time maintenance reconciling every
+  // owner/org scope's stray duplicate defaults left by the pre-fix race,
+  // not a single caller's data. Read-only; the write below is scoped to the
+  // exact stale row ids this computes.
+  const flagged = await db
+    .select({
+      id: schema.designSystems.id,
+      ownerEmail: schema.designSystems.ownerEmail,
+      orgId: schema.designSystems.orgId,
+    })
+    .from(schema.designSystems)
+    .where(eq(schema.designSystems.isDefault, true))
+    .orderBy(asc(schema.designSystems.createdAt));
+
+  const seenScopes = new Set<string>();
+  const staleIds: string[] = [];
+  for (const row of flagged) {
+    const scopeKey = `${row.ownerEmail}\u0000${row.orgId ?? ""}`;
+    if (seenScopes.has(scopeKey)) {
+      staleIds.push(row.id);
+    } else {
+      seenScopes.add(scopeKey);
+    }
+  }
+
+  if (staleIds.length > 0) {
+    await db
+      .update(schema.designSystems)
+      .set({ isDefault: false, updatedAt: new Date().toISOString() })
+      .where(inArray(schema.designSystems.id, staleIds));
+  }
+
+  return staleIds.length;
+}
+
+/**
+ * Create the unique index enforcing at most one default design system per
  * (owner_email, org_id) scope. An application-level read-then-write inside a
  * transaction is not enough on Postgres READ COMMITTED: a SELECT over an
  * empty scope takes no row lock, so two concurrent create/proxy/set-default
@@ -32,32 +83,49 @@ let oneDefaultIndexPromise: Promise<void> | null = null;
  * partial-index predicate, and SQLite treats the same nonzero/zero integer
  * as truthy/falsy in a `WHERE` expression.
  *
- * Created lazily on first use rather than at plugin boot -- schema DDL in a
- * server plugin body runs on every cold start regardless of whether that
- * request ever touches design systems (see the `performance` skill and
- * `guard:no-boot-data-work`). Memoized per warm process; `CREATE UNIQUE INDEX
- * IF NOT EXISTS` is itself idempotent, so a cold start racing a fresh call
- * pays this at most once more. Fails soft (logged, not thrown) so a database
- * that still has pre-existing duplicate defaults from before this fix
- * doesn't block every design-system write.
+ * `CREATE UNIQUE INDEX` fails outright while duplicate defaults exist, so
+ * callers that want it to actually stick should call
+ * `healDuplicateDesignSystemDefaults` first -- see `scripts/migrate-production.ts`,
+ * the release-time authoritative caller, which runs both under
+ * `withMigrationRuntime`. Throws on failure; callers decide how to degrade.
+ */
+export async function createDesignSystemsOneDefaultIndex(): Promise<void> {
+  await getDbExec().execute(
+    `CREATE UNIQUE INDEX IF NOT EXISTS ${DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX} ON design_systems (owner_email, COALESCE(org_id, '')) WHERE is_default`,
+  );
+}
+
+let oneDefaultIndexPromise: Promise<void> | null = null;
+
+/**
+ * Best-effort, request-time fallback for environments that never run
+ * `scripts/migrate-production.ts` (local dev, tests). Hosted production runs
+ * schema DDL exclusively through the release migration path -- a normal
+ * request/plugin-boot call is blocked there by
+ * `assertSchemaMutationAllowed()` (see `packages/core/src/db/client.ts`), so
+ * this call fails soft and does nothing in that environment; the release
+ * script is what actually creates the index for production.
+ *
+ * Only a successful attempt is memoized. A failure (duplicates not yet
+ * healed, transient DB error, the production block above) is logged and the
+ * memo is cleared, so the next call retries instead of disabling index
+ * creation for the rest of the warm process.
  */
 function ensureOneDefaultPerScopeIndex(): Promise<void> {
   if (!oneDefaultIndexPromise) {
-    oneDefaultIndexPromise = (async () => {
-      try {
-        await getDbExec().execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS design_systems_one_default_per_scope_idx ON design_systems (owner_email, COALESCE(org_id, '')) WHERE is_default`,
-        );
-      } catch (err) {
+    oneDefaultIndexPromise = createDesignSystemsOneDefaultIndex().catch(
+      (err: unknown) => {
         console.warn(
-          "[db] design_systems_one_default_per_scope_idx not created — " +
+          `[db] ${DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX} not created — ` +
             "likely pre-existing duplicate defaults from the create/proxy " +
-            "race predating this fix. New concurrent claims remain " +
-            "best-effort until the duplicates are cleaned up:",
+            "race predating this fix, or a production runtime that only " +
+            "allows schema DDL through the release migration script. New " +
+            "concurrent claims remain best-effort until then:",
           err instanceof Error ? err.message : err,
         );
-      }
-    })();
+        oneDefaultIndexPromise = null;
+      },
+    );
   }
   return oneDefaultIndexPromise;
 }
