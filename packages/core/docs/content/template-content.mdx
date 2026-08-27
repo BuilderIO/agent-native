@@ -11,6 +11,14 @@ you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a
 page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" - same
 result whether you do it yourself or ask.
 
+<Cards columns={1}>
+
+### [Try it out now →](https://content.agent-native.com)
+
+See Content live: open a real workspace, edit a page, and ask the agent to reorganize it.
+
+</Cards>
+
 <WireframeBlock id="doc-block-content1">
   <Screen
     surface="desktop"
@@ -79,37 +87,43 @@ When you open the app, you'll see a page tree next to the editor. The agent alwa
 
 </Diagram>
 
-## What you can do with it
+## What it replaces
 
-- **Write and organize documents.** Rich text editing, an infinitely nested page tree, favorites, comments, version history, and sharing. See [Writing & organizing documents](/docs/template-content-editing).
-- **Build Notion-style databases.** Tables where every row is its own document, with typed properties and table/list/gallery/board/calendar/timeline/form views. See [Databases, properties & forms](/docs/template-content-databases).
-- **Collect structured submissions.** Turn a database into an intake form that the agent, Slack, or another app can submit into safely. See [Databases, properties & forms](/docs/template-content-databases).
-- **Edit files on disk like Obsidian**, and keep documents in sync with Notion or Builder CMS. See [Local files, Notion & Builder CMS sync](/docs/template-content-sync).
-- **Collaborate in real time.** Multiple people (and the agent) can edit the same doc at the same time without clobbering each other.
-- **Share docs** with teammates or make them public — private by default, with viewer / editor / admin roles.
-- **Ask the agent for anything**: "Rewrite this paragraph." "Add a TL;DR at the top." "Find all my meeting notes from last week." "Create a beta-signup database with a form for Slack submissions."
+<Comparison>
 
-## Getting started
+### Before
 
-Live demo: [content.agent-native.com](https://content.agent-native.com).
+- Obsidian, or a folder of local Markdown files, for private notes
+- A separate Notion workspace for docs a team can browse together
+- A headless CMS for anything that ships to a live site
+- Copying content between all three by hand whenever one falls behind
 
-When you open the app, click **+ New page** in the sidebar, give it a title, and start writing. To use the agent, type in the sidebar:
+### After
 
-- "Create a page called Onboarding and add three sub-pages under it."
-- "Rewrite this paragraph to be more concise." (with a page open)
-- "Add a section about pricing with three bullet points."
-- "Summarize this doc into a TL;DR at the top."
-- "Pull the latest from Notion." (after linking a Notion page)
+- One workspace for private pages, team docs, and published content
+- The same document can sync to local files, Notion, or Builder CMS instead of being retyped into each
+- The agent reads and writes through the same actions and the same pages you do
+- A change from an outside source lands as a reviewable change set, never a silent overwrite
 
-Select text and hit Cmd+I to focus the agent with that selection pre-loaded — "make this punchier" then operates on exactly what you highlighted.
+</Comparison>
 
-To scaffold your own copy of Content:
+Documents are private by default, with viewer/editor/admin sharing and a public read-only mode when you want one out in the world. Multiple people (and the agent) can edit the same page at once without clobbering each other. See [Writing & organizing documents](/docs/template-content-editing), [Databases, properties & forms](/docs/template-content-databases), and [Local files, Notion & Builder CMS sync](/docs/template-content-sync) for each of those in depth.
+
+## Get started {#get-started}
 
 ```bash
 npx @agent-native/core@latest create my-content --standalone --template content
 ```
 
-See [Getting started](/docs/getting-started) for the rest of the setup (`cd`, `pnpm install`, `pnpm dev`) and the framework fundamentals.
+See [Content: Developer Guide](/docs/template-content-developers#quick-start) for install, first run, and connecting an LLM.
+
+When you open the app, click **+ New page** in the sidebar, give it a title, and start writing, or ask the agent directly:
+
+- "Create a page called Onboarding and add three sub-pages under it."
+- "Rewrite this paragraph to be more concise." (with a page open)
+- "Pull the latest from Notion." (after linking a Notion page)
+
+Select text and hit Cmd+I to focus the agent with that selection pre-loaded — "make this punchier" then operates on exactly what you highlighted.
 
 ## What's next
 
