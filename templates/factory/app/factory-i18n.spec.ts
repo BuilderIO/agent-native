@@ -39,6 +39,8 @@ const requiredKeys = [
   "factoryRoute.savedFactoryLabel",
   "factoryRoute.inboxTab",
   "factoryRoute.inboxBackToList",
+  "triage.untitled",
+  "triage.statusValues.received",
   "factoryRoute.auditTab",
   "factoryRoute.auditGuardsLabel",
   "factoryRoute.auditTrace",

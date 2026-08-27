@@ -15,6 +15,9 @@ describe("Factory route factory switching", () => {
     );
     expect(source).toContain("onDeleted={goToFactoryList}");
     expect(source).toContain(
+      "<FactoryInboxView key={factoryId} factoryId={factoryId} />",
+    );
+    expect(source).toContain(
       "<AutomationsView key={factoryId} factoryId={factoryId} t={t} />",
     );
   });

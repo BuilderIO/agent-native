@@ -1,4 +1,5 @@
 import type { SlackMessage, Workspace } from "../connectors/slack.js";
+import { safeHttpUrl } from "../lib/safe-http-url";
 import type { IngestionEnvelope } from "./contracts";
 import { createSlackReader } from "./slack-client";
 import {
@@ -74,11 +75,12 @@ function toEnvelope(
   const threadTs = message.thread_ts ?? message.ts;
   const suppliedPermalink = (message as SlackMessage & { permalink?: string })
     .permalink;
-  const sourceUrl =
+  const sourceUrl = safeHttpUrl(
     suppliedPermalink ??
-    (teamDomain
-      ? `https://${teamDomain}.slack.com/archives/${channelId}/p${message.ts.replace(".", "")}${threadTs !== message.ts ? `?thread_ts=${threadTs}` : ""}`
-      : undefined);
+      (teamDomain
+        ? `https://${teamDomain}.slack.com/archives/${channelId}/p${message.ts.replace(".", "")}${threadTs !== message.ts ? `?thread_ts=${threadTs}` : ""}`
+        : undefined),
+  );
 
   return {
     source: "slack",

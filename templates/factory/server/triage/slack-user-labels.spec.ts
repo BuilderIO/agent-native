@@ -4,7 +4,9 @@ import {
   collectMentionIds,
   collectSlackUserIds,
   parseUserLabelsJson,
+  resolveSlackUserLabels,
   serializeUserLabels,
+  SLACK_USER_INFO_MAX,
 } from "./slack-user-labels";
 
 describe("collectSlackUserIds", () => {
@@ -56,5 +58,23 @@ describe("user label serialization", () => {
     expect(() => parseUserLabelsJson("{")).toThrow(
       "Slack user labels are unreadable.",
     );
+  });
+});
+
+describe("resolveSlackUserLabels", () => {
+  it("looks up only the first N unique ids and leaves the rest unresolved", async () => {
+    const lookups: string[] = [];
+    const userIds = Array.from(
+      { length: SLACK_USER_INFO_MAX + 8 },
+      (_, index) => `U${index}`,
+    );
+    const labels = await resolveSlackUserLabels(userIds, async (userId) => {
+      lookups.push(userId);
+      return { name: userId, displayName: `Name ${userId}` };
+    });
+
+    expect(lookups).toHaveLength(SLACK_USER_INFO_MAX);
+    expect(labels.size).toBe(SLACK_USER_INFO_MAX);
+    expect(labels.has(`U${SLACK_USER_INFO_MAX}`)).toBe(false);
   });
 });

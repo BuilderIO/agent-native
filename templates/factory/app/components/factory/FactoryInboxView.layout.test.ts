@@ -27,6 +27,11 @@ describe("FactoryInboxView", () => {
     expect(source).not.toContain(
       "lg:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.4fr)]",
     );
+    expect(source).toContain("safeHttpUrl");
+    expect(source).toContain('t("triage.approvalError")');
+    expect(source).toContain('t("triage.feedbackError")');
+    expect(source).toContain("triage.statusValues.");
+    expect(source).toContain('t("triage.untitled")');
     expect(source).not.toContain('t("factoryRoute.selectObservation")');
   });
 });

@@ -14,6 +14,7 @@ import { useSearchParams } from "react-router";
 
 import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { safeHttpUrl } from "@/lib/safe-http-url";
 
 type FactoryAuditCounts = {
   newlyObserved: number;
@@ -638,11 +639,14 @@ function formatAuditSource(source: string | null): string {
 }
 
 function resolveAuditSourceLink(item: FactoryAuditItem): string | null {
-  if (item.sourceUrl) return item.sourceUrl;
+  const stored = safeHttpUrl(item.sourceUrl);
+  if (stored) return stored;
   for (const event of item.events) {
     const channelId = readStringDetail(event.details, "channelId");
     const threadTs = readStringDetail(event.details, "threadTs");
-    if (channelId && threadTs) return slackThreadUrl(channelId, threadTs);
+    if (channelId && threadTs) {
+      return safeHttpUrl(slackThreadUrl(channelId, threadTs));
+    }
   }
   return null;
 }

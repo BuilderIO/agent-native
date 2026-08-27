@@ -740,7 +740,7 @@ export default function FactoryRoute() {
             />
           </div>
         ) : activeTab === "inbox" ? (
-          <FactoryInboxView factoryId={factoryId} />
+          <FactoryInboxView key={factoryId} factoryId={factoryId} />
         ) : activeTab === "rules" ? (
           <RulesView factoryId={factoryId} t={t} />
         ) : activeTab === "settings" ? (

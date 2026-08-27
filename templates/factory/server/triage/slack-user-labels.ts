@@ -2,6 +2,7 @@ import type { SlackMessage } from "../connectors/slack.js";
 import { parseTriageMetadata } from "./metadata.js";
 
 export const SLACK_USER_INFO_CONCURRENCY = 4;
+export const SLACK_USER_INFO_MAX = 40;
 
 export const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)(?:\|[^>]+)?>/gi;
 
@@ -50,7 +51,7 @@ export async function resolveSlackUserLabels(
 ): Promise<Map<string, string>> {
   const uniqueIds = [
     ...new Set(userIds.map((id) => id.trim()).filter(Boolean)),
-  ];
+  ].slice(0, SLACK_USER_INFO_MAX);
   const labels = new Map<string, string>();
   await mapWithConcurrency(uniqueIds, concurrency, async (userId) => {
     try {

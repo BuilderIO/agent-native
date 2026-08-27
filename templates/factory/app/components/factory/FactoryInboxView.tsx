@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { safeHttpUrl } from "@/lib/safe-http-url";
 
 const INBOX_PAGE_SIZE = 50;
 const INBOX_STATUSES = [
@@ -262,7 +263,7 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
                   <option value="">{t("triage.statusPlaceholder")}</option>
                   {INBOX_STATUSES.map((value) => (
                     <option key={value} value={value}>
-                      {value}
+                      {t(`triage.statusValues.${value}`)}
                     </option>
                   ))}
                 </select>
@@ -302,7 +303,7 @@ export function FactoryInboxView({ factoryId }: { factoryId: string }) {
                   </div>
                   {items.map((item) => {
                     const id = inboxItemId(item);
-                    const snippet = inboxSnippet(item);
+                    const snippet = inboxSnippet(item, t("triage.untitled"));
                     const updatedAge = formatInboxAge(item.updatedAt);
                     return (
                       <button
@@ -468,6 +469,7 @@ function InboxDetailPane({
       confirm: true;
     }) => void;
     isPending: boolean;
+    isError: boolean;
   };
   feedbackMutation: {
     mutate: (input: {
@@ -477,9 +479,11 @@ function InboxDetailPane({
       note?: string;
     }) => void;
     isPending: boolean;
+    isError: boolean;
   };
 }) {
   const source = item.source ?? listItem?.source ?? item.sourceName;
+  const sourceUrl = safeHttpUrl(item.sourceUrl ?? listItem?.sourceUrl);
   const reason =
     item.decisions?.[item.decisions.length - 1]?.reason ??
     item.decisions?.[item.decisions.length - 1]?.summary ??
@@ -498,15 +502,18 @@ function InboxDetailPane({
           </p>
           <p className="truncate text-sm font-medium">
             <SlackMrkdwn
-              text={inboxSnippet(item) || inboxSnippet(listItem)}
+              text={
+                inboxSnippet(item, t("triage.untitled")) ||
+                inboxSnippet(listItem, t("triage.untitled"))
+              }
               inline
               mentionLabels={mentionLabels}
               builderSlackUserId={builderSlackUserId}
             />
           </p>
-          {(item.sourceUrl || listItem?.sourceUrl) && (
+          {sourceUrl && (
             <a
-              href={item.sourceUrl ?? listItem?.sourceUrl ?? undefined}
+              href={sourceUrl}
               target="_blank"
               rel="noreferrer"
               className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -574,6 +581,11 @@ function InboxDetailPane({
               <IconPlayerPlay className="size-4" />
               {t("factoryRoute.approveAndStart")}
             </Button>
+            {approveMutation.isError ? (
+              <p className="text-sm text-destructive">
+                {t("triage.approvalError")}
+              </p>
+            ) : null}
             {events.length > 0 ? (
               <div className="space-y-2">
                 {events.map((event) => (
@@ -653,6 +665,11 @@ function InboxDetailPane({
                 >
                   {t("triage.submitFeedback")}
                 </Button>
+                {feedbackMutation.isError ? (
+                  <p className="text-sm text-destructive">
+                    {t("triage.feedbackError")}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -861,10 +878,13 @@ function looksLikeSlackUserId(value: string): boolean {
   return /^[UW][A-Z0-9]+$/i.test(value.trim());
 }
 
-function inboxSnippet(item: InboxListItem | InboxDetail | null): string {
+function inboxSnippet(
+  item: InboxListItem | InboxDetail | null,
+  untitled: string,
+): string {
   const summary = item?.summary?.trim();
   if (summary) return summary;
-  return item?.title?.trim() || "Untitled";
+  return item?.title?.trim() || untitled;
 }
 
 function isSlackSource(source?: string | null): boolean {

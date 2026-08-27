@@ -82,12 +82,20 @@ export default defineAction({
     const hasMore = rows.length > limit;
     const last = page[page.length - 1];
 
-    const decisions = await db
-      .select()
-      .from(triageDecisions)
-      .where(orgFactoryDecisionFilter(orgId, factoryId))
-      .orderBy(desc(triageDecisions.createdAt))
-      .limit(500);
+    const pageIds = page.map((item) => item.id);
+    const decisions =
+      pageIds.length === 0
+        ? []
+        : await db
+            .select()
+            .from(triageDecisions)
+            .where(
+              and(
+                orgFactoryDecisionFilter(orgId, factoryId),
+                inArray(triageDecisions.itemId, pageIds),
+              ),
+            )
+            .orderBy(desc(triageDecisions.createdAt));
     const latestByItem = new Map<string, (typeof decisions)[number]>();
     for (const decision of decisions) {
       if (!latestByItem.has(decision.itemId)) {

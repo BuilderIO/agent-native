@@ -20,6 +20,7 @@ describe("FactoryAuditView outcome-first audit", () => {
     );
     expect(source).toContain("SlackMrkdwn");
     expect(source).toContain("inline");
+    expect(source).toContain("safeHttpUrl");
     expect(source).not.toContain("formatAuditCountLabel");
     expect(source).not.toContain("Slack thread");
   });

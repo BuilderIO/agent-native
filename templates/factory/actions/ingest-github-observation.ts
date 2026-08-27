@@ -9,6 +9,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { safeHttpUrl } from "../server/lib/safe-http-url.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { pullRequestSnapshotToEnvelope } from "../server/triage/github-ingestion.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
@@ -47,7 +48,13 @@ export default defineAction({
     pullRequestNumber: z.number().int().positive(),
     headSha: z.string().trim().min(1).max(128),
     title: z.string().trim().min(1).max(500),
-    sourceUrl: z.string().url().optional(),
+    sourceUrl: z
+      .string()
+      .url()
+      .refine((value) => safeHttpUrl(value) !== null, {
+        message: "sourceUrl must be an http or https URL.",
+      })
+      .optional(),
     summary: z.string().trim().max(4_000).optional(),
     changedFiles: z.array(z.string().max(500)).max(500).optional(),
     diffLines: z.number().int().nonnegative().optional(),
