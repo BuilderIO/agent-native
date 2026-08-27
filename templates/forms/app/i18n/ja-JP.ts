@@ -202,6 +202,12 @@ const messages = {
       successMessage: "成功メッセージ",
       defaultSuccessMessage: "ありがとうございます！回答が記録されました。",
       redirectUrl: "リダイレクト URL（任意）",
+      completionMode: "送信後",
+      completionMessage: "更新するまでメッセージを表示",
+      completionRedirect: "URL にリダイレクト",
+      completionMessageThenRefresh: "メッセージを表示してから更新",
+      completionRefresh: "新しいフォームで更新",
+      completionRefreshSeconds: "更新までの秒数",
       anonymousResponses: "匿名の回答",
       anonymousResponsesDescription:
         "IP アドレス、回答者の身元、送信元メタデータを保存しません。",

@@ -2,7 +2,12 @@ import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { isConditionalFieldVisible } from "@shared/conditional";
-import type { FormField, FormSettings } from "@shared/types";
+import {
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
+  type FormField,
+  type FormSettings,
+} from "@shared/types";
 import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import { useState, useMemo, useEffect } from "react";
 import { useParams } from "react-router";
@@ -72,6 +77,19 @@ export function FormFillPage() {
     [form?.fields],
   );
   const settings: FormSettings = form?.settings || {};
+  const completionMode = getFormCompletionMode(settings);
+  const completionRefreshSeconds = getFormCompletionRefreshSeconds(
+    settings.completionRefreshSeconds,
+  );
+
+  useEffect(() => {
+    if (!submitted || completionMode !== "message_then_refresh") return;
+    const timeout = window.setTimeout(
+      () => window.location.reload(),
+      completionRefreshSeconds * 1000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [submitted, completionMode, completionRefreshSeconds]);
 
   // Scale fields render the slider at their minimum even before the user
   // interacts, so seed that displayed default into form state. Otherwise a
@@ -174,11 +192,18 @@ export function FormFillPage() {
       },
       {
         onSuccess: () => {
-          setSubmitted(true);
-          if (settings.redirectUrl) {
+          if (completionMode === "redirect" && settings.redirectUrl) {
             const redirectUrl = safeRedirectUrl(settings.redirectUrl);
-            if (redirectUrl) window.location.assign(redirectUrl);
+            if (redirectUrl) {
+              window.location.assign(redirectUrl);
+              return;
+            }
           }
+          if (completionMode === "refresh") {
+            window.location.reload();
+            return;
+          }
+          setSubmitted(true);
         },
         onError: (err: any) => {
           toast.error(err?.error || t("publicForm.failedSubmit"));
