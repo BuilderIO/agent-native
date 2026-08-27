@@ -2814,6 +2814,23 @@ export function collectRawFigmaSvgScene(
           "conic-gradient has no SVG equivalent — rasterized this element's region via screenshot.",
       };
     }
+    // The fill builder resolves every gradient layer against the whole box, so
+    // a background TILED with its own background-size/position exports as one
+    // stretched gradient. The importer draws a Figma diamond gradient as four
+    // quadrant tiles precisely because CSS has no diamond, and flattening them
+    // turned a four-pointed star back into a single diagonal ramp on the way
+    // out. Rasterizing the leaf reproduces whatever the tiles draw.
+    if (
+      el.children.length === 0 &&
+      /gradient\(/i.test(base.backgroundImage || "") &&
+      /\d\s*px/.test(style.backgroundSize || "")
+    ) {
+      return {
+        ...base,
+        rasterReason:
+          "tiled gradient background (per-layer background-size) has no SVG equivalent — rasterized this element's region via screenshot.",
+      };
+    }
 
     // An inline <svg> is already vector art. Its children paint through
     // presentation attributes and a viewBox scale that the box/text model

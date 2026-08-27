@@ -159,7 +159,11 @@ describe("radial/diamond gradient axis mapping (bug: radiusX/radiusY swapped)", 
     expect(radiusY).toBeCloseTo(90, 0);
   });
 
-  it("applies the same fixed axis mapping to the diamond-gradient ellipse approximation", () => {
+  // A diamond gradient is drawn as four quadrant tiles rather than an ellipse
+  // (CSS has no diamond, but the falloff is linear inside one quadrant). The
+  // axis mapping still has to hold: the tile is rx by ry, so the same swap
+  // would make every tile the wrong shape.
+  it("applies the same fixed axis mapping to the diamond gradient's quadrant tiles", () => {
     const node: FigmaNode = {
       id: "diamond",
       type: "RECTANGLE",
@@ -173,10 +177,13 @@ describe("radial/diamond gradient axis mapping (bug: radiusX/radiusY swapped)", 
       children: [node],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    const match = html.match(/radial-gradient\(ellipse ([\d.]+)px ([\d.]+)px/);
+    const match = html.match(/background-size:\s*([\d.]+)px ([\d.]+)px/);
+    expect(match).not.toBeNull();
     const radiusX = Number(match![1]);
     const radiusY = Number(match![2]);
     expect(radiusX).toBeGreaterThan(radiusY);
+    expect(radiusX).toBeCloseTo(180, 0);
+    expect(radiusY).toBeCloseTo(90, 0);
   });
 });
 
