@@ -524,11 +524,17 @@ export function RunErrorRecoveryCard({
   // replayed.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
-  // Rejected provider keys already have a recovery path: update/connect the
-  // credential, then let the setup callback re-run the turn. Exposing a
-  // separate retry button here just replays the same rejected credential and
-  // turns a permanent auth failure into a loop.
-  const canRetry = canRecover || isUnblockableExternally;
+  // Rejected provider keys keep their setup path below — update/connect the
+  // credential and the setup callback re-runs the turn. They ALSO get a retry
+  // now, which the old comment here ruled out because "retry replays the same
+  // rejected credential and turns a permanent auth failure into a loop". That
+  // is no longer true: a 401 fingerprints the credential and skips it for a
+  // backing-off window (`recordProviderCredentialAuthFailure`), so the next
+  // attempt reaches for a different one, or fails closed as missing
+  // credentials. Without this the common case — a rejected workspace or
+  // deployment credential the reader cannot see, let alone edit — rendered a
+  // "Connected ✓" panel with no action at all.
+  const canRetry = canRecover || isUnblockableExternally || isProviderAuthError;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&

@@ -60,7 +60,7 @@ vi.mock("../i18n.js", () => ({
         "agentChat.recovery.copyDebug": "Copy debug info",
         "agentChat.recovery.copyFailed": "Copy failed",
         "agentChat.recovery.credentialRejected":
-          "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+          "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
           "This run can be continued in a new chat.",
         "agentChat.recovery.reconnectBuilder": "Reconnect Builder.io",
@@ -416,7 +416,19 @@ describe("run recovery surfaces", () => {
     });
   });
 
-  it("shows the AI setup flow without a direct retry button for a rejected provider key", async () => {
+  // Prod, 2026-08-26 (slides): this exact shape — a 401 whose body is the
+  // gateway's absent-credential sentence — reached users whose own key was
+  // fine, because the rejected credential belonged to the workspace. They got
+  // a setup panel for a connection already marked good and no way forward. The
+  // retry premise ("replays the same rejected credential") stopped being true
+  // once a 401 started fingerprinting and skipping that credential, so the
+  // setup flow and a retry now ship together.
+  //
+  // Asserted through `aria-label`: the retry control is an icon-only button, so
+  // the previous `textContent` check read "" and passed no matter what
+  // rendered.
+  it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
+    const onRetry = vi.fn();
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -431,7 +443,7 @@ describe("run recovery surfaces", () => {
               details: '401 {"error":{"type":"authentication_error"}}',
             }}
             onContinue={vi.fn()}
-            onRetry={vi.fn()}
+            onRetry={onRetry}
             onDismiss={vi.fn()}
           />
         </AgentNativeI18nProvider>,
@@ -440,10 +452,15 @@ describe("run recovery surfaces", () => {
 
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Custom keys");
-    const buttonLabels = Array.from(container.querySelectorAll("button")).map(
-      (button) => button.textContent?.trim() ?? "",
+
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
-    expect(buttonLabels).not.toContain("Retry");
+    expect(retryButton).toBeTruthy();
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("renders missing-provider errors as inline setup and retries on click", async () => {
@@ -584,7 +601,7 @@ describe("run recovery surfaces", () => {
           <RunErrorRecoveryCard
             info={{
               message:
-                "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+                "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
               errorCode: "authentication_error",
             }}
             onContinue={vi.fn()}
