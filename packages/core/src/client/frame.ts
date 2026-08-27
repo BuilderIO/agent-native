@@ -119,10 +119,12 @@ function startContentHeightReporting(): void {
   _contentHeightReportingStarted = true;
   let scheduled = false;
   const schedule = () => {
+    if (typeof window === "undefined") return;
     if (scheduled) return;
     scheduled = true;
     window.requestAnimationFrame(() => {
       scheduled = false;
+      if (typeof window === "undefined") return;
       reportContentHeight();
     });
   };
