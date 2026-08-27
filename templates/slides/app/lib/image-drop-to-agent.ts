@@ -9,6 +9,11 @@
  * the slide needs a durable hosted URL.
  */
 
+import {
+  estimateAttachmentBodyBytes,
+  MAX_ESTIMATED_BODY_BYTES,
+} from "@agent-native/core/client/chat";
+
 import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../../shared/upload-types";
 
 export interface HostedImageUploadResult {
@@ -129,6 +134,17 @@ export function canInlineImageDataUrl(dataUrl: string): boolean {
     match &&
     match[2].length + `data:${match[1]};base64,`.length <=
       MAX_INLINE_IMAGE_BASE64_CHARS,
+  );
+}
+
+export function canAddInlineImageToPayload(
+  existingDataUrls: readonly string[],
+  candidate: string,
+): boolean {
+  return (
+    canInlineImageDataUrl(candidate) &&
+    estimateAttachmentBodyBytes([...existingDataUrls, candidate]) <=
+      MAX_ESTIMATED_BODY_BYTES
   );
 }
 

@@ -37,6 +37,29 @@ describe("getUploadedImageAgentOptions", () => {
       referenceImagePaths: ["https://cdn.example.test/large.png"],
     });
   });
+
+  it("caps the aggregate inline image payload while retaining every URL", () => {
+    const dataUrls = Array.from(
+      { length: 4 },
+      (_, index) =>
+        `data:image/png;base64,${String.fromCharCode(97 + index).repeat(800_000)}`,
+    );
+    const options = getUploadedImageAgentOptions(
+      dataUrls.map((dataUrl, index) => ({
+        path: `/uploads/image-${index}.png`,
+        url: `https://cdn.example.test/image-${index}.png`,
+        originalName: `image-${index}.png`,
+        filename: `image-${index}.png`,
+        type: "image/png",
+        size: 600_000,
+        dataUrl,
+      })),
+    );
+
+    expect(options.referenceImagePaths).toHaveLength(4);
+    expect(options.images).toHaveLength(3);
+    expect(options.images).toEqual(dataUrls.slice(0, 3));
+  });
 });
 
 describe("startDeckGeneration", () => {

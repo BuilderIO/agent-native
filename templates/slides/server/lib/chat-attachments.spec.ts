@@ -36,6 +36,10 @@ describe("buildSlidesDeckGenerationContext", () => {
       mode: "source-preserving",
       targetSlideCount: 6,
       designSystemId: "ds-1",
+      referenceSource: {
+        kind: "website",
+        value: "https://example.com/brand",
+      },
       files: [
         {
           originalName: "outline.png",
@@ -49,6 +53,9 @@ describe("buildSlidesDeckGenerationContext", () => {
       "Original brief: Turn this outline into a dark theme deck",
     );
     expect(context).toContain("Target slide count: 6");
+    expect(context).toContain(
+      "Selected reference source: website: https://example.com/brand",
+    );
     expect(context).toContain("path: data/uploads/user/outline.png");
     expect(context).toContain("URL: https://cdn.example.com/outline.png");
     expect(context).toContain("Re-open visual references before editing");

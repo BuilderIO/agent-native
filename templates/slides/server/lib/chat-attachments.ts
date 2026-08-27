@@ -56,6 +56,12 @@ export function buildSlidesDeckGenerationContext(
       : null;
   const designSystemId = boundedString(value.designSystemId, 200);
   const referenceDeckId = boundedString(value.referenceDeckId, 200);
+  const referenceSourceValue = isRecord(value.referenceSource)
+    ? boundedString(value.referenceSource.value, 2_000)
+    : null;
+  const referenceSourceKind = isRecord(value.referenceSource)
+    ? boundedString(value.referenceSource.kind, 40)
+    : null;
 
   return [
     "<slides-deck-generation-context>",
@@ -65,13 +71,16 @@ export function buildSlidesDeckGenerationContext(
     targetSlideCount ? `Target slide count: ${targetSlideCount}` : null,
     designSystemId ? `Design system id: ${designSystemId}` : null,
     referenceDeckId ? `Reference deck id: ${referenceDeckId}` : null,
+    referenceSourceKind && referenceSourceValue
+      ? `Selected reference source: ${referenceSourceKind}: ${referenceSourceValue}`
+      : null,
     "Reference files from the original request:",
     ...(files.length > 0
       ? files
       : [
           "- No file handle was persisted; use the current deck and thread evidence.",
         ]),
-    "Re-open visual references before editing with a persisted URL when present. Private paths are available to Slides file actions for supported document/deck formats; if a private raster image has no URL or inline bytes, do not claim visual inspection you did not perform. Do not infer a new unrelated topic from the follow-up message or from placeholder/brand text in the reference.",
+    "Re-open visual references before editing with a persisted URL when present. Private paths are available to Slides file actions for supported document/deck formats; for a private raster image without a URL, call import-file with format=image to attach it to vision before editing. If a visual source cannot be reopened, do not claim visual inspection you did not perform. Do not infer a new unrelated topic from the follow-up message or from placeholder/brand text in the reference.",
     "For source-preserving generation, continue the original slide sequence and finish all original/source slides before adding unrelated content. Verify with get-deck compact=true and do not claim completion until sourceCoverage.complete is true for the ordered source manifest, or the target slide count is satisfied for a new deck.",
     "</slides-deck-generation-context>",
   ]

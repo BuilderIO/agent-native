@@ -15,7 +15,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import {
-  canInlineImageDataUrl,
+  canAddInlineImageToPayload,
   canInlineImageFile,
   readFileAsDataUrl,
 } from "@/lib/image-drop-to-agent";
@@ -44,22 +44,41 @@ export async function addInlineImageFallbacks(
   files: File[],
   uploaded: UploadedFile[],
 ): Promise<UploadedFile[]> {
-  return Promise.all(
-    uploaded.map(async (uploadedFile, index) => {
-      const file = files[index];
-      const isImage =
-        uploadedFile.type.startsWith("image/") ||
-        Boolean(file?.type.startsWith("image/"));
-      if (!isImage || !file) return uploadedFile;
-      if (uploadedFile.dataUrl) {
-        if (canInlineImageDataUrl(uploadedFile.dataUrl)) return uploadedFile;
+  const inlineDataUrls: string[] = [];
+  const result: UploadedFile[] = [];
+  for (let index = 0; index < uploaded.length; index++) {
+    const uploadedFile = uploaded[index];
+    const file = files[index];
+    const isImage =
+      uploadedFile.type.startsWith("image/") ||
+      Boolean(file?.type.startsWith("image/"));
+    if (!isImage || !file) {
+      result.push(uploadedFile);
+      continue;
+    }
+    if (uploadedFile.dataUrl) {
+      if (canAddInlineImageToPayload(inlineDataUrls, uploadedFile.dataUrl)) {
+        inlineDataUrls.push(uploadedFile.dataUrl);
+        result.push(uploadedFile);
+      } else {
         const { dataUrl: _dataUrl, ...withoutDataUrl } = uploadedFile;
-        return withoutDataUrl;
+        result.push(withoutDataUrl);
       }
-      if (!canInlineImageFile(file)) return uploadedFile;
-      return { ...uploadedFile, dataUrl: await readFileAsDataUrl(file) };
-    }),
-  );
+      continue;
+    }
+    if (!canInlineImageFile(file)) {
+      result.push(uploadedFile);
+      continue;
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    if (canAddInlineImageToPayload(inlineDataUrls, dataUrl)) {
+      inlineDataUrls.push(dataUrl);
+      result.push({ ...uploadedFile, dataUrl });
+    } else {
+      result.push(uploadedFile);
+    }
+  }
+  return result;
 }
 
 // Netlify functions cap request bodies well under what a real PPTX/PDF

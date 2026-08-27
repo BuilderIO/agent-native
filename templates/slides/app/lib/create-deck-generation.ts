@@ -10,7 +10,7 @@ import type { NewDeckReferenceSelection } from "@/components/editor/NewDeckRefer
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { Deck, DeckPersistenceResult } from "@/context/DeckContext";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
-import { canInlineImageDataUrl } from "@/lib/image-drop-to-agent";
+import { canAddInlineImageToPayload } from "@/lib/image-drop-to-agent";
 import {
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
@@ -165,7 +165,7 @@ function describeUploadedFilesForAgent(
       : "- Do not pass `importIntoDeck: true` for an attached file unless the user explicitly asks to import or preserve the source pages in the current deck. An attached reference is not an instruction to replace or seed the deck.",
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
-    "- Image files without a URL are sent as inline visual/reference assets for this run when available; call `upload-image` if a durable embeddable URL is needed.",
+    '- Image files without a URL are sent as inline visual/reference assets for this run when available; on a follow-up, call `import-file --filePath "<path>" --format image` to reopen a persisted private raster before visual editing, and call `upload-image` if a durable embeddable URL is needed.',
     "- When converting an attached image into a deck, inspect the complete visual source before adding slides. If it contains distinct source frames, represent them in order; do not repeatedly place the source image itself, stop after an arbitrary subset, or infer a fixed frame count.",
     importedSourceDeck
       ? "- Before your final response, verify the same source slide IDs and count with get-deck after the restyle. If source fidelity is partial or images were skipped, report the exact warning instead of claiming success."
@@ -187,7 +187,7 @@ export function getUploadedImageAgentOptions(
   for (const file of files) {
     if (!file.type.startsWith("image/")) continue;
     if (file.url) referenceImagePaths.push(file.url);
-    if (file.dataUrl && canInlineImageDataUrl(file.dataUrl)) {
+    if (file.dataUrl && canAddInlineImageToPayload(images, file.dataUrl)) {
       images.push(file.dataUrl);
     }
   }

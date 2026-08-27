@@ -195,6 +195,34 @@ beforeEach(() => {
 });
 
 describe("import-file PDF source extraction", () => {
+  it("reopens a private raster reference as a vision tool result", async () => {
+    const image = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: image,
+      filename: "reference.png",
+    });
+
+    const result = (await action.run({
+      filePath: "private-reference.png",
+      format: "image",
+    })) as any;
+
+    expect(result).toMatchObject({
+      format: "image",
+      filename: "reference.png",
+      contentType: "image/png",
+      byteLength: image.length,
+      deckId: undefined,
+      _agentImages: [
+        {
+          data: image.toString("base64"),
+          mediaType: "image/png",
+          label: "reference.png",
+        },
+      ],
+    });
+  });
+
   it("returns full page text, not only previews", async () => {
     const fullText = "A".repeat(650);
     mockPdfText.mockResolvedValue({

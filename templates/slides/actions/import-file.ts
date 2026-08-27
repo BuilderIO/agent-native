@@ -42,9 +42,27 @@ import { withDeckLock } from "./patch-deck.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
+function rasterImageMediaType(
+  filename: string,
+): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
+  switch (path.extname(filename).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
 export default defineAction({
   description:
-    "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
+    "Import a file (PPTX, DOCX, PDF, FIG, or raster image) and extract content for creating slides or slide design systems. " +
     "For PPTX files, returns parsed slides with text and layout info ready for conversion, or writes positioned source-preserving slides when importIntoDeck is true. " +
     "For DOCX files, returns structured sections extracted from the document. " +
     "For PDF files, returns extracted text organized by page, or editable slides when importIntoDeck is true — a PDF this app exported restores its original slides, and any other PDF is rebuilt as positioned text boxes and images. " +
@@ -55,7 +73,7 @@ export default defineAction({
       .string()
       .describe("Uploaded file path or opaque hosted upload reference"),
     format: z
-      .enum(["pptx", "docx", "pdf", "fig", "auto"])
+      .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])
       .optional()
       .default("auto")
       .describe("File format — auto-detected from extension if not specified"),
@@ -94,11 +112,40 @@ export default defineAction({
       else if (ext === ".docx") detectedFormat = "docx";
       else if (ext === ".pdf") detectedFormat = "pdf";
       else if (ext === ".fig") detectedFormat = "fig";
+      else if (rasterImageMediaType(filename)) detectedFormat = "image";
       else {
         throw new Error(
-          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig`,
+          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig, .jpg, .png, .gif, .webp`,
         );
       }
+    }
+
+    if (detectedFormat === "image") {
+      if (importIntoDeck) {
+        throw new Error(
+          "Raster image imports are visual references, not slide imports. Use update-slide or add-slide to place the image after inspecting it.",
+        );
+      }
+      const mediaType = rasterImageMediaType(filename);
+      if (!mediaType) {
+        throw new Error(
+          "Vision image imports support only JPEG, PNG, GIF, and WebP files.",
+        );
+      }
+      return {
+        format: "image",
+        filename,
+        contentType: mediaType,
+        byteLength: fileBuffer.length,
+        deckId,
+        _agentImages: [
+          {
+            data: fileBuffer.toString("base64"),
+            mediaType,
+            label: filename,
+          },
+        ],
+      };
     }
 
     if (detectedFormat === "fig") {
