@@ -323,6 +323,10 @@ export default function DeckEditor() {
     },
     [],
   );
+  const toggleAnimations = useCallback(() => {
+    setAnimationTarget(null);
+    setAnimationsOpen((open) => !open);
+  }, []);
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
@@ -368,6 +372,10 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+
+  useEffect(() => {
+    setAnimationTarget(null);
+  }, [activeSlideId]);
 
   useEffect(() => {
     if (!deck) return;
@@ -1605,6 +1613,8 @@ export default function DeckEditor() {
         }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
+        animationsOpen={animationsOpen}
+        onToggleAnimations={toggleAnimations}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
         drawMode={drawMode}
@@ -1613,6 +1623,8 @@ export default function DeckEditor() {
         onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
         onToggleTextBoxMode={toggleTextBoxMode}
+        shapeType={shapeType}
+        onSelectShape={selectShape}
         onChangeSlideTransition={
           canEdit && currentSlide
             ? (transition) => updateSlide(id, currentSlide.id, { transition })
