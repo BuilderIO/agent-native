@@ -761,7 +761,7 @@ export async function migrateAnalyticsArtifacts(
           orgId: row.orgId,
           visibility: row.visibility,
           createdAt: row.createdAt,
-          createdBy: null,
+          createdBy: row.visibility === "private" ? row.ownerEmail : null,
           updatedAt: row.updatedAt,
           updatedBy: ctx.userEmail,
           archivedAt: row.archivedAt,
@@ -931,6 +931,8 @@ export async function migrateAnalyticsArtifacts(
           orgId: analysis.orgId,
           visibility: analysis.visibility,
           createdAt: analysis.createdAt,
+          createdBy:
+            analysis.visibility === "private" ? analysis.ownerEmail : null,
           updatedAt: now,
           updatedBy: ctx.userEmail,
           hiddenAt: analysis.hiddenAt,
@@ -995,6 +997,8 @@ export async function migrateAnalyticsArtifacts(
           orgId: extension.orgId,
           visibility: extension.visibility,
           createdAt: extension.createdAt,
+          createdBy:
+            extension.visibility === "private" ? extension.ownerEmail : null,
           updatedAt: now,
           updatedBy: ctx.userEmail,
           hiddenAt: extension.hiddenAt,
