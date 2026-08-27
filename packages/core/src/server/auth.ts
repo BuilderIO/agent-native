@@ -1121,6 +1121,8 @@ const AUTH_MAGIC_LINK_FALLBACK =
   "We couldn't send a sign-in link right now. Please try again.";
 const AUTH_MAGIC_LINK_UNAVAILABLE =
   "Magic-link sign-in requires a configured email provider.";
+const AUTH_EMAIL_VERIFICATION_UNAVAILABLE =
+  "Email verification requires a configured email provider.";
 const AUTH_SIGNUP_FALLBACK =
   "We couldn't create your account right now. Please try again.";
 const AUTH_VERIFICATION_LINK_FALLBACK =
@@ -2941,10 +2943,9 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
         // The sign-in document is part of the public server shell. Keep it on the
         // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
         // template roots do not invoke origin just to render anonymous login UI.
-        // The login markup is env-INDEPENDENT (a Google-only app always renders
-        // a working button); the analytics script is public build configuration,
-        // not user/session state. Never vary this per request — the
-        // deployment-wide override inside the resolver is the only knob.
+        // The login markup reflects deployment-wide auth configuration; the
+        // analytics script is public build configuration, not user/session
+        // state. Never vary this per request by cookie or session.
         ...resolveSsrCacheHeaders(),
         "X-Robots-Tag": "noindex, nofollow",
       },
@@ -5054,6 +5055,18 @@ async function mountBetterAuthRoutes(
       ) {
         return new Response(
           JSON.stringify({ error: AUTH_MAGIC_LINK_UNAVAILABLE }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      if (
+        isSendVerificationEmail &&
+        getDeploymentEmailReadiness().status !== "ready"
+      ) {
+        return new Response(
+          JSON.stringify({ error: AUTH_EMAIL_VERIFICATION_UNAVAILABLE }),
           {
             status: 503,
             headers: { "content-type": "application/json" },

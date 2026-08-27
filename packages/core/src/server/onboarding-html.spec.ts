@@ -168,37 +168,46 @@ describe("getOnboardingHtml", () => {
     });
   });
 
-  describe("googleOnly login is env-independent (safe to CDN-cache)", () => {
-    it("renders a working Google button even when GOOGLE_CLIENT_ID/SECRET are absent at render time", () => {
-      // The login page is a public, CDN-cacheable shell that may be rendered in
-      // any context (build, an env-less cold start, a stale-while-revalidate
-      // refresh). A Google-only app must ALWAYS render a usable button and must
-      // never bake a "not configured" error into that cached HTML — otherwise a
-      // single bad render freezes the broken page for every visitor until the
-      // SWR window expires. A genuinely misconfigured server surfaces the error
-      // at click time via the auth API instead.
+  describe("googleOnly login follows deployment credentials", () => {
+    it("disables Google sign-in when the credential pair is absent", () => {
+      // A Google-only page must not send visitors into the desktop exchange
+      // flow when the server cannot mount a matching Google OAuth route.
       delete process.env.GOOGLE_CLIENT_ID;
       delete process.env.GOOGLE_CLIENT_SECRET;
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
+
+      const html = getOnboardingHtml({ googleOnly: true });
+
+      expect(html).not.toContain('id="google-btn"');
+      expect(html).not.toContain("async function signInWithGoogle()");
+      expect(html).toContain('id="google-err"');
+      expect(html).toContain('class="google-error show"');
+      expect(html).toContain('data-i18n="googleNotConfigured"');
+      expect(html).toContain("Google sign-in is not available right now.");
+    });
+
+    it("disables Google sign-in when only one credential is present", () => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;
+      vi.stubEnv("GOOGLE_SIGN_IN_CLIENT_SECRET", "sign-in-secret-without-id");
+
+      const html = getOnboardingHtml({ googleOnly: true });
+
+      expect(html).not.toContain('id="google-btn"');
+      expect(html).toContain("Google sign-in is not available right now.");
+    });
+
+    it("renders Google sign-in when a complete credential pair is present", () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
 
       const html = getOnboardingHtml({ googleOnly: true });
 
       expect(html).toContain('id="google-btn"');
       expect(html).toContain("async function signInWithGoogle()");
-      expect(html).toContain('onclick="signInWithGoogle()"');
-      expect(html).not.toContain("google-preflight");
-      expect(html).not.toContain("Google sign-in is not configured");
-    });
-
-    it("the rendered HTML is byte-for-byte identical with and without Google env vars", () => {
-      delete process.env.GOOGLE_CLIENT_ID;
-      delete process.env.GOOGLE_CLIENT_SECRET;
-      const withoutEnv = getOnboardingHtml({ googleOnly: true });
-
-      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-      const withEnv = getOnboardingHtml({ googleOnly: true });
-
-      expect(withoutEnv).toBe(withEnv);
+      expect(html).not.toContain('class="google-error show"');
     });
   });
 
@@ -308,6 +317,8 @@ describe("getOnboardingHtml", () => {
   });
 
   it("does not render a run-local CTA in the auth marketing panel", () => {
+    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
     const html = getOnboardingHtml({
       googleOnly: true,
       marketing: {

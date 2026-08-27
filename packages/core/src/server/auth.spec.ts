@@ -18,12 +18,9 @@ import {
 } from "../shared/password-policy.js";
 
 // The explicit login page is CDN-cached on the same long-fresh / long-SWR
-// policy as the rest of the server shell. Its HTML
-// is intentionally env-INDEPENDENT — it always renders the configured sign-in
-// method (e.g. a Google-only app always renders a working Google button), and
-// per-user / per-config state is resolved client-side after load. So a cached
-// copy is never "wrong": there is no server-config branch baked into it that a
-// stale copy could freeze. Disabling caching here (private, no-store) is wrong.
+// policy as the rest of the server shell. Its HTML contains deployment-wide
+// auth configuration but no per-user/session state, so it remains a public
+// shell. Disabling caching here (private, no-store) is wrong.
 function expectLoginHtmlCacheHeaders(response: Response) {
   expect(response.headers.get("Cache-Control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
   expect(response.headers.get("CDN-Cache-Control")).toBe(
@@ -1448,6 +1445,40 @@ describe("server/auth", () => {
         .filter((path: unknown): path is string => typeof path === "string");
       expect(paths).toContain("/_agent-native/google/auth-url");
       expect(paths).toContain("/_agent-native/google/callback");
+    });
+
+    it("does not mount Google OAuth routes when the credential pair is incomplete", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.GOOGLE_CLIENT_ID;
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret-without-id");
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const paths = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .filter((path: unknown): path is string => typeof path === "string");
+      expect(paths).not.toContain("/_agent-native/google/auth-url");
+      expect(paths).not.toContain("/_agent-native/google/callback");
+      expect(paths).toContain("/_agent-native/auth/desktop-exchange");
     });
 
     it("uses dedicated sign-in Google credentials for generic OAuth routes", async () => {
@@ -4565,6 +4596,7 @@ describe("server/auth", () => {
 
     it("sanitizes resend verification callback URLs before forwarding to Better Auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
@@ -4632,6 +4664,52 @@ describe("server/auth", () => {
         email: "user@example.com",
         callbackURL: "http://localhost/",
       });
+    });
+
+    it("blocks verification-email resend when no deployment provider is configured", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.RESEND_API_KEY;
+      delete process.env.SENDGRID_API_KEY;
+      delete process.env.EMAIL_FROM;
+
+      const betterAuthHandler = vi.fn();
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: betterAuthHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/send-verification-email", {
+          email: "user@example.com",
+          callbackURL: "/",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(503);
+      await expect((response as Response).json()).resolves.toEqual({
+        error: "Email verification requires a configured email provider.",
+      });
+      expect(betterAuthHandler).not.toHaveBeenCalled();
     });
 
     it("does not label failed email verification redirects as verified", async () => {
@@ -6409,6 +6487,8 @@ describe("server/auth", () => {
     });
 
     it("adds OAuth debug breadcrumbs to the minimal Google auth plugin page", async () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
       const createAuthPlugin = vi.fn((options: any) => options);
       vi.doMock("./auth-plugin.js", () => ({ createAuthPlugin }));
@@ -6535,6 +6615,8 @@ describe("server/auth", () => {
     });
 
     it("uses sign-in copy when only Google auth is enabled", async () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({ googleOnly: true });
 
@@ -6600,6 +6682,20 @@ describe("server/auth", () => {
       expect(html).toContain("callbackURL: __anResumeHref()");
       expect(html).not.toContain(
         "Account created! Check your email to verify, then sign in.",
+      );
+    });
+
+    it("only shows verification after an explicit unverified login response", async () => {
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml();
+
+      expect(html).toContain("var loginData;");
+      expect(html).toContain("loginData = await loginRes.json();");
+      expect(html).toContain(
+        "if (loginRes.status === 403 && /not verified|verification/i.test(loginError))",
+      );
+      expect(html).toContain(
+        "msg.textContent = loginError;\n        msg.classList.add('show', 'error');",
       );
     });
 
