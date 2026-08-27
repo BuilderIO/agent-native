@@ -320,8 +320,14 @@ export function resolveAgentNativeOgImageAppName(event?: H3Event): string {
     return resolveBuiltInAuthMarketingByName(appName)?.appName ?? appName;
   }
 
+  const packageName = packageDisplayName(getAppConfig().app.packageName);
+  if (packageName) return packageName;
+
   return (
-    packageDisplayName(getAppConfig().app.packageName) || titleFromAppName("")
+    resolveBuiltInAuthMarketing({
+      requestHost,
+      requestPath,
+    })?.appName || titleFromAppName("")
   );
 }
 
@@ -333,20 +339,29 @@ function resolveAgentNativeOgImageBrand(
     ? (getHeader(event, "x-forwarded-host") ?? getHeader(event, "host"))
     : undefined;
   const requestPath = event ? getRequestURL(event).pathname : undefined;
-  const requestMarketing = resolveBuiltInAuthMarketing({
-    requestHost,
-    requestPath,
-  });
   const explicitMarketing = resolveBuiltInAuthMarketingByName(
     process.env.APP_NAME,
   );
   const configuredMarketing = resolveBuiltInAuthMarketingByName(app.name);
+  const configuredFirstParty = Boolean(
+    explicitMarketing || configuredMarketing || isFirstPartyApp(app),
+  );
+  const hasCustomIdentity = Boolean(
+    !configuredFirstParty &&
+    (cleanText(process.env.APP_NAME) ||
+      cleanText(app.name) ||
+      packageDisplayName(app.packageName)),
+  );
+  const requestMarketing = hasCustomIdentity
+    ? undefined
+    : resolveBuiltInAuthMarketing({
+        requestHost,
+        requestPath,
+      });
   const isFirstParty = Boolean(
+    configuredFirstParty ||
     requestMarketing ||
-    explicitMarketing ||
-    configuredMarketing ||
-    isFirstPartyApp(app) ||
-    isAgentNativeHost(requestHost),
+    (!hasCustomIdentity && isAgentNativeHost(requestHost)),
   );
   const mode = isFirstParty ? "agent-native" : "custom";
 
@@ -425,9 +440,33 @@ async function loadLogoDataUrl(
       return undefined;
     }
 
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > MAX_LOGO_BYTES) return undefined;
-    return `data:${contentType};base64,${bytesToBase64(bytes)}`;
+    const body = response.body;
+    if (!body) return undefined;
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        byteLength += value.byteLength;
+        if (byteLength > MAX_LOGO_BYTES) {
+          await reader.cancel();
+          return undefined;
+        }
+        chunks.push(value);
+      }
+
+      const bytes = new Uint8Array(byteLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return `data:${contentType};base64,${bytesToBase64(bytes)}`;
+    } finally {
+      reader.releaseLock();
+    }
   } catch {
     // coercion-ok: an unreadable optional remote logo is intentionally omitted.
     return undefined;

@@ -109,6 +109,7 @@ describe("social OG image", () => {
 
   it("preserves explicit custom app names in the default title", () => {
     vi.stubEnv("APP_NAME", "Acme Workspace");
+    vi.stubEnv("APP_BASE_PATH", "/analytics");
     expect(resolveAgentNativeOgImageAppName()).toBe("Acme Workspace");
     const svg = renderAgentNativeOgImageSvg();
     expect(svg).toContain("Acme Workspace");
@@ -128,10 +129,10 @@ describe("social OG image", () => {
   });
 
   it("uses a custom logo instead of the framework mark", () => {
-    const svg = renderAgentNativeOgImageSvg({
-      appName: "Acme Workspace",
-      logoUrl: "https://cdn.example.com/acme.svg",
-    });
+    vi.stubEnv("APP_NAME", "Acme Workspace");
+    vi.stubEnv("APP_LOGO_URL", "https://cdn.example.com/acme.svg");
+
+    const svg = renderAgentNativeOgImageSvg();
 
     expect(svg).toContain(
       '<image x="0" y="0" width="114" height="66" href="https://cdn.example.com/acme.svg"',
