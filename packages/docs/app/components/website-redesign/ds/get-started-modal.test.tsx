@@ -9,7 +9,12 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const trackEventMock = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/client/analytics", () => ({
+  trackEvent: trackEventMock,
+}));
 
 import { docsI18nCatalog } from "../../../i18n";
 import { GetStartedCta } from "./get-started-modal";
@@ -17,6 +22,7 @@ import { SnackbarProvider } from "./snackbar";
 
 afterEach(() => {
   cleanup();
+  trackEventMock.mockReset();
 });
 
 function LocationProbe() {
@@ -78,6 +84,21 @@ describe("GetStartedCta", () => {
       dialog.getByRole("link", { name: "Browse apps" }).getAttribute("href"),
     ).toBe("/apps");
     expect(dialog.getByRole("button", { name: "Build online" })).toBeTruthy();
+  });
+
+  it("records Build online in the shared option dimension", () => {
+    renderCta();
+
+    fireEvent.click(trigger());
+    fireEvent.click(screen.getByRole("button", { name: "Build online" }));
+
+    expect(trackEventMock).toHaveBeenCalledWith("click build online", {
+      location: "get_started_modal",
+    });
+    expect(trackEventMock).toHaveBeenCalledWith("choose get started path", {
+      option: "build_online",
+      location: "hero",
+    });
   });
 
   it.each([

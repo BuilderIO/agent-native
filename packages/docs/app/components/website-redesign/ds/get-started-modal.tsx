@@ -149,14 +149,12 @@ export function GetStartedCta({
               </Button>
             </Option>
 
-            {/* BuildOnlinePopover fires its own "click build online" event, so
-              there is nothing to wrap here. Its default trigger belongs to the
-              older docs button vocabulary (full width, sans, rounded-md),
-              which is why this one used to look nothing like the other two.
-              The label stays on the catalog key because it is translated. */}
+            {/* Keep the existing click event and also add this choice to the
+                shared option dimension used by the other modal paths. */}
             <Option label={t("homepage.getStartedModal.buildInCloud")}>
               <BuildOnlinePopover
                 location="get_started_modal"
+                onOpen={() => choose("build_online")}
                 trigger={
                   <Button variant="cta" icon={null} className="uppercase">
                     {t("buildFromScratch.buildOnline")}

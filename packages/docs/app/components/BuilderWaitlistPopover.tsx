@@ -137,11 +137,13 @@ export function BuilderWaitlistContent({
 export function BuildOnlinePopover({
   location,
   trigger,
+  onOpen,
 }: {
   location: BuilderWaitlistLocation;
   // Redesign surfaces style their buttons from the --b-* token system; the
   // default trigger below belongs to the older docs button vocabulary.
   trigger?: ReactElement;
+  onOpen?: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -152,6 +154,7 @@ export function BuildOnlinePopover({
       onOpenChange={(nextOpen) => {
         if (nextOpen) {
           trackEvent("click build online", { location });
+          onOpen?.();
         }
         setOpen(nextOpen);
       }}
