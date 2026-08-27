@@ -432,6 +432,103 @@ const ptBR = {
     freeAndOpenSource: "100% grátis • código aberto",
     viewAllApps: "Ver todos os apps",
   },
+  homepage: {
+    hero: {
+      title: "O framework para aplicativos agentic",
+      bodyLine1:
+        "Construa para agentes de IA sem construir um segundo produto para os usuários.",
+      bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
+      learnMore: "Saiba mais",
+    },
+    install: {
+      copyCommand: "Copiar comando de instalação",
+    },
+    actions: {
+      title: "Uma Action alimenta cada superfície",
+      bodyLine1: "Actions são os blocos de construção de um app Agent-Native.",
+      bodyLine2:
+        "Defina a funcionalidade uma vez e use-a a partir da sua UI, chat do agente, HTTP API, MCP, A2A ou CLI.",
+      diagramAlt:
+        "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
+    },
+    builtIn: {
+      title: "Integrado em cada app Agent-Native",
+      body: "Tudo o que usuários e agentes de IA precisam para trabalhar juntos, já conectado em uma aplicação.",
+      pillars: {
+        reactUi: {
+          title: "UI em React",
+          body: "Dê aos usuários telas familiares para navegar, editar e revisar trabalho.",
+        },
+        agentChat: {
+          title: "Chat de agente incorporado",
+          body: "Deixe os usuários delegarem trabalho, fazerem perguntas e revisarem resultados sem sair do app.",
+        },
+        sharedState: {
+          title: "Estado de aplicação compartilhado",
+          body: "O agente sabe o que os usuários estão vendo, selecionando e editando.",
+        },
+        sharedSql: {
+          title: "Dados SQL compartilhados",
+          body: "Usuários e agentes leem e atualizam a mesma fonte de verdade.",
+        },
+        skillsMemory: {
+          title: "Habilidades e memória",
+          body: "Dê aos agentes expertise reutilizável e contexto persistente.",
+        },
+        automations: {
+          title: "Automações",
+          body: "Execute trabalho do agente automaticamente por horários ou eventos da aplicação.",
+        },
+        agentTeams: {
+          title: "Equipes de agentes",
+          body: "Delegue trabalho a agentes especializados dentro do app ou entre apps.",
+        },
+        auth: {
+          title: "Autenticação e organizações",
+          body: "Login, contas de usuário e associação a organizações já vêm integrados.",
+        },
+        sharing: {
+          title: "Compartilhamento e permissões",
+          body: "Controle quem pode visualizar, comentar, editar ou gerenciar cada recurso.",
+        },
+      },
+    },
+    stack: {
+      title: "Funciona com sua stack",
+      body: "Traga seu LLM, banco de dados, ferramentas e infraestrutura; Agent-Native é TypeScript de código aberto, então sua aplicação continua sua.",
+      exploreApps: "Explore apps criados com Agent-Native",
+    },
+    showcase: {
+      title: "O que você pode construir com Agent-Native?",
+      body: "Comece com um chat, uma ferramenta interna focada, ou um produto completo voltado ao cliente. Cada app dá aos usuários uma UI e aos agentes as ferramentas para fazer o mesmo trabalho.",
+      browseApps: "Explorar apps",
+      scrollLeft: "Rolar apps para a esquerda",
+      scrollRight: "Rolar apps para a direita",
+    },
+    bottomCta: {
+      title: "Construa seu primeiro app Agent-Native",
+      body: "Crie uma aplicação para usuários e agentes de IA. Traga seu próprio LLM e implante em qualquer lugar.",
+    },
+    getStartedModal: {
+      title: "Começar",
+      close: "Fechar",
+      buildLocally: "Criar um app localmente",
+      tryAnApp: "Experimentar um app",
+      buildInCloud: "Criar na nuvem",
+    },
+    footer: {
+      tagline: "O framework para aplicativos agentic.",
+      framework: "Framework",
+      ecosystem: "Ecossistema",
+      community: "Comunidade",
+      legal: "Legal",
+      docs: "Documentação",
+      actions: "Actions",
+      apps: "Apps",
+      privacyPolicy: "Política de Privacidade",
+      saasTerms: "Termos de SaaS",
+    },
+  },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
     eyebrow: "Comece com uma app funcional e deixe o agente evoluí-la.",

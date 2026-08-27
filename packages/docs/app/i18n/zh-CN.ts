@@ -426,6 +426,101 @@ const zhCN = {
     freeAndOpenSource: "100% 免费 • 开源",
     viewAllApps: "查看所有应用",
   },
+  homepage: {
+    hero: {
+      title: "面向 agentic 应用的框架",
+      bodyLine1: "为 agent 构建，无需为用户单独打造第二个产品。",
+      bodyLine2: "使用你自己的 LLM，随处部署。",
+      learnMore: "了解更多",
+    },
+    install: {
+      copyCommand: "复制安装命令",
+    },
+    actions: {
+      title: "一个 Action 驱动所有能力面",
+      bodyLine1: "Action 是 Agent-Native 应用的基础构建块。",
+      bodyLine2:
+        "只需定义一次功能，即可在 UI、agent 对话、HTTP API、MCP、A2A 或 CLI 中使用。",
+      diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
+    },
+    builtIn: {
+      title: "每个 Agent-Native 应用都内置这些能力",
+      body: "用户和 AI agent 协同工作所需的一切，已经集成到同一个应用中。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "为用户提供熟悉的界面，用于浏览、编辑和审核工作。",
+        },
+        agentChat: {
+          title: "内嵌 agent 对话",
+          body: "让用户无需离开应用即可委派工作、提问和查看结果。",
+        },
+        sharedState: {
+          title: "共享的应用状态",
+          body: "agent 知道用户正在查看、选择和编辑的内容。",
+        },
+        sharedSql: {
+          title: "共享的 SQL 数据",
+          body: "用户和 agent 读取并更新同一份可信数据源。",
+        },
+        skillsMemory: {
+          title: "Skills 与 memory",
+          body: "为 agent 提供可复用的专业知识和持久上下文。",
+        },
+        automations: {
+          title: "自动化",
+          body: "按计划或应用事件自动运行 agent 工作。",
+        },
+        agentTeams: {
+          title: "Agent 团队",
+          body: "在应用内部或跨应用把工作委派给专业 agent。",
+        },
+        auth: {
+          title: "身份认证与组织",
+          body: "登录、用户账户和组织成员关系均已内置。",
+        },
+        sharing: {
+          title: "分享与权限",
+          body: "控制谁可以查看、评论、编辑或管理每一项资源。",
+        },
+      },
+    },
+    stack: {
+      title: "适配你的技术栈",
+      body: "带上你自己的 LLM、数据库、工具和基础设施，Agent-Native 是开源的 TypeScript，你的应用始终归你所有。",
+      exploreApps: "探索用 Agent-Native 构建的应用",
+    },
+    showcase: {
+      title: "你能用 Agent-Native 构建什么？",
+      body: "从聊天、专注的内部工具，到完整的面向客户的产品，任何形态都可以从这里开始。每个应用都为用户提供 UI，也为 agent 提供完成同样工作的工具。",
+      browseApps: "浏览应用",
+      scrollLeft: "向左滚动应用",
+      scrollRight: "向右滚动应用",
+    },
+    bottomCta: {
+      title: "构建你的第一个 Agent-Native 应用",
+      body: "为用户和 AI agent 打造同一个应用。使用你自己的 LLM，随处部署。",
+    },
+    getStartedModal: {
+      title: "开始使用",
+      close: "关闭",
+      buildLocally: "在本地构建应用",
+      tryAnApp: "试用一个应用",
+      buildInCloud: "在云端构建",
+    },
+    footer: {
+      tagline: "面向 agentic 应用的框架。",
+      framework: "框架",
+      ecosystem: "生态",
+      community: "社区",
+      legal: "法律",
+      docs: "文档",
+      actions: "行动",
+      apps: "应用",
+      privacyPolicy: "隐私政策",
+      saasTerms: "SaaS 条款",
+    },
+  },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
     eyebrow: "从一个可运行的 app 开始，让 agent 继续改进它。",
