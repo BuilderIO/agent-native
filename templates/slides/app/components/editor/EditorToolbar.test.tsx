@@ -2,6 +2,7 @@
 
 import {
   cleanup,
+  createEvent,
   fireEvent,
   render,
   screen,
@@ -346,5 +347,39 @@ describe("<EditorToolbar>", () => {
     fireEvent.click(presentLink!);
 
     expect(onPresent).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves native behavior for modified and auxiliary Present clicks", () => {
+    const onPresent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onPresent={onPresent}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink).not.toBeNull();
+
+    for (const eventInit of [{ metaKey: true }, { button: 1 }]) {
+      const event = createEvent.click(presentLink!, eventInit);
+      fireEvent(presentLink!, event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+
+    expect(onPresent).not.toHaveBeenCalled();
   });
 });

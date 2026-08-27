@@ -962,6 +962,15 @@ export default function EditorToolbar({
         onClick={
           onPresent
             ? (event) => {
+                if (
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                ) {
+                  return;
+                }
                 event.preventDefault();
                 void onPresent();
               }

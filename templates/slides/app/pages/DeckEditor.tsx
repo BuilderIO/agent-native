@@ -1501,9 +1501,9 @@ export default function DeckEditor() {
 
   const handlePresent = async () => {
     if (presentNavigationRef.current) return;
-    presentNavigationRef.current = true;
     try {
       await flushDeckSave(id);
+      presentNavigationRef.current = true;
       navigate(`/deck/${id}/present?slide=${Math.max(0, currentIndex) + 1}`);
     } catch (error) {
       presentNavigationRef.current = false;
