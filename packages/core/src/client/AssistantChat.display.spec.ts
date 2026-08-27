@@ -501,7 +501,11 @@ describe("send-now promotion", () => {
     expect(promotionSource).toContain("promoteQueuedMessage(prev, id)");
     expect(source).toContain("return hoistQueuedMessageToFront(messages, id)");
     expect(promotionSource).not.toContain("stopActiveRunRef.current");
-    expect(source).toContain("if (next.promoted)");
+    expect(source).toContain(
+      "const currentNext = queuedMessagesRef.current[0]",
+    );
+    expect(source).toContain("currentNext.id !== next.id");
+    expect(source).toContain("if (currentNext.promoted)");
     expect(source).toContain("threadRuntime.startRun({");
   });
 });

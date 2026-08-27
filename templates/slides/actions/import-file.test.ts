@@ -223,6 +223,20 @@ describe("import-file PDF source extraction", () => {
     });
   });
 
+  it("fails clearly when a private raster exceeds the vision tool limit", async () => {
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.alloc(1_500_001),
+      filename: "large-reference.png",
+    });
+
+    await expect(
+      action.run({
+        filePath: "large-reference.png",
+        format: "image",
+      }),
+    ).rejects.toThrow("vision tool limit");
+  });
+
   it("returns full page text, not only previews", async () => {
     const fullText = "A".repeat(650);
     mockPdfText.mockResolvedValue({

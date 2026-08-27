@@ -4729,78 +4729,82 @@ const AssistantChatInner = forwardRef<
             return;
           }
 
+          const currentNext = queuedMessagesRef.current[0];
           if (
             queueStopVersionRef.current !== stopVersion ||
-            queuedMessagesRef.current[0]?.id !== next.id
+            !currentNext ||
+            currentNext.id !== next.id
           ) {
             return;
           }
 
-          if (next.promoted) {
+          if (currentNext.promoted) {
             const promotedMessage = threadRuntime
               .getState()
               .messages.find(
                 (message) =>
                   message.role === "user" &&
                   message.metadata?.custom?.agentNativeQueuedMessageId ===
-                    next.id,
+                    currentNext.id,
               );
             if (!promotedMessage) return;
             threadRuntime.startRun({
               parentId: promotedMessage.id,
               runConfig:
                 createUserMessageRunConfig(
-                  next.references,
-                  next.requestMode,
-                  next.recoveryAction,
-                  next.trackInRunsTray,
-                  next.approvedToolCalls,
-                  next.id,
-                  next.hideUserMessage,
+                  currentNext.references,
+                  currentNext.requestMode,
+                  currentNext.recoveryAction,
+                  currentNext.trackInRunsTray,
+                  currentNext.approvedToolCalls,
+                  currentNext.id,
+                  currentNext.hideUserMessage,
                   {
-                    model: next.model,
-                    engine: next.engine,
-                    effort: next.effort,
+                    model: currentNext.model,
+                    engine: currentNext.engine,
+                    effort: currentNext.effort,
                   },
-                  next.turnId,
+                  currentNext.turnId,
                 ).runConfig ?? {},
             });
             applyLocalQueuedMessages((prev) =>
-              prev.filter((message) => message.id !== next.id),
+              prev.filter((message) => message.id !== currentNext.id),
             );
           } else {
             // Keep the placeholder visible while waiting. Remove it only when
             // the append is about to begin, so queue stalls stay recoverable.
             applyLocalQueuedMessages((prev) =>
-              prev.filter((message) => message.id !== next.id),
+              prev.filter((message) => message.id !== currentNext.id),
             );
             removedForAppend = true;
 
-            const imageAttachments = createAgentImageAttachments(next.images);
+            const imageAttachments = createAgentImageAttachments(
+              currentNext.images,
+            );
             const messageAttachments =
-              next.attachments && next.attachments.length > 0
-                ? next.attachments
+              currentNext.attachments && currentNext.attachments.length > 0
+                ? currentNext.attachments
                 : (imageAttachments ?? []);
             appendThreadMessage({
               role: "user",
-              content: [{ type: "text", text: next.text }],
+              content: [{ type: "text", text: currentNext.text }],
               ...(messageAttachments.length > 0
                 ? { attachments: messageAttachments }
                 : {}),
               ...createUserMessageRunConfig(
-                next.references,
-                next.requestMode,
-                next.recoveryAction,
-                next.trackInRunsTray,
-                next.approvedToolCalls,
-                next.id,
-                next.hideUserMessage,
+                currentNext.references,
+                currentNext.requestMode,
+                currentNext.recoveryAction,
+                currentNext.trackInRunsTray,
+                currentNext.approvedToolCalls,
+                currentNext.id,
+                currentNext.hideUserMessage,
                 {
-                  model: next.model,
-                  engine: next.engine,
-                  effort: next.effort,
+                  model: currentNext.model,
+                  engine: currentNext.engine,
+                  effort: currentNext.effort,
                 },
-                next.turnId,
+                currentNext.turnId,
               ),
             } as Parameters<typeof threadRuntime.append>[0]);
           }

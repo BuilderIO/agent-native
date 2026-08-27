@@ -1,6 +1,10 @@
 import path from "path";
 
-import type { AgentChatAttachment } from "@agent-native/core/server";
+import {
+  getRequestRunContext,
+  type AgentChatAttachment,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 
 import {
   isSlidesReferenceFileExtension,
@@ -88,6 +92,36 @@ export function buildSlidesDeckGenerationContext(
     .join("\n");
 }
 
+export async function readSlidesDeckGenerationContext(): Promise<
+  string | null
+> {
+  const scope = getRequestRunContext()?.chatScope;
+  if (scope?.type !== "deck" || !scope.id) return null;
+
+  const access = await resolveAccess("deck", scope.id);
+  if (!access) return null;
+
+  try {
+    const data = JSON.parse(access.resource.data) as unknown;
+    return buildSlidesDeckGenerationContext(
+      isRecord(data) ? data.generationContext : null,
+    );
+  } catch (error) {
+    console.warn("[slides-agent-chat] Could not read persisted deck context", {
+      deckId: scope.id,
+      error,
+    });
+    return null;
+  }
+}
+
+export function appendSlidesDeckGenerationContext(
+  message: string,
+  context: string | null,
+): string {
+  return context ? [message, context].join("\n\n") : message;
+}
+
 function decodeDataUrl(data: string | undefined): {
   bytes: Buffer;
   contentType: string;
@@ -117,7 +151,14 @@ export async function prepareSlidesChatAttachments(args: {
   message: string;
   attachments: AgentChatAttachment[];
 }): Promise<{ message?: string; attachments?: AgentChatAttachment[] } | void> {
-  if (!args.ownerEmail || args.attachments.length === 0) return;
+  const generationContext = await readSlidesDeckGenerationContext();
+  if (!args.ownerEmail || args.attachments.length === 0) {
+    const message = appendSlidesDeckGenerationContext(
+      args.message,
+      generationContext,
+    );
+    return message === args.message ? undefined : { message };
+  }
 
   const uploaded: Array<{
     originalName: string;
@@ -191,7 +232,13 @@ export async function prepareSlidesChatAttachments(args: {
     }
   }
 
-  if (uploaded.length === 0 && failed.length === 0) return;
+  if (uploaded.length === 0 && failed.length === 0) {
+    const message = appendSlidesDeckGenerationContext(
+      args.message,
+      generationContext,
+    );
+    return message === args.message ? undefined : { message };
+  }
 
   const fileList = uploaded
     .map(
@@ -250,7 +297,10 @@ export async function prepareSlidesChatAttachments(args: {
     .join("\n");
 
   return {
-    message: `${args.message}\n\n${attachmentContext}`,
+    message: appendSlidesDeckGenerationContext(
+      [args.message, attachmentContext].join("\n\n"),
+      generationContext,
+    ),
     attachments: nextAttachments,
   };
 }

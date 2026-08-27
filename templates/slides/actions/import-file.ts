@@ -1,6 +1,7 @@
 import path from "path";
 
 import { defineAction } from "@agent-native/core/action";
+import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
@@ -132,6 +133,12 @@ export default defineAction({
           "Vision image imports support only JPEG, PNG, GIF, and WebP files.",
         );
       }
+      const imageData = fileBuffer.toString("base64");
+      if (imageData.length > MAX_TOOL_RESULT_IMAGE_BASE64_CHARS) {
+        throw new Error(
+          `Raster image "${filename}" exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-character vision tool limit. Upload a smaller image and retry.`,
+        );
+      }
       return {
         format: "image",
         filename,
@@ -140,7 +147,7 @@ export default defineAction({
         deckId,
         _agentImages: [
           {
-            data: fileBuffer.toString("base64"),
+            data: imageData,
             mediaType,
             label: filename,
           },

@@ -1,16 +1,11 @@
 import {
   createAgentChatPlugin,
-  getRequestRunContext,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
-import {
-  buildSlidesDeckGenerationContext,
-  prepareSlidesChatAttachments,
-} from "../lib/chat-attachments.js";
+import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -39,31 +34,6 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-request",
 ];
 
-async function currentDeckGenerationContext(): Promise<string | null> {
-  const scope = getRequestRunContext()?.chatScope;
-  if (scope?.type !== "deck" || !scope.id) return null;
-
-  const access = await resolveAccess("deck", scope.id);
-  if (!access) return null;
-
-  try {
-    const data = JSON.parse(access.resource.data) as unknown;
-    return buildSlidesDeckGenerationContext(
-      isRecord(data) ? data.generationContext : null,
-    );
-  } catch (error) {
-    console.warn("[slides-agent-chat] Could not read persisted deck context", {
-      deckId: scope.id,
-      error,
-    });
-    return null;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export default createAgentChatPlugin({
   appId: "slides",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
@@ -79,7 +49,6 @@ export default createAgentChatPlugin({
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Drive endpoint.
   codeExecution: { production: "sandboxed" },
-  extraContext: currentDeckGenerationContext,
   // Upload routes and action routes must use the same session/org resolver.
   // Reading getOrgContext directly here skipped the upload route's session
   // fallback and could reject a freshly uploaded reference after a transient
