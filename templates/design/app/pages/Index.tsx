@@ -619,14 +619,26 @@ export default function Index() {
         // Full-app designs are backed by a real running container, not a
         // queued inline generation — skip writePendingGeneration and let the
         // fusion app mutation (and its own status/progress banner in the
-        // editor) drive the build instead.
-        void ready
-          .then(() =>
-            createFusionAppMutation.mutateAsync({
-              designId: id,
-              prompt,
-            } as any),
-          )
+        // editor) drive the build instead. Still wait for the design row
+        // before navigating so the first get-design cannot 404 and bounce
+        // home while create is settling.
+        try {
+          await ready;
+        } catch (error) {
+          setNewDesignHandoffPending(false);
+          trace("persist", "create-design-failed", {
+            id,
+            designSystemId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          toast.error(t("home.failedToCreateDesign"));
+          throw error;
+        }
+        void createFusionAppMutation
+          .mutateAsync({
+            designId: id,
+            prompt,
+          } as any)
           .then((result: any) => {
             if (result?.status !== "not-configured") return;
             // Builder isn't connected/configured, so no fusionApp linkage was
