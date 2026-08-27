@@ -404,8 +404,30 @@ already punished three changes on this branch that looked correct in isolation.
   `transform-origin` in the renderer alone does not fix it (measured: 7.49%
   either way) — the RECT has to be reconstructed from the origin too.
 
-  So the order is: make the rect origin-aware first, then carry the matrix. Not
-  the other way round, which is what this attempt did.
+  The full diagnosis, after building all three pieces:
+
+  1. **Carry the matrix.** Decompose as `R(theta) . M`, apply `M` after the
+     rotation. On its own: `effects-transforms` 1.810% -> **1.530%**, skew
+     preserved, but `fills-effects` 1.052% -> 7.49%.
+  2. **Make the rect origin-aware.** `centre +/- size/2` assumes a transform
+     preserves the centre; it does not for `transform-origin: 0 0`. The
+     untransformed top-left is recoverable from the AABB, the matrix and the
+     origin: the corners map to `L + O + t + A . (corner - O)`.
+  3. **Leave rasterized nodes alone.** This is the piece the first two attempts
+     missed. A rasterized node is a SCREENSHOT of its region, so the transform
+     is already in its pixels — reconstructing its untransformed box and
+     re-applying the matrix squashes it. The importer's angular-gradient overlay
+     is exactly this: a conic gradient has no SVG equivalent, so it rasterizes.
+     With raster nodes given back the transformed rect, `fills-effects` returns
+     to **1.052%**.
+
+  All three together measure **export mean 3.053% -> 3.060%** — noise — while
+  fixing a visibly wrong skew. It is still not merged here: Untitled UI's
+  dashboard improves 0.08pp but Positivus regresses **0.23pp**, and an
+  unexplained regression on a real community design is not something to land
+  unexamined. The remaining question is narrow and named: what in Positivus
+  moves when a transformed node's rect is reconstructed. That is the next
+  session's first measurement, not a fresh investigation.
 - ~~**Nested rotation composition order.**~~ **Measured, not a defect.** The
   concern was that `composeAffine(rotationAbout(...), toLocal)` composes two
   operations that do not commute. Both orders were measured on the new nested
