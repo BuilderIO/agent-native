@@ -82,10 +82,13 @@ describe("slide context toolbar", () => {
 
   it("keeps the comment target mounted for Excalidraw slides", () => {
     expect(editorSource).toContain(
-      'data-main-slide-canvas="true"\n              className="relative h-full bg-[var(--slides-editor-surface)]"',
+      'data-main-slide-canvas="true"\n              data-slide-canvas-focus="true"',
     );
     expect(editorSource).toContain(
       '<div className="slide-content relative h-full">',
+    );
+    expect(editorSource).toContain(
+      "canvasSelector=\"[data-main-slide-canvas='true']\"",
     );
   });
 });

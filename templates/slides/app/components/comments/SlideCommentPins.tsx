@@ -212,6 +212,12 @@ export function SlideCommentPins({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const wasActive = useRef(active);
+  const focusCanvas = useCallback(() => {
+    document
+      .querySelector<HTMLElement>("[data-slide-canvas-focus='true']")
+      ?.focus({ preventScroll: true });
+  }, []);
 
   const measureCanvas = useCallback(() => {
     const canvas = document.querySelector<HTMLElement>(canvasSelector);
@@ -242,8 +248,10 @@ export function SlideCommentPins({
       setPending(null);
       setText("");
       setError(null);
+      if (wasActive.current) focusCanvas();
     }
-  }, [active]);
+    wasActive.current = active;
+  }, [active, focusCanvas]);
 
   const createAnchor = useCallback(
     (clientX: number, clientY: number): SlideCommentAnchor | null => {
@@ -356,6 +364,7 @@ export function SlideCommentPins({
           data-slide-comment-click-plane
           onPointerDown={(event) => {
             event.stopPropagation();
+            focusCanvas();
             pointerStart.current = { x: event.clientX, y: event.clientY };
           }}
           onClick={(event) => {
@@ -379,9 +388,10 @@ export function SlideCommentPins({
             <CommentThreadPopover
               thread={thread}
               open={openThreadId === thread.threadId}
-              onOpenChange={(open) =>
-                setOpenThreadId(open ? thread.threadId : null)
-              }
+              onOpenChange={(open) => {
+                setOpenThreadId(open ? thread.threadId : null);
+                if (!open) focusCanvas();
+              }}
             />
           </div>
         ))}
@@ -394,7 +404,15 @@ export function SlideCommentPins({
               top: `${pending.anchor.y}%`,
             }}
           >
-            <Popover open onOpenChange={(open) => !open && setPending(null)}>
+            <Popover
+              open
+              onOpenChange={(open) => {
+                if (!open) {
+                  setPending(null);
+                  focusCanvas();
+                }
+              }}
+            >
               <PopoverTrigger asChild>
                 <button
                   type="button"
@@ -419,7 +437,10 @@ export function SlideCommentPins({
                       type="button"
                       aria-label={t("comments.cancel")}
                       className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => setPending(null)}
+                      onClick={() => {
+                        setPending(null);
+                        focusCanvas();
+                      }}
                     >
                       <IconX className="size-3.5" />
                     </button>
@@ -439,7 +460,10 @@ export function SlideCommentPins({
                         event.preventDefault();
                         void submit();
                       }
-                      if (event.key === "Escape") setPending(null);
+                      if (event.key === "Escape") {
+                        setPending(null);
+                        focusCanvas();
+                      }
                     }}
                     placeholder={t("comments.addCommentPlaceholder")}
                     rows={3}
@@ -451,7 +475,10 @@ export function SlideCommentPins({
                   <div className="flex justify-end gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setPending(null)}
+                      onClick={() => {
+                        setPending(null);
+                        focusCanvas();
+                      }}
                       className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                     >
                       {t("comments.cancel")}

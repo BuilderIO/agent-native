@@ -114,6 +114,26 @@ describe("slides comment shortcut helper", () => {
     ).toBe(true);
   });
 
+  it("accepts C when an Excalidraw descendant is in the canvas focus scope", () => {
+    const focusScope = document.createElement("div");
+    focusScope.setAttribute("data-slide-canvas-focus", "true");
+    const excalidrawCanvas = document.createElement("canvas");
+    focusScope.append(excalidrawCanvas);
+    document.body.append(focusScope);
+
+    expect(
+      shouldActivateComment(
+        shortcutEvent({ key: "c", target: excalidrawCanvas }),
+        {
+          activeElement: excalidrawCanvas,
+          focusedCanvas:
+            excalidrawCanvas.closest("[data-slide-canvas-focus='true']") !==
+            null,
+        },
+      ),
+    ).toBe(true);
+  });
+
   it("ignores typing surfaces, other modifiers, and unfocused C presses", () => {
     const textarea = document.createElement("textarea");
     expect(shouldActivateComment(shortcutEvent({ target: textarea }))).toBe(

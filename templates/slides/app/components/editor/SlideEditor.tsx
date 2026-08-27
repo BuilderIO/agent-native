@@ -5614,7 +5614,12 @@ export default function SlideEditor({
           {slide.excalidrawData ? (
             <div
               data-main-slide-canvas="true"
-              className="relative h-full bg-[var(--slides-editor-surface)]"
+              data-slide-canvas-focus="true"
+              tabIndex={0}
+              className="relative h-full bg-[var(--slides-editor-surface)] outline-none"
+              onPointerDownCapture={(event) => {
+                event.currentTarget.focus({ preventScroll: true });
+              }}
             >
               <div className="slide-content relative h-full">
                 {!readOnly && (
@@ -6010,7 +6015,7 @@ export default function SlideEditor({
         comments={comments}
         deckId={deckId ?? null}
         slideId={slideId || slide.id}
-        canvasSelector="[data-main-slide-canvas='true'] .slide-content"
+        canvasSelector="[data-main-slide-canvas='true']"
       />
     </div>
   );

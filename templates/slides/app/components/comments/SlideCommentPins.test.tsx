@@ -97,7 +97,9 @@ function renderWithCanvas(
   props: Partial<ComponentProps<typeof SlideCommentPins>> = {},
 ) {
   const canvas = document.createElement("div");
-  canvas.className = "slide-content";
+  canvas.dataset.mainSlideCanvas = "true";
+  canvas.dataset.slideCanvasFocus = "true";
+  canvas.tabIndex = 0;
   Object.defineProperty(canvas, "getBoundingClientRect", {
     configurable: true,
     value: () => ({
@@ -111,6 +113,9 @@ function renderWithCanvas(
       y: 50,
     }),
   });
+  const firstPane = document.createElement("div");
+  firstPane.className = "slide-content";
+  canvas.append(firstPane);
   document.body.append(canvas);
 
   return render(
@@ -120,7 +125,7 @@ function renderWithCanvas(
       comments={[]}
       deckId="deck-1"
       slideId="slide-1"
-      canvasSelector=".slide-content"
+      canvasSelector="[data-main-slide-canvas='true']"
       {...props}
     />,
   );
@@ -197,5 +202,39 @@ describe("SlideCommentPins", () => {
 
     fireEvent.click(marker);
     expect(screen.getAllByText("Check this image").length).toBeGreaterThan(0);
+  });
+
+  it("measures the whole canvas when it contains multiple content panes", async () => {
+    renderWithCanvas({ active: true });
+    const canvas = document.querySelector("[data-main-slide-canvas='true']")!;
+    const secondPane = document.createElement("div");
+    secondPane.className = "slide-content";
+    canvas.append(secondPane);
+
+    const overlay = await waitFor(() => {
+      const element = document.querySelector("[data-slide-comment-overlay]");
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    expect(overlay.getAttribute("style")).toContain("width: 400px");
+    expect(overlay.getAttribute("style")).toContain("height: 200px");
+  });
+
+  it("restores canvas focus after the pin plane is pressed", async () => {
+    renderWithCanvas({ active: true });
+    const canvas = document.querySelector<HTMLElement>(
+      "[data-main-slide-canvas='true']",
+    )!;
+    const plane = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        "[data-slide-comment-click-plane]",
+      );
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    fireEvent.pointerDown(plane, { clientX: 300, clientY: 150 });
+    expect(document.activeElement).toBe(canvas);
   });
 });
