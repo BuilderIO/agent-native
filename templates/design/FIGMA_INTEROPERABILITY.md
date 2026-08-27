@@ -448,6 +448,36 @@ Fixes this loop found are pinned in
 `server/lib/design-to-figma-svg.fidelity.spec.ts`, which carries the
 per-case before/after table.
 
+## Getting a Figma reference render with no API quota
+
+Both Figma transports share one exhausted budget (see below), but Figma's own
+**Export panel in the browser** does not touch either. Select the frame, open
+Export at the bottom of the right-hand Design panel, add a setting, and export
+PNG at 1x — the download is byte-for-byte what `/v1/images?scale=1` would have
+returned, at the node's exact size.
+
+Driving it: the panel does not scroll to Export with a mouse wheel, so find the
+control by accessibility name (`Add export settings`, then `Export <width>px`)
+rather than by coordinate. A tall frame takes Figma a minute or two to render
+server-side.
+
+This is how the corpus grows while the quota is out. It gives a reference for
+the clipboard and `.fig` paths, which need no API at all; it does NOT unblock a
+REST case, because that also needs the node JSON the REST API serves.
+
+Two limits found while using it, both measured 2026-08-26:
+
+- **A tall frame does not export.** 1440x773 downloaded in seconds; 1440x9631
+  produced no file at all, with no error in the UI. Export a frame, not a whole
+  page.
+- **An exported node is rendered IN ISOLATION,** which is not the same pixels
+  as that node sitting inside its parent: no page background behind it, no
+  overlapping siblings, different clipping. Cropping the parent's render to the
+  node's box and diffing the two gives 16.4% on Positivus' contact block, with
+  no shift in +/-24px improving it — while the same region measures ~3.7%
+  against the API's render of the whole parent frame. Compare a UI export only
+  against a render of the SAME node, never against a crop of its parent.
+
 ## Figma REST rate limits
 
 - Viewer and Collab seats may receive up to 6 Tier 1 requests per month for
