@@ -50,6 +50,25 @@ describe("visual style controls", () => {
     );
   });
 
+  it("uses a soft gray base for transparent checkerboards", () => {
+    act(() => {
+      root.render(
+        <VisualColorPicker
+          label="Color"
+          value="transparent"
+          onChange={() => {}}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Color"]',
+    );
+    expect(trigger?.querySelector("span")?.style.backgroundColor).toBe(
+      "#f5f5f5",
+    );
+  });
+
   it("renders the filled color trigger without an outer border", () => {
     act(() => {
       root.render(
