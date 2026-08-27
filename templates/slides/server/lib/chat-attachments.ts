@@ -11,6 +11,74 @@ import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
 const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedString(value: unknown, maxLength: number): string | null {
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, maxLength)
+    : null;
+}
+
+/** Keep the original deck brief and file handles in every scoped follow-up. */
+export function buildSlidesDeckGenerationContext(
+  value: unknown,
+): string | null {
+  if (!isRecord(value)) return null;
+  const originalPrompt = boundedString(value.originalPrompt, 12_000);
+  if (!originalPrompt) return null;
+
+  const files = Array.isArray(value.files)
+    ? value.files
+        .flatMap((file) => {
+          if (!isRecord(file)) return [];
+          const name = boundedString(file.originalName, 160) ?? "reference";
+          const path = boundedString(file.path, 2_000);
+          const url = boundedString(file.url, 2_000);
+          if (!path && !url) return [];
+          const locations = [
+            path ? `path: ${path}` : null,
+            url ? `URL: ${url}` : null,
+          ]
+            .filter((location): location is string => Boolean(location))
+            .join("; ");
+          return [`- ${name} (${locations})`];
+        })
+        .slice(0, 20)
+    : [];
+  const mode = boundedString(value.mode, 40);
+  const targetSlideCount =
+    typeof value.targetSlideCount === "number" &&
+    Number.isInteger(value.targetSlideCount) &&
+    value.targetSlideCount > 0
+      ? String(value.targetSlideCount)
+      : null;
+  const designSystemId = boundedString(value.designSystemId, 200);
+  const referenceDeckId = boundedString(value.referenceDeckId, 200);
+
+  return [
+    "<slides-deck-generation-context>",
+    "This is the canonical context for the current deck's continuation. Treat the latest user message as a modifier to this original request unless it explicitly asks for a new story or deck.",
+    `Original brief: ${originalPrompt}`,
+    mode ? `Generation mode: ${mode}` : null,
+    targetSlideCount ? `Target slide count: ${targetSlideCount}` : null,
+    designSystemId ? `Design system id: ${designSystemId}` : null,
+    referenceDeckId ? `Reference deck id: ${referenceDeckId}` : null,
+    "Reference files from the original request:",
+    ...(files.length > 0
+      ? files
+      : [
+          "- No file handle was persisted; use the current deck and thread evidence.",
+        ]),
+    "Re-open visual references before editing with a persisted URL when present. Private paths are available to Slides file actions for supported document/deck formats; if a private raster image has no URL or inline bytes, do not claim visual inspection you did not perform. Do not infer a new unrelated topic from the follow-up message or from placeholder/brand text in the reference.",
+    "For source-preserving generation, continue the original slide sequence and finish all original/source slides before adding unrelated content. Verify with get-deck compact=true and do not claim completion until sourceCoverage.complete is true for the ordered source manifest, or the target slide count is satisfied for a new deck.",
+    "</slides-deck-generation-context>",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
 function decodeDataUrl(data: string | undefined): {
   bytes: Buffer;
   contentType: string;

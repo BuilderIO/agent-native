@@ -391,6 +391,25 @@ describe("applyOperation — patch-deck-fields", () => {
     expect(deck.designSystemId).toBeNull();
   });
 
+  it("persists generation context without changing slide content", () => {
+    const generationContext = {
+      originalPrompt: "Create a dark 6-slide deck",
+      targetSlideCount: 6,
+      files: [
+        { path: "/uploads/reference.png", originalName: "reference.png" },
+      ],
+    };
+    const deck = { title: "T", slides: [{ id: "s1", content: "source" }] };
+
+    applyOperation(deck, {
+      op: "patch-deck-fields",
+      fields: { generationContext },
+    });
+
+    expect(deck.generationContext).toEqual(generationContext);
+    expect(deck.slides[0].content).toBe("source");
+  });
+
   it("recovers an opaque title from the first slide", () => {
     const deck = {
       title: "Untitled Deck",

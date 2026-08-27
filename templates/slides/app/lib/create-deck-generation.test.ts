@@ -13,10 +13,16 @@ vi.mock("react-dom", () => ({
 
 import {
   isSourceImprovementRequest,
+  requestedSlideCount,
   startDeckGeneration,
 } from "./create-deck-generation";
 
 describe("startDeckGeneration", () => {
+  it("extracts an explicit target slide count for continuation", () => {
+    expect(requestedSlideCount("Create a dark 6-slide presentation")).toBe(6);
+    expect(requestedSlideCount("Create a deck about launches")).toBeUndefined();
+  });
+
   it("treats an implicit improvement prompt as source-preserving", () => {
     expect(
       isSourceImprovementRequest("Make this prettier", [
@@ -62,6 +68,35 @@ describe("startDeckGeneration", () => {
           },
         ],
       ),
+    ).toBe(true);
+  });
+
+  it("defaults a plain source conversion to source-preserving", () => {
+    expect(
+      isSourceImprovementRequest(
+        "Create deck: turn this into a deck using our branding",
+        [
+          {
+            path: "/uploads/source.pdf",
+            originalName: "source.pdf",
+            filename: "source.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+      ),
+    ).toBe(true);
+
+    expect(
+      isSourceImprovementRequest("Make this into a deck", [
+        {
+          path: "/uploads/source.pdf",
+          originalName: "source.pdf",
+          filename: "source.pdf",
+          type: "application/pdf",
+          size: 1024,
+        },
+      ]),
     ).toBe(true);
   });
 
@@ -115,6 +150,117 @@ describe("startDeckGeneration", () => {
     );
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "write presenter-only text into each slide's `notes` field",
+    );
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            fields: expect.objectContaining({
+              generationContext: expect.objectContaining({
+                originalPrompt:
+                  "Create a new deck using this PDF as reference material",
+                files: [
+                  expect.objectContaining({ path: "/uploads/reference.pdf" }),
+                ],
+              }),
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("passes hosted URLs and inline image bytes through to agentSubmit", async () => {
+    const deck = {
+      id: "deck-image-1",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+    const inlineImage = "data:image/png;base64,aW1hZ2U=";
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Make this into a deck",
+        files: [
+          {
+            path: "/uploads/hosted.png",
+            url: "https://cdn.example.test/hosted.png",
+            originalName: "hosted.png",
+            filename: "hosted.png",
+            type: "image/png",
+            size: 1024,
+            dataUrl: inlineImage,
+          },
+          {
+            path: "/uploads/inline.jpg",
+            originalName: "inline.jpg",
+            filename: "inline.jpg",
+            type: "image/jpeg",
+            size: 1024,
+            dataUrl: "data:image/jpeg;base64,amBlZw==",
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(agentSubmit.mock.calls[0]?.[2]).toMatchObject({
+      referenceImagePaths: ["https://cdn.example.test/hosted.png"],
+      images: [inlineImage, "data:image/jpeg;base64,amBlZw=="],
+    });
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "inspect the complete visual source",
+    );
+  });
+
+  it("cleans up when generation context persistence fails", async () => {
+    mockCallAction.mockRejectedValueOnce(new Error("context failed"));
+    const deck = {
+      id: "deck-context-failure",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const deleteDeck = vi.fn();
+    const onSetupFailure = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck",
+        files: [],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck,
+        navigate: vi.fn(),
+        agentSubmit: vi.fn(),
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+        onSetupFailure,
+      }),
+    ).resolves.toBe("failed");
+
+    expect(deleteDeck).toHaveBeenCalledWith(deck.id);
+    expect(onSetupFailure).toHaveBeenCalledWith(
+      "Create a deck",
+      [],
+      expect.objectContaining({ message: "context failed" }),
     );
   });
 

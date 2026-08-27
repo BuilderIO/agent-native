@@ -234,6 +234,12 @@ describe("SlideInner autofit", () => {
         if (this.classList.contains("fmd-freeform-object")) {
           return rect(156, 254, 740, 200);
         }
+        if (this.classList.contains("layout-wrapper")) {
+          return rect(110, 80, 740, 500);
+        }
+        if (this.classList.contains("inner-content")) {
+          return rect(110, 80, 740, 380);
+        }
         return rect(110, 80, 740, 500);
       },
     );
@@ -269,6 +275,28 @@ describe("SlideInner autofit", () => {
       expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
       expect(onOverflowChange).toHaveBeenCalledWith(
         expect.objectContaining({ verticalOverflow: 120 }),
+      );
+    });
+  });
+
+  it("ignores a spilling flow wrapper when its inner content fits", async () => {
+    const slide: Slide = {
+      id: "wrapper-spill",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><div class="layout-wrapper"><div class="inner-content">Fits</div></div></div>',
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          verticalOverflow: 0,
+          horizontalOverflow: 0,
+        }),
       );
     });
   });

@@ -143,10 +143,7 @@ export default function ImageDropPromptPopover({
         error: data.error,
       };
 
-      let dataUrl: string | undefined;
-      if (!upload.ok) {
-        dataUrl = await readFileAsDataUrl(file);
-      }
+      const dataUrl = await readFileAsDataUrl(file);
 
       const payload = buildImageDropAgentPayload({
         intent: prompt,
@@ -162,6 +159,7 @@ export default function ImageDropPromptPopover({
           context: payload.context,
           submit: true,
           referenceImagePaths: payload.referenceImagePaths,
+          images: payload.images,
         });
       } else {
         sendToAgentChat({

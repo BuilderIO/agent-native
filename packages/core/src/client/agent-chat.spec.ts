@@ -190,6 +190,23 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
+  it("preserves the new-deck inline image and hosted reference payload", () => {
+    const inlineImage = "data:image/png;base64,abc";
+    const hostedImage = "https://cdn.example.test/source.png";
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "use this image as reference",
+          images: [inlineImage],
+          referenceImagePaths: [hostedImage],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.images).toEqual([inlineImage, hostedImage]);
+  });
+
   it("snapshots stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
 

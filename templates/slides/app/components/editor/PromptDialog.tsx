@@ -14,6 +14,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { readFileAsDataUrl } from "@/lib/image-drop-to-agent";
+
 import {
   MAX_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILES,
@@ -26,10 +28,28 @@ import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface UploadedFile {
   path: string;
   url?: string;
+  /** Browser-only fallback when the upload provider did not return a public URL. */
+  dataUrl?: string;
   originalName: string;
   filename: string;
   type: string;
   size: number;
+}
+
+export async function addInlineImageFallbacks(
+  files: File[],
+  uploaded: UploadedFile[],
+): Promise<UploadedFile[]> {
+  return Promise.all(
+    uploaded.map(async (uploadedFile, index) => {
+      const file = files[index];
+      const isImage =
+        uploadedFile.type.startsWith("image/") ||
+        Boolean(file?.type.startsWith("image/"));
+      if (!isImage || !file || uploadedFile.dataUrl) return uploadedFile;
+      return { ...uploadedFile, dataUrl: await readFileAsDataUrl(file) };
+    }),
+  );
 }
 
 // Netlify functions cap request bodies well under what a real PPTX/PDF
@@ -184,7 +204,7 @@ export async function uploadPromptFiles(
   largeIndices.forEach((fileIndex, resultIndex) => {
     uploads[fileIndex] = largeUploads[resultIndex];
   });
-  return uploads;
+  return addInlineImageFallbacks(files, uploads);
 }
 
 /**

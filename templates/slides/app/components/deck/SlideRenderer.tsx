@@ -310,10 +310,16 @@ function measureContentBounds(target: HTMLElement): {
     const right = (rect.right - targetRect.left) * invScaleX;
     const bottom = (rect.bottom - targetRect.top) * invScaleY;
 
+    const isFreeform = isFreeformElement(el);
+    // A normal-flow wrapper can spill because of its own box model while its
+    // visible child still fits. Measure the child boundary instead of making
+    // the wrapper itself an overflow warning.
+    if (!isFreeform && el.children.length > 0) continue;
+
     contentMinX = Math.min(contentMinX, left);
     contentMaxX = Math.max(contentMaxX, right);
 
-    if (isFreeformElement(el)) {
+    if (isFreeform) {
       contentMaxY = Math.max(contentMaxY, bottom);
       continue;
     }

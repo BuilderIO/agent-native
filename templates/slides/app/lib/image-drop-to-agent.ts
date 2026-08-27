@@ -22,6 +22,7 @@ export type ImageDropAgentPayload =
       message: string;
       context: string;
       referenceImagePaths: string[];
+      images?: string[];
     }
   | {
       kind: "inline";
@@ -62,11 +63,17 @@ export function buildImageDropAgentPayload(args: {
 
   if (args.upload.ok && args.upload.url) {
     contextLines.push(`Image URL (already uploaded): ${args.upload.url}`);
+    if (args.dataUrl) {
+      contextLines.push(
+        "The original image is also attached for visual inspection.",
+      );
+    }
     return {
       kind: "hosted",
       message: intentLine,
       context: contextLines.join("\n\n"),
       referenceImagePaths: [args.upload.url],
+      ...(args.dataUrl ? { images: [args.dataUrl] } : {}),
     };
   }
 

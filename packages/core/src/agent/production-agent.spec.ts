@@ -67,6 +67,7 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
   shouldChainBackgroundContinuation,
+  toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
@@ -146,6 +147,20 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("toolCallCacheKey", () => {
+  it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
+    expect(
+      toolCallCacheKey("docs-search", { query: "  Slides   generation " }),
+    ).toBe(toolCallCacheKey("docs-search", { query: "slides generation" }));
+    expect(
+      toolCallCacheKey("docs-search", { query: "slides generation" }),
+    ).not.toBe(toolCallCacheKey("docs-search", { query: "slides export" }));
+    expect(
+      toolCallCacheKey("read-file", { query: "  Slides   generation " }),
+    ).not.toBe(toolCallCacheKey("read-file", { query: "slides generation" }));
+  });
+});
 
 describe("resolveAgentRequestReasoningEffort", () => {
   it("narrates a retry the user waited through, and stays silent on a blip", async () => {
@@ -593,6 +608,39 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Embed this image" },
     ]);
+  });
+
+  it("uses inline bytes for vision while retaining URL-only references as text", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Use these image references",
+      attachments: [
+        {
+          type: "image",
+          name: "with-bytes.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+          url: "https://cdn.example.com/with-bytes.png",
+        } as any,
+        {
+          type: "image",
+          name: "url-only.png",
+          contentType: "image/png",
+          url: "https://cdn.example.com/url-only.png",
+        } as any,
+      ],
+    });
+
+    expect(parts).toContainEqual({
+      type: "image",
+      mediaType: "image/png",
+      data: "aW1hZ2U=",
+    });
+    const text = parts
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    expect(text).toContain("https://cdn.example.com/url-only.png");
+    expect(text).toContain("not sent as a vision image");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {

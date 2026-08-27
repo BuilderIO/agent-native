@@ -32,6 +32,7 @@ import {
   dedupeReconnectContentAgainstMessages,
   shouldShowReconnectOverlay,
   hoistQueuedMessageToFront,
+  promoteQueuedMessage,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
@@ -475,6 +476,32 @@ describe("hoistQueuedMessageToFront", () => {
         (message) => message.id,
       ),
     ).toEqual(["a", "b"]);
+  });
+});
+
+describe("promoteQueuedMessage", () => {
+  it("marks the promoted turn sent without reordering the pending queue", () => {
+    expect(promoteQueuedMessage([{ id: "a" }, { id: "b" }], "b")).toEqual([
+      { id: "a" },
+      { id: "b", promoted: true },
+    ]);
+  });
+});
+
+describe("send-now promotion", () => {
+  it("keeps promotion optimistic and leaves the active run untouched", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const sendQueuedMessageNow = useCallback");
+    const end = source.indexOf("const visibleQueuedMessages", start);
+    const promotionSource = source.slice(start, end);
+
+    expect(promotionSource).toContain("startRun: false");
+    expect(promotionSource).toContain("promoteQueuedMessage");
+    expect(promotionSource).not.toContain("stopActiveRunRef.current");
+    expect(source).toContain("if (next.promoted)");
+    expect(source).toContain("threadRuntime.startRun({");
   });
 });
 

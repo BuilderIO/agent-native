@@ -28,6 +28,7 @@ describe("isMissingUploadProviderError", () => {
 
 describe("buildImageDropAgentPayload", () => {
   it("uses a hosted URL when upload succeeds", () => {
+    const dataUrl = "data:image/jpeg;base64,abc";
     const payload = buildImageDropAgentPayload({
       intent: "place it to the right of the text on this slide.",
       filename: "prd meme.jpg",
@@ -36,6 +37,7 @@ describe("buildImageDropAgentPayload", () => {
         status: 200,
         url: "https://cdn.example.com/prd-meme.jpg",
       },
+      dataUrl,
     });
 
     expect(payload.kind).toBe("hosted");
@@ -43,6 +45,7 @@ describe("buildImageDropAgentPayload", () => {
     expect(payload.referenceImagePaths).toEqual([
       "https://cdn.example.com/prd-meme.jpg",
     ]);
+    expect(payload.images).toEqual([dataUrl]);
     expect(payload.message).toBe(
       "place it to the right of the text on this slide.",
     );
@@ -50,6 +53,9 @@ describe("buildImageDropAgentPayload", () => {
       "Image URL (already uploaded): https://cdn.example.com/prd-meme.jpg",
     );
     expect(payload.context).toContain("Filename: prd meme.jpg");
+    expect(payload.context).toContain(
+      "original image is also attached for visual inspection",
+    );
     expect(payload.context).not.toContain(
       "place it to the right of the text on this slide.",
     );

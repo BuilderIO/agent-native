@@ -348,19 +348,23 @@ export function createUserMessageRunConfig(
       custom: {
         agentNativeRecoveryAction?: AgentRecoveryAction;
         agentNativeHiddenUserMessage?: boolean;
+        agentNativeQueuedMessageId?: string;
       };
     };
   } = {};
   if (Object.keys(custom).length > 0) {
     options.runConfig = { custom };
   }
-  if (recoveryAction || hideUserMessage) {
+  if (recoveryAction || hideUserMessage || queuedMessageId) {
     options.metadata = {
       custom: {
         ...(recoveryAction
           ? { agentNativeRecoveryAction: recoveryAction }
           : {}),
         ...(hideUserMessage ? { agentNativeHiddenUserMessage: true } : {}),
+        ...(queuedMessageId
+          ? { agentNativeQueuedMessageId: queuedMessageId }
+          : {}),
       },
     };
   }
@@ -1781,6 +1785,8 @@ export function assistantChatAutoscrollStatusKey({
 type QueuedMessage = {
   id: string;
   text: string;
+  /** Already visible in the thread; start its run after the active turn ends. */
+  promoted?: boolean;
   images?: string[];
   attachments?: QueuedAttachment[];
   references?: Reference[];
@@ -1810,6 +1816,15 @@ export function hoistQueuedMessageToFront<T extends { id: string }>(
   const target = messages.find((message) => message.id === id);
   if (!target) return [...messages];
   return [target, ...messages.filter((message) => message.id !== id)];
+}
+
+export function promoteQueuedMessage<T extends { id: string }>(
+  messages: readonly T[],
+  id: string,
+): T[] {
+  return messages.map((message) =>
+    message.id === id ? { ...message, promoted: true } : message,
+  );
 }
 
 export function queuedMessageImageSources(
@@ -4721,41 +4736,74 @@ const AssistantChatInner = forwardRef<
             return;
           }
 
-          // Keep the placeholder visible while waiting. Remove it only when the
-          // append is about to begin, so queue stalls don't look like the chat
-          // silently ate the next message.
-          applyLocalQueuedMessages((prev) =>
-            prev.filter((message) => message.id !== next.id),
-          );
-          removedForAppend = true;
+          if (next.promoted) {
+            const promotedMessage = threadRuntime
+              .getState()
+              .messages.find(
+                (message) =>
+                  message.role === "user" &&
+                  message.metadata?.custom?.agentNativeQueuedMessageId ===
+                    next.id,
+              );
+            if (!promotedMessage) return;
+            threadRuntime.startRun({
+              parentId: promotedMessage.id,
+              runConfig:
+                createUserMessageRunConfig(
+                  next.references,
+                  next.requestMode,
+                  next.recoveryAction,
+                  next.trackInRunsTray,
+                  next.approvedToolCalls,
+                  next.id,
+                  next.hideUserMessage,
+                  {
+                    model: next.model,
+                    engine: next.engine,
+                    effort: next.effort,
+                  },
+                  next.turnId,
+                ).runConfig ?? {},
+            });
+            applyLocalQueuedMessages((prev) =>
+              prev.filter((message) => message.id !== next.id),
+            );
+          } else {
+            // Keep the placeholder visible while waiting. Remove it only when
+            // the append is about to begin, so queue stalls stay recoverable.
+            applyLocalQueuedMessages((prev) =>
+              prev.filter((message) => message.id !== next.id),
+            );
+            removedForAppend = true;
 
-          const imageAttachments = createAgentImageAttachments(next.images);
-          const messageAttachments =
-            next.attachments && next.attachments.length > 0
-              ? next.attachments
-              : (imageAttachments ?? []);
-          appendThreadMessage({
-            role: "user",
-            content: [{ type: "text", text: next.text }],
-            ...(messageAttachments.length > 0
-              ? { attachments: messageAttachments }
-              : {}),
-            ...createUserMessageRunConfig(
-              next.references,
-              next.requestMode,
-              next.recoveryAction,
-              next.trackInRunsTray,
-              next.approvedToolCalls,
-              next.id,
-              next.hideUserMessage,
-              {
-                model: next.model,
-                engine: next.engine,
-                effort: next.effort,
-              },
-              next.turnId,
-            ),
-          } as Parameters<typeof threadRuntime.append>[0]);
+            const imageAttachments = createAgentImageAttachments(next.images);
+            const messageAttachments =
+              next.attachments && next.attachments.length > 0
+                ? next.attachments
+                : (imageAttachments ?? []);
+            appendThreadMessage({
+              role: "user",
+              content: [{ type: "text", text: next.text }],
+              ...(messageAttachments.length > 0
+                ? { attachments: messageAttachments }
+                : {}),
+              ...createUserMessageRunConfig(
+                next.references,
+                next.requestMode,
+                next.recoveryAction,
+                next.trackInRunsTray,
+                next.approvedToolCalls,
+                next.id,
+                next.hideUserMessage,
+                {
+                  model: next.model,
+                  engine: next.engine,
+                  effort: next.effort,
+                },
+                next.turnId,
+              ),
+            } as Parameters<typeof threadRuntime.append>[0]);
+          }
           appended = true;
         } catch (err) {
           if (
@@ -5014,6 +5062,17 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery(null);
       clearAutoResume();
       resetRunningActivity();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: {
+              isRunning: false,
+              tabId: tabId || threadId,
+              reason: "stopped",
+            },
+          }),
+        );
+      }
       if (!options?.preserveQueuedMessages) {
         queueStopVersionRef.current += 1;
         dequeueInFlightRef.current = false;
@@ -5077,17 +5136,6 @@ const AssistantChatInner = forwardRef<
       settleVisibleInterruptedTools();
       markVisibleRunStopped();
       threadRuntime.cancelRun();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatRunning", {
-            detail: {
-              isRunning: false,
-              tabId: tabId || threadId,
-              reason: "stopped",
-            },
-          }),
-        );
-      }
     },
     [
       apiUrl,
@@ -5107,19 +5155,63 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
-  // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
-  // front and abort the active run, letting auto-dequeue re-send it once the
-  // run clears. Plain Enter still queues — this is the only send-now gesture.
+  // Promote a queued bubble into the visible thread without starting a second
+  // run. The active run owns the stream; auto-dequeue starts this turn later.
   const sendQueuedMessageNow = useCallback(
     (id: string) => {
-      applyLocalQueuedMessages((prev) => hoistQueuedMessageToFront(prev, id));
-      stopActiveRunRef.current({ preserveQueuedMessages: true });
+      const message = queuedMessagesRef.current.find(
+        (candidate) => candidate.id === id,
+      );
+      if (!message || message.promoted) return;
+      try {
+        const imageAttachments = createAgentImageAttachments(message.images);
+        const messageAttachments =
+          message.attachments && message.attachments.length > 0
+            ? message.attachments
+            : (imageAttachments ?? []);
+        appendThreadMessage({
+          role: "user",
+          content: [{ type: "text", text: message.text }],
+          ...(messageAttachments.length > 0
+            ? { attachments: messageAttachments }
+            : {}),
+          ...createUserMessageRunConfig(
+            message.references,
+            message.requestMode,
+            message.recoveryAction,
+            message.trackInRunsTray,
+            message.approvedToolCalls,
+            message.id,
+            message.hideUserMessage,
+            {
+              model: message.model,
+              engine: message.engine,
+              effort: message.effort,
+            },
+            message.turnId,
+          ),
+          startRun: false,
+        } as Parameters<typeof threadRuntime.append>[0]);
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "promote-queued-message",
+          },
+          extra: { threadId: threadId ?? null, queuedMessageId: id },
+        });
+        return;
+      }
+      applyLocalQueuedMessages((prev) => promoteQueuedMessage(prev, id));
     },
-    [applyLocalQueuedMessages],
+    [appendThreadMessage, applyLocalQueuedMessages, threadId, threadRuntime],
   );
 
   const visibleQueuedMessages = useMemo(
-    () => queuedMessages.filter((message) => !message.hideUserMessage),
+    () =>
+      queuedMessages.filter(
+        (message) => !message.hideUserMessage && !message.promoted,
+      ),
     [queuedMessages],
   );
 
@@ -6353,9 +6445,7 @@ const AssistantChatInner = forwardRef<
                                                   </button>
                                                 </TooltipTrigger>
                                                 <TooltipContent>
-                                                  {t(
-                                                    "agentChat.queue.sendNowHint",
-                                                  )}
+                                                  {t("agentChat.queue.sendNow")}
                                                 </TooltipContent>
                                               </Tooltip>
                                             )}
