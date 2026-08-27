@@ -2876,6 +2876,8 @@ const editorToolbarMessages = {
   orgCanFindAndView: "Anyone in your organization can find and view",
   orgLinkCanView: "Anyone in your organization with the link can view",
   pageBreadcrumb: "Page breadcrumb",
+  pin: "Pin",
+  unpin: "Unpin",
   printDialogOpened: "Print dialog opened",
   printDialogOpenedDescription: "Choose Save as PDF to finish the export.",
   pulledFromNotion: "Pulled from Notion.",
@@ -6100,6 +6102,8 @@ const editorMessagesByLocale = {
       openInNotion: "在概念中打开",
       orgCanFindAndView: "您组织中的任何人都可以查找和查看",
       orgLinkCanView: "您组织中知道该链接的任何人都可以查看",
+      pin: "固定",
+      unpin: "取消固定",
       printDialogOpened: "打印对话框打开",
       printDialogOpenedDescription: "选择另存为 PDF 以完成导出。",
       pulledFromNotion: "从概念中拉出来。",
@@ -6477,6 +6481,8 @@ const editorMessagesByLocale = {
         "Cualquier persona de su organización puede buscar y ver",
       orgLinkCanView:
         "Cualquier persona de su organización que tenga el enlace puede ver",
+      pin: "Fijar",
+      unpin: "Desfijar",
       printDialogOpened: "Se abrió el cuadro de diálogo Imprimir",
       printDialogOpenedDescription:
         "Elija Guardar como PDF para finalizar la exportación.",
@@ -6863,6 +6869,8 @@ const editorMessagesByLocale = {
         "Tout le monde dans votre organisation peut trouver et consulter",
       orgLinkCanView:
         "Tous les membres de votre organisation disposant du lien peuvent consulter",
+      pin: "Épingler",
+      unpin: "Désépingler",
       printDialogOpened: "Boîte de dialogue Imprimer ouverte",
       printDialogOpenedDescription:
         "Choisissez Enregistrer au format PDF pour terminer l'exportation.",
@@ -7251,6 +7259,8 @@ const editorMessagesByLocale = {
         "Jeder in Ihrer Organisation kann sie finden und anzeigen",
       orgLinkCanView:
         "Jeder in Ihrer Organisation, der über den Link verfügt, kann ihn ansehen",
+      pin: "Anheften",
+      unpin: "Lösen",
       printDialogOpened: "Druckdialog geöffnet",
       printDialogOpenedDescription:
         "Wählen Sie Als PDF speichern, um den Export abzuschließen.",
@@ -7630,6 +7640,8 @@ const editorMessagesByLocale = {
       openInNotion: "概念で開く",
       orgCanFindAndView: "組織内の誰でも検索して表示できます",
       orgLinkCanView: "組織内のリンクを知っている人は誰でも閲覧できます",
+      pin: "固定",
+      unpin: "固定解除",
       printDialogOpened: "印刷ダイアログが開いた",
       printDialogOpenedDescription:
         "[PDF として保存] を選択してエクスポートを完了します。",
@@ -8007,6 +8019,8 @@ const editorMessagesByLocale = {
       openInNotion: "노션에서 열기",
       orgCanFindAndView: "조직의 모든 사용자가 찾고 볼 수 있습니다.",
       orgLinkCanView: "링크가 있는 조직의 모든 사용자가 볼 수 있습니다.",
+      pin: "고정",
+      unpin: "고정 해제",
       printDialogOpened: "인쇄 대화상자가 열렸습니다.",
       printDialogOpenedDescription:
         "PDF로 저장을 선택하여 내보내기를 완료합니다.",
@@ -8390,6 +8404,8 @@ const editorMessagesByLocale = {
         "Qualquer pessoa na sua organização pode encontrar e visualizar",
       orgLinkCanView:
         "Qualquer pessoa na sua organização com o link pode visualizar",
+      pin: "Fixar",
+      unpin: "Desafixar",
       printDialogOpened: "Caixa de diálogo de impressão aberta",
       printDialogOpenedDescription:
         "Escolha Salvar como PDF para finalizar a exportação.",
@@ -8763,6 +8779,8 @@ const editorMessagesByLocale = {
       openInNotion: "धारणा में खोलें",
       orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
       orgLinkCanView: "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
+      pin: "पिन करें",
+      unpin: "अनपिन करें",
       printDialogOpened: "प्रिंट संवाद खोला गया",
       printDialogOpenedDescription:
         "निर्यात समाप्त करने के लिए पीडीएफ के रूप में सहेजें चुनें।",
@@ -9135,6 +9153,8 @@ const editorMessagesByLocale = {
       openInNotion: "فتح في Notion",
       orgCanFindAndView: "يمكن لأي شخص في مؤسستك البحث والعرض",
       orgLinkCanView: "يمكن لأي شخص في مؤسستك لديه الرابط العرض",
+      pin: "تثبيت",
+      unpin: "إلغاء التثبيت",
       printDialogOpened: "تم فتح مربع حوار الطباعة",
       printDialogOpenedDescription: "اختر حفظ بتنسيق PDF لإنهاء عملية التصدير.",
       pulledFromNotion: "منقول من فكرة.",
