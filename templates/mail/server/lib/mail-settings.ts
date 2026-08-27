@@ -69,7 +69,8 @@ export function mergePinnedLabels(
     return [
       ...nextList.filter((label) => finalLabels.has(label)),
       ...currentList.filter(
-        (label) => finalLabels.has(label) && !baseSet.has(label),
+        (label) =>
+          finalLabels.has(label) && !baseSet.has(label) && !nextSet.has(label),
       ),
     ];
   }

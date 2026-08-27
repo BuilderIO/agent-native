@@ -39,6 +39,16 @@ describe("mergePinnedLabels", () => {
     ).toEqual(["sent", "inbox", "travel"]);
   });
 
+  it("does not duplicate a concurrent label included in the reorder", () => {
+    expect(
+      mergePinnedLabels(
+        ["inbox", "travel", "sent"],
+        ["sent", "inbox", "travel"],
+        ["inbox", "sent"],
+      ),
+    ).toEqual(["sent", "inbox", "travel"]);
+  });
+
   it("preserves the latest order for membership-only updates", () => {
     expect(
       mergePinnedLabels(
