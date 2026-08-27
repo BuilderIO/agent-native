@@ -239,15 +239,15 @@ Measured 2026-08-27:
 | app-untitled-ui-settings-mobile | 3.524 | 0.431 | 0.404 | 3.388 | 0.763 |
 | app-untitled-ui-dashboard | 3.679 | 1.294 | 1.027 | 4.011 | 1.042 |
 | ds-untitled-ui-table-variants | 3.689 | 1.229 | 0.952 | 3.689 | 0.000 |
-| community-landify-tablet | 4.709 | 2.190 | 0.718 | 4.505 | 1.546 |
+| community-landify-tablet | 4.712 | 2.194 | 0.722 | 4.505 | 1.549 |
 | community-untitled-ui-landing-mobile | 6.186 | 1.311 | 0.607 | 6.282 | 1.149 |
 | typography | 12.669 | 0.005 | 0.005 | 12.594 | 0.192 |
-| **mean** | **3.08** | **0.78** | **0.44** | | **0.73** |
+| **mean** | **3.08** | **0.78** | **0.45** | | **0.73** |
 
 Read the last three columns together, because they say what is actually wrong:
 
 - **The export hop is nearly free.** Mean drift 0.73% and max 2.38% across the
-  designs in the table; 0.85% mean and 2.92% max once the two clipboard cases
+  designs in the table; 0.83% mean and 2.38% max once the two clipboard cases
   the round-trip also covers are included. Whatever the import hop gets right
   survives the trip back to Figma.
 - **Most of the import number is glyph rasterisation.** Excluding text boxes
@@ -321,6 +321,8 @@ What moved the numbers. Each was a real defect on a real design:
 | image-fallback ink taking layout space | settings-mobile | 3.77 | 3.52 |
 | hugging text height not rounded the way Figma rounds it | parity-stress | 3.24 | 2.47 |
 | an 11.5MB image dropped from the export instead of scaled | single product (export) | 4.69 | 4.02 |
+| vector-network mask not scaled out of normalizedSize | positivus (paste) | 6.97 | 6.37 |
+| a UNION boolean's operands drawn instead of the union | positivus (paste) | 6.37 | 4.33 |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
@@ -335,7 +337,7 @@ numbers: an unmeasured path looks identical to a passing one in a summary.
 
 | path | walker | measured against Figma | how |
 | --- | --- | --- | --- |
-| REST node import | `figma-node-to-html.ts` | 23 designs, both hops | `run-import` / `run-roundtrip` |
+| REST node import | `figma-node-to-html.ts` | 26 designs, both hops | `run-import` / `run-roundtrip` |
 | Clipboard paste | `fig-file-to-html.ts` | 3 designs | `run-paste`, against the same references |
 | `.fig` upload | `fig-file-to-html.ts` | **no frame** | `run-fig` — decode/render smoke only |
 
@@ -367,23 +369,32 @@ throughout), both measured against Figma's own render.
 | flipped transforms, ellipses, parametric shapes | 8.37% | 6.75% |
 | kiwi's SPACE_EVENLY mapped to space-between | 7.53% | 5.84% |
 | LINE nodes drawn, rotated footprints compensated | 6.97% | 5.20% |
+| vector-network masks scaled out of normalizedSize | 6.37% | 5.14% |
+| UNION booleans drawn from their operands | 4.33% | 3.02% |
 
 Where the three paste cases stand (2026-08-27), against the same references the
 REST corpus uses:
 
 | case | paste vs Figma | converter only | REST, same design |
 | --- | --- | --- | --- |
-| dashstack admin | 3.55% | 2.89% | 1.20% (a different frame) |
-| positivus landing | 6.97% | 5.20% | 4.19% |
-| untitled UI landing | 9.67% | 3.01% | 2.65% |
+| dashstack admin | 3.55% | 2.89% | 1.08% (a different frame) |
+| positivus landing | 4.33% | 3.02% | 2.63% |
+| untitled UI landing | 9.67% | 3.01% | 2.51% |
 
-The clipboard path stays behind REST and always will on some designs, for a
-reason worth stating rather than chasing: **Figma flattens a boolean
-operation's outline only for REST and the `.fig` container.** A paste carries
-just the operands, so a union's own fill and stroke have no shape to go on —
-Positivus' three testimonial bubbles lose their green border. The walker now
-reports each of those as an omission naming the two routes that do carry the
-shape, instead of returning a design quietly missing an outline.
+Read the middle column against the last one: on both designs where the same
+frame is measured over both paths, the clipboard walker is now within 0.5pp of
+the REST walker. What separates the two end columns is almost entirely the
+images — **a clipboard payload carries image hashes, never image bytes**, so
+those boxes render as placeholders and no amount of converter work fills them.
+That is the path's real ceiling, and it needs a Figma token to lift.
+
+Figma also flattens a boolean operation's outline only for REST and the `.fig`
+container; a paste carries just the operands. A UNION does not need the
+flattened outline — filling the operands together is the union region, and
+stroking each with the others masked away is its boundary — so those now draw.
+SUBTRACT, INTERSECT and EXCLUDE genuinely need computed geometry and are still
+reported as omissions naming the two routes that do carry the shape, rather
+than guessed at.
 
 "converter only" is `vsFigma` with the image-fill placeholders excluded — a
 clipboard payload carries image hashes but no image bytes, so those boxes
