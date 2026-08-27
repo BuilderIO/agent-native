@@ -1208,6 +1208,47 @@ describe("masks", () => {
     expect(html).not.toContain('layer-name="Mask shape"');
   });
 
+  it("scales a vector-network mask out of normalizedSize into the node's box", () => {
+    // A network's coordinates are in `normalizedSize` space, not the node's
+    // box. Unscaled, a 553-unit blob "clipped" a 98px avatar and so clipped
+    // nothing: a Positivus card's photo placeholder spilled across the card.
+    const buf = Buffer.alloc(108);
+    buf.writeUInt32LE(3, 0);
+    buf.writeUInt32LE(2, 4);
+    buf.writeFloatLE(0, 16);
+    buf.writeFloatLE(0, 20);
+    buf.writeFloatLE(10, 28);
+    buf.writeFloatLE(0, 32);
+    buf.writeFloatLE(10, 40);
+    buf.writeFloatLE(10, 44);
+    buf.writeUInt32LE(0, 52);
+    buf.writeUInt32LE(1, 64);
+    buf.writeUInt32LE(1, 80);
+    buf.writeUInt32LE(2, 92);
+
+    const doc = maskDoc({
+      type: "VECTOR",
+      size: { x: 25, y: 25 },
+      vectorData: { vectorNetworkBlob: 0, normalizedSize: { x: 100, y: 100 } },
+    }) as Record<string, unknown>;
+    doc.blobs = [{ bytes: buf }];
+    const html = renderFrame(doc);
+    expect(html).toContain("<clipPath");
+    expect(html).toContain("scale(0.25 0.25)");
+  });
+
+  it("leaves flattened mask geometry unscaled — it is already in the node's box", () => {
+    const html = renderFrame(
+      maskDoc({
+        fillPaints: [
+          { type: "SOLID", visible: true, color: { r: 1, g: 1, b: 1, a: 1 } },
+        ],
+      }),
+    );
+    expect(html).toContain("<clipPath");
+    expect(html).not.toContain("scale(");
+  });
+
   it("reports, rather than silently drops, a mask it cannot express", () => {
     const doc = maskDoc({ size: undefined });
     const result = renderHtmlTemplates(doc);

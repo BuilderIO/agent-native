@@ -923,9 +923,26 @@ function maskMarkup(
   const t = maskNode.transform;
   // The mask's geometry is in its own local space; the run it clips lives in
   // the parent's. The node's relativeTransform is exactly that change of basis.
-  const placement = t
-    ? ` transform="matrix(${num(t.m00)} ${num(t.m10)} ${num(t.m01)} ${num(t.m11)} ${num(t.m02)} ${num(t.m12)})"`
+  const matrix = t
+    ? `matrix(${num(t.m00)} ${num(t.m10)} ${num(t.m01)} ${num(t.m11)} ${num(t.m02)} ${num(t.m12)})`
     : "";
+  const placement = matrix ? ` transform="${matrix}"` : "";
+  // A vector NETWORK's coordinates are in `normalizedSize` space, not the
+  // node's box — the same scale the vector renderer applies before drawing
+  // one. Flattened `fillGeometry` is already in the node's box and takes no
+  // scale. Without it a 553-unit blob was clipping a 98px avatar, so the mask
+  // clipped nothing and a card's photo spilled across the whole card.
+  const normalized = maskNode.vectorData?.normalizedSize;
+  const scaleX = normalized?.x
+    ? (maskNode.size?.x || normalized.x) / normalized.x
+    : 1;
+  const scaleY = normalized?.y
+    ? (maskNode.size?.y || normalized.y) / normalized.y
+    : 1;
+  const networkPlacement =
+    Math.abs(scaleX - 1) > 1e-6 || Math.abs(scaleY - 1) > 1e-6
+      ? ` transform="${matrix ? `${matrix} ` : ""}scale(${num(scaleX)} ${num(scaleY)})"`
+      : placement;
   const svgOpen = `<svg width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">`;
 
   const shapes: string[] = [];
@@ -960,7 +977,7 @@ function maskMarkup(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${num(parentWidth)}" height="${num(parentHeight)}" ` +
         `viewBox="0 0 ${num(parentWidth)} ${num(parentHeight)}">` +
         // guard:allow-raw-color — in a mask image white IS the alpha channel ("keep this pixel"), not a themeable colour; a token would make the mask follow the viewer's theme and hide the content it reveals.
-        `<path d="${d}"${placement} fill="none" stroke="#fff" stroke-width="${num(weight)}" /></svg>`;
+        `<path d="${d}"${networkPlacement} fill="none" stroke="#fff" stroke-width="${num(weight)}" /></svg>`;
       const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
       return {
         defs: "",
@@ -969,7 +986,7 @@ function maskMarkup(
           `-webkit-mask-image:${url};-webkit-mask-size:100% 100%;-webkit-mask-repeat:no-repeat`,
       };
     }
-    if (d) shapes.push(`<path d="${escapeHtmlAttr(d)}"${placement} />`);
+    if (d) shapes.push(`<path d="${escapeHtmlAttr(d)}"${networkPlacement} />`);
   }
 
   if (!shapes.length) {
