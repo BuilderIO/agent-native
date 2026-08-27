@@ -174,6 +174,12 @@ describe("isProviderConnectionErrorMessage", () => {
         "upstream provider failed",
       ),
     ).toBe("provider_internal_error");
+    expect(
+      canonicalizeBuilderGatewayErrorCode(
+        "provider_internal_error",
+        "Provider failed. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe("provider_internal_error");
     expect(canonicalizeBuilderGatewayErrorCode("rate_limited", envelope)).toBe(
       "rate_limited",
     );
