@@ -2170,6 +2170,29 @@ function textOverrideCss(
   };
 }
 
+/**
+ * Did Figma lay this text out on a single line, in a box that only holds one?
+ *
+ * Such a node must not wrap. Our advances run a hair wider than Figma's on
+ * some strings, and the extra line pushes every sibling down and reads as
+ * broken where a few pixels of overflow does not.
+ *
+ * Text that HUGS its own width is included, not excluded — that is the case
+ * this matters most for. A hugging text node outside auto-layout is emitted at
+ * Figma's own resolved width, so a string whose advance runs wider wraps
+ * inside a box built to fit it on one line: DashStack's "Write Your task name
+ * here" placeholder is 193px of Nunito Sans SemiBold, and ours needs a few
+ * pixels more.
+ */
+export function figmaLaidOutOneLine(node: FigmaNode): boolean {
+  const lineHeight = node.style?.lineHeightPx;
+  const height = node.absoluteBoundingBox?.height;
+  if (!lineHeight || !height) return false;
+  return (
+    (node.lineTypes?.length ?? 1) === 1 && Math.round(height / lineHeight) === 1
+  );
+}
+
 const FIGMA_TEXT_BREAK = /\r\n|[\n\r\u2028\u2029]/g;
 
 /**
@@ -2752,6 +2775,13 @@ function buildNode(
       spanStyles.overflow = "hidden";
       spanStyles["text-overflow"] = "ellipsis";
       spanStyles["min-width"] = "0";
+    } else if (figmaLaidOutOneLine(node)) {
+      // Figma fitted this on ONE line in a box only one line tall. Our
+      // advances run a hair wider on some strings, and left free to wrap CSS
+      // adds a second line — which pushes every sibling down and reads as
+      // broken, where a few pixels of overflow does not. `pre` keeps Figma's
+      // whitespace handling and refuses the break Figma did not take.
+      baseStyles["white-space"] = "pre";
     } else {
       // Figma preserves explicit newlines and repeated spaces. Normal HTML
       // whitespace collapsing changes both wrapping and measured geometry.

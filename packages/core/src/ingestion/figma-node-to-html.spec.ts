@@ -822,6 +822,40 @@ describe("Figma rounds a hugging text box's height", () => {
   });
 });
 
+describe("text Figma laid out on one line must not wrap", () => {
+  // Our advances run a hair wider than Figma's on some strings, and a second
+  // line pushes every sibling down and reads as broken where a few pixels of
+  // overflow does not. DashStack's placeholder is 193px of Nunito Sans
+  // SemiBold, emitted at Figma's own width because it sits outside auto-layout.
+  function placeholder(height: number, lineTypes: string[]): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Placeholder",
+      type: "TEXT",
+      absoluteBoundingBox: box(0, 0, 193, height),
+      characters: "Write Your task name here",
+      lineTypes,
+      style: {
+        fontFamily: "Nunito Sans",
+        fontSize: 16,
+        lineHeightPx: 27,
+        textAutoResize: "WIDTH_AND_HEIGHT",
+      },
+    } as FigmaNode;
+  }
+
+  it("refuses the break Figma did not take", () => {
+    const { html } = mapFigmaNodeToHtml(placeholder(27, ["NONE"]), {});
+    expect(html).toContain("white-space: pre");
+    expect(html).not.toContain("white-space: pre-wrap");
+  });
+
+  it("still lets genuinely multi-line text wrap", () => {
+    const { html } = mapFigmaNodeToHtml(placeholder(54, ["NONE"]), {});
+    expect(html).toContain("white-space: pre-wrap");
+  });
+});
+
 describe("an image fallback must not be distorted", () => {
   // `/images` does not always return a PNG whose aspect matches the
   // `absoluteRenderBounds` it reports: a masked group came back 1210x594 for a
