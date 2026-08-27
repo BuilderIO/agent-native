@@ -672,9 +672,6 @@ const messages = {
     sourceGitHub: "Dépôt GitHub",
     sourceMixed: "Sources multiples",
     sourceBuilder: "Intelligence des systèmes de design Builder",
-    sourceIndexing: "Indexation en cours",
-    sourceIndexed: "Indexé",
-    sourceUnavailable: "Résultats indisponibles",
     sourceIndexingDescription:
       "Builder traite encore cette source. Les résultats apparaîtront ici dès qu'ils seront prêts.",
     sourceIndexedDescription: "{{docs}} documents · {{tokens}} jetons indexés",
