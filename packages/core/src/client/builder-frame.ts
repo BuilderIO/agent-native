@@ -59,6 +59,8 @@ function hasBuilderPreviewParams(): boolean {
   );
 }
 
+let builderFrameDetected = false;
+
 /**
  * For *.builder.io / *.builder.my the parent origin alone is sufficient — those
  * are Builder-owned hosts and any iframe they load is by definition a Builder
@@ -88,14 +90,27 @@ export function getBuilderParentOrigin(): string | null {
   return null;
 }
 
+// Capture the initial Builder signal before client-side routing can remove its
+// query markers from a top-level Electron webview.
+if (typeof window !== "undefined") {
+  builderFrameDetected =
+    getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
+}
+
 export function isInBuilderFrame(): boolean {
   if (typeof window === "undefined") return false;
-  if (getBuilderParentOrigin() !== null) return true;
+  if (builderFrameDetected) return true;
 
   // Electron webviews run the preview as a top-level page, so there is no
   // parent frame to inspect. Builder still marks those URLs with builder.*
   // preview params, and sendToBuilderChat will use the console relay.
-  return hasBuilderPreviewParams();
+  builderFrameDetected =
+    getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
+  return builderFrameDetected;
+}
+
+export function _resetBuilderFrameDetectionForTests(): void {
+  builderFrameDetected = false;
 }
 
 export function shouldParentFrameOwnAgentPanel(): boolean {

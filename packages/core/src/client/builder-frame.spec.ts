@@ -2,11 +2,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetBuilderFrameDetectionForTests,
   isBuildAppOrAgentRequest,
   isInBuilderFrame,
   sendToBuilderChat,
   shouldParentFrameOwnAgentPanel,
 } from "./builder-frame.js";
+
+afterEach(() => {
+  _resetBuilderFrameDetectionForTests();
+});
 
 function setParentWindow(value: unknown) {
   Object.defineProperty(window, "parent", {
@@ -43,6 +48,26 @@ describe("isInBuilderFrame", () => {
     window.history.replaceState({}, "", "/?builder.preview=interact");
 
     expect(isInBuilderFrame()).toBe(true);
+  });
+
+  it("keeps Builder detection after SPA navigation drops preview params", () => {
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+    expect(isInBuilderFrame()).toBe(true);
+
+    window.history.pushState({}, "", "/apps/mail");
+
+    expect(isInBuilderFrame()).toBe(true);
+  });
+
+  it("captures the Builder signal before the first SPA navigation", async () => {
+    vi.resetModules();
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+
+    const { isInBuilderFrame: detectBuilderFrame } =
+      await import("./builder-frame.js");
+    window.history.pushState({}, "", "/apps/mail");
+
+    expect(detectBuilderFrame()).toBe(true);
   });
 });
 
