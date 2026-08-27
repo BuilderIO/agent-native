@@ -2561,6 +2561,18 @@ function buildNode(
       top: isRoot || isFlowChild ? undefined : px(renderBox.top),
       width: px(renderBox.width),
       height: px(renderBox.height),
+      // Never distort Figma's own render. `/images` does not always return a
+      // PNG whose aspect matches the `absoluteRenderBounds` it reports — a
+      // masked group came back 1210x594 for a 605x348 box, and 9 of the 28
+      // fallbacks on one product page were being stretched, four of them by
+      // more than 30%. Where the two agree, `contain` is a no-op.
+      //
+      // Anchored top-left, not centred: `absoluteRenderBounds` states where
+      // the ink STARTS, and the PNG covers it from that origin. Centring the
+      // leftover space instead splits it around the artwork and moves it —
+      // worth 1.1 points on that product page on its own.
+      "object-fit": "contain",
+      "object-position": "0 0",
       "margin-left": negativeMargin(overflow?.left),
       "margin-top": negativeMargin(overflow?.top),
       "margin-right": negativeMargin(overflow?.right),

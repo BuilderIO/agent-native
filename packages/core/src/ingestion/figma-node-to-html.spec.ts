@@ -822,6 +822,46 @@ describe("Figma rounds a hugging text box's height", () => {
   });
 });
 
+describe("an image fallback must not be distorted", () => {
+  // `/images` does not always return a PNG whose aspect matches the
+  // `absoluteRenderBounds` it reports: a masked group came back 1210x594 for a
+  // 605x348 box, and 9 of the 28 fallbacks on one product page were being
+  // stretched to fit — four of them by more than 30%.
+  function masked(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Mask group",
+      type: "GROUP",
+      absoluteBoundingBox: box(0, 0, 605, 348),
+      absoluteRenderBounds: box(0, 0, 605, 348),
+      children: [
+        {
+          id: "1:2",
+          name: "Mask",
+          type: "RECTANGLE",
+          isMask: true,
+        } as FigmaNode,
+      ],
+    } as FigmaNode;
+  }
+
+  it("keeps the render's own aspect instead of stretching it to the box", () => {
+    const { html } = mapFigmaNodeToHtml(masked(), {
+      fallbackImageUrls: { "1:1": "https://example.invalid/group.png" },
+    });
+    expect(html).toContain("object-fit: contain");
+  });
+
+  it("anchors it where the ink starts, not centred in the leftover space", () => {
+    // `absoluteRenderBounds` states where the ink STARTS; centring splits the
+    // leftover space around the artwork and moves it.
+    const { html } = mapFigmaNodeToHtml(masked(), {
+      fallbackImageUrls: { "1:1": "https://example.invalid/group.png" },
+    });
+    expect(html).toContain("object-position: 0 0");
+  });
+});
+
 describe("an image fallback's ink must not take layout space", () => {
   // Figma stacks siblings against the GEOMETRIC box and paints ink outside it.
   // The fallback <img> is sized from render bounds so the artwork is not
