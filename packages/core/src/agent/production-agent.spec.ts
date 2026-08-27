@@ -494,6 +494,29 @@ describe("resolveSkillReferenceContent", () => {
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it("does not send display-only chat attachments to the model", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "make a deck from the reference",
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+          {
+            type: "file",
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            displayOnly: true,
+            text: "outline",
+          },
+        ],
+      }),
+    ).toEqual([{ type: "text", text: "make a deck from the reference" }]);
+  });
+
   it("preserves the prompt text when there are no attachments", () => {
     expect(buildUserContentWithAttachments({ text: "Hello" })).toEqual([
       { type: "text", text: "Hello" },

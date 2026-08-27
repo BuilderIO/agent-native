@@ -47,6 +47,7 @@ import React, {
   useImperativeHandle,
 } from "react";
 
+import type { AgentChatAttachment } from "../agent/types.js";
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { ThinkingDisplay } from "../shared/thinking-display.js";
@@ -291,6 +292,7 @@ export type AgentRecoveryAction = "continue" | "retry";
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
+  attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
 }
@@ -5458,7 +5460,7 @@ const AssistantChatInner = forwardRef<
           text,
           images,
           undefined,
-          undefined,
+          options?.attachments,
           options?.requestMode,
           "queued",
           undefined,

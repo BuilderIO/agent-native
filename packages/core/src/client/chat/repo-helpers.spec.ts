@@ -337,6 +337,71 @@ describe("shouldImportServerThreadData", () => {
     );
   });
 
+  it("rejects a same-length snapshot that would drop user attachments", () => {
+    const currentRepo: NormalizedRepo = {
+      headId: "user-2",
+      messages: [
+        {
+          parentId: null,
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+            attachments: [
+              {
+                id: "file-1",
+                type: "file",
+                name: "deck-source.pdf",
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "user-2",
+            role: "user",
+            content: "And the pasted notes",
+            attachments: [
+              {
+                id: "paste-1",
+                type: "file",
+                name: "pasted-text-1.txt",
+                contentType: "text/plain",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      headId: "user-2",
+      messages: [
+        {
+          parentId: null,
+          message: {
+            id: "user-1",
+            role: "user",
+            content: "Here is the deck source",
+          },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "user-2",
+            role: "user",
+            content: "And the pasted notes",
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
   it("accepts a same-length snapshot that completes a pending tool call", () => {
     const currentRepo: NormalizedRepo = {
       headId: "assistant-1",

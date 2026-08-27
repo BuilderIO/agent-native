@@ -103,9 +103,9 @@ describe("new deck generation flow", () => {
     expect(source).toContain(
       "Attachments are context for the agent by default",
     );
-    expect(flow).toContain("isSourceImprovementRequest");
-    expect(flow).toContain("importUploadedDeckIntoDeck");
-    expect(flow).toContain("Source-preserving improvement mode");
+    expect(flow).not.toContain("isSourceImprovementRequest");
+    expect(flow).not.toContain("importUploadedDeckIntoDeck");
+    expect(flow).not.toContain("Source-preserving improvement mode");
     expect(flow).toContain(
       "attached reference files must not seed it with imported slides",
     );
@@ -114,7 +114,9 @@ describe("new deck generation flow", () => {
   it("routes both prompt submit and prompt skip into the reference step", () => {
     expect(source).toContain("const handlePromptSubmit");
     expect(source).toContain("const handlePromptSkip");
-    expect(source).toContain('setPendingDeck({ prompt: "", files: [] })');
+    expect(source).toContain(
+      'setPendingDeck({ prompt: "", files: [], attachments: [] })',
+    );
     expect(source).toContain("onSubmit={handlePromptSubmit}");
     expect(source).toContain("onSkip={handlePromptSkip}");
     expect(source).toContain("setShowNewDeckReferenceStep(true)");

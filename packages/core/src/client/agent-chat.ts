@@ -7,7 +7,7 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
-import type { MentionItemMedia } from "../agent/types.js";
+import type { AgentChatAttachment, MentionItemMedia } from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { agentNativePath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
@@ -47,6 +47,8 @@ export interface AgentChatMessage {
   uploadedReferenceImages?: string[];
   /** Optional image data URLs or durable image URLs to include in the submitted chat message */
   images?: string[];
+  /** Optional attachments to show in the submitted chat message. */
+  attachments?: AgentChatAttachment[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
   /**
@@ -974,10 +976,46 @@ export interface ParsedSubmitChat {
   background?: boolean;
   tabId?: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   /** Mode as sent; the receiver falls back to its exec mode when undefined. */
   requestMode?: AgentChatRequestMode;
   /** Id used to dedup the live post against a cold-start replay. */
   submitMessageId?: string;
+}
+
+function parseSubmitChatAttachments(
+  value: unknown,
+): AgentChatAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attachments = value
+    .filter((item): item is Record<string, unknown> => {
+      return Boolean(item) && typeof item === "object";
+    })
+    .map((item) => {
+      const type = typeof item.type === "string" ? item.type : "file";
+      const name = typeof item.name === "string" ? item.name : "attachment";
+      const attachment: AgentChatAttachment = { type, name };
+      for (const key of [
+        "data",
+        "url",
+        "uploadProvider",
+        "securityNote",
+        "contentType",
+        "text",
+      ] as const) {
+        if (typeof item[key] === "string") attachment[key] = item[key];
+      }
+      for (const key of [
+        "displayOnly",
+        "referenceOnly",
+        "storageRequired",
+        "storageUploadFailed",
+      ] as const) {
+        if (typeof item[key] === "boolean") attachment[key] = item[key];
+      }
+      return attachment;
+    });
+  return attachments.length > 0 ? attachments : undefined;
 }
 
 /** Decode a `message` event into a submit payload, or null if it isn't one / has no text. */
@@ -1024,6 +1062,7 @@ export function parseSubmitChatMessage(
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
     images,
+    attachments: parseSubmitChatAttachments(raw.attachments),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,

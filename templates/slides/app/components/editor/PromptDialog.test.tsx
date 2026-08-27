@@ -66,9 +66,58 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 }));
 
 import PromptPopover, {
+  createPromptChatAttachments,
   isInsidePortaledLayer,
   uploadPromptFiles,
 } from "./PromptDialog";
+
+describe("createPromptChatAttachments", () => {
+  it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
+    const result = await createPromptChatAttachments(
+      [
+        {
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          file: new File(["pdf bytes"], "reference.pdf", {
+            type: "application/pdf",
+          }),
+        },
+        {
+          name: "pasted-text-1.txt",
+          contentType: "text/plain",
+          file: new File(["outline"], "pasted-text-1.txt", {
+            type: "text/plain",
+          }),
+        },
+      ],
+      [
+        {
+          path: "uploads/reference.pdf",
+          originalName: "reference.pdf",
+          filename: "reference.pdf",
+          type: "application/pdf",
+          size: 9,
+        },
+      ],
+    );
+
+    expect(result).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
+  });
+});
 
 describe("isInsidePortaledLayer", () => {
   it("matches nodes inside a Radix popper layer", () => {
@@ -313,9 +362,11 @@ describe("PromptPopover import mode", () => {
       ),
     );
     await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledWith("make a deck", [
-        expect.objectContaining({ originalName: "large.pdf" }),
-      ]);
+      expect(onSubmit).toHaveBeenCalledWith(
+        "make a deck",
+        [expect.objectContaining({ originalName: "large.pdf" })],
+        [],
+      );
     });
     expect(screen.queryByRole("status")).toBeNull();
   });

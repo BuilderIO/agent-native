@@ -319,6 +319,16 @@ function repoToolCallProgress(repo: NormalizedRepo | null | undefined): {
   return progress;
 }
 
+function repoAttachmentCount(repo: NormalizedRepo | null | undefined): number {
+  let count = 0;
+  for (const entry of getRepoMessages(repo)) {
+    const message = getRepoMessage(entry);
+    const attachments = message?.attachments;
+    if (Array.isArray(attachments)) count += attachments.length;
+  }
+  return count;
+}
+
 export function shouldImportServerThreadData(
   currentRepo: NormalizedRepo | null | undefined,
   incomingRepo: NormalizedRepo | null | undefined,
@@ -350,6 +360,11 @@ export function shouldImportServerThreadData(
       incomingTools.completed < currentTools.completed ||
       incomingTools.score < currentTools.score
     ) {
+      return false;
+    }
+    const currentAttachments = repoAttachmentCount(currentRepo);
+    const incomingAttachments = repoAttachmentCount(incomingRepo);
+    if (incomingAttachments < currentAttachments) {
       return false;
     }
   }

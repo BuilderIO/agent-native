@@ -190,6 +190,48 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
+  it("preserves lightweight attachment descriptors across the chat bridge", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "make a deck from this reference",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              displayOnly: true,
+            },
+            {
+              type: "file",
+              name: "pasted-text-1.txt",
+              contentType: "text/plain",
+              displayOnly: true,
+              text: "outline",
+            },
+          ],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
+  });
+
   it("snapshots stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
 

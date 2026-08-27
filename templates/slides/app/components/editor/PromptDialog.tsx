@@ -1,5 +1,8 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client/composer";
 import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -30,6 +33,69 @@ export interface UploadedFile {
   filename: string;
   type: string;
   size: number;
+}
+
+export interface PromptChatAttachment {
+  type: "file";
+  name: string;
+  contentType?: string;
+  displayOnly: true;
+  text?: string;
+}
+
+export async function createPromptChatAttachments(
+  attachments: ReadonlyArray<unknown> | undefined,
+  uploaded: UploadedFile[],
+): Promise<PromptChatAttachment[]> {
+  const result: PromptChatAttachment[] = [];
+  let uploadedIndex = 0;
+
+  for (const raw of attachments ?? []) {
+    const attachment = raw as {
+      name?: unknown;
+      contentType?: unknown;
+      file?: File;
+    };
+    const name =
+      typeof attachment.name === "string"
+        ? attachment.name
+        : attachment.file?.name;
+    if (!name) continue;
+
+    if (name.startsWith("pasted-text-")) {
+      let text: string | undefined;
+      try {
+        text = await attachment.file?.text();
+      } catch {
+        text = undefined;
+      }
+      result.push({
+        type: "file",
+        name,
+        contentType:
+          typeof attachment.contentType === "string"
+            ? attachment.contentType
+            : "text/plain",
+        displayOnly: true,
+        ...(text !== undefined ? { text } : {}),
+      });
+      continue;
+    }
+
+    const uploadedFile = uploaded[uploadedIndex++];
+    result.push({
+      type: "file",
+      name: uploadedFile?.originalName ?? name,
+      contentType:
+        uploadedFile?.type ??
+        (typeof attachment.contentType === "string"
+          ? attachment.contentType
+          : undefined),
+      displayOnly: true,
+    });
+  }
+
+  return result;
 }
 
 // Netlify functions cap request bodies well under what a real PPTX/PDF
@@ -214,7 +280,11 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void | Promise<void>;
+  onSubmit: (
+    prompt: string,
+    files: UploadedFile[],
+    attachments?: ReadonlyArray<PromptChatAttachment>,
+  ) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -341,7 +411,12 @@ export default function PromptPopover({
   );
 
   const handleSubmit = useCallback(
-    async (text: string, files: File[]) => {
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options?: PromptComposerSubmitOptions,
+    ) => {
       const enrichedText = [text.trim(), googleDocContext]
         .filter(Boolean)
         .join("\n\n");
@@ -351,7 +426,11 @@ export default function PromptPopover({
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
-        await onSubmit(enrichedText, uploaded);
+        const chatAttachments = await createPromptChatAttachments(
+          options?.attachments,
+          uploaded,
+        );
+        await onSubmit(enrichedText, uploaded, chatAttachments);
         setSubmitting(false);
       } catch (error) {
         setSubmitting(false);

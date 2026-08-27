@@ -69,9 +69,11 @@ type AdapterHistoryMessage = {
 };
 
 type AssistantUiAttachment = {
+  type?: string;
   name: string;
   contentType?: string;
   content: readonly Record<string, unknown>[];
+  metadata?: Record<string, unknown>;
 };
 
 type AgentChatAdapterAttachment = {
@@ -83,6 +85,7 @@ type AgentChatAdapterAttachment = {
   uploadProvider?: string;
   referenceOnly?: boolean;
   securityNote?: string;
+  displayOnly?: boolean;
   text?: string;
 };
 
@@ -530,12 +533,29 @@ function extractAttachmentsFromMessage(message: {
 }): AgentChatAdapterAttachment[] {
   const attachments: AgentChatAdapterAttachment[] = [];
   for (const att of message.attachments ?? []) {
+    const persistedMetadata =
+      att && typeof att.metadata === "object" ? att.metadata : undefined;
+    if (persistedMetadata?.displayOnly === true) {
+      const textPart = att.content.find(
+        (part) => part.type === "text" && typeof part.text === "string",
+      );
+      attachments.push({
+        type: att.type ?? "file",
+        name: att.name,
+        contentType: att.contentType,
+        displayOnly: true,
+        ...(textPart && typeof textPart.text === "string"
+          ? {
+              text: truncateOutboundAttachment(
+                unwrapAttachmentEnvelope(textPart.text),
+              ),
+            }
+          : {}),
+      });
+      continue;
+    }
     for (const part of att.content) {
       if (part.type === "image" && typeof part.image === "string") {
-        const persistedMetadata =
-          att && typeof (att as any).metadata === "object"
-            ? ((att as any).metadata as Record<string, unknown>)
-            : undefined;
         const imageIsDataUrl = part.image.startsWith("data:");
         attachments.push({
           type: "image",
@@ -563,10 +583,6 @@ function extractAttachmentsFromMessage(message: {
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
         const data = typeof part.data === "string" ? part.data : undefined;
         const url = typeof part.url === "string" ? part.url : undefined;
-        const persistedMetadata =
-          att && typeof (att as any).metadata === "object"
-            ? ((att as any).metadata as Record<string, unknown>)
-            : undefined;
         const preserveDataUrl =
           typeof data === "string" &&
           data.startsWith("data:") &&
