@@ -706,11 +706,7 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      const oldIndex = deck.slides.findIndex((s) => s.id === active.id);
-      const newIndex = deck.slides.findIndex((s) => s.id === over.id);
-      if (oldIndex !== -1 && newIndex !== -1) {
-        reorderSlides(id, oldIndex, newIndex);
-      }
+      reorderSlides(id, String(active.id), String(over.id));
     },
     [deck, id, reorderSlides],
   );
