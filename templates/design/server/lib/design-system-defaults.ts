@@ -24,46 +24,39 @@ export const DESIGN_SYSTEMS_ONE_DEFAULT_PER_SCOPE_INDEX =
  * itself must go through the migration runner's connection, not `getDbExec()`
  * directly.
  *
- * Uses Drizzle's query builder rather than raw SQL specifically to avoid
- * hand-rolling a dialect-portable boolean literal in an UPDATE ... SET
- * clause; `schema.designSystems.isDefault`'s `{ mode: "boolean" }` column
- * type already handles that conversion for both dialects.
+ * One atomic UPDATE, not a SELECT-then-update-by-id pair: a healer that reads
+ * "who wins per scope" in JS and clears specific ids in a later statement has
+ * a gap where an in-flight `setOwnedDesignSystemDefault` call can commit a new
+ * winner in between -- the healer would then clear that just-committed winner
+ * using its now-stale id list, leaving the scope with no default at all. The
+ * correlated subquery below re-evaluates "is this row still the earliest
+ * true row in its scope" against live data inside the single UPDATE
+ * statement, so there is no separate read step to go stale.
+ *
+ * `SET is_default = NOT is_default` and the bare `is_default` truthy checks
+ * (rather than `= false` / `= true`) are the same dialect-neutral idiom as
+ * the index predicate below -- this only ever runs on rows already known
+ * true, so flipping is equivalent to clearing without a boolean literal.
  */
 export async function healDuplicateDesignSystemDefaults(): Promise<number> {
-  const db = getDb();
   // guard:allow-unscoped — release-time maintenance reconciling every
   // owner/org scope's stray duplicate defaults left by the pre-fix race,
-  // not a single caller's data. Read-only; the write below is scoped to the
-  // exact stale row ids this computes.
-  const flagged = await db
-    .select({
-      id: schema.designSystems.id,
-      ownerEmail: schema.designSystems.ownerEmail,
-      orgId: schema.designSystems.orgId,
-    })
-    .from(schema.designSystems)
-    .where(eq(schema.designSystems.isDefault, true))
-    .orderBy(asc(schema.designSystems.createdAt));
-
-  const seenScopes = new Set<string>();
-  const staleIds: string[] = [];
-  for (const row of flagged) {
-    const scopeKey = `${row.ownerEmail}\u0000${row.orgId ?? ""}`;
-    if (seenScopes.has(scopeKey)) {
-      staleIds.push(row.id);
-    } else {
-      seenScopes.add(scopeKey);
-    }
-  }
-
-  if (staleIds.length > 0) {
-    await db
-      .update(schema.designSystems)
-      .set({ isDefault: false, updatedAt: new Date().toISOString() })
-      .where(inArray(schema.designSystems.id, staleIds));
-  }
-
-  return staleIds.length;
+  // not a single caller's data.
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `UPDATE design_systems
+      SET is_default = NOT is_default, updated_at = ?
+      WHERE is_default
+        AND id != (
+          SELECT keeper.id FROM design_systems AS keeper
+          WHERE keeper.owner_email = design_systems.owner_email
+            AND COALESCE(keeper.org_id, '') = COALESCE(design_systems.org_id, '')
+            AND keeper.is_default
+          ORDER BY keeper.created_at ASC, keeper.id ASC
+          LIMIT 1
+        )`,
+    args: [new Date().toISOString()],
+  });
+  return rowsAffected;
 }
 
 /**
