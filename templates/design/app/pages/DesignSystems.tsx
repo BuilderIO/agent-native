@@ -2,6 +2,7 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
@@ -1006,8 +1007,6 @@ function DesignSystemPreview({
   );
 }
 
-type ResolveDesignSystemBuilderLinkResult = { builderUrl: string | null };
-
 function DesignSystemPreviewLink({
   id,
   data,
@@ -1016,27 +1015,28 @@ function DesignSystemPreviewLink({
   data: DesignSystemData;
 }) {
   const t = useT();
-  const resolveLinkMutation = useActionMutation<
-    ResolveDesignSystemBuilderLinkResult,
-    { id: string }
-  >("resolve-design-system-builder-link", {
-    skipActionQueryInvalidation: true,
-  });
-  const resolveLinkRef = useRef(resolveLinkMutation.mutateAsync);
-  resolveLinkRef.current = resolveLinkMutation.mutateAsync;
   const [resolvedBuilderUrl, setResolvedBuilderUrl] = useState<
     string | null | undefined
   >(undefined);
-  const attemptedIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (attemptedIdRef.current === id) return;
-    attemptedIdRef.current = id;
+    let cancelled = false;
     setResolvedBuilderUrl(undefined);
-    void resolveLinkRef
-      .current({ id })
-      .then((result) => setResolvedBuilderUrl(result.builderUrl))
-      .catch(() => setResolvedBuilderUrl(undefined));
+    void fetch(
+      appApiPath(
+        `/api/design-system-builder-link?id=${encodeURIComponent(id)}`,
+      ),
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { builderUrl?: string | null } | null) => {
+        if (!cancelled) setResolvedBuilderUrl(json?.builderUrl ?? undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedBuilderUrl(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const persistedBuilderUrl =
