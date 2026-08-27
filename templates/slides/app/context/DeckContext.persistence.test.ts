@@ -94,6 +94,8 @@ function setupFetch(options?: {
   let firstPatchSignal: AbortSignal | undefined;
   let deferNextGetDeck = false;
   let resolveDeferredGetDeck: (() => void) | null = null;
+  let deferNextDeckList = false;
+  let resolveDeferredDeckList: (() => void) | null = null;
   let accessibleDeck: Deck | null = null;
   const patchAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
@@ -170,11 +172,17 @@ function setupFetch(options?: {
         );
       }
       const decks = accessibleDeck ? [accessibleDeck] : [];
-      return Promise.resolve(
-        new Response(JSON.stringify({ count: decks.length, decks }), {
-          status: 200,
-        }),
+      const response = new Response(
+        JSON.stringify({ count: decks.length, decks }),
+        { status: 200 },
       );
+      if (deferNextDeckList) {
+        deferNextDeckList = false;
+        return new Promise<Response>((resolve) => {
+          resolveDeferredDeckList = () => resolve(response);
+        });
+      }
+      return Promise.resolve(response);
     }
 
     if (href.includes("/_agent-native/actions/get-deck")) {
@@ -245,7 +253,15 @@ function setupFetch(options?: {
       resolveDeferredGetDeck?.();
       resolveDeferredGetDeck = null;
     },
-    setAccessibleDeck: (deck: Deck) => {
+    deferNextDeckList: () => {
+      deferNextDeckList = true;
+    },
+    hasDeferredDeckList: () => resolveDeferredDeckList !== null,
+    resolveDeferredDeckList: () => {
+      resolveDeferredDeckList?.();
+      resolveDeferredDeckList = null;
+    },
+    setAccessibleDeck: (deck: Deck | null) => {
       accessibleDeck = deck;
     },
     getPatchAttempts: (deckId: string) => patchAttempts.get(deckId) ?? 0,
@@ -2110,6 +2126,50 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("ignores an in-flight deck-list diff after a baseline reload", async () => {
+    window.history.pushState({}, "", "/");
+    const deck: Deck = {
+      id: "baseline-list-deck",
+      title: "Baseline list deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    const {
+      setAccessibleDeck,
+      deferNextDeckList,
+      hasDeferredDeckList,
+      resolveDeferredDeckList,
+    } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck(deck.id)?.title).toBe(deck.title);
+
+    setAccessibleDeck(null);
+    deferNextDeckList();
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(hasDeferredDeckList()).toBe(true));
+
+    setAccessibleDeck(deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    resolveDeferredDeckList();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.getDeck(deck.id)?.title).toBe(deck.title);
+  });
+
   it("shows a deleted slide again after its save permanently fails", async () => {
     window.history.pushState({}, "", "/deck/failed-delete-deck");
     const original: Deck = {
@@ -2335,6 +2395,95 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
     ).toEqual(["slide-3"]);
+    vi.useRealTimers();
+  });
+
+  it("retries the newest replacement after an older replacement fails", async () => {
+    window.history.pushState({}, "", "/deck/replacement-retry-deck");
+    const initial: Deck = {
+      id: "replacement-retry-deck",
+      title: "Replacement retry deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+        {
+          id: "slide-3",
+          content: "<h1>Three</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      getFirstPutSignal,
+      rejectDeferredPut,
+    } = setupFetch({ deferredPut: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-1");
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[0]!,
+        initial.slides[1]!,
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPutSignal()).toBeDefined();
+
+    act(() => {
+      result.current.deleteSlide(initial.id, "slide-2");
+      result.current.setDeckSlides(initial.id, [
+        initial.slides[1]!,
+        initial.slides[2]!,
+      ]);
+    });
+    rejectDeferredPut();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    const saveCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === initial.id,
+    );
+    expect(saveCalls).toHaveLength(2);
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:02:00.000Z",
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id);
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["slide-2", "slide-3"]);
     vi.useRealTimers();
   });
 

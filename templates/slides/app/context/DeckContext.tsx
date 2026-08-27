@@ -52,7 +52,11 @@ type GranularOp =
       >;
     }
   /** Sentinel: discard all accumulated ops and do a full PUT instead. */
-  | { op: "full-replace"; deck: Deck };
+  | {
+      op: "full-replace";
+      deck: Deck;
+      onSaveSuccess?: (ops: GranularOp[]) => void;
+    };
 
 export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
 
@@ -400,7 +404,6 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Per-deck queue of granular ops waiting to be flushed. Keys are deck IDs.
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
-const deckSaveSuccessHandlers = new Map<string, (ops: GranularOp[]) => void>();
 
 // The ops a deck's current in-flight save actually sent, so a slide-scoped
 // check can tell "this slide's save is in flight" from "some other slide in
@@ -630,13 +633,12 @@ function drainPendingDeckOps(
   const ops = pendingOpsQueue.get(deckId) ?? [];
   pendingOpsQueue.delete(deckId);
   if (ops.length === 0) {
-    deckSaveSuccessHandlers.delete(deckId);
     notifySaveListeners();
     return Promise.resolve();
   }
 
-  const onSaveSuccess = deckSaveSuccessHandlers.get(deckId);
-  deckSaveSuccessHandlers.delete(deckId);
+  const onSaveSuccess =
+    ops[0]?.op === "full-replace" ? ops[0].onSaveSuccess : undefined;
 
   const generation = deckSaveGenerations.get(deckId) ?? 0;
   const controller =
@@ -658,9 +660,13 @@ function drainPendingDeckOps(
       // resurrect the old queue or schedule a retry after the boundary.
       if (!isCurrentGeneration()) return;
       console.error(`Failed to save deck ${deckId}:`, err);
-      if (onSaveSuccess) deckSaveSuccessHandlers.set(deckId, onSaveSuccess);
       const pending = pendingOpsQueue.get(deckId) ?? [];
-      pendingOpsQueue.set(deckId, [...ops, ...pending]);
+      // A queued full replacement already includes the latest local snapshot,
+      // so retry it instead of sending an older replacement as a patch op.
+      pendingOpsQueue.set(
+        deckId,
+        pending[0]?.op === "full-replace" ? pending : [...ops, ...pending],
+      );
       const attempt = (deckSaveRetryAttempts.get(deckId) ?? 0) + 1;
       deckSaveRetryAttempts.set(deckId, attempt);
       immediateFlushRequests.delete(deckId);
@@ -746,9 +752,6 @@ function enqueueDeckOp(
     onSaveSuccess?: (ops: GranularOp[]) => void;
   },
 ) {
-  if (options?.onSaveSuccess) {
-    deckSaveSuccessHandlers.set(deckId, options.onSaveSuccess);
-  }
   const existing = pendingSaves.get(deckId);
   if (existing) clearTimeout(existing);
   if (
@@ -760,9 +763,11 @@ function enqueueDeckOp(
   }
 
   if (op.op === "full-replace") {
-    if (!options?.onSaveSuccess) deckSaveSuccessHandlers.delete(deckId);
+    const queuedOp = options?.onSaveSuccess
+      ? { ...op, onSaveSuccess: options.onSaveSuccess }
+      : op;
     // Discard any accumulated granular ops — this is a wholesale replacement
-    pendingOpsQueue.set(deckId, [op]);
+    pendingOpsQueue.set(deckId, [queuedOp]);
   } else {
     const queue = pendingOpsQueue.get(deckId) ?? [];
     const previous = queue[queue.length - 1];
@@ -828,7 +833,6 @@ function discardPendingDeckOps(deckId: string) {
   if (timer) clearTimeout(timer);
   pendingSaves.delete(deckId);
   pendingOpsQueue.delete(deckId);
-  deckSaveSuccessHandlers.delete(deckId);
   deckSaveRetryAttempts.delete(deckId);
   failedSaveDecks.delete(deckId);
   immediateFlushRequests.delete(deckId);
@@ -1958,6 +1962,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const resetDeckBaseline = useCallback(
     (nextDecks: Deck[], createSeqAtRequest: number) => {
+      // A baseline snapshot supersedes any in-flight light-list membership
+      // diff before it replaces local state.
+      ++deckListRequestIdRef.current;
       const reconciledDecks = nextDecks.map((deck) =>
         deck.previewSlide
           ? deck
