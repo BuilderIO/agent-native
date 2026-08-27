@@ -1631,7 +1631,7 @@ function DeckFilterMenu({
 function DeckSearchInput({
   value,
   onChange,
-  className = "w-52 lg:w-60",
+  className = "w-40 lg:w-60",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -1640,7 +1640,7 @@ function DeckSearchInput({
   const t = useT();
   return (
     <label
-      className={`flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground ${className}`}
+      className={`flex h-8 min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground ${className}`}
     >
       <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
       <Input
