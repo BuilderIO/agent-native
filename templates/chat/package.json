@@ -17,9 +17,11 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@ai-sdk/openai": "^3.0.53",
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "catalog:",
+    "ai": "6.0.258",
     "h3": "catalog:",
     "isbot": "^5",
     "node-pty": "^1.1.0",

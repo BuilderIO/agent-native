@@ -297,6 +297,14 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 
+  it("includes the OpenAI AI SDK runtime for deployed chat apps", async () => {
+    await createApp("test-app", { template: "chat" });
+    const pkg = readPkg(path.join(tmpDir, "test-app"));
+
+    expect(pkg.dependencies?.ai).toBe("6.0.258");
+    expect(pkg.dependencies?.["@ai-sdk/openai"]).toBe("^3.0.53");
+  });
+
   it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
     await createApp("test-app", { template: "chat" });
     const root = path.join(tmpDir, "test-app");
