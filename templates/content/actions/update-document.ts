@@ -291,6 +291,7 @@ export function isStaleBuilderImageSourceComponentSave(args: {
 export default defineAction({
   description:
     "Update an existing document's title, content, icon, or favorite status.",
+  deferLoading: false,
   publicAgent: {
     expose: true,
     readOnly: false,

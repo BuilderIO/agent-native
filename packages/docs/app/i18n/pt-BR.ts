@@ -438,7 +438,7 @@ const ptBR = {
       bodyLine1:
         "Construa para agentes de IA sem construir um segundo produto para os usuários.",
       bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
-      learnMore: "Saiba mais",
+      tryAnApp: "Experimentar um app",
     },
     install: {
       copyCommand: "Copiar comando de instalação",
@@ -509,13 +509,6 @@ const ptBR = {
       title: "Construa seu primeiro app Agent-Native",
       body: "Crie uma aplicação para usuários e agentes de IA. Traga seu próprio LLM e implante em qualquer lugar.",
     },
-    getStartedModal: {
-      title: "Começar",
-      close: "Fechar",
-      buildLocally: "Criar um app localmente",
-      tryAnApp: "Experimentar um app",
-      buildInCloud: "Criar na nuvem",
-    },
     footer: {
       tagline: "O framework para aplicativos agentic.",
       framework: "Framework",
@@ -527,6 +520,15 @@ const ptBR = {
       apps: "Apps",
       privacyPolicy: "Política de Privacidade",
       saasTerms: "Termos de SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Não vai criar localmente?",
+      exploreApp: "Explore primeiro um app ao vivo",
+      between: "ou",
+      joinWaitlist: "entre na lista de espera",
+      end: "para criar no navegador.",
     },
   },
   templatesPage: {
@@ -555,7 +557,7 @@ const ptBR = {
       "Comece com o guia do framework ou crie online com o agente de programação em nuvem da Builder.io.",
     readDocs: "Ler a documentação",
     buildOnline: "Criar online",
-    popoverTitle: "Criar online com a Builder.io",
+    popoverTitle: "Criar no navegador",
     popoverBody:
       "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
     emailLabel: "Email",

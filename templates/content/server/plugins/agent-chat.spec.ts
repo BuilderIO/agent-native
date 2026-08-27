@@ -50,20 +50,33 @@ describe("Content agent chat plugin", () => {
     );
   });
 
-  it("keeps the direct authenticated A2A surface to bounded database reads", async () => {
+  it("keeps Content-owned MCP membership on actions and explicitly allowlists writes", async () => {
     await import("./agent-chat.js");
 
     expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "content",
         mcp: {
-          connectorCatalog: [
-            "list-content-databases",
-            "describe-content-database",
-          ],
+          externalAgents: { writes: "allowlisted" },
         },
       }),
     );
+  });
+
+  it("keeps only injected tools in the centralized starter list", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      initialToolNames?: string[];
+    };
+
+    expect(options.initialToolNames).toEqual([
+      "provider-api-catalog",
+      "provider-api-docs",
+      "provider-api-request",
+      "query-staged-dataset",
+    ]);
+    expect(options.initialToolNames).not.toContain("create-document");
   });
 
   it("rolls selected-receiver ownership out through Content's app-owned flag", async () => {
