@@ -2091,6 +2091,85 @@ describe("DeckContext deck creation persistence", () => {
     expect(deck.slides[1]?.content).toBe("<h1>Agent added slide</h1>");
   });
 
+  it("adopts a targeted agent edit while an unrelated local write is in flight", async () => {
+    window.history.pushState({}, "", "/deck/targeted-dirty-deck");
+    const initial: Deck = {
+      id: "targeted-dirty-deck",
+      title: "Targeted Dirty Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Second</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, getFirstPatchSignal, resolveDeferredPatch } =
+      setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { content: "<h1>Local pending</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: "<h1>After agent edit</h1>",
+        },
+      ],
+    });
+    const source = MockEventSource.lastInstance!;
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "deck-changed",
+            deckId: initial.id,
+            slideId: "slide-1",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+        "<h1>After agent edit</h1>",
+      ),
+    );
+    expect(result.current.getDeck(initial.id)?.slides[1]?.content).toBe(
+      "<h1>Local pending</h1>",
+    );
+    resolveDeferredPatch();
+  });
+
   describe("SSE reconnect and resync", () => {
     it("reconnects after a fatal SSE error and closes the old connection (no leak)", async () => {
       window.history.pushState({}, "", "/");
