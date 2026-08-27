@@ -15,7 +15,7 @@ export default function TemplatesPage() {
   const { locale } = useLocale();
 
   return (
-    <main className="templates-index-page mx-auto w-full min-w-0 max-w-[1200px] overflow-x-clip px-4 py-20 sm:px-6">
+    <main className="templates-index-page mx-auto w-full min-w-0 max-w-site overflow-x-clip px-4 py-20 sm:px-6">
       <div className="mb-12 text-center">
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           {t("templatesPage.title")}

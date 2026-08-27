@@ -433,6 +433,103 @@ const jaJP = {
     freeAndOpenSource: "100%無料 • オープンソース",
     viewAllApps: "すべてのアプリを見る",
   },
+  homepage: {
+    hero: {
+      title: "agentic アプリケーションのための framework",
+      bodyLine1:
+        "ユーザー向けに別のプロダクトを作らずに、AI エージェント向けに構築できます。",
+      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      learnMore: "詳しく見る",
+    },
+    install: {
+      copyCommand: "インストールコマンドをコピー",
+    },
+    actions: {
+      title: "1 つの Action があらゆる面を動かす",
+      bodyLine1: "Action は Agent-Native アプリを構成する基本単位です。",
+      bodyLine2:
+        "機能を一度定義すれば、UI、agent チャット、HTTP API、MCP、A2A、CLI から利用できます。",
+      diagramAlt:
+        "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
+    },
+    builtIn: {
+      title: "すべての Agent-Native アプリに組み込み済み",
+      body: "ユーザーと AI エージェントが共に働くために必要なものが、すでに 1 つのアプリケーションに組み込まれています。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "ユーザーに、閲覧・編集・レビューのための使い慣れた画面を提供します。",
+        },
+        agentChat: {
+          title: "組み込みの agent チャット",
+          body: "アプリを離れずに、作業を任せたり質問したり結果を確認したりできます。",
+        },
+        sharedState: {
+          title: "共有アプリケーション状態",
+          body: "agent はユーザーが表示、選択、編集している内容を把握します。",
+        },
+        sharedSql: {
+          title: "共有 SQL データ",
+          body: "ユーザーと agent は同じ信頼できるデータソースを読み書きします。",
+        },
+        skillsMemory: {
+          title: "Skills と memory",
+          body: "agent に再利用可能な専門知識と永続的なコンテキストを与えます。",
+        },
+        automations: {
+          title: "自動化",
+          body: "スケジュールやアプリケーションイベントに応じて agent の作業を自動実行します。",
+        },
+        agentTeams: {
+          title: "Agent チーム",
+          body: "アプリ内、またはアプリをまたいで専門の agent に作業を任せられます。",
+        },
+        auth: {
+          title: "認証と組織",
+          body: "サインイン、ユーザーアカウント、組織メンバーシップが組み込まれています。",
+        },
+        sharing: {
+          title: "共有と権限",
+          body: "誰が各リソースを閲覧、コメント、編集、管理できるかを制御します。",
+        },
+      },
+    },
+    stack: {
+      title: "お使いのスタックで動作",
+      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、アプリケーションはあなたのものであり続けます。",
+      exploreApps: "Agent-Native で作られたアプリを見る",
+    },
+    showcase: {
+      title: "Agent-Native で何を作れるか",
+      body: "チャット、目的を絞った社内ツール、完全な顧客向けプロダクトまで、どこからでも始められます。どのアプリもユーザーには UI を、agent には同じ作業をこなすツールを提供します。",
+      browseApps: "アプリを見る",
+      scrollLeft: "アプリを左へスクロール",
+      scrollRight: "アプリを右へスクロール",
+    },
+    bottomCta: {
+      title: "最初の Agent-Native アプリを作る",
+      body: "ユーザーと AI エージェントのために 1 つのアプリケーションを作成します。好きな LLM を持ち込んで、どこにでもデプロイできます。",
+    },
+    getStartedModal: {
+      title: "はじめる",
+      close: "閉じる",
+      buildLocally: "ローカルでアプリを作る",
+      tryAnApp: "アプリを試す",
+      buildInCloud: "クラウドで作る",
+    },
+    footer: {
+      tagline: "agentic アプリケーションのための framework。",
+      framework: "フレームワーク",
+      ecosystem: "エコシステム",
+      community: "コミュニティ",
+      legal: "法的情報",
+      docs: "ドキュメント",
+      actions: "アクション",
+      apps: "アプリ",
+      privacyPolicy: "プライバシーポリシー",
+      saasTerms: "SaaS 利用規約",
+    },
+  },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
     eyebrow: "動く app から始め、agent に進化させます。",
