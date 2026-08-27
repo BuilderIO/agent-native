@@ -553,7 +553,7 @@ async function getLegacyCookieSession(
         );
       }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
-      return { email, token: value };
+      return mapLegacySession(email, value);
     }
   }
   return null;
@@ -875,7 +875,7 @@ async function getBearerLegacySession(
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
   const email = await getSessionEmail(bearerToken);
-  return email ? { email, token: bearerToken } : null;
+  return email ? mapLegacySession(email, bearerToken) : null;
 }
 
 /**
@@ -1473,6 +1473,50 @@ export async function getSessionEmail(token: string): Promise<string | null> {
   const email = (rows[0].email as string) ?? null;
   if (email) setCachedSessionEmail(token, email);
   return email;
+}
+
+type LegacySessionEmailVerification =
+  | "verified"
+  | "unverified"
+  | "absent"
+  | "unreadable";
+
+async function resolveLegacySessionEmailVerification(
+  email: string,
+): Promise<LegacySessionEmailVerification> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT email_verified FROM "user" WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      args: [email],
+    });
+    if (rows.length === 0) return "absent";
+    const value = rows[0].email_verified;
+    if (value === true || value === 1 || value === "1") return "verified";
+    if (value === false || value === 0 || value === "0") return "unverified";
+    return "unreadable";
+  } catch (error) {
+    console.warn(
+      "[auth] failed to resolve legacy session email verification:",
+      error instanceof Error ? error.message : error,
+    );
+    return "unreadable";
+  }
+}
+
+async function mapLegacySession(
+  email: string,
+  token: string,
+): Promise<AuthSession> {
+  const verification = await resolveLegacySessionEmailVerification(email);
+  return {
+    email,
+    ...(verification === "verified"
+      ? { emailVerified: true }
+      : verification === "unverified"
+        ? { emailVerified: false }
+        : {}),
+    token,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -3826,7 +3870,7 @@ async function resolveSessionUncached(
     // home-dir broker file (and so production builds never consult it).
     if (!cookieOnlyDesktopCheck) {
       const sso = await readDesktopSsoSafely(event);
-      if (sso?.email) return { email: sso.email, token: sso.token };
+      if (sso?.email) return mapLegacySession(sso.email, sso.token);
     }
     // Fall through to mobile _session check
   } else {
@@ -3867,9 +3911,7 @@ async function resolveSessionUncached(
     // impersonate whichever email last signed into the desktop app.
     if (!cookieOnlyDesktopCheck) {
       const sso = await readDesktopSsoSafely(event);
-      if (sso?.email) {
-        return { email: sso.email, token: sso.token };
-      }
+      if (sso?.email) return mapLegacySession(sso.email, sso.token);
     }
   }
 
@@ -3895,7 +3937,7 @@ async function promoteQuerySession(
   if (!email) return null;
   setFrameworkSessionCookie(event, qToken);
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  return { email, token: qToken };
+  return mapLegacySession(email, qToken);
 }
 
 function isReadMethod(event: H3Event): boolean {
@@ -4785,12 +4827,11 @@ async function mountBetterAuthRoutes(
         // request could consume or lose the one-time token before the
         // desktop callback sees the Better Auth session cookie.
         try {
-          const response = await auth.handler(
-            new Request(verificationURL, {
-              method: "GET",
-              headers: event.headers,
-            }),
-          );
+          const verificationRequest = new Request(verificationURL, {
+            method: "GET",
+            headers: event.headers,
+          });
+          const response = await auth.handler(verificationRequest);
           if (response instanceof Response) {
             logMagicLinkVerificationResponse(
               event,
@@ -4798,6 +4839,19 @@ async function mountBetterAuthRoutes(
               response,
               preConsume,
             );
+            if (
+              response.status >= 200 &&
+              response.status < 400 &&
+              extractSessionTokenFromSetCookies(response)
+            ) {
+              // Existing users do not run Better Auth's user-create hook when
+              // magic-link verification flips emailVerified, so reconcile
+              // their pending organization invitations here as well.
+              await ensureEmailVerifiedForRedirect(
+                verificationRequest,
+                response,
+              );
+            }
           }
           return response;
         } catch (error) {
@@ -5179,6 +5233,19 @@ async function mountBetterAuthRoutes(
           response,
           magicLinkPreConsume,
         );
+        if (
+          (response as Response).status >= 200 &&
+          (response as Response).status < 400 &&
+          extractSessionTokenFromSetCookies(response as Response)
+        ) {
+          // Existing users do not run Better Auth's user-create hook when
+          // magic-link verification flips emailVerified, so reconcile their
+          // pending organization invitations here as well.
+          await ensureEmailVerifiedForRedirect(
+            authRequest,
+            response as Response,
+          );
+        }
       }
 
       if (isResponse && (response as Response).status >= 400) {
