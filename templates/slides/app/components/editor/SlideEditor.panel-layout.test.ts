@@ -89,4 +89,16 @@ describe("slide context toolbar", () => {
       "onDragStart={(event) => event.preventDefault()}",
     );
   });
+
+  it("keeps the comment target mounted for Excalidraw slides", () => {
+    expect(editorSource).toContain(
+      'data-main-slide-canvas="true"\n              data-slide-canvas-focus="true"',
+    );
+    expect(editorSource).toContain(
+      '<div className="slide-content relative h-full">',
+    );
+    expect(editorSource).toContain(
+      "canvasSelector=\"[data-main-slide-canvas='true']\"",
+    );
+  });
 });
