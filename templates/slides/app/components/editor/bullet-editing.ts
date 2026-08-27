@@ -346,7 +346,9 @@ function isMeaningfulNode(node: Node): boolean {
 function hasBulletRow(nodes: Node[]): boolean {
   return nodes.some(
     (node) =>
-      node.nodeType === Node.ELEMENT_NODE && isBulletRow(node as HTMLElement),
+      node.nodeType === Node.ELEMENT_NODE &&
+      ((node as HTMLElement).tagName === "LI" ||
+        isBulletRow(node as HTMLElement)),
   );
 }
 

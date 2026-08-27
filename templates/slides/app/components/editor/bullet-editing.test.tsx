@@ -151,6 +151,31 @@ describe("styled bullet editing", () => {
     expect(trailingList.children[1].textContent).toContain("Third point");
   });
 
+  it.each(["ul", "ol"] as const)(
+    "preserves native %s list structure after exiting an empty item",
+    (tag) => {
+      document.body.innerHTML =
+        `<div class="slide-content"><${tag}><li>First</li>` +
+        `<li>${ZERO_WIDTH_SPACE}</li><li>Third</li></${tag}></div>`;
+      const root = document.querySelector(".slide-content") as HTMLElement;
+      const list = root.firstElementChild as HTMLElement;
+      const emptyText = list.children[1].firstChild as Text;
+      placeCaret(emptyText, emptyText.length);
+
+      const line = exitEmptyBulletAtCaret(list);
+      const children = Array.from(root.children);
+
+      expect(line).not.toBeNull();
+      expect(children.map((child) => child.tagName)).toEqual([
+        tag.toUpperCase(),
+        "DIV",
+        tag.toUpperCase(),
+      ]);
+      expect(children[0].children[0].textContent).toBe("First");
+      expect(children[2].children[0].textContent).toBe("Third");
+    },
+  );
+
   it("preserves a tolerated child when Enter exits its only bullet", () => {
     document.body.innerHTML =
       '<div class="slide-content"><div class="bullets">' +
