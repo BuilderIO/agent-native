@@ -139,6 +139,7 @@
     "changeset:add": "changeset add",
     "changeset:status": "changeset status --since=origin/main",
     "changeset:version": "changeset version",
+    "changeset:release-version": "pnpm changeset:version && pnpm changelog:compact",
     "changelog:compact": "tsx scripts/compact-changelogs.ts --write",
     "guard:changelog": "tsx scripts/compact-changelogs.ts --check",
     "changeset:publish": "pnpm -r build && changeset publish",

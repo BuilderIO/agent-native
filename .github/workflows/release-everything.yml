@@ -51,15 +51,6 @@ jobs:
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-            async function getMainSha() {
-              const response = await github.rest.git.getRef({
-                owner,
-                repo,
-                ref: "heads/main",
-              });
-              return response.data.object.sha;
-            }
-
             async function readJsonAt(ref, path) {
               const response = await github.rest.repos.getContent({
                 owner,
@@ -126,6 +117,23 @@ jobs:
               ].every((asset) => assets.has(asset));
             }
 
+            function hasCompleteDesktopRelease(release) {
+              if (!release || release.draft || release.prerelease) return false;
+              const assets = new Set(release.assets.map((asset) => asset.name));
+              return [
+                "Agent-Native-arm64.dmg",
+                "Agent-Native-x64.dmg",
+                "Agent-Native-arm64.exe",
+                "Agent-Native-x64.exe",
+                "Agent-Native-arm64.AppImage",
+                "Agent-Native-x86_64.AppImage",
+                "latest.yml",
+                "latest-mac.yml",
+                "latest-linux.yml",
+                "latest-linux-arm64.yml",
+              ].every((asset) => assets.has(asset));
+            }
+
             async function getRun(runId) {
               return (await github.rest.actions.getWorkflowRun({
                 owner,
@@ -134,18 +142,39 @@ jobs:
               })).data;
             }
 
-            async function hasRemoteTag(tag, expectedSha) {
+            async function getRemoteTagSha(tag) {
               try {
                 const response = await github.rest.git.getRef({
                   owner,
                   repo,
                   ref: `tags/${tag}`,
                 });
-                return response.data.object.sha === expectedSha;
+                if (response.data.object.type === "tag") {
+                  const annotatedTag = await github.rest.git.getTag({
+                    owner,
+                    repo,
+                    tag_sha: response.data.object.sha,
+                  });
+                  return annotatedTag.data.object.sha;
+                }
+                return response.data.object.sha;
               } catch (error) {
-                if (error.status === 404) return false;
+                if (error.status === 404) return null;
                 throw error;
               }
+            }
+
+            async function getFirstParentSha(ref) {
+              const response = await github.rest.repos.getCommit({
+                owner,
+                repo,
+                ref,
+              });
+              const parentSha = response.data.parents?.[0]?.sha;
+              if (!parentSha) {
+                throw new Error(`Release commit ${ref} has no parent commit.`);
+              }
+              return parentSha;
             }
 
             async function waitForRun(run, label, timeoutMs) {
@@ -243,7 +272,7 @@ jobs:
               throw new Error(`Stable release PR #${pr.number} did not merge in time: ${pr.html_url}`);
             }
 
-            async function waitForStablePackagePublish(mergeSha, packageTag) {
+            async function waitForStablePackagePublish(mergeSha, packageTag, requireMergeTag) {
               const deadline = Date.now() + 120 * 60_000;
               while (Date.now() < deadline) {
                 const response = await github.rest.actions.listWorkflowRuns({
@@ -266,9 +295,13 @@ jobs:
                     "Stable npm publication",
                     Math.max(60_000, deadline - Date.now()),
                   );
-                  if (!(await hasRemoteTag(packageTag, mergeSha))) {
+                  const tagSha = await getRemoteTagSha(packageTag);
+                  if (!tagSha || (requireMergeTag && tagSha !== mergeSha)) {
+                    const tagDescription = requireMergeTag
+                      ? `remote tag ${packageTag} pointing to ${mergeSha}`
+                      : `remote tag ${packageTag}`;
                     throw new Error(
-                      `Stable npm publication completed without remote tag ${packageTag} pointing to ${mergeSha}: ${run.html_url}`,
+                      `Stable npm publication completed without ${tagDescription}: ${run.html_url}`,
                     );
                   }
                   return completed;
@@ -278,7 +311,6 @@ jobs:
               throw new Error(`Stable npm publication was not started for ${mergeSha}.`);
             }
 
-            const initialMainSha = await getMainSha();
             const previousReleaseNumbers = new Set(
               (await listReleasePullRequests())
                 .filter(isStableReleasePullRequest)
@@ -301,6 +333,11 @@ jobs:
 
             const releasePr = await waitForReleasePullRequest(previousReleaseNumbers);
             const releaseSha = await waitForReleaseMerge(releasePr);
+            const releaseBaseSha = await getFirstParentSha(releaseSha);
+            const initialCorePackage = await readJsonAt(
+              releaseBaseSha,
+              "packages/core/package.json",
+            );
             const corePackage = await readJsonAt(
               releaseSha,
               "packages/core/package.json",
@@ -312,17 +349,29 @@ jobs:
               return value;
             };
             const coreVersion = stableVersion(corePackage.version, "Core package");
+            const packageRef = `@agent-native/core@${coreVersion}`;
+            const coreVersionChanged = initialCorePackage.version !== corePackage.version;
             // workflow_dispatch accepts a branch or tag, not a raw commit SHA.
-            // The stable core package tag points at the verified release commit.
-            const workflowRef = `@agent-native/core@${coreVersion}`;
-            await waitForStablePackagePublish(releaseSha, workflowRef);
+            // Use main for the workflow definition when an unchanged package tag
+            // predates the coordinated source_ref input. Every build still checks
+            // out the exact release commit below.
+            const workflowRef = coreVersionChanged ? packageRef : "main";
+            await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
 
             const desktopPackage = await readJsonAt(
               releaseSha,
               "packages/desktop-app/package.json",
             );
+            const initialDesktopPackage = await readJsonAt(
+              releaseBaseSha,
+              "packages/desktop-app/package.json",
+            );
             const clipsPackage = await readJsonAt(
               releaseSha,
+              "templates/clips/desktop/package.json",
+            );
+            const initialClipsPackage = await readJsonAt(
+              releaseBaseSha,
               "templates/clips/desktop/package.json",
             );
             const sitesManifest = await readJsonAt(
@@ -331,6 +380,8 @@ jobs:
             );
             const desktopVersion = stableVersion(desktopPackage.version, "Desktop app");
             const clipsVersion = stableVersion(clipsPackage.version, "Clips desktop app");
+            const desktopVersionChanged = initialDesktopPackage.version !== desktopPackage.version;
+            const clipsVersionChanged = initialClipsPackage.version !== clipsPackage.version;
             const productionSites = Object.entries(sitesManifest)
               .filter(([, site]) =>
                 typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
@@ -340,17 +391,59 @@ jobs:
               throw new Error("The production site manifest contains no *.agent-native.com sites.");
             }
 
+            const existingDesktopRelease = await getPublishedRelease(`v${desktopVersion}`);
+            const desktopAlreadyPublished = hasCompleteDesktopRelease(existingDesktopRelease);
+            if (desktopAlreadyPublished) {
+              const desktopTagSha = await getRemoteTagSha(`v${desktopVersion}`);
+              if (!desktopTagSha) {
+                throw new Error(`Complete Desktop release v${desktopVersion} has no resolvable tag.`);
+              }
+              if (desktopVersionChanged) {
+                if (desktopTagSha !== releaseSha) {
+                  throw new Error(
+                    `Complete Desktop release v${desktopVersion} points to ${desktopTagSha}, expected ${releaseSha}.`,
+                  );
+                }
+              }
+              core.info(`Desktop v${desktopVersion} is already published with its required assets; treating it as complete.`);
+            } else if (existingDesktopRelease && !existingDesktopRelease.draft) {
+              throw new Error(
+                `Desktop release v${desktopVersion} is published but incomplete; refusing to rebuild a published release. Repair it manually or choose a new version.`,
+              );
+            }
+
             const existingClipsRelease = await getPublishedRelease(`clips-v${clipsVersion}`);
             const clipsAlreadyPublished = hasCompleteClipsRelease(existingClipsRelease, clipsVersion);
             if (clipsAlreadyPublished) {
+              const clipsTagSha = await getRemoteTagSha(`clips-v${clipsVersion}`);
+              if (!clipsTagSha) {
+                throw new Error(`Complete Clips release clips-v${clipsVersion} has no resolvable tag.`);
+              }
+              if (clipsVersionChanged) {
+                if (clipsTagSha !== releaseSha) {
+                  throw new Error(
+                    `Complete Clips release clips-v${clipsVersion} points to ${clipsTagSha}, expected ${releaseSha}.`,
+                  );
+                }
+              }
               core.info(`Clips v${clipsVersion} is already published with its required assets; treating it as complete.`);
+            } else if (existingClipsRelease && !existingClipsRelease.draft) {
+              throw new Error(
+                `Clips release clips-v${clipsVersion} is published but incomplete; refusing to rebuild a published release. Repair it manually or choose a new version.`,
+              );
             }
 
             const [desktop, clips, production] = await Promise.all([
-              dispatch("desktop-release.yml", workflowRef, {
-                channel: "production",
-                version: desktopVersion,
-              }),
+              desktopAlreadyPublished
+                ? Promise.resolve({
+                    url: existingDesktopRelease.html_url,
+                    existing: true,
+                  })
+                : dispatch("desktop-release.yml", workflowRef, {
+                    channel: "production",
+                    version: desktopVersion,
+                    source_ref: releaseSha,
+                  }),
               clipsAlreadyPublished
                 ? Promise.resolve({
                     url: existingClipsRelease.html_url,
@@ -359,6 +452,7 @@ jobs:
                 : dispatch("clips-desktop-release.yml", workflowRef, {
                     channel: "production",
                     version: clipsVersion,
+                    source_ref: releaseSha,
                   }),
               dispatch("deploy-production-sites-prebuilt.yml", workflowRef, {
                 sites: productionSites.join(","),
@@ -369,7 +463,9 @@ jobs:
             ]);
 
             const downstream = await Promise.allSettled([
-              waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
+              desktopAlreadyPublished
+                ? Promise.resolve({ status: "completed", conclusion: "success" })
+                : waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
               clipsAlreadyPublished
                 ? Promise.resolve({ status: "completed", conclusion: "success" })
                 : waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
@@ -398,4 +494,4 @@ jobs:
               .addLink("Production fleet run", production.url)
               .write();
 
-            core.info(`Release everything completed from ${initialMainSha} through ${releaseSha}.`);
+            core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
