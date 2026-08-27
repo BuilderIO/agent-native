@@ -116,14 +116,20 @@ describe("release everything workflow", () => {
       /ref: \$\{\{ inputs\.source_ref \|\| github\.sha \}\}/,
     );
     assert.match(desktopSourceText, /SOURCE_REF,,/);
-    assert.match(desktopSourceText, /get_tag_sha\(\)/);
-    assert.match(desktopSourceText, /\.draft/);
     assert.match(
       desktopSourceText,
-      /EXISTING_TAG_SHA[\s\S]*needs\.resolve-version/,
+      /gh release view "\$TAG" -R .* --json isDraft,targetCommitish/,
     );
-    assert.match(clipsSourceText, /EXISTING_TAG_SHA[\s\S]*RELEASE_SOURCE_REF/);
-    assert.match(clipsSourceText, /get_tag_sha\(\)/);
+    assert.match(desktopSourceText, /\.isDraft/);
+    assert.match(desktopSourceText, /\.targetCommitish/);
+    assert.doesNotMatch(desktopSourceText, /get_tag_sha\(\)/);
+    assert.match(
+      clipsSourceText,
+      /gh release view "\$TAG" -R .* --json isDraft,targetCommitish/,
+    );
+    assert.match(clipsSourceText, /\.isDraft/);
+    assert.match(clipsSourceText, /\.targetCommitish/);
+    assert.doesNotMatch(clipsSourceText, /get_tag_sha\(\)/);
     assert.match(clipsSourceText, /SOURCE_REF,,/);
     assert.match(desktopSource, /source_ref.*steps\.v\.outputs\.source_ref/);
     assert.match(desktopSource, /full 40-character commit SHA/);
