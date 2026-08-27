@@ -5302,20 +5302,30 @@ function RunDetailCard({
   const runId = run?.id;
   const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
   const wasRunActiveRef = useRef(runIsActive);
+  const stopInFlightRef = useRef(false);
+  const stopSucceededRef = useRef(false);
   const handleStop = useCallback(async () => {
-    if (!runId) return false;
+    if (!runId || stopInFlightRef.current) return false;
+    stopInFlightRef.current = true;
     setUserStoppedRunId(runId);
-    const stopSucceeded = await onStop();
-    if (!stopSucceeded) {
-      setUserStoppedRunId((stoppedRunId) =>
-        stoppedRunId === runId ? null : stoppedRunId,
-      );
+    try {
+      const stopSucceeded = await onStop();
+      if (stopSucceeded) {
+        stopSucceededRef.current = true;
+      } else if (!stopSucceededRef.current) {
+        setUserStoppedRunId((stoppedRunId) =>
+          stoppedRunId === runId ? null : stoppedRunId,
+        );
+      }
+      return stopSucceeded;
+    } finally {
+      stopInFlightRef.current = false;
     }
-    return stopSucceeded;
   }, [onStop, runId]);
 
   useEffect(() => {
     if (runIsActive && !wasRunActiveRef.current) {
+      stopSucceededRef.current = false;
       setUserStoppedRunId(null);
     }
     wasRunActiveRef.current = runIsActive;

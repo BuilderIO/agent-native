@@ -217,8 +217,13 @@ describe("CodeAgentsApp transcript selection", () => {
       "externalUserStopped={userStoppedRunId === run.id}",
     );
     expect(source).toContain("externalUserStopped={externalUserStopped}");
+    expect(source).toContain("const stopInFlightRef = useRef(false);");
+    expect(source).toContain(
+      "if (!runId || stopInFlightRef.current) return false;",
+    );
     expect(source).toContain("const stopSucceeded = await onStop();");
-    expect(source).toContain("if (!stopSucceeded) {");
+    expect(source).toContain("stopSucceededRef.current = true;");
+    expect(source).toContain("else if (!stopSucceededRef.current) {");
     expect(source).toContain("return result.ok;");
   });
 
