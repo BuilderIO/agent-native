@@ -719,6 +719,73 @@ describe("connector-catalog tier", () => {
       );
     });
 
+    it("dispatches allowlisted Content writes directly without invoking the app agent", async () => {
+      const createDocument = vi.fn(async () => ({ id: "doc-1" }));
+      const editDocument = vi.fn(async () => ({ id: "doc-1", edited: true }));
+      const askAgent = vi.fn(async () => "delegated answer");
+      const contentActions = {
+        "create-document": {
+          tool: { description: "Create and persist a Content document" },
+          mcpTool: true,
+          run: createDocument,
+        },
+        "edit-document": {
+          tool: { description: "Surgically edit a Content document" },
+          mcpTool: true,
+          run: editDocument,
+        },
+      };
+      const contentConfig = {
+        ...connectorConfig,
+        name: "Content",
+        appId: "content",
+        connectorCatalog: undefined,
+        externalAgents: { writes: "allowlisted" as const },
+        actions: contentActions,
+        productionActions: contentActions,
+        askAgent,
+      };
+      const token = await signA2AToken("alice@example.com");
+      const headers = { authorization: `Bearer ${token}` };
+
+      const created = await call(
+        {
+          jsonrpc: "2.0",
+          id: 70,
+          method: "tools/call",
+          params: {
+            name: "create-document",
+            arguments: { title: "Draft" },
+          },
+        },
+        { headers, mcpConfig: contentConfig },
+      );
+      const edited = await call(
+        {
+          jsonrpc: "2.0",
+          id: 71,
+          method: "tools/call",
+          params: {
+            name: "edit-document",
+            arguments: { id: "doc-1", find: "old", replace: "new" },
+          },
+        },
+        { headers, mcpConfig: contentConfig },
+      );
+
+      expect(created.result.isError).toBeFalsy();
+      expect(edited.result.isError).toBeFalsy();
+      expect(createDocument).toHaveBeenCalledWith(
+        { title: "Draft" },
+        expect.objectContaining({ caller: "mcp" }),
+      );
+      expect(editDocument).toHaveBeenCalledWith(
+        { id: "doc-1", find: "old", replace: "new" },
+        expect.objectContaining({ caller: "mcp" }),
+      );
+      expect(askAgent).not.toHaveBeenCalled();
+    });
+
     it("keeps `mcpTool: false` uncallable on the full-catalog opt-in", async () => {
       // The veto has to bite on the tier where `actions` IS the callable
       // surface, or "hidden" would only mean "not listed".
