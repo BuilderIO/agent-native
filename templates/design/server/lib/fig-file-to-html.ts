@@ -2019,7 +2019,9 @@ function buildCss(
     recordApproximation(
       node,
       ctx,
-      `${node.type} has no decodable geometry; omitted rather than painted as its bounding box`,
+      node.type === "BOOLEAN_OPERATION"
+        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. Figma flattens a boolean outline only for REST and the .fig container — a clipboard paste carries just the operands — so import the frame with a Figma token, or upload the .fig, to get the real shape."
+        : `${node.type} has no decodable geometry; omitted rather than painted as its bounding box`,
     );
   }
 
@@ -2467,6 +2469,10 @@ function isVectorLike(node: FigNode): boolean {
   // parameters describe the outline exactly.
   const hasParametricShape = parametricShapePath(node) !== null;
   if (!hasFlatGeometry && !hasNetwork && !hasParametricShape) {
+    // Not a loss on its own: a full ELLIPSE still draws exactly through
+    // `border-radius: 50%`, and a LINE through a bordered box. The nodes that
+    // genuinely lose their shape are reported where they are emitted as an
+    // empty box, which is the only place that knows nothing was drawn.
     return false;
   }
   // Nodes with an IMAGE fill render better as a regular <div> with
