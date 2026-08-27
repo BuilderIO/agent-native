@@ -51,6 +51,12 @@
   --b-bg-surface: #0a0a0a;
   --b-bg-raised: #0f0f0f;
   --b-bg-prominent: #1a1a1a;
+  /* One stop past --b-bg-prominent, for a chip that has to read as lifted off
+     a surface which is itself already lifted (the ⌘K badge inside the header
+     search box). Indirect on purpose: the light theme overrides
+     --c-neutral-800, so this follows the neutral ramp one stop in whichever
+     direction that theme separates, instead of needing a second literal. */
+  --b-bg-elevated: var(--c-neutral-800);
   --b-bg-translucent: #0a0a0ae6;
   --b-bg-alternative: #00161b;
   /* Surface for terminal/code chrome. In dark mode it drops below the page
@@ -184,6 +190,7 @@
   --spacing-35: 150px;
   --spacing-40: 160px;
   --spacing-50: 200px;
+  --spacing-60: 240px;
 
   /* Typography scale */
   --b-t-heading-1: 56px;
@@ -304,6 +311,7 @@
     --spacing-35: 88px;
     --spacing-40: 88px;
     --spacing-50: 80px;
+    --spacing-60: 96px;
 
     --b-t-heading-1: 32px;
     --b-t-heading-2: 28px;
