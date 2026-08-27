@@ -58,14 +58,17 @@ type FirstRunScreen =
   | "extension";
 
 const FIRST_RUN_ROLE_OPTIONS = [
-  { value: "product", labelKey: "onboarding.roleProduct" },
-  { value: "design", labelKey: "onboarding.roleDesign" },
-  { value: "developer", labelKey: "onboarding.roleDeveloper" },
-  { value: "marketing", labelKey: "onboarding.roleMarketing" },
-  { value: "sales", labelKey: "onboarding.roleSales" },
-  { value: "ops", labelKey: "onboarding.roleOps" },
-  { value: "individual", labelKey: "onboarding.roleIndividual" },
-  { value: "other", labelKey: "onboarding.roleOther" },
+  { value: "product", labelKey: "agentChat.onboarding.roleProduct" },
+  { value: "design", labelKey: "agentChat.onboarding.roleDesign" },
+  { value: "developer", labelKey: "agentChat.onboarding.roleDeveloper" },
+  { value: "marketing", labelKey: "agentChat.onboarding.roleMarketing" },
+  { value: "sales", labelKey: "agentChat.onboarding.roleSales" },
+  { value: "ops", labelKey: "agentChat.onboarding.roleOps" },
+  {
+    value: "individual",
+    labelKey: "agentChat.onboarding.roleIndividual",
+  },
+  { value: "other", labelKey: "agentChat.onboarding.roleOther" },
 ] as const;
 
 const BUILDER_MORE_SERVICES = [
@@ -231,7 +234,9 @@ export function FirstRunOnboarding({
       handleFinish();
     } catch (error) {
       setRoleSaveError(
-        error instanceof Error ? error.message : t("onboarding.saveRoleError"),
+        error instanceof Error
+          ? error.message
+          : t("agentChat.onboarding.saveRoleError"),
       );
     } finally {
       setSavingRole(false);
@@ -599,7 +604,7 @@ export function FirstRunOnboarding({
               className={secondaryButtonClass}
               onClick={() => setScreen("role")}
             >
-              {t("onboarding.skipForNow")}
+              {t("agentChat.onboarding.skipForNow")}
             </button>
             <button
               type="button"
@@ -728,16 +733,18 @@ export function FirstRunOnboarding({
             className="mb-5 self-start text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setScreen(roleBackScreen)}
           >
-            {t("onboarding.back")}
+            {t("agentChat.onboarding.back")}
           </button>
           <h1 className="text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
-            {t("onboarding.customizeRole")}
+            {t("agentChat.onboarding.customizeRole")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {t("onboarding.roleQuestion")}
+            {t("agentChat.onboarding.roleQuestion")}
           </p>
           <fieldset className="mt-7 grid gap-2">
-            <legend className="sr-only">{t("onboarding.chooseRole")}</legend>
+            <legend className="sr-only">
+              {t("agentChat.onboarding.chooseRole")}
+            </legend>
             {FIRST_RUN_ROLE_OPTIONS.map(({ value, labelKey }) => (
               <label
                 key={value}
@@ -773,7 +780,7 @@ export function FirstRunOnboarding({
               onClick={handleFinish}
               disabled={savingRole}
             >
-              {t("onboarding.skipForNow")}
+              {t("agentChat.onboarding.skipForNow")}
             </button>
             <button
               type="button"

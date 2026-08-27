@@ -106,7 +106,9 @@ describe("Better Auth migrations", () => {
     expect(onboardingRole?.version).toBe(5);
     expect(onboardingRole?.sql).toMatchObject({
       postgres: expect.stringContaining('"onboarding_role" TEXT'),
-      sqlite: expect.stringContaining("onboarding_role TEXT"),
+      sqlite: expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS onboarding_role TEXT",
+      ),
     });
   });
 });

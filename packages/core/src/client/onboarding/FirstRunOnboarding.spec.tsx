@@ -4,7 +4,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { loadCoreMessagesForLocale } from "../../localization/core-messages.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { AgentNativeI18nProvider } from "../i18n.js";
 import { registerFirstRunOnboardingExtension } from "./first-run-registry.js";
 import { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 
@@ -636,5 +638,45 @@ describe("FirstRunOnboarding", () => {
       "first-run completion failed: 500",
     );
     expect(document.body.textContent).toContain("Try again");
+  });
+
+  it("renders the role step from the non-English core catalog", async () => {
+    const spanishMessages = await loadCoreMessagesForLocale("es-ES");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="es-ES"
+          initialPreference="es-ES"
+          initialMessages={spanishMessages}
+          persistPreference={false}
+        >
+          <TooltipProvider>
+            <FirstRunOnboarding skipIntegrations />
+          </TooltipProvider>
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Personalicemos esto para ti.");
+    expect(document.body.textContent).toContain("Producto");
+    expect(document.body.textContent).toContain("Desarrollo");
+    expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 });

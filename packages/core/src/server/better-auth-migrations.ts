@@ -298,7 +298,7 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "onboarding_role" TEXT
       `,
       sqlite: `
-        ALTER TABLE user ADD COLUMN onboarding_role TEXT
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS onboarding_role TEXT
       `,
     },
   },
