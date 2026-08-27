@@ -1,5 +1,5 @@
 import { IconMessageFilled } from "@tabler/icons-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -24,11 +24,15 @@ export interface ScrubberProps {
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
 }
 
+const MARKER_CONTROL_SIZE_PX = 28;
+const MARKER_GAP_PX = 2;
+
 export function Scrubber(props: ScrubberProps) {
   const { currentMs, durationMs, onSeek, comments, chapters, reactions } =
     props;
   const barRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
+  const [barWidth, setBarWidth] = useState(0);
   const [hoverMs, setHoverMs] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number>(0);
   const [dragging, setDragging] = useState(false);
@@ -141,10 +145,52 @@ export function Scrubber(props: ScrubberProps) {
     [commentsByMs, reactionsByMs],
   );
 
-  const markerLanes = useMemo(
-    () => new Map(markerTimes.map((ms, index) => [ms, index % 2])),
-    [markerTimes],
-  );
+  const markerLanes = useMemo(() => {
+    if (!markerTimes.length) return new Map<number, number>();
+    if (!(barWidth > 0) || !(durationMs > 0)) {
+      return new Map(markerTimes.map((ms, index) => [ms, index]));
+    }
+
+    const laneEnds: number[] = [];
+    return new Map(
+      markerTimes.map((ms) => {
+        const hasComment = commentsByMs.has(ms);
+        const hasReaction = reactionsByMs.has(ms);
+        const markerWidth =
+          MARKER_CONTROL_SIZE_PX * (hasComment ? 1 : 0) +
+          MARKER_CONTROL_SIZE_PX * (hasReaction ? 1 : 0) +
+          (hasComment && hasReaction ? MARKER_GAP_PX : 0);
+        const markerX = Math.min(
+          barWidth,
+          Math.max(0, (ms / durationMs) * barWidth),
+        );
+        const markerStart =
+          ms <= 0
+            ? 0
+            : ms >= durationMs
+              ? Math.max(0, barWidth - markerWidth)
+              : Math.max(0, markerX - markerWidth / 2);
+        const markerEnd = markerStart + markerWidth + MARKER_GAP_PX;
+        let lane = laneEnds.findIndex((end) => markerStart >= end);
+        if (lane === -1) lane = laneEnds.length;
+        laneEnds[lane] = markerEnd;
+        return [ms, lane] as const;
+      }),
+    );
+  }, [barWidth, commentsByMs, durationMs, markerTimes, reactionsByMs]);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? bar.clientWidth;
+      setBarWidth(Math.max(1, width));
+    });
+    observer.observe(bar);
+    setBarWidth(
+      Math.max(1, bar.getBoundingClientRect().width || bar.clientWidth),
+    );
+    return () => observer.disconnect();
+  }, []);
   const tooltipPositionPercent = tooltip
     ? Math.min(100, Math.max(0, (tooltip.ms / Math.max(1, durationMs)) * 100))
     : 50;
@@ -254,16 +300,28 @@ export function Scrubber(props: ScrubberProps) {
           const commentList = commentsByMs.get(ms);
           const reactionList = reactionsByMs.get(ms);
           const markerLane = markerLanes.get(ms) ?? 0;
+          const markerAlignment =
+            ms <= 0 ? "start" : ms >= durationMs ? "end" : "center";
 
           return (
             <div
               key={`marker-${ms}`}
               data-player-marker-group
               className={cn(
-                "absolute flex h-7 -translate-x-1/2 items-center gap-0.5",
+                "absolute flex h-7 items-center gap-0.5",
+                markerAlignment === "center" && "-translate-x-1/2",
                 markerLane ? "-top-14" : "-top-7",
               )}
-              style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
+              style={{
+                ...(markerAlignment === "start"
+                  ? { left: "0%" }
+                  : markerAlignment === "end"
+                    ? { right: "0%" }
+                    : { left: (ms / Math.max(1, durationMs)) * 100 + "%" }),
+                ...(markerLane > 1
+                  ? { top: `-${(markerLane + 1) * 1.75}rem` }
+                  : {}),
+              }}
             >
               {commentList ? (
                 <button

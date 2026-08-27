@@ -258,4 +258,92 @@ describe("Scrubber reaction markers", () => {
     expect(preview?.className).not.toContain("-translate-x-1/2");
     expect(preview?.style.right).toBe("0%");
   });
+
+  it("keeps co-located edge markers inside the timeline", () => {
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_000}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          comments={[
+            {
+              id: "comment-start",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "At the start",
+              videoTimestampMs: 0,
+            },
+            {
+              id: "comment-end",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "At the end",
+              videoTimestampMs: 10_000,
+            },
+          ]}
+          reactions={[
+            { id: "reaction-start", emoji: "👍", videoTimestampMs: 0 },
+            { id: "reaction-end", emoji: "🔥", videoTimestampMs: 10_000 },
+          ]}
+        />,
+      );
+    });
+
+    const groups = container.querySelectorAll<HTMLDivElement>(
+      "[data-player-marker-group]",
+    );
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.className).not.toContain("-translate-x-1/2");
+    expect(groups[0]?.style.left).toBe("0%");
+    expect(groups[1]?.className).not.toContain("-translate-x-1/2");
+    expect(groups[1]?.style.right).toBe("0%");
+    expect(groups[0]?.querySelector('[aria-label="1 comment"]')).not.toBeNull();
+    expect(
+      groups[1]?.querySelector("[data-player-reaction-marker]"),
+    ).not.toBeNull();
+  });
+
+  it("uses a separate lane for each dense marker group", () => {
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_000}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          comments={[
+            {
+              id: "comment-1",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "First",
+              videoTimestampMs: 1_000,
+            },
+            {
+              id: "comment-2",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "Next",
+              videoTimestampMs: 1_500,
+            },
+            {
+              id: "comment-3",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "Third",
+              videoTimestampMs: 2_000,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const groups = container.querySelectorAll<HTMLDivElement>(
+      "[data-player-marker-group]",
+    );
+    expect(groups).toHaveLength(3);
+    expect(groups[0]?.className).toContain("-top-7");
+    expect(groups[1]?.className).toContain("-top-14");
+    expect(groups[2]?.style.top).toBe("-5.25rem");
+  });
 });

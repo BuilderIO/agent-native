@@ -206,6 +206,7 @@ describe("VideoPlayer playback", () => {
             recordingId="recording-1"
             videoUrl="https://cdn.example.com/clip.webm"
             durationMs={10_000}
+            persistPlaybackPosition={false}
             comments={[
               {
                 id: "comment-end",
@@ -233,6 +234,52 @@ describe("VideoPlayer playback", () => {
       container.querySelector("[data-player-playback-comment]"),
     ).toBeNull();
     expect(container.textContent).toContain("Visit site");
+  });
+
+  it("keeps an active marker hover preview above the playback comment", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-active",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const marker = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 comment"]',
+    );
+    act(() => {
+      marker?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    const hoverPreview = container.querySelector("[data-player-comment-hover]");
+    const playbackComment = container.querySelector(
+      "[data-player-playback-comment]",
+    );
+    expect(hoverPreview).not.toBeNull();
+    expect(playbackComment).not.toBeNull();
+    expect(hoverPreview?.className).toContain("z-50");
+    expect(playbackComment?.className).toContain("z-40");
+    expect(getPlayerControls().className).not.toContain("z-20");
   });
 
   it("keeps the pause control visible on mobile after the idle timeout", () => {
