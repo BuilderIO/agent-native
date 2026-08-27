@@ -1,10 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { HeroShaderBackground } from "./hero-shader-background";
-import {
-  HeroOceanBackground,
-  OCEAN_FADE_IN_MS,
-} from "./ocean/hero-ocean-background";
+import { HeroOceanBackground } from "./ocean/hero-ocean-background";
 import { probeWebgpuSupport } from "./ocean/webgpu-support";
 
 type Background = "probing" | "ocean" | "fallback";
@@ -17,10 +14,6 @@ type Background = "probing" | "ocean" | "fallback";
  */
 export function HeroBackground() {
   const [background, setBackground] = useState<Background>("probing");
-  const [oceanShown, setOceanShown] = useState(false);
-  const retireFallback = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => () => clearTimeout(retireFallback.current), []);
 
   useEffect(() => {
     // Reduced motion short-circuits ahead of the probe: the fallback already
@@ -59,29 +52,15 @@ export function HeroBackground() {
   // out of memory -- is still a broken hero, so it demotes the same way.
   const handleOceanError = useCallback(() => setBackground("fallback"), []);
 
-  const handleOceanReady = useCallback(() => {
-    clearTimeout(retireFallback.current);
-    retireFallback.current = setTimeout(
-      () => setOceanShown(true),
-      OCEAN_FADE_IN_MS,
-    );
-  }, []);
+  if (background === "ocean")
+    return <HeroOceanBackground onError={handleOceanError} />;
 
-  if (background === "ocean") {
-    return (
-      <>
-        {/* Kept mounted until the ocean has finished fading in, so the two
-            cross-fade rather than the hero flashing an empty background for
-            however long the GPU takes to produce its first frame. */}
-        {!oceanShown && <HeroShaderBackground />}
-        <HeroOceanBackground
-          onError={handleOceanError}
-          onReady={handleOceanReady}
-        />
-      </>
-    );
-  }
-  // "probing" renders the halftone too, so the hero is never bare while the
-  // adapter request is in flight.
+  // Nothing at all while probing. The halftone is the *fallback*, not a
+  // placeholder: showing it for the few hundred milliseconds before the ocean
+  // fades in reads as a different background flashing up and being replaced.
+  // The ocean starts fully transparent and its own zero tone resolves to
+  // --b-bg-page, so an empty hero and a just-mounted ocean look identical.
+  if (background === "probing") return null;
+
   return <HeroShaderBackground />;
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HeroBackground } from "./hero-background";
@@ -18,11 +18,7 @@ vi.mock("./hero-shader-background", () => ({
 }));
 
 vi.mock("./ocean/hero-ocean-background", () => ({
-  OCEAN_FADE_IN_MS: 700,
-  HeroOceanBackground: (props: {
-    onError: (error: unknown) => void;
-    onReady?: () => void;
-  }) => {
+  HeroOceanBackground: (props: { onError: (error: unknown) => void }) => {
     oceanMount(props);
     return <div data-testid="ocean" />;
   },
@@ -81,24 +77,16 @@ describe("HeroBackground", () => {
     expect(await screen.findByTestId("ocean")).toBeDefined();
   });
 
-  it("keeps the halftone underneath until the ocean has faded in", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+  it("never flashes the halftone before the ocean", async () => {
     stubGpu(async () => ({ name: "adapter" }));
     render(<HeroBackground />);
+
+    // The halftone is the fallback, not a placeholder. Painting it for the
+    // few hundred ms before the ocean arrives reads as a different background
+    // flashing up and being swapped out.
+    expect(screen.queryByTestId("halftone")).toBeNull();
     await screen.findByTestId("ocean");
-
-    // Both painting: retiring the fallback the moment the ocean mounts would
-    // leave the hero bare for however long the first GPU frame takes.
-    expect(screen.getByTestId("halftone")).toBeDefined();
-
-    const { onReady } = oceanMount.mock.calls.at(-1)![0];
-    act(() => onReady());
-    expect(screen.getByTestId("halftone")).toBeDefined();
-
-    act(() => vi.advanceTimersByTime(700));
-    await waitFor(() => expect(screen.queryByTestId("halftone")).toBeNull());
-    expect(screen.getByTestId("ocean")).toBeDefined();
-    vi.useRealTimers();
+    expect(screen.queryByTestId("halftone")).toBeNull();
   });
 
   it("renders the halftone fallback when WebGPU is absent", async () => {
@@ -124,10 +112,11 @@ describe("HeroBackground", () => {
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
-  it("never renders a bare hero while the probe is in flight", () => {
+  it("renders no background at all while the probe is in flight", () => {
     stubGpu(() => new Promise(() => {}));
     render(<HeroBackground />);
-    expect(screen.getByTestId("halftone")).toBeDefined();
+    expect(screen.queryByTestId("halftone")).toBeNull();
+    expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
   it("skips the probe entirely under reduced motion", async () => {

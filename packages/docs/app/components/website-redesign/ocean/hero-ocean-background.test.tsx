@@ -174,24 +174,22 @@ describe("HeroOceanBackground", () => {
     expect(createRenderer).not.toHaveBeenCalled();
   });
 
-  it("stays transparent until the first frame and only then reports ready", async () => {
+  it("stays fully transparent until the first frame is drawn", async () => {
     let resolveReady: () => void = () => {};
     renderer.ready = new Promise<void>((resolve) => {
       resolveReady = resolve;
     });
-    const onReady = vi.fn();
-    const { container } = render(
-      <HeroOceanBackground onError={vi.fn()} onReady={onReady} />,
-    );
+    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
     const box = container.firstElementChild as HTMLElement;
 
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
-    expect(onReady).not.toHaveBeenCalled();
+    // Still building the graph: fading in here would show an empty canvas.
     expect(box.style.opacity).toBe("0");
 
     resolveReady();
-    await waitFor(() => expect(onReady).toHaveBeenCalled());
-    expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)");
+    await waitFor(() =>
+      expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)"),
+    );
     renderer.ready = Promise.resolve();
   });
 
