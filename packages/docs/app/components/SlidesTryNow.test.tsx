@@ -1,80 +1,143 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
-import { SlidesTryNow } from "./SlidesTryNow";
+import {
+  PROMPT_DELETE_INTERVAL_MS,
+  PROMPT_HOLD_MS,
+  PROMPT_TYPE_INTERVAL_MS,
+  SLIDES_TRY_NOW_PROMPTS,
+  SlidesTryNow,
+} from "./SlidesTryNow";
+
+function renderSlidesTryNow() {
+  return render(
+    <AgentNativeI18nProvider
+      catalog={docsI18nCatalog}
+      initialLocale="en-US"
+      initialPreference="en-US"
+      persistPreference={false}
+    >
+      <SlidesTryNow />
+    </AgentNativeI18nProvider>,
+  );
+}
+
+function advanceTimersByTime(milliseconds: number) {
+  act(() => {
+    vi.advanceTimersByTime(milliseconds);
+  });
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockReturnValue({ matches: false }),
+  });
+});
 
 afterEach(() => {
   cleanup();
+  vi.clearAllTimers();
+  vi.useRealTimers();
 });
 
 describe("SlidesTryNow", () => {
-  it("updates the prompt link href on contenteditable input before click", () => {
-    render(
-      <AgentNativeI18nProvider
-        catalog={docsI18nCatalog}
-        initialLocale="en-US"
-        initialPreference="en-US"
-        persistPreference={false}
-      >
-        <SlidesTryNow />
-      </AgentNativeI18nProvider>,
-    );
+  it("types the first prompt and keeps the Generate href in sync", () => {
+    renderSlidesTryNow();
 
     const promptBox = screen.getByRole("textbox", {
       name: "Presentation generation prompt",
     });
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+
+    expect(promptBox.textContent).toBe("");
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * 5);
+
+    const visiblePrompt = SLIDES_TRY_NOW_PROMPTS[0].slice(0, 5);
+    expect(promptBox.textContent).toBe(visiblePrompt);
+    expect(submitLink.getAttribute("href")).toBe(
+      `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(visiblePrompt)}`,
+    );
+  });
+
+  it("holds for two seconds, deletes, and advances to the next prompt", () => {
+    renderSlidesTryNow();
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const firstPrompt = SLIDES_TRY_NOW_PROMPTS[0];
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * firstPrompt.length);
+    expect(promptBox.textContent).toBe(firstPrompt);
+
+    advanceTimersByTime(PROMPT_HOLD_MS - 1);
+    expect(promptBox.textContent).toBe(firstPrompt);
+
+    advanceTimersByTime(1);
+    expect(promptBox.textContent).toBe(firstPrompt.slice(0, -1));
+
+    advanceTimersByTime(PROMPT_DELETE_INTERVAL_MS * (firstPrompt.length - 1));
+    expect(promptBox.textContent).toBe("");
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS);
+    expect(promptBox.textContent).toBe(SLIDES_TRY_NOW_PROMPTS[1][0]);
+  });
+
+  it("stops permanently on interaction without overwriting user edits", () => {
+    renderSlidesTryNow();
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * 8);
+    const stoppedText = promptBox.textContent;
+    fireEvent.pointerDown(promptBox);
+    advanceTimersByTime(30_000);
+    expect(promptBox.textContent).toBe(stoppedText);
+
     promptBox.innerHTML = "Customer roadmap<br>For enterprise teams";
     fireEvent.input(promptBox);
+    advanceTimersByTime(30_000);
 
-    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+    expect(promptBox.textContent).toBe("Customer roadmapFor enterprise teams");
     expect(submitLink.getAttribute("href")).toBe(
       "https://slides.agent-native.com/?initialPrompt=Customer%20roadmap%0AFor%20enterprise%20teams",
     );
   });
 
-  it("encodes typed prompt text into the initialPrompt URL parameter", () => {
-    render(
-      <AgentNativeI18nProvider
-        catalog={docsI18nCatalog}
-        initialLocale="en-US"
-        initialPreference="en-US"
-        persistPreference={false}
-      >
-        <SlidesTryNow />
-      </AgentNativeI18nProvider>,
-    );
+  it("shows a stable full prompt when reduced motion is preferred", () => {
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+
+    renderSlidesTryNow();
 
     const promptBox = screen.getByRole("textbox", {
       name: "Presentation generation prompt",
     });
-    promptBox.textContent = "A quarterly review deck for board members";
-    fireEvent.input(promptBox);
+    expect(promptBox.textContent).toBe(SLIDES_TRY_NOW_PROMPTS[0]);
 
-    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
-    fireEvent.click(submitLink);
-
-    const href = submitLink.getAttribute("href") || "";
-    const url = new URL(href);
-    const initialPrompt = url.searchParams.get("initialPrompt") || "";
-
-    expect(initialPrompt).toBe("A quarterly review deck for board members");
+    advanceTimersByTime(30_000);
+    expect(promptBox.textContent).toBe(SLIDES_TRY_NOW_PROMPTS[0]);
   });
 
   it("associates the visible prompt label with the editable textbox", () => {
-    render(
-      <AgentNativeI18nProvider
-        catalog={docsI18nCatalog}
-        initialLocale="en-US"
-        initialPreference="en-US"
-        persistPreference={false}
-      >
-        <SlidesTryNow />
-      </AgentNativeI18nProvider>,
-    );
+    renderSlidesTryNow();
 
     const prompt = screen.getByRole("textbox", {
       name: "Presentation generation prompt",
@@ -85,23 +148,12 @@ describe("SlidesTryNow", () => {
     expect(document.getElementById(labelId || "")?.textContent).toBe(
       "Presentation generation prompt",
     );
-    expect(prompt.getAttribute("data-placeholder")).toBe(
-      "Replace this prompt: Create an on-brand deck for [audience] to [purpose] using the pasted data or notes below: [paste data or notes].",
-    );
+    expect(prompt.getAttribute("data-placeholder")).toBeNull();
     expect(prompt.getAttribute("contenteditable")).toBe("true");
   });
 
   it("renders tooltip next to the presentation generation prompt", () => {
-    render(
-      <AgentNativeI18nProvider
-        catalog={docsI18nCatalog}
-        initialLocale="en-US"
-        initialPreference="en-US"
-        persistPreference={false}
-      >
-        <SlidesTryNow />
-      </AgentNativeI18nProvider>,
-    );
+    renderSlidesTryNow();
 
     expect(screen.getByRole("tooltip").textContent).toContain(
       "Be specific. Generic prompts = generic decks.",

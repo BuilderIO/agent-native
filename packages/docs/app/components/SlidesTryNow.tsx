@@ -1,9 +1,23 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowRight, IconInfoCircle } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { trackEvent } from "./TemplateCard";
+
+export const SLIDES_TRY_NOW_PROMPTS = [
+  "Launch deck for a running-shoe drop, in the style of nike.com.",
+  "Fundraising deck for a coastal cleanup nonprofit, in the style of Patagonia.",
+  "Nvidia's last four quarters, from their investor filings, in the style of nvidia.com.",
+  "A sales deck for an AI support platform, in the style of stripe.com.",
+  "US housing market snapshot, with Census and Zillow research data.",
+  "Intro to LLMs for MBA students, in the style of apple.com.",
+  "Global EV adoption since 2015, using Our World in Data.",
+] as const;
+
+export const PROMPT_TYPE_INTERVAL_MS = 24;
+export const PROMPT_DELETE_INTERVAL_MS = 12;
+export const PROMPT_HOLD_MS = 2_000;
 
 export function extractPromptText(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -27,7 +41,78 @@ export function SlidesTryNow() {
   const t = useT();
   const tn = (key: string) => t(`templateLanding.slides.tryNow.${key}`);
   const [promptText, setPromptText] = useState("");
+  const promptRef = useRef<HTMLDivElement>(null);
+  const animationStoppedRef = useRef(false);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promptHref = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
+
+  const stopPromptAnimation = () => {
+    animationStoppedRef.current = true;
+    if (animationTimerRef.current !== null) {
+      clearTimeout(animationTimerRef.current);
+      animationTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    const prompt = promptRef.current;
+    if (!prompt) return;
+
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      prompt.textContent = SLIDES_TRY_NOW_PROMPTS[0];
+      setPromptText(SLIDES_TRY_NOW_PROMPTS[0]);
+      return;
+    }
+
+    let promptIndex = 0;
+    let characterIndex = 0;
+    let deleting = false;
+
+    const scheduleNextStep = (delay: number) => {
+      animationTimerRef.current = setTimeout(advanceAnimation, delay);
+    };
+
+    const advanceAnimation = () => {
+      if (animationStoppedRef.current) return;
+
+      const currentPrompt = SLIDES_TRY_NOW_PROMPTS[promptIndex];
+      if (deleting) {
+        characterIndex -= 1;
+        const nextText = currentPrompt.slice(0, characterIndex);
+        prompt.textContent = nextText;
+        setPromptText(nextText);
+
+        if (characterIndex === 0) {
+          promptIndex = (promptIndex + 1) % SLIDES_TRY_NOW_PROMPTS.length;
+          deleting = false;
+          scheduleNextStep(PROMPT_TYPE_INTERVAL_MS);
+        } else {
+          scheduleNextStep(PROMPT_DELETE_INTERVAL_MS);
+        }
+        return;
+      }
+
+      characterIndex += 1;
+      const nextText = currentPrompt.slice(0, characterIndex);
+      prompt.textContent = nextText;
+      setPromptText(nextText);
+
+      if (characterIndex === currentPrompt.length) {
+        deleting = true;
+        scheduleNextStep(PROMPT_HOLD_MS);
+      } else {
+        scheduleNextStep(PROMPT_TYPE_INTERVAL_MS);
+      }
+    };
+
+    scheduleNextStep(PROMPT_TYPE_INTERVAL_MS);
+
+    return () => {
+      if (animationTimerRef.current !== null) {
+        clearTimeout(animationTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="w-full min-w-0 text-start">
@@ -59,17 +144,24 @@ export function SlidesTryNow() {
           </div>
         </div>
         <div
+          ref={promptRef}
           id="slides-try-now-prompt"
           role="textbox"
           aria-labelledby="slides-try-now-prompt-label"
           aria-multiline="true"
           contentEditable
           suppressContentEditableWarning
-          data-placeholder={tn("promptPlaceholder")}
+          onPointerDown={stopPromptAnimation}
+          onTouchStart={stopPromptAnimation}
+          onFocus={stopPromptAnimation}
+          onBeforeInput={stopPromptAnimation}
+          onPaste={stopPromptAnimation}
+          onKeyDown={stopPromptAnimation}
           onInput={(event) => {
+            stopPromptAnimation();
             setPromptText(extractPromptText(event.currentTarget).trim());
           }}
-          className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition-colors empty:before:inline-block empty:before:text-[var(--fg-secondary)] empty:before:content-[attr(data-placeholder)] focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
+          className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition-colors focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
         />
         <div className="flex justify-end">
           <a
