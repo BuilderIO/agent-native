@@ -6,6 +6,7 @@ import {
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
+  shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
 import {
   designGenerationDirectives,
@@ -61,8 +62,7 @@ export function runResumePendingGeneration({
     setHasPendingGeneration(false);
     return;
   }
-  const templateRefinement = Boolean(pending.templateId && files.length > 0);
-  if (files.length > 0 && !templateRefinement) return;
+  if (shouldSkipPendingGenerationResume(pending, files)) return;
 
   if (isPendingGenerationStale(pending)) {
     markGenerationStale();

@@ -93,6 +93,12 @@ const SlideAnimationSchema = z.object({
     .describe(
       "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required for agent-created or content-revised animations; re-read final HTML after content edits.",
     ),
+  byParagraph: z
+    .boolean()
+    .optional()
+    .describe(
+      "Reveal each paragraph in this text object as its own click step.",
+    ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
     .describe(
