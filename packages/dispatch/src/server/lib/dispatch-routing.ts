@@ -4,10 +4,11 @@ const STRUCTURED_INTAKE_PATTERNS = [
   /\b(?:database|table|board|form|queue)\b.{0,64}\b(?:asks?|requests?|tickets?|intake|priority|deadline|urgency)\b/i,
 ];
 
-const ONE_PAGER_PATTERN = /\bone[-\s]?page(?:r)?s?\b/i;
+const ONE_PAGER_CREATION_PATTERN =
+  /\b(?:assemble|build|create|design|draft|make|prepare|produce|write|put\s+together)\b.{0,64}\bone[-\s]?page(?:r)?s?\b/i;
 
 const VISUAL_DESIGN_PATTERNS = [
-  /\b(?:design|redesign|create|make|generate|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
+  /\b(?:build|design|redesign|create|make|generate|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
   /\b(?:visual|ui|website|product|brand)\s+design\b/i,
 ];
 
@@ -40,7 +41,7 @@ export function dispatchIntegrationRoutingHint(
     };
   }
 
-  if (ONE_PAGER_PATTERN.test(normalized)) {
+  if (ONE_PAGER_CREATION_PATTERN.test(normalized)) {
     return {
       targetAgent: "content",
       instruction:

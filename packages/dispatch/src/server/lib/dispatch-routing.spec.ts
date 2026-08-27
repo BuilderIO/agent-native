@@ -56,11 +56,19 @@ describe("dispatchIntegrationRoutingHint", () => {
   it.each([
     "Design a visual one-pager for the new feature",
     "Design a one-page website for the launch",
+    "Build a one-page website for the launch",
   ])("preserves visual-design routing for one-pagers: %s", (text) => {
     expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
       targetAgent: "design",
     });
   });
+
+  it.each(["Compare these one-page briefs", "Edit the one-pager copy"])(
+    "leaves non-creation one-pager requests to normal discovery: %s",
+    (text) => {
+      expect(dispatchIntegrationRoutingHint(text)).toBeUndefined();
+    },
+  );
 
   it("lets unrelated domain questions use normal agent discovery", () => {
     expect(
