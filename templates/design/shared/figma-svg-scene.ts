@@ -197,6 +197,11 @@ export interface FigmaSvgNode {
   kind: "box" | "text" | "image" | "raster" | "vector";
   rect: FigmaSvgRect;
   rotationDeg?: number;
+  /**
+   * The reflection a mirrored transform carries, applied about the rect centre
+   * after the rotation. A rotation alone cannot express a mirror.
+   */
+  reflection?: [number, number, number, number];
   /** 0-1; omit or 1 for fully opaque. */
   opacity?: number;
   /**
@@ -1005,7 +1010,7 @@ function wrapGroup(
   markup: string,
   node: Pick<
     FigmaSvgNode,
-    "rect" | "rotationDeg" | "opacity" | "blurPx" | "blendMode"
+    "rect" | "rotationDeg" | "reflection" | "opacity" | "blurPx" | "blendMode"
   >,
   ctx?: RenderCtx,
 ): string {
@@ -1020,10 +1025,20 @@ function wrapGroup(
     // layer's own blend mode.
     attrs.push(`style="mix-blend-mode:${node.blendMode}"`);
   }
-  if (node.rotationDeg) {
+  if (node.rotationDeg || node.reflection) {
     const cx = node.rect.x + node.rect.width / 2;
     const cy = node.rect.y + node.rect.height / 2;
-    attrs.push(`transform="rotate(${n(node.rotationDeg)} ${n(cx)} ${n(cy)})"`);
+    const parts: string[] = [];
+    if (node.rotationDeg) {
+      parts.push(`rotate(${n(node.rotationDeg)} ${n(cx)} ${n(cy)})`);
+    }
+    if (node.reflection) {
+      const [a, b, c, d] = node.reflection;
+      parts.push(
+        `translate(${n(cx)} ${n(cy)}) matrix(${n(a)} ${n(b)} ${n(c)} ${n(d)} 0 0) translate(${n(-cx)} ${n(-cy)})`,
+      );
+    }
+    attrs.push(`transform="${parts.join(" ")}"`);
   }
   if (node.opacity !== undefined && node.opacity !== 1) {
     attrs.push(`opacity="${n(node.opacity)}"`);
@@ -1790,6 +1805,8 @@ export interface RawFigmaSvgNode {
   domTag: string;
   rect: FigmaSvgRect;
   rotationDeg: number;
+  /** The reflection part of a mirrored transform, if any. */
+  reflection?: [number, number, number, number];
   opacity: number;
   cornerRadiiRaw: FigmaSvgCornerRadii;
   // guard:allow-raw-color — exported SVG paint read from the design's own computed styles, never app UI
@@ -2028,6 +2045,7 @@ function buildBorderSides(
 /** Pure hydration: `RawFigmaSvgNode` (browser-extracted computed strings + geometry) -> `FigmaSvgNode`. */
 export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
   const rotationDeg = raw.rotationDeg ? raw.rotationDeg : undefined;
+  const reflection = raw.reflection;
   const opacity = raw.opacity !== 1 ? raw.opacity : undefined;
   // A non-blur filter never reaches here — the walk rasterizes it — so the only
   // filter left to carry is a lone blur.
@@ -2067,6 +2085,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       kind: "vector",
       rect: raw.rect,
       rotationDeg,
+      reflection,
       opacity,
       blurPx,
       blendMode,
@@ -2099,6 +2118,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       kind: "text",
       rect: raw.rect,
       rotationDeg,
+      reflection,
       opacity,
       blurPx,
       blendMode,
@@ -2145,6 +2165,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       kind: "image",
       rect: raw.rect,
       rotationDeg,
+      reflection,
       opacity,
       blurPx,
       blendMode,
@@ -2189,6 +2210,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
     kind: "box",
     rect: raw.rect,
     rotationDeg,
+    reflection,
     opacity,
     blurPx,
     blendMode,
@@ -2348,6 +2370,41 @@ export function collectRawFigmaSvgScene(
     return width > 0 && height > 0
       ? { width, height }
       : { width: rect.width, height: rect.height };
+  }
+
+  /**
+   * The reflection a transform carries, if any.
+   *
+   * `rotationFromTransform` reduces a matrix to `atan2(b, a)`, which cannot
+   * tell a MIRROR from a half turn: `matrix(-1, 0, 0, 1)` reads as 180 degrees,
+   * so a mirrored layer exported as a half turn — identical on a symmetric
+   * shape and wrong on every other one. Positivus alone carries 11 of them.
+   * Decomposing as `R(theta) . M` leaves M as the reflection, and a mirror
+   * about the default centre origin preserves the bounding box, so the rect
+   * needs no reconstruction. Scale and skew (a positive determinant with a
+   * non-identity residual) are NOT returned here: those do move the box, and
+   * they need the rect work that is tracked separately.
+   */
+  function reflectionFromTransform(
+    transform: string,
+  ): [number, number, number, number] | null {
+    if (!transform || transform === "none") return null;
+    const m = transform.match(/matrix\(([^)]+)\)/);
+    if (!m) return null;
+    const [a, b, c, d] = m[1]
+      .split(",")
+      .map((v) => Number.parseFloat(v.trim()));
+    if (![a, b, c, d].every((v) => Number.isFinite(v))) return null;
+    if (a! * d! - c! * b! >= 0) return null;
+    const theta = Math.atan2(b!, a!);
+    const cos = Math.cos(-theta);
+    const sin = Math.sin(-theta);
+    return [
+      cos * a! - sin * b!,
+      sin * a! + cos * b!,
+      cos * c! - sin * d!,
+      sin * c! + cos * d!,
+    ];
   }
 
   function rotationFromTransform(transform: string): number {
@@ -2844,6 +2901,7 @@ export function collectRawFigmaSvgScene(
 
     const rect = el.getBoundingClientRect();
     const ownRotation = rotationFromTransform(style.transform);
+    const ownReflection = reflectionFromTransform(style.transform);
     const rotationActive = rotatedAncestor || ownRotation !== 0;
 
     // A rotation about the default 50%/50% origin preserves the element's
@@ -2902,6 +2960,9 @@ export function collectRawFigmaSvgScene(
       domTag: tag,
       rect: relRect,
       rotationDeg: ownRotation,
+      // A rasterized node is a screenshot of its region, so the mirror is
+      // already in its pixels and must not be applied a second time.
+      reflection: ownReflection ?? undefined,
       clipsContent:
         style.overflow !== "visible" && style.overflow !== ""
           ? true
@@ -3181,9 +3242,27 @@ export function collectRawFigmaSvgScene(
     // measures identically (1.810% on `effects-transforms` either way) because
     // a rigid ancestor commutes with it; the two only diverge once an ancestor
     // scales or skews, which is tracked separately below.
-    const childToLocal = ownRotation
+    let childToLocal = ownRotation
       ? composeAffine(rotationAbout(-ownRotation, centreX, centreY), toLocal)
       : toLocal;
+    // The renderer wraps the children in the reflection as well, so they have
+    // to be measured with it undone — otherwise every child of a mirrored
+    // layer is mirrored twice. A reflection is its own inverse, so the same
+    // matrix undoes it.
+    if (ownReflection) {
+      const [a, b, c, d] = ownReflection;
+      childToLocal = composeAffine(
+        [
+          a,
+          b,
+          c,
+          d,
+          centreX - (a * centreX + c * centreY),
+          centreY - (b * centreX + d * centreY),
+        ],
+        childToLocal,
+      );
+    }
     for (const child of Array.from(el.children)) {
       const childNode = walk(child, childToLocal, rotationActive);
       if (childNode) children.push(childNode);

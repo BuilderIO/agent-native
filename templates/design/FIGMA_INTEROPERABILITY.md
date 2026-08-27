@@ -435,11 +435,21 @@ already punished three changes on this branch that looked correct in isolation.
   importer already fixes on the way IN, quoted in its changeset as "mirrored
   nodes are no longer rendered as half turns".
 
-  So the change makes those 11 nodes export as true mirrors instead of half
-  turns, and the open question is whether our mirrored PLACEMENT is right, not
-  whether mirroring belongs there. It is one design, eleven nodes, and a
-  yes/no question with a reference render to answer it against. That is where
-  the next pass starts.
+  **Fixed.** Those 11 nodes now export as true mirrors. The reflection is
+  emitted alongside the rotation about the same centre, so the pair composes
+  back to the original matrix.
+
+  The first attempt at it made Positivus WORSE by the same 0.23pp, which named
+  the real bug: the renderer wraps a node's CHILDREN in its transform too, and
+  `childToLocal` un-rotated them without un-reflecting them, so every child of a
+  mirrored layer was mirrored twice. A reflection is its own inverse, so the
+  same matrix undoes it. With that, Positivus goes **2.871% -> 2.750%** — past
+  where it started — Untitled UI's dashboard 3.250% -> 3.170%, and no case
+  regresses. Export mean **3.053% -> 3.045%**.
+
+  Scale and skew are still not carried: they move the bounding box, so they need
+  the rect reconstruction above, which mirrors do not — a mirror about the
+  default centre origin leaves the box exactly where it was.
 - ~~**Nested rotation composition order.**~~ **Measured, not a defect.** The
   concern was that `composeAffine(rotationAbout(...), toLocal)` composes two
   operations that do not commute. Both orders were measured on the new nested

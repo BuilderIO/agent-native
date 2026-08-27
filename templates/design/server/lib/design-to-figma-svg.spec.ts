@@ -1290,3 +1290,42 @@ describe("a CROP background at a non-zero origin", () => {
     );
   });
 });
+
+describe("a mirrored layer on export", () => {
+  // `rotationFromTransform` reduces a matrix to `atan2(b, a)`, which reads
+  // `matrix(-1, 0, 0, 1)` as 180 degrees — so a mirror exported as a half turn.
+  // The two are identical on a symmetric shape and wrong on every other one,
+  // and Positivus alone carries 11 of them.
+  it("emits the reflection alongside the rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Mirrored",
+      kind: "box",
+      rect: { x: 100, y: 50, width: 200, height: 100 },
+      rotationDeg: 180,
+      reflection: [1, 0, 0, -1],
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+
+    // Rotation first in the string, so SVG applies the reflection first: the
+    // pair composes back to the original matrix about the rect centre.
+    expect(svg).toContain(
+      'transform="rotate(180 200 100) translate(200 100) matrix(1 0 0 -1 0 0) translate(-200 -100)"',
+    );
+  });
+
+  it("leaves an unmirrored layer on a plain rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Rotated",
+      kind: "box",
+      rect: { x: 100, y: 50, width: 200, height: 100 },
+      rotationDeg: 180,
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+    expect(svg).toContain('transform="rotate(180 200 100)"');
+    expect(svg).not.toContain("matrix(");
+  });
+});
