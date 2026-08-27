@@ -2130,6 +2130,8 @@ export interface AssistantChatProps {
   historyReloadKey?: string | number | null;
   /** Smooth the last assistant message while an external transcript is updating. */
   externalStreaming?: boolean;
+  /** Keep stopped-response actions visible for an embedded host's stop action. */
+  externalUserStopped?: boolean;
   /**
    * Optional host hooks for the inline `needsApproval` affordance beyond the
    * built-in Approve and action-type policy. Code sessions pass their
@@ -2504,6 +2506,7 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
     historyReloadKey,
     externalStreaming = false,
+    externalUserStopped = false,
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
@@ -3438,6 +3441,11 @@ const AssistantChatInner = forwardRef<
     (runId?: string, turnId?: string): boolean =>
       matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId),
     [threadId],
+  );
+  const resolveUserStoppedRun = useCallback(
+    (runId?: string, turnId?: string): boolean =>
+      externalUserStopped || wasUserStoppedRun(runId, turnId),
+    [externalUserStopped, wasUserStoppedRun],
   );
 
   const startReconnectToRun = useCallback(
@@ -6207,7 +6215,7 @@ const AssistantChatInner = forwardRef<
                                       resetKey={messageListResetKey}
                                     >
                                       <UserStoppedRunContext.Provider
-                                        value={wasUserStoppedRun}
+                                        value={resolveUserStoppedRun}
                                       >
                                         <ExternalTextStreamingContext.Provider
                                           value={externalStreaming}

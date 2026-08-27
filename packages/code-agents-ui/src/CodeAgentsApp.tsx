@@ -5296,17 +5296,23 @@ function RunDetailCard({
   restoringWorktreeId?: string | null;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
+  const runId = run?.id;
+  const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
+  const handleStop = useCallback(() => {
+    if (runId) setUserStoppedRunId(runId);
+    onStop();
+  }, [onStop, runId]);
 
   useEffect(() => {
     if (!runIsActive) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      onStop();
+      handleStop();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onStop, runIsActive]);
+  }, [handleStop, runIsActive]);
 
   if (!run) {
     return (
@@ -5460,9 +5466,10 @@ function RunDetailCard({
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         hideCredentialMessages={hasCredentialHistory}
+        externalUserStopped={userStoppedRunId === run.id}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
-        onStop={onStop}
+        onStop={handleStop}
         onDeny={onDeny}
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
@@ -5486,6 +5493,7 @@ function TranscriptPanel({
   modelSelection,
   modelOptions,
   hideCredentialMessages = false,
+  externalUserStopped,
   onPermissionModeChange,
   onModelSelectionChange,
   onStop,
@@ -5507,6 +5515,7 @@ function TranscriptPanel({
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   hideCredentialMessages?: boolean;
+  externalUserStopped: boolean;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onStop: () => void;
@@ -5629,6 +5638,7 @@ function TranscriptPanel({
             loadHistoryRepository={loadHistoryRepository}
             historyReloadKey={historyReloadKey}
             externalStreaming={runIsActive}
+            externalUserStopped={externalUserStopped}
             approvalActions={
               onDeny || onApproveAlways
                 ? {

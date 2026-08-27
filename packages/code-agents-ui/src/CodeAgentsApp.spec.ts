@@ -205,6 +205,19 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
 });
 
 describe("CodeAgentsApp transcript selection", () => {
+  it("propagates an external stop into the shared chat footer state", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+
+    expect(source).toContain(
+      "const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);",
+    );
+    expect(source).toContain("if (runId) setUserStoppedRunId(runId);");
+    expect(source).toContain(
+      "externalUserStopped={userStoppedRunId === run.id}",
+    );
+    expect(source).toContain("externalUserStopped={externalUserStopped}");
+  });
+
   it("does not let an older transcript read replace a newly selected chat", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
     const loadTranscriptStart = source.indexOf("const loadTranscript =");
