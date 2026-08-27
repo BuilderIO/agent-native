@@ -48,6 +48,13 @@ stores paragraph breaks as CR and its text very often ends with one, but it
 does not draw a trailing break; `white-space: pre-wrap` does, so every such
 label came out a line taller and pushed its siblings down with it.
 
+Angular (conic) gradients now sweep the way Figma sweeps them. Figma computes
+the sweep in the node's normalized space — the box treated as a unit square,
+then stretched — while CSS `conic-gradient()` sweeps at a true uniform angular
+rate in real pixels; the two agree only on the axes, so a non-square tile
+landed its mid-sweep colours visibly early. Drawing the gradient into a square
+and scaling that square to the box reproduces Figma's definition exactly.
+
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce

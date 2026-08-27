@@ -644,3 +644,53 @@ describe("Figma's trailing line break", () => {
     expect(html).toMatch(/First[\r\n]Second/);
   });
 });
+
+describe("angular (conic) gradients sweep in Figma's normalized space", () => {
+  // Figma treats the box as a unit square and stretches the result; CSS
+  // conic-gradient() sweeps at a true uniform angular rate in real pixels. The
+  // two agree only on the axes, so on a 180x85 tile the mid-sweep stops landed
+  // visibly early — 5.4 points of the fills/effects fixture.
+  function angularTile(width: number, height: number): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Angular",
+      type: "RECTANGLE",
+      absoluteBoundingBox: box(0, 0, width, height),
+      fills: [
+        {
+          type: "GRADIENT_ANGULAR",
+          gradientHandlePositions: [
+            { x: 0.5, y: 0.5 },
+            { x: 1, y: 0.5 },
+            { x: 0.5, y: 1 },
+          ],
+          gradientStops: [
+            { position: 0, color: { r: 1, g: 0, b: 1, a: 1 } },
+            { position: 1, color: { r: 0, g: 1, b: 0.5, a: 1 } },
+          ],
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("draws into a square and scales it to the box", () => {
+    const { html } = mapFigmaNodeToHtml(angularTile(180, 85), {});
+    expect(html).toContain("conic-gradient");
+    // Square of the box's width, squashed to its height.
+    expect(html).toContain("width: 180px");
+    expect(html).toContain("height: 180px");
+    expect(html).toContain("scale(1, 0.472222)");
+  });
+
+  it("needs no squash on a square box", () => {
+    const { html } = mapFigmaNodeToHtml(angularTile(120, 120), {});
+    expect(html).toContain("scale(1, 1)");
+  });
+
+  it("counts as exact rather than approximated", () => {
+    const { fidelity } = mapFigmaNodeToHtml(angularTile(180, 85), {});
+    expect(fidelity.entries.find((e) => e.nodeId === "1:1")?.level).toBe(
+      "exact",
+    );
+  });
+});

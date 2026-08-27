@@ -592,8 +592,8 @@ function paintToCssImage(
         : 0;
       tracker.record(
         node,
-        "approximated",
-        "Conic (angular) gradient start angle derived from the centre->end handle ray; CSS conic-gradient() sweeps at a uniform angular rate while Figma's sweeps in the node's normalized space, so a non-square box distorts the mid-sweep stop positions.",
+        "exact",
+        "Conic (angular) gradient start angle derived from the centre->end handle ray, and swept in the node's normalized space as Figma does — drawn into a square and scaled to the box, so a non-square box keeps its mid-sweep stop positions.",
       );
       return `conic-gradient(from ${round(fromAngle ?? 0, 2)}deg at ${cx}% ${cy}%, ${stops})`;
     }
@@ -712,6 +712,52 @@ interface PaintLayer {
   size: string;
   position: string;
   repeat: string;
+}
+
+/**
+ * Render an angular (conic) gradient the way Figma sweeps it.
+ *
+ * Figma computes the sweep in the node's NORMALIZED space — the box is treated
+ * as a unit square and then stretched — while CSS `conic-gradient()` sweeps at
+ * a true uniform angular rate in real pixels. On a non-square box the two
+ * disagree everywhere except the axes, which is why the mid-sweep stops landed
+ * visibly early on a 180x85 tile.
+ *
+ * Drawing the gradient into a SQUARE and scaling that square to the box
+ * reproduces Figma's definition exactly rather than approximating it. The
+ * outer div carries the clipping (`border-radius: inherit`), because a
+ * transform on the painted div would scale the corner radii with it.
+ */
+function angularGradientOverlay(
+  image: string,
+  box: { width: number; height: number },
+  paint: FigmaPaint,
+): string {
+  const side = box.width;
+  const scaleY = side > 0 ? box.height / side : 1;
+  const inner: Record<string, string | undefined> = {
+    position: "absolute",
+    left: "0",
+    top: "0",
+    width: px(side),
+    height: px(side),
+    transform: `scale(1, ${round(scaleY, 6)})`,
+    "transform-origin": "0 0",
+    "background-image": image,
+    "background-size": "100% 100%",
+    "background-repeat": "no-repeat",
+  };
+  const outer: Record<string, string | undefined> = {
+    position: "absolute",
+    inset: "0",
+    "border-radius": "inherit",
+    overflow: "hidden",
+    "pointer-events": "none",
+  };
+  return (
+    `<div data-figma-fill-layer="${escapeAttr(paint.type)}" style="${styleAttr(outer)}">` +
+    `<div style="${styleAttr(inner)}"></div></div>`
+  );
 }
 
 /**
@@ -887,6 +933,12 @@ function buildFills(
       ) {
         magnified = true;
       }
+    } else if (fill.type === "GRADIENT_ANGULAR") {
+      // Always an overlay: the square-and-scale trick needs its own element.
+      const cssImage = paintToCssImage(fill, box, tracker, node);
+      if (!cssImage) continue;
+      overlays.push(angularGradientOverlay(cssImage, box, fill));
+      continue;
     } else if (fill.type === "GRADIENT_DIAMOND") {
       // The only paint that needs more than one CSS layer to draw correctly.
       const quadrants = diamondGradientLayers(fill, box, node, tracker);
