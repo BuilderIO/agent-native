@@ -1384,6 +1384,45 @@ describe("glyph rasterisation", () => {
   });
 });
 
+describe("text Figma laid out on one line must not wrap", () => {
+  const label = (autoResize: string, height: number) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 170, {
+        type: "TEXT",
+        name: "Placeholder",
+        fontSize: 16,
+        lineHeight: { value: 27, units: "PIXELS" },
+        textAutoResize: autoResize,
+        size: { x: 193, y: height },
+        textData: { characters: "Write Your task name here", lines: [{}] },
+      }),
+    );
+    return doc;
+  };
+
+  it("refuses the break Figma did not take", () => {
+    expect(renderFrame(label("WIDTH_AND_HEIGHT", 27))).toContain(
+      "white-space: nowrap",
+    );
+  });
+
+  it("leaves genuinely multi-line text alone", () => {
+    expect(renderFrame(label("WIDTH_AND_HEIGHT", 54))).not.toContain(
+      "white-space: nowrap",
+    );
+  });
+
+  it("only trusts a box that IS the text's own resolved size", () => {
+    // Kiwi `size` goes stale on the descendants of an instance this walker
+    // cannot fully resolve, and a stale one-line box would turn wrapping text
+    // into one overflowing line — it cost the card-grid fixture 0.3 points.
+    expect(renderFrame(label("HEIGHT", 27))).not.toContain(
+      "white-space: nowrap",
+    );
+  });
+});
+
 describe("AUTO line height", () => {
   // Figma stores AUTO as 100% and never tells us the pixel value it resolved.
   // `line-height: normal` is the BROWSER's idea of the font's default, not

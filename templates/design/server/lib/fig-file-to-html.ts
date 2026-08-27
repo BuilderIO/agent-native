@@ -2037,6 +2037,31 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (decoration) out.textDecoration = decoration;
   const underlinePosition = textUnderlinePositionCss(textDecoration as never);
   if (underlinePosition) out.textUnderlinePosition = underlinePosition;
+  // Text Figma laid out on ONE line, in a box only one line tall, must not
+  // wrap: our advances run a hair wider on some strings, and the extra line
+  // pushes every sibling down and reads as broken where a few pixels of
+  // overflow does not. `nowrap` rather than `pre` because this walker uses
+  // <br> for explicit breaks and relies on ordinary whitespace collapsing.
+  const lineCount = node.textData?.lines?.length ?? 1;
+  const boxHeight = node.size?.y;
+  const resolvedLineHeight = lengthFromUnits(lineHeight, fontSize);
+  const lineHeightPx =
+    typeof resolvedLineHeight === "string" && resolvedLineHeight.endsWith("px")
+      ? Number.parseFloat(resolvedLineHeight)
+      : null;
+  if (
+    lineCount === 1 &&
+    boxHeight &&
+    lineHeightPx &&
+    Math.round(boxHeight / lineHeightPx) === 1 &&
+    // Only where the box IS the text's own resolved size. Kiwi `size` goes
+    // stale on the descendants of an instance this walker cannot fully
+    // resolve, and a stale one-line box turns genuinely wrapping text into a
+    // single overflowing line — it cost the card-grid fixture 0.3 points.
+    node.textAutoResize === "WIDTH_AND_HEIGHT"
+  ) {
+    out.whiteSpace = "nowrap";
+  }
   const fills = (
     ctx ? effectiveFillPaints(node, ctx) : node.fillPaints
   )?.filter((fill) => fill.visible !== false);
