@@ -55,6 +55,12 @@ rate in real pixels; the two agree only on the axes, so a non-square tile
 landed its mid-sweep colours visibly early. Drawing the gradient into a square
 and scaling that square to the box reproduces Figma's definition exactly.
 
+Zero-thickness vector geometry renders again. The SVG spec says a viewBox with
+a zero width or height DISABLES rendering of the element, so a stroked path
+whose own box is 20x0 — a horizontal rule, or the arrow inside a "Learn more"
+button — disappeared silently. A collapsed axis now takes the stroke's own
+width, with the geometry centred on it.
+
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce

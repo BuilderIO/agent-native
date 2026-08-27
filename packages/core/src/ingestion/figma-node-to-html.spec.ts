@@ -694,3 +694,51 @@ describe("angular (conic) gradients sweep in Figma's normalized space", () => {
     );
   });
 });
+
+describe("zero-thickness vector geometry", () => {
+  // The SVG spec says a viewBox with a zero width or height DISABLES rendering
+  // of the element, so a stroked path whose own box is 20x0 — a rule, or the
+  // arrow inside a "Learn more" button — vanished with no warning.
+  function arrow(width: number, height: number): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Icon",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 41, 41),
+      children: [
+        {
+          id: "1:2",
+          name: "Arrow 1",
+          type: "VECTOR",
+          absoluteBoundingBox: box(10, 21, 17, 10),
+          size: { x: width, y: height },
+          relativeTransform: [
+            [1, 0, 10],
+            [0, 1, 21],
+          ],
+          strokeWeight: 3,
+          strokes: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 } }],
+          strokeGeometry: [{ path: "M0 0L20 0", windingRule: "NONZERO" }],
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("gives a collapsed axis the stroke's width so the shape still renders", () => {
+    const { html } = mapFigmaNodeToHtml(arrow(20, 0), {});
+    expect(html).toContain('viewBox="0 -1.5 20 3"');
+    expect(html).not.toContain('viewBox="0 0 20 0"');
+  });
+
+  it("sizes and offsets the svg in real pixels, since 100% of zero is zero", () => {
+    const { html } = mapFigmaNodeToHtml(arrow(20, 0), {});
+    expect(html).toContain('width="20" height="3"');
+    expect(html).toContain("top: -1.5px");
+  });
+
+  it("leaves an ordinary vector on percentage sizing", () => {
+    const { html } = mapFigmaNodeToHtml(arrow(20, 10), {});
+    expect(html).toContain('width="100%" height="100%"');
+    expect(html).toContain('viewBox="0 0 20 10"');
+  });
+});

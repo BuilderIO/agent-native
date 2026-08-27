@@ -1736,9 +1736,30 @@ function buildVectorSvg(
 
   if (paths.length === 0) return null;
   const defsMarkup = defs.length > 0 ? `<defs>${defs.join("")}</defs>` : "";
+  // A ZERO extent on either axis makes the viewBox degenerate, and the SVG
+  // spec says that DISABLES rendering of the element — the shape vanishes with
+  // no warning. Zero thickness is normal for the shapes that hit this: a rule,
+  // or the arrow inside a "Learn more" button, is a stroked path whose own box
+  // is 20x0. Give that axis the stroke's width and centre the geometry on it,
+  // which is where the outlined path already sits.
+  const strokeBand = Math.max(node.strokeWeight ?? 0, 1);
+  const viewWidth = box.width > 0 ? box.width : strokeBand;
+  const viewHeight = box.height > 0 ? box.height : strokeBand;
+  const originX = box.width > 0 ? 0 : -viewWidth / 2;
+  const originY = box.height > 0 ? 0 : -viewHeight / 2;
+  // `100%` of a zero-height box is zero, so a collapsed axis needs real pixels
+  // and an offset that puts the geometry's own centreline back on the box.
+  const sizing =
+    box.width > 0 && box.height > 0
+      ? `width="100%" height="100%"`
+      : `width="${round(viewWidth, 2)}" height="${round(viewHeight, 2)}"`;
+  const placement =
+    originX || originY
+      ? `position: absolute; left: ${round(originX, 2)}px; top: ${round(originY, 2)}px; `
+      : "";
   // `overflow: visible` because an outlined stroke legitimately extends past
   // the node's geometric bounding box.
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 ${round(box.width, 2)} ${round(box.height, 2)}" fill="none" style="overflow: visible; display: block">${defsMarkup}${paths.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" ${sizing} viewBox="${round(originX, 2)} ${round(originY, 2)} ${round(viewWidth, 2)} ${round(viewHeight, 2)}" fill="none" style="${placement}overflow: visible; display: block">${defsMarkup}${paths.join("")}</svg>`;
 }
 
 // ---------------------------------------------------------------------------
