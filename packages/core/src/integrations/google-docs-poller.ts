@@ -105,6 +105,8 @@ type WatchStopResult =
   | { status: "stopped" }
   | { status: "not-owned"; claimId?: string; retryAt?: number }
   | { status: "retry"; claimId: string };
+type WatchChannel = { id: string; resourceId?: string };
+const watchCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function getWatchClaim(
   config: IntegrationConfig | null,
@@ -132,6 +134,39 @@ function notOwnedWatchResult(
 
 function retryDelay(retryAt?: number): number {
   return retryAt ? Math.max(1000, retryAt - Date.now()) : WATCH_RETRY_MS;
+}
+
+function scheduleOrphanedWatchCleanup(
+  channel: WatchChannel,
+  delayMs = WATCH_RETRY_MS,
+): void {
+  const existingTimer = watchCleanupTimers.get(channel.id);
+  if (existingTimer) clearTimeout(existingTimer);
+
+  const timer = setTimeout(async () => {
+    watchCleanupTimers.delete(channel.id);
+    try {
+      const accessToken = await getServiceAccountAccessToken();
+      if (
+        accessToken &&
+        (await stopGoogleDocsWatchChannel(
+          accessToken,
+          channel.id,
+          channel.resourceId,
+        ))
+      ) {
+        return;
+      }
+    } catch (err) {
+      console.warn(
+        `[google-docs] Orphaned watch cleanup failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+        err,
+      );
+    }
+
+    scheduleOrphanedWatchCleanup(channel);
+  }, delayMs);
+  watchCleanupTimers.set(channel.id, timer);
 }
 
 /**
@@ -214,6 +249,30 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
         `[google-docs] Watch registration lost a concurrent update (channel: ${data.id})`,
       );
       return false;
+    }
+
+    const previousChannelId = currentConfig?.configData?.channelId;
+    if (
+      typeof previousChannelId === "string" &&
+      previousChannelId !== data.id
+    ) {
+      const previousStopped = await stopGoogleDocsWatchChannel(
+        accessToken,
+        previousChannelId,
+        currentConfig?.configData?.resourceId,
+      );
+      if (!previousStopped) {
+        console.warn(
+          `[google-docs] Could not retire the previous watch channel ${previousChannelId}; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+        );
+        scheduleOrphanedWatchCleanup({
+          id: previousChannelId,
+          resourceId:
+            typeof currentConfig?.configData?.resourceId === "string"
+              ? currentConfig.configData.resourceId
+              : undefined,
+        });
+      }
     }
 
     console.log(
