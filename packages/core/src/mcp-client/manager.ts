@@ -721,6 +721,7 @@ export class McpClientManager {
         `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
       );
     }
+    const client = entry.client;
     const normalizedArgs =
       args && typeof args === "object" ? (args as Record<string, unknown>) : {};
     const authorize = this.resolveToolAuthorization
@@ -737,7 +738,20 @@ export class McpClientManager {
         throw error;
       }
     }
-    const result = await entry.client.callTool({
+    const liveEntry = this.servers.get(parsed.serverId);
+    const liveTool = liveEntry?.tools.find(
+      (tool) => tool.name === prefixedName,
+    );
+    if (
+      liveEntry !== entry ||
+      liveEntry.client !== client ||
+      liveTool !== known
+    ) {
+      throw new Error(
+        `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+      );
+    }
+    const result = await client.callTool({
       name: parsed.toolName,
       arguments: normalizedArgs,
     });
