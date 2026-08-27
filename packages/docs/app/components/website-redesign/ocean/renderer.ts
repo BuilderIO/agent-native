@@ -16,6 +16,7 @@ import {
   type Draw,
   type Effect,
   type Frame,
+  type FrameLoopHandle,
   type Gpu,
   type ShaderSource,
   type Surface,
@@ -57,15 +58,31 @@ export const DEFAULT_OCEAN_COLORS: OceanColors = {
 interface RendererOptions {
   readonly canvas: HTMLCanvasElement;
   readonly colors?: OceanColors;
+  readonly fps?: number;
+  /**
+   * Called once for any failure after construction -- init, resize rebuild, or
+   * a throw inside the frame loop. Without it those failures rethrow, which in
+   * the frame loop means an uncaught error and a hero that silently stops
+   * updating. The caller is expected to swap in the fallback background.
+   */
+  readonly onError?: (error: unknown) => void;
 }
 
 const SIM_FORMAT: GPUTextureFormat = "rgba32float";
 const HDR_FORMAT: GPUTextureFormat = "rgba16float";
 const TRANSPARENT = [0, 0, 0, 0] as const;
 
-export function createRenderer({ canvas, colors }: RendererOptions) {
+export function createRenderer({
+  canvas,
+  colors,
+  fps,
+  onError,
+}: RendererOptions) {
   let disposed = false;
   let currentColors: OceanColors = colors ?? DEFAULT_OCEAN_COLORS;
+  let loop: FrameLoopHandle | undefined;
+  let paused = false;
+  let failed = false;
   let gpu: Gpu | undefined;
   let output: Surface | undefined;
   let graph: OceanGraph | undefined;
@@ -81,18 +98,24 @@ export function createRenderer({ canvas, colors }: RendererOptions) {
       () => {
         if (resizeFrame) cancelAnimationFrame(resizeFrame);
       },
+      () => loop?.stop(),
       () => unsubscribeResize?.(),
       () => gpu?.dispose(),
     ]);
   }
 
-  function fail(error: unknown): never {
+  function fail(error: unknown): never | void {
+    const first = !failed;
+    failed = true;
     try {
       dispose();
     } catch {
       // Teardown must not replace the render, resize, or preparation failure.
     }
-    throw error;
+    if (!onError) throw error;
+    // Only the first failure is reported: dispose() can cascade, and the
+    // caller swaps backgrounds on the first one anyway.
+    if (first) onError(error);
   }
 
   const rebuild = async (generation: number) => {
@@ -148,15 +171,19 @@ export function createRenderer({ canvas, colors }: RendererOptions) {
     unsubscribeResize = output.onResize(scheduleResize);
 
     const time = clock(gpu);
-    frameLoop(gpu, (currentFrame) => {
-      if (disposed || !graph || !output) return;
-      try {
-        setDynamics(graph, time.time * OCEAN_TUNING.simulation.timeScale);
-        renderGraph(currentFrame, graph, output);
-      } catch (error) {
-        fail(error);
-      }
-    });
+    loop = frameLoop(
+      gpu,
+      (currentFrame) => {
+        if (disposed || paused || !graph || !output) return;
+        try {
+          setDynamics(graph, time.time * OCEAN_TUNING.simulation.timeScale);
+          renderGraph(currentFrame, graph, output);
+        } catch (error) {
+          fail(error);
+        }
+      },
+      fps === undefined ? undefined : { fps },
+    );
   };
 
   const ready = initialize().catch((error: unknown) => {
@@ -168,14 +195,25 @@ export function createRenderer({ canvas, colors }: RendererOptions) {
    * 512x512 rgba32float textures and reallocating them stalls the frame the
    * user is watching the toggle in.
    */
+  /**
+   * Skips frame work while the hero is scrolled out of view. The loop stays
+   * registered rather than being stopped and rebuilt, so resuming costs one
+   * boolean instead of a device round trip.
+   */
+  function setPaused(next: boolean): void {
+    paused = next;
+  }
+
   function setColors(next: OceanColors): void {
     if (disposed) return;
     currentColors = next;
     if (graph) setPresentColors(graph, next);
   }
 
-  return { ready, dispose, setColors };
+  return { ready, dispose, setColors, setPaused };
 }
+
+export type OceanRenderer = ReturnType<typeof createRenderer>;
 
 export async function createGraph(
   gpu: Gpu,
