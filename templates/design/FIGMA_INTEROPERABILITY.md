@@ -478,6 +478,32 @@ Two limits found while using it, both measured 2026-08-26:
   against the API's render of the whole parent frame. Compare a UI export only
   against a render of the SAME node, never against a crop of its parent.
 
+## The REST limit follows the FILE's plan, not the account
+
+Measured 2026-08-26, and this corrects an earlier note in this file that said
+the opposite:
+
+| file | status | `x-figma-plan-tier` |
+| --- | --- | --- |
+| a file in the Builder.io team | **200** | *(no rate-limit headers at all)* |
+| a Community file open from Drafts | 429 | `starter`, `rate-limit-type: low` |
+
+A Starter-tier resource gets ~6 Tier 1 requests per MONTH; a paid team's files
+are not capped in practice. Three different personal access tokens were checked
+against `/v1/me` and all resolve to the same user, so a new token cannot help —
+what matters is which plan owns the FILE.
+
+The earlier "per ACCOUNT" conclusion came from duplicating a Community file and
+seeing the new key 429 too. That test was wrong: the duplicate landed in
+**Drafts**, which is the same Starter space, so it proved nothing.
+
+**To unblock the REST corpus: put the design in a folder inside the paid team.**
+Community originals cannot be moved (they are not yours), so duplicate first,
+then move the copy. Note that the in-editor `Move file` dialog never finished
+loading its project list in testing, and cross-file paste and `Save local copy`
+both wedged as well — doing it by hand from the files browser was faster than
+driving it.
+
 ## Figma REST rate limits
 
 - Viewer and Collab seats may receive up to 6 Tier 1 requests per month for
@@ -488,16 +514,8 @@ Two limits found while using it, both measured 2026-08-26:
   `X-Figma-Plan-Tier`, `X-Figma-Rate-Limit-Type`, and
   `X-Figma-Upgrade-Link` metadata.
 - Figma does not expose a requests-remaining counter.
-- **The budget is per ACCOUNT, not per file.** An earlier note here claimed the
-  opposite — that a file's own plan set its budget, and that moving a Community
-  file into a paid team project would restore it. That was inferred from the
-  order requests happened to fail in, and it is wrong. Re-measured 2026-08-26 by
-  duplicating a Community file into the paid team and immediately querying the
-  NEW key: it answered 429 with the same `Retry-After` as every other key,
-  counting down in lockstep (390 999 / 390 998 / 390 997 seconds across three
-  different files). Duplicating, moving to a team project, and issuing a second
-  token on the same account all leave the wall exactly where it was. Only a
-  different account, or the reset, clears it.
+- **Superseded:** an earlier note here claimed the budget was per ACCOUNT. It
+  is per FILE-plan; see the section above for the measurement that settles it.
 - Because the quota is account-wide, an exhausted account blocks every REST
   case at once. `--offline` replays from the cache so converter work is never
   gated on it, and the clipboard/`.fig` harnesses need no quota at all — which
