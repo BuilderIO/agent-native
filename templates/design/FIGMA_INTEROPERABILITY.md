@@ -376,10 +376,41 @@ The import gain is 0.34pp; the cheapest export cost is 1.04pp. What makes
 today's rectangle work is the `-12` spread, which shrinks it to roughly the
 phone's footprint — and `drop-shadow()` has no spread to carry it through.
 
-Taking this needs the exporter to paint a shadow from the CONTENT's silhouette
-rather than the node's box. Until then the rectangle is the better of two wrong
-shadows, and this is recorded so the import-side fix is not refitted on its own
-numbers.
+The exporter CAN paint that shape. It was built: `feMorphology` for spread,
+`feFlood` + `feComposite in=SourceAlpha` for the tint, `feGaussianBlur` for the
+blur, applied to a duplicate of the subtree behind the real one — the same
+bargain the box shadow already makes, with the shape corrected. It renders
+correctly: at 3x the exported phone is indistinguishable from Figma's, rounded
+bottom and shadow included. It still scored **worse**: 4.505% -> 4.631%.
+
+Measuring why turned the blocker into a different one. Along a column below the
+phone, our shadow and Figma's reach the background at the same place, so the
+extent is right — but Figma's is darker the whole way, and the ratio GROWS with
+distance:
+
+| distance below the phone | Figma darkness | ours | ratio |
+| --- | --- | --- | --- |
+| 0px | 49 | 39 | 1.26 |
+| 24px | 33 | 23 | 1.43 |
+| 48px | 15 | 9 | 1.67 |
+| 52px | 5 | 2 | 2.50 |
+
+A constant that closes it exists — alpha x1.35 takes the content-cast export to
+**4.222%**, past the 4.505% rectangle — and that is exactly the "shadow blur
+x1.25 and alpha x1.2" experiment this file already records as REJECTED for
+overfitting one phone mockup while doing nothing for DashStack's 38 shadows.
+`color-interpolation-filters="linearRGB"` is a principled part of it and worth
+0.12pp on its own (4.631% -> 4.515%); the rest is not explained yet.
+
+So the box-cast rectangle is not winning because it is right. It covers more
+area than the true silhouette, which compensates for a shadow that is
+independently too weak — right for the wrong reason. **The shape fix is blocked
+on shadow INTENSITY, not on the exporter.**
+
+The way to settle it is on `fills-effects`, the synthetic fixture where the
+stored radius, spread and alpha are ours to choose: sweep one shadow's radius
+and alpha against Figma's own render and derive how Figma interprets them,
+instead of fitting a constant on a community design that carries one shadow.
 
 ### The aggregate is not the only instrument
 
