@@ -1784,7 +1784,10 @@ export function AssistantMessage() {
           ? t("agentChat.message.missingFinal")
           : null));
   const animateMissingFinalResponse = Boolean(
-    isLast && missingFinalResponseNoticeText && wasLiveRef.current,
+    !isUserStoppedRun &&
+    isLast &&
+    missingFinalResponseNoticeText &&
+    wasLiveRef.current,
   );
   const missingFinalResponseAnimationKey = animateMissingFinalResponse
     ? missingFinalResponseNoticeText

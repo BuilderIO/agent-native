@@ -489,6 +489,18 @@ export function reconnectProgressTimedOut(args: {
   return args.now - args.lastProgressAt >= threshold;
 }
 
+export function matchesUserStoppedRun(
+  stopped: { runId?: string; threadId?: string } | null,
+  threadId?: string,
+  runId?: string,
+): boolean {
+  return Boolean(
+    stopped &&
+    stopped.threadId === threadId &&
+    (!stopped.runId || !runId || stopped.runId === runId),
+  );
+}
+
 function activeRunMatchesThread(
   state: ActiveRunState | null,
   threadId: string | undefined,
@@ -2835,9 +2847,11 @@ const AssistantChatInner = forwardRef<
   >(null);
   const [dismissedProviderAuthErrorKey, setDismissedProviderAuthErrorKey] =
     useState<string | null>(null);
+  // Keep an intentional stop until the next explicit submission. The server
+  // may replay the terminal snapshot well after the client cancellation.
   const userStoppedRunRef = useRef<{
-    at: number;
     runId?: string;
+    threadId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
@@ -3408,14 +3422,11 @@ const AssistantChatInner = forwardRef<
     };
   }, [cacheCurrentThreadSnapshot]);
 
-  const wasRecentlyStoppedRun = useCallback((runId?: string): boolean => {
-    const stopped = userStoppedRunRef.current;
-    return Boolean(
-      stopped &&
-      Date.now() - stopped.at < 10_000 &&
-      (!stopped.runId || !runId || stopped.runId === runId),
-    );
-  }, []);
+  const wasUserStoppedRun = useCallback(
+    (runId?: string): boolean =>
+      matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId),
+    [threadId],
+  );
 
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
@@ -3428,7 +3439,7 @@ const AssistantChatInner = forwardRef<
         return false;
       }
       const runId = String(runInfo.runId);
-      if (wasRecentlyStoppedRun(runId)) return false;
+      if (wasUserStoppedRun(runId)) return false;
       if (reconnectRunIdRef.current === runId) return true;
       // SINGLE-READER OWNERSHIP: never start a second reader while the
       // adapter's own stream is live (or mid auto-continuation) for this
@@ -3920,14 +3931,7 @@ const AssistantChatInner = forwardRef<
       void streamReconnect();
       return true;
     },
-    [
-      apiUrl,
-      refreshThreadFromServer,
-      t,
-      tabId,
-      threadId,
-      wasRecentlyStoppedRun,
-    ],
+    [apiUrl, refreshThreadFromServer, t, tabId, threadId, wasUserStoppedRun],
   );
 
   const reconnectActiveRunForThread =
@@ -4225,7 +4229,7 @@ const AssistantChatInner = forwardRef<
       forceStopped ||
       isReconnecting ||
       runErrorInfo ||
-      wasRecentlyStoppedRun()
+      wasUserStoppedRun()
     ) {
       return;
     }
@@ -4247,7 +4251,7 @@ const AssistantChatInner = forwardRef<
     reconnectActiveRunForThread,
     runErrorInfo,
     threadId,
-    wasRecentlyStoppedRun,
+    wasUserStoppedRun,
   ]);
 
   // Generate a title when the first user message is sent
@@ -4547,11 +4551,7 @@ const AssistantChatInner = forwardRef<
         return;
       }
       const stopped = userStoppedRunRef.current;
-      if (
-        stopped &&
-        Date.now() - stopped.at < 10_000 &&
-        (!stopped.runId || !detail.runId || stopped.runId === detail.runId)
-      ) {
+      if (matchesUserStoppedRun(stopped, threadId, detail.runId)) {
         return;
       }
       // A terminal adapter error wins over any read-only reconnect reader that
@@ -5009,7 +5009,7 @@ const AssistantChatInner = forwardRef<
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
       const pendingTurn = threadId ? getPendingTurn(threadId) : null;
       userStoppedRunRef.current = {
-        at: Date.now(),
+        ...(threadId ? { threadId } : {}),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
       };
       trackStoppedRun(runIdToAbort);
@@ -5698,12 +5698,10 @@ const AssistantChatInner = forwardRef<
     !!visibleRunError &&
     !showRunningInUI &&
     visibleRunErrorKey !== dismissedRunErrorKey &&
-    !(
-      userStoppedRunRef.current &&
-      Date.now() - userStoppedRunRef.current.at < 10_000 &&
-      (!userStoppedRunRef.current.runId ||
-        !visibleRunError.runId ||
-        userStoppedRunRef.current.runId === visibleRunError.runId)
+    !matchesUserStoppedRun(
+      userStoppedRunRef.current,
+      threadId,
+      visibleRunError.runId,
     );
   const providerAuthErrorKey =
     visibleRunError &&
@@ -6181,7 +6179,7 @@ const AssistantChatInner = forwardRef<
                                       resetKey={messageListResetKey}
                                     >
                                       <UserStoppedRunContext.Provider
-                                        value={wasRecentlyStoppedRun}
+                                        value={wasUserStoppedRun}
                                       >
                                         <ThreadPrimitive.Messages
                                           // Deliberately NOT keyed on part structure. Doing that
