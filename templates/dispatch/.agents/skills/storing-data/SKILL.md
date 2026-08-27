@@ -27,11 +27,13 @@ Agent-Native apps use Drizzle ORM over the configured SQL backend. Local develop
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
-### Naming migrations
+### Migration ownership
 
-When you add an entry to a `runMigrations([...])` list (`@agent-native/core/db`), always give it a unique `name:` slug (e.g. `name: "analytics-alert-rules-table"`) alongside its `version`. Never renumber or reuse version numbers on existing entries.
+When the project contains `drizzle.config.ts` and `drizzle/START_HERE.md`, that managed Drizzle scaffold is the only app migration path. Define app tables in `drizzle/schema.ts`, run `pnpm db:generate`, and apply them with `pnpm db:migrate`. `scripts/migrate-production.ts` is framework-only: do not create a parallel `runMigrations([...])` list in `server/plugins/db.ts` or import an app migration runner into the release script.
 
-Why: version numbers alone are not a safe identity. Two branches that each independently extend the same migration list can ship different DDL under the same version numbers — whichever branch deploys first "claims" those version numbers in the bookkeeping table, and the other branch's DDL is silently treated as already applied even though it never ran. This exact collision took down analytics: parallel branches both extended their migration list through v75-v83 with different DDL, so `analytics_alert_rules`, `analytics_alert_incidents`, and `session_recordings.network_error_count` never made it to production despite the bookkeeping table showing every version as applied. A `name:` slug is tracked independently of version numbers, so it applies exactly once per database regardless of what any other branch already recorded.
+In projects without that managed scaffold, every entry added to a framework `runMigrations([...])` list (`@agent-native/core/db`) needs a unique `name:` slug (for example, `name: "analytics-alert-rules-table"`) alongside its `version`. Never renumber or reuse version numbers on existing entries.
+
+Why: version numbers alone are not a safe identity. Two branches that each independently extend the same migration list can ship different DDL under the same version numbers — whichever branch deploys first "claims" those version numbers in the bookkeeping table, and the other branch's DDL is silently treated as already applied even though it never ran. A `name:` slug is tracked independently of version numbers, so it applies exactly once per database regardless of what any other branch already recorded.
 
 Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
 
@@ -46,7 +48,7 @@ Existing unnamed migrations don't need to be renamed retroactively (the two gati
 
 ### Domain Data (per-template)
 
-Define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+In a managed Drizzle scaffold, define schema in `drizzle/schema.ts` with the dialect imports established by that scaffold. Otherwise, define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
 
 ```ts
 import { eq } from "drizzle-orm";
@@ -64,7 +66,7 @@ export const tasks = table("tasks", {
 const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 ```
 
-Never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
+Outside a managed Drizzle scaffold, never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |

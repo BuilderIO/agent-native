@@ -15,8 +15,8 @@ import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
  * `runMigrations` — it is allowed to migrate only because it claims duty here.
  * A release entrypoint that forgets the wrapper silently does nothing.
  *
- * If this app owns tables of its own, export its migration runner from
- * `server/plugins/db.ts` and call it inside the same block.
+ * This entrypoint owns framework tables only. App tables in a managed Drizzle
+ * project are generated from `drizzle/schema.ts` and applied by `db:migrate`.
  */
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
