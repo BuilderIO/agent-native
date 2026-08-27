@@ -567,14 +567,24 @@ export async function getConflictItems({
   );
   const freeBusyResolvedHosts = new Set<string>();
 
-  // Google is an availability enhancement, not a requirement: an owner who
-  // hasn't connected Google still has a schedule-only availability computed
-  // below from the weekly schedule and existing SQL bookings. Only actual
-  // Google failures (free/busy errors, event-listing errors, thrown
-  // exceptions) mark availability unavailable — not "not connected".
-  const ownerConnected = ownerEmail
-    ? await googleCalendar.isConnected(ownerEmail)
-    : false;
+  let ownerConnected = false;
+  try {
+    ownerConnected = ownerEmail
+      ? await googleCalendar.isConnected(ownerEmail)
+      : false;
+  } catch {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (requiredHosts.length > 0 && !ownerConnected) {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
 
   if (ownerConnected) {
     try {
@@ -602,9 +612,14 @@ export async function getConflictItems({
         }
         for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
           const normalizedEmail = email.toLowerCase();
-          if (!calendar.errors || calendar.errors.length === 0) {
-            freeBusyResolvedHosts.add(normalizedEmail);
+          if (calendar.errors && calendar.errors.length > 0) {
+            return {
+              items: [],
+              unavailableReason:
+                formatAvailabilityUnavailableReason(normalizedEmail),
+            };
           }
+          freeBusyResolvedHosts.add(normalizedEmail);
           conflictItems.push(
             ...calendar.busy.map((busy) => ({
               start: busy.start,
@@ -638,17 +653,14 @@ export async function getConflictItems({
     }
   }
 
-  if (requiredHosts.length > 1) {
-    const owner = ownerEmail?.toLowerCase();
-    const unresolvedCoHosts = requiredHosts.filter(
-      (email) => email !== owner && !freeBusyResolvedHosts.has(email),
-    );
-    if (unresolvedCoHosts.length > 0) {
-      return {
-        items: conflictItems,
-        unavailableReason: `Availability unavailable for ${unresolvedCoHosts.join(", ")}`,
-      };
-    }
+  const unresolvedHosts = requiredHosts.filter(
+    (email) => !freeBusyResolvedHosts.has(email),
+  );
+  if (unresolvedHosts.length > 0) {
+    return {
+      items: conflictItems,
+      unavailableReason: `Availability unavailable for ${unresolvedHosts.join(", ")}`,
+    };
   }
 
   const bookings = await db

@@ -175,4 +175,28 @@ describe("draft booking availability previews", () => {
       "editor",
     );
   });
+
+  it("returns an unavailable response when the saved link owner is disconnected", async () => {
+    mocks.isConnected.mockResolvedValue(false);
+
+    const response = await (getAvailableSlots as any)({
+      query: {
+        date: "2026-08-17",
+        duration: "30",
+        slug: "saved-meeting",
+      },
+    });
+
+    expect(response).toEqual({
+      error:
+        "The host's calendar availability could not be checked. Please try again later.",
+      code: "calendar_availability_unavailable",
+    });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      503,
+    );
+    expect(mocks.getFreeBusy).not.toHaveBeenCalled();
+    expect(mocks.listEvents).not.toHaveBeenCalled();
+  });
 });
