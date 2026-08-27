@@ -4655,6 +4655,46 @@ function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
 }
 
+export function getCodeAgentExternalStreamingMessageId(
+  events: readonly CodeAgentTranscriptEvent[],
+  runId: string,
+  baselineEventIds?: ReadonlySet<string>,
+): string | null {
+  const repo = buildRepositoryFromCodeAgentTranscript(events);
+  if (!Array.isArray(repo?.messages)) return null;
+  const lastEntry = repo.messages.at(-1);
+  const lastMessage = lastEntry?.message ?? lastEntry;
+  if (
+    !lastMessage ||
+    typeof lastMessage !== "object" ||
+    (lastMessage as { role?: unknown }).role !== "assistant"
+  ) {
+    return null;
+  }
+  const metadata = (lastMessage as { metadata?: unknown }).metadata;
+  if (!metadata || typeof metadata !== "object") return null;
+  const metadataRecord = metadata as Record<string, unknown>;
+  if (metadataRecord.runId !== runId) return null;
+  if (baselineEventIds) {
+    const custom =
+      metadataRecord.custom && typeof metadataRecord.custom === "object"
+        ? (metadataRecord.custom as Record<string, unknown>)
+        : {};
+    const eventIds = custom.codeAgentTranscriptEventIds;
+    if (
+      !Array.isArray(eventIds) ||
+      !eventIds.some(
+        (eventId) =>
+          typeof eventId === "string" && !baselineEventIds.has(eventId),
+      )
+    ) {
+      return null;
+    }
+  }
+  const messageId = (lastMessage as { id?: unknown }).id;
+  return typeof messageId === "string" && messageId ? messageId : null;
+}
+
 export function findRunsThatBecameUnread(
   previousRuns: readonly CodeAgentRun[] | undefined,
   nextRuns: readonly CodeAgentRun[],
@@ -5302,6 +5342,9 @@ function RunDetailCard({
   const runId = run?.id;
   const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
   const wasRunActiveRef = useRef(runIsActive);
+  const externalStreamingBaselineEventIdsRef = useRef<Set<string>>(
+    new Set(runIsActive ? [] : transcriptEvents.map((event) => event.id)),
+  );
   const stopInFlightRef = useRef(false);
   const stopSucceededRef = useRef(false);
   const handleStop = useCallback(async () => {
@@ -5324,12 +5367,20 @@ function RunDetailCard({
   }, [onStop, runId]);
 
   useEffect(() => {
-    if (runIsActive && !wasRunActiveRef.current) {
+    if (!runIsActive) {
+      externalStreamingBaselineEventIdsRef.current = new Set(
+        transcriptEvents.map((event) => event.id),
+      );
+      wasRunActiveRef.current = false;
+      return;
+    }
+
+    if (!wasRunActiveRef.current) {
       stopSucceededRef.current = false;
       setUserStoppedRunId(null);
     }
-    wasRunActiveRef.current = runIsActive;
-  }, [runIsActive]);
+    wasRunActiveRef.current = true;
+  }, [runIsActive, transcriptEvents]);
 
   useEffect(() => {
     if (!runIsActive) return;
@@ -5355,6 +5406,15 @@ function RunDetailCard({
       </div>
     );
   }
+
+  const externalStreamingMessageId =
+    runIsActive && runId
+      ? getCodeAgentExternalStreamingMessageId(
+          transcriptEvents,
+          runId,
+          externalStreamingBaselineEventIdsRef.current,
+        )
+      : null;
 
   const hasCredentialHistory = hasMissingCredentialSignal(
     run,
@@ -5494,6 +5554,7 @@ function RunDetailCard({
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         hideCredentialMessages={hasCredentialHistory}
+        externalStreamingMessageId={externalStreamingMessageId}
         externalUserStopped={userStoppedRunId === run.id}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
@@ -5521,6 +5582,7 @@ function TranscriptPanel({
   modelSelection,
   modelOptions,
   hideCredentialMessages = false,
+  externalStreamingMessageId,
   externalUserStopped,
   onPermissionModeChange,
   onModelSelectionChange,
@@ -5543,6 +5605,7 @@ function TranscriptPanel({
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   hideCredentialMessages?: boolean;
+  externalStreamingMessageId: string | null;
   externalUserStopped: boolean;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
@@ -5665,8 +5728,9 @@ function TranscriptPanel({
             adapterReloadKey={controller}
             loadHistoryRepository={loadHistoryRepository}
             historyReloadKey={historyReloadKey}
-            externalStreaming={runIsActive}
+            externalStreaming={Boolean(externalStreamingMessageId)}
             externalUserStopped={externalUserStopped}
+            onStop={onStop}
             approvalActions={
               onDeny || onApproveAlways
                 ? {

@@ -2303,8 +2303,15 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
+    expect(source).toContain("onStop?: () => void | Promise<unknown>;");
+    expect(source).toContain("const handleComposerStop = useCallback");
+    expect(source).toContain("void onStop?.();");
+    expect(source).toContain(
+      "stopActiveRun({ preserveQueuedMessages: true });",
+    );
+    expect(source).toContain("onClick={handleComposerStop}");
     expect(source).toMatch(
-      /stopActiveRun\(\{\s*preserveQueuedMessages: true,\s*\}\)/,
+      /stopActiveRun\(\{\s*preserveQueuedMessages: true,?\s*\}\)/,
     );
   });
 

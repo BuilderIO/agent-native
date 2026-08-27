@@ -2133,6 +2133,8 @@ export interface AssistantChatProps {
   externalStreaming?: boolean;
   /** Keep stopped-response actions visible for an embedded host's stop action. */
   externalUserStopped?: boolean;
+  /** Notify an embedded host when the shared composer stop control is used. */
+  onStop?: () => void | Promise<unknown>;
   /**
    * Optional host hooks for the inline `needsApproval` affordance beyond the
    * built-in Approve and action-type policy. Code sessions pass their
@@ -2508,6 +2510,7 @@ const AssistantChatInner = forwardRef<
     historyReloadKey,
     externalStreaming = false,
     externalUserStopped = false,
+    onStop,
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
@@ -5113,6 +5116,14 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
+  const handleComposerStop = useCallback(() => {
+    try {
+      void onStop?.();
+    } finally {
+      stopActiveRun({ preserveQueuedMessages: true });
+    }
+  }, [onStop, stopActiveRun]);
+
   // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
   // front and abort the active run, letting auto-dequeue re-send it once the
   // run clears. Plain Enter still queues — this is the only send-now gesture.
@@ -6632,11 +6643,7 @@ const AssistantChatInner = forwardRef<
                                         <TooltipTrigger asChild>
                                           <button
                                             type="button"
-                                            onClick={() =>
-                                              stopActiveRun({
-                                                preserveQueuedMessages: true,
-                                              })
-                                            }
+                                            onClick={handleComposerStop}
                                             aria-label={t(
                                               "agentChat.composer.stopResponse",
                                             )}
