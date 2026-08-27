@@ -247,3 +247,53 @@ describe("diamond gradients", () => {
     expect(entry?.level).toBe("exact");
   });
 });
+
+describe("an empty auto-layout frame that hugs", () => {
+  // Figma keeps a childless auto-layout frame at the size it resolved rather
+  // than collapsing it — the Whitepace hero has a 685x456 image placeholder
+  // exactly like this. Mapping HUG to `width: auto` collapsed it to nothing,
+  // and its FILL sibling then took the whole row, so the heading also stopped
+  // wrapping where Figma wraps it.
+  function heroRow(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Hero",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 1440, 656),
+      layoutMode: "HORIZONTAL",
+      layoutSizingHorizontal: "FIXED",
+      children: [
+        {
+          id: "1:2",
+          name: "Image-container",
+          type: "FRAME",
+          absoluteBoundingBox: box(700, 100, 685, 456),
+          layoutMode: "VERTICAL",
+          layoutSizingHorizontal: "HUG",
+          layoutSizingVertical: "HUG",
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("keeps the size Figma resolved instead of collapsing to zero", () => {
+    const { html } = mapFigmaNodeToHtml(heroRow(), {});
+    expect(html).toContain("width: 685px");
+    expect(html).toContain("height: 456px");
+  });
+
+  it("still hugs when there is content to hug", () => {
+    const node = heroRow();
+    node.children![0]!.children = [
+      {
+        id: "1:3",
+        name: "Inner",
+        type: "FRAME",
+        absoluteBoundingBox: box(700, 100, 100, 50),
+      } as FigmaNode,
+    ];
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("width: auto");
+    expect(html).not.toContain("width: 685px");
+  });
+});

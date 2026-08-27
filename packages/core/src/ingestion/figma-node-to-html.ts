@@ -1336,6 +1336,20 @@ function buildAutoLayoutStyles(
  * parents but wrong for column parents, where a FILL-width text/rect child
  * got `width: auto` with no stretch and overflowed to its content width.
  */
+/**
+ * Does this node have anything for a HUG axis to hug?
+ *
+ * Figma keeps an empty auto-layout frame at the size it resolved rather than
+ * collapsing it, so HUG on a childless frame still reports real dimensions —
+ * a 685x456 image placeholder on the Whitepace hero is one. Mapping that to
+ * `width: auto` collapses it to nothing in CSS, and because its sibling was a
+ * FILL child, the sibling then took the whole row and the heading stopped
+ * wrapping. Two visible defects, one dropped box.
+ */
+function hasContentToHug(node: FigmaNode): boolean {
+  return (node.children?.length ?? 0) > 0 || node.type === "TEXT";
+}
+
 function buildChildSizingStyles(
   node: FigmaNode,
   parentLayoutMode: "NONE" | "HORIZONTAL" | "VERTICAL",
@@ -1383,7 +1397,9 @@ function buildChildSizingStyles(
       styles.width = "auto";
     }
   } else if (node.layoutSizingHorizontal === "HUG") {
-    styles.width = "auto";
+    styles.width = hasContentToHug(node)
+      ? "auto"
+      : px(node.absoluteBoundingBox?.width ?? 0);
   }
   if (node.layoutSizingVertical === "FILL") {
     if (parentIsHorizontal) {
@@ -1399,7 +1415,9 @@ function buildChildSizingStyles(
       styles.height = "auto";
     }
   } else if (node.layoutSizingVertical === "HUG") {
-    styles.height = "auto";
+    styles.height = hasContentToHug(node)
+      ? "auto"
+      : px(node.absoluteBoundingBox?.height ?? 0);
   }
   return styles;
 }
