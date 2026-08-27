@@ -202,6 +202,12 @@ const messages = {
       successMessage: "Success message",
       defaultSuccessMessage: "Thank you! Your response has been recorded.",
       redirectUrl: "Redirect URL (optional)",
+      completionMode: "After submission",
+      completionMessage: "Show message until refresh",
+      completionRedirect: "Redirect to URL",
+      completionMessageThenRefresh: "Show message, then refresh",
+      completionRefresh: "Refresh with a new form",
+      completionRefreshSeconds: "Refresh after (seconds)",
       anonymousResponses: "Anonymous responses",
       anonymousResponsesDescription:
         "Do not retain IP addresses, submitter identity, or source metadata.",
