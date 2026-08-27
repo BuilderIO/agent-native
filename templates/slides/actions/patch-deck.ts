@@ -202,6 +202,7 @@ const PatchDeckFieldsOp = z.object({
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
       starred: z.boolean().optional(),
+      generationContext: z.record(z.string(), z.unknown()).optional(),
     })
     .passthrough(),
 });
@@ -458,6 +459,8 @@ export function applyOperation(deck: any, op: Operation): void {
       if (fields.shareToken !== undefined) deck.shareToken = fields.shareToken;
       if (fields.visibility !== undefined) deck.visibility = fields.visibility;
       if (fields.starred !== undefined) deck.starred = fields.starred;
+      if (fields.generationContext !== undefined)
+        deck.generationContext = fields.generationContext;
       break;
     }
   }

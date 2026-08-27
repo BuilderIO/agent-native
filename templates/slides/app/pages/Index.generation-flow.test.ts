@@ -103,9 +103,9 @@ describe("new deck generation flow", () => {
     expect(source).toContain(
       "Attachments are context for the agent by default",
     );
-    expect(flow).not.toContain("isSourceImprovementRequest");
-    expect(flow).not.toContain("importUploadedDeckIntoDeck");
-    expect(flow).not.toContain("Source-preserving improvement mode");
+    expect(flow).toContain("isSourceImprovementRequest");
+    expect(flow).toContain("importUploadedDeckIntoDeck");
+    expect(flow).toContain("Source-preserving improvement mode");
     expect(flow).toContain(
       "attached reference files must not seed it with imported slides",
     );
@@ -116,7 +116,6 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("...newDeckRetryAttachments");
     expect(flow).toContain("...attachments");
   });
-
   it("passes uploaded image references through the home agent submission", () => {
     expect(flow).toContain(
       "...getUploadedImageAgentOptions(filesForGeneration)",
