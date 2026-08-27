@@ -42,12 +42,17 @@ export function IconButton({
   );
 }
 
-export function ThemeIconButton() {
+export function ThemeIconButton({ dimBorder }: { dimBorder?: boolean }) {
   const t = useT();
   const { theme, toggleTheme } = useDocsTheme();
   const label = t("theme.toggle");
   return (
-    <IconButton onClick={toggleTheme} aria-label={label} title={label}>
+    <IconButton
+      dimBorder={dimBorder}
+      onClick={toggleTheme}
+      aria-label={label}
+      title={label}
+    >
       {theme === "light" ? (
         <IconSun size={18} stroke={1.5} />
       ) : (

@@ -19,6 +19,7 @@ import {
 
 interface LanguagePickerProps {
   openUpward?: boolean;
+  dimBorder?: boolean;
 }
 
 function preferenceLabel(preference: string) {
@@ -122,7 +123,12 @@ export function LanguagePicker(props: LanguagePickerProps) {
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none transition-[background,border-color] duration-150 ease-[ease] border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+        className={[
+          "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
+          props.dimBorder
+            ? "border-[var(--b-action-secondary-border-dim)]"
+            : "border-[var(--b-action-secondary-border)]",
+        ].join(" ")}
       >
         <IconLanguage size={18} stroke={1.5} />
         <span className="sr-only">{label}</span>
