@@ -416,6 +416,36 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function hasLogoSignature(contentType: string, bytes: Uint8Array): boolean {
+  const normalizedContentType = contentType.toLowerCase();
+  if (normalizedContentType === "image/png") {
+    if (bytes.byteLength < 8) return false;
+    return bytes
+      .subarray(0, 8)
+      .every(
+        (byte, index) =>
+          [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][index] === byte,
+      );
+  }
+  if (
+    normalizedContentType === "image/jpeg" ||
+    normalizedContentType === "image/jpg"
+  ) {
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (normalizedContentType === "image/gif") {
+    const signature = String.fromCharCode(...bytes.subarray(0, 6));
+    return signature === "GIF87a" || signature === "GIF89a";
+  }
+  if (normalizedContentType === "image/webp") {
+    return (
+      String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" &&
+      String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP"
+    );
+  }
+  return /<svg(?:\s|>)/i.test(new TextDecoder().decode(bytes));
+}
+
 async function loadLogoDataUrl(
   logoUrl: string | null | undefined,
 ): Promise<string | undefined> {
@@ -474,6 +504,7 @@ async function loadLogoDataUrl(
         bytes.set(chunk, offset);
         offset += chunk.byteLength;
       }
+      if (!hasLogoSignature(contentType, bytes)) return undefined;
       return `data:${contentType};base64,${bytesToBase64(bytes)}`;
     } finally {
       reader.releaseLock();
@@ -597,28 +628,38 @@ export async function renderAgentNativeOgImagePng(
       : undefined;
   const resvgPackage = overridePackage || "@resvg/resvg-js";
   const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
-  const logoUrl = await loadLogoDataUrl(input.logoUrl);
+  const configuredLogoUrl =
+    input.logoUrl ?? resolveAgentNativeOgImageBrand().logoUrl;
+  const logoUrl = await loadLogoDataUrl(configuredLogoUrl);
   // Feed resvg the embedded Liberation Sans font explicitly. System fonts can't
   // be relied on: Linux serverless runtimes (Netlify/Lambda) ship neither Arial
   // nor Inter, so without a bundled font every `<text>` rendered blank.
   const fontFiles = resolveOgFontFiles();
   const hasBundledFonts = Boolean(fontFiles?.length);
-  const image = new Resvg(
-    renderAgentNativeOgImageSvg({
-      ...input,
-      logoUrl,
-    }),
-    {
-      fitTo: { mode: "width", value: WIDTH },
-      font: {
-        loadSystemFonts: !hasBundledFonts,
-        ...(hasBundledFonts ? { fontFiles } : {}),
-        defaultFontFamily: OG_FONT_FAMILY,
-        serifFamily: OG_FONT_FAMILY,
-        sansSerifFamily: OG_FONT_FAMILY,
+  const render = (renderLogoUrl: string | null) =>
+    new Resvg(
+      renderAgentNativeOgImageSvg({
+        ...input,
+        logoUrl: renderLogoUrl,
+      }),
+      {
+        fitTo: { mode: "width", value: WIDTH },
+        font: {
+          loadSystemFonts: !hasBundledFonts,
+          ...(hasBundledFonts ? { fontFiles } : {}),
+          defaultFontFamily: OG_FONT_FAMILY,
+          serifFamily: OG_FONT_FAMILY,
+          sansSerifFamily: OG_FONT_FAMILY,
+        },
       },
-    },
-  ).render();
+    ).render();
+  let image;
+  try {
+    image = render(logoUrl ?? null);
+  } catch (error) {
+    if (logoUrl === undefined) throw error;
+    image = render(null);
+  }
   return image.asPng();
 }
 
