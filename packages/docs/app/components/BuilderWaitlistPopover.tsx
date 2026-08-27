@@ -2,7 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2 } from "@tabler/icons-react";
-import { useCallback, useState, type ReactElement } from "react";
+import { useCallback, useId, useState, type ReactElement } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -10,7 +10,7 @@ export type BuilderWaitlistLocation =
   | "homepage_rail"
   | "templates_index"
   | "card"
-  | "get_started_modal";
+  | "getting_started";
 
 type BuilderWaitlistProps = {
   location: BuilderWaitlistLocation;
@@ -29,6 +29,8 @@ export function BuilderWaitlistContent({
   useCase = "docs_build_online_waitlist",
 }: BuilderWaitlistProps) {
   const t = useT();
+  const emailId = useId();
+  const errorId = `${emailId}-error`;
   const [email, setEmail] = useState("");
   const [joining, setJoining] = useState(false);
   const [joined, setJoined] = useState(false);
@@ -99,20 +101,34 @@ export function BuilderWaitlistContent({
         </p>
       ) : (
         <>
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder={t("buildFromScratch.emailPlaceholder")}
-            aria-label={t("buildFromScratch.emailLabel")}
-            autoComplete="email"
-            className="w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition focus:border-[var(--fg-secondary)]"
-          />
-          {error ? (
-            <p className="m-0 text-xs text-red-600 dark:text-red-400">
-              {error}
-            </p>
-          ) : null}
+          <div className="grid gap-2">
+            <label
+              htmlFor={emailId}
+              className="text-xs font-medium text-[var(--fg-secondary)]"
+            >
+              {t("buildFromScratch.emailLabel")}
+            </label>
+            <input
+              id={emailId}
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder={t("buildFromScratch.emailPlaceholder")}
+              autoComplete="email"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : undefined}
+              className="w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition-[border-color,box-shadow] focus:border-[var(--docs-accent)] focus:ring-2 focus:ring-[var(--docs-accent)]/20"
+            />
+            {error ? (
+              <p
+                id={errorId}
+                role="alert"
+                className="m-0 text-xs text-red-600 dark:text-red-400"
+              >
+                {error}
+              </p>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => void handleJoinWaitlist()}
