@@ -5,10 +5,13 @@
 Fix a set of Figma import defects that silently dropped or reshaped content,
 found by measuring 26 real designs against Figma's own render of each node.
 
-Across that corpus the import diff falls to 3.4% overall, 0.94% with text boxes
-excluded and 0.56% excluding image fills as well — what remains is Chromium and
+Across that corpus the import diff falls to 3.1% overall, 0.78% with text boxes
+excluded and 0.44% excluding image fills as well — what remains is Chromium and
 Figma hinting glyphs and scaling bitmaps differently, not the conversion. The
-export hop costs under 2.5% on every design.
+export hop costs under 2.4% on every design. Per node, 23 of the 26 designs have
+nothing off by more than 1.5px, and every offender in the other three is one
+glyph: a hugging box holding a `%`, which Google Fonts' Inter draws wider than
+the Inter Figma bundles.
 
 A child set to FILL along an axis its auto-layout parent HUGS now keeps the
 size Figma resolved for it. Figma treats that pair by falling back to the
@@ -51,10 +54,22 @@ what Figma's FILL does. And a zero-thickness LINE is placed from its own size
 rather than the already-rotated bounding box — requiring both dimensions to be
 positive pushed every rotated rule onto the fallback and squared its rotation.
 
-A trailing line break in Figma text no longer renders as an extra line. Figma
-stores paragraph breaks as CR and its text very often ends with one, but it
-does not draw a trailing break; `white-space: pre-wrap` does, so every such
-label came out a line taller and pushed its siblings down with it.
+Break characters Figma does not lay out as breaks no longer become lines.
+Figma's stored text can carry them: a real footer holds "Get started for
+free.\rAdd your whole team as your needs grow." and Figma draws it as ONE
+flowing paragraph, wrapping at the width, while a heading holding "Customise
+it\rto your needs" renders "Customise it to / your needs". Both formats say so
+and neither walker was reading it — REST `lineTypes` and kiwi `textData.lines`
+hold one entry per line Figma actually laid out. Measured across every
+break-bearing text node in the corpus that count is never wrong, while counting
+break characters overstates it on 8 of 20 REST nodes and 17 of 18 kiwi ones.
+Mapping one such CR to a newline made a footer a line taller and, because its
+column is vertically centred, moved all 61 nodes in it.
+
+Trailing whitespace goes for the same reason: Figma neither draws it nor lets
+it widen a hugging box, while `pre-wrap` does both. Of the 943 hugging text
+nodes in the corpus the only three wider than Figma's own box are the three
+whose text ends in a space — the other 940 average 0.02px of error.
 
 Angular (conic) gradients now sweep the way Figma sweeps them. Figma computes
 the sweep in the node's normalized space — the box treated as a unit square,
@@ -78,18 +93,39 @@ it, and it was the largest non-text difference left on that page (4.04% ->
 3.52%). A rotated or skewed crop still takes the raster fallback, which is
 exact where a stretch would be wrong.
 
-A hugging TEXT box now takes Figma's rounded width AND height as minimums. Figma rounds
+A hugging TEXT box now takes Figma's rounded width as a minimum. Figma rounds
 every hugging text box to a whole pixel and lays its siblings out against that;
 hugging to our own fractional width makes each label a fraction narrower, and
 in a row of them the fractions add up — a nav came out 5px short across six
-items, moving every one of them. As a minimum rather than a fixed width: pinning
-the width forces the text to wrap wherever our advances run a hair wider than
-Figma's, which is a different layout entirely. The height matters for the same
-reason on the other axis: where advances differ by a hair a line wraps on one
-side and not the other, the box comes out a whole line short, and everything
-below it moves.
+items, moving every one of them. As a minimum rather than a fixed width:
+pinning the width forces the text to wrap wherever our advances run a hair
+wider than Figma's, which is a different layout entirely.
+
+The height is a minimum only where the text can wrap. Figma lays a hugging box
+out at `round(lines * lineHeight)` — 206 of the 207 hug-both nodes in the
+corpus with a fractional line height — and it rounds DOWN as often as up, so a
+minimum could never reach it. Text hugging BOTH axes cannot wrap, so its line
+count is fixed by the break characters and always matches Figma's; there the
+rounded height is taken outright. Two Space Grotesk headings at 38.28px line
+height hugged to 38.28 each where Figma laid out 38, and the 0.56px each pushed
+their whole column down.
 
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
 it exactly rather than approximately.
+
+An image fallback's overflowing ink no longer takes layout space. The `<img>`
+is sized from render bounds so an OUTSIDE stroke or shadow is drawn at its
+natural size instead of squished into the smaller geometric box, but Figma
+stacks siblings against the geometric box and paints the ink outside it. A
+horizontal LINE is the extreme case — its box is zero-height and the stroke is
+entirely overflow, so every rule on a page pushed everything below it down a
+pixel.
+
+`downscaleImageToFit` is new in `ingestion`: it re-encodes an image to fit a
+byte budget, keeping the aspect ratio, for callers that must inline one. The
+Figma SVG export used it to stop dropping a page's 11.5MB hero shot, which had
+been leaving a hole in the exported file — over a budget is a reason to send
+fewer pixels, not to send nothing.
+

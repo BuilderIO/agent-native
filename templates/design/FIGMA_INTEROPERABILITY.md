@@ -218,43 +218,43 @@ Measured 2026-08-27:
 | --- | --- | --- | --- | --- | --- |
 | shapes | 0.543 | 0.543 | 0.543 | 0.292 | 0.313 |
 | fills-effects | 0.548 | 0.548 | 0.569 | 1.052 | 0.045 |
+| app-untitled-ui-settings | 1.055 | 0.456 | 0.084 | 0.908 | 0.464 |
 | community-dashstack-admin | 1.078 | 0.198 | 0.183 | 1.076 | 0.009 |
-| app-untitled-ui-settings | 1.145 | 0.456 | 0.084 | 1.014 | 0.451 |
 | community-interior-checkout | 1.362 | 0.218 | 0.220 | 1.859 | 0.692 |
 | community-interior-ecommerce | 1.938 | 1.297 | 0.131 | 2.581 | 2.384 |
-| constraints | 2.277 | 0.110 | 0.110 | 2.524 | 0.450 |
-| community-interior-product-comparison | 2.419 | 0.312 | 0.207 | 3.051 | 0.765 |
+| constraints | 2.277 | 0.110 | 0.110 | 2.498 | 0.425 |
+| community-interior-product-comparison | 2.419 | 0.312 | 0.207 | 2.945 | 0.667 |
+| parity-stress | 2.468 | 0.462 | 0.462 | 2.463 | 0.098 |
 | community-untitled-ui-landing-alt | 2.500 | 0.917 | 0.266 | 2.381 | 0.897 |
 | community-untitled-ui-landing | 2.512 | 0.518 | 0.072 | 2.618 | 0.624 |
-| autolayout | 2.632 | 0.410 | 0.410 | 3.792 | 1.679 |
+| community-positivus-landing | 2.626 | 0.992 | 0.847 | 3.556 | 1.611 |
+| autolayout | 2.632 | 0.410 | 0.410 | 2.395 | 0.281 |
 | community-untitled-ui-pricing | 2.672 | 0.245 | 0.190 | 2.633 | 0.166 |
-| app-untitled-ui-dashboard-tall | 2.776 | 1.418 | 1.221 | 2.849 | 1.006 |
-| community-positivus-landing | 3.045 | 1.426 | 1.058 | 3.903 | 1.833 |
+| app-untitled-ui-dashboard-tall | 2.680 | 1.310 | 1.110 | 2.849 | 1.006 |
+| community-whitepace-saas | 2.962 | 0.875 | 0.842 | 2.525 | 0.933 |
 | card-grid | 3.097 | 0.060 | 0.060 | 3.097 | 0.000 |
-| community-whitepace-saas | 3.201 | 0.957 | 0.923 | 2.833 | 0.969 |
-| parity-stress | 3.235 | 1.334 | 1.334 | 3.633 | 0.814 |
-| community-interior-single-product | 3.353 | 2.087 | 0.244 | 4.690 | 2.323 |
+| community-interior-single-product | 3.353 | 2.087 | 0.244 | 4.017 | 1.709 |
 | app-untitled-ui-data-table | 3.411 | 0.732 | 0.716 | 3.878 | 0.825 |
 | community-landify-example | 3.467 | 1.563 | 0.589 | 3.306 | 1.208 |
-| app-untitled-ui-dashboard | 3.679 | 1.293 | 1.027 | 4.011 | 1.042 |
+| app-untitled-ui-settings-mobile | 3.524 | 0.431 | 0.404 | 3.388 | 0.763 |
+| app-untitled-ui-dashboard | 3.679 | 1.294 | 1.027 | 4.011 | 1.042 |
 | ds-untitled-ui-table-variants | 3.689 | 1.229 | 0.952 | 3.689 | 0.000 |
-| app-untitled-ui-settings-mobile | 3.770 | 0.431 | 0.404 | 3.726 | 0.840 |
 | community-landify-tablet | 4.709 | 2.190 | 0.718 | 4.505 | 1.546 |
 | community-untitled-ui-landing-mobile | 6.186 | 1.311 | 0.607 | 6.282 | 1.149 |
 | typography | 12.669 | 0.005 | 0.005 | 12.594 | 0.192 |
-| **mean** | **3.15** | **0.84** | **0.49** | | **0.85** |
+| **mean** | **3.08** | **0.78** | **0.44** | | **0.73** |
 
 Read the last three columns together, because they say what is actually wrong:
 
-- **The export hop is nearly free.** Mean drift 0.85% and max 2.38% across the
-  designs in the table; 0.96% mean and 2.92% max once the two clipboard cases
+- **The export hop is nearly free.** Mean drift 0.73% and max 2.38% across the
+  designs in the table; 0.85% mean and 2.92% max once the two clipboard cases
   the round-trip also covers are included. Whatever the import hop gets right
   survives the trip back to Figma.
 - **Most of the import number is glyph rasterisation.** Excluding text boxes
-  the mean falls to 0.84%, and `typography` — the fixture built to stress text
+  the mean falls to 0.78%, and `typography` — the fixture built to stress text
   — falls to **0.005%**. Nothing but glyphs is wrong on it.
 - **Most of what remains is photo resampling.** Excluding image fills too, the
-  mean falls to **0.49%**, and the photo-heavy interior storefront — 1.94%
+  mean falls to **0.44%**, and the photo-heavy interior storefront — 1.94%
   overall — is **0.13%**.
 
 ## What "pixel perfect" can and cannot mean here, measured
@@ -284,10 +284,18 @@ diff. The raw diff should be watched for REGRESSIONS, not driven to zero.
 
 A per-node geometry audit (every node's laid-out box against its own
 `absoluteBoundingBox`, accepting `absoluteRenderBounds` where a node paints its
-ink) is the sharper instrument for the parts the converter controls, because a
-200px layout error is invisible next to glyph noise. 22 of 26 designs now have
-NO node off by more than 1.5px, and only one design has any node off by more
-than 10px — all of them text boxes that wrap differently.
+ink, and comparing size alone inside instances, whose boxes Figma reports in
+the COMPONENT's coordinate space) is the sharper instrument for the parts the
+converter controls, because a 200px layout error is invisible next to glyph
+noise.
+
+**23 of 26 designs now have NO node off by more than 1.5px, and the 12
+offenders left in the other three all trace to one glyph.** Every one is a hug
+box holding a `%`: "40%" hugs to 32.1px against Figma's 30, and the containers
+and FILL siblings around it absorb the rest. The 940 hugging text nodes whose
+text has no `%` average 0.02px of width error, so what is left in this corpus
+is not layout at all — it is one character that the Inter Google Fonts serves
+draws wider than the Inter Figma bundles.
 
 What moved the numbers. Each was a real defect on a real design:
 
@@ -308,7 +316,11 @@ What moved the numbers. Each was a real defect on a real design:
 | HUG container sized from a cross-axis FILL child's content | positivus | 4.23 | 4.18 |
 | kiwi's SPACE_EVENLY unmapped, packing rows left | positivus (paste) | 7.53 | 6.81 |
 | zero-thickness vectors dropped by a degenerate viewBox | (arrows, rules) | — | — |
-| trailing CR rendered as an extra line | whitepace | (67 nodes) | (53) |
+| break characters Figma does not lay out as breaks | whitepace | 3.20 | 2.96 |
+| trailing space widening a hugging text box | positivus | 3.05 | 3.03 |
+| image-fallback ink taking layout space | settings-mobile | 3.77 | 3.52 |
+| hugging text height not rounded the way Figma rounds it | parity-stress | 3.24 | 2.47 |
+| an 11.5MB image dropped from the export instead of scaled | single product (export) | 4.69 | 4.02 |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
