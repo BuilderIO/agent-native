@@ -133,7 +133,6 @@ describe("PDF round trip", () => {
         {
           content:
             '<div class="fmd-slide"><h1 style="color: #ff0000">Growth &amp; margin</h1></div>',
-          notes: "Open with the revenue number.",
           layout: "title",
         },
         { content: '<div class="fmd-slide"><p>Second slide</p></div>' },
@@ -210,7 +209,7 @@ describe("PDF round trip", () => {
           transition: "fade",
           background: "#101820",
           splitByParagraph: true,
-          animations: [{ target: 0 }],
+          animations: [{ id: "a1", elementIndex: 0, type: "fade" as const }],
         },
       ],
     };

@@ -136,10 +136,13 @@ describe("exportDeckAsPdf", () => {
    */
   function stubRangeLayout() {
     const create = document.createRange.bind(document);
+    const rect = { width: 400, height: 40, left: 60, top: 80 } as DOMRect;
     vi.spyOn(document, "createRange").mockImplementation(() => {
       const range = create();
-      range.getBoundingClientRect = () =>
-        ({ width: 400, height: 40, left: 60, top: 80 }) as DOMRect;
+      range.getBoundingClientRect = () => rect;
+      // One rect = one rendered line, the shape the text layer measures.
+      range.getClientRects = () =>
+        Object.assign([rect], { item: () => rect }) as unknown as DOMRectList;
       return range;
     });
   }
@@ -182,6 +185,7 @@ describe("exportDeckAsPdf", () => {
           content: '<div class="fmd-slide"><h1>Growth &amp; margin</h1></div>',
           notes: "Open with revenue.",
           layout: "title",
+          transition: "fade" as const,
         },
       ],
       "16:9",
@@ -197,11 +201,50 @@ describe("exportDeckAsPdf", () => {
       slides: [
         {
           content: '<div class="fmd-slide"><h1>Growth &amp; margin</h1></div>',
-          notes: "Open with revenue.",
           layout: "title",
+          transition: "fade",
         },
       ],
     });
+  });
+
+  it("still writes a text layer for a slide measured from a sidebar thumbnail", async () => {
+    // Inside the scaled, contained thumbnail subtree Chrome measures every
+    // Range as 0x0 while element boxes still measure. Every slide but the one
+    // open in the editor exports from a thumbnail, so a Range-only measurement
+    // silently limited the text layer to page 1.
+    const canvas = renderSlide("s1");
+    const create = document.createRange.bind(document);
+    vi.spyOn(document, "createRange").mockImplementation(() => {
+      const range = create();
+      const empty = { width: 0, height: 0, left: 0, top: 0 } as DOMRect;
+      range.getBoundingClientRect = () => empty;
+      range.getClientRects = () =>
+        Object.assign([], { item: () => null }) as unknown as DOMRectList;
+      return range;
+    });
+    for (const el of Array.from(canvas.querySelectorAll("h1, p"))) {
+      el.getBoundingClientRect = () =>
+        ({ width: 300, height: 30, left: 40, top: 50 }) as DOMRect;
+    }
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.text.mock.calls.map(([value]) => value)).toContain(
+      "Growth & margin",
+    );
+  });
+
+  it("leaves speaker notes out of the PDF", async () => {
+    // A PDF is the artifact people forward. Notes are private commentary the
+    // page never shows, and every other share surface blanks them.
+    renderSlide("s1");
+    await exportDeckAsPdf("Q3 review", [
+      { id: "s1", content: "<div></div>", notes: "Don't mention the layoffs." },
+    ]);
+
+    const [payload] = mocks.addMetadata.mock.calls[0];
+    expect(atob(payload)).not.toContain("layoffs");
   });
 
   it("writes the slide's own words into the page as invisible text", async () => {

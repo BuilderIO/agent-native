@@ -144,8 +144,15 @@ export function findSlideExportSource(
   });
 }
 
-/** A deck slide as the exporter needs it: its id to find the rendered canvas, and the rest to carry. */
-export type PdfExportSlide = { id: string } & Partial<SlidesPdfSidecarSlide>;
+/**
+ * A deck slide as the exporter needs it: its id to find the rendered canvas,
+ * and the rest to carry. Callers pass whole deck records, so `notes` is
+ * accepted and then deliberately dropped — see the sidecar construction below.
+ */
+export type PdfExportSlide = {
+  id: string;
+  notes?: string;
+} & Partial<SlidesPdfSidecarSlide>;
 
 /**
  * Base64 of the UTF-8 JSON, chunked: `String.fromCharCode(...bytes)` on a
@@ -229,17 +236,13 @@ function drawSelectableTextLayer(
   pdf.setTextColor(0, 0, 0);
 
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const text = node.nodeValue?.replace(/\s+/g, " ").trim();
-    if (!text || !isWinAnsiEncodable(text)) continue;
+    const raw = node.nodeValue;
+    if (!raw?.trim()) continue;
     const parent = node.parentElement;
     if (!parent) continue;
     // Bullet glyphs the importer marks decorative would otherwise be extracted
     // as content and re-imported as their own text runs.
     if (parent.closest('[aria-hidden="true"]')) continue;
-
-    range.selectNodeContents(node);
-    const rect = range.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) continue;
 
     const style = window.getComputedStyle(parent);
     if (style.visibility === "hidden" || style.display === "none") continue;
@@ -248,21 +251,99 @@ function drawSelectableTextLayer(
     if (!Number.isFinite(fontSize) || fontSize <= 0) continue;
 
     pdf.setFontSize(fontSize);
-    // Left-aligned on purpose: jsPDF reads `x` as the anchor for whatever
-    // alignment it is given, so a centred run would be drawn half a box to the
-    // right of the line it is meant to sit on. `rect` is already the laid-out
-    // box, so its left edge is the alignment.
-    pdf.text(
-      text,
-      (rect.left - sourceRect.left) * positionScale,
-      (rect.top - sourceRect.top) * positionScale,
-      {
-        baseline: "top",
-        maxWidth: rect.width * positionScale,
-        renderingMode: "invisible",
-      },
-    );
+    for (const line of splitNodeIntoRenderedLines(node, parent, range)) {
+      // Whitespace is collapsed but not trimmed: `<strong>Revenue</strong> grew`
+      // is two text nodes, and trimming the second would extract as
+      // "Revenuegrew" in any reader that concatenates runs.
+      const text = line.text.replace(/\s+/g, " ");
+      if (!text.trim() || !isWinAnsiEncodable(text)) continue;
+      // Left-aligned on purpose: jsPDF reads `x` as the anchor for whatever
+      // alignment it is given, so a centred run would be drawn half a box to
+      // the right of the line it is meant to sit on. The measured rect is
+      // already the laid-out box, so its left edge is the alignment.
+      pdf.text(
+        text,
+        (line.rect.left - sourceRect.left) * positionScale,
+        (line.rect.top - sourceRect.top) * positionScale,
+        {
+          baseline: "top",
+          renderingMode: "invisible",
+          // Only when the browser would not tell us where its own lines are:
+          // a real per-line rect is already one line and must not be rewrapped.
+          ...(line.wrapWithin === undefined
+            ? {}
+            : { maxWidth: line.wrapWithin * positionScale }),
+        },
+      );
+    }
   }
+}
+
+/**
+ * One entry per line the browser actually laid this text node out on, with the
+ * substring that sits on it.
+ *
+ * A wrapping node has a single union `getBoundingClientRect()`. Emitting that
+ * as one PDF run and letting jsPDF re-wrap it re-runs line breaking against
+ * Helvetica metrics instead of the slide's real font, so every line after the
+ * first drifts away from the words it is meant to sit under. `getClientRects()`
+ * already knows where the browser put each line; this walks the node's
+ * characters to find where one line's rect gives way to the next.
+ */
+function splitNodeIntoRenderedLines(
+  node: Node,
+  parent: HTMLElement,
+  range: Range,
+): { text: string; rect: DOMRect; wrapWithin?: number }[] {
+  const value = node.nodeValue ?? "";
+  range.selectNodeContents(node);
+  const lineRects = Array.from(range.getClientRects()).filter(
+    (rect) => rect.width > 0 && rect.height > 0,
+  );
+  if (lineRects.length === 0) {
+    // Inside a sidebar thumbnail every Range measurement comes back 0x0 —
+    // Chrome skips the inline layout a Range needs in those contained,
+    // scaled subtrees — while the element's own box still measures. Every
+    // slide except the one open in the editor exports from a thumbnail, so
+    // without this the text layer would only ever reach page 1. The element
+    // box is the text box for the block elements slides are built from; jsPDF
+    // rewraps within it.
+    const union = range.getBoundingClientRect();
+    const box =
+      union.width > 0 && union.height > 0
+        ? union
+        : parent.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return [];
+    return [{ text: value, rect: box, wrapWithin: box.width }];
+  }
+  if (lineRects.length === 1) {
+    return [{ text: value, rect: lineRects[0] }];
+  }
+
+  const lines: { text: string; rect: DOMRect; wrapWithin?: number }[] = [];
+  let start = 0;
+  for (let lineIndex = 0; lineIndex < lineRects.length; lineIndex++) {
+    const rect = lineRects[lineIndex];
+    if (lineIndex === lineRects.length - 1) {
+      lines.push({ text: value.slice(start), rect });
+      break;
+    }
+    // Grow the range one character at a time until it spills onto the next
+    // line. Slide text runs are short enough that the linear walk costs less
+    // than the bookkeeping a binary search would need to stay correct across
+    // ligatures and combining marks.
+    let end = start;
+    while (end < value.length) {
+      range.setStart(node, start);
+      range.setEnd(node, end + 1);
+      if (range.getClientRects().length > 1) break;
+      end += 1;
+    }
+    lines.push({ text: value.slice(start, end), rect });
+    start = end;
+  }
+  range.selectNodeContents(node);
+  return lines;
 }
 
 export async function exportDeckAsPdf(
@@ -355,9 +436,18 @@ export async function exportDeckAsPdf(
     v: 1,
     title: deckTitle,
     ...(aspectRatio ? { aspectRatio } : {}),
-    slides: slides.map(({ id: _id, ...slide }) => ({
-      ...slide,
+    // Field by field, never a spread of the caller's slide: callers pass whole
+    // deck records, and a spread would quietly carry `notes` — private
+    // commentary the page itself never shows — into a file people forward.
+    slides: slides.map((slide) => ({
       content: slide.content ?? "",
+      ...(slide.layout ? { layout: slide.layout } : {}),
+      ...(slide.background ? { background: slide.background } : {}),
+      ...(slide.imageUrl ? { imageUrl: slide.imageUrl } : {}),
+      ...(slide.excalidrawData ? { excalidrawData: slide.excalidrawData } : {}),
+      ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
+      ...(slide.animations?.length ? { animations: slide.animations } : {}),
     })),
   });
   if (sidecar) pdf.addMetadata(sidecar, SLIDES_PDF_SIDECAR_NAMESPACE);
