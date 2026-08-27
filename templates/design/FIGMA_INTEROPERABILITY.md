@@ -167,6 +167,35 @@ resolve them, where the product carries short durable URLs, and measuring the
 product budget against inflated bytes would fail files the product imports fine.
 Those budgets have their own coverage in `fig-file-import.test.ts`.
 
+## The `.fig` path decodes in the browser
+
+A `.fig` used to be uploaded before it could be read, because the decoder used
+`Buffer`, `node:zlib` and `node:crypto`. Netlify caps a function request at
+about 6 MB and real files run to tens of megabytes, which is why the upload
+route chunks at 3 MB — and why a 9 MB file reached a user as "the file was too
+large" with a 413 behind it.
+
+The decoder and the kiwi walker are now isomorphic: `Uint8Array` throughout,
+byte primitives in `shared/fig-bytes.ts`, `fflate` in place of `zlib` and
+`@noble/hashes` in place of `crypto`. Both replacements were checked
+byte-identical to the Node originals before the swap, and inflate is STREAMED
+rather than one-shot — `fflate`'s one-shot form grows past a pre-sized output
+buffer instead of refusing, so a crafted `.fig` could allocate gigabytes before
+any check saw it.
+
+`shared/fig-to-frames.ts` holds the conversion, with the two things that
+genuinely differ between a server and a browser injected: where an image is
+stored, and how a frame's HTML is wrapped into a document. The browser decodes
+the file, uploads each embedded image through `upload-image` as its own request,
+and saves each frame through `import-design-source` as its own request — so
+nothing large crosses the network however big the file was. The server route
+stays for the agent, A2A and this harness, and as the fallback when the browser
+decode throws.
+
+Measured end to end on a 5.6 MB `.fig` in the running app: one frame decoded,
+converted and saved in 13.9 s with zero bytes of the file uploaded. The same
+file through the old path returns 413 Payload Too Large.
+
 ## Clipboard paste fidelity harness
 
 `pnpm figma-fidelity:paste` covers the third route. A clipboard payload shares

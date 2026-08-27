@@ -321,12 +321,39 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       setFigUploadProgress(0);
       setFigUploadBusy(true);
       try {
-        const result = await uploadDesignFile({
-          designId: context.designId,
-          file,
-          fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
-          onProgress: ({ percent }) => setFigUploadProgress(percent),
-        });
+        // Decode here rather than uploading the file. A Netlify function
+        // request is capped around 6MB and a real `.fig` runs to tens of
+        // megabytes, which is what the server route's chunking works around;
+        // decoding in the browser means the file never crosses the network at
+        // all. The upload route stays as the fallback, so a file this decoder
+        // cannot read still imports exactly as it did before.
+        let result: ImportResult;
+        try {
+          // Loaded on demand: the decoder and the kiwi walker are ~5.5k lines
+          // plus three codec packages, and an editor that never opens a `.fig`
+          // should not pay for them on first paint.
+          const { importFigInBrowser } =
+            await import("@/lib/fig-client-import");
+          result = await importFigInBrowser({
+            designId: context.designId,
+            file,
+            onProgress: ({ phase, ratio }) =>
+              setFigUploadProgress(
+                phase === "decoding" ? 5 : Math.round((ratio ?? 0) * 90) + 5,
+              ),
+          });
+        } catch (localError) {
+          console.warn(
+            "[fig-import] in-browser decode failed; falling back to the upload route.",
+            localError,
+          );
+          result = await uploadDesignFile({
+            designId: context.designId,
+            file,
+            fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
+            onProgress: ({ percent }) => setFigUploadProgress(percent),
+          });
+        }
         await finishImport(result, t("designEditor.import.uploadSuccess"));
         setFigmaRateLimitError(null);
       } catch (error) {

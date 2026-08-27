@@ -4634,7 +4634,7 @@ export function renderHtmlTemplates(
         dupeIdx === 0 ? `${baseFile}.html` : `${baseFile}-${dupeIdx + 1}.html`;
       const pageName = page.name ?? `page-${pageIdx + 1}`;
       const html = emitFrameTemplate(frame, ctx, pageName);
-      ctx.totalOutputBytes += Buffer.byteLength(html, "utf8");
+      ctx.totalOutputBytes += utf8ByteLength(html);
       if (ctx.totalOutputBytes > ctx.maxTotalOutputBytes) {
         throw new Error(".fig render exceeded its total output budget.");
       }

@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 
 export interface MediaFingerprint {
   sha256: string;
@@ -11,7 +12,10 @@ export function fingerprintMedia(
   mimeType?: string,
 ): MediaFingerprint {
   return {
-    sha256: createHash("sha256").update(data).digest("hex"),
+    // Not node:crypto: this module is re-exported from the `ingestion` barrel,
+    // and a single `node:crypto` import there makes the whole barrel — the
+    // Figma converters included — unloadable in a browser.
+    sha256: bytesToHex(sha256(data)),
     byteLength: data.byteLength,
     ...(mimeType ? { mimeType } : {}),
   };
