@@ -30,6 +30,8 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
   callConnectedAgentReference,
@@ -11486,6 +11488,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
 
     expect(d.insertRun).not.toHaveBeenCalled();
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claimed",
@@ -11497,6 +11500,68 @@ describe("claimBackgroundWorkerRunEarly", () => {
       "worker_entered",
       "runsInBackgroundFunction=true continuationCount=0",
     );
+  });
+
+  it("heartbeats a slow worker while its unclaimed claim is in flight", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-slow",
+        threadId: "thread-slow",
+        markerTurnId: "turn-slow",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops extending a stuck pre-claim worker after a hard deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-stuck",
+        threadId: "thread-stuck",
+        markerTurnId: "turn-stuck",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS);
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records background runtime marker diagnostics on worker entry", async () => {
@@ -11544,6 +11609,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
       { dispatchMode: "background" },
     );
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "insert",
       "claim",
@@ -11552,7 +11618,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
     ]);
   });
 
-  it("records duplicate deliveries and does not heartbeat or execute the turn", async () => {
+  it("records duplicate deliveries and does not execute the turn", async () => {
     const d = deps(false);
 
     await expect(
@@ -11565,8 +11631,9 @@ describe("claimBackgroundWorkerRunEarly", () => {
       }),
     ).resolves.toEqual({ claimed: false, skipped: "already-claimed" });
 
-    expect(d.updateRunHeartbeat).not.toHaveBeenCalled();
+    expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-dupe");
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claim_lost",
@@ -11737,6 +11804,33 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     expect(claim).not.toHaveBeenCalled();
   });
 
+  it("does not extend an alive setup marker past the pre-claim deadline", async () => {
+    let nowMs = BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS - 30;
+    const now = () => (nowMs += 10);
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("worker_entered"),
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now,
+    });
+
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(readClaim).toHaveBeenCalledTimes(3);
+  });
+
   it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
     // No diag stage = the generated wrapper never reached the route, so the
     // extension must not apply and it recovers inline at the base grace.
@@ -11786,6 +11880,30 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     });
     // Broke on the FIRST poll via the death check — did not wait out the grace.
     expect(readClaim).toHaveBeenCalledTimes(1);
+  });
+
+  it("streams while a live worker finishes setup when requested", async () => {
+    const claim = vi.fn();
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("worker_entered"),
+      lastLivenessAt: 0,
+    });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      reaperGraceMs: 100_000,
+      readClaim,
+      claim,
+      streamWhenWorkerAlive: true,
+      now: makeClock(),
+    });
+
+    expect(outcome).toEqual({ action: "stream" });
+    expect(readClaim).toHaveBeenCalledTimes(1);
+    expect(claim).not.toHaveBeenCalled();
   });
 
   it("alive worker that never claims recovers inline BEFORE the reaper, anchored to row liveness", async () => {

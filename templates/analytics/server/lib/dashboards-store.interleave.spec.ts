@@ -24,6 +24,7 @@ type DashboardRow = {
   orgId: string | null;
   visibility: string;
   createdAt: string;
+  createdBy: string | null;
   updatedAt: string;
   updatedBy: string | null;
   archivedAt: string | null;
@@ -52,6 +53,7 @@ function baseDashboard(): DashboardRow {
     orgId: null,
     visibility: "private",
     createdAt: "2026-07-09T00:00:00.000Z",
+    createdBy: "alice@example.com" as string | null,
     updatedAt: "2026-07-09T00:00:00.000Z",
     updatedBy: null,
     archivedAt: null,
@@ -70,6 +72,7 @@ const state = vi.hoisted(() => ({
     orgId: null as string | null,
     visibility: "private",
     createdAt: "2026-07-09T00:00:00.000Z",
+    createdBy: "alice@example.com" as string | null,
     updatedAt: "2026-07-09T00:00:00.000Z",
     updatedBy: null as string | null,
     archivedAt: null as string | null,
@@ -175,6 +178,7 @@ vi.mock("../db/index.js", () => {
       orgId: { name: "orgId" },
       visibility: { name: "visibility" },
       createdAt: { name: "createdAt" },
+      createdBy: { name: "createdBy" },
       updatedAt: { name: "updatedAt" },
       updatedBy: { name: "updatedBy" },
       archivedAt: { name: "archivedAt" },
@@ -232,6 +236,18 @@ vi.mock("../db/index.js", () => {
     }),
     insert: (table: unknown) => ({
       values: (row: any) => {
+        if (table === schema.dashboards) {
+          const timestamp = "2026-07-09T00:00:00.000Z";
+          state.otherDashboards.push({
+            archivedAt: null,
+            createdAt: timestamp,
+            createdBy: row.createdBy ?? null,
+            hiddenAt: null,
+            hiddenBy: null,
+            updatedAt: timestamp,
+            ...row,
+          });
+        }
         if (table === schema.dashboardRevisions) {
           state.revisions.push({ ...row });
         }
@@ -462,6 +478,30 @@ describe("dashboards-store concurrency", () => {
     ).resolves.toBeDefined();
     expect(existing).not.toBeNull();
     expect(readPanelIds()).toEqual(["a", "legacy"]);
+  });
+
+  it("keeps the original creator unchanged when another user edits the dashboard", async () => {
+    await upsertDashboard(
+      "traffic",
+      "sql",
+      { name: "Traffic", panels: [panel("a"), panel("editor")] },
+      { email: "bob@example.com", orgId: null },
+    );
+
+    expect(state.dashboard.createdBy).toBe("alice@example.com");
+    expect(state.dashboard.updatedBy).toBe("bob@example.com");
+  });
+
+  it("records the authenticated user as creator on dashboard creation", async () => {
+    const saved = await upsertDashboard(
+      "new-dashboard",
+      "sql",
+      { name: "New dashboard", panels: [] },
+      { email: "bob@example.com", orgId: null },
+    );
+
+    expect(saved.createdBy).toBe("bob@example.com");
+    expect(state.otherDashboards[0]?.createdBy).toBe("bob@example.com");
   });
 
   it("upsertDashboardWithRetry re-reads and re-applies the mutation after losing the race, landing both writers' panels", async () => {

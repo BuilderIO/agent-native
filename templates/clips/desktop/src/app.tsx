@@ -160,7 +160,11 @@ import {
   retryUpdateCheck,
   useUpdateStatus,
 } from "./lib/updater";
-import { normalizeServerUrl } from "./lib/url";
+import {
+  DEFAULT_SERVER_URL,
+  normalizeServerUrl,
+  SERVER_URL_STORAGE_KEY,
+} from "./lib/url";
 import { cn } from "./lib/utils";
 import {
   installDesktopVoiceDictation,
@@ -392,7 +396,8 @@ function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }
 
-const STORAGE_KEY = "clips:server-url";
+// Shared with overlays via lib/url.ts — the meeting pill reads the same key.
+const STORAGE_KEY = SERVER_URL_STORAGE_KEY;
 const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
@@ -414,14 +419,7 @@ const VIDEO_STORAGE_CONFIGURED_KEY = "clips:video-storage-configured";
 const REWIND_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind";
 
-// Sensible defaults so the user never has to type a URL on first launch.
-// Dev builds point at the local dev server; production builds point at the
-// hosted Clips instance. The user can still override from Settings.
-// Dev points at the Clips dev server (shared-app-config says 8094).
-// Prod points at the hosted Clips instance. User can override from Settings.
-const DEFAULT_URL = import.meta.env.DEV
-  ? "http://localhost:8094"
-  : "https://clips.agent-native.com";
+const DEFAULT_URL = DEFAULT_SERVER_URL;
 
 function normalizeCaptureSource(value: string): CaptureSource {
   if (value === "region" && isMacPlatform()) return "region";
@@ -474,6 +472,7 @@ function serverUrlForPendingUpload(
 // an unparseable/non-OK response). An "unknown" result must never downgrade an
 // already-connected user to the setup flow.
 type VideoStorageProbe = "configured" | "missing" | "unknown";
+type FileUploadStatusProbe = VideoStorageProbe | "reauthorization-required";
 
 // Poll cadence for the caller's re-check loop is 5s; bound each probe request
 // well above that so a hung request can't wedge the poll's in-flight guard.
@@ -500,8 +499,11 @@ async function hasConfiguredVideoStorage(
   const base = serverUrl.replace(/\/+$/, "");
 
   // One endpoint's answer: "configured", "missing" (a definitive
-  // not-configured), or "unknown" (threw, non-OK, or unparseable).
-  const probeEndpoint = async (path: string): Promise<VideoStorageProbe> => {
+  // not-configured), "reauthorization-required", or "unknown" (threw,
+  // non-OK, or unparseable).
+  const probeEndpoint = async (
+    path: string,
+  ): Promise<FileUploadStatusProbe> => {
     try {
       const res = await fetchWithAbortTimeout(
         `${base}${path}`,
@@ -516,33 +518,35 @@ async function hasConfiguredVideoStorage(
       // result, which callers treat as distinct from configured/missing.
       const body = (await res.json().catch(() => null)) as {
         configured?: boolean;
+        builderReauthorizationRequired?: boolean;
       } | null;
       if (!body) return "unknown";
-      return body.configured ? "configured" : "missing";
+      if (body.configured) return "configured";
+      if (body.builderReauthorizationRequired) {
+        return "reauthorization-required";
+      }
+      return "missing";
     } catch {
       return "unknown";
     }
   };
 
-  const probes = [
-    probeEndpoint("/_agent-native/file-upload/status"),
-    probeEndpoint("/_agent-native/builder/status"),
-  ];
-  // The probes run concurrently. "configured" wins as soon as either endpoint
-  // reports it, but "missing" is only declared after both have settled — a
-  // Builder-credits-only user has file-upload configured:false and builder
-  // configured:true and must not be routed to storage setup.
-  let probe: VideoStorageProbe;
-  if ((await Promise.race(probes)) === "configured") {
-    probe = "configured";
-  } else {
-    const results = await Promise.all(probes);
-    probe = results.includes("configured")
-      ? "configured"
-      : results.includes("missing")
-        ? "missing"
-        : "unknown";
+  const uploadProbe = probeEndpoint("/_agent-native/file-upload/status");
+  const builderProbe = probeEndpoint("/_agent-native/builder/status");
+  const uploadResult = await uploadProbe;
+  if (uploadResult === "reauthorization-required") {
+    return "missing";
   }
+
+  // The probes run concurrently. The upload endpoint is authoritative when it
+  // reports that Builder needs reauthorization; otherwise, "configured" wins
+  // if either endpoint reports it.
+  const results = [uploadResult, await builderProbe];
+  const probe = results.includes("configured")
+    ? "configured"
+    : results.includes("missing")
+      ? "missing"
+      : "unknown";
   // Last-known-good cache: seeds the next launch's Start button so it isn't
   // held behind this round-trip. Only "configured" is ever cached —
   // "missing"/"unknown" must always re-probe — and only when we know whose

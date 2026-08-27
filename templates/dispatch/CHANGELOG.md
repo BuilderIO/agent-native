@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-26
+
+### Fixed
+
+- Signing out now goes straight to the sign-in page instead of briefly returning to the app with a loading error.
+
 ## 2026-08-20
 
 ### Fixed

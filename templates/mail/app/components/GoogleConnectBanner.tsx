@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { signOut } from "@agent-native/core/client/hooks";
 import {
   isInBuilderFrame,
   oauthRedirectUri,
@@ -363,15 +364,7 @@ export function GoogleConnectBanner({
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
   const handleSignOutForGoogle = useCallback(async () => {
-    try {
-      await fetch(agentNativePath("/_agent-native/auth/logout"), {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      // Reload below still lands on the auth screen if the local cookie changed.
-    }
-    window.location.reload();
+    await signOut();
   }, []);
 
   // When add-account URL is ready, open it and poll for new account.

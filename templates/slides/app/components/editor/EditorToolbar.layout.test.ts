@@ -36,9 +36,9 @@ describe("EditorToolbar layout contract", () => {
     );
   });
 
-  it("right-aligns the AI presence indicator with the editor actions", () => {
+  it("keeps the AI presence indicator adjacent to the editor actions", () => {
     expect(editorToolbarSource).toContain(
-      'className="ml-auto flex-shrink-0 mr-0.5 pl-2"',
+      'className="flex-shrink-0 mr-0.5 pl-2"',
     );
   });
 

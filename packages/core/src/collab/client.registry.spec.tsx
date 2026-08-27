@@ -23,6 +23,7 @@ import {
   useCollaborativeDoc,
   _collabDocRegistrySizeForTests,
   _resetCollabDocRegistryForTests,
+  type CollabUser,
   type UseCollaborativeDocResult,
 } from "./client.js";
 
@@ -82,7 +83,7 @@ function Probe({
 }: {
   docId: string | null;
   onResult: (result: UseCollaborativeDocResult) => void;
-  user?: { name: string; email: string; color: string };
+  user?: CollabUser;
 }) {
   const result = useCollaborativeDoc({ docId, user });
   onResult(result);
@@ -463,6 +464,57 @@ describe("useCollaborativeDoc connection registry", () => {
     });
     expect(_collabDocRegistrySizeForTests()).toBe(1);
     expect(result?.ydoc?.isDestroyed).toBe(false);
+  });
+
+  it("publishes and updates the local avatar in awareness identity", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="doc-avatar"
+        onResult={(next) => (result = next)}
+        user={{
+          name: "Local",
+          email: "local@example.com",
+          color: "local-color",
+          avatarUrl: "https://example.com/first.jpg",
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result?.awareness?.getLocalState()?.user).toEqual({
+      name: "Local",
+      email: "local@example.com",
+      color: "local-color",
+      avatarUrl: "https://example.com/first.jpg",
+    });
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="doc-avatar"
+          onResult={(next) => (result = next)}
+          user={{
+            name: "Local",
+            email: "local@example.com",
+            color: "local-color",
+            avatarUrl: "https://example.com/second.jpg",
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result?.awareness?.getLocalState()?.user).toMatchObject({
+      avatarUrl: "https://example.com/second.jpg",
+    });
   });
 
   it("does not re-broadcast local awareness state when a REMOTE awareness event arrives (no storm)", async () => {

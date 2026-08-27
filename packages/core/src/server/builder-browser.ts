@@ -14,9 +14,12 @@ import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
+import { readDeployCredentialEnv } from "./credential-provider.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
   getAppBasePath,
   getOrigin,
+  getOAuthStateSigningKey,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
@@ -109,15 +112,25 @@ function safeEqualText(expected: string, actual: string): boolean {
 }
 
 /**
- * Opaque OAuth `state` for Builder connect. Bound to the app auth secret so a
- * pending row cannot be forged from another deployment that shares a database.
+ * Opaque OAuth `state` for Builder connect. Bound to a server-only signing
+ * secret so a pending row cannot be forged from another deployment that shares
+ * a database.
  */
+function builderConnectStateSigningKeys(): string[] {
+  const currentSecret = getOAuthStateSigningKey();
+  const keys = [`builder-connect-state:${currentSecret}`];
+  const legacySecret =
+    readDeployCredentialEnv("BETTER_AUTH_SECRET")?.trim() ||
+    getWorkspaceA2ADerivedSecret("better-auth");
+  if (legacySecret && legacySecret !== currentSecret) {
+    keys.push(`builder-connect-state:${legacySecret}`);
+  }
+  return keys;
+}
+
 export function createBuilderConnectState(): string {
   const stateNonce = randomBytes(32).toString("base64url");
-  const signature = createHmac(
-    "sha256",
-    `builder-connect-state:${getAuthSecret()}`,
-  )
+  const signature = createHmac("sha256", builderConnectStateSigningKeys()[0]!)
     .update(stateNonce)
     .digest("base64url");
   return `${stateNonce}.${signature}`;
@@ -137,13 +150,12 @@ export function isSignedBuilderConnectState(
   ) {
     return false;
   }
-  const expected = createHmac(
-    "sha256",
-    `builder-connect-state:${getAuthSecret()}`,
-  )
-    .update(nonce)
-    .digest("base64url");
-  return safeEqualText(expected, signature);
+  return builderConnectStateSigningKeys().some((key) => {
+    const expected = createHmac("sha256", key)
+      .update(nonce)
+      .digest("base64url");
+    return safeEqualText(expected, signature);
+  });
 }
 
 /**

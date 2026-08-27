@@ -53,7 +53,7 @@ export default function DocsLayout({
   const editUrl = docsEditUrlForPathname(location.pathname);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] px-0 lg:px-6">
+    <div className="mx-auto flex w-full max-w-site px-0 lg:px-6">
       <DocsSidebar />
       <main className="min-w-0 flex-1 border-0 border-[var(--docs-border)] px-4 pb-16 pt-0 sm:px-6 lg:border-x lg:px-12 lg:pt-8">
         <MobileDocsNav />

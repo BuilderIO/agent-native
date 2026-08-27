@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { flushSync } from "react-dom";
 
+import { LiveWaveform } from "../components/live-waveform";
 import {
   completionCardState,
   isCompletionForSession,
@@ -130,7 +131,8 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
-  const [barHeights, setBarHeights] = useState<number[]>([4, 4, 4, 4, 4]);
+  /** Demo harness only: the meter reads capture events in the real app. */
+  const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
   // What the confirm's action button does. Both intents share the confirm
@@ -164,7 +166,6 @@ export function RecordingPill() {
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shrinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const levelDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animatingUntilRef = useRef(0);
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -187,32 +188,6 @@ export function RecordingPill() {
   modeRef.current = mode;
   elapsedRef.current = elapsed;
   viewUrlRef.current = viewUrl;
-
-  // Auto-gain state: raw mic peaks rarely pass ~0.3 even when shouting, so a
-  // fixed scale leaves the meter nearly flat. Levels are normalized against a
-  // slowly-decaying rolling peak, like a real meter's AGC.
-  const meterGainRef = useRef(0.04);
-  const meterHistoryRef = useRef<number[]>([0, 0, 0, 0, 0]);
-
-  /**
-   * Each level event pushes one normalized sample through a five-slot
-   * history, so the lines are the actual signal scrolling by — a waveform,
-   * not a glyph — and shouting pins them to the top of the range.
-   */
-  function applyMicLevel(raw: number) {
-    const level = Math.max(0, Math.min(1, raw));
-    meterGainRef.current = Math.max(level, meterGainRef.current * 0.985, 0.04);
-    const norm = Math.min(1, level / meterGainRef.current) ** 0.7;
-    const history = meterHistoryRef.current;
-    history.shift();
-    history.push(norm);
-    setBarHeights(history.map((v) => 3 + Math.round(v * 11)));
-    if (levelDecayRef.current) clearTimeout(levelDecayRef.current);
-    levelDecayRef.current = setTimeout(() => {
-      meterHistoryRef.current = [0, 0, 0, 0, 0];
-      setBarHeights([4, 4, 4, 4, 4]);
-    }, 350);
-  }
 
   function clearPauseTransition() {
     pauseTransitionRef.current = null;
@@ -784,19 +759,13 @@ export function RecordingPill() {
         else void safeInvoke("show_popover");
       }),
     );
-    track(
-      safeListen<{ level?: number; source?: string }>(
-        "voice:audio-level",
-        (payload) => {
-          if ((payload?.source ?? "mic") !== "mic") return;
-          applyMicLevel(Number(payload?.level) || 0);
-        },
-      ),
-    );
     // The handshake goes out only once our own listeners exist. The recorder
     // answers `toolbar-ready` immediately, and `listen()` is asynchronous, so
     // emitting first can drop the reply — costing the pill its enable and its
     // session identity until some later event happens to arrive.
+    //
+    // The audio-level listener that used to sit here is gone: the meter is the
+    // shared `LiveWaveform`, which subscribes to capture itself.
     void Promise.allSettled(registrations).then((results) => {
       const failures = results.flatMap((r) =>
         r.status === "rejected" ? [r.reason] : [],
@@ -821,7 +790,6 @@ export function RecordingPill() {
         fallbackTimerRef,
         shrinkTimerRef,
         stallTimerRef,
-        levelDecayRef,
         pauseTransitionTimerRef,
       ]) {
         if (t.current) clearTimeout(t.current);
@@ -940,7 +908,7 @@ export function RecordingPill() {
     }, 500);
     const levels = setInterval(() => {
       if (modeRef.current !== "done" && !pausedRef.current) {
-        applyMicLevel(0.05 + Math.random() * 0.3);
+        setDemoLevel(0.05 + Math.random() * 0.3);
       }
     }, 90);
     return () => {
@@ -1051,7 +1019,6 @@ export function RecordingPill() {
   const showPaused = paused;
   const meterFlat = showPaused || !enabled;
   const timerText = formatTimer(elapsed);
-  const shownBarHeights = meterFlat ? [4, 4, 4, 4, 4] : barHeights;
 
   const card = completionCardState(doneStage, {
     hasLink: Boolean(viewUrl),
@@ -1210,19 +1177,12 @@ export function RecordingPill() {
             style={{ width: "auto", opacity: 1 }}
           >
             <span className="inline-flex flex-none items-center">
-              <span
-                aria-hidden
-                className="ml-3.5 flex h-3.5 w-[18px] flex-none items-center justify-center gap-[2px] transition-opacity duration-150"
-                style={{ opacity: meterFlat ? 0.3 : 1 }}
-              >
-                {shownBarHeights.map((h, i) => (
-                  <i
-                    key={i}
-                    className="block w-[2px] rounded-full bg-[var(--pill-meter)] transition-[height] duration-100 ease-out"
-                    style={{ height: `${h}px` }}
-                  />
-                ))}
-              </span>
+              <LiveWaveform
+                className="ml-3.5 h-3.5 w-[18px] flex-none"
+                sources="mic"
+                dimmed={meterFlat}
+                level={demoMode ? demoLevel : null}
+              />
               <button
                 type="button"
                 onClick={togglePause}

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
 } from "./builder-api-auth.js";
@@ -8,6 +9,18 @@ import {
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const CredentialStoreUnavailableErrorMock = vi.hoisted(
+  () =>
+    class CredentialStoreUnavailableError extends Error {
+      readonly errorCode = "credential_store_unavailable";
+      readonly retryable = true;
+
+      constructor(cause?: unknown) {
+        super("Credential store unavailable", { cause });
+        this.name = "CredentialStoreUnavailableError";
+      }
+    },
+);
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 
@@ -16,6 +29,7 @@ vi.mock("./builder-oauth.js", () => ({
   hasBuilderOAuthSession: hasBuilderOAuthSessionMock,
 }));
 vi.mock("./credential-provider.js", () => ({
+  CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
 }));
 vi.mock("./request-context.js", () => ({
@@ -76,6 +90,27 @@ describe("resolveBuilderApiAuthorization", () => {
     );
   });
 
+  it("reports a retryable error when the OAuth session read is unavailable", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockRejectedValue({
+      code: "ECHECKOUTTIMEOUT",
+    });
+
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
+  });
+
+  it("reports a retryable error when the OAuth custody read is unavailable", async () => {
+    hasBuilderOAuthSessionMock.mockRejectedValue({
+      code: "ECHECKOUTTIMEOUT",
+    });
+
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
+  });
+
   it("uses the legacy private key when there is no OAuth grant", async () => {
     resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
 
@@ -120,6 +155,28 @@ describe("resolveBuilderApiAuthorization", () => {
       "Bearer bpk-deploy",
     );
     expect(hasBuilderOAuthSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("canAuthorizeBuilderApiRequest", () => {
+  it("requires the requested scope for OAuth credentials", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: ["builder:ai:invoke"],
+    });
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("accepts a legacy private key", async () => {
+    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      true,
+    );
   });
 });
 

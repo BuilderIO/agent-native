@@ -3,6 +3,44 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-26
+
+### Improved
+
+- Analytics distinguishes daily from weekly activity, shows stacked totals in chart tooltips, and remembers dashboard visibility.
+
+### Fixed
+
+- Analytics deployments no longer fail when dashboard creator metadata is already present
+- Dashboard metadata now shows the original creator separately from the current owner
+- Dashboard names stay editable when the Analytics sidebar refreshes
+- Fixed the agent re-asking dashboard scope questions you had already answered
+
+## 2026-08-24
+
+### Fixed
+
+- Analytics chat drafts now stay in place while a new chat finishes loading.
+- Feature flag management recovers from temporary workspace directory failures, while directory reads avoid slow per-app database lookups
+
+## 2026-08-22
+
+### Fixed
+
+- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local SQLite database
+- Org admin panels no longer report a database error as a permission denial. A failed
+  organization-role lookup now surfaces as a retryable error instead of silently reading
+  as "you are not an owner or admin", which had been 403-ing the usage stats panel for
+  real admins whenever the database was briefly unreachable.
+- Slack analytics requests now reject invalid workspaces and cursors with actionable errors instead of using the wrong workspace or returning a server failure.
+- Visiting a broken or mistyped Analytics link now returns a real not-found response instead of a silent success.
+
+## 2026-08-21
+
+### Fixed
+
+- Dashboard filters keep other users' dashboards out of Mine
+
 ## 2026-08-20
 
 ### Improved
