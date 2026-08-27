@@ -385,10 +385,12 @@ describe("agent tool approval store", () => {
       }),
       expect.objectContaining({
         sql: expect.stringMatching(
-          /INSERT INTO agent_tool_approval_policies[\s\S]*WHERE EXISTS[\s\S]*status IN \('approved', 'always_allowed', 'consumed'\)/,
+          /INSERT INTO agent_tool_approval_policies[\s\S]*WHERE EXISTS[\s\S]*status IN \('approved', 'always_allowed', 'consumed'\)[\s\S]*\(status = 'consumed' OR expires_at > \?\)/,
         ),
       }),
     ]);
+    const [approve, policy] = dbMocks.atomicBatch.mock.calls[0]![0];
+    expect(policy.args?.at(-1)).toBe(approve.args?.at(-1));
   });
 
   it("denies one durable ask idempotently without touching matching parallel approvals", async () => {

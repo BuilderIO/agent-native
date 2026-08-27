@@ -600,6 +600,7 @@ export async function alwaysAllowAgentToolApproval(input: {
           AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
           AND thread_id = ? AND tool_name = ?
           AND status IN ('approved', 'always_allowed', 'consumed')
+          AND (status = 'consumed' OR expires_at > ?)
       )`,
   );
   policy.args = [
@@ -610,6 +611,7 @@ export async function alwaysAllowAgentToolApproval(input: {
     input.approval.orgId ?? null,
     input.approval.threadId,
     normalizedPolicy.toolName,
+    now,
   ];
   await client.atomicBatch([approve, policy]);
   return storedApprovalDecision(
