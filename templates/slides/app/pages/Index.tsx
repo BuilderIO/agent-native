@@ -595,8 +595,10 @@ export default function Index() {
       newDeckRetryFiles,
       files,
     );
-    const attachmentsForGeneration =
-      attachments.length > 0 ? attachments : newDeckRetryAttachments;
+    const attachmentsForGeneration = [
+      ...newDeckRetryAttachments,
+      ...attachments,
+    ];
     const designSystemId =
       referenceSelection.designSystemId !== undefined
         ? referenceSelection.designSystemId

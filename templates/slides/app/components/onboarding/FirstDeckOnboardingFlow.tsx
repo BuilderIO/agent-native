@@ -175,9 +175,11 @@ export function FirstDeckOnboardingFlow({
         onUnauthenticated: () => {
           toast.error(t("home.signInTitle"));
         },
-        onPersistenceFailure: (failedPrompt, _failedFiles, failure) => {
+        onPersistenceFailure: (failedPrompt, failedFiles, failure) => {
           setPromptInitialText(failedPrompt);
           setPromptInitialTextKey(Date.now());
+          setPromptFiles(failedFiles);
+          setPromptAttachments(promptAttachments);
           setStep("prompt");
           toast.error(t("home.generationStartFailed"), {
             description: describeDeckPersistenceFailure(
@@ -186,9 +188,11 @@ export function FirstDeckOnboardingFlow({
             ),
           });
         },
-        onSetupFailure: (failedPrompt, _failedFiles, failure) => {
+        onSetupFailure: (failedPrompt, failedFiles, failure) => {
           setPromptInitialText(failedPrompt);
           setPromptInitialTextKey(Date.now());
+          setPromptFiles(failedFiles);
+          setPromptAttachments(promptAttachments);
           setStep("prompt");
           toast.error(t("home.generationStartFailed"), {
             description:

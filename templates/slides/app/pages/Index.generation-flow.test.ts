@@ -111,6 +111,12 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("keeps prior attachment chips when a generation retry adds files", () => {
+    expect(flow).toContain("const attachmentsForGeneration = [");
+    expect(flow).toContain("...newDeckRetryAttachments");
+    expect(flow).toContain("...attachments");
+  });
+
   it("routes both prompt submit and prompt skip into the reference step", () => {
     expect(source).toContain("const handlePromptSubmit");
     expect(source).toContain("const handlePromptSkip");

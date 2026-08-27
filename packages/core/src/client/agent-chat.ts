@@ -1137,6 +1137,15 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     !localChatTarget &&
     isMcpAppChatBridgeEnabled()
   ) {
+    // MCP host follow-up APIs do not carry attachment descriptors. Use the
+    // normal wrapper transport when chips need to reach the chat thread.
+    if (opts.attachments?.length) {
+      window.parent.postMessage(
+        payload,
+        getFramePostMessageTargetOrigin() || "*",
+      );
+      return tabId;
+    }
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
