@@ -13,6 +13,7 @@ const getBetterAuthSyncMock = vi.fn();
 const getBetterAuthInternalAdapterMock = vi.fn();
 let auth: {
   api: {
+    getSession: ReturnType<typeof vi.fn>;
     listUserAccounts: ReturnType<typeof vi.fn>;
     setPassword: ReturnType<typeof vi.fn>;
     changePassword: ReturnType<typeof vi.fn>;
@@ -66,6 +67,9 @@ describe("user profile actions", () => {
     getBetterAuthSyncMock.mockReturnValue(true);
     auth = {
       api: {
+        getSession: vi.fn().mockResolvedValue({
+          user: { email: "alice@example.com" },
+        }),
         listUserAccounts: vi
           .fn()
           .mockResolvedValue([
