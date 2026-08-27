@@ -61,26 +61,37 @@ const reuseLabelSchema = z
   });
 
 export default defineAction({
-  description: "Create a new document.",
+  description:
+    "Create and persist a new Markdown document in Content. Use parentId to nest it or spaceId for a top-level page; returns the stable document ID for subsequent get-document or edit-document calls.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
     id: z
       .string()
       .optional()
-      .describe("Pre-generated document ID (for optimistic UI)"),
+      .describe(
+        "Optional pre-generated document ID for optimistic UI; omit for normal external creation.",
+      ),
     spaceId: z
       .string()
       .optional()
-      .describe("Content space for a new top-level document"),
-    title: z.string().describe("Document title"),
-    content: z.string().optional().describe("Markdown content"),
+      .describe("Content space ID for a new top-level document."),
+    title: z.string().describe("Title for the new document."),
+    content: z
+      .string()
+      .optional()
+      .describe("Initial Markdown body; omit to create an empty document."),
     description: z
       .string()
       .optional()
       .describe(
         "Stable guidance describing why this page exists and what belongs in it",
       ),
-    parentId: z.string().nullish().describe("Parent document ID for nesting"),
-    icon: z.string().optional().describe("Emoji icon"),
+    parentId: z
+      .string()
+      .nullish()
+      .describe("Parent document ID for nesting; null creates a root page."),
+    icon: z.string().optional().describe("Optional emoji icon."),
     contextPackId: z
       .string()
       .optional()
