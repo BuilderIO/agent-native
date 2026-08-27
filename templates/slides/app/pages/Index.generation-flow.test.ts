@@ -111,6 +111,11 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("keeps prior attachment chips when a generation retry adds files", () => {
+    expect(flow).toContain("const attachmentsForGeneration = [");
+    expect(flow).toContain("...newDeckRetryAttachments");
+    expect(flow).toContain("...attachments");
+  });
   it("passes uploaded image references through the home agent submission", () => {
     expect(flow).toContain(
       "...getUploadedImageAgentOptions(filesForGeneration)",
@@ -121,7 +126,9 @@ describe("new deck generation flow", () => {
   it("routes both prompt submit and prompt skip into the reference step", () => {
     expect(source).toContain("const handlePromptSubmit");
     expect(source).toContain("const handlePromptSkip");
-    expect(source).toContain('setPendingDeck({ prompt: "", files: [] })');
+    expect(source).toContain(
+      'setPendingDeck({ prompt: "", files: [], attachments: [] })',
+    );
     expect(source).toContain("onSubmit={handlePromptSubmit}");
     expect(source).toContain("onSkip={handlePromptSkip}");
     expect(source).toContain("setShowNewDeckReferenceStep(true)");

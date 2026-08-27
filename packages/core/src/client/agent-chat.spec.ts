@@ -207,6 +207,47 @@ describe("sendToAgentChat", () => {
     expect(parsed?.images).toEqual([inlineImage, hostedImage]);
   });
 
+  it("preserves lightweight attachment descriptors across the chat bridge", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "make a deck from this reference",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              displayOnly: true,
+            },
+            {
+              type: "file",
+              name: "pasted-text-1.txt",
+              contentType: "text/plain",
+              displayOnly: true,
+              text: "outline",
+            },
+          ],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
+  });
   it("snapshots stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
 
@@ -387,6 +428,33 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("continue with this selection");
     expect(payload.data.context).toBe("Selected item ids: a, b");
     expect(dispatchEventSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses the wrapper relay when MCP App attachments need to reach chat", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    const attachments = [
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ];
+
+    const tabId = sendToAgentChat({
+      message: "create from this reference",
+      submit: true,
+      attachments,
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("*");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.attachments).toEqual(attachments);
   });
 
   it("does not duplicate MCP App prompts through both the direct bridge and wrapper relay", () => {

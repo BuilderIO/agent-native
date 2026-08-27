@@ -17,6 +17,7 @@ type AgentGeneratingSubmitOptions = Pick<
   "newTab" | "openSidebar" | "referenceImagePaths" | "images"
 > & {
   reuseEmptyTab?: boolean;
+  attachments?: ReadonlyArray<unknown>;
 };
 
 /**
@@ -98,7 +99,12 @@ export function useAgentGenerating() {
         () => setTimedOut(true),
         MAX_GENERATING_MS,
       );
-      send({ message, context, submit: true, ...options });
+      send({
+        message,
+        context,
+        submit: true,
+        ...options,
+      } as AgentChatMessage & { attachments?: ReadonlyArray<unknown> });
     },
     [send, clearWatchdog],
   );

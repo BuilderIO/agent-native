@@ -41,6 +41,7 @@ import {
 import PromptPopover, {
   uploadPromptFiles,
   type PromptImportSelection,
+  type PromptChatAttachment,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import {
@@ -100,6 +101,7 @@ const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
+  retryAttachments?: ReadonlyArray<PromptChatAttachment>;
 }
 
 function savePromptForRetry(
@@ -215,7 +217,7 @@ async function loadReferenceDeckGenerationContext(
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
-  importedSourceDeck?: ImportedSourceDeck | null,
+  importedSourceDeck: ImportedSourceDeck | null = null,
 ): string {
   if (files.length === 0) return "";
   const fileList = files
@@ -283,9 +285,13 @@ export default function Index() {
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
+  const [newDeckRetryAttachments, setNewDeckRetryAttachments] = useState<
+    ReadonlyArray<PromptChatAttachment>
+  >([]);
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
+    attachments: ReadonlyArray<PromptChatAttachment>;
   } | null>(null);
   const [showNewDeckReferenceStep, setShowNewDeckReferenceStep] =
     useState(false);
@@ -474,6 +480,7 @@ export default function Index() {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
+          setNewDeckRetryAttachments([]);
         }
       }
     },
@@ -486,6 +493,7 @@ export default function Index() {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryFiles([]);
+      setNewDeckRetryAttachments([]);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setShowSignInDialog(true);
@@ -566,6 +574,7 @@ export default function Index() {
       setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
+    setNewDeckRetryAttachments(state.retryAttachments ?? []);
     setShowNewDeckPrompt(true);
     navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
@@ -592,6 +601,7 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
     referenceSelection: NewDeckReferenceSelection = {},
+    attachments: ReadonlyArray<PromptChatAttachment> = [],
   ) => {
     // Pre-flight auth check. The add-deck action returns 403 silently
     // when unauthenticated, leaving the user stuck on a deck page that
@@ -607,6 +617,10 @@ export default function Index() {
       newDeckRetryFiles,
       files,
     );
+    const attachmentsForGeneration = [
+      ...newDeckRetryAttachments,
+      ...attachments,
+    ];
     const designSystemId =
       referenceSelection.designSystemId !== undefined
         ? referenceSelection.designSystemId
@@ -654,6 +668,7 @@ export default function Index() {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryFiles(filesForGeneration);
+      setNewDeckRetryAttachments(attachmentsForGeneration);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
       if (
@@ -665,6 +680,7 @@ export default function Index() {
           state: {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
+            retryAttachments: attachmentsForGeneration,
           } satisfies DeckGenerationRetryState,
           flushSync: true,
         });
@@ -702,6 +718,7 @@ export default function Index() {
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
+    setNewDeckRetryAttachments([]);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");
     const googleDocUrls = hasImportedGoogleDocContext
@@ -851,13 +868,18 @@ export default function Index() {
       reuseEmptyTab: true,
       openSidebar: true,
       ...getUploadedImageAgentOptions(filesForGeneration),
+      attachments: attachmentsForGeneration,
     });
   };
 
   const handlePromptSubmit = useCallback(
-    (prompt: string, files: UploadedFile[]) => {
+    (
+      prompt: string,
+      files: UploadedFile[],
+      attachments: ReadonlyArray<PromptChatAttachment> = [],
+    ) => {
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      setPendingDeck({ prompt, files });
+      setPendingDeck({ prompt, files, attachments });
       setShowNewDeckReferenceStep(true);
     },
     [setNewDeckPromptOpen],
@@ -865,7 +887,7 @@ export default function Index() {
 
   const handlePromptSkip = useCallback(() => {
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-    setPendingDeck({ prompt: "", files: [] });
+    setPendingDeck({ prompt: "", files: [], attachments: [] });
     setShowNewDeckReferenceStep(true);
   }, [setNewDeckPromptOpen]);
 
@@ -1014,6 +1036,7 @@ export default function Index() {
         pending.prompt,
         pending.files,
         selection,
+        pending.attachments,
       );
     },
     [
@@ -1219,10 +1242,15 @@ export default function Index() {
       handleCreateDeckBlank();
       return;
     }
-    void handleCreateDeckWithPrompt(pending.prompt, pending.files, {
-      designSystemId: null,
-      referenceDeckId: null,
-    });
+    void handleCreateDeckWithPrompt(
+      pending.prompt,
+      pending.files,
+      {
+        designSystemId: null,
+        referenceDeckId: null,
+      },
+      pending.attachments,
+    );
   }, [
     forgetReference,
     handleCreateDeckBlank,

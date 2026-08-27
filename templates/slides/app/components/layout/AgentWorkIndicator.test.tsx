@@ -172,7 +172,6 @@ describe("AgentWorkIndicator", () => {
 
     expect(screen.getByText("Agent is working")).toBeTruthy();
   });
-
   it("stays visible across brief continuation gaps", () => {
     vi.useFakeTimers();
     render(<AgentWorkIndicator />);

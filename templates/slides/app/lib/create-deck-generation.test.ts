@@ -158,7 +158,8 @@ describe("startDeckGeneration", () => {
     await expect(
       startDeckGeneration({
         session: { user: "owner@example.com" },
-        prompt: "Create a new deck using this PDF as reference material",
+        prompt:
+          "Create this as a focused deck, more like the attached deck. Here's the outline. Preserve the useful before and after examples, but ignore the numbers because they do not mean slides.",
         files: [
           {
             path: "/uploads/reference.pdf",
@@ -166,6 +167,21 @@ describe("startDeckGeneration", () => {
             filename: "ZiVAULRxvgAN1alyiLem.pdf",
             type: "application/pdf",
             size: 1024,
+          },
+        ],
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+          {
+            type: "file",
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            displayOnly: true,
+            text: "outline",
           },
         ],
         designSystems: [],
@@ -187,6 +203,21 @@ describe("startDeckGeneration", () => {
       expect.anything(),
     );
     expect(agentSubmit).toHaveBeenCalledOnce();
+    expect(agentSubmit.mock.calls[0]?.[2]?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "Attachments are context for the agent by default",
     );
@@ -204,7 +235,7 @@ describe("startDeckGeneration", () => {
             fields: expect.objectContaining({
               generationContext: expect.objectContaining({
                 originalPrompt:
-                  "Create a new deck using this PDF as reference material",
+                  "Create this as a focused deck, more like the attached deck. Here's the outline. Preserve the useful before and after examples, but ignore the numbers because they do not mean slides.",
                 files: [
                   expect.objectContaining({ path: "/uploads/reference.pdf" }),
                 ],
@@ -311,7 +342,7 @@ describe("startDeckGeneration", () => {
 
   it("imports an attached source PDF for a slide-for-slide restyling request", async () => {
     const deck = {
-      id: "deck-1",
+      id: "deck-source-1",
       title: "Untitled Deck",
       createdAt: "2026-08-11T00:00:00.000Z",
       updatedAt: "2026-08-11T00:00:00.000Z",
@@ -320,7 +351,7 @@ describe("startDeckGeneration", () => {
     const agentSubmit = vi.fn();
     mockCallAction.mockResolvedValue({
       imported: true,
-      deckId: "deck-1",
+      deckId: "deck-source-1",
       slideCount: 4,
     });
 
@@ -355,7 +386,7 @@ describe("startDeckGeneration", () => {
       {
         filePath: "/uploads/source.pdf",
         format: "pdf",
-        deckId: "deck-1",
+        deckId: "deck-source-1",
         importIntoDeck: true,
       },
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
@@ -364,5 +395,50 @@ describe("startDeckGeneration", () => {
       "Source-preserving improvement mode",
     );
     expect(agentSubmit.mock.calls[0]?.[1]).toContain("Do not call add-slide");
+  });
+
+  it("passes lightweight attachment chips into the generation", async () => {
+    const deck = {
+      id: "deck-retry-1",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck",
+        files: [],
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(agentSubmit.mock.calls[0]?.[2]?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ]);
   });
 });

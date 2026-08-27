@@ -1923,6 +1923,7 @@ export function buildUserContentWithAttachments(opts: {
   let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
+    if (att.displayOnly === true) continue;
     const uploadedUrl = (att as any).url as string | undefined;
     if ((att as any).referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
@@ -8976,7 +8977,9 @@ export function createProductionAgentHandler(
     if (
       hasAttachments &&
       requestAttachments.some(
-        (a) => a.type === "image" || a.type === "file" || a.type === "document",
+        (a) =>
+          a.displayOnly !== true &&
+          (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
       try {

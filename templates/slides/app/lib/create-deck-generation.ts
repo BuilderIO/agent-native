@@ -110,13 +110,15 @@ export function isSourceImprovementRequest(
       normalized,
     );
   const asksToConvertSource =
-    /(?:\b(turn|convert|transform|make|build|create|generate)\b[\s\S]{0,50}\b(into|to)\b[\s\S]{0,30}\b(deck|presentation|slides?)\b|\b(create|build|make|generate)\b[\s\S]{0,80}\b(deck|presentation|slides?)\b[\s\S]{0,80}\bfrom\b)/.test(
+    /(?:\b(turn|convert|transform|make|build|create|generate)\b[^\n.!?]{0,50}\b(into|to)\b[^\n.!?]{0,30}\b(deck|presentation|slides?)\b|\b(create|build|make|generate)\b[^\n.!?]{0,80}\b(deck|presentation|slides?)\b[^\n.!?]{0,80}\bfrom\b)/.test(
       normalized,
     );
   const explicitlyReferenceOnly =
     /\b(reference material|reference only|as a reference|for reference)\b/.test(
       normalized,
     );
+  if (explicitlyReferenceOnly) return false;
+
   const asksToPreserveSource =
     asksToConvertSource &&
     /\b(copy|slide[- ]for[- ]slide|preserv\w*|same order|before\s*\/?\s*after|placeholder\w*|out of order)\b/.test(
@@ -130,17 +132,13 @@ export function isSourceImprovementRequest(
   // A conversion request names the attached deck as the thing being turned
   // into slides. Only an explicit reference-only qualifier keeps it in the
   // new-deck/reference workflow.
-  return (
-    asksToImprove ||
-    asksToPreserveSource ||
-    (asksToConvertSource && !explicitlyReferenceOnly)
-  );
+  return asksToImprove || asksToPreserveSource || asksToConvertSource;
 }
 
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
-  importedSourceDeck?: ImportedSourceDeck | null,
+  importedSourceDeck: ImportedSourceDeck | null = null,
 ): string {
   if (files.length === 0) return "";
   const fileList = files
@@ -230,6 +228,7 @@ type SubmitAgent = (
     openSidebar: boolean;
     referenceImagePaths?: string[];
     images?: string[];
+    attachments?: ReadonlyArray<unknown>;
   },
 ) => void;
 
@@ -238,6 +237,7 @@ export interface StartDeckGenerationOptions {
   prompt: string;
   files: UploadedFile[];
   retryFiles?: UploadedFile[];
+  attachments?: ReadonlyArray<unknown>;
   referenceSelection?: NewDeckReferenceSelection;
   selectedDesignSystemId?: string | null;
   selectedReferenceDeckId?: string | null;
@@ -305,6 +305,7 @@ export async function startDeckGeneration({
   prompt,
   files,
   retryFiles = [],
+  attachments,
   referenceSelection = {},
   selectedDesignSystemId,
   selectedReferenceDeckId,
@@ -457,7 +458,6 @@ export async function startDeckGeneration({
         `Add slides ONE AT A TIME using the \`add-slide\` action with --deckId=${deckId}. Wait for each \`add-slide\` result before calling it again; do not batch or parallelize slide writes.`,
         "Use create-deck and add-slide for this already-created deck. Do not call the legacy generate-slides-ai action: it returns Markdown drafts rather than persisted rendered slide HTML. Treat each successful add-slide result as confirmation to continue with the next planned slide.",
       ].join("\n");
-
   const context = [
     importedSourceDeck
       ? `The user uploaded a source presentation into target deck (id: "${deckId}") and wants a reliable visual improvement.`
@@ -526,6 +526,7 @@ export async function startDeckGeneration({
     reuseEmptyTab: true,
     openSidebar: true,
     ...getUploadedImageAgentOptions(filesForGeneration),
+    attachments,
   });
   return "started";
 }
