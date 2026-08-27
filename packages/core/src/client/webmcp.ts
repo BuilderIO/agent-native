@@ -524,7 +524,7 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
               body: JSON.stringify(args),
             },
           );
-          const body = await result.json().catch(() => null);
+          const body = await result.json();
           if (!result.ok) {
             throw new Error(
               isRecord(body) && typeof body.error === "string"
