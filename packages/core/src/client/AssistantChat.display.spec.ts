@@ -163,6 +163,15 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain("draftScope={composerDraftScope}");
   });
 
+  it("publishes restored composer drafts to host affordances", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('const restoredText = initialComposerText ?? "";');
+    expect(source).toContain("onComposerTextChange?.(restoredText);");
+  });
+
   it("synchronizes app context before a scope-switch paint", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
