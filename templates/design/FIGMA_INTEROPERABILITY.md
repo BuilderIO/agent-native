@@ -339,6 +339,29 @@ buried:
   all four sides — a vertical rule between every column of a table that has
   none. Dashboard 4.95% -> 4.33%, flat interior 0.964% -> 0.452%.
 
+### Export follow-ups, each waiting on a measurement
+
+Raised in review on this branch. None is blind-fixed, because the export hop has
+already punished three changes on this branch that looked correct in isolation.
+
+- **`background-size` / `position` / `repeat` are discarded on export.** Every
+  `url()` background layer is recorded as `fit: "cover"`, so a Figma FIT or TILE
+  fill round-trips cropped. It is reported rather than silent — the export
+  records `Background-image fill approximated via an objectBoundingBox pattern`
+  against each one. The measurement to move already exists: the four Interior
+  designs share one header photo and show identical structural clusters, 3093
+  and 2363 pixels in the same two cells, where the import sits 1.9 grey levels
+  from Figma and the export 7.5.
+- **Non-rotation transforms are not preserved.** The exporter reads only
+  rotation, while the importer emits `matrix()` for mirrored and skewed nodes.
+  No corpus case shows the cost: `parity-stress`, the fixture built to carry
+  rotated and mirrored content, exports at 2.295% against a 2.301% import.
+  Needs a fixture isolating a scaled and a skewed node before the fix.
+- **Nested rotation composition order.** `composeAffine(rotationAbout(...),
+  toLocal)` applies two operations that do not commute. A rotated child inside a
+  rotated ancestor is not in the corpus at all, so a change would be unverified
+  in both directions. The regression comes first.
+
 ### The export hop carries twice the structural error
 
 The flat-interior classifier had only ever been pointed at four designs, and
