@@ -302,6 +302,16 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       `,
     },
   },
+  {
+    version: 5,
+    name: "better-auth-user-lower-email-index",
+    sql: {
+      postgres:
+        'CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON "user" (LOWER(email))',
+      sqlite:
+        "CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON user (LOWER(email))",
+    },
+  },
 ];
 
 export async function runBetterAuthMigrations(

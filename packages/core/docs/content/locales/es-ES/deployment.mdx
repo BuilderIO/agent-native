@@ -30,6 +30,12 @@ Cada aplicación implementada necesita una base de datos SQL persistente. Config
 
 Las aplicaciones independientes necesitan un `BETTER_AUTH_SECRET` estable. Los espacios de trabajo con solicitudes firmadas entre aplicaciones necesitan `A2A_SECRET`.
 
+## El envío de correo es opcional, pero recomendable {#email-provider}
+
+Un proveedor de correo no es necesario para la autenticación con correo y contraseña. Sin uno, las aplicaciones implementadas usan el registro y el inicio de sesión con correo y contraseña, omiten la verificación del correo al registrarse y no ofrecen autenticación mediante enlaces mágicos.
+
+Conecta Resend o SendGrid antes del despliegue si quieres enlaces mágicos, verificación del correo, restablecimiento de contraseñas, invitaciones o notificaciones de uso compartido. Configura `RESEND_API_KEY` o `SENDGRID_API_KEY`; SendGrid también necesita `EMAIL_FROM`. Consulta [Autenticación](/docs/authentication) para conocer los modos de autenticación disponibles.
+
 ## Destinos compatibles
 
 Agent-Native admite [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) y [Render](/docs/render).

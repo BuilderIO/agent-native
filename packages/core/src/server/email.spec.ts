@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getEmailReadiness, sendEmail } from "./email";
+import {
+  getDeploymentEmailReadiness,
+  getEmailReadiness,
+  sendEmail,
+} from "./email";
 
 describe("sendEmail", () => {
   afterEach(() => {
@@ -402,6 +406,17 @@ describe("getEmailReadiness", () => {
     await expect(getEmailReadiness()).resolves.toEqual({
       status: "not-configured",
       provider: "dev",
+    });
+  });
+
+  it("derives auth readiness from deployment credentials only", () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <noreply@example.com>");
+
+    expect(getDeploymentEmailReadiness()).toEqual({
+      status: "ready",
+      provider: "resend",
     });
   });
 });
