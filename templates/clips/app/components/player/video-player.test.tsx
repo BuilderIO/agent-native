@@ -195,6 +195,26 @@ describe("VideoPlayer playback", () => {
     expect(controls.className).not.toContain("pointer-events-none");
   });
 
+  it("keeps the pause control visible on mobile after the idle timeout", () => {
+    const video = getVideo();
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: false,
+    });
+
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).toContain("sm:pointer-events-none");
+    expect(
+      container.querySelector('button[aria-label="Pause"]'),
+    ).not.toBeNull();
+  });
+
   it("keeps owner playback on the same-origin media request path", () => {
     act(() => {
       root.render(
