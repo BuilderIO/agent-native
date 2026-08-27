@@ -23,7 +23,6 @@ import {
   IconMoon,
   IconDotsVertical,
   IconLoader2,
-  IconBolt,
   IconAdjustments,
   IconPencilPlus,
   IconPin,
@@ -100,10 +99,6 @@ interface EditorToolbarProps {
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
   currentUserEmail?: string;
-  /** Whether the animations panel is open */
-  animationsOpen?: boolean;
-  /** Toggle the animations panel */
-  onToggleAnimations?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
@@ -120,9 +115,8 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
-  onChangeSlideTransition?: (
-    transition: NonNullable<Slide["transition"]>,
-  ) => void;
+  /** Update the current slide's entrance transition from the overflow menu. */
+  onChangeSlideTransition?: (transition: SlideTransition) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -142,6 +136,15 @@ interface EditorToolbarProps {
 
 const TOOLBAR_ICON_BUTTON_CLASS =
   "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
+
+type SlideTransition = NonNullable<Slide["transition"]>;
+
+const SLIDE_TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
+  { value: "instant", labelKey: "editorToolbar.transition_instant" },
+  { value: "fade", labelKey: "editorToolbar.transition_fade" },
+  { value: "slide", labelKey: "editorToolbar.transition_slide" },
+  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
+];
 
 export default function EditorToolbar({
   deck,
@@ -164,8 +167,6 @@ export default function EditorToolbar({
   onToggleComments,
   unresolvedCommentCount = 0,
   currentUserEmail,
-  animationsOpen,
-  onToggleAnimations,
   tweaksOpen,
   onToggleTweaks,
   drawMode,
@@ -242,6 +243,10 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
+  const activeSlideTransition: SlideTransition =
+    !currentSlide?.transition || currentSlide.transition === "none"
+      ? "instant"
+      : currentSlide.transition;
 
   useLayoutEffect(() => {
     const measuredWidth =
@@ -350,17 +355,6 @@ export default function EditorToolbar({
           run: onOpenAssetLibrary,
         },
       );
-      if (currentSlide && onToggleAnimations) {
-        commands.push({
-          id: "element-animations",
-          group: "slideTools",
-          label: t("editorToolbar.elementAnimations"),
-          keywords: ["animation", "motion"],
-          icon: IconBolt,
-          active: animationsOpen,
-          run: onToggleAnimations,
-        });
-      }
       if (onToggleTweaks) {
         commands.push({
           id: "slide-tweaks",
@@ -485,7 +479,6 @@ export default function EditorToolbar({
     );
     return commands;
   }, [
-    animationsOpen,
     canComment,
     canEdit,
     commentsOpen,
@@ -499,7 +492,6 @@ export default function EditorToolbar({
     onGenerateImage,
     onOpenAssetLibrary,
     onShowHistory,
-    onToggleAnimations,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
@@ -558,9 +550,6 @@ export default function EditorToolbar({
           onToggleTextBoxMode={onToggleTextBoxMode}
           onAddEmptySlide={onAddEmptySlide}
           addSlideGenerating={addSlideGenerating}
-          currentSlideId={currentSlide?.id}
-          slideTransition={currentSlide?.transition}
-          onChangeSlideTransition={onChangeSlideTransition}
         />
       )}
 
@@ -642,8 +631,7 @@ export default function EditorToolbar({
             align="end"
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
-            {((canEdit &&
-              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+            {((canEdit && (onToggleTweaks || onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -651,19 +639,6 @@ export default function EditorToolbar({
                   {t("editorToolbar.slideTools")}
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
-                  {canEdit && currentSlide && onToggleAnimations && (
-                    <DropdownMenuItem
-                      onSelect={onToggleAnimations}
-                      className={
-                        animationsOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconBolt className="size-4" />
-                      {t("editorToolbar.elementAnimations")}
-                    </DropdownMenuItem>
-                  )}
                   {canEdit && onToggleTweaks && (
                     <DropdownMenuItem
                       onSelect={onToggleTweaks}
@@ -703,6 +678,30 @@ export default function EditorToolbar({
                       {t("editorToolbar.pinComments")}
                     </DropdownMenuItem>
                   )}
+                </DropdownMenuGroup>
+              </>
+            )}
+
+            {canEdit && currentSlide && onChangeSlideTransition && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>
+                  {t("editorToolbar.transition")}
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {SLIDE_TRANSITIONS.map((transition) => (
+                    <DropdownMenuItem
+                      key={transition.value}
+                      onSelect={() => onChangeSlideTransition(transition.value)}
+                      className={
+                        activeSlideTransition === transition.value
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      {t(transition.labelKey)}
+                    </DropdownMenuItem>
+                  ))}
                 </DropdownMenuGroup>
               </>
             )}
