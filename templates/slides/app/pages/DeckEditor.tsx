@@ -320,10 +320,10 @@ export default function DeckEditor() {
     },
     [],
   );
-  const toggleAnimations = useCallback(
-    () => setAnimationsOpen((open) => !open),
-    [],
-  );
+  const toggleAnimations = useCallback(() => {
+    setAnimationTarget(null);
+    setAnimationsOpen((open) => !open);
+  }, []);
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
@@ -369,6 +369,10 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+
+  useEffect(() => {
+    setAnimationTarget(null);
+  }, [activeSlideId]);
 
   useEffect(() => {
     if (!deck) return;

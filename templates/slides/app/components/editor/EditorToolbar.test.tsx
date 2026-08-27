@@ -198,6 +198,39 @@ describe("<EditorToolbar>", () => {
     expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
   });
 
+  it("does not register shape tools without an active slide", () => {
+    const onSelectShape = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onSelectShape={onSelectShape}
+        />
+      </TooltipProvider>,
+    );
+
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string }>)
+      | undefined;
+    const commandIds = (source?.() ?? []).map((command) => command.id);
+
+    expect(commandIds).not.toEqual(
+      expect.arrayContaining(["shape-rectangle", "shape-circle"]),
+    );
+    expect(onSelectShape).not.toHaveBeenCalled();
+  });
+
   it("surfaces history from the top-right overflow menu", async () => {
     const onShowHistory = vi.fn();
     const historyButtonRef = createRef<HTMLButtonElement>();

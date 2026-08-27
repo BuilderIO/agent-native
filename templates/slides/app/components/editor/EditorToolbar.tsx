@@ -380,7 +380,7 @@ export default function EditorToolbar({
           run: onToggleTextBoxMode,
         });
       }
-      if (onSelectShape) {
+      if (currentSlide && onSelectShape) {
         commands.push(
           {
             id: "shape-rectangle",
