@@ -57,6 +57,17 @@ describe("shouldAnimateMarkdownText", () => {
       }),
     ).toBe(true);
   });
+
+  it("animates complete messages from an active external transcript", () => {
+    expect(
+      shouldAnimateMarkdownText({
+        textStreaming: true,
+        isLastAssistantMessage: true,
+        statusType: "complete",
+        externalStreaming: true,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("useSmoothStreamingText", () => {
