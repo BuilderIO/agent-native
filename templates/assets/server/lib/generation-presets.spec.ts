@@ -15,17 +15,22 @@ vi.mock("../db/index.js", () => ({
       settings: "settings",
       ownerEmail: "ownerEmail",
       orgId: "orgId",
+      libraryId: "libraryId",
     },
   },
 }));
 
 import { DEFAULT_GENERATION_PRESET_SEEDS } from "../../shared/generation-presets.js";
-import { ensureDefaultTemplates } from "./generation-presets.js";
+import {
+  ensureDefaultTemplates,
+  ensureDefaultTemplatesForScopes,
+} from "./generation-presets.js";
 
 type TemplateRow = {
   settings: string;
   ownerEmail: string;
   orgId: string | null;
+  libraryId: string | null;
   [key: string]: unknown;
 };
 
@@ -67,11 +72,12 @@ describe("ensureDefaultTemplates", () => {
     nanoidMock.mockImplementation(() => `template-${++id}`);
   });
 
-  it("seeds defaults independently for each organization", async () => {
+  it("creates global defaults even when associated defaults already exist", async () => {
     const rows: TemplateRow[] = [
       {
         ownerEmail: "owner@example.com",
-        orgId: "org-a",
+        orgId: "org-b",
+        libraryId: "kit-b",
         settings: JSON.stringify({
           seedId: DEFAULT_GENERATION_PRESET_SEEDS[0].seedId,
         }),
@@ -85,9 +91,9 @@ describe("ensureDefaultTemplates", () => {
       orgId: "org-b",
       now: "2026-08-27T00:00:00.000Z",
     });
-    expect(rows.filter((row) => row.orgId === "org-b")).toHaveLength(
-      DEFAULT_GENERATION_PRESET_SEEDS.length,
-    );
+    expect(
+      rows.filter((row) => row.orgId === "org-b" && row.libraryId === null),
+    ).toHaveLength(DEFAULT_GENERATION_PRESET_SEEDS.length);
 
     await ensureDefaultTemplates({
       db,
@@ -95,9 +101,10 @@ describe("ensureDefaultTemplates", () => {
       orgId: "org-b",
       now: "2026-08-27T00:00:00.000Z",
     });
-    expect(rows.filter((row) => row.orgId === "org-b")).toHaveLength(
-      DEFAULT_GENERATION_PRESET_SEEDS.length,
-    );
+    expect(
+      rows.filter((row) => row.orgId === "org-b" && row.libraryId === null),
+    ).toHaveLength(DEFAULT_GENERATION_PRESET_SEEDS.length);
+    expect(rows.some((row) => row.libraryId === "kit-b")).toBe(true);
   });
 
   it("keeps local defaults separate from organization-scoped defaults", async () => {
@@ -105,6 +112,7 @@ describe("ensureDefaultTemplates", () => {
       {
         ownerEmail: "owner@example.com",
         orgId: "org-a",
+        libraryId: "kit-a",
         settings: JSON.stringify({
           seedId: DEFAULT_GENERATION_PRESET_SEEDS[0].seedId,
         }),
@@ -122,5 +130,48 @@ describe("ensureDefaultTemplates", () => {
     expect(rows.filter((row) => row.orgId === null)).toHaveLength(
       DEFAULT_GENERATION_PRESET_SEEDS.length,
     );
+  });
+
+  it("backfills one idempotent global set for every existing owner scope", async () => {
+    const legacy = {
+      id: "legacy-associated-id",
+      ownerEmail: "owner@example.com",
+      orgId: "org-a",
+      libraryId: "kit-a",
+      settings: JSON.stringify({
+        seedId: DEFAULT_GENERATION_PRESET_SEEDS[0].seedId,
+        source: "default-generation-preset",
+      }),
+    } satisfies TemplateRow;
+    const rows: TemplateRow[] = [legacy];
+    const db = createDb(rows);
+    const scopes = [
+      { ownerEmail: "owner@example.com", orgId: "org-a" },
+      { ownerEmail: "owner@example.com", orgId: "org-a" },
+      { ownerEmail: "owner@example.com", orgId: "org-b" },
+      { ownerEmail: "migration-orphan@invalid.local", orgId: "org-a" },
+    ];
+
+    await ensureDefaultTemplatesForScopes({
+      db,
+      scopes,
+      now: "2026-08-27T00:00:00.000Z",
+    });
+    await ensureDefaultTemplatesForScopes({
+      db,
+      scopes,
+      now: "2026-08-27T00:00:00.000Z",
+    });
+
+    expect(
+      rows.filter((row) => row.orgId === "org-a" && row.libraryId === null),
+    ).toHaveLength(DEFAULT_GENERATION_PRESET_SEEDS.length);
+    expect(
+      rows.filter((row) => row.orgId === "org-b" && row.libraryId === null),
+    ).toHaveLength(DEFAULT_GENERATION_PRESET_SEEDS.length);
+    expect(rows.find((row) => row.id === legacy.id)).toMatchObject({
+      libraryId: "kit-a",
+      settings: legacy.settings,
+    });
   });
 });

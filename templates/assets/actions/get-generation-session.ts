@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,6 +10,7 @@ import {
   serializeGenerationRun,
   serializeGenerationSession,
 } from "./_helpers.js";
+import { accessibleTemplateFilter } from "./_template-access.js";
 
 export default defineAction({
   description:
@@ -49,12 +50,20 @@ export default defineAction({
           .filter((runId): runId is string => Boolean(runId)),
       ),
     ];
+    const templateAccess = session.presetId
+      ? await accessibleTemplateFilter()
+      : null;
     const [presetRows, assets, runs] = await Promise.all([
       session.presetId
         ? db
             .select()
             .from(schema.assetTemplates)
-            .where(eq(schema.assetTemplates.id, session.presetId))
+            .where(
+              and(
+                eq(schema.assetTemplates.id, session.presetId),
+                templateAccess!,
+              ),
+            )
         : Promise.resolve([]),
       assetIds.length
         ? db

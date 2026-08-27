@@ -28,6 +28,7 @@ export async function ensureDefaultTemplates({
         orgId
           ? eq(schema.assetTemplates.orgId, orgId)
           : isNull(schema.assetTemplates.orgId),
+        isNull(schema.assetTemplates.libraryId),
       ),
     );
   const existingSeedIds = new Set(
@@ -66,6 +67,30 @@ export async function ensureDefaultTemplates({
       updatedAt: now,
     });
     sortOrder += 10;
+  }
+}
+
+export async function ensureDefaultTemplatesForScopes({
+  db,
+  scopes,
+  now,
+}: {
+  db: InsertDb;
+  scopes: Array<{ ownerEmail?: unknown; orgId?: unknown }>;
+  now: string;
+}) {
+  const seen = new Set<string>();
+  for (const scope of scopes) {
+    const ownerEmail =
+      typeof scope.ownerEmail === "string" ? scope.ownerEmail.trim() : "";
+    if (!ownerEmail || ownerEmail === "migration-orphan@invalid.local")
+      continue;
+    const orgId =
+      typeof scope.orgId === "string" && scope.orgId ? scope.orgId : null;
+    const key = JSON.stringify([ownerEmail, orgId]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await ensureDefaultTemplates({ db, ownerEmail, orgId, now });
   }
 }
 

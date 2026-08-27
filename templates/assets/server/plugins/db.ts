@@ -4,7 +4,9 @@ import {
   runMigrations,
 } from "@agent-native/core/db";
 
+import { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
+import { ensureDefaultTemplatesForScopes } from "../lib/generation-presets.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -383,6 +385,7 @@ export const runAssetsMigrations = runMigrations(
     {
       version: 38,
       name: "asset-templates-backfill-from-generation-presets",
+      // guard:allow-unscoped — this one-time migration copies every legacy preset into its owner/org-scoped template row.
       sql: `INSERT INTO asset_templates (
       id, library_id, collection_id, title, description, category, media_type,
       prompt_template, aspect_ratio, image_size, model, text_policy,
@@ -397,6 +400,23 @@ export const runAssetsMigrations = runMigrations(
     FROM image_generation_presets p
     LEFT JOIN image_libraries l ON l.id = p.library_id
     WHERE NOT EXISTS (SELECT 1 FROM asset_templates t WHERE t.id = p.id)`,
+    },
+    {
+      version: 39,
+      name: "asset-template-global-defaults",
+      sql: {},
+      run: async () => {
+        // guard:allow-unscoped — this one-time migration enumerates every existing owner/org scope to add missing global defaults.
+        const { rows } = await getDbExec().execute(
+          `SELECT DISTINCT owner_email AS "ownerEmail", org_id AS "orgId"
+             FROM image_libraries`,
+        );
+        await ensureDefaultTemplatesForScopes({
+          db: getDb(),
+          scopes: rows,
+          now: new Date().toISOString(),
+        });
+      },
     },
   ],
   // Preserve the legacy migration table name so existing Images deployments do
