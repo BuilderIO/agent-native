@@ -26,6 +26,18 @@ export interface RenderOptions {
    * does not.
    */
   rootSelector?: string | null;
+  /**
+   * Where the frame's own origin sits inside the captured canvas.
+   *
+   * Figma's `/images` renders a node's INK extent (`absoluteRenderBounds`),
+   * not its frame box: an unclipped frame whose content or shadow spills out
+   * comes back larger, and when the spill is up or left the whole image is
+   * shifted too. Rendering the frame box against that compares every pixel at
+   * the wrong offset — it read as a 10% conversion defect on a table whose
+   * only sin was a 2px shadow. Draw the frame at this offset inside an
+   * ink-sized canvas so both sides cover the same region.
+   */
+  contentOffset?: { left: number; top: number };
 }
 
 export interface RenderResult {
@@ -39,16 +51,19 @@ const DOCUMENT_SHELL = (
   head: string,
   width: number,
   height: number,
+  offset: { left: number; top: number },
 ) => `<!doctype html>
 <html><head><meta charset="utf-8">
 <style>
   html,body{margin:0;padding:0;background:transparent}
-  /* The frame is captured at its own canvas size; nothing may reflow it. */
+  /* The canvas is the region Figma rendered; nothing may reflow it. */
   #figma-fidelity-root{position:relative;width:${width}px;height:${height}px;overflow:hidden}
+  /* The frame's own origin, which is not the canvas origin when ink spills up/left. */
+  #figma-fidelity-frame{position:absolute;left:${offset.left}px;top:${offset.top}px}
 </style>
 ${head}
 </head>
-<body><div id="figma-fidelity-root">${body}</div></body></html>`;
+<body><div id="figma-fidelity-root"><div id="figma-fidelity-frame">${body}</div></div></body></html>`;
 
 async function waitForAssets(page: Page, timeoutMs: number): Promise<string[]> {
   return page.evaluate(async (timeout) => {
@@ -130,7 +145,13 @@ export async function renderHtmlToPng(
   const page = await context.newPage();
   try {
     await page.setContent(
-      DOCUMENT_SHELL(bodyHtml, options.headHtml ?? "", width, height),
+      DOCUMENT_SHELL(
+        bodyHtml,
+        options.headHtml ?? "",
+        width,
+        height,
+        options.contentOffset ?? { left: 0, top: 0 },
+      ),
       { waitUntil: "load", timeout: timeoutMs },
     );
     await page.evaluate("globalThis.__name ||= (fn) => fn;");

@@ -401,13 +401,22 @@ async function runCase(
   );
   writeFileSync(join(dir, "fidelity.json"), JSON.stringify(fidelity, null, 2));
 
+  // `/images` renders the node's INK extent, not its frame box: an unclipped
+  // frame whose children or shadows spill out comes back bigger, and when the
+  // spill is up or left the image is shifted too. Figma reports that extent as
+  // `absoluteRenderBounds`, so render the same region rather than the frame
+  // box — otherwise the comparison scores the offset (a 2px table shadow read
+  // as 10%, and a dashboard lost the 106px its content overflows by).
+  const ink = node.absoluteRenderBounds ?? box;
+  const contentOffset = { left: box.x - ink.x, top: box.y - ink.y };
+
   // Figma clamps a rendered node to 16384px on its longest side and silently
   // scales the WHOLE image down to fit — a 1440x21306 frame comes back as
   // 1108x16384 with no error and no header saying so. Comparing that against a
   // full-size render measures the scale factor, not the converter (it read 24%
   // on Landify, all of it the downscale). Ask for the scale Figma would have
   // forced anyway and render ours to match, so both sides are the same pixels.
-  const longestEdge = Math.max(box.width, box.height);
+  const longestEdge = Math.max(ink.width, ink.height);
   const renderScale =
     longestEdge > FIGMA_MAX_RENDER_EDGE_PX
       ? FIGMA_MAX_RENDER_EDGE_PX / longestEdge
@@ -417,8 +426,9 @@ async function runCase(
     browser,
     withFigmaBoxModelReset(html),
     {
-      width: box.width,
-      height: box.height,
+      width: ink.width,
+      height: ink.height,
+      contentOffset,
       deviceScaleFactor: renderScale,
       headHtml: fontsUrl
         ? `<link rel="stylesheet" href="${fontsUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`
