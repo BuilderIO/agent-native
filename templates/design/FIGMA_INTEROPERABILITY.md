@@ -323,6 +323,9 @@ What moved the numbers. Each was a real defect on a real design:
 | an 11.5MB image dropped from the export instead of scaled | single product (export) | 4.69 | 4.02 |
 | vector-network mask not scaled out of normalizedSize | positivus (paste) | 6.97 | 6.37 |
 | a UNION boolean's operands drawn instead of the union | positivus (paste) | 6.37 | 4.33 |
+| counter alignment defaulting to CSS stretch, not Figma's MIN | whitepace (.fig) | 4.94 | 3.39 |
+| dashed strokes drawn solid | whitepace (.fig) | 3.39 | 3.37 |
+| hugging text ignoring the size Figma resolved | whitepace (.fig) | 3.37 | 3.18 |
 
 Four of those were defects in the HARNESS rather than the converter — it
 reported conversion error where the measurement itself was wrong. A fidelity
@@ -351,17 +354,26 @@ the shape of a REST node id. Keep each file under the 50MB decoder cap; a whole
 multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 46MB.
 
-| case | `.fig` vs Figma | REST, same design |
-| --- | --- | --- |
-| interior single product | **2.59%** | 3.35% |
-| untitled UI pricing | 3.26% | 2.67% |
-| whitepace | 4.94% | 2.96% |
+| case | `.fig` vs Figma | nodes off >1.5px | REST, same design |
+| --- | --- | --- | --- |
+| interior single product | **2.59%** | 1 of 136 | 3.35% |
+| untitled UI pricing | 3.29% | **0 of 182** | 2.67% |
+| whitepace | 3.18% | 3 of 1026 | 2.96% |
 
 The image-heavy case is the one to read first: the `.fig` path BEATS the REST
 path on it, because **a `.fig` container carries image bytes** where the REST
 path re-fetches renders and a clipboard paste carries only hashes. Each of the
 three reports zero approximated nodes, so none of these numbers is hiding a
 reported hole.
+
+The per-node column is the one that moved most. Measuring this path at all
+found three defects the pixel number alone would never have named — an
+auto-layout frame's counter alignment defaulting to CSS `stretch` instead of
+Figma's MIN, dashed strokes drawn solid, and a hugging text box ignoring the
+size Figma resolved — and took Whitepace from **93** nodes off by more than
+1.5px to 3. That was only possible because the walker now emits
+`data-figma-node-id`; without a node id nothing could line its output up
+against Figma's own boxes, and the whole class of defect was invisible.
 
 The 35MB scratch file still earns its place as decode/render coverage over 43
 frames with no Figma reference, and the 127MB one still pins that the size cap
