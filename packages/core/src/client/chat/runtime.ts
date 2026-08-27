@@ -1514,7 +1514,7 @@ function toContentPartInput(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const out: Record<string, string> = {};
   for (const [key, item] of Object.entries(value)) {
-    out[key] = String(item);
+    out[key] = typeof item === "string" ? item : (JSON.stringify(item) ?? "");
   }
   return out;
 }
@@ -1523,9 +1523,19 @@ function toolResultText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined) return "";
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? "";
   } catch {
-    return String(value);
+    if (
+      value === null ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      typeof value === "bigint" ||
+      typeof value === "symbol" ||
+      typeof value === "function"
+    ) {
+      return String(value);
+    }
+    return "[unserializable]";
   }
 }
 

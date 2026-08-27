@@ -347,6 +347,10 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
+}
+
 function isNumericLike(value: unknown): boolean {
   if (typeof value === "number") return Number.isFinite(value);
   return (
@@ -774,10 +778,14 @@ function renderTableHtml(
       : "";
 
   const text = [
-    columns.map((column) => column.label ?? column.key).join(" | "),
+    columns
+      .map((column) => escapeMarkdownTableCell(column.label ?? column.key))
+      .join(" | "),
     ...visible.map((row) =>
       columns
-        .map((column) => formatCell(row[column.key], column.format))
+        .map((column) =>
+          escapeMarkdownTableCell(formatCell(row[column.key], column.format)),
+        )
         .join(" | "),
     ),
     ...(rows.length > visible.length
@@ -891,7 +899,7 @@ function renderHeatmapHtml(
     .join("");
 
   const text = [
-    [rowKey, ...xValues].join(" | "),
+    [rowKey, ...xValues].map(escapeMarkdownTableCell).join(" | "),
     ...yValues.map((y) =>
       [
         y || "—",
@@ -899,7 +907,9 @@ function renderHeatmapHtml(
           const value = grid.get(`${x}\u0000${y}`);
           return value != null ? formatYValue(value, config?.yFormatter) : "";
         }),
-      ].join(" | "),
+      ]
+        .map(escapeMarkdownTableCell)
+        .join(" | "),
     ),
   ].join("\n");
 

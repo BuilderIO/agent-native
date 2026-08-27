@@ -2567,7 +2567,7 @@ function toCaptureSerializable(
   if (typeof value === "function") return "[function]";
   if (typeof value === "symbol") return String(value);
   if (value instanceof Error) return `${value.name}: ${value.message}`;
-  if (typeof value !== "object") return String(value);
+  if (typeof value !== "object") return "[unserializable]";
   if (seen.has(value)) return "[circular]";
   if (depth >= MAX_CONSOLE_SERIALIZE_DEPTH) {
     return Array.isArray(value) ? "[array]" : "[object]";
@@ -3758,10 +3758,10 @@ export function emitSessionReplayException(input: {
 
 export type SessionReplayAgentChatEvent = {
   phase: "surface-mounted" | "run-observed" | "run-stopped";
-  surface: string;
-  threadId?: string;
-  runId?: string;
-  tabId?: string;
+  surface: string | number;
+  threadId?: string | number;
+  runId?: string | number;
+  tabId?: string | number;
 };
 
 /**
@@ -3774,8 +3774,12 @@ export function emitSessionReplayAgentChatEvent(
 ): void {
   const state = getState();
   if (!state.active || !state.addCustomEvent) return;
-  const bounded = (value: string | undefined, max = 160) =>
-    value?.trim().slice(0, max) || undefined;
+  const bounded = (value: string | number | undefined, max = 160) => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? String(value).slice(0, max) : undefined;
+    }
+    return value?.trim().slice(0, max) || undefined;
+  };
   emitReplayCustomEvent(state, SESSION_REPLAY_AGENT_CHAT_EVENT_TAG, {
     phase: input.phase,
     surface: bounded(input.surface, 80) ?? "app",

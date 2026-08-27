@@ -610,7 +610,6 @@ const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_AGENT_TEAM_POLL_MS = 3000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
-const hasOwn = Object.prototype.hasOwnProperty.bind(Object);
 
 // A duplicated id in `openTabIds` makes two tab-bar entries share one
 // underlying thread: closing either one filters that id out of the array
@@ -705,7 +704,7 @@ function resolveThreadUrlSync(
   return {
     enabled: true,
     paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
-    ...(hasOwn.call(value, "routeThreadId")
+    ...(Object.hasOwn(value, "routeThreadId")
       ? { routeThreadId: normalizeUrlThreadId(value.routeThreadId) }
       : {}),
     ...(value.getPath ? { getPath: value.getPath } : {}),
@@ -840,7 +839,7 @@ export function MultiTabAssistantChat({
     threadUrlSyncEnabled &&
     threadUrlSync !== true &&
     typeof threadUrlSync === "object" &&
-    hasOwn.call(threadUrlSync, "routeThreadId");
+    Object.hasOwn(threadUrlSync, "routeThreadId");
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
     threadUrlSyncEnabled
       ? threadRouteControlsActiveThread
