@@ -616,11 +616,129 @@ const DASHBOARD_APP_FILTER = `('{{appFilter}}' IN ('', 'all') OR lower(${TEMPLAT
 const FUNNEL_EMAIL_FILTER =
   "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(funnel_user_email, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io'))";
 const FUNNEL_SCOPE_FILTER = `${DASHBOARD_TIME_RANGE_FILTER} AND ${FUNNEL_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
-const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (SELECT NULLIF(anonymous_id, '') AS anonymous_id, MIN(NULLIF(user_id, '')) AS signup_user_id FROM analytics_events WHERE event_name = 'signup' AND NULLIF(anonymous_id, '') IS NOT NULL AND NULLIF(user_id, '') IS NOT NULL GROUP BY NULLIF(anonymous_id, '')), funnel_events AS (SELECT e.*, COALESCE(si.signup_user_id, NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key, COALESCE(si.signup_user_id, NULLIF(e.user_id, '')) AS funnel_user_email FROM analytics_events e LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous_id, ''))`;
+const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
+  SELECT NULLIF(anonymous_id, '') AS anonymous_id,
+    MIN(NULLIF(user_id, '')) AS signup_user_id
+  FROM analytics_events
+  WHERE event_name = 'signup'
+    AND ${DASHBOARD_TIME_RANGE_FILTER}
+    AND ${DASHBOARD_EMAIL_FILTER}
+    AND ${DASHBOARD_APP_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+    AND NULLIF(anonymous_id, '') IS NOT NULL
+    AND NULLIF(user_id, '') IS NOT NULL
+  GROUP BY NULLIF(anonymous_id, '')
+), raw_funnel_events AS (
+  SELECT e.*,
+    COALESCE(si.signup_user_id, NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key,
+    COALESCE(si.signup_user_id, NULLIF(e.user_id, '')) AS funnel_user_email
+  FROM analytics_events e
+  LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous_id, '')
+  WHERE ${DASHBOARD_TIME_RANGE_FILTER}
+    AND ${DASHBOARD_APP_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+), signup_cohort AS (
+  SELECT funnel_user_key, MIN(timestamp::timestamptz) AS signup_at
+  FROM raw_funnel_events
+  WHERE event_name = 'signup'
+    AND funnel_user_key IS NOT NULL
+    AND ${FUNNEL_SCOPE_FILTER}
+  GROUP BY funnel_user_key
+), funnel_events AS (
+  SELECT e.*, c.signup_at
+  FROM raw_funnel_events e
+  JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
+)`;
 const SIGNIFICANT_ACTION_FILTER = `(event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
-const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE} SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'auth.signup_viewed' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 2 AS stage_order, 'Signup CTA clicked' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 3 AS stage_order, 'Signed up' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 4 AS stage_order, 'Onboarding started' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'onboarding_started' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 5 AS stage_order, 'Onboarding step reached' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 6 AS stage_order, 'Onboarding completed' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name = 'onboarding_completed' AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 7 AS stage_order, 'Entered app' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE (event_name = 'onboarding_app_entered' OR (event_name = 'session status' AND signed_in = 'true')) AND ${FUNNEL_SCOPE_FILTER} UNION ALL SELECT 8 AS stage_order, 'First significant action' AS stage, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE ${SIGNIFICANT_ACTION_FILTER} AND ${FUNNEL_SCOPE_FILTER} ORDER BY stage_order`;
+const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, page_stage AS (
+  SELECT c.*, page.page_at
+  FROM signup_cohort c
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS page_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = c.funnel_user_key
+      AND e.event_name = 'auth.signup_viewed'
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) page ON true
+), cta_stage AS (
+  SELECT p.*, cta.cta_at
+  FROM page_stage p
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS cta_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = p.funnel_user_key
+      AND p.page_at IS NOT NULL
+      AND e.event_name = 'auth.signup_clicked'
+      AND e.timestamp::timestamptz >= p.page_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) cta ON true
+), signup_stage AS (
+  SELECT cta_stage.*,
+    CASE WHEN cta_at IS NOT NULL AND signup_at >= cta_at THEN signup_at END AS signed_up_at
+  FROM cta_stage
+), onboarding_start_stage AS (
+  SELECT s.*, started.started_at
+  FROM signup_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS started_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.signed_up_at IS NOT NULL
+      AND e.event_name = 'onboarding_started'
+      AND e.timestamp::timestamptz >= s.signed_up_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) started ON true
+), step_stage AS (
+  SELECT s.*, step.step_at
+  FROM onboarding_start_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS step_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.started_at IS NOT NULL
+      AND e.event_name = 'onboarding_step_viewed'
+      AND e.timestamp::timestamptz >= s.started_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) step ON true
+), completion_stage AS (
+  SELECT s.*, completed.completed_at
+  FROM step_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS completed_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.step_at IS NOT NULL
+      AND e.event_name = 'onboarding_completed'
+      AND e.timestamp::timestamptz >= s.started_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) completed ON true
+), entry_stage AS (
+  SELECT s.*, entered.entered_at
+  FROM completion_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS entered_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.completed_at IS NOT NULL
+      AND (e.event_name = 'onboarding_app_entered' OR (e.event_name = 'session status' AND e.signed_in = 'true'))
+      AND e.timestamp::timestamptz >= s.completed_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) entered ON true
+), action_stage AS (
+  SELECT s.*, action.action_at
+  FROM entry_stage s
+  LEFT JOIN LATERAL (
+    SELECT MIN(e.timestamp::timestamptz) AS action_at
+    FROM funnel_events e
+    WHERE e.funnel_user_key = s.funnel_user_key
+      AND s.entered_at IS NOT NULL
+      AND ${SIGNIFICANT_ACTION_FILTER}
+      AND e.timestamp::timestamptz >= s.entered_at
+      AND ${FUNNEL_SCOPE_FILTER}
+  ) action ON true
+) SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(*) FILTER (WHERE page_at IS NOT NULL) AS users FROM action_stage UNION ALL SELECT 2, 'Signup CTA clicked', COUNT(*) FILTER (WHERE cta_at IS NOT NULL) FROM action_stage UNION ALL SELECT 3, 'Signed up', COUNT(*) FILTER (WHERE signed_up_at IS NOT NULL) FROM action_stage UNION ALL SELECT 4, 'Onboarding started', COUNT(*) FILTER (WHERE started_at IS NOT NULL) FROM action_stage UNION ALL SELECT 5, 'Onboarding step reached', COUNT(*) FILTER (WHERE step_at IS NOT NULL) FROM action_stage UNION ALL SELECT 6, 'Onboarding completed', COUNT(*) FILTER (WHERE completed_at IS NOT NULL) FROM action_stage UNION ALL SELECT 7, 'Entered app', COUNT(*) FILTER (WHERE entered_at IS NOT NULL) FROM action_stage UNION ALL SELECT 8, 'First significant action', COUNT(*) FILTER (WHERE action_at IS NOT NULL) FROM action_stage ORDER BY stage_order`;
 const SIGNUP_METHOD_CONVERSION_SQL = `${FUNNEL_EVENTS_CTE}, clicks AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'method', ''), 'unknown') AS method, COUNT(DISTINCT funnel_user_key) AS clicks FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), signups AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'signup_method', ''), CASE WHEN lower(properties::jsonb ->> 'auth_provider') = 'google' THEN 'google' ELSE 'unknown' END) AS method, COUNT(DISTINCT funnel_user_key) AS signups FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), methods AS (SELECT method FROM clicks UNION SELECT method FROM signups) SELECT methods.method, COALESCE(clicks.clicks, 0) AS clicks, COALESCE(signups.signups, 0) AS signups, COALESCE(signups.signups::float / NULLIF(clicks.clicks, 0), 0) AS conversion_rate FROM methods LEFT JOIN clicks ON clicks.method = methods.method LEFT JOIN signups ON signups.method = methods.method ORDER BY clicks DESC NULLS LAST, methods.method`;
-const ONBOARDING_STEP_DROPOFF_SQL = `${FUNNEL_EVENTS_CTE}, views AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COALESCE(NULLIF(properties::jsonb ->> 'step_index', ''), '999') AS step_index, COUNT(DISTINCT funnel_user_key) AS users_reached FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2), completions AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COUNT(DISTINCT funnel_user_key) AS users_completed FROM funnel_events WHERE event_name = 'onboarding_step_completed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1) SELECT views.step_id, views.step_index, views.users_reached, COALESCE(completions.users_completed, 0) AS users_completed, COALESCE(completions.users_completed::float / NULLIF(views.users_reached, 0), 0) AS completion_rate FROM views LEFT JOIN completions ON completions.step_id = views.step_id ORDER BY views.step_index, views.step_id`;
+const ONBOARDING_STEP_DROPOFF_SQL = `${FUNNEL_EVENTS_CTE}, views AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COALESCE(NULLIF(properties::jsonb ->> 'step_index', ''), '999') AS step_index, COUNT(DISTINCT funnel_user_key) AS users_reached FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2, 3), completions AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COUNT(DISTINCT funnel_user_key) AS users_completed FROM funnel_events WHERE event_name = 'onboarding_step_completed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2) SELECT views.flow, views.step_id, views.step_index, views.users_reached, COALESCE(completions.users_completed, 0) AS users_completed, COALESCE(completions.users_completed::float / NULLIF(views.users_reached, 0), 0) AS completion_rate FROM views LEFT JOIN completions ON completions.flow = views.flow AND completions.step_id = views.step_id ORDER BY views.step_index, views.flow, views.step_id`;
 const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
 
 /**

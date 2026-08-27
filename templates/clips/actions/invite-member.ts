@@ -152,6 +152,30 @@ export default defineAction({
       role,
     });
 
+    const orgName = await fetchOrgName(organizationId);
+    const inviteUrl = `${baseUrl()}/invite/${token}`;
+    const emailConfigured = await isEmailConfigured();
+    let notified = false;
+
+    if (emailConfigured) {
+      try {
+        await sendEmail({
+          ...renderClipsInviteEmail({
+            appName: getAppName(),
+            orgName,
+            inviter,
+            role,
+            inviteUrl,
+          }),
+          to: args.email,
+          templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
+        });
+        notified = true;
+      } catch (err) {
+        console.warn("[invite-member] email send failed:", err);
+      }
+    }
+
     track(
       "share_invite_sent",
       {
@@ -161,29 +185,10 @@ export default defineAction({
         resource_id: organizationId,
         principal_type: "user",
         role,
-        notified: await isEmailConfigured(),
+        notified,
       },
       { userId: inviter },
     );
-
-    const orgName = await fetchOrgName(organizationId);
-    const inviteUrl = `${baseUrl()}/invite/${token}`;
-
-    try {
-      await sendEmail({
-        ...renderClipsInviteEmail({
-          appName: getAppName(),
-          orgName,
-          inviter,
-          role,
-          inviteUrl,
-        }),
-        to: args.email,
-        templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
-      });
-    } catch (err) {
-      console.warn("[invite-member] email send failed:", err);
-    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -207,7 +212,7 @@ export default defineAction({
       status: "pending" as const,
       token,
       inviteUrl,
-      emailConfigured: await isEmailConfigured(),
+      emailConfigured,
     };
   },
 });

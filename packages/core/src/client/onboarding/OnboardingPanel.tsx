@@ -73,6 +73,8 @@ export function OnboardingPanel({
     : (steps.find((s) => s.required && !s.complete)?.id ??
       steps.find((s) => !s.complete)?.id ??
       null);
+  const checklistVisible =
+    !loading && totalCount > 0 && (previewMode || (!dismissed && !allComplete));
   // Default expanded. (Older code used `useState(!allComplete)`, but the first
   // render fires with `steps === []` — `[].every()` is vacuously true, so
   // `allComplete` was true and `expanded` got locked to false even after the
@@ -80,7 +82,7 @@ export function OnboardingPanel({
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
-    if (previewMode || steps.length === 0) return;
+    if (!checklistVisible) return;
     trackOnboardingEvent("onboarding_started", { flow: "checklist" });
     for (const [stepIndex, step] of steps.entries()) {
       trackOnboardingEvent("onboarding_step_viewed", {
@@ -89,7 +91,7 @@ export function OnboardingPanel({
         step_index: stepIndex,
       });
     }
-  }, [previewMode, steps]);
+  }, [checklistVisible, previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
   // Preview mode (dev overlay) bypasses the auto-hide so template authors

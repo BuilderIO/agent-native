@@ -350,32 +350,13 @@ export default defineAction({
       beforeExtensionTargets,
     );
 
-    if (args.principalType === "user") {
-      const app = getAppConfig().app.slug ?? "unknown";
-      track(
-        "share_invite_sent",
-        {
-          app,
-          template: app,
-          resource_type: args.resourceType,
-          resource_id: args.resourceId,
-          principal_type: args.principalType,
-          role: args.role,
-          notified:
-            args.notify !== false &&
-            (await isEmailConfigured()) &&
-            !isSyntheticQaEmail(principalId),
-        },
-        { userId: actor },
-      );
-    }
-
-    if (
+    const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
       (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId)
-    ) {
+      !isSyntheticQaEmail(principalId);
+    let notified = false;
+    if (shouldNotify) {
       try {
         const titleCol = reg.titleColumn ?? "title";
         const [resource] = await db
@@ -510,12 +491,30 @@ export default defineAction({
           fromName,
           replyTo,
         });
+        notified = true;
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",
           err,
         );
       }
+    }
+
+    if (args.principalType === "user") {
+      const app = getAppConfig().app.slug ?? "unknown";
+      track(
+        "share_invite_sent",
+        {
+          app,
+          template: app,
+          resource_type: args.resourceType,
+          resource_id: args.resourceId,
+          principal_type: args.principalType,
+          role: args.role,
+          notified,
+        },
+        { userId: actor },
+      );
     }
 
     return { id, updated: false };

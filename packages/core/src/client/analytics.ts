@@ -487,6 +487,10 @@ function getTrackingUserId(): string | undefined {
   return _trackingIdentity?.userId;
 }
 
+export function getAnalyticsIdentityKey(): string | undefined {
+  return getTrackingUserId() || getOrCreateAnonymousId();
+}
+
 function getOrCreateAnonymousId(): string | undefined {
   return getOrCreateAnalyticsAnonymousId();
 }

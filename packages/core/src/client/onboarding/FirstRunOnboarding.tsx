@@ -9,7 +9,13 @@ import {
   IconLoader2,
   IconSearch,
 } from "@tabler/icons-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type {
   OnboardingAppProfile,
@@ -57,6 +63,31 @@ type FirstRunScreen =
   | "ready"
   | "extension";
 
+const FIRST_RUN_SCREEN_ORDER: readonly Exclude<FirstRunScreen, "extension">[] =
+  ["intro", "choice", "manual", "tools", "role", "connecting", "ready"];
+
+function firstRunStepProperties(
+  screen: FirstRunScreen,
+  extensions: readonly { id: string }[],
+  extensionIndex: number,
+): Record<string, unknown> {
+  if (screen === "extension") {
+    return {
+      flow: "first_run",
+      step_id: `extension:${extensions[extensionIndex]?.id ?? "unknown"}`,
+      step_index: FIRST_RUN_SCREEN_ORDER.length + extensionIndex,
+      ...(extensions[extensionIndex]
+        ? { extension_id: extensions[extensionIndex].id }
+        : {}),
+    };
+  }
+  return {
+    flow: "first_run",
+    step_id: screen,
+    step_index: FIRST_RUN_SCREEN_ORDER.indexOf(screen),
+  };
+}
+
 const FIRST_RUN_ROLE_OPTIONS = [
   { value: "product", labelKey: "agentChat.onboarding.roleProduct" },
   { value: "design", labelKey: "agentChat.onboarding.roleDesign" },
@@ -103,13 +134,6 @@ export function FirstRunOnboarding({
     completeFirstRun,
     completeFirstRunError,
   } = useOnboarding({ preview: previewMode, initialFirstRun });
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
-  const finishOnboarding = useCallback(() => {
-    completeFirstRun().catch(() => {});
-  }, [completeFirstRun]);
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -131,28 +155,47 @@ export function FirstRunOnboarding({
     () => filterMcpIntegrations(integrationQuery, mcpCatalog),
     [integrationQuery, mcpCatalog],
   );
+  // completeFirstRun() rejects on failure — swallow it here so a Skip/
+  // Continue click never becomes an unhandled rejection; completeFirstRunError
+  // (rendered below) is the real signal, and the user stays on this screen
+  // to retry instead of being bounced to an unrelated error screen.
+  const finishOnboarding = useCallback(async () => {
+    try {
+      await completeFirstRun();
+      if (!previewMode) {
+        trackOnboardingEvent(
+          "onboarding_step_completed",
+          firstRunStepProperties(screen, extensions, extensionIndex),
+        );
+      }
+    } catch {
+      // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+    }
+  }, [completeFirstRun, extensionIndex, extensions, previewMode, screen]);
+  const previousStepRef = useRef<Record<string, unknown> | null>(null);
   useEffect(() => {
-    if (!previewMode && firstRun) {
+    if (!previewMode && firstRun && !loading && profile) {
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
-  }, [firstRun, previewMode]);
+  }, [firstRun, loading, previewMode, profile]);
   useEffect(() => {
-    if (previewMode || !firstRun) return;
-    const extension =
-      screen === "extension" ? extensions[extensionIndex] : undefined;
-    const stepId = extension ? `extension:${extension.id}` : screen;
-    const stepIndex = extension
-      ? 6 + extensionIndex
-      : (
-          ["intro", "choice", "manual", "tools", "connecting", "ready"] as const
-        ).indexOf(screen as Exclude<FirstRunScreen, "extension">);
-    trackOnboardingEvent("onboarding_step_viewed", {
-      flow: "first_run",
-      step_id: stepId,
-      step_index: stepIndex,
-      ...(extension ? { extension_id: extension.id } : {}),
-    });
-  }, [extensionIndex, extensions, firstRun, previewMode, screen]);
+    if (previewMode || !firstRun || loading || !profile) return;
+    const step = firstRunStepProperties(screen, extensions, extensionIndex);
+    trackOnboardingEvent("onboarding_step_viewed", step);
+    const previousStep = previousStepRef.current;
+    if (previousStep && previousStep.step_id !== step.step_id) {
+      trackOnboardingEvent("onboarding_step_completed", previousStep);
+    }
+    previousStepRef.current = step;
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
   const connectedUrls = useMemo(() => {
     if (previewMode) return new Set<string>();
     const servers = [

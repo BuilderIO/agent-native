@@ -30,6 +30,12 @@ Agent-Native 應用程式執行於 Nitro。請選擇符合部署內容的路徑�
 
 獨立應用程式需要穩定的 `BETTER_AUTH_SECRET`。使用簽署跨應用程式要求的工作區需要 `A2A_SECRET`。
 
+## 電子郵件傳送是選用功能，但建議設定 {#email-provider}
+
+電子郵件供應商不是電子郵件/密碼驗證的必要條件。沒有供應商時，已部署的應用程式會使用電子郵件/密碼註冊與登入，略過註冊時的電子郵件驗證，也不會提供魔術連結驗證。
+
+如果需要魔術連結、電子郵件驗證、密碼重設、邀請或分享通知，請在部署前連接 Resend 或 SendGrid。在部署環境設定 `RESEND_API_KEY` 或 `SENDGRID_API_KEY`；SendGrid 也需要 `EMAIL_FROM`。如需了解驗證模式，請參閱[驗證](/docs/authentication)。
+
 ## 支援的部署目標
 
 Agent-Native 支援 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。

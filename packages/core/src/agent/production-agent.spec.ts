@@ -150,7 +150,7 @@ function actionEntry(opts: {
 }
 
 describe("toolCallCacheKey", () => {
-  it("deduplicates equivalent docs-search queries without merging distinct searches", () => {
+  it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
     expect(
       toolCallCacheKey("docs-search", { query: "  Slides   generation " }),
     ).toBe(toolCallCacheKey("docs-search", { query: "slides generation" }));

@@ -13,7 +13,7 @@ import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
-import { trackEvent } from "../analytics.js";
+import { getAnalyticsIdentityKey, trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import {
   dispatchFirstRunOnboardingStatus,
@@ -27,7 +27,9 @@ export function trackOnboardingEvent(
   properties: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
+  const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
   const key = [
+    identityKey,
     name,
     properties.flow,
     properties.step_id,

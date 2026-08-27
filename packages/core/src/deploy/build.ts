@@ -1313,6 +1313,32 @@ function getPostHogClientConfigScript() {
   );
 }
 
+function getAgentNativeAnalyticsClientConfigScript() {
+  const env = globalThis.process?.env || {};
+  const publicKey = firstNonEmpty(
+    env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY,
+  );
+  if (!publicKey) return null;
+  const endpoint =
+    firstNonEmpty(
+      env.AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT,
+    ) || "https://analytics.agent-native.com/track";
+  const config = {
+    agentNativeAnalyticsPublicKey: publicKey,
+    agentNativeAnalyticsEndpoint: endpoint,
+  };
+  return (
+    '<script data-agent-native-analytics-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1538,6 +1564,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
+      getAgentNativeAnalyticsClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
