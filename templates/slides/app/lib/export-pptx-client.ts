@@ -953,6 +953,10 @@ export function usedFontFamilies(roots: HTMLElement[]): string[] {
   for (const root of roots) {
     for (const node of [root, ...Array.from(root.querySelectorAll("*"))]) {
       if (!(node instanceof HTMLElement)) continue;
+      // A `<style>` block's CSS is a direct text node that inherits the slide's
+      // family, so a large stylesheet could outweigh every visible word and
+      // pick the theme font. Slide HTML is allowed to carry one.
+      if (NON_RENDERING_TAGS.has(node.tagName)) continue;
       // Only text this element sets itself; a wrapper would otherwise count
       // every descendant's characters toward its own family.
       const own = Array.from(node.childNodes)
@@ -980,6 +984,9 @@ export function usedFontFamilies(roots: HTMLElement[]): string[] {
     .sort((a, b) => b[1] - a[1])
     .map(([family]) => family);
 }
+
+/** Elements whose text is source, not something the slide paints. */
+const NON_RENDERING_TAGS = new Set(["SCRIPT", "STYLE", "TEMPLATE", "TITLE"]);
 
 const GENERIC_FAMILIES = new Set([
   "cursive",
@@ -1091,6 +1098,13 @@ async function resolveExportFonts(
       // network round-trip in front of an export that does not need one.
       if (!isLoadedWebFont(family)) return undefined;
       try {
+        // A weight list, not a single pinned weight: css2 answers a lone
+        // `wght@400` with the VARIABLE font, which dom-to-pptx's reader
+        // rejects as "ttf file damaged". A list returns static instances it
+        // can parse. Every URL is merged into one font where the first file
+        // wins each codepoint, filling OOXML's single `<p:regular>` slot —
+        // PowerPoint synthesises bold from it, which is what the deck's
+        // `b="1"` runs ask for.
         const href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(
           family,
         ).replace(/%20/g, "+")}:wght@400;500;600;700&display=swap`;
@@ -1100,7 +1114,8 @@ async function resolveExportFonts(
         });
         if (!response.ok) return undefined;
         const urls = romanFaceUrls(await response.text(), family);
-        return urls.length ? { name: family, urls } : undefined;
+        if (!urls.length) return undefined;
+        return { name: family, urls };
       } catch (err) {
         // A family we cannot resolve is one the receiving app substitutes —
         // a visible downgrade, and exactly what happened before this resolver
@@ -1906,25 +1921,23 @@ export async function buildDeckPptxBlob(
     // `autoEmbedFonts` is off because it cannot see this deck's fonts and
     // confidently embeds the wrong one instead; `fonts` is merged into the same
     // map when it is on, so leaving it enabled would put Poppins straight back.
-    const fonts = await resolveExportFonts(
-      exportClones.map((clone) => clone.element),
-    );
-    const initialBlob = await exportToPptx(
-      exportClones.map((clone) => clone.element),
-      {
-        autoEmbedFonts: false,
-        fonts,
-        fileName: safePptxName(deckTitle),
-        height: dims.pptxInches.h,
-        skipDownload: true,
-        svgAsVector: false,
-        width: dims.pptxInches.w,
-      },
-    );
+    const cloneElements = exportClones.map((clone) => clone.element);
+    // The theme font is the family the deck is mostly set in, whether or not
+    // we can embed it: a deck whose body is a system font and whose caption is
+    // a web font would otherwise retype the theme to the caption's family.
+    const [dominantFamily] = usedFontFamilies(cloneElements);
+    const fonts = await resolveExportFonts(cloneElements);
+    const initialBlob = await exportToPptx(cloneElements, {
+      autoEmbedFonts: false,
+      fonts,
+      fileName: safePptxName(deckTitle),
+      height: dims.pptxInches.h,
+      skipDownload: true,
+      svgAsVector: false,
+      width: dims.pptxInches.w,
+    });
 
-    // The family the most text is set in is the one inherited text should
-    // fall back to.
-    const pinnedBlob = await pinTextBoxesForImport(initialBlob, fonts[0]?.name);
+    const pinnedBlob = await pinTextBoxesForImport(initialBlob, dominantFamily);
     const bulletPatchedBlob = await patchBulletIndentsInPptxBlob(
       pinnedBlob,
       slideBulletIndents,

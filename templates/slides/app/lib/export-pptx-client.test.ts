@@ -938,6 +938,20 @@ describe("usedFontFamilies", () => {
     root.remove();
   });
 
+  it("does not let a <style> block's CSS outweigh the deck's visible text", () => {
+    // Slide HTML is allowed to carry a stylesheet, and its source is a direct
+    // text node that inherits the slide's family. Counting it could pick the
+    // theme font off CSS nobody reads.
+    const root = document.createElement("div");
+    root.innerHTML =
+      `<style style="font-family: Poppins">${"/*x*/".repeat(400)}</style>` +
+      `<p style="font-family: Geist">visible copy</p>`;
+    document.body.appendChild(root);
+
+    expect(usedFontFamilies([root])[0]).toBe("Geist");
+    root.remove();
+  });
+
   it("skips generic families, which name no font to embed", () => {
     const root = document.createElement("div");
     root.innerHTML = `<p style="font-family: monospace">code</p>`;
