@@ -830,3 +830,54 @@ describe("Figma's image crop (STRETCH with an imageTransform)", () => {
     expect(html).not.toContain("background-size");
   });
 });
+
+describe("a hugging text box takes Figma's rounded width as a minimum", () => {
+  // Figma rounds a hugging TEXT box to a whole pixel — every one of the 2619
+  // in the corpus is an integer — and lays its siblings out against that
+  // rounded width. Hugging to our own fractional width makes each label a
+  // fraction narrower, and in a row of them the fractions add up: a nav came
+  // out 5px short across six items.
+  function label(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Row",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 400, 40),
+      layoutMode: "HORIZONTAL",
+      children: [
+        {
+          id: "1:2",
+          name: "Nav item",
+          type: "TEXT",
+          absoluteBoundingBox: box(0, 0, 70, 40),
+          layoutSizingHorizontal: "HUG",
+          characters: "Pricing",
+          style: { fontFamily: "Inter", fontSize: 16, lineHeightPx: 20 },
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("sets it as a minimum, so the box is never narrower than Figma's", () => {
+    const { html } = mapFigmaNodeToHtml(label(), {});
+    expect(html).toContain("min-width: 70px");
+  });
+
+  // Pinning `width` outright forces a wrap wherever our advances run a hair
+  // wider than Figma's, which is a different layout entirely — it scored 36%
+  // on the parity fixture and 19% on a pricing page.
+  it("does not pin the width, which would force the text to wrap", () => {
+    const { html } = mapFigmaNodeToHtml(label(), {});
+    expect(html).toContain("width: auto");
+    // `min-width: 70px` contains that substring, so match the property itself.
+    expect(html).not.toMatch(/(?<!min-)width: 70px/);
+  });
+
+  it("leaves an explicit minWidth from Figma alone", () => {
+    const node = label();
+    node.children![0]!.minWidth = 120;
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("min-width: 120px");
+    expect(html).not.toMatch(/min-width: 70px/);
+  });
+});

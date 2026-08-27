@@ -1578,6 +1578,23 @@ function buildChildSizingStyles(
       styles.width = "auto";
     }
   } else if (node.layoutSizingHorizontal === "HUG") {
+    // Figma rounds a hugging TEXT box to a whole pixel — every one of the 2619
+    // in the corpus is an integer — and lays its siblings out against that
+    // rounded width. Letting the browser hug to its own fractional width makes
+    // each label a fraction narrower, and in a row of them the fractions add
+    // up: an Untitled UI nav came out 5px short across six items, moving every
+    // one of them. Figma has already resolved the number it laid out with.
+    // As a MINIMUM, never a fixed width: pinning the width outright forces the
+    // text to wrap wherever our advances run a hair wider than Figma's, which
+    // is a different layout entirely (it scored 36% on the parity fixture and
+    // 19% on a pricing page). A minimum takes the rounding back without ever
+    // removing room the text needs.
+    const roundedTextWidth =
+      node.type === "TEXT" && node.minWidth === undefined
+        ? node.absoluteBoundingBox?.width
+        : undefined;
+    if (roundedTextWidth !== undefined)
+      styles["min-width"] = px(roundedTextWidth);
     styles.width =
       hasContentToHug(node) && !hugIsCircularInCss(node, true)
         ? "auto"
