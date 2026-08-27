@@ -91,9 +91,9 @@ function SearchTrigger({
       type="button"
       onClick={onClick}
       aria-label={label}
-      // The 320px width is fixed on purpose: with `justify-between` it is what
+      // The fixed width is on purpose: with `justify-between` it is what
       // opens the gap between the label and the ⌘K hint.
-      className="inline-flex h-10 w-[320px] shrink-0 cursor-pointer items-center justify-between gap-[var(--spacing-2)] rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border-dim)] bg-transparent px-[var(--spacing-3)] py-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] text-[var(--b-text-secondary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+      className="inline-flex h-10 w-[280px] shrink-0 cursor-pointer items-center justify-between gap-[var(--spacing-2)] rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border-dim)] bg-transparent px-[var(--spacing-3)] py-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] text-[var(--b-text-secondary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
     >
       <span className="inline-flex items-center gap-[var(--spacing-2)]">
         <IconSearch size={16} stroke={1.75} />
