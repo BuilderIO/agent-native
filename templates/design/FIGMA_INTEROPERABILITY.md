@@ -903,14 +903,14 @@ from anything either walker shares with Figma.
 
 Measured over the five real `.fig` designs (2026-08-27):
 
-| case                   | vs Figma        | vs REST walker  |
-| ---------------------- | --------------- | --------------- |
-| interior-single-product| 2.497% -> 2.151%| 0.757% -> 0.390%|
-| uui-dashboard          | 4.327% -> 4.049%| 1.564% -> 1.231%|
-| whitepace              | 3.111% -> 3.019%| 0.630% -> 0.472%|
-| uui-landing-mobile     | 7.438% -> 7.381%| 1.880% -> 1.792%|
-| uui-pricing            | 3.150% -> 3.130%| 0.732% -> 0.712%|
-| **mean**               | **4.105% -> 3.946%** | **1.112% -> 0.919%** |
+| case                    | vs Figma             | vs REST walker       |
+| ----------------------- | -------------------- | -------------------- |
+| interior-single-product | 2.497% -> 2.151%     | 0.757% -> 0.390%     |
+| uui-dashboard           | 4.327% -> 4.049%     | 1.564% -> 1.231%     |
+| whitepace               | 3.111% -> 3.019%     | 0.630% -> 0.472%     |
+| uui-landing-mobile      | 7.438% -> 7.381%     | 1.880% -> 1.792%     |
+| uui-pricing             | 3.150% -> 3.130%     | 0.732% -> 0.712%     |
+| **mean**                | **4.105% -> 3.946%** | **1.112% -> 0.919%** |
 
 Every case improved and none regressed; the synthetic fixture frames in
 `fig-fixtures` were unchanged. Walker divergence fell 17.4% relative, which is
