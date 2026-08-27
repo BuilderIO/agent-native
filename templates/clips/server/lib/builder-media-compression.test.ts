@@ -35,10 +35,11 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  BUILDER_ASSETS_WRITE_SCOPE: "builder:assets:write",
   captureRouteError: vi.fn(),
   getRequestOrgId: vi.fn(() => "org-test"),
   resolveSecret: vi.fn(async (key: string) => process.env[key] ?? null),
-  resolveBuilderPrivateKey: vi.fn(async () => "bpk-test"),
+  resolveBuilderApiAuthorization: vi.fn(async () => "Bearer bpk-test"),
   runWithRequestContext: (ctx: unknown, fn: () => unknown) =>
     mockRunWithRequestContext(ctx, fn),
 }));
