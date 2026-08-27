@@ -71,6 +71,7 @@ import {
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
+  resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
@@ -6213,10 +6214,12 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // 12 real calls exhaust the convergence budget; the declines that follow
-    // are bounded by the existing error breaker instead of running to
-    // maxIterations.
-    expect(streamCalls).toBeLessThan(25);
+    // The threshold's worth of real calls exhausts the convergence budget; the
+    // declines that follow are bounded by the existing error breaker instead of
+    // running to maxIterations.
+    expect(streamCalls).toBeLessThan(
+      resolveSourceSweepToolCallThreshold() + 13,
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -6229,7 +6232,8 @@ describe("runAgentLoop", () => {
   });
 
   it("detects repeated read-only source sweeps but ignores ordinary helpers", () => {
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: "gong-calls",
       input: { company: `Account ${i + 1}` },
     }));
@@ -6242,7 +6246,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "gong-calls",
-      priorCalls: 12,
+      priorCalls: threshold,
       message: expect.stringContaining("change strategy"),
     });
 
@@ -6257,7 +6261,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "hubspot-records",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
 
     expect(
@@ -6291,7 +6295,8 @@ describe("runAgentLoop", () => {
       "read-source-file": actionEntry({ readOnly: true }),
       "search-docs": actionEntry({ readOnly: true }),
     };
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: Object.keys(actions)[i % Object.keys(actions).length],
       input: { query: `term-${i + 1}` },
     }));
@@ -6309,14 +6314,14 @@ describe("runAgentLoop", () => {
       shouldGuardRepeatedSourceSweep({
         toolName: "search-docs",
         entry: actions["search-docs"],
-        priorToolCalls: Array.from({ length: 12 }, () => ({
+        priorToolCalls: Array.from({ length: threshold }, () => ({
           name: "search-docs",
           input: {},
         })),
       }),
     ).toMatchObject({
       toolName: "search-docs",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
   });
 
@@ -6442,7 +6447,9 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(gongCalls).toHaveBeenCalledTimes(12);
+    expect(gongCalls).toHaveBeenCalledTimes(
+      resolveSourceSweepToolCallThreshold(),
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -6512,35 +6519,38 @@ describe("runAgentLoop", () => {
     };
     const gongCalls = vi.fn(async () => "should not run");
     const events: any[] = [];
-    const priorToolMessages = Array.from({ length: 12 }, (_, i) => {
-      const input = { company: `Account ${i + 1}` };
-      const toolCallId = `gong-prior-${i + 1}`;
-      return [
-        {
-          role: "assistant" as const,
-          content: [
-            {
-              type: "tool-call" as const,
-              id: toolCallId,
-              name: "gong-calls",
-              input,
-            },
-          ],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool-result" as const,
-              toolCallId,
-              toolName: "gong-calls",
-              toolInput: JSON.stringify(input),
-              content: "no Figma MCP hits",
-            },
-          ],
-        },
-      ];
-    }).flat();
+    const priorToolMessages = Array.from(
+      { length: resolveSourceSweepToolCallThreshold() },
+      (_, i) => {
+        const input = { company: `Account ${i + 1}` };
+        const toolCallId = `gong-prior-${i + 1}`;
+        return [
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool-call" as const,
+                id: toolCallId,
+                name: "gong-calls",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool-result" as const,
+                toolCallId,
+                toolName: "gong-calls",
+                toolInput: JSON.stringify(input),
+                content: "no Figma MCP hits",
+              },
+            ],
+          },
+        ];
+      },
+    ).flat();
 
     await runAgentLoop({
       engine,
