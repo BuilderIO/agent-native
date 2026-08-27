@@ -25,6 +25,14 @@ export const agentConfig = z.object({
       env: ["AGENT_MODEL"],
       doc: "Model the agent runs with, when the caller does not pass one.",
     }),
+  builtInEngines: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_BUILT_IN_ENGINES"],
+      doc: 'Built-in engines to register, e.g. ["ai-sdk:openai"]. Unset registers every built-in.',
+    }),
   mode: z
     .string()
     .min(1)
