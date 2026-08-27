@@ -1432,8 +1432,12 @@ const ptBR = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "Esforço",
+        effortLow: "Baixo",
         effortMedium: "Médio",
         effortMediumShort: "Med",
+        effortHigh: "Alto",
+        pickerSections: "Seções do seletor",
+        pickerBack: "Voltar às seções do seletor",
         composerPlaceholder:
           "Descreva a apresentação que você quer, ou responda às perguntas acima.",
         promptTip: "Dica de prompt",

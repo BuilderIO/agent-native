@@ -1435,8 +1435,12 @@ const esES = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "Esfuerzo",
+        effortLow: "Bajo",
         effortMedium: "Medio",
         effortMediumShort: "Med",
+        effortHigh: "Alto",
+        pickerSections: "Secciones del selector",
+        pickerBack: "Volver a las secciones del selector",
         composerPlaceholder:
           "Describe la presentación que quieres, o responde a las preguntas de arriba.",
         promptTip: "Consejo para el prompt",

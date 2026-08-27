@@ -1437,8 +1437,12 @@ const frFR = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "Effort",
+        effortLow: "Faible",
         effortMedium: "Moyen",
         effortMediumShort: "Med",
+        effortHigh: "Élevé",
+        pickerSections: "Sections du sélecteur",
+        pickerBack: "Retour aux sections du sélecteur",
         composerPlaceholder:
           "Décrivez la présentation que vous voulez, ou répondez aux questions ci-dessus.",
         promptTip: "Astuce pour le prompt",

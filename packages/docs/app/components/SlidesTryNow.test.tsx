@@ -237,30 +237,78 @@ describe("SlidesTryNow", () => {
     expect(generateLink.textContent).toContain("Generate my deck");
   });
 
-  it("offers a local model picker with the compact effort suffix", () => {
+  it("opens the local picker summary without rendering a native select", () => {
     renderSlidesTryNow();
 
-    const modelPicker = screen.getByRole("combobox", {
-      name: /Model: Default model\. Effort: Medium/,
-    });
-    expect(
-      Array.from((modelPicker as HTMLSelectElement).options).map(
-        (option) => option.text,
-      ),
-    ).toEqual([
-      "Default model",
-      "Gemini 3.1 Pro",
-      "GPT-5.6 Luna",
-      "Claude Sonnet 5",
-    ]);
-    expect(screen.getByText("· Med")).toBeTruthy();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(document.querySelector("select")).toBeNull();
 
-    fireEvent.change(modelPicker, { target: { value: "claude-sonnet-5" } });
-    expect(
-      screen.getByRole("combobox", {
-        name: /Model: Claude Sonnet 5\. Effort: Medium/,
+    const trigger = screen.getByRole("button", {
+      name: "Model: Default model. Effort: Medium",
+    });
+    expect(trigger.textContent).toContain("Default model");
+    expect(trigger.textContent).toContain("· Med");
+
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("tab", { name: /^Model/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Effort/ })).toBeTruthy();
+  });
+
+  it("selects a model from the detail section and closes the popover", () => {
+    renderSlidesTryNow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Model: Default model. Effort: Medium",
       }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /^Model/ }));
+
+    expect(
+      screen
+        .getByRole("button", { name: "Default model" })
+        .getAttribute("aria-current"),
+    ).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Claude Sonnet 5" }));
+
+    expect(screen.queryByRole("tabpanel", { name: "Model" })).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Model: Claude Sonnet 5. Effort: Medium",
+      }).textContent,
+    ).toContain("Claude Sonnet 5· Med");
+  });
+
+  it("updates effort accessibility and lets Escape dismiss the picker", () => {
+    renderSlidesTryNow();
+
+    const trigger = screen.getByRole("button", {
+      name: "Model: Default model. Effort: Medium",
+    });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("tab", { name: /^Effort/ }));
+
+    expect(
+      screen
+        .getByRole("button", { name: "Medium" })
+        .getAttribute("aria-current"),
+    ).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Low" }));
+
+    const lowEffortTrigger = screen.getByRole("button", {
+      name: "Model: Default model. Effort: Low",
+    });
+    expect(lowEffortTrigger.textContent).toContain("· Low");
+
+    fireEvent.click(lowEffortTrigger);
+    expect(
+      screen.getByRole("tablist", { name: "Picker sections" }),
     ).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("tablist", { name: "Picker sections" }),
+    ).toBeNull();
   });
 
   it("does not render visible prompt header or tooltip chrome", () => {

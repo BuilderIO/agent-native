@@ -1422,8 +1422,12 @@ const enUS = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "Effort",
+        effortLow: "Low",
         effortMedium: "Medium",
         effortMediumShort: "Med",
+        effortHigh: "High",
+        pickerSections: "Picker sections",
+        pickerBack: "Back to picker sections",
         composerPlaceholder:
           "Describe the deck you want, or answer the questions above.",
         promptTip: "Prompt tip",

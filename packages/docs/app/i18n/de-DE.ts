@@ -1439,8 +1439,12 @@ const deDE = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "Aufwand",
+        effortLow: "Niedrig",
         effortMedium: "Mittel",
         effortMediumShort: "Med",
+        effortHigh: "Hoch",
+        pickerSections: "Auswahlbereiche",
+        pickerBack: "Zurück zu den Auswahlbereichen",
         composerPlaceholder:
           "Beschreiben Sie die gewünschte Präsentation oder beantworten Sie die Fragen oben.",
         promptTip: "Prompt-Tipp",

@@ -1417,8 +1417,12 @@ const jaJP = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "エフォート",
+        effortLow: "低",
         effortMedium: "中",
         effortMediumShort: "Med",
+        effortHigh: "高",
+        pickerSections: "ピッカーセクション",
+        pickerBack: "ピッカーセクションに戻る",
         composerPlaceholder:
           "作りたいデッキを説明するか、上の質問に答えてください。",
         promptTip: "プロンプトのヒント",

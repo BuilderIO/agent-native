@@ -1406,8 +1406,12 @@ const arSA = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "الجهد",
+        effortLow: "منخفض",
         effortMedium: "متوسط",
         effortMediumShort: "Med",
+        effortHigh: "مرتفع",
+        pickerSections: "أقسام أداة الاختيار",
+        pickerBack: "العودة إلى أقسام أداة الاختيار",
         composerPlaceholder:
           "صف العرض التقديمي الذي تريده، أو أجب عن الأسئلة أعلاه.",
         promptTip: "تلميح حول المطالبة",

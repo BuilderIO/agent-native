@@ -1,13 +1,24 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowRight, IconChevronDown, IconPlus } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconArrowRight,
+  IconCheck,
+  IconChevronDown,
+  IconChevronRight,
+  IconPlus,
+} from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { trackEvent } from "./TemplateCard";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 export const PROMPT_TYPE_INTERVAL_MS = 24;
 export const PROMPT_DELETE_INTERVAL_MS = 12;
 export const PROMPT_HOLD_MS = 2_000;
+
+type PickerSection = "model" | "effort";
+type Effort = "low" | "medium" | "high";
 
 export function extractPromptText(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -44,6 +55,11 @@ export function SlidesTryNow() {
   const animatedPrompts = animatedPromptsRef.current;
   const [promptText, setPromptText] = useState("");
   const [selectedModel, setSelectedModel] = useState("default");
+  const [selectedEffort, setSelectedEffort] = useState<Effort>("medium");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSection, setPickerSection] = useState<PickerSection | null>(
+    null,
+  );
   const promptRef = useRef<HTMLParagraphElement>(null);
   const animationStoppedRef = useRef(false);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,9 +70,30 @@ export function SlidesTryNow() {
     { value: "gpt-5.6-luna", label: tn("modelGpt") },
     { value: "claude-sonnet-5", label: tn("modelClaude") },
   ];
+  const effortOptions: Array<{
+    value: Effort;
+    label: string;
+    shortLabel: string;
+  }> = [
+    { value: "low", label: tn("effortLow"), shortLabel: tn("effortLow") },
+    {
+      value: "medium",
+      label: tn("effortMedium"),
+      shortLabel: tn("effortMediumShort"),
+    },
+    { value: "high", label: tn("effortHigh"), shortLabel: tn("effortHigh") },
+  ];
   const selectedModelLabel =
     modelOptions.find((option) => option.value === selectedModel)?.label ??
     modelOptions[0].label;
+  const selectedEffortOption =
+    effortOptions.find((option) => option.value === selectedEffort) ??
+    effortOptions[1];
+
+  const setPickerOpenState = (open: boolean) => {
+    setPickerOpen(open);
+    if (!open) setPickerSection(null);
+  };
 
   const stopPromptAnimation = () => {
     animationStoppedRef.current = true;
@@ -177,29 +214,148 @@ export function SlidesTryNow() {
             <IconPlus aria-hidden="true" size={16} />
           </a>
           <div className="min-w-0 flex-1" />
-          <label className="flex h-7 min-w-0 max-w-[10.5rem] items-center gap-1 rounded-md px-2 text-xs font-medium text-[var(--fg-secondary)] transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-within:ring-2 focus-within:ring-[var(--docs-accent)]">
-            <span className="sr-only">{tn("modelLabel")}</span>
-            <select
-              value={selectedModel}
-              aria-label={`${tn("modelLabel")}: ${selectedModelLabel}. ${tn("effortLabel")}: ${tn("effortMedium")}`}
-              onChange={(event) => setSelectedModel(event.currentTarget.value)}
-              className="min-w-0 flex-1 cursor-pointer appearance-none truncate bg-transparent text-xs font-medium outline-none"
+          <Popover open={pickerOpen} onOpenChange={setPickerOpenState}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${tn("modelLabel")}: ${selectedModelLabel}. ${tn("effortLabel")}: ${selectedEffortOption.label}`}
+                className="flex h-7 min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 text-xs font-medium text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
+              >
+                <span className="min-w-0 truncate">{selectedModelLabel}</span>
+                <span className="min-w-0 shrink truncate opacity-70">
+                  · {selectedEffortOption.shortLabel}
+                </span>
+                <IconChevronDown
+                  aria-hidden="true"
+                  className="size-3 shrink-0 opacity-60"
+                />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="end"
+              sideOffset={6}
+              collisionPadding={8}
+              onOpenAutoFocus={(event) => event.preventDefault()}
+              aria-label={tn("pickerSections")}
+              className="w-[min(15rem,calc(100vw-1rem))] border-[var(--docs-border)] bg-[var(--bg-secondary)] p-1 text-[var(--fg)]"
             >
-              {modelOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <span className="shrink-0 text-[var(--fg-secondary)] opacity-70">
-              · {tn("effortMediumShort")}
-            </span>
-            <IconChevronDown
-              aria-hidden="true"
-              className="shrink-0 opacity-60"
-              size={12}
-            />
-          </label>
+              {pickerSection === null ? (
+                <div
+                  className="flex flex-col"
+                  role="tablist"
+                  aria-label={tn("pickerSections")}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    onClick={() => setPickerSection("model")}
+                    onFocus={() => setPickerSection("model")}
+                    onMouseEnter={() => setPickerSection("model")}
+                    className="flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
+                  >
+                    <span className="shrink-0 text-xs font-medium">
+                      {tn("modelLabel")}
+                    </span>
+                    <span className="ms-auto min-w-0 max-w-24 truncate text-end text-[11px] opacity-80">
+                      {selectedModelLabel}
+                    </span>
+                    <IconChevronRight
+                      aria-hidden="true"
+                      className="size-3 shrink-0 opacity-60 rtl:-scale-x-100"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    onClick={() => setPickerSection("effort")}
+                    onFocus={() => setPickerSection("effort")}
+                    onMouseEnter={() => setPickerSection("effort")}
+                    className="flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
+                  >
+                    <span className="shrink-0 text-xs font-medium">
+                      {tn("effortLabel")}
+                    </span>
+                    <span className="ms-auto min-w-0 max-w-24 truncate text-end text-[11px] opacity-80">
+                      {selectedEffortOption.label}
+                    </span>
+                    <IconChevronRight
+                      aria-hidden="true"
+                      className="size-3 shrink-0 opacity-60 rtl:-scale-x-100"
+                    />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  role="tabpanel"
+                  aria-label={
+                    pickerSection === "model"
+                      ? tn("modelLabel")
+                      : tn("effortLabel")
+                  }
+                >
+                  <div className="flex items-center gap-1 px-1 pb-1">
+                    <button
+                      type="button"
+                      aria-label={tn("pickerBack")}
+                      onClick={() => setPickerSection(null)}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
+                    >
+                      <IconArrowLeft
+                        aria-hidden="true"
+                        className="size-3.5 rtl:-scale-x-100"
+                      />
+                    </button>
+                    <span className="truncate text-xs font-medium">
+                      {pickerSection === "model"
+                        ? tn("modelLabel")
+                        : tn("effortLabel")}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    {(pickerSection === "model"
+                      ? modelOptions
+                      : effortOptions
+                    ).map((option) => {
+                      const isSelected =
+                        pickerSection === "model"
+                          ? option.value === selectedModel
+                          : option.value === selectedEffort;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-current={isSelected ? "true" : undefined}
+                          onClick={() => {
+                            if (pickerSection === "model") {
+                              setSelectedModel(option.value);
+                            } else {
+                              setSelectedEffort(option.value as Effort);
+                            }
+                            setPickerOpenState(false);
+                          }}
+                          className="flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-xs">
+                            {option.label}
+                          </span>
+                          {isSelected ? (
+                            <IconCheck
+                              aria-hidden="true"
+                              className="size-4 shrink-0 text-[var(--docs-accent)]"
+                            />
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
           <a
             href={promptHref}
             target="_blank"

@@ -1421,8 +1421,12 @@ const hiIN = {
         modelGpt: "GPT-5.6 Luna",
         modelClaude: "Claude Sonnet 5",
         effortLabel: "प्रयास",
+        effortLow: "कम",
         effortMedium: "मध्यम",
         effortMediumShort: "Med",
+        effortHigh: "ज़्यादा",
+        pickerSections: "पिकर अनुभाग",
+        pickerBack: "पिकर अनुभागों पर वापस जाएँ",
         composerPlaceholder:
           "आप जो डेक चाहते हैं उसका वर्णन करें, या ऊपर दिए सवालों के जवाब दें।",
         promptTip: "प्रॉम्प्ट टिप",
