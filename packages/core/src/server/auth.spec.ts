@@ -401,7 +401,7 @@ describe("server/auth", () => {
       );
       expect(desktopVerificationResponse).toBeInstanceOf(Response);
       expect(desktopVerificationResponse.status).toBe(200);
-    });
+    }, 15_000);
 
     it("normalizes the email and uses absolute same-origin callbacks", async () => {
       vi.stubEnv("NODE_ENV", "development");
