@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { setRequestCookie } from "better-auth/cookies";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
@@ -1171,12 +1172,19 @@ export async function getBetterAuthInternalAdapter(
  * Run a password action with a Better Auth session for the framework's legacy
  * session boundary, deleting a session created only for this operation.
  */
+type BetterAuthActionSessionOverrides = {
+  auth?: BetterAuthInstance;
+  createSession?: typeof createBetterAuthSessionForEmail;
+  adapter?: BetterAuthInternalAdapter;
+};
+
 export async function withBetterAuthActionSession<T>(
   email: string,
   requestHeaders: Headers,
   action: (headers: Headers) => Promise<T>,
+  overrides?: BetterAuthActionSessionOverrides,
 ): Promise<T> {
-  const auth = await getBetterAuth();
+  const auth = overrides?.auth ?? (await getBetterAuth());
   const existingSession = await auth.api.getSession({
     headers: requestHeaders,
   });
@@ -1190,19 +1198,51 @@ export async function withBetterAuthActionSession<T>(
     return action(new Headers(requestHeaders));
   }
 
-  const session = await createBetterAuthSessionForEmail(email);
+  const session = overrides?.createSession
+    ? await overrides.createSession(email)
+    : await createBetterAuthSessionForEmail(email);
   if (!session) throw new Error("Better Auth session is unavailable.");
 
-  const headers = new Headers(requestHeaders);
-  headers.set("authorization", `Bearer ${session.token}`);
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown };
   try {
-    return await action(headers);
-  } finally {
-    const adapter = await getBetterAuthInternalAdapter();
+    const headers = new Headers(requestHeaders);
+    const authContext = await (
+      auth as unknown as {
+        $context: Promise<{
+          authCookies: { sessionToken: { name: string } };
+          secret: string;
+        }>;
+      }
+    ).$context;
+    const signature = crypto
+      .createHmac("sha256", authContext.secret)
+      .update(session.token)
+      .digest("base64");
+    setRequestCookie(
+      headers,
+      authContext.authCookies.sessionToken.name,
+      `${session.token}.${signature}`,
+    );
+    outcome = { ok: true, value: await action(headers) };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+
+  try {
+    const adapter =
+      overrides?.adapter ?? (await getBetterAuthInternalAdapter());
     if (!adapter)
       throw new Error("Better Auth session cleanup is unavailable.");
     await adapter.deleteSession(session.token);
+  } catch (error) {
+    console.error(
+      "[auth] failed to delete temporary Better Auth session",
+      error,
+    );
   }
+
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
 }
 
 /** Create a real Better Auth session for an existing user without credentials. */

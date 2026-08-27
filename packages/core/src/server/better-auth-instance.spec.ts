@@ -1,3 +1,4 @@
+import { getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
@@ -6,6 +7,7 @@ import {
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
+  withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
@@ -399,5 +401,159 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     ).rejects.toThrow("unverified email/password identity");
     expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("withBetterAuthActionSession", () => {
+  const authContext = {
+    authCookies: { sessionToken: { name: "better-auth.session_token" } },
+    secret: "better-auth-action-session-test-secret",
+  };
+
+  function authFor(getSession: ReturnType<typeof vi.fn>): {
+    api: { getSession: ReturnType<typeof vi.fn> };
+    $context: Promise<unknown>;
+  } {
+    return {
+      api: { getSession },
+      $context: Promise.resolve(authContext),
+    };
+  }
+
+  function adapterFor(deleteSession: ReturnType<typeof vi.fn>) {
+    return { deleteSession } as any;
+  }
+
+  it("reuses an existing Better Auth session and rejects identity mismatches", async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      user: { email: "Alice@Example.com" },
+    });
+    const action = vi.fn(async (headers: Headers) => headers);
+    const createSession = vi.fn();
+    const deleteSession = vi.fn();
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers({ cookie: "an_session=legacy-session" }),
+        action,
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual(new Headers({ cookie: "an_session=legacy-session" }));
+    expect(createSession).not.toHaveBeenCalled();
+    expect(deleteSession).not.toHaveBeenCalled();
+
+    getSession.mockResolvedValue({ user: { email: "other@example.com" } });
+    await expect(
+      withBetterAuthActionSession("alice@example.com", new Headers(), action, {
+        auth: authFor(getSession) as any,
+      }),
+    ).rejects.toThrow("Authenticated user mismatch");
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("bridges a legacy session through the real Better Auth password endpoint", async () => {
+    const instance = await getTestInstance(
+      {
+        emailAndPassword: {
+          enabled: true,
+          requireEmailVerification: false,
+        },
+      },
+      {
+        testUser: {
+          email: "bridge@example.com",
+          name: "Bridge User",
+          password: "old-password",
+        },
+      },
+    );
+    const internalAdapter = (await instance.auth.$context).internalAdapter;
+    const deleteSession = vi.fn(async (token: string) =>
+      internalAdapter.deleteSession(token),
+    );
+    const adapter = { ...internalAdapter, deleteSession } as any;
+    const createSession = async (email: string) => {
+      const existing = await adapter.findUserByEmail(email, {
+        includeAccounts: false,
+      });
+      if (!existing) return null;
+      const session = await adapter.createSession(existing.user.id);
+      return {
+        email: existing.user.email,
+        token: session.token,
+        userId: existing.user.id,
+      };
+    };
+
+    const result = await withBetterAuthActionSession(
+      "bridge@example.com",
+      new Headers({ cookie: "an_session=legacy-session" }),
+      (headers) =>
+        instance.auth.api.changePassword({
+          body: {
+            currentPassword: "old-password",
+            newPassword: "new-password",
+          },
+          headers,
+        }),
+      {
+        auth: instance.auth as any,
+        createSession,
+        adapter,
+      },
+    );
+
+    expect(result).toMatchObject({ user: { email: "bridge@example.com" } });
+    expect(deleteSession).toHaveBeenCalledOnce();
+  });
+
+  it("preserves action outcomes when temporary-session cleanup fails", async () => {
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const cleanupError = new Error("cleanup failed");
+    const deleteSession = vi.fn().mockRejectedValue(cleanupError);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+    expect(log).toHaveBeenCalled();
+
+    const actionError = new Error("invalid password");
+    deleteSession.mockRejectedValueOnce(cleanupError);
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => {
+          throw actionError;
+        },
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).rejects.toBe(actionError);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
   });
 });

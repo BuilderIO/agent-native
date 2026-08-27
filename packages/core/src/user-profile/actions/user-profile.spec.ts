@@ -242,7 +242,10 @@ describe("user profile actions", () => {
       cookie: "an_session=legacy-session",
     });
     const betterAuthHeaders = new Headers(frameworkHeaders);
-    betterAuthHeaders.set("authorization", "Bearer better-auth-session");
+    betterAuthHeaders.set(
+      "cookie",
+      "an_session=legacy-session; better-auth.session_token=signed-session",
+    );
     withBetterAuthActionSessionMock.mockImplementation(
       (
         _email: string,
@@ -276,7 +279,7 @@ describe("user profile actions", () => {
   it("cleans up a bridged session when password change fails", async () => {
     const cleanup = vi.fn().mockResolvedValue(undefined);
     const betterAuthHeaders = new Headers({
-      authorization: "Bearer better-auth-session",
+      cookie: "better-auth.session_token=signed-session",
     });
     withBetterAuthActionSessionMock.mockImplementation(
       async (
