@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Resolve version
         id: v
@@ -109,8 +109,24 @@ jobs:
         shell: bash
         run: |
           TAG="v${{ needs.resolve-version.outputs.version }}"
+          get_tag_sha() {
+            local ref_json object_type object_sha
+            ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1")
+            object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
+            object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
+            if [ "$object_type" = "tag" ]; then
+              gh api "repos/${GITHUB_REPOSITORY}/git/tags/$object_sha" --jq '.object.sha'
+            else
+              printf '%s\n' "$object_sha"
+            fi
+          }
           if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; build jobs will upload to it."
+            EXISTING_TAG_SHA=$(get_tag_sha "$TAG")
+            if [ "$EXISTING_TAG_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
+              echo "::error::Existing release $TAG points to $EXISTING_TAG_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
+              exit 1
+            fi
+            echo "Release $TAG already exists at the coordinated source; build jobs will upload to it."
           elif [ "$RELEASE_CHANNEL" = "nightly" ]; then
             gh release create "$TAG" \
               --draft \

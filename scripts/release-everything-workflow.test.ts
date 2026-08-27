@@ -102,6 +102,22 @@ describe("release everything workflow", () => {
   it("checks out the coordinated release commit for desktop builds", () => {
     const desktopSource = JSON.stringify(desktopWorkflow);
     const clipsSource = JSON.stringify(clipsWorkflow);
+    const desktopSourceText = readFileSync(
+      ".github/workflows/desktop-release.yml",
+      "utf8",
+    );
+    const clipsSourceText = readFileSync(
+      ".github/workflows/clips-desktop-release.yml",
+      "utf8",
+    );
+    assert.match(
+      desktopSourceText,
+      /ref: \$\{\{ inputs\.source_ref \|\| github\.sha \}\}/,
+    );
+    assert.match(desktopSourceText, /get_tag_sha\(\)/);
+    assert.match(desktopSourceText, /EXISTING_TAG_SHA.*needs\.resolve-version/);
+    assert.match(clipsSourceText, /get_tag_sha\(\)/);
+    assert.match(clipsSourceText, /EXISTING_TAG_SHA.*RELEASE_SOURCE_REF/);
     assert.match(desktopSource, /source_ref.*steps\.v\.outputs\.source_ref/);
     assert.match(desktopSource, /full 40-character commit SHA/);
     assert.match(desktopSource, /needs\.resolve-version\.outputs\.source_ref/);
