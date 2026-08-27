@@ -2028,6 +2028,364 @@ describe("Builder MDX conversion", () => {
     });
   });
 
+  it("keeps a compact two-word edit semantic across readable block boundaries", async () => {
+    const blocks = [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "heading-1",
+        component: {
+          name: "Text",
+          options: { text: "<h2>BS-QA-R40</h2>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "paragraph-1",
+        component: {
+          name: "Text",
+          options: { text: "<p>R40 rich fixture paragraph.</p>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "list-1",
+        component: {
+          name: "Text",
+          options: { text: "<ul><li>One</li><li>Two</li></ul>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "code-1",
+        component: {
+          name: "Code Block",
+          options: { code: "const answer = 42;", language: "ts" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "embed-1",
+        component: {
+          name: "Embed",
+          options: { url: "https://example.com/embed" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "quote-1",
+        component: {
+          name: "Text",
+          options: { text: "<blockquote><p>A quote.</p></blockquote>" },
+        },
+      },
+    ];
+    const article: BuilderContentEntry = {
+      id: "article-compact-two-word-edit",
+      model: "blog-article",
+      name: "Article Compact Two Word Edit",
+      data: { title: "Article Compact Two Word Edit", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace(/\n\n/g, "\n")
+        .replace("rich fixture", "semantic sample"),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(
+      result.blocks?.map((block) => (block as { id?: string }).id),
+    ).toEqual(blocks.map((block) => block.id));
+    expect(result.blocks?.[1]).toMatchObject({
+      component: {
+        name: "Text",
+        options: { text: "<p>R40 semantic sample paragraph.</p>" },
+      },
+    });
+    expect(result.blocks?.[0]).toEqual(lossless.blocks[0]);
+    expect(result.blocks?.[2]).toEqual(lossless.blocks[2]);
+    expect(result.blocks?.[3]).toEqual(lossless.blocks[3]);
+    expect(result.blocks?.[4]).toEqual(lossless.blocks[4]);
+    expect(result.blocks?.[5]).toEqual(lossless.blocks[5]);
+  });
+
+  it.each([
+    ["heading", "## Heading", "Heading"],
+    ["list", "- One\n- Two", "One\nTwo"],
+    ["quote", "> A quote.", "A quote."],
+    ["fence", "```ts\nconst answer = 42;\n```", "const answer = 42;"],
+  ])("rejects a real %s node-kind change", async (_kind, before, after) => {
+    const blocks = [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "heading-1",
+        component: { name: "Text", options: { text: "<h2>Heading</h2>" } },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "list-1",
+        component: {
+          name: "Text",
+          options: { text: "<ul><li>One</li><li>Two</li></ul>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "quote-1",
+        component: {
+          name: "Text",
+          options: { text: "<blockquote><p>A quote.</p></blockquote>" },
+        },
+      },
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "code-1",
+        component: {
+          name: "Code Block",
+          options: { code: "const answer = 42;", language: "ts" },
+        },
+      },
+    ];
+    const article: BuilderContentEntry = {
+      id: `article-real-${_kind}-change`,
+      model: "blog-article",
+      data: { title: "Article Real Structure Change", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(before, after),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved or restructured");
+  });
+
+  it("rejects movement between same-kind editable nodes", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-same-kind-move",
+      model: "blog-article",
+      data: {
+        title: "Article Same-kind Move",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: { text: "<p>First unique paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-2",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second unique paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(
+        "First unique paragraph.\n\nSecond unique paragraph.",
+        "Second unique paragraph.\n\nFirst unique paragraph.",
+      ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved existing semantic blocks");
+  });
+
+  it("rejects ambiguous movement when same-kind editable nodes are also edited", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-same-kind-move-and-edit",
+      model: "blog-article",
+      data: {
+        title: "Article Same-kind Move and Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: { text: "<p>First unique paragraph.</p>" },
+            },
+          },
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-2",
+            component: {
+              name: "Text",
+              options: { text: "<p>Second unique paragraph.</p>" },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body.replace(
+        "First unique paragraph.\n\nSecond unique paragraph.",
+        "Second revised paragraph.\n\nFirst revised paragraph.",
+      ),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("moved existing semantic blocks");
+  });
+
+  it("allows multiple paragraph edits within one Builder Text segment", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-multi-paragraph-text-edit",
+      model: "blog-article",
+      data: {
+        title: "Article Multi-paragraph Text Edit",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-1",
+            component: {
+              name: "Text",
+              options: {
+                text: "<p>First paragraph.</p><p>Second paragraph.</p>",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body
+        .replace("First paragraph.", "First paragraph revised.")
+        .replace("Second paragraph.", "Second paragraph revised."),
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks?.[0]).toMatchObject({
+      id: "text-1",
+      component: {
+        name: "Text",
+        options: {
+          text: expect.stringContaining("Second paragraph revised."),
+        },
+      },
+    });
+  });
+
+  it("returns a validation warning for MDX-sensitive readable prose", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-mdx-sensitive-prose",
+      model: "blog-article",
+      data: {
+        title: "Article MDX-sensitive Prose",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "paragraph-1",
+            component: {
+              name: "Text",
+              options: {
+                text: "<p>Values like &lt;5 and {draft} remain prose.</p>",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.blocks).toBeNull();
+    expect(result.warnings[0]).toContain("cannot be parsed safely as MDX");
+  });
+
   it("blocks readable merge when a source component marker is moved", async () => {
     const article: BuilderContentEntry = {
       id: "article-marker-move",
