@@ -1184,6 +1184,7 @@ export function buildBuilderCliAuthUrl(
     "preview_url",
     `${normalizedPreviewOrigin}${appBasePath}`,
   );
+  url.searchParams.set("cli", "true");
   url.searchParams.set("framework", "agent-native");
   applyBuilderConnectTrackingParams(url.searchParams, tracking);
   applyBuilderUtmTrackingParams(url.searchParams, {
