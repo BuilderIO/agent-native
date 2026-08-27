@@ -213,7 +213,7 @@ export const CHAT_FAILURE_PATTERNS: RegExp[] = [
   /ERROR ID:/i,
   /we ran into an issue processing your request/i,
   /provider_internal_error/i,
-  /The saved provider key was rejected/i,
+  /rejected the credential used for this request/i,
   /Builder rejected the connected credentials/i,
   /Missing Authentication header/i,
   /Authentication is still initializing/i,

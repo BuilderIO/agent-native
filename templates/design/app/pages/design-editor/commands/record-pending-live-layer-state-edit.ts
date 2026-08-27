@@ -14,7 +14,6 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { runtimeMultiplicityForElementProvenance } from "@/pages/design-editor/editor-helpers";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
-import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
 import type {
   PendingLiveLayerStateEdit,
   PendingLiveNonStyleEdit,
@@ -22,7 +21,8 @@ import type {
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
-  mergePendingLiveNonStyleEdits,
+  appendPendingLiveNonStyleUndoEntry,
+  mergePendingLiveNonStyleEdit,
   pendingLiveLayerStateUndoRevertValue,
   reactSourceAnchorForPendingEdit,
   resolveOverviewScreenSourceType,
@@ -130,18 +130,17 @@ export function runRecordPendingLiveLayerStateEdit(
   pendingLiveNonStyleRedoStackRef.current = [];
   pendingVisualStyleRedoStackRef.current = [];
   clipboardPasteRedoStackRef.current = [];
-  pendingLiveNonStyleUndoStackRef.current = [
-    ...pendingLiveNonStyleUndoStackRef.current.slice(
-      -(MAX_DESIGN_UNDO_STACK - 1),
-    ),
-    {
-      kind: "layer-state",
-      edit: nextEdit,
-      revertEnabled,
-    },
-  ];
-  const nextPending = mergePendingLiveNonStyleEdits(
-    pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
+  // stay painted until Apply, so sharing that cap silently drops them from
+  // the Apply payload.
+  appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
+    kind: "layer-state",
+    edit: nextEdit,
+    revertEnabled,
+  });
+  const nextPending = mergePendingLiveNonStyleEdit(
+    pendingLiveNonStyleEditsRef.current,
+    nextEdit,
   );
   pendingLiveNonStyleEditsRef.current = nextPending;
   setPendingLiveNonStyleEdits(nextPending);
