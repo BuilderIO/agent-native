@@ -1176,6 +1176,72 @@ describe("auto line height", () => {
   });
 });
 
+describe("fill container against the node's own sizing", () => {
+  // Figma treats "hug contents" and "fill container" as mutually exclusive on
+  // an axis, so a node carrying both has a stale `stackChildAlignSelf`. CSS
+  // honours both and the stretch wins, pinning a box Figma lets grow.
+  const stack = (childPrimarySizing: string | undefined) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 110, {
+        type: "FRAME",
+        name: "Desktop",
+        stackMode: "HORIZONTAL",
+        stackPrimarySizing: "FIXED",
+        size: { x: 1440, y: 960 },
+      }),
+    );
+    (doc.nodeChanges as Array<Record<string, unknown>>).push({
+      guid: { sessionID: 1, localID: 111 },
+      parentIndex: { guid: { sessionID: 1, localID: 110 }, position: "a" },
+      type: "FRAME",
+      name: "Main",
+      stackMode: "VERTICAL",
+      stackPrimarySizing: childPrimarySizing,
+      stackChildPrimaryGrow: 1,
+      stackChildAlignSelf: "STRETCH",
+      size: { x: 1128, y: 1066 },
+      transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+    });
+    return doc;
+  };
+
+  it("drops a stretch on an axis the child hugs", () => {
+    // `stackPrimarySizing` absent means HUG on this VERTICAL child's own axis.
+    const html = renderFrame(stack(undefined));
+    expect(html).not.toContain("align-self: stretch");
+  });
+
+  it("keeps the stretch when the child does not hug that axis", () => {
+    expect(renderFrame(stack("FIXED"))).toContain("align-self: stretch");
+  });
+
+  it("keeps a FILL child at its own size when the parent hugs the same axis", () => {
+    // Nothing to fill: Figma falls back to the child's size, while CSS
+    // resolves parent-sizes-to-child / child-fills-parent down to the content.
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 120, {
+        type: "FRAME",
+        name: "Column",
+        stackMode: "VERTICAL",
+        stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE",
+        size: { x: 121, y: 100 },
+      }),
+    );
+    (doc.nodeChanges as Array<Record<string, unknown>>).push({
+      guid: { sessionID: 1, localID: 121 },
+      parentIndex: { guid: { sessionID: 1, localID: 120 }, position: "a" },
+      type: "FRAME",
+      name: "Table cell",
+      stackChildAlignSelf: "STRETCH",
+      size: { x: 121, y: 44 },
+      transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+    });
+    expect(renderFrame(doc)).toContain("width: 121px");
+  });
+});
+
 describe("a wrapping auto-layout stack", () => {
   // Figma keeps the gap BETWEEN wrapped lines in its own field, separate from
   // the gap between items. Ignoring `stackWrap` kept a 380x54 two-line tag row
@@ -1320,7 +1386,8 @@ describe("diamond gradients", () => {
     const html = renderFrame(diamond());
     const images = /background-image: ([^;]+);/.exec(html)?.[1] ?? "";
     // CSS lists topmost first, so the flat clamp must be LAST.
-    expect(images.split(/,(?![^(]*\))/).at(-1)).toContain("rgb(0, 0, 128)");
+    const layers = images.split(/,(?![^(]*\))/);
+    expect(layers[layers.length - 1]).toContain("rgb(0, 0, 128)");
   });
 });
 

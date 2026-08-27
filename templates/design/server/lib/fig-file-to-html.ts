@@ -1956,12 +1956,30 @@ function layoutSizing(
   ) {
     const grow = (node.stackChildPrimaryGrow ?? 0) > 0;
     const stretch = node.stackChildAlignSelf === "STRETCH";
+    // A FILL child inside a parent that HUGS the same axis has nothing to
+    // fill, and Figma falls back to the child's own size. CSS instead resolves
+    // the circle — parent sizes to child, child stretches to parent — down to
+    // the content. A dashboard's table cells are a FIXED 121 wide and stretch
+    // inside a hugging column: the column came out 103, its text's width, and
+    // took all eight cells with it. `layoutSizing(parent, null)` is the
+    // parent's OWN sizing, which is exactly the question being asked.
+    const parentSelf = layoutSizing(parent, null);
+    // The node's OWN hug wins over the parent's stretch. Figma treats "hug
+    // contents" and "fill container" as mutually exclusive on an axis, so a
+    // node carrying both has a stale `stackChildAlignSelf` from an earlier
+    // state — and honouring the stale one pins a frame that should grow. A
+    // dashboard's main column hugs its 1066px of content inside a 960px
+    // frame; stretching it cut 106px off the bottom.
     if (parent.stackMode === "HORIZONTAL") {
-      if (grow) horizontal = "FILL";
-      if (stretch) vertical = "FILL";
+      if (grow && parentSelf.horizontal !== "HUG" && horizontal !== "HUG")
+        horizontal = "FILL";
+      if (stretch && parentSelf.vertical !== "HUG" && vertical !== "HUG")
+        vertical = "FILL";
     } else {
-      if (grow) vertical = "FILL";
-      if (stretch) horizontal = "FILL";
+      if (grow && parentSelf.vertical !== "HUG" && vertical !== "HUG")
+        vertical = "FILL";
+      if (stretch && parentSelf.horizontal !== "HUG" && horizontal !== "HUG")
+        horizontal = "FILL";
     }
   }
 
@@ -2189,9 +2207,6 @@ function buildCss(
   // REST walker does. Figma rounds these to whole pixels and lays the siblings
   // out against the rounded number, and where our advances differ by a hair a
   // line wraps on one side and not the other — a 40px two-line label came out
-  // 20px and pulled everything under it up. As a MINIMUM on an axis the text
-  // can still grow along; text hugging BOTH axes cannot wrap, so its height is
-  // fixed by the break characters and is taken outright.
   // A hugging TEXT box takes the size Figma resolved for it as a MINIMUM, the
   // same way the REST walker does: Figma rounds these to whole pixels and lays
   // the siblings out against the rounded number, and where our advances differ
@@ -2296,10 +2311,22 @@ function buildCss(
     }
     if (node.stackChildAlignSelf) {
       const a = STACK_ALIGN[node.stackChildAlignSelf];
-      if (a)
-        css.alignSelf = node.stackChildAlignSelf === "STRETCH" ? "stretch" : a;
-      else if (node.stackChildAlignSelf === "STRETCH")
-        css.alignSelf = "stretch";
+      // STRETCH is dropped on an axis this node HUGS. Figma treats "hug
+      // contents" and "fill container" as mutually exclusive, so a node
+      // carrying both has a stale `stackChildAlignSelf` from an earlier state
+      // — and `align-self: stretch` pins the box where Figma lets it grow. A
+      // dashboard's main column hugs 1066px of content inside a 960px frame,
+      // and stretching it cut 106px off the bottom. The derived sizing above
+      // already knows which axis that is.
+      const stretchAxisHugs =
+        parent?.stackMode === "HORIZONTAL"
+          ? sizing.vertical === "HUG"
+          : sizing.horizontal === "HUG";
+      if (node.stackChildAlignSelf === "STRETCH") {
+        if (!stretchAxisHugs) css.alignSelf = "stretch";
+      } else if (a) {
+        css.alignSelf = a;
+      }
     }
   }
 
