@@ -495,3 +495,119 @@ describe("a rotated auto-layout child occupies its rotated footprint", () => {
     expect(html).not.toContain("margin-top");
   });
 });
+
+describe("a HUG container holding a cross-axis FILL child", () => {
+  // A FILL child does not feed Figma's hug: Figma sizes the container from its
+  // other children, then stretches the FILL child to that. CSS has no such
+  // rule — `align-self: stretch` with `width: auto` still feeds the child's
+  // max-content into the container's shrink-to-fit width. A Positivus team
+  // card holds a FILL row with 76px of right padding, so the column hugged
+  // 393px where Figma hugs 317 and every sibling moved with it.
+  function card(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Card",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 387, 331),
+      layoutMode: "VERTICAL",
+      layoutSizingHorizontal: "FIXED",
+      paddingLeft: 35,
+      paddingRight: 35,
+      children: [
+        {
+          id: "1:2",
+          name: "Content",
+          type: "FRAME",
+          absoluteBoundingBox: box(35, 0, 317, 251),
+          layoutMode: "VERTICAL",
+          layoutSizingHorizontal: "HUG",
+          children: [
+            {
+              id: "1:3",
+              name: "Person",
+              type: "FRAME",
+              absoluteBoundingBox: box(35, 0, 317, 103),
+              layoutMode: "HORIZONTAL",
+              layoutSizingHorizontal: "FILL",
+              paddingRight: 76,
+            },
+          ],
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("uses the width Figma resolved rather than hugging max-content", () => {
+    const { html } = mapFigmaNodeToHtml(card(), {});
+    expect(html).toContain("width: 317px");
+  });
+
+  it("still hugs when no child fills the cross axis", () => {
+    const node = card();
+    node.children![0]!.children![0]!.layoutSizingHorizontal = "FIXED";
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("width: auto");
+  });
+});
+
+describe("zero-thickness lines", () => {
+  // A LINE has no thickness by definition. Requiring both dimensions to be
+  // positive pushed every rotated rule onto the absoluteBoundingBox fallback,
+  // whose box is the ALREADY-ROTATED one — rotating that again squared the
+  // turn and drew a 216x205 diagonal where Figma draws 126x176.
+  it("places a rotated rule from its own size, not the rotated bounding box", () => {
+    const node = {
+      id: "1:1",
+      name: "Element",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 400, 300),
+      children: [
+        {
+          id: "1:2",
+          name: "Line 4",
+          type: "LINE",
+          absoluteBoundingBox: box(160, 72, 126, 176),
+          size: { x: 216, y: 0 },
+          relativeTransform: [
+            [0.5828, -0.8126, 160],
+            [0.8126, 0.5828, 72],
+          ],
+          rotation: 0.948,
+          strokes: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 } }],
+          strokeWeight: 3,
+          strokeGeometry: [{ path: "M0 0L216 0", windingRule: "NONZERO" }],
+        },
+      ],
+    } as FigmaNode;
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("width: 216px");
+    expect(html).not.toContain("width: 126px");
+  });
+});
+
+describe("a FILL child may shrink below its content", () => {
+  // `min-width` defaults to `auto` on a flex item, which refuses to shrink
+  // past the content. Figma's FILL just takes the parent's width and lets the
+  // content overflow.
+  it("emits min-width: 0 alongside flex-grow", () => {
+    const node = {
+      id: "1:1",
+      name: "Row",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 317, 103),
+      layoutMode: "HORIZONTAL",
+      children: [
+        {
+          id: "1:2",
+          name: "Wide",
+          type: "FRAME",
+          absoluteBoundingBox: box(0, 0, 317, 103),
+          layoutSizingHorizontal: "FILL",
+        },
+      ],
+    } as FigmaNode;
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("flex-grow: 1");
+    expect(html).toContain("min-width: 0");
+  });
+});

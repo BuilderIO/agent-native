@@ -1357,6 +1357,33 @@ function buildAutoLayoutStyles(
  * FILL child, the sibling then took the whole row and the heading stopped
  * wrapping. Two visible defects, one dropped box.
  */
+/**
+ * Would CSS compute this HUG differently from Figma?
+ *
+ * A cross-axis FILL child does not feed Figma's hug: Figma sizes the container
+ * from its other children and then stretches the FILL child to that. CSS has
+ * no such rule — `align-self: stretch` with `width: auto` still feeds the
+ * child's max-content into the container's shrink-to-fit width. A Positivus
+ * team card holds a FILL row with 76px of right padding, so the column hugged
+ * 393px where Figma hugs 317 and every sibling moved with it. Figma has
+ * already resolved the real size, so use it rather than asking CSS to derive
+ * a rule it does not have.
+ */
+function hugIsCircularInCss(
+  node: FigmaNode,
+  axisIsHorizontal: boolean,
+): boolean {
+  if (!node.layoutMode || node.layoutMode === "NONE") return false;
+  const crossIsHorizontal = node.layoutMode === "VERTICAL";
+  if (crossIsHorizontal !== axisIsHorizontal) return false;
+  return (node.children ?? []).some(
+    (child) =>
+      (crossIsHorizontal
+        ? child.layoutSizingHorizontal
+        : child.layoutSizingVertical) === "FILL",
+  );
+}
+
 function hasContentToHug(node: FigmaNode): boolean {
   return (node.children?.length ?? 0) > 0 || node.type === "TEXT";
 }
@@ -1415,15 +1442,22 @@ function buildChildSizingStyles(
         styles["flex-grow"] = "1";
         styles["flex-basis"] = "0%";
         styles.width = "auto";
+        // A flex item will not shrink below its content unless told to:
+        // `min-width` defaults to `auto`. Figma's FILL just takes the parent's
+        // width and lets the content overflow, so without this a card whose
+        // content plus padding exceeds its column pushed itself 76px wider
+        // than the column and dragged its siblings along.
+        if (node.minWidth === undefined) styles["min-width"] = "0";
       }
     } else {
       styles["align-self"] = "stretch";
       styles.width = "auto";
     }
   } else if (node.layoutSizingHorizontal === "HUG") {
-    styles.width = hasContentToHug(node)
-      ? "auto"
-      : px(node.absoluteBoundingBox?.width ?? 0);
+    styles.width =
+      hasContentToHug(node) && !hugIsCircularInCss(node, true)
+        ? "auto"
+        : px(node.absoluteBoundingBox?.width ?? 0);
   }
   if (node.layoutSizingVertical === "FILL") {
     if (parentIsHorizontal) {
@@ -1437,11 +1471,15 @@ function buildChildSizingStyles(
       styles["flex-grow"] = "1";
       styles["flex-basis"] = "0%";
       styles.height = "auto";
+      // See the horizontal case: `min-height: auto` would keep the item at its
+      // content height where Figma's FILL lets the content overflow.
+      if (node.minHeight === undefined) styles["min-height"] = "0";
     }
   } else if (node.layoutSizingVertical === "HUG") {
-    styles.height = hasContentToHug(node)
-      ? "auto"
-      : px(node.absoluteBoundingBox?.height ?? 0);
+    styles.height =
+      hasContentToHug(node) && !hugIsCircularInCss(node, false)
+        ? "auto"
+        : px(node.absoluteBoundingBox?.height ?? 0);
   }
   return styles;
 }
@@ -2005,7 +2043,12 @@ function frameRelativeBox(
 ): LocalBox {
   const transform = node.relativeTransform;
   const size = node.size;
-  if (parentBox && transform && size && size.x > 0 && size.y > 0) {
+  // A LINE is zero-thickness by definition, so requiring BOTH dimensions to be
+  // positive pushed every rotated rule onto the absoluteBoundingBox fallback —
+  // whose box is the ALREADY-ROTATED one. Rotating that again squared the
+  // turn: a 216x0 rule at 54 degrees drew a 216x205 diagonal where Figma draws
+  // 126x176. One positive dimension is enough to place the node exactly.
+  if (parentBox && transform && size && (size.x > 0 || size.y > 0)) {
     const halfX = size.x / 2;
     const halfY = size.y / 2;
     const centerX =

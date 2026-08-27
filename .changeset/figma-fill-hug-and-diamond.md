@@ -34,6 +34,15 @@ rotated footprint: a CSS transform does not change layout size, so a vertical
 rule stored as a wide line turned 90 degrees was taking its full pre-rotation
 width out of the row.
 
+Three more sizing rules now follow Figma. A HUG container holding a cross-axis
+FILL child uses the size Figma resolved: a FILL child does not feed Figma's
+hug, while CSS still feeds its max-content into the container's shrink-to-fit
+width, so a card column came out 76px too wide and moved every sibling. A FILL
+child is allowed to shrink below its own content (`min-width: 0`), which is
+what Figma's FILL does. And a zero-thickness LINE is placed from its own size
+rather than the already-rotated bounding box — requiring both dimensions to be
+positive pushed every rotated rule onto the fallback and squared its rotation.
+
 Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
 of being approximated by an ellipse. The falloff is an L1 distance, which is
 linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
