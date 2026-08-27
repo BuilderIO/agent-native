@@ -1,5 +1,20 @@
 [
   {
+    "id": "fig-fixtures",
+    "file": ".tmp/figma-fidelity/fig-files/fixtures.fig",
+    "notes": "The synthetic interop fixtures in one file — auto-layout, typography, fills/effects, shapes, constraints, card grid. Each is built to isolate one Figma feature, so a defect here names itself."
+  },
+  {
+    "id": "fig-uui-landing-mobile",
+    "file": ".tmp/figma-fidelity/fig-files/uui-landing-mobile.fig",
+    "notes": "The corpus's highest REST diff after `typography` (6.19%), and text-dominated — the case most likely to separate a layout defect from glyph noise."
+  },
+  {
+    "id": "fig-uui-dashboard",
+    "file": ".tmp/figma-fidelity/fig-files/uui-dashboard.fig",
+    "notes": "Data-dense dashboard: nested instances, tables and charts."
+  },
+  {
     "id": "fig-whitepace",
     "file": ".tmp/figma-fidelity/fig-files/whitepace.fig",
     "notes": "Figma's own `Save local copy` of the same file the REST corpus imports, so the .fig path is measured against Figma's render rather than only smoke-tested. Web-exported: `Save local copy` is in the browser's File menu, not desktop-only."

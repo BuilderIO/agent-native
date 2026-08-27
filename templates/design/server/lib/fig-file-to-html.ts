@@ -184,6 +184,10 @@ export interface FigNode {
   stackMode?: string;
   stackPrimaryAlignItems?: string;
   stackCounterAlignItems?: string;
+  /** "WRAP" lets the stack run onto more than one line. */
+  stackWrap?: string;
+  /** The gap BETWEEN wrapped lines, which is a separate field from stackSpacing. */
+  stackCounterSpacing?: number;
   stackSpacing?: number;
   stackHorizontalPadding?: number;
   stackVerticalPadding?: number;
@@ -1592,12 +1596,27 @@ function autolayoutStyles(
   const primaryDistributes =
     node.stackPrimaryAlignItems === "SPACE_EVENLY" ||
     node.stackPrimaryAlignItems === "SPACE_BETWEEN";
-  if (
+  // A wrapping stack runs onto more than one line, and Figma keeps the gap
+  // BETWEEN those lines in its own field. Without the wrap the row simply
+  // stayed one line: a 380x54 two-line tag row came out 380x23, with the tags
+  // that should have wrapped sitting 360px off the right edge instead.
+  const wraps = node.stackWrap === "WRAP";
+  if (wraps) out.flexWrap = "wrap";
+  const spacing =
     typeof node.stackSpacing === "number" &&
     node.stackSpacing > 0 &&
     !primaryDistributes
-  )
-    out.gap = `${num(node.stackSpacing)}px`;
+      ? node.stackSpacing
+      : null;
+  const lineSpacing =
+    wraps &&
+    typeof node.stackCounterSpacing === "number" &&
+    node.stackCounterSpacing > 0
+      ? node.stackCounterSpacing
+      : null;
+  if (lineSpacing !== null)
+    out.gap = `${num(lineSpacing)}px ${num(spacing ?? 0)}px`;
+  else if (spacing !== null) out.gap = `${num(spacing)}px`;
   // `stackHorizontalPadding` and `stackVerticalPadding` are the LEFT and TOP
   // fields, not symmetric shorthands — the end sides live in
   // `stackPaddingRight` / `stackPaddingBottom`, which kiwi omits when they are

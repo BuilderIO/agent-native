@@ -1171,6 +1171,40 @@ describe("auto line height", () => {
   });
 });
 
+describe("a wrapping auto-layout stack", () => {
+  // Figma keeps the gap BETWEEN wrapped lines in its own field, separate from
+  // the gap between items. Ignoring `stackWrap` kept a 380x54 two-line tag row
+  // on one line at 380x23, with the tags that should have wrapped sitting
+  // 360px off the right edge.
+  const row = (wrap?: string) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 90, {
+        type: "FRAME",
+        name: "Wrapped Tags",
+        stackMode: "HORIZONTAL",
+        stackSpacing: 6,
+        stackCounterSpacing: 8,
+        stackWrap: wrap,
+        size: { x: 380, y: 54 },
+      }),
+    );
+    return doc;
+  };
+
+  it("wraps, with the line gap Figma states", () => {
+    const html = renderFrame(row("WRAP"));
+    expect(html).toContain("flex-wrap: wrap");
+    expect(html).toContain("gap: 8px 6px");
+  });
+
+  it("keeps a single gap when the stack does not wrap", () => {
+    const html = renderFrame(row("NO_WRAP"));
+    expect(html).not.toContain("flex-wrap");
+    expect(html).toContain("gap: 6px");
+  });
+});
+
 describe("a hugging TEXT box takes the size Figma resolved", () => {
   // The same rule the REST walker carries, as a MINIMUM only. Figma rounds
   // these to whole pixels and lays siblings out against the rounded number;
