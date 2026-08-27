@@ -2,7 +2,13 @@
 "@agent-native/core": patch
 ---
 
-Fix two Figma import defects that silently dropped or reshaped content.
+Fix a set of Figma import defects that silently dropped or reshaped content,
+found by measuring 26 real designs against Figma's own render of each node.
+
+Across that corpus the import diff falls to 3.4% overall, 0.94% with text boxes
+excluded and 0.56% excluding image fills as well — what remains is Chromium and
+Figma hinting glyphs and scaling bitmaps differently, not the conversion. The
+export hop costs under 2.5% on every design.
 
 A child set to FILL along an axis its auto-layout parent HUGS now keeps the
 size Figma resolved for it. Figma treats that pair by falling back to the
@@ -28,9 +34,10 @@ Three auto-layout rules now match Figma's own resolution rather than the raw
 field values. A row aligned SPACE_BETWEEN no longer also emits `itemSpacing` as
 a CSS gap — Figma ignores that field in this mode but still reports it, and CSS
 distributes space on top of a gap rather than instead of it. A negative
-`itemSpacing` is clamped so the children still fill a fixed-size container,
-which is where Figma stops an overlap — the same rule the `.fig` walker already
-used, rather than a second one. And a rotated auto-layout child now occupies its
+`itemSpacing` is clamped so the children still fill their container, which is
+where Figma stops an overlap — the same rule the `.fig` walker already used,
+rather than a second one, and applied on a FILL axis as well as a FIXED one
+since a FILL axis takes its parent's definite size. And a rotated auto-layout child now occupies its
 rotated footprint: a CSS transform does not change layout size, so a vertical
 rule stored as a wide line turned 90 degrees was taking its full pre-rotation
 width out of the row.
