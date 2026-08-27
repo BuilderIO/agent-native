@@ -2428,14 +2428,14 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="' + esc(t("emailPlaceholder")) + '" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" placeholder="' + esc(t("emailPlaceholder")) + '" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
 
     <form id="signup-form" class="form">
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-      <input id="s-email" type="email" autocomplete="email" autofocus placeholder="${esc(t("emailPlaceholder"))}" required />
+      <input id="s-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
     <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
@@ -4365,7 +4365,7 @@ export function getResetPasswordHtml(): string {
   <p class="subtitle">Set a new password for your account.</p>
   <form id="reset-form">
     <label for="p1">New password</label>
-    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
+    <input id="p1" type="password" autocomplete="new-password" placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="p2">Confirm password</label>
     <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <button type="submit">Save new password</button>
