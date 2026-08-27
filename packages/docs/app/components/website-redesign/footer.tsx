@@ -173,12 +173,15 @@ export function Footer() {
       </div>
 
       <GridInner className="flex flex-wrap items-center justify-between gap-[var(--spacing-6)] px-[var(--spacing-20)] py-[var(--spacing-6)]">
-        <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
-          {/* i18n-ignore: a year and the wordmark, nothing translatable */}©
-          2026 AGENT-NATIVE
-        </span>
-
         <div className="flex items-center gap-[var(--spacing-6)]">
+          <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
+            {/* i18n-ignore: a year and the wordmark, nothing translatable */}©
+            2026 AGENT-NATIVE
+          </span>
+          <div
+            aria-hidden
+            className="h-[13px] w-px bg-[var(--b-border-default)]"
+          />
           <div className="flex items-center gap-4">
             {SOCIAL_LINKS.map((social) => (
               <a
@@ -193,30 +196,27 @@ export function Footer() {
               </a>
             ))}
           </div>
-          <div
-            aria-hidden
-            className="h-[13px] w-px bg-[var(--b-border-default)]"
+        </div>
+
+        <div className="flex items-center gap-[var(--spacing-2)]">
+          <FeedbackButton
+            url={DOCS_FEEDBACK_URL}
+            label={t("feedback.label")}
+            placeholder={t("feedback.placeholder")}
+            align="end"
+            side="top"
+            trigger={
+              <button
+                type="button"
+                className={`${controlSurfaceClassName} gap-[var(--spacing-2)] px-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]`}
+              >
+                <IconSpeakerphone size={18} stroke={1.5} />
+                {t("feedback.label")}
+              </button>
+            }
           />
-          <div className="flex items-center gap-[var(--spacing-2)]">
-            <FeedbackButton
-              url={DOCS_FEEDBACK_URL}
-              label={t("feedback.label")}
-              placeholder={t("feedback.placeholder")}
-              align="end"
-              side="top"
-              trigger={
-                <button
-                  type="button"
-                  className={`${controlSurfaceClassName} gap-[var(--spacing-2)] px-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]`}
-                >
-                  <IconSpeakerphone size={18} stroke={1.5} />
-                  {t("feedback.label")}
-                </button>
-              }
-            />
-            <LanguagePicker openUpward />
-            <ThemeIconButton />
-          </div>
+          <LanguagePicker openUpward />
+          <ThemeIconButton />
         </div>
       </GridInner>
     </PageSection>
