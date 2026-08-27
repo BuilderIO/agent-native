@@ -79,4 +79,15 @@ describe("pending deck changes", () => {
       }),
     ).toBe(false);
   });
+
+  it("allows a caller to complete a pending-save handoff", () => {
+    expect(
+      shouldBlockPendingDeckNavigation({
+        hasPendingEdits: true,
+        currentPathname: "/deck/one",
+        nextPathname: "/deck/one/present",
+        allowPendingEdits: true,
+      }),
+    ).toBe(false);
+  });
 });
