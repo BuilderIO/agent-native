@@ -1463,8 +1463,14 @@ function resolveNegativeItemSpacing(node: FigmaNode): number {
   const mainSizing = horizontal
     ? node.layoutSizingHorizontal
     : node.layoutSizingVertical;
-  // Only a fixed primary axis has a container to fill.
-  if (mainSizing !== undefined && mainSizing !== "FIXED") return spacing;
+  // Only a HUGGING axis has no container to fill — it resizes around whatever
+  // the overlap produces, so the literal value stands there. A FILL axis has a
+  // definite size just as much as a FIXED one: it takes its parent's. Bailing
+  // on FILL too left Positivus' team-card social icon at the raw -67 where
+  // Figma draws -34, and the .fig walker — whose kiwi payload calls the same
+  // node FIXED — already drew it correctly. Cross-path disagreement is what
+  // surfaced this; the two vocabularies describe one behaviour.
+  if (mainSizing === "HUG") return spacing;
   const box = node.absoluteBoundingBox;
   if (!box) return spacing;
   const total = horizontal ? box.width : box.height;

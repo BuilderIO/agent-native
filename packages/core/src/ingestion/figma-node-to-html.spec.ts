@@ -433,6 +433,27 @@ describe("negative itemSpacing is clamped so the children still fill the box", (
     expect(html).not.toContain("margin-left: -715px");
   });
 
+  // A FILL axis has a definite size just as much as a FIXED one — it takes its
+  // parent's — so the clamp applies there too. Bailing on FILL left Positivus'
+  // team-card social icon at the raw -67 where Figma draws -34, while the .fig
+  // walker, whose payload calls the same node FIXED, already drew it right.
+  it("clamps on a FILL axis, which is just as definite as FIXED", () => {
+    const node = overlapRow(-67, 34);
+    node.absoluteBoundingBox = box(0, 0, 517, 103);
+    node.layoutSizingHorizontal = "FILL";
+    node.children![0]!.absoluteBoundingBox = box(100, 0, 317, 103);
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("margin-left: -34px");
+    expect(html).not.toContain("margin-left: -67px");
+  });
+
+  it("leaves the literal value on a HUG axis, which has nothing to fill", () => {
+    const node = overlapRow(-67, 34);
+    node.layoutSizingHorizontal = "HUG";
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("margin-left: -67px");
+  });
+
   it("leaves an overlap that does not close the container up", () => {
     const { html } = mapFigmaNodeToHtml(overlapRow(-367, 692), {});
     expect(html).toContain("margin-left: -367px");
