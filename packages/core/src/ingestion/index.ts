@@ -98,6 +98,7 @@ export {
   textDecorationCss,
   textUnderlinePositionCss,
   textTransformCss,
+  FIGMA_BLUR_RADIUS_TO_CSS_BLUR,
   type FidelityEntry,
   type FidelityLevel,
   type FidelityReport,
