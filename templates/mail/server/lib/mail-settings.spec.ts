@@ -25,11 +25,7 @@ describe("mergePinnedLabels", () => {
 
   it("keeps a concurrent add when the caller's next state omitted it", () => {
     expect(
-      mergePinnedLabels(
-        ["important", "travel"],
-        ["important"],
-        ["important"],
-      ),
+      mergePinnedLabels(["important", "travel"], ["important"], ["important"]),
     ).toEqual(["important", "travel"]);
   });
 });
