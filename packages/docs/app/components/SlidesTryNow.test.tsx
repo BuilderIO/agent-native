@@ -209,6 +209,60 @@ describe("SlidesTryNow", () => {
     expect(prompt.getAttribute("contenteditable")).toBe("true");
   });
 
+  it("renders the compact composer toolbar without a fake file input", () => {
+    renderSlidesTryNow();
+
+    const toolbar = screen.getByTestId("slides-composer-toolbar");
+    const prompt = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const uploadLink = screen.getByRole("link", {
+      name: "Open Slides to upload files",
+    });
+    const generateLink = screen.getByRole("link", {
+      name: "Generate my deck",
+    });
+
+    expect(toolbar.classList.contains("flex-wrap")).toBe(true);
+    expect(prompt.classList.contains("min-h-28")).toBe(true);
+    expect(prompt.closest(".min-h-\\[13rem\\]")).not.toBeNull();
+    expect(prompt.closest(".min-h-\\[22rem\\]")).toBeNull();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(uploadLink.getAttribute("href")).toBe(
+      "https://slides.agent-native.com/?initialPrompt=",
+    );
+    expect(uploadLink.getAttribute("title")).toBe(
+      "Open Slides to upload files",
+    );
+    expect(generateLink.textContent).toContain("Generate my deck");
+  });
+
+  it("offers a local model picker with the compact effort suffix", () => {
+    renderSlidesTryNow();
+
+    const modelPicker = screen.getByRole("combobox", {
+      name: /Model: Default model\. Effort: Medium/,
+    });
+    expect(
+      Array.from((modelPicker as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual([
+      "Default model",
+      "Gemini 3.1 Pro",
+      "GPT-5.6 Luna",
+      "Claude Sonnet 5",
+    ]);
+    expect(screen.getByText("· Med")).toBeTruthy();
+
+    fireEvent.change(modelPicker, { target: { value: "claude-sonnet-5" } });
+    expect(
+      screen.getByRole("combobox", {
+        name: /Model: Claude Sonnet 5\. Effort: Medium/,
+      }),
+    ).toBeTruthy();
+  });
+
   it("does not render visible prompt header or tooltip chrome", () => {
     renderSlidesTryNow();
 

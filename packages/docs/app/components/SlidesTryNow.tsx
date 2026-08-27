@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowRight } from "@tabler/icons-react";
+import { IconArrowRight, IconChevronDown, IconPlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
@@ -43,10 +43,20 @@ export function SlidesTryNow() {
   }
   const animatedPrompts = animatedPromptsRef.current;
   const [promptText, setPromptText] = useState("");
+  const [selectedModel, setSelectedModel] = useState("default");
   const promptRef = useRef<HTMLParagraphElement>(null);
   const animationStoppedRef = useRef(false);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promptHref = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
+  const modelOptions = [
+    { value: "default", label: tn("modelDefault") },
+    { value: "gemini-3.1-pro", label: tn("modelGemini") },
+    { value: "gpt-5.6-luna", label: tn("modelGpt") },
+    { value: "claude-sonnet-5", label: tn("modelClaude") },
+  ];
+  const selectedModelLabel =
+    modelOptions.find((option) => option.value === selectedModel)?.label ??
+    modelOptions[0].label;
 
   const stopPromptAnimation = () => {
     animationStoppedRef.current = true;
@@ -125,7 +135,7 @@ export function SlidesTryNow() {
 
   return (
     <div className="w-full min-w-0 text-start">
-      <div className="flex min-h-[22rem] min-w-0 flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 transition-colors focus-within:border-[var(--docs-accent)] focus-within:ring-2 focus-within:ring-[var(--docs-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--bg-secondary)] sm:p-6">
+      <div className="flex min-h-[13rem] min-w-0 flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 transition-colors focus-within:border-[var(--docs-accent)] focus-within:ring-2 focus-within:ring-[var(--docs-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--bg-secondary)]">
         <span id="slides-try-now-prompt-label" className="sr-only">
           {tn("composerLabel")}
         </span>
@@ -147,14 +157,54 @@ export function SlidesTryNow() {
             stopPromptAnimation();
             setPromptText(extractPromptText(event.currentTarget).trim());
           }}
-          className="m-0 min-h-48 w-full flex-1 text-sm leading-8 text-[var(--fg)] outline-none"
+          className="m-0 min-h-28 w-full flex-1 text-sm leading-7 text-[var(--fg)] outline-none"
         />
-        <div className="flex justify-end">
+        <div
+          data-testid="slides-composer-toolbar"
+          className="flex min-w-0 flex-wrap items-center gap-2"
+        >
           <a
             href={promptHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[var(--fg)] px-6 text-sm font-semibold text-[var(--bg)] outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
+            aria-label={tn("uploadToSlides")}
+            title={tn("uploadToSlides")}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+            }}
+          >
+            <IconPlus aria-hidden="true" size={16} />
+          </a>
+          <div className="min-w-0 flex-1" />
+          <label className="flex h-7 min-w-0 max-w-[10.5rem] items-center gap-1 rounded-md px-2 text-xs font-medium text-[var(--fg-secondary)] transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-within:ring-2 focus-within:ring-[var(--docs-accent)]">
+            <span className="sr-only">{tn("modelLabel")}</span>
+            <select
+              value={selectedModel}
+              aria-label={`${tn("modelLabel")}: ${selectedModelLabel}. ${tn("effortLabel")}: ${tn("effortMedium")}`}
+              onChange={(event) => setSelectedModel(event.currentTarget.value)}
+              className="min-w-0 flex-1 cursor-pointer appearance-none truncate bg-transparent text-xs font-medium outline-none"
+            >
+              {modelOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span className="shrink-0 text-[var(--fg-secondary)] opacity-70">
+              · {tn("effortMediumShort")}
+            </span>
+            <IconChevronDown
+              aria-hidden="true"
+              className="shrink-0 opacity-60"
+              size={12}
+            />
+          </label>
+          <a
+            href={promptHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-[var(--fg)] px-4 text-sm font-semibold text-[var(--bg)] outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
             onClick={(event) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("generate deck", {

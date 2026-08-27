@@ -34,6 +34,7 @@ claude · codex
 Claude Code
 Claude Code · Codex · Pi — own tools, sandbox, compaction
 Claude Code / Codex
+Claude Sonnet 5
 Claude web
 CLI
 Cloudflare D1
@@ -45,6 +46,7 @@ dashboard_.$ticketId.tsx
 dbQuery / dbExec
 Deno Deploy
 Dispatch hub
+Gemini 3.1 Pro
 GET /api/auth/user
 getSession callback
 gh · ffmpeg · stripe
@@ -52,6 +54,7 @@ GitHub OAuth
 Google Calendar
 Google OAuth
 Google Sheets
+GPT-5.6 Luna
 Headless Chrome
 hello.ts · view-screen · navigate
 HTTP · MCP · A2A
