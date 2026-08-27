@@ -1,4 +1,7 @@
-import { PromptComposer } from "@agent-native/core/client/composer";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client/composer";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
@@ -14,7 +17,9 @@ import {
   type NewDeckReferenceSource,
 } from "@/components/editor/NewDeckReferenceStep";
 import {
+  createPromptChatAttachments,
   uploadPromptFiles,
+  type PromptChatAttachment,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import {
@@ -52,6 +57,9 @@ export function FirstDeckOnboardingFlow({
   const [step, setStep] = useState<FirstDeckStep>("prompt");
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
+  const [promptAttachments, setPromptAttachments] = useState<
+    PromptChatAttachment[]
+  >([]);
   const [promptInitialText, setPromptInitialText] = useState<string>();
   const [promptInitialTextKey, setPromptInitialTextKey] = useState<number>();
   const [uploading, setUploading] = useState(false);
@@ -113,12 +121,22 @@ export function FirstDeckOnboardingFlow({
   }, []);
 
   const handlePromptSubmit = useCallback(
-    async (text: string, files: File[]) => {
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options?: PromptComposerSubmitOptions,
+    ) => {
       setUploading(true);
       try {
         const uploaded = await uploadPromptFiles(files);
+        const chatAttachments = await createPromptChatAttachments(
+          options?.attachments,
+          uploaded,
+        );
         setPrompt(text.trim());
         setPromptFiles(uploaded);
+        setPromptAttachments(chatAttachments);
         setStep("references");
       } catch (error) {
         toast.error(t("raw.uploadFailed"), {
@@ -143,6 +161,7 @@ export function FirstDeckOnboardingFlow({
         session,
         prompt,
         files,
+        attachments: promptAttachments,
         referenceSelection: selection,
         selectedDesignSystemId: initialDesignSystemId,
         selectedReferenceDeckId: initialReferenceDeckId,
@@ -156,9 +175,11 @@ export function FirstDeckOnboardingFlow({
         onUnauthenticated: () => {
           toast.error(t("home.signInTitle"));
         },
-        onPersistenceFailure: (failedPrompt, _failedFiles, failure) => {
+        onPersistenceFailure: (failedPrompt, failedFiles, failure) => {
           setPromptInitialText(failedPrompt);
           setPromptInitialTextKey(Date.now());
+          setPromptFiles(failedFiles);
+          setPromptAttachments(promptAttachments);
           setStep("prompt");
           toast.error(t("home.generationStartFailed"), {
             description: describeDeckPersistenceFailure(
@@ -167,9 +188,11 @@ export function FirstDeckOnboardingFlow({
             ),
           });
         },
-        onSetupFailure: (failedPrompt, _failedFiles, failure) => {
+        onSetupFailure: (failedPrompt, failedFiles, failure) => {
           setPromptInitialText(failedPrompt);
           setPromptInitialTextKey(Date.now());
+          setPromptFiles(failedFiles);
+          setPromptAttachments(promptAttachments);
           setStep("prompt");
           toast.error(t("home.generationStartFailed"), {
             description:
@@ -191,6 +214,7 @@ export function FirstDeckOnboardingFlow({
       navigate,
       onComplete,
       prompt,
+      promptAttachments,
       session,
       t,
       initialReferenceDeckId,
@@ -218,7 +242,13 @@ export function FirstDeckOnboardingFlow({
       }
       await startGeneration(promptFiles, selection);
     },
-    [forgetReference, promptFiles, rememberReference, startGeneration],
+    [
+      forgetReference,
+      promptAttachments,
+      promptFiles,
+      rememberReference,
+      startGeneration,
+    ],
   );
 
   const handleReferenceImport = useCallback(

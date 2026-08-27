@@ -16,7 +16,10 @@ import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
-import { resolveSecret } from "./credential-provider.js";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 import { getRequestOrgId } from "./request-context.js";
 
@@ -139,6 +142,34 @@ async function resolveEmailTransport(): Promise<EmailTransportConfig> {
   return { provider: "dev", from: resolvedFrom };
 }
 
+function classifyEmailReadiness(config: EmailTransportConfig): EmailReadiness {
+  if (config.provider === "dev") {
+    return { status: "not-configured", provider: "dev" };
+  }
+  if (config.provider === "sendgrid" && !config.from) {
+    return { status: "misconfigured", provider: "sendgrid" };
+  }
+  return { status: "ready", provider: config.provider };
+}
+
+/**
+ * Auth uses one Better Auth instance per process, so its email policy must
+ * come from deployment configuration rather than a request-scoped secret.
+ * Scoped email keys still support transactional app mail, but cannot safely
+ * configure unauthenticated magic-link or signup-verification flows.
+ */
+export function getDeploymentEmailReadiness(): EmailReadiness {
+  const provider = readDeployCredentialEnv("RESEND_API_KEY")
+    ? "resend"
+    : readDeployCredentialEnv("SENDGRID_API_KEY")
+      ? "sendgrid"
+      : "dev";
+  return classifyEmailReadiness({
+    provider,
+    from: readDeployCredentialEnv("EMAIL_FROM") || undefined,
+  });
+}
+
 export async function isEmailConfigured(): Promise<boolean> {
   return (await getEmailReadiness()).status === "ready";
 }
@@ -151,14 +182,7 @@ export async function isEmailConfigured(): Promise<boolean> {
  */
 export async function getEmailReadiness(): Promise<EmailReadiness> {
   try {
-    const config = await resolveEmailTransport();
-    if (config.provider === "dev") {
-      return { status: "not-configured", provider: "dev" };
-    }
-    if (config.provider === "sendgrid" && !config.from) {
-      return { status: "misconfigured", provider: "sendgrid" };
-    }
-    return { status: "ready", provider: config.provider };
+    return classifyEmailReadiness(await resolveEmailTransport());
   } catch {
     return { status: "unavailable", provider: "unknown" };
   }

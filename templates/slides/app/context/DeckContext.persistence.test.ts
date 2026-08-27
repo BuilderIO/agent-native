@@ -37,6 +37,8 @@ import {
   hasUncommittedDeckChanges,
   markSlideEditingActive,
   mergeServerAddedSlides,
+  mergeServerSlideUpdate,
+  pendingWriteSlideIds,
   useDecks,
   type Deck,
   type DeckReloadStatus,
@@ -2081,6 +2083,68 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("does not let a read that spans a local save revert the saved slide", async () => {
+    // The write starts AFTER the read is issued, so nothing is pending at
+    // either endpoint to reveal that the response predates it. Only the local
+    // write counter can see this; without it the clean-deck branch adopts the
+    // stale snapshot wholesale and the user's edit visibly reverts.
+    window.history.pushState({}, "", "/deck/race-deck");
+    const original: Deck = {
+      id: "race-deck",
+      title: "Race Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Server before save</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck, deferNextGetDeck, resolveDeferredGetDeck } =
+      setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("race-deck")?.slides).toHaveLength(1),
+    );
+
+    // Read starts while the deck is clean — the server still holds the old body.
+    deferNextGetDeck();
+    const staleRefresh = result.current.refreshOpenDeck("race-deck");
+
+    // ...then the user edits and the save completes, entirely inside the read.
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide("race-deck", "slide-1", {
+        content: "<h1>Just typed</h1>",
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    vi.useRealTimers();
+    await waitFor(() =>
+      expect(hasUncommittedDeckChanges("race-deck", new Set())).toBe(false),
+    );
+
+    resolveDeferredGetDeck();
+    await act(async () => {
+      await staleRefresh;
+    });
+
+    expect(result.current.getDeck("race-deck")?.slides[0]?.content).toBe(
+      "<h1>Just typed</h1>",
+    );
+  });
+
   it("does not let a stale baseline reload resurrect a deleted slide", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const original: Deck = {
@@ -3052,8 +3116,11 @@ describe("DeckContext deck creation persistence", () => {
       expect(result.current.getDeck("live-dirty-deck")?.slides).toHaveLength(1),
     );
 
+    // The human is typing in slide-1. That — not a deck-wide dirty flag — is
+    // what must hold the agent's copy of slide-1 back.
     act(() => {
       result.current.markDeckDirty("live-dirty-deck");
+      markSlideEditingActive("live-dirty-deck", "slide-1");
     });
     setAccessibleDeck({
       ...initial,
@@ -3090,6 +3157,21 @@ describe("DeckContext deck creation persistence", () => {
     const deck = result.current.getDeck("live-dirty-deck")!;
     expect(deck.slides[0]?.content).toBe("<h1>Local draft</h1>");
     expect(deck.slides[1]?.content).toBe("<h1>Agent added slide</h1>");
+
+    // Once the user stops typing, the next reconcile delivers the edit that
+    // was held back. Sync events never replay, so the poll has to heal this;
+    // the reconcile is therefore idempotent rather than event-triggered once.
+    act(() => {
+      clearSlideEditingActive("live-dirty-deck", "slide-1");
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(
+        result.current.getDeck("live-dirty-deck")?.slides[0]?.content,
+      ).toBe("<h1>Agent rewrote local slide</h1>"),
+    );
   });
 
   it("adopts a targeted agent edit while an unrelated local write is in flight", async () => {
@@ -3370,9 +3452,12 @@ describe("DeckContext deck creation persistence", () => {
         expect(result.current.getDeck("dirty-deck")?.slides.length).toBe(1),
       );
 
-      // Human is mid-edit: the exact state that used to suppress the refetch.
+      // Human is mid-edit on slide-1: the exact state that used to suppress
+      // the refetch. Only slide-1 is protected — a dirty deck is not a reason
+      // to hide agent work on any other slide.
       act(() => {
         result.current.markDeckDirty("dirty-deck");
+        markSlideEditingActive("dirty-deck", "slide-1");
       });
 
       const source = MockEventSource.lastInstance!;
@@ -3575,6 +3660,77 @@ describe("DeckContext deck creation persistence", () => {
       expect([...merged.slides.map((s) => s.id)].sort()).toEqual(
         ["a", "b", "local-only"].sort(),
       );
+    });
+  });
+
+  describe("mergeServerSlideUpdate", () => {
+    const slide = (id: string, content: string): Slide => ({
+      id,
+      content,
+      notes: "",
+      layout: "content",
+    });
+    const deckOf = (slides: Slide[]): Deck => ({
+      id: "dirty-deck",
+      title: "t",
+      createdAt: "",
+      updatedAt: "",
+      slides,
+    });
+
+    afterEach(() => {
+      clearSlideEditingActive("dirty-deck", "a");
+    });
+
+    // The regression this guards: an agent edit used to be adopted only for
+    // the single slide id carried in the SSE payload, so an edit announced
+    // without one — patch-deck over several slides, or any fallback poll —
+    // stayed invisible while the deck had unrelated local edits.
+    it("adopts server content for every slide with no pending local write", () => {
+      const local = deckOf([slide("a", "LOCAL a"), slide("b", "LOCAL b")]);
+      const server = deckOf([slide("a", "AGENT a"), slide("b", "AGENT b")]);
+      const merged = mergeServerSlideUpdate(local, server, "dirty-deck");
+      expect(merged.slides.map((s) => s.content)).toEqual([
+        "AGENT a",
+        "AGENT b",
+      ]);
+    });
+
+    it("holds back a slide the user is mid inline-edit", () => {
+      markSlideEditingActive("dirty-deck", "a");
+      const local = deckOf([slide("a", "TYPING a"), slide("b", "LOCAL b")]);
+      const server = deckOf([slide("a", "AGENT a"), slide("b", "AGENT b")]);
+      const merged = mergeServerSlideUpdate(local, server, "dirty-deck");
+      expect(merged.slides.map((s) => s.content)).toEqual([
+        "TYPING a",
+        "AGENT b",
+      ]);
+    });
+
+    // Runs on every poll, so an unchanged deck must not churn React state.
+    it("returns the same local reference when the server matches", () => {
+      const local = deckOf([slide("a", "a"), slide("b", "b")]);
+      const server = deckOf([slide("a", "a"), slide("b", "b")]);
+      expect(mergeServerSlideUpdate(local, server, "dirty-deck")).toBe(local);
+    });
+
+    // Response-ordering race: the GET was issued while slide "a" was mid-save,
+    // so it carries the pre-save body even though the save has since landed and
+    // nothing is pending any more. Adopting it would revert the user's edit.
+    it("holds back a slide that was mid-write when the snapshot was requested", () => {
+      markSlideEditingActive("dirty-deck", "a");
+      const local = deckOf([slide("a", "SAVED a"), slide("b", "LOCAL b")]);
+      const pendingAtReadStart = pendingWriteSlideIds(local);
+      clearSlideEditingActive("dirty-deck", "a"); // the save landed
+
+      const stale = deckOf([slide("a", "PRE-SAVE a"), slide("b", "AGENT b")]);
+      const merged = mergeServerSlideUpdate(local, stale, "dirty-deck", {
+        pendingAtReadStart,
+      });
+      expect(merged.slides.map((s) => s.content)).toEqual([
+        "SAVED a",
+        "AGENT b",
+      ]);
     });
   });
 });

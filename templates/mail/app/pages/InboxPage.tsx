@@ -271,7 +271,6 @@ function ThreadListSidebar({
 // using `[]` inline creates a fresh array on every render, which cascades
 // through memos into EmailThread's props and causes re-render storms.
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
-const EMPTY_LABELS: string[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
 export function InboxPage() {
@@ -320,7 +319,7 @@ export function InboxPage() {
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
-  const { data: settings } = useSettings();
+  const { data: settings, isLoading: settingsLoading } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -343,10 +342,7 @@ export function InboxPage() {
     () => new Set(connectedAccounts.map((a) => a.email.toLowerCase())),
     [connectedAccounts],
   );
-  const userPinnedLabels = useMemo(
-    () => settings?.pinnedLabels ?? EMPTY_LABELS,
-    [settings?.pinnedLabels],
-  );
+  const userPinnedLabels = settings?.pinnedLabels;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
@@ -363,6 +359,31 @@ export function InboxPage() {
   // tab badge count and the list it shows always agree. Non-pinned sidebar
   // labels (and label searches) still hit the server label query.
   const searchQuery = searchParams.get("q") ?? undefined;
+  useEffect(() => {
+    if (
+      settingsLoading ||
+      view !== "inbox" ||
+      routeThreadId ||
+      activeLabel ||
+      activeInboxTab ||
+      searchQuery ||
+      userPinnedLabels !== undefined ||
+      !isGoogleConnected
+    )
+      return;
+    navigate("/inbox?label=important", { replace: true });
+  }, [
+    activeInboxTab,
+    activeLabel,
+    isGoogleConnected,
+    navigate,
+    routeThreadId,
+    searchQuery,
+    settingsLoading,
+    userPinnedLabels,
+    view,
+  ]);
+
   const isPinnedTab =
     !!activeLabel &&
     view === "inbox" &&

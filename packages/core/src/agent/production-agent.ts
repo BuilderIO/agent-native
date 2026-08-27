@@ -1920,6 +1920,7 @@ export function buildUserContentWithAttachments(opts: {
   let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
+    if (att.displayOnly === true) continue;
     const uploadedUrl = (att as any).url as string | undefined;
     if ((att as any).referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
@@ -3721,7 +3722,7 @@ function stableStringify(value: unknown): string {
 }
 
 export function toolCallCacheKey(toolName: string, input: unknown): string {
-  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
+  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input, toolName))}`;
 }
 
 export function findApprovedStructuredToolCall(
@@ -4174,7 +4175,7 @@ function seedSourceSweepToolCallsFromHistory(
       if (!isLikelySourceSweepTool(part.name, actions[part.name])) continue;
       seeded.push({
         name: part.name,
-        input: normalizeToolCallInputForHistory(part.input),
+        input: normalizeToolCallInputForHistory(part.input, part.name),
       });
     }
   }
@@ -4183,9 +4184,18 @@ function seedSourceSweepToolCallsFromHistory(
 
 function normalizeToolCallInputForHistory(
   input: unknown,
+  toolName?: string,
 ): Record<string, unknown> {
   if (input && typeof input === "object" && !Array.isArray(input)) {
-    return input as Record<string, unknown>;
+    const record = input as Record<string, unknown>;
+    if (toolName !== "docs-search" || typeof record.query !== "string") {
+      return record;
+    }
+    // docs-search lowercases and splits queries on whitespace before matching.
+    return {
+      ...record,
+      query: record.query.trim().replace(/\s+/g, " ").toLowerCase(),
+    };
   }
   return { rawInput: input };
 }
@@ -5597,7 +5607,7 @@ export async function runAgentLoop(opts: {
       part.type === "tool-call"
         ? {
             ...part,
-            input: normalizeToolCallInputForHistory(part.input),
+            input: normalizeToolCallInputForHistory(part.input, part.name),
           }
         : part,
     );
@@ -5822,6 +5832,7 @@ export async function runAgentLoop(opts: {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
+        toolCall.name,
       );
       const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
         toolName: toolCall.name,
@@ -8963,7 +8974,9 @@ export function createProductionAgentHandler(
     if (
       hasAttachments &&
       requestAttachments.some(
-        (a) => a.type === "image" || a.type === "file" || a.type === "document",
+        (a) =>
+          a.displayOnly !== true &&
+          (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
       try {

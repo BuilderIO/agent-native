@@ -74,6 +74,7 @@ export interface PromptComposerSubmitOptions {
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
+  attachments?: ReadonlyArray<unknown>;
 }
 
 export interface PromptComposerProps {
@@ -635,6 +636,7 @@ function PromptComposerInner({
         model: composerModel,
         engine: composerEngine,
         effort: composerEffort,
+        attachments,
       });
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
