@@ -200,7 +200,7 @@ navigator.clipboard.write = new Proxy(navigator.clipboard.write.bind(navigator.c
 Then save `window.__cap` to `.tmp/figma-fidelity/clipboard/` and add a
 `{"id", "file", "reference"}` entry to `scripts/figma-fidelity/paste-corpus.json`.
 
-## REST import and export, measured on 23 designs
+## REST import and export, measured on 26 designs
 
 Every case resolves against a node inside the paid team (see below for how to
 get one there), so the REST path measures again instead of failing on
@@ -217,12 +217,14 @@ Measured 2026-08-27:
 | case | size | import% | −text% | −text/img% | export% | drift% |
 | --- | --- | --- | --- | --- | --- | --- |
 | dashstack admin | 1440x1070 | 1.20 | 0.21 | **0.19** | 1.20 | 0.01 |
+| interior checkout | 1440x3070 | 1.57 | 0.23 | **0.23** | 1.63 | 0.55 |
 | untitled UI settings | 1440x2578 | 1.24 | 0.46 | **0.10** | 1.11 | 0.45 |
 | interior eCommerce | 1440x4835 | 2.06 | 1.30 | **0.13** | 2.70 | 2.38 |
 | constraints | fixture | 2.33 | 0.11 | 0.11 | 2.29 | 0.16 |
 | untitled UI landing alt | 1440x6734 | 2.62 | 0.93 | **0.28** | 2.50 | 0.90 |
 | untitled UI landing | 1440x7060 | 2.65 | 0.52 | **0.08** | 2.76 | 0.62 |
 | untitled UI pricing | 1440x4538 | 2.89 | 0.27 | **0.22** | 2.83 | 0.86 |
+| interior comparison | 1440x3998 | 2.76 | 0.33 | **0.22** | 2.71 | 0.72 |
 | parity-stress | fixture | 2.94 | 0.87 | 0.87 | 3.28 | 0.94 |
 | untitled UI dashboard tall | 1440x1315 | 3.03 | 1.45 | 1.26 | 3.11 | 1.02 |
 | card-grid | fixture | 3.14 | 0.06 | **0.06** | 3.14 | 0.00 |
@@ -231,6 +233,7 @@ Measured 2026-08-27:
 | whitepace SaaS | 1440x9631 | 3.77 | 1.44 | 1.00 | 3.50 | 1.69 |
 | untitled UI dashboard | 1440x960 | 3.89 | 1.32 | 1.06 | 4.23 | 1.05 |
 | landify example | 1440x21306 | 3.94 | 2.16 | 1.42 | 3.57 | 1.37 |
+| interior single product | 1440x3107 | 3.56 | 2.09 | **0.24** | 3.60 | 2.33 |
 | untitled UI data table | 1216x899 | 3.96 | 0.82 | 0.81 | 4.45 | 0.84 |
 | untitled UI settings mobile | 375x2366 | 4.02 | 0.47 | **0.45** | 3.97 | 0.84 |
 | positivus landing | 1440x8356 | 4.19 | 2.39 | 1.44 | 4.65 | 1.72 |
@@ -239,21 +242,28 @@ Measured 2026-08-27:
 | fills-effects | fixture | 0.55 | 0.55 | 0.57 | 1.05 | 0.05 |
 | shapes | fixture | 0.54 | 0.54 | 0.54 | 0.29 | 0.31 |
 | typography | fixture | 13.27 | **0.005** | **0.005** | 13.19 | 0.19 |
-| **mean** | | **3.51** | **0.94** | **0.61** | | |
+| **mean** | | **3.41** | **0.94** | **0.56** | | |
 
 Read the last three columns together, because they say what is actually wrong:
+
+The last three were added after every fix above had landed, from regimes the
+corpus had none of — a checkout form, a spec-comparison table, a product
+detail page with a gallery. All three came in at 1.6-3.6%, and all three have
+**zero nodes off by more than 1.5px** on their first measurement. Geometry
+being right on designs no fix was derived from is the evidence that this work
+generalises rather than fitting the pages it was found on.
 
 - **The export hop costs under 2.5% on every design.** Whatever the import hop
   gets right survives the trip back to Figma.
 - **Two thirds of the import number is glyph rasterisation.** Excluding text
-  boxes the mean falls 3.51% -> 0.94%, and `typography` — the fixture built to
+  boxes the mean falls 3.41% -> 0.94%, and `typography` — the fixture built to
   stress text — falls to **0.005%**. Nothing but glyphs is wrong on it. Figma
   and Chromium hint and antialias differently, and one pixel of difference on
   black-on-white body text scores a full 255 delta. See the Inter section for
   the measurement ruling out a font-version mismatch as the cause. Mobile
   cases read highest because a narrow column reflows on a smaller difference.
 - **Most of what remains is photo resampling.** Excluding image fills too, the
-  mean falls to **0.61%**, and the photo-heavy interior storefront — 2.06%
+  mean falls to **0.56%**, and the photo-heavy interior storefront — 2.06%
   overall — is **0.13%**. Figma and Chromium scale a JPEG differently; the
   layout underneath it is right.
 
@@ -264,7 +274,7 @@ glyphs and bitmaps rather than anything the mapping controls.
 A per-node geometry audit (every node's laid-out box against its own
 `absoluteBoundingBox`, accepting `absoluteRenderBounds` where a node paints its
 ink) is the sharper instrument for the parts the converter controls, because a
-200px layout error is invisible next to glyph noise. 11 of 23 designs now have
+200px layout error is invisible next to glyph noise. 14 of 26 designs now have
 NO node off by more than 1.5px, and only one design has any node off by more
 than 10px — all of them text boxes that wrap differently.
 
