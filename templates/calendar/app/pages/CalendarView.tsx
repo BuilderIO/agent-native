@@ -200,14 +200,6 @@ function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
   const fallback = fallbackDraftRange(fallbackDate);
   const fullDayTimezone = draft.startTimeZone ?? draft.endTimeZone;
   const fullDayDatePattern = /^\d{4}-\d{2}-\d{2}$/;
-  const dateOnlyAllDay =
-    draft.allDay === true &&
-    Boolean(
-      draft.start &&
-      draft.end &&
-      fullDayDatePattern.test(draft.start) &&
-      fullDayDatePattern.test(draft.end),
-    );
   const semanticFullDay =
     draft.eventType === "outOfOffice" &&
     draft.fullDay &&
@@ -216,6 +208,15 @@ function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
     draft.end &&
     fullDayDatePattern.test(draft.start) &&
     fullDayDatePattern.test(draft.end);
+  const dateOnlyAllDay =
+    draft.allDay === true &&
+    !semanticFullDay &&
+    Boolean(
+      draft.start &&
+      draft.end &&
+      fullDayDatePattern.test(draft.start) &&
+      fullDayDatePattern.test(draft.end),
+    );
   const start = dateOnlyAllDay
     ? dateKeyToDate(draft.start!)
     : semanticFullDay

@@ -14,11 +14,7 @@ import {
   IconUsers,
   IconX,
 } from "@tabler/icons-react";
-import {
-  differenceInCalendarDays,
-  differenceInMinutes,
-  format,
-} from "date-fns";
+import { differenceInMinutes, format } from "date-fns";
 import { useId, useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
@@ -997,19 +993,22 @@ export function CreateEventPopover({
                       label={t("eventForm.end")}
                       className="px-1.5 py-1 text-base"
                       getOptionMeta={(value) => {
-                        const [hour, minute] = value.split(":").map(Number);
-                        const [startHour, startMinute] = startTime
-                          .split(":")
-                          .map(Number);
-                        const dayOffset = differenceInCalendarDays(
-                          new Date(`${endDate}T12:00:00`),
-                          new Date(`${date}T12:00:00`),
+                        const duration = differenceInMinutes(
+                          new Date(
+                            dateTimeInTimezoneToIso(
+                              endDate,
+                              value,
+                              eventTimezone,
+                            ),
+                          ),
+                          new Date(
+                            dateTimeInTimezoneToIso(
+                              date,
+                              startTime,
+                              eventTimezone,
+                            ),
+                          ),
                         );
-                        const duration =
-                          hour * 60 +
-                          minute -
-                          (startHour * 60 + startMinute) +
-                          dayOffset * 24 * 60;
                         return duration > 0
                           ? formatDurationLabel(duration, t)
                           : undefined;
