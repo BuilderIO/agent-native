@@ -38,6 +38,11 @@ import {
   integrationConfigWriteEpoch,
   saveIntegrationConfig,
 } from "./config-store.js";
+import {
+  createGoogleDocsChannelAuth,
+  type GoogleDocsPushHeaders,
+  verifyGoogleDocsChannel,
+} from "./google-docs-webhook.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -109,8 +114,18 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
 
   const channelId = `gdocs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const expiration = Date.now() + WATCH_CHANNEL_TTL_MS;
+  const { token: channelToken, tokenHash: channelTokenHash } =
+    createGoogleDocsChannelAuth();
 
   try {
+    // Google may send the initial sync notification before the watch response
+    // reaches us, so persist the expected channel before making the request.
+    await saveIntegrationConfig(
+      PLATFORM,
+      { channelId, channelTokenHash, expiration, webhookUrl },
+      "watch-channel",
+    );
+
     const res = await fetch(
       "https://www.googleapis.com/drive/v3/changes/watch",
       {
@@ -124,6 +139,7 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
           type: "web_hook",
           address: webhookUrl,
           expiration: expiration,
+          token: channelToken,
           payload: true,
         }),
       },
@@ -132,6 +148,9 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
     if (!res.ok) {
       const err = await res.text();
       console.error("[google-docs] Failed to register watch:", err);
+      await saveIntegrationConfig(PLATFORM, {}, "watch-channel").catch(
+        () => {},
+      );
       return false;
     }
 
@@ -146,6 +165,7 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
       PLATFORM,
       {
         channelId: data.id,
+        channelTokenHash,
         resourceId: data.resourceId,
         expiration: data.expiration,
         webhookUrl,
@@ -162,9 +182,17 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
 
     return true;
   } catch (err) {
+    await saveIntegrationConfig(PLATFORM, {}, "watch-channel").catch(() => {});
     console.error("[google-docs] Watch registration error:", err);
     return false;
   }
+}
+
+export async function verifyGoogleDocsPushNotification(
+  headers: GoogleDocsPushHeaders,
+): Promise<boolean> {
+  const config = await getIntegrationConfig(PLATFORM, "watch-channel");
+  return verifyGoogleDocsChannel(config?.configData, headers);
 }
 
 /**
