@@ -43,16 +43,29 @@ import { gaussianCoefficients, OCEAN_TUNING } from "./tuning";
 
 type Output = Surface | Target;
 
+/** Linear 0-1 RGB, resolved from brand tokens by the mounting component. */
+export interface OceanColors {
+  readonly fg: readonly [number, number, number];
+  readonly bg: readonly [number, number, number];
+}
+
+export const DEFAULT_OCEAN_COLORS: OceanColors = {
+  fg: OCEAN_TUNING.present.fgColor,
+  bg: OCEAN_TUNING.present.bgColor,
+};
+
 interface RendererOptions {
   readonly canvas: HTMLCanvasElement;
+  readonly colors?: OceanColors;
 }
 
 const SIM_FORMAT: GPUTextureFormat = "rgba32float";
 const HDR_FORMAT: GPUTextureFormat = "rgba16float";
 const TRANSPARENT = [0, 0, 0, 0] as const;
 
-export function createRenderer({ canvas }: RendererOptions) {
+export function createRenderer({ canvas, colors }: RendererOptions) {
   let disposed = false;
+  let currentColors: OceanColors = colors ?? DEFAULT_OCEAN_COLORS;
   let gpu: Gpu | undefined;
   let output: Surface | undefined;
   let graph: OceanGraph | undefined;
@@ -88,7 +101,8 @@ export function createRenderer({ canvas }: RendererOptions) {
     const next = await createGraph(
       gpu,
       output,
-      `fft-ocean-resize-${generation}`
+      `fft-ocean-resize-${generation}`,
+      currentColors,
     );
     if (disposed) return;
     if (generation !== resizeGeneration) {
@@ -128,7 +142,7 @@ export function createRenderer({ canvas }: RendererOptions) {
 
     gpu = nextGpu;
     output = surface(gpu, canvas, { dpr: [1, 1.6] });
-    graph = await createGraph(gpu, output, "fft-ocean-live");
+    graph = await createGraph(gpu, output, "fft-ocean-live", currentColors);
     if (disposed) return;
 
     unsubscribeResize = output.onResize(scheduleResize);
@@ -149,17 +163,29 @@ export function createRenderer({ canvas }: RendererOptions) {
     if (!disposed) fail(error);
   });
 
-  return { ready, dispose };
+  /**
+   * A theme flip must not rebuild the graph: the simulation targets are six
+   * 512x512 rgba32float textures and reallocating them stalls the frame the
+   * user is watching the toggle in.
+   */
+  function setColors(next: OceanColors): void {
+    if (disposed) return;
+    currentColors = next;
+    if (graph) setPresentColors(graph, next);
+  }
+
+  return { ready, dispose, setColors };
 }
 
 export async function createGraph(
   gpu: Gpu,
   output: Output,
-  label: string
+  label: string,
+  colors: OceanColors = DEFAULT_OCEAN_COLORS,
 ): Promise<OceanGraph> {
   const ownedTargets: Target[] = [];
   try {
-    const graph = buildGraph(gpu, output, label, (value) => {
+    const graph = buildGraph(gpu, output, label, colors, (value) => {
       ownedTargets.push(value);
       return value;
     });
@@ -179,13 +205,14 @@ function buildGraph(
   gpu: Gpu,
   output: Output,
   label: string,
-  own: (value: Target) => Target
+  colors: OceanColors,
+  own: (value: Target) => Target,
 ) {
   const resolution = OCEAN_RESOLUTION;
   const createTarget = (
     name: string,
     size: readonly [number, number],
-    format: GPUTextureFormat
+    format: GPUTextureFormat,
   ) => own(target(gpu, { size, format, label: `${label}-${name}` }));
   const simulationTarget = (name: string) =>
     createTarget(name, [resolution, resolution], SIM_FORMAT);
@@ -220,7 +247,7 @@ function buildGraph(
         amplitude: OCEAN_TUNING.simulation.amplitude,
       },
       u_noise: simulation.noise,
-    }
+    },
   );
   const evolveSpectrum = configuredEffect(
     gpu,
@@ -234,7 +261,7 @@ function buildGraph(
         choppiness: OCEAN_TUNING.simulation.choppiness,
       },
       u_initialSpectrum: simulation.h0,
-    }
+    },
   );
 
   const simulationTargets: Record<SimulationTargetName, Target> = {
@@ -255,7 +282,7 @@ function buildGraph(
           horizontal: spec.horizontal ? 1 : 0,
         },
         u_input: simulationTargets[spec.input],
-      }
+      },
     ),
     output: simulationTargets[spec.output],
   }));
@@ -272,7 +299,7 @@ function buildGraph(
         foamThreshold: OCEAN_TUNING.simulation.foamThreshold,
       },
       u_displacement: displacement,
-    }
+    },
   );
   const particles = draw(gpu, {
     shader: particlesWgsl,
@@ -299,7 +326,7 @@ function buildGraph(
       },
       tDiffuse: scene,
       linearSampler,
-    }
+    },
   );
 
   let bloomInput = bright;
@@ -314,7 +341,7 @@ function buildGraph(
       horizontal,
       linearSampler,
       [1, 0],
-      radius
+      radius,
     );
     const verticalEffect = makeBlur(
       gpu,
@@ -323,7 +350,7 @@ function buildGraph(
       vertical,
       linearSampler,
       [0, 1],
-      radius
+      radius,
     );
     bloomInput = vertical;
     return { horizontal, vertical, horizontalEffect, verticalEffect };
@@ -345,9 +372,10 @@ function buildGraph(
       blurTexture4: levels[3]!.vertical,
       blurTexture5: levels[4]!.vertical,
       linearSampler,
-    }
+    },
   );
   const present = configuredEffect(gpu, presentWgsl, `${label}-present`, {
+    uniforms: presentUniforms(colors),
     sceneHDR: scene,
     bloomTexture: composite,
     linearSampler,
@@ -377,7 +405,7 @@ function configuredEffect(
   gpu: Gpu,
   shader: string | ShaderSource,
   label: string,
-  bindings?: Record<string, unknown>
+  bindings?: Record<string, unknown>,
 ): Effect {
   const configured = effect(gpu, shader, { label });
   return bindings ? configured.set(bindings) : configured;
@@ -390,7 +418,7 @@ function makeBlur(
   output: Target,
   linearSampler: GPUSampler,
   direction: readonly [number, number],
-  kernelRadius: number
+  kernelRadius: number,
 ): Effect {
   const blur = effect(gpu, bloomBlurWgsl, { label });
   const coefficients = gaussianCoefficients(kernelRadius);
@@ -428,9 +456,22 @@ async function prewarm(graph: OceanGraph, output: Output): Promise<void> {
     graph.effects.present.compile({ colors: [output.format] }),
   ]);
   const failure = results.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected"
+    (result): result is PromiseRejectedResult => result.status === "rejected",
   );
   if (failure) throw failure.reason;
+}
+
+function presentUniforms(colors: OceanColors) {
+  return {
+    fgColor: [...colors.fg, 1] as const,
+    bgColor: [...colors.bg, 1] as const,
+    brightness: OCEAN_TUNING.present.brightness,
+  };
+}
+
+/** Retunes the present pass in place. Allocates nothing. */
+export function setPresentColors(graph: OceanGraph, colors: OceanColors): void {
+  graph.effects.present.set({ uniforms: presentUniforms(colors) });
 }
 
 function setDynamics(graph: OceanGraph, timeSeconds: number): void {
@@ -470,7 +511,7 @@ export function renderAt(
   gpu: Gpu,
   graph: OceanGraph,
   output: Target,
-  time: number
+  time: number,
 ): void {
   setDynamics(graph, time);
   frame(gpu, (currentFrame) => renderGraph(currentFrame, graph, output));
@@ -479,11 +520,11 @@ export function renderAt(
 export function renderGraph(
   currentFrame: Frame,
   graph: OceanGraph,
-  output: Output
+  output: Output,
 ): void {
   const pass = (target: Output, drawable: Draw | Effect) =>
     currentFrame.pass({ target, clear: TRANSPARENT }, (encoder) =>
-      encoder.draw(drawable)
+      encoder.draw(drawable),
     );
   if (graph.needsInitialSpectrum) {
     pass(graph.simulation.noise, graph.effects.noise);
@@ -506,7 +547,7 @@ export function renderGraph(
 }
 
 export function bloomSizes(
-  size: readonly [number, number]
+  size: readonly [number, number],
 ): [number, number][] {
   let width = Math.max(1, Math.round(size[0] / 2));
   let height = Math.max(1, Math.round(size[1] / 2));
@@ -533,7 +574,7 @@ export function destroyGraph(graph: OceanGraph): void {
 
 function destroyTargets(targets: readonly Target[]): void {
   runCleanups(
-    [...targets].reverse().map((value) => () => value.color.destroy())
+    [...targets].reverse().map((value) => () => value.color.destroy()),
   );
 }
 

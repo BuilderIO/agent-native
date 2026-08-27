@@ -25,6 +25,6 @@ export function createIfftStageTable(): readonly IfftStage[] {
         input: index === 0 ? "spectrum" : output === "ping" ? "pong" : "ping",
         output,
       });
-    })
+    }),
   );
 }

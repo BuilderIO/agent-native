@@ -36,6 +36,16 @@ export const OCEAN_TUNING = {
     near: 0.1,
     far: 2000,
   },
+  present: {
+    // The hero's own greyscale, not the example's. Overridden at runtime from
+    // --b-bg-page / --b-text-secondary; these are only the pre-token defaults
+    // and the dark-mode values, so a token read that fails still renders.
+    fgColor: [0.682, 0.678, 0.671] as const,
+    bgColor: [0.039, 0.039, 0.039] as const,
+    // >1 pushes the brightest crests past the foreground token so the field
+    // has a lit centre instead of topping out flat at --b-text-secondary.
+    brightness: 2.1,
+  },
   bloom: {
     threshold: 0.3,
     smoothWidth: 0.01,
@@ -52,6 +62,6 @@ export function gaussianCoefficients(kernelRadius: number): readonly number[] {
     index < kernelRadius
       ? (0.39894 * Math.exp((-0.5 * index * index) / (kernelRadius / 3) ** 2)) /
         (kernelRadius / 3)
-      : 0
+      : 0,
   );
 }
