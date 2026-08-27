@@ -7,6 +7,7 @@ import {
   consumeExternalEmailRefresh,
   filterSuppressedThreads,
   markExternalEmailRefresh,
+  rebasePinnedLabelsUpdate,
   suppressThread,
   unsuppressThread,
 } from "./use-emails";
@@ -102,5 +103,73 @@ describe("useLabels", () => {
 
     expect(source).toContain("placeholderData: (previousData) => previousData");
     expect(source).toContain("export const EMPTY_LABELS: Label[] = [];");
+  });
+});
+
+describe("serializePinnedLabelsUpdate", () => {
+  it("runs pinned-label writes in order", async () => {
+    const { serializePinnedLabelsUpdate } = await import("./use-emails");
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+
+    const first = serializePinnedLabelsUpdate(
+      () =>
+        new Promise<void>((resolve) => {
+          events.push("first");
+          releaseFirst = resolve;
+        }),
+    );
+    const second = serializePinnedLabelsUpdate(async () => {
+      events.push("second");
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["first"]);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(["first", "second"]);
+  });
+});
+
+describe("rebasePinnedLabelsUpdate", () => {
+  it("drops a failed queued pin from the later payload", () => {
+    expect(
+      rebasePinnedLabelsUpdate([], ["important"], ["important", "travel"]),
+    ).toEqual(["travel"]);
+  });
+
+  it("keeps a later reorder aligned with confirmed pins", () => {
+    expect(
+      rebasePinnedLabelsUpdate(
+        ["inbox", "sent"],
+        ["inbox", "sent"],
+        ["sent", "inbox"],
+      ),
+    ).toEqual(["sent", "inbox"]);
+  });
+
+  it("preserves confirmed order when a queued intent keeps the same order", () => {
+    expect(
+      rebasePinnedLabelsUpdate(
+        ["sent", "inbox"],
+        ["inbox", "sent"],
+        ["inbox", "sent"],
+      ),
+    ).toEqual(["sent", "inbox"]);
+  });
+});
+
+describe("useUpdateSettings", () => {
+  it("serializes pinned-label snapshots without touching other settings writes", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain('"pinnedLabels" in data');
+    expect(source).toContain("serializePinnedLabelsUpdate(() =>");
+    expect(source).toContain("rebasePinnedLabelsUpdate(");
+    expect(source).toContain("resetPinnedLabelsState(owner)");
+    expect(source).toContain("settingsLoading || !prev || !owner");
+    expect(source).toContain("requestSource: TAB_ID");
   });
 });
