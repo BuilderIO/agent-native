@@ -272,9 +272,9 @@ colour.
 | untitled UI dashboard | 3.68% | 3.47% (94.3%) | 0.21% |
 | whitepace | 2.95% | 2.52% (85.5%) | 0.43% |
 
-**This ratio is the sharpest instrument in this document.** Two cases stood out
-when it was first run and both turned out to be real defects that the raw
-percentage had buried:
+**This ratio is the sharpest instrument in this document.** Every case that has
+stood out on it has turned out to be a real defect the raw percentage had
+buried:
 
 - **Interior single product, 36.4% flat interior** against a corpus norm under
   5%. Figma's `/images` does not always return a PNG whose aspect matches the
@@ -285,10 +285,27 @@ percentage had buried:
   Figma's own resolved width, so a string whose advance runs a hair wider wraps
   inside a box built to fit it on one line. 1.08% -> 0.98%.
 
-What is left is 0.12% to 0.43% per case, and the worst of those cells
-(Whitepace's "100% your data" heading) are the INSIDES of thick glyph stems,
-where a half-pixel difference in advance moves the whole stroke and its
-interior with it. The same cause, one step removed.
+- **Parity stress, 10.4%.** `strokeGeometry` is the stroke Figma has already
+  outlined, but that outline is not clipped to the alignment Figma states, and
+  a mitred corner reaches a long way. A 5px INSIDE stroke on a star ran 16px
+  past its top point. 2.47% -> 2.30%, flat interior 0.257% -> 0.121%.
+- **Run on the `.fig` path for the first time it read 4-5x the REST path's on
+  the same designs**, which is what a path-specific defect looks like. Kiwi
+  states per-side stroke weights with `borderStrokeWeightsIndependent` and
+  writes only the sides that are set; this walker read the REST-shaped names,
+  which a raw kiwi node never carries, and fell back to the uniform weight on
+  all four sides — a vertical rule between every column of a table that has
+  none. Dashboard 4.95% -> 4.33%, flat interior 0.964% -> 0.452%.
+
+What is left is 0.12% to 0.43% per case. The worst of those cells are the
+INSIDES of thick glyph stems, where a half-pixel difference in advance moves
+the whole stroke and its interior with it — and, on the two Landify pages, a
+drop shadow that Figma paints about 12/255 darker over the same extent. That
+one was chased: the blur mapping is already right (rescaling it gains 0.02),
+and scaling the shadow's alpha by 1.2 fits those two pages while doing nothing
+for DashStack's 38 shadows, which is overfitting to one phone mockup rather
+than a mapping error. CSS approximates a Gaussian with box blurs; Figma does
+not.
 
 Text position is not the cause. Comparing Figma's `absoluteRenderBounds` — its
 own ink box for each text node — against the browser's rendered ink puts them
@@ -369,6 +386,8 @@ What moved the numbers. Each was a real defect on a real design:
 | Figma's own render stretched into a mismatched box | single product | 3.35 | 2.09 |
 | a line break Figma did not take | dashstack | 1.08 | 0.98 |
 | underline drawn above where Figma draws it | typography | 12.67 | 12.60 |
+| an INSIDE stroke drawn outside its shape | parity-stress | 2.47 | 2.30 |
+| per-side stroke weights read under REST's names | dashboard (.fig) | 4.95 | 4.33 |
 | diamond gradient drawn as an ellipse | fills-effects (.fig) | 17.90 | 15.26 |
 | glyphs hinted, not laid out on exact outlines | typography (.fig, vs REST) | 12.49 | 6.55 |
 | fill-container overriding the node's own sizing | dashboard (.fig) | 9.26 | 4.95 |
