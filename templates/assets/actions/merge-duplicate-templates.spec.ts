@@ -181,9 +181,15 @@ describe("merge-duplicate-templates", () => {
   });
 
   it("only merges duplicates in the active organization", async () => {
+    const crossKitDuplicate = candidate(
+      "a-duplicate",
+      "org-a",
+      "2026-01-02T00:00:00.000Z",
+    );
+    crossKitDuplicate.libraryId = "kit-org-a-secondary";
     const templates = [
       candidate("a-oldest", "org-a", "2026-01-01T00:00:00.000Z"),
-      candidate("a-duplicate", "org-a", "2026-01-02T00:00:00.000Z"),
+      crossKitDuplicate,
       candidate("b-oldest", "org-b", "2026-01-01T00:00:00.000Z"),
       candidate("b-duplicate", "org-b", "2026-01-02T00:00:00.000Z"),
     ];

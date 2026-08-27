@@ -1,5 +1,4 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { nanoid } from "nanoid";
 
 import { DEFAULT_GENERATION_PRESET_SEEDS } from "../../shared/generation-presets.js";
 import { schema } from "../db/index.js";
@@ -7,6 +6,21 @@ import { stringifyJson } from "./json.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type InsertDb = any;
+
+async function defaultTemplateId(
+  ownerEmail: string,
+  orgId: string | null | undefined,
+  seedId: string,
+) {
+  const identity = new TextEncoder().encode(
+    JSON.stringify([ownerEmail, orgId ?? null, seedId]),
+  );
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", identity);
+  const hash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `default-template-${hash.slice(0, 32)}`;
+}
 
 export async function ensureDefaultTemplates({
   db,
@@ -40,32 +54,35 @@ export async function ensureDefaultTemplates({
   let sortOrder = 0;
   for (const preset of DEFAULT_GENERATION_PRESET_SEEDS) {
     if (existingSeedIds.has(preset.seedId)) continue;
-    await db.insert(schema.assetTemplates).values({
-      id: nanoid(),
-      libraryId: null,
-      collectionId: null,
-      title: preset.title,
-      description: preset.description,
-      category: preset.category,
-      mediaType: "image",
-      promptTemplate: preset.promptTemplate,
-      aspectRatio: preset.aspectRatio,
-      imageSize: preset.imageSize,
-      model: preset.model,
-      textPolicy: preset.textPolicy,
-      referencePolicy: preset.referencePolicy,
-      settings: stringifyJson({
-        ...preset.settings,
-        seedId: preset.seedId,
-        source: "default-generation-preset",
-      }),
-      sortOrder,
-      ownerEmail,
-      orgId: orgId ?? null,
-      visibility: "private",
-      createdAt: now,
-      updatedAt: now,
-    });
+    await db
+      .insert(schema.assetTemplates)
+      .values({
+        id: await defaultTemplateId(ownerEmail, orgId, preset.seedId),
+        libraryId: null,
+        collectionId: null,
+        title: preset.title,
+        description: preset.description,
+        category: preset.category,
+        mediaType: "image",
+        promptTemplate: preset.promptTemplate,
+        aspectRatio: preset.aspectRatio,
+        imageSize: preset.imageSize,
+        model: preset.model,
+        textPolicy: preset.textPolicy,
+        referencePolicy: preset.referencePolicy,
+        settings: stringifyJson({
+          ...preset.settings,
+          seedId: preset.seedId,
+          source: "default-generation-preset",
+        }),
+        sortOrder,
+        ownerEmail,
+        orgId: orgId ?? null,
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing();
     sortOrder += 10;
   }
 }

@@ -77,6 +77,7 @@ import {
 } from "@/components/ui/tooltip";
 import { messagesByLocale } from "@/i18n-data";
 import { assetMediaUrl } from "@/lib/asset-urls";
+import { templateComposerReference } from "@/lib/template-composer-reference";
 import type { AssetUploadResult } from "@/lib/upload-results";
 import { cn } from "@/lib/utils";
 
@@ -585,46 +586,13 @@ export default function TemplateEditorRoute() {
   }, [assets]);
 
   useEffect(() => {
-    if (!library?.id || !library?.title || !preset?.id || !preset?.title) {
-      return;
-    }
-    insertAgentComposerReference({
-      label: preset.title,
-      icon: "document",
-      source: "templates",
-      refType: "template",
-      refId: preset.id,
-      refPath: `/templates/${encodeURIComponent(preset.id)}`,
-      slotKey: "template",
-      slotLabel: "Template",
-      metadata: {
-        libraryId: library.id,
-        libraryTitle: library.title,
-        requiredSlotKey: "brand-kit",
-        requiredRefId: library.id,
-        mediaType: preset.mediaType,
-      },
-      relatedReferences: [
-        {
-          label: library.title,
-          icon: "folder",
-          source: "brandKits",
-          refType: "brand-kit",
-          refId: library.id,
-          refPath: `/templates/${encodeURIComponent(preset.id)}`,
-          slotKey: "brand-kit",
-          slotLabel: "Brand kit",
-          clearsSlots: ["template"],
-          metadata: {
-            libraryId: library.id,
-          },
-        },
-      ],
-    });
+    const reference = templateComposerReference(preset, library);
+    if (reference) insertAgentComposerReference(reference);
   }, [
     library?.id,
     library?.title,
     preset?.id,
+    preset?.libraryId,
     preset?.mediaType,
     preset?.title,
   ]);

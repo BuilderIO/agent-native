@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const nanoidMock = vi.hoisted(() => vi.fn());
-
-vi.mock("nanoid", () => ({ nanoid: nanoidMock }));
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
@@ -27,6 +24,7 @@ import {
 } from "./generation-presets.js";
 
 type TemplateRow = {
+  id?: string;
   settings: string;
   ownerEmail: string;
   orgId: string | null;
@@ -47,9 +45,11 @@ function matches(row: TemplateRow, condition: Condition): boolean {
 }
 
 function createDb(rows: TemplateRow[]) {
-  const values = vi.fn(async (row: TemplateRow) => {
-    rows.push(row);
-  });
+  const values = vi.fn((row: TemplateRow) => ({
+    onConflictDoNothing: vi.fn(async () => {
+      if (!rows.some((existing) => existing.id === row.id)) rows.push(row);
+    }),
+  }));
   return {
     insert: vi.fn(() => ({ values })),
     select: vi.fn(() => ({
@@ -68,8 +68,6 @@ function createDb(rows: TemplateRow[]) {
 describe("ensureDefaultTemplates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    let id = 0;
-    nanoidMock.mockImplementation(() => `template-${++id}`);
   });
 
   it("creates global defaults even when associated defaults already exist", async () => {
@@ -130,6 +128,25 @@ describe("ensureDefaultTemplates", () => {
     expect(rows.filter((row) => row.orgId === null)).toHaveLength(
       DEFAULT_GENERATION_PRESET_SEEDS.length,
     );
+  });
+
+  it("creates one global set when provisioning races", async () => {
+    const rows: TemplateRow[] = [];
+    const db = createDb(rows);
+    const input = {
+      db,
+      ownerEmail: "owner@example.com",
+      orgId: "org-a",
+      now: "2026-08-27T00:00:00.000Z",
+    };
+
+    await Promise.all([
+      ensureDefaultTemplates(input),
+      ensureDefaultTemplates(input),
+    ]);
+
+    expect(rows).toHaveLength(DEFAULT_GENERATION_PRESET_SEEDS.length);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length);
   });
 
   it("backfills one idempotent global set for every existing owner scope", async () => {
