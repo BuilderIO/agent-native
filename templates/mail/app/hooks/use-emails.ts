@@ -1546,7 +1546,7 @@ export function useUpdateSettings() {
       let changed = false;
       for (const key of Object.keys(ctx.data) as (keyof UserSettings)[]) {
         if (current[key] === ctx.data[key]) {
-          rollback[key] = ctx.prev[key];
+          Object.assign(rollback, { [key]: ctx.prev[key] });
           changed = true;
         }
       }
