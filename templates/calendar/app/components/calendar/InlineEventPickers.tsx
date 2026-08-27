@@ -45,7 +45,7 @@ function formatTimeValue(value: string) {
   const period = hourValue >= 12 ? "PM" : "AM";
   const hour = hourValue % 12 || 12;
   return minuteValue === 0
-    ? `${hour}:00 ${period}`
+    ? `${hour} ${period}`
     : `${hour}:${String(minuteValue).padStart(2, "0")} ${period}`;
 }
 
