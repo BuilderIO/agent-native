@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../docs-locale";
-import { ThemeIconButton } from "./ds/icon-button";
+import { controlSurfaceClassName, ThemeIconButton } from "./ds/icon-button";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { GridInner, PageSection } from "./page-grid";
@@ -169,26 +169,26 @@ export function Footer() {
       </div>
 
       <GridInner className="flex flex-wrap items-center justify-between gap-[var(--spacing-6)] px-[var(--spacing-20)] py-[var(--spacing-6)]">
-        <div className="flex items-center gap-4">
-          {SOCIAL_LINKS.map((social) => (
-            <a
-              key={social.label}
-              href={social.href}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={social.label}
-              className="flex text-[var(--b-text-primary)] opacity-80 hover:opacity-100"
-            >
-              {social.icon}
-            </a>
-          ))}
-        </div>
+        <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
+          {/* i18n-ignore: a year and the wordmark, nothing translatable */}©
+          2026 AGENT-NATIVE
+        </span>
 
         <div className="flex items-center gap-[var(--spacing-6)]">
-          <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
-            {/* i18n-ignore: a year and the wordmark, nothing translatable */}©
-            2026 AGENT-NATIVE
-          </span>
+          <div className="flex items-center gap-4">
+            {SOCIAL_LINKS.map((social) => (
+              <a
+                key={social.label}
+                href={social.href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={social.label}
+                className="flex text-[var(--b-text-primary)] opacity-80 hover:opacity-100"
+              >
+                {social.icon}
+              </a>
+            ))}
+          </div>
           <div
             aria-hidden
             className="h-[13px] w-px bg-[var(--b-border-default)]"
@@ -203,7 +203,7 @@ export function Footer() {
               trigger={
                 <button
                   type="button"
-                  className={`${linkClassName} cursor-pointer border-none bg-transparent p-0`}
+                  className={`${controlSurfaceClassName} px-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]`}
                 >
                   {t("feedback.label")}
                 </button>

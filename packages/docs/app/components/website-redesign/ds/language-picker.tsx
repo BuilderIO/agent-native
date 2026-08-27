@@ -127,7 +127,7 @@ export function LanguagePicker(props: LanguagePickerProps) {
           "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
           props.dimBorder
             ? "border-[var(--b-action-secondary-border-dim)]"
-            : "border-[var(--b-action-secondary-border)]",
+            : "border-[var(--b-border-default)]",
         ].join(" ")}
       >
         <IconLanguage size={18} stroke={1.5} />
