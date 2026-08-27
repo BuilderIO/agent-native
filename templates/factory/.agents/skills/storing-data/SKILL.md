@@ -48,7 +48,7 @@ Existing unnamed migrations don't need to be renamed retroactively (the two gati
 
 ### Domain Data (per-template)
 
-Define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+In a managed Drizzle scaffold, define schema in `drizzle/schema.ts` with the dialect imports established by that scaffold. Otherwise, define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
 
 ```ts
 import { eq } from "drizzle-orm";
@@ -66,7 +66,7 @@ export const tasks = table("tasks", {
 const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 ```
 
-Never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
+Outside a managed Drizzle scaffold, never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |
