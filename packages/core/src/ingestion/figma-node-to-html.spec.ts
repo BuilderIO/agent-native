@@ -1253,6 +1253,11 @@ describe("a drop shadow Figma draws behind the layer", () => {
 
   it("casts from the layer's own alpha instead of its box", () => {
     const { html } = mapFigmaNodeToHtml(mockup([]), {});
+    // radius 48, spread -12 -> (48 + 2*-12)/2 = 12. Folding spread into the
+    // std-dev is wrong on this hop in isolation, and measuring all four
+    // combinations showed unfolding costs more on export than it gains on
+    // import, because the exporter reconstructs the blur from this length.
+    // See the comment at the emit site before changing this number.
     expect(html).toContain("drop-shadow(0px 24px 12px");
     expect(html).not.toContain("box-shadow");
   });

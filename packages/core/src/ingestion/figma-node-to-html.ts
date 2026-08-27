@@ -590,12 +590,17 @@ function paintToCssImage(
       const geometry = resolveGradientGeometry(paint);
       const cx = geometry ? round(geometry.start.x * 100, 2) : 50;
       const cy = geometry ? round(geometry.start.y * 100, 2) : 50;
-      // A conic gradient's `from` angle aims at the end *handle* (a point), so
-      // it scales like a position -- not like the linear gradient's iso-line
-      // normal, which scales by the inverse. See the two angle helpers in
-      // figma-paint-math.
+      // In NORMALIZED space, not the node's pixel box. The angle aims at the
+      // end *handle*, so it does scale like a position — but `buildFills`
+      // routes every angular paint through `angularGradientOverlay`, which
+      // draws into a `side x side` SQUARE and then scales that square to the
+      // box. Both axes scale equally inside it, so the correct `from` is the
+      // normalized angle; passing the real box pre-compensated for a stretch
+      // that the overlay applies afterwards. The `.fig` walker already
+      // computes it normalized, and says why — the two disagreed on every
+      // non-square angular paint, and this side was the wrong one.
       const fromAngle = geometry
-        ? gradientRayAngleDegreesFromHandles(geometry, box)
+        ? gradientRayAngleDegreesFromHandles(geometry, { width: 1, height: 1 })
         : 0;
       tracker.record(
         node,
@@ -1274,6 +1279,20 @@ function buildEffects(
       ) {
         // drop-shadow()'s third length is a standard deviation, half the
         // box-shadow blur LENGTH; spread has no equivalent and is folded in.
+        //
+        // Folding is wrong ON THIS HOP and still the better trade. Spread is
+        // not a softness term — Figma erodes or dilates the silhouette and
+        // blurs it with the radius unchanged — and dropping the fold does
+        // improve the import: Landify example 3.247% -> 3.183%. But the
+        // exporter reconstructs the blur from this very length, so a larger
+        // std-dev here comes back as a larger radius there, and the export hop
+        // paid more than the import gained: example export 3.309% -> 3.439%,
+        // tablet 4.549% -> 4.670%. Measured in all four combinations against
+        // the backdrop-filter clip below; unfolding lost 0.238 on export to
+        // gain 0.123 on import. Do not unfold this without fixing the export
+        // reconstruction in the same change. Building the erode properly as an
+        // feMorphology filter was fitted against Figma too and scored 6.22,
+        // worse than either. See FIGMA_INTEROPERABILITY.md.
         const stdDev =
           px(
             Math.max(0, (effect.radius ?? 0) + (effect.spread ?? 0) * 2) / 2,
@@ -1831,6 +1850,32 @@ function geometryPaths(node: FigmaNode): FigmaVectorPath[] {
  * `background-size`, so guessing one would be a structural approximation this
  * module does not make.
  */
+/**
+ * A vector node's own painted silhouette as a CSS `clip-path`, so an effect
+ * that CSS applies to the border box lands only where the layer paints.
+ * Returns undefined when the shape is not knowable, because clipping to a
+ * guess is worse than not clipping at all.
+ */
+function vectorClipPath(
+  node: FigmaNode,
+  tracker: FidelityTracker,
+): string | undefined {
+  const paths = (node.fillGeometry ?? [])
+    .map((entry) => entry.path?.trim())
+    .filter((d): d is string => Boolean(d));
+  if (paths.length === 0) {
+    tracker.record(
+      node,
+      "approximated",
+      "Background blur on a vector node was applied to its bounding box: the node has no fillGeometry to clip the blur to its own silhouette.",
+    );
+    return undefined;
+  }
+  const rule =
+    node.fillGeometry?.[0]?.windingRule === "EVENODD" ? "evenodd, " : "";
+  return `path(${rule}"${paths.join(" ").replace(/"/g, "'")}")`;
+}
+
 function rendersVectorGeometry(
   node: FigmaNode,
   options: MapFigmaNodeOptions,
@@ -2858,6 +2903,20 @@ function buildNode(
     filter: effects.filter,
     "backdrop-filter": effects.backdropFilter,
     "-webkit-backdrop-filter": effects.backdropFilter,
+    // A vector node's wrapper div paints nothing — the shape is an inline
+    // <svg><path> child — and it never gets a border-radius, so CSS filtered
+    // the backdrop of the whole bounding RECTANGLE while Figma blurs only
+    // where the layer paints. Landify's hero shape blurs 1440x752 of backdrop
+    // for a path that stops at a diagonal; the first differing pixel sits
+    // exactly on that edge. Clipping the div to the path fixes it, and the
+    // geometry is already in border-box coordinates, so it needs no transform.
+    // Gated on backdrop-filter ALONE on purpose: `filter` is applied before
+    // `clip-path`, so a layer-blurred vector is already correct and clipping
+    // would shear its halo, and clipping an outer box-shadow deletes it.
+    "clip-path":
+      isVector && effects.backdropFilter
+        ? vectorClipPath(node, tracker)
+        : undefined,
     opacity:
       typeof node.opacity === "number" && node.opacity !== 1
         ? String(round(node.opacity, 4))

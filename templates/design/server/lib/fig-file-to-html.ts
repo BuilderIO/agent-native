@@ -1454,64 +1454,10 @@ function backgroundShorthand(
       bgRepeats.push("repeat");
       continue;
     }
-    const mode = f.imageScaleMode ?? "FILL";
-    if (mode === "FILL") bgSizes.push("cover");
-    else if (mode === "FIT") bgSizes.push("contain");
-    else if (mode === "STRETCH") {
-      // STRETCH plus a paint transform is Figma's CROP: the matrix picks a
-      // sub-rectangle of the image — origin (m02, m12), size (m00, m11) in the
-      // image's own normalized space — and stretches THAT to fill the box.
-      // Drawing the whole image instead reads as the artwork zoomed out. The
-      // REST walker has done this since the Positivus service cards exposed
-      // it; this walker decoded `transform` for gradients only and never for
-      // an image, so the same designs came in wrong through .fig and paste.
-      const t = f.transform;
-      const axisAligned =
-        !t || (Math.abs(t.m01) < 1e-6 && Math.abs(t.m10) < 1e-6);
-      const box = node.size;
-      if (
-        t &&
-        axisAligned &&
-        t.m00 > 1e-6 &&
-        t.m11 > 1e-6 &&
-        box &&
-        box.x > 0 &&
-        box.y > 0
-      ) {
-        const displayWidth = box.x / t.m00;
-        const displayHeight = box.y / t.m11;
-        bgSizes.push(`${num(displayWidth)}px ${num(displayHeight)}px`);
-        bgPositions.push(
-          `${num(-(t.m02 ?? 0) * displayWidth)}px ${num(-(t.m12 ?? 0) * displayHeight)}px`,
-        );
-        bgRepeats.push("no-repeat");
-        continue;
-      }
-      if (t && !axisAligned) {
-        recordApproximation(
-          node,
-          ctx,
-          "Image fill has a non-axis-aligned paint transform (rotated/skewed crop); approximated with the scale-mode-only CSS mapping, without the transform matrix",
-        );
-      }
-      bgSizes.push("100% 100%");
-    } else if (mode === "TILE") {
-      // `auto` is what a tile's size means, and it renders identically — but
-      // it is also what an unset size looks like, so the export hop could not
-      // tell a tile's dimensions and drew one stretched copy. Stating the
-      // intrinsic size explicitly is the same pixels here and a recoverable
-      // tile there. When it cannot be resolved, `auto` stays and the exporter
-      // reports the tile it could not reproduce.
-      const tileHex = hashToHex(f.image?.hash);
-      const tile = tileHex ? intrinsicImageSize(imageUrl(tileHex, ctx)) : null;
-      bgSizes.push(
-        tile && tile.width > 0 && tile.height > 0
-          ? `${num(tile.width)}px ${num(tile.height)}px`
-          : "auto",
-      );
-    } else bgSizes.push("auto");
-    bgPositions.push(mode === "TILE" ? "0% 0%" : "center");
-    bgRepeats.push(mode === "TILE" ? "repeat" : "no-repeat");
+    const scale = imageScaleModeCss(f, node, ctx);
+    bgSizes.push(scale.size);
+    bgPositions.push(scale.position);
+    bgRepeats.push(scale.repeat);
   }
   // `image-rendering` is one property for the element, not per layer, so a
   // single magnified fill switches the whole stack to nearest — which is what
@@ -1624,6 +1570,79 @@ interface BackgroundLayer {
  * Only the TOPMOST fill is ever pulled out: an overlay child paints above the
  * whole background stack, so moving a lower layer would reorder the paint.
  */
+/**
+ * A Figma image scale mode as the three CSS background properties that carry
+ * it. All five modes reach the DOM only through these, so they are decided in
+ * one place: the same mapping was written twice and the CROP and TILE work
+ * landed in only one of the copies, which is how a half-fixed walker happens.
+ */
+function imageScaleModeCss(
+  p: Paint,
+  node: FigNode,
+  ctx: Ctx,
+): { size: string; position: string; repeat: string } {
+  const mode = p.imageScaleMode ?? "FILL";
+  if (mode === "FILL")
+    return { size: "cover", position: "center", repeat: "no-repeat" };
+  if (mode === "FIT")
+    return { size: "contain", position: "center", repeat: "no-repeat" };
+  if (mode === "TILE") {
+    // `auto` is what a tile's size means and it renders identically — but it
+    // is also what an unset size looks like, so the export hop could not tell
+    // a tile's dimensions and drew one stretched copy. Stating the intrinsic
+    // size is the same pixels here and a recoverable tile there. When it
+    // cannot be resolved `auto` stays and the exporter reports the lost tiling.
+    const hex = hashToHex(p.image?.hash);
+    const tile = hex ? intrinsicImageSize(imageUrl(hex, ctx)) : null;
+    return {
+      size:
+        tile && tile.width > 0 && tile.height > 0
+          ? `${num(tile.width)}px ${num(tile.height)}px`
+          : "auto",
+      position: "0% 0%",
+      repeat: "repeat",
+    };
+  }
+  if (mode === "STRETCH") {
+    // STRETCH plus a paint transform is Figma's CROP: the matrix picks a
+    // sub-rectangle of the image — origin (m02, m12), size (m00, m11) in the
+    // image's own normalized space — and stretches THAT to fill the box.
+    // Drawing the whole image instead reads as the artwork zoomed out. The
+    // REST walker has done this since the Positivus service cards exposed it;
+    // this walker decoded `transform` for gradients only, never for an image.
+    const t = p.transform;
+    const axisAligned =
+      !t || (Math.abs(t.m01) < 1e-6 && Math.abs(t.m10) < 1e-6);
+    const box = node.size;
+    if (
+      t &&
+      axisAligned &&
+      t.m00 > 1e-6 &&
+      t.m11 > 1e-6 &&
+      box &&
+      box.x > 0 &&
+      box.y > 0
+    ) {
+      const displayWidth = box.x / t.m00;
+      const displayHeight = box.y / t.m11;
+      return {
+        size: `${num(displayWidth)}px ${num(displayHeight)}px`,
+        position: `${num(-(t.m02 ?? 0) * displayWidth)}px ${num(-(t.m12 ?? 0) * displayHeight)}px`,
+        repeat: "no-repeat",
+      };
+    }
+    if (t && !axisAligned) {
+      recordApproximation(
+        node,
+        ctx,
+        "Image fill has a non-axis-aligned paint transform (rotated/skewed crop); approximated with the scale-mode-only CSS mapping, without the transform matrix",
+      );
+    }
+    return { size: "100% 100%", position: "center", repeat: "no-repeat" };
+  }
+  return { size: "auto", position: "center", repeat: "no-repeat" };
+}
+
 function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
   const box = node.size ? { width: node.size.x, height: node.size.y } : null;
   if (!box || box.width <= 0 || box.height <= 0) return null;
@@ -1653,20 +1672,12 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
     // photo painted solid and hid the fills beneath it.
     const image = paintToBackground(p, node, ctx);
     if (!image) return null;
-    const mode = p.imageScaleMode ?? "FILL";
-    const size =
-      mode === "FILL"
-        ? "cover"
-        : mode === "FIT"
-          ? "contain"
-          : mode === "STRETCH"
-            ? "100% 100%"
-            : "auto";
+    const scale = imageScaleModeCss(p, node, ctx);
     const style =
       `position:absolute;inset:0;border-radius:inherit;pointer-events:none;` +
-      `background-image:${image};background-size:${size};` +
-      `background-position:${mode === "TILE" ? "0% 0%" : "center"};` +
-      `background-repeat:${mode === "TILE" ? "repeat" : "no-repeat"};` +
+      `background-image:${image};background-size:${scale.size};` +
+      `background-position:${scale.position};` +
+      `background-repeat:${scale.repeat};` +
       `opacity:${num(p.opacity ?? 1)}`;
     return `<div style="${escapeHtmlAttr(style)}"></div>`;
   }

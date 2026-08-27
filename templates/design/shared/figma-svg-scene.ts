@@ -2477,6 +2477,62 @@ export function collectRawFigmaSvgScene(
     return { residual, mirror: a! * d! - c! * b! < 0 };
   }
 
+  /**
+   * Does any stop in a computed gradient carry a position the exporter's
+   * parser cannot read? `parseColorStop` understands percentages only and
+   * otherwise returns the whole unsplit token as the COLOUR, which becomes an
+   * invalid `stop-color` and paints BLACK. The universal hard-stop idiom
+   * `<colour> 0 50%, <colour> 50% 100%` computes with a bare `0` and hits it.
+   *
+   * Self-contained on purpose: this function is serialized into the page with
+   * the rest of the walk, so it cannot call the module-level helpers — they do
+   * not exist in that context.
+   */
+  function gradientHasUnreadableStop(backgroundImage: string): boolean {
+    const splitTop = (value: string): string[] => {
+      const out: string[] = [];
+      let depth = 0;
+      let current = "";
+      for (const ch of value) {
+        if (ch === "(") depth += 1;
+        else if (ch === ")") depth -= 1;
+        if (ch === "," && depth === 0) {
+          out.push(current);
+          current = "";
+          continue;
+        }
+        current += ch;
+      }
+      if (current.trim()) out.push(current);
+      return out;
+    };
+    for (const layer of splitTop(backgroundImage)) {
+      if (!/gradient\(/i.test(layer)) continue;
+      const open = layer.indexOf("(");
+      if (open < 0) continue;
+      const inner = layer.slice(open + 1, layer.lastIndexOf(")"));
+      for (const raw of splitTop(inner)) {
+        const part = raw.trim();
+        if (!part) continue;
+        // The leading geometry argument carries no colour.
+        if (
+          /^(to\s|[-\d.]+(deg|rad|grad|turn)\b|circle\b|ellipse\b|at\s|closest|farthest)/i.test(
+            part,
+          )
+        )
+          continue;
+        // A percentage-positioned stop, or a bare colour with no position at
+        // all, are both fine — the latter gets spread by the stop normalizer.
+        if (/(-?[\d.]+)%\s*$/.test(part)) continue;
+        // What is not fine is a residual length still glued to the colour, or
+        // a bare numeric colour hint standing where a colour should be.
+        if (/(^|\s)-?[\d.]+(px|em|rem|vw|vh|q|cm|mm|in|pt|pc)?$/i.test(part))
+          return true;
+      }
+    }
+    return false;
+  }
+
   function rotationFromTransform(transform: string): number {
     if (!transform || transform === "none") return 0;
     const m = transform.match(/matrix\(([^)]+)\)/);
@@ -2526,7 +2582,19 @@ export function collectRawFigmaSvgScene(
     if (style.display === "none" || style.visibility === "hidden") return false;
     if (el.getAttribute("data-agent-native-hidden") === "true") return false;
     const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    if (rect.width > 0 && rect.height > 0) return true;
+    // A zero-THICKNESS node still paints: the importer gives a flat vector an
+    // absolutely-positioned `overflow: visible` <svg> child, so a 1332x0 rule
+    // has all its ink in a descendant. Rejecting the wrapper on its own rect
+    // deleted that child before the walk ever recursed into it — four
+    // horizontal rules vanished from interior-product-comparison, recorded in
+    // neither `vectorized` nor `omitted`. Ask whether anything BELOW paints,
+    // rather than widening the test into "keep every empty box": a genuine
+    // zero-size spacer has no painting descendant and still drops.
+    return Array.from(el.children).some((child) => {
+      const box = child.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    });
   }
 
   /**
@@ -3288,6 +3356,28 @@ export function collectRawFigmaSvgScene(
         ...rasterGeometry,
         rasterReason:
           "tiled gradient background (per-layer background-size) has no SVG equivalent — rasterized this element's region via screenshot.",
+      };
+    }
+
+    // `parseColorStop` reads a stop's position only when it is a PERCENTAGE:
+    // anything else — `40px`, a bare `0`, or a mid-ramp colour hint — leaves
+    // the length glued to the colour, and `stop-color` given a colour with a
+    // length still glued to it is an invalid paint that renders BLACK. The universal hard-stop idiom
+    // `<colour> 0 50%, <colour> 50% 100%` computes with a bare `0`, so an
+    // ordinary authored gradient exported as a black wedge, unreported.
+    // Resolving a length needs box geometry this parser does not have, so
+    // hand the leaf to the raster fallback that already sits beside conic and
+    // tiled gradients. Rasterized is lossy; a silent black box is wrong.
+    if (
+      el.children.length === 0 &&
+      /gradient\(/i.test(base.backgroundImage || "") &&
+      gradientHasUnreadableStop(base.backgroundImage || "")
+    ) {
+      return {
+        ...base,
+        ...rasterGeometry,
+        rasterReason:
+          "gradient has a stop position this exporter cannot resolve (a length or colour hint rather than a percentage) — rasterized this element's region via screenshot.",
       };
     }
 

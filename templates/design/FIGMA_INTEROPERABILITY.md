@@ -972,6 +972,111 @@ at the wrong scale shows as a mismatch rather than as two identical swatches.
 It exports at 2.032% with 0 omissions, and its two tiles emit as 16px and 32px
 user-space patterns.
 
+## Four defects a five-lens sweep found, ranked by measured pixels
+
+A read-only sweep over the four walkers produced 16 candidate findings; 17 of
+30 verification passes refuted their claim outright. What survived was ranked
+by ABSOLUTE flat-interior pixels rather than by severity label, and the four
+below were the ones whose numbers justified landing immediately.
+
+### The exporter deleted zero-thickness nodes, silently
+
+`isVisible` ended `rect.width > 0 && rect.height > 0`. But the importer puts a
+flat vector's ink in an absolutely-positioned `overflow: visible` `<svg>`
+CHILD, so a 1332x0 rule has zero size itself and all its paint one level down.
+Rejecting the wrapper on its own rect deleted the child before the walk
+recursed into it. Four horizontal rules vanished from
+`interior-product-comparison` and appeared in neither `vectorized` nor
+`omitted` — the converter dropped content and reported nothing, which is the
+flagship rule violated inside the exporter.
+
+The test now asks whether anything BELOW paints, rather than widening into
+"keep every empty box": a genuine zero-size spacer has no painting descendant
+and still drops. Export on that case 2.892% -> 2.751%, positivus 2.750% ->
+2.738%, and corpus omissions 1 -> 0.
+
+### A background blur covered a vector's bounding box, not its shape
+
+A vector node's wrapper div paints nothing — the shape is an inline
+`<svg><path>` child — and it never receives a `border-radius`, so
+`backdrop-filter` filtered the backdrop of the whole AABB while Figma blurs
+only where the layer paints. Landify's hero blurs 1440x752 of backdrop for a
+path that stops at a diagonal; the first differing pixel sits exactly on that
+edge. The div is now clipped with `clip-path: path(...)` from the node's own
+`fillGeometry`, which is already in border-box coordinates.
+
+Gated on `backdrop-filter` alone, deliberately: `filter` is applied BEFORE
+`clip-path`, so a layer-blurred vector is already correct and clipping would
+shear its halo, and clipping an outer `box-shadow` deletes it outright.
+
+### A content-cast shadow is half as soft as Figma's, and unfolding it measured WORSE
+
+`stdDev = (radius + 2 * spread) / 2` puts spread on the wrong axis. Spread is
+not a softness term — Figma dilates or erodes the alpha silhouette and blurs
+THAT with the radius unchanged — so the fold shifts the standard deviation by
+exactly `spread`, and a negative-spread shadow comes out half as soft instead
+of tighter. Fitting Gaussians to Figma's own render of the Landify `Mobile`
+card (radius 48, spread -12): Figma sigma ~20, ours 11.5.
+
+It is still folded, because this is a two-hop converter and only the import hop
+was fitted. The exporter reconstructs the blur from this very length, so a
+larger std-dev here returns as a larger radius there. Measured in all four
+combinations with the backdrop-filter clip below, on the two Landify cases:
+
+| configuration        | import (ex / tab) | export (ex / tab) |
+| -------------------- | ----------------- | ----------------- |
+| neither              | 3.247 / 4.366     | 3.309 / 4.549     |
+| unfold spread only   | 3.183 / 4.339     | 3.439 / 4.670     |
+| unfold + clip        | 3.117 / 4.317     | 3.380 / 4.647     |
+| **clip only (kept)** | **3.195 / 4.362** | **3.250 / 4.539** |
+
+Unfolding gains 0.123 on import across the two and loses 0.238 on export. The
+clip alone improves both hops, so it is kept and the fold stays. Do not unfold
+without fixing the export-side reconstruction in the same change — this is the
+same shape as the spread experiment already recorded above, and the second time
+an import-only fit has lost on the round trip.
+
+Building the erode properly — an inline `feMorphology` -> `feGaussianBlur`
+filter — was fitted against Figma as well and scored **6.22 mean |delta|,
+worse than the 3.67 the bug scores**. Recorded here so it is not attempted a
+third time.
+
+### A gradient stop CSS can express and this parser cannot rendered black
+
+`parseColorStop` reads a stop position only when it is a PERCENTAGE and
+otherwise returns the whole unsplit token as the COLOUR, so
+`stop-color="rgb(0,0,0) 40px"` — an invalid paint — rendered black with
+nothing in the export report. The reachable trigger is not exotic: the
+universal hard-stop idiom `<colour> 0 50%, <colour> 50% 100%` computes with a
+bare `0`,
+which is a `<length>`, so an ordinary authored gradient exported as a black
+wedge.
+
+Resolving a length needs box geometry the parser does not have, so an
+unreadable stop now routes the leaf to the raster fallback already sitting
+beside conic and tiled gradients. Rasterized is lossy; a silent black box is
+wrong. This measures 0.000 on all three corpora — every importer formats stops
+as `${color} ${n}%` — and is reachable only from agent-authored HTML, which is
+the app's other primary content source and the one no fidelity harness sees.
+
+**The detector lives INSIDE `collectRawFigmaSvgScene`.** That function is
+serialized with `Function.prototype.toString()` and evaluated in the page, so
+it cannot call module-level helpers; a first version called one and would have
+thrown `ReferenceError` on every export. Unit tests do not exercise that path —
+only running the export harness does.
+
+### One line where the two walkers disagreed and REST was wrong
+
+An angular gradient's `from` angle was computed against the node's pixel box,
+but `buildFills` routes every angular paint through `angularGradientOverlay`,
+which draws into a `side x side` SQUARE and scales that square to the box. Both
+axes scale equally inside it, so the correct angle is the NORMALIZED one; the
+pixel box pre-compensated for a stretch the overlay applies afterwards. The
+`.fig` walker already computed it normalized and said why. Measures 0.000: all
+three angular gradients in the corpus have a due-east ray, where the two
+definitions coincide — which is exactly why it survived. The stale comment that
+justified the old reasoning is deleted, because leaving it regrows the bug.
+
 ## The export number depends on the network
 
 `rt-community-interior-single-product` measured 5.106% on one run and 2.691% on
