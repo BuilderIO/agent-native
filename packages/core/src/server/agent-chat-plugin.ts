@@ -750,7 +750,6 @@ export function createAgentChatPlugin(
       // manager, then hydrate it after every live action registry has subscribed
       // to manager changes.
       const mcpManager = new McpClientManager(null);
-      setGlobalMcpManager(mcpManager);
       const mcpActionEntries: Record<string, ActionEntry> = {};
       let mcpInitializationPromise: Promise<void> | null = null;
       const initializeMcpManager = async (): Promise<void> => {
@@ -786,6 +785,7 @@ export function createAgentChatPlugin(
         }
         return mcpInitializationPromise;
       };
+      setGlobalMcpManager(mcpManager, ensureMcpInitialized);
       const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
       ): Promise<Record<string, ActionEntry>> => {

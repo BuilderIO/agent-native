@@ -134,6 +134,7 @@ describe("embedded Agent-Native helpers", () => {
     expect(
       normalizeAgentNativeEmbeddedSession({
         email: "ada@example.com",
+        emailVerified: true,
         userId: "user-1",
         name: "Ada",
         organizationId: "org-1",
@@ -141,6 +142,7 @@ describe("embedded Agent-Native helpers", () => {
       }),
     ).toEqual({
       email: "ada@example.com",
+      emailVerified: true,
       userId: "user-1",
       token: undefined,
       name: "Ada",

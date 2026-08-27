@@ -20,7 +20,7 @@ import {
   expandByParagraphAnimations,
   findLegacyAnimationContainer,
   getElementAnimationValue,
-  getElementPath,
+  getPersistedElementPath,
   resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
 
@@ -67,7 +67,7 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
     });
     if (paragraphs.length > 1) {
       return paragraphs.flatMap((paragraph, index) => {
-        const elementPath = getElementPath(root, paragraph);
+        const elementPath = getPersistedElementPath(root, paragraph);
         return elementPath
           ? [
               {

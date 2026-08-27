@@ -121,9 +121,58 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 }));
 
 import PromptPopover, {
+  createPromptChatAttachments,
   isInsidePortaledLayer,
   uploadPromptFiles,
 } from "./PromptDialog";
+
+describe("createPromptChatAttachments", () => {
+  it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
+    const result = await createPromptChatAttachments(
+      [
+        {
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          file: new File(["pdf bytes"], "reference.pdf", {
+            type: "application/pdf",
+          }),
+        },
+        {
+          name: "pasted-text-1.txt",
+          contentType: "text/plain",
+          file: new File(["outline"], "pasted-text-1.txt", {
+            type: "text/plain",
+          }),
+        },
+      ],
+      [
+        {
+          path: "uploads/reference.pdf",
+          originalName: "reference.pdf",
+          filename: "reference.pdf",
+          type: "application/pdf",
+          size: 9,
+        },
+      ],
+    );
+
+    expect(result).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
+  });
+});
 
 describe("isInsidePortaledLayer", () => {
   it("matches nodes inside a Radix popper layer", () => {
@@ -198,6 +247,43 @@ describe("uploadPromptFiles", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("adds image bytes for the current turn while preserving hosted URLs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/hosted.png",
+            url: "https://cdn.example.test/hosted.png",
+            originalName: "hosted.png",
+            filename: "hosted.png",
+            type: "image/png",
+            size: 5,
+          },
+          {
+            path: "uploads/inline.jpg",
+            originalName: "inline.jpg",
+            filename: "inline.jpg",
+            type: "image/jpeg",
+            size: 5,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const uploads = await uploadPromptFiles([
+      new File(["hosted"], "hosted.png", { type: "image/png" }),
+      new File(["inline"], "inline.jpg", { type: "image/jpeg" }),
+    ]);
+
+    expect(uploads[0]).toMatchObject({
+      url: "https://cdn.example.test/hosted.png",
+      dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
+    });
+    expect(uploads[1]?.dataUrl).toMatch(/^data:image\/jpeg;base64,/);
   });
 
   it("preserves selection order across multipart and chunked uploads", async () => {

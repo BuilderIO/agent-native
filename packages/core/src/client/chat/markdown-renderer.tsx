@@ -154,6 +154,7 @@ export function loadHighlighter(): Promise<ShikiHighlighter> {
 // needing to be rebuilt on every render.
 
 export const TextStreamingContext = React.createContext(false);
+export const ExternalTextStreamingContext = React.createContext(false);
 
 // ─── HighlightedCodeBlock wrapper ────────────────────────────────────────────
 // Reads streaming state from context so markdownComponents (a static constant)
@@ -770,12 +771,31 @@ export function SmoothMarkdownText({
 
 // ─── MarkdownText ──────────────────────────────────────────────────────────────
 
+export function shouldAnimateMarkdownText({
+  textStreaming,
+  isLastAssistantMessage,
+  statusType,
+  externalStreaming,
+}: {
+  textStreaming: boolean;
+  isLastAssistantMessage: boolean;
+  statusType: string;
+  externalStreaming?: boolean;
+}): boolean {
+  return (
+    textStreaming &&
+    isLastAssistantMessage &&
+    (statusType === "running" || externalStreaming === true)
+  );
+}
+
 export function MarkdownText() {
   const t = useT();
   const textPart = useMessagePartText();
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
   const textStreaming = React.useContext(TextStreamingContext);
+  const externalStreaming = React.useContext(ExternalTextStreamingContext);
   const isLastAssistantMessage = message.role === "assistant" && message.isLast;
   const statusType =
     textPart.status?.type ?? message.status?.type ?? "complete";
@@ -783,7 +803,12 @@ export function MarkdownText() {
   return (
     <SmoothMarkdownText
       text={localizeKnownChatErrorText(textPart.text, t)}
-      streaming={textStreaming && isLastAssistantMessage}
+      streaming={shouldAnimateMarkdownText({
+        textStreaming,
+        isLastAssistantMessage,
+        statusType,
+        externalStreaming,
+      })}
       resetKey={message.id}
       statusType={statusType}
     />

@@ -30,6 +30,12 @@ Jede bereitgestellte App benötigt eine dauerhafte SQL-Datenbank. Setze `DATABAS
 
 Standalone-Apps benötigen ein stabiles `BETTER_AUTH_SECRET`. Workspaces mit signierten App-zu-App-Anfragen benötigen `A2A_SECRET`.
 
+## E-Mail-Zustellung ist optional, aber empfohlen {#email-provider}
+
+Ein E-Mail-Anbieter ist für die E-Mail-/Passwort-Authentifizierung nicht erforderlich. Ohne Anbieter verwenden bereitgestellte Apps E-Mail/Passwort für Registrierung und Anmeldung, überspringen die E-Mail-Verifizierung bei der Registrierung und bieten keine Magic-Link-Authentifizierung an.
+
+Verbinde Resend oder SendGrid vor dem Deployment, wenn du Magic Links, E-Mail-Verifizierung, Passwortzurücksetzungen, Einladungen oder Freigabebenachrichtigungen benötigst. Setze `RESEND_API_KEY` oder `SENDGRID_API_KEY`; SendGrid benötigt zusätzlich `EMAIL_FROM`. Siehe [Authentifizierung](/docs/authentication) für die verfügbaren Authentifizierungsmodi.
+
 ## Unterstützte Ziele
 
 Agent-Native unterstützt [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) und [Render](/docs/render).
