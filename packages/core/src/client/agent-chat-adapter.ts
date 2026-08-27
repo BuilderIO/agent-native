@@ -4421,7 +4421,8 @@ export function createAgentChatAdapter(
             cancelDelayedJsonProbe();
             clearOwnedActiveRun();
             return;
-          } catch (err: unknown) {
+          } catch (caughtError: unknown) {
+            let err = caughtError;
             if (err instanceof Error && err.name === "AbortError") {
               cancelDelayedJsonProbe();
               // User-initiated abort (Stop button) — clear active run
