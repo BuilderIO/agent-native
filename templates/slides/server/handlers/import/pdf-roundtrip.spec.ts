@@ -79,6 +79,51 @@ describe("PDF round trip", () => {
     );
   });
 
+  it("does not rebuild a page's own OCR layer as visible text on top of it", async () => {
+    // This is the shape of a Slides export whose XMP sidecar was stripped by
+    // another PDF tool: the words are baked into the page raster AND present as
+    // an invisible text layer. Reconstructing both prints every heading twice,
+    // once from the image and once in the wrong font over it.
+    const pdf = newPdf();
+    pdf.addImage(TINY_JPEG, "JPEG", 0, 0, 1920, 1080);
+    pdf.setFontSize(72);
+    pdf.text("Quarterly Business Review", 120, 300, {
+      baseline: "top",
+      renderingMode: "invisible",
+    });
+
+    const doc = await open(pdf);
+    const [page] = await parsePdfFidelity(doc, []);
+    const extractable = (await (await doc.getPage(1)).getTextContent()).items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join("");
+    await doc.destroy();
+
+    expect(page.elements.some((element) => element.kind === "text")).toBe(
+      false,
+    );
+    // Still selectable and searchable in any PDF reader — it is only the
+    // visible reconstruction that skips it.
+    expect(extractable).toContain("Quarterly Business Review");
+  });
+
+  it("still rebuilds text that the page actually draws", async () => {
+    const pdf = newPdf();
+    pdf.addImage(TINY_JPEG, "JPEG", 0, 0, 1920, 1080);
+    pdf.setFontSize(72);
+    pdf.text("Drawn over the photo", 120, 300, { baseline: "top" });
+
+    const doc = await open(pdf);
+    const [page] = await parsePdfFidelity(doc, []);
+    await doc.destroy();
+
+    expect(
+      page.elements
+        .filter((element) => element.kind === "text")
+        .map(elementText),
+    ).toEqual(["Drawn over the photo"]);
+  });
+
   it("restores the exported deck from the sidecar instead of reconstructing it", async () => {
     const sidecar: SlidesPdfSidecar = {
       v: 1,
