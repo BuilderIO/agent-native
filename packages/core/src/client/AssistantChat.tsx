@@ -2006,7 +2006,8 @@ export interface AssistantChatProps {
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
   /**
-   * Called with the active composer's current plain text as it changes.
+   * Called with the active composer's current plain text when it initializes
+   * and as it changes.
    * Host apps can use this to render contextual, non-destructive affordances
    * beside the shared composer without replacing the composer stack.
    */
@@ -2563,12 +2564,18 @@ const AssistantChatInner = forwardRef<
   // (unsupported format, size cap, body-size rejection, drop errors).
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [composerText, setComposerText] = useState("");
   const composerDraftScope = tabId || threadId;
   const initialComposerText = useMemo(
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
   );
+  const [composerText, setComposerText] = useState(initialComposerText ?? "");
+  useEffect(() => {
+    const restoredText = initialComposerText ?? "";
+    setComposerText(restoredText);
+    if (!isActiveComposer) return;
+    onComposerTextChange?.(restoredText);
+  }, [initialComposerText, isActiveComposer, onComposerTextChange]);
   const handleComposerTextChange = useCallback(
     (text: string) => {
       setComposerText(text);
