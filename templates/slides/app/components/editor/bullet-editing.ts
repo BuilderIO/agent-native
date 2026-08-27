@@ -352,6 +352,15 @@ function hasBulletRow(nodes: Node[]): boolean {
   );
 }
 
+function effectiveOrderedListStart(
+  list: HTMLElement,
+  rowCount: number,
+): number {
+  const parsedStart = Number.parseInt(list.getAttribute("start") ?? "", 10);
+  if (Number.isFinite(parsedStart)) return parsedStart;
+  return list.hasAttribute("reversed") ? rowCount : 1;
+}
+
 function listWithNodes(
   list: HTMLElement,
   nodes: Node[],
@@ -464,15 +473,21 @@ export function exitEmptyBulletAtCaret(list: HTMLElement): HTMLElement | null {
   const afterNodes = childNodes.slice(rowIndex + 1);
   const beforeHasRows = hasBulletRow(beforeNodes);
   const afterHasRows = hasBulletRow(afterNodes);
-  const rowsBeforeExit = listRows(list).indexOf(row) + 1;
-  const parsedStart = Number.parseInt(list.getAttribute("start") ?? "", 10);
+  const rows = listRows(list);
+  const rowsBeforeExit = rows.indexOf(row) + 1;
+  const orderedStart =
+    list.tagName === "OL" ? effectiveOrderedListStart(list, rows.length) : null;
   const trailingStart =
-    list.tagName === "OL"
-      ? (Number.isFinite(parsedStart) ? parsedStart : 1) + rowsBeforeExit
+    orderedStart !== null
+      ? orderedStart +
+        (list.hasAttribute("reversed") ? -rowsBeforeExit : rowsBeforeExit)
       : undefined;
 
   if (beforeHasRows) {
     list.replaceChildren(...beforeNodes);
+    if (list.hasAttribute("reversed") && orderedStart !== null) {
+      list.setAttribute("start", String(orderedStart));
+    }
     if (afterHasRows) {
       list.after(line, listWithNodes(list, afterNodes, trailingStart));
     } else {

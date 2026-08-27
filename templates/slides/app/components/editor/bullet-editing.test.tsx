@@ -180,6 +180,29 @@ describe("styled bullet editing", () => {
     },
   );
 
+  it.each([
+    ["default", " reversed", "3", "1"],
+    ["explicit", ' reversed start="8"', "8", "6"],
+  ] as const)(
+    "preserves %s reversed ordered-list numbering after exiting an empty item",
+    (_name, attributes, leadingStart, trailingStart) => {
+      document.body.innerHTML =
+        `<div class="slide-content"><ol${attributes}><li>First</li>` +
+        `<li>${ZERO_WIDTH_SPACE}</li><li>Third</li></ol></div>`;
+      const root = document.querySelector(".slide-content") as HTMLElement;
+      const list = root.firstElementChild as HTMLElement;
+      const emptyText = list.children[1].firstChild as Text;
+      placeCaret(emptyText, emptyText.length);
+
+      const line = exitEmptyBulletAtCaret(list);
+      const children = Array.from(root.children);
+
+      expect(line).not.toBeNull();
+      expect(children[0].getAttribute("start")).toBe(leadingStart);
+      expect(children[2].getAttribute("start")).toBe(trailingStart);
+    },
+  );
+
   it("preserves a tolerated child when Enter exits its only bullet", () => {
     document.body.innerHTML =
       '<div class="slide-content"><div class="bullets">' +
