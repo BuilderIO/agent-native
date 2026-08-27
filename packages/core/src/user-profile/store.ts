@@ -2,7 +2,10 @@ import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
 } from "../server/better-auth-instance.js";
-import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+import {
+  getUserSetting,
+  mutateUserSetting,
+} from "../settings/user-settings.js";
 import {
   normalizeOnboardingRole,
   normalizeUserProfileName,
@@ -16,6 +19,16 @@ async function getAuthUser(email: string) {
   const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
   if (!adapter) return null;
   return adapter.findUserByEmail(email, { includeAccounts: false });
+}
+
+async function updateFallbackUserProfile(
+  email: string,
+  updates: Record<string, unknown>,
+): Promise<void> {
+  await mutateUserSetting(email, USER_PROFILE_SETTING_KEY, (current) => ({
+    ...(current ?? {}),
+    ...updates,
+  }));
 }
 
 export async function getUserProfile(email: string): Promise<UserProfile> {
@@ -55,25 +68,27 @@ export async function updateUserProfile(
     : undefined;
 
   if (normalizedOnboardingRole !== undefined) {
-    if (!authUser?.user.id || !adapter?.updateUser) {
-      throw new Error(
-        "Cannot save onboarding role because the Better Auth user row is unavailable.",
+    if (authUser?.user.id && adapter?.updateUser) {
+      await adapter.updateUser(authUser.user.id, {
+        name: normalizedName,
+        onboardingRole: normalizedOnboardingRole,
+      });
+      const saved = await getAuthUser(email);
+      const savedRole = normalizeOnboardingRole(
+        typeof saved?.user.onboardingRole === "string"
+          ? saved.user.onboardingRole
+          : null,
       );
-    }
-    await adapter.updateUser(authUser.user.id, {
-      name: normalizedName,
-      onboardingRole: normalizedOnboardingRole,
-    });
-    const saved = await getAuthUser(email);
-    const savedRole = normalizeOnboardingRole(
-      typeof saved?.user.onboardingRole === "string"
-        ? saved.user.onboardingRole
-        : null,
-    );
-    if (savedRole !== normalizedOnboardingRole) {
-      throw new Error(
-        "Failed to save onboarding role on the Better Auth user row.",
-      );
+      if (savedRole !== normalizedOnboardingRole) {
+        throw new Error(
+          "Failed to save onboarding role on the Better Auth user row.",
+        );
+      }
+    } else {
+      await updateFallbackUserProfile(email, {
+        name: normalizedName,
+        onboardingRole: normalizedOnboardingRole,
+      });
     }
     return {
       email,
@@ -83,7 +98,7 @@ export async function updateUserProfile(
   } else if (authUser?.user.id && adapter?.updateUser) {
     await adapter.updateUser(authUser.user.id, { name: normalizedName });
   } else {
-    await putUserSetting(email, USER_PROFILE_SETTING_KEY, {
+    await updateFallbackUserProfile(email, {
       name: normalizedName,
     });
   }
@@ -106,9 +121,10 @@ export async function updateUserOnboardingRole(
     ? await getBetterAuthInternalAdapter().catch(() => undefined)
     : undefined;
   if (!authUser?.user.id || !adapter?.updateUser) {
-    throw new Error(
-      "Cannot save onboarding role because the Better Auth user row is unavailable.",
-    );
+    await updateFallbackUserProfile(email, {
+      onboardingRole: normalizedOnboardingRole,
+    });
+    return normalizedOnboardingRole;
   }
 
   await adapter.updateUser(authUser.user.id, {

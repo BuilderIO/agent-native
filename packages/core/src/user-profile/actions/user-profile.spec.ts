@@ -6,6 +6,7 @@ const getUserProfileMock = vi.fn();
 const updateUserProfileMock = vi.fn();
 const getUserSettingMock = vi.fn();
 const putUserSettingMock = vi.fn();
+const mutateUserSettingMock = vi.fn();
 const getBetterAuthMock = vi.fn();
 const getBetterAuthSyncMock = vi.fn();
 const getBetterAuthInternalAdapterMock = vi.fn();
@@ -28,6 +29,7 @@ vi.mock("../store.js", () => ({
 vi.mock("../../settings/user-settings.js", () => ({
   getUserSetting: (...args: unknown[]) => getUserSettingMock(...args),
   putUserSetting: (...args: unknown[]) => putUserSettingMock(...args),
+  mutateUserSetting: (...args: unknown[]) => mutateUserSettingMock(...args),
 }));
 vi.mock("../../server/better-auth-instance.js", () => ({
   getBetterAuth: (...args: unknown[]) => getBetterAuthMock(...args),
@@ -57,6 +59,7 @@ describe("user profile actions", () => {
     });
     getUserSettingMock.mockResolvedValue(null);
     putUserSettingMock.mockResolvedValue(undefined);
+    mutateUserSettingMock.mockResolvedValue({});
     getBetterAuthSyncMock.mockReturnValue(true);
     auth = {
       api: {
@@ -340,7 +343,30 @@ describe("user profile store", () => {
     vi.clearAllMocks();
     getUserSettingMock.mockResolvedValue(null);
     putUserSettingMock.mockResolvedValue(undefined);
+    mutateUserSettingMock.mockResolvedValue({});
     getBetterAuthSyncMock.mockReturnValue(true);
+  });
+
+  it("stores the onboarding role in user settings for custom-auth users", async () => {
+    getBetterAuthSyncMock.mockReturnValue(false);
+
+    vi.resetModules();
+    vi.doUnmock("../store.js");
+    const { updateUserOnboardingRole } = await import("../store.js");
+
+    await expect(
+      updateUserOnboardingRole("alice@example.com", "developer"),
+    ).resolves.toBe("developer");
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "user-profile",
+      expect.any(Function),
+    );
+    const updater = mutateUserSettingMock.mock.calls[0][2];
+    expect(updater({ name: "Alice" })).toEqual({
+      name: "Alice",
+      onboardingRole: "developer",
+    });
   });
 
   it("stores the onboarding role on the Better Auth user row and reads it back", async () => {
