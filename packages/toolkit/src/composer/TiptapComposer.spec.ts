@@ -1,8 +1,21 @@
 // @vitest-environment happy-dom
 
+import {
+  AssistantRuntimeProvider,
+  useLocalRuntime,
+  type ChatModelAdapter,
+} from "@assistant-ui/react";
 import { Editor } from "@tiptap/core";
-import { describe, expect, it } from "vitest";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn() },
+}));
+
+import { TooltipProvider } from "../ui/tooltip.js";
 import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
@@ -28,7 +41,29 @@ import {
   shouldRenderModelSelector,
   shouldShowModelSelectorSkeleton,
   shouldShowOnlyConnectPath,
+  TiptapComposer,
+  type TiptapComposerHandle,
 } from "./TiptapComposer.js";
+
+const emptyChatModelAdapter: ChatModelAdapter = {
+  async *run() {},
+};
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+});
 
 describe("createTiptapComposerExtensions", () => {
   it("refreshes the rendered placeholder after a locale change", () => {
@@ -630,6 +665,106 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldRenderModelSelector([], () => {})).toBe(false);
     expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
+  });
+});
+
+describe("TiptapComposer slash commands", () => {
+  it("submits a slash-prefixed prompt when no command handler is provided", async () => {
+    const onSubmit = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            clearOnSubmit: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("/act"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "/act",
+      [],
+      [],
+      expect.objectContaining({ intent: "immediate" }),
+    );
+    expect(editor.textContent).toBe("/act");
+  });
+
+  it("acknowledges an executed slash command", async () => {
+    const onSlashCommand = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSlashCommand,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("/act"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(onSlashCommand).toHaveBeenCalledWith("act");
+    expect(toast.success).toHaveBeenCalledWith(
+      "/act",
+      expect.objectContaining({
+        description: "Switch back to acting",
+        duration: 1800,
+      }),
+    );
   });
 });
 
