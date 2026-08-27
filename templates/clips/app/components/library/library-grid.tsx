@@ -3,6 +3,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconChevronLeft,
@@ -168,6 +169,16 @@ export function LibraryGrid({
   const [isBulkPending, setIsBulkPending] = useState(false);
   const [page, setPage] = useState(1);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+
+  useEffect(() => {
+    if (!title) return;
+    const nextTitle = `${normalizeDocumentTitle(title, "Clips")} — Clips`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [title]);
 
   useEffect(() => {
     setPage(1);
