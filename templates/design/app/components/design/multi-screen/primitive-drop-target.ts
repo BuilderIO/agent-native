@@ -319,8 +319,9 @@ export function authoredTextIntrinsicSize(element: Element) {
 /**
  * Approximates an authored node's screen-local position from inline layout.
  * This parser is the no-iframe fallback used while a live bridge is absent;
- * absolute descendants must accumulate positioned ancestors, and common
- * single-line flex/block flows need their preceding siblings accounted for.
+ * absolute descendants must accumulate positioned ancestors (including
+ * inline relative/sticky left/top), and common single-line flex/block
+ * flows need their preceding siblings accounted for.
  *
  * Exported so DesignEditor.tsx's getAbsolutePositioningForNodeInHtml can
  * reuse the same ancestor-walking logic instead of reading a node's own
@@ -373,6 +374,10 @@ export function authoredElementPosition(element: Element): Point {
               (isFlex ? gap : 0);
           }
         }
+      }
+      if (style.position === "relative" || style.position === "sticky") {
+        x += inlineNumber(cursor, "left");
+        y += inlineNumber(cursor, "top");
       }
     }
     cursor = parent;
