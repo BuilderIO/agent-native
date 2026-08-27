@@ -574,27 +574,31 @@ describe("A11a — font fallback stacks", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A12: Effect corrections (blur halving)
+// A12: Effect corrections (blur radius scaling)
 // ---------------------------------------------------------------------------
+// These asserted radius/2. That 0.5 was a guess; the REST walker's 0.45 is
+// fitted against Figma's own renders at two radii, and the two walkers now
+// share one constant so they cannot drift apart again. An 11% wider kernel
+// changes every pixel of a blurred region, so the value is the assertion.
 describe("A12 — effect corrections", () => {
-  it("halves BACKGROUND_BLUR radius (Figma ≈ 2× CSS sigma)", () => {
+  it("scales BACKGROUND_BLUR radius by the fitted CSS-blur factor", () => {
     const doc = makeDocument([
       {
         effects: [{ type: "BACKGROUND_BLUR", visible: true, radius: 20 }],
       },
     ]);
     const html = renderFrame(doc as Record<string, unknown>);
-    expect(html).toContain("backdrop-filter: blur(10px)");
+    expect(html).toContain("backdrop-filter: blur(9px)");
   });
 
-  it("halves LAYER_BLUR radius", () => {
+  it("scales LAYER_BLUR radius by the fitted CSS-blur factor", () => {
     const doc = makeDocument([
       {
         effects: [{ type: "LAYER_BLUR", visible: true, radius: 16 }],
       },
     ]);
     const html = renderFrame(doc as Record<string, unknown>);
-    expect(html).toContain("filter: blur(8px)");
+    expect(html).toContain("filter: blur(7.2px)");
   });
 });
 
