@@ -332,6 +332,25 @@ throughout), both measured against Figma's own render.
 | masks (fill + stroke) | 14.12% | 12.60% |
 | auto-layout overlap + no-shrink | 8.66% | 7.08% |
 | flipped transforms, ellipses, parametric shapes | 8.37% | 6.75% |
+| kiwi's SPACE_EVENLY mapped to space-between | 7.53% | 5.84% |
+| LINE nodes drawn, rotated footprints compensated | 6.97% | 5.20% |
+
+Where the three paste cases stand (2026-08-27), against the same references the
+REST corpus uses:
+
+| case | paste vs Figma | converter only | REST, same design |
+| --- | --- | --- | --- |
+| dashstack admin | 3.55% | 2.89% | 1.20% (a different frame) |
+| positivus landing | 6.97% | 5.20% | 4.19% |
+| untitled UI landing | 9.67% | 3.01% | 2.65% |
+
+The clipboard path stays behind REST and always will on some designs, for a
+reason worth stating rather than chasing: **Figma flattens a boolean
+operation's outline only for REST and the `.fig` container.** A paste carries
+just the operands, so a union's own fill and stroke have no shape to go on —
+Positivus' three testimonial bubbles lose their green border. The walker now
+reports each of those as an omission naming the two routes that do carry the
+shape, instead of returning a design quietly missing an outline.
 
 "converter only" is `vsFigma` with the image-fill placeholders excluded — a
 clipboard payload carries image hashes but no image bytes, so those boxes
