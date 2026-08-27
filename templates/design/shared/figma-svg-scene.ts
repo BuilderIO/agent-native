@@ -980,23 +980,6 @@ function isTopLeftObjectPosition(position: string | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Shadow filter defs
-// ---------------------------------------------------------------------------
-
-function floodColorParts(color: string): {
-  floodColor: string;
-  floodOpacity: number;
-} {
-  const parsed = parseCssColorExtended(color);
-  if (!parsed) return { floodColor: color, floodOpacity: 1 };
-  return {
-    // guard:allow-raw-color — exported SVG paint read from the design's own computed styles, never app UI
-    floodColor: `rgb(${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)})`,
-    floodOpacity: parsed.a,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Node renderer
 // ---------------------------------------------------------------------------
 
@@ -2702,15 +2685,6 @@ export function collectRawFigmaSvgScene(
     const style = view.getComputedStyle(el);
     const textAlign = style.textAlign;
     const elRect = el.getBoundingClientRect();
-    // Vertical centers use the ELEMENT's own CSS line-height box, not the
-    // Range's tight glyph-metrics rect: Chromium's getClientRects() height
-    // reflects font ascent/descent, which is usually shorter than the
-    // line-height the surrounding layout actually reserves, so
-    // `dominant-baseline="central"` measured against the tight rect lands a
-    // few px off from where the line visually centers (this was the global
-    // baseline-offset bug).
-    const lineHeightPx =
-      Number.parseFloat(style.lineHeight) || elRect.height / lineRects.length;
 
     // Emit the true alphabetic baseline instead of a line centre plus
     // `dominant-baseline="central"`. Figma's SVG importer ignores
