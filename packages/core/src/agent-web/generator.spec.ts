@@ -126,4 +126,36 @@ describe("agent web generators", () => {
       "https://www.npmjs.com/package/@agent-native/core",
     );
   });
+
+  // A site whose canonical URLs carry a trailing slash must advertise that
+  // exact form. Stripping it made every sitemap entry point at a redirect.
+  it("preserves a trailing slash in advertised page URLs", () => {
+    const sitemap = buildSitemapXml(
+      [{ path: "/docs/actions-overview/", title: "Actions" }],
+      "https://www.agent-native.com",
+    );
+
+    expect(sitemap).toContain(
+      "<loc>https://www.agent-native.com/docs/actions-overview/</loc>",
+    );
+  });
+
+  it("keeps bare page paths bare", () => {
+    const sitemap = buildSitemapXml(
+      [{ path: "/docs/actions-overview", title: "Actions" }],
+      "https://www.agent-native.com",
+    );
+
+    expect(sitemap).toContain(
+      "<loc>https://www.agent-native.com/docs/actions-overview</loc>",
+    );
+  });
+
+  // The Markdown twin is an asset path derived from the route, so it must not
+  // inherit the route's trailing slash.
+  it("derives the markdown twin without the route trailing slash", () => {
+    expect(markdownFilePathForPage("/about/")).toBe("about.md");
+    expect(markdownFilePathForPage("/about")).toBe("about.md");
+    expect(markdownFilePathForPage("/")).toBe("index.md");
+  });
 });
