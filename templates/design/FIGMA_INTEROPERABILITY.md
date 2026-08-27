@@ -218,43 +218,42 @@ Measured 2026-08-27:
 | --- | --- | --- | --- | --- | --- |
 | shapes | 0.543 | 0.543 | 0.543 | 0.292 | 0.313 |
 | fills-effects | 0.548 | 0.548 | 0.569 | 1.052 | 0.045 |
-| app-untitled-ui-settings | 1.055 | 0.456 | 0.084 | 0.908 | 0.464 |
-| community-dashstack-admin | 1.078 | 0.198 | 0.183 | 1.076 | 0.009 |
+| community-dashstack-admin | 0.825 | 0.069 | 0.055 | 0.823 | 0.009 |
+| app-untitled-ui-settings | 1.092 | 0.456 | 0.084 | 0.946 | 0.494 |
 | community-interior-checkout | 1.362 | 0.218 | 0.220 | 1.859 | 0.692 |
-| community-interior-ecommerce | 1.938 | 1.297 | 0.131 | 2.581 | 2.384 |
+| community-interior-ecommerce | 1.938 | 1.297 | 0.131 | 2.723 | 2.489 |
+| community-interior-single-product | 2.092 | 0.686 | 0.193 | 2.759 | 1.710 |
 | constraints | 2.277 | 0.110 | 0.110 | 2.498 | 0.425 |
+| parity-stress | 2.301 | 0.272 | 0.272 | 2.295 | 0.092 |
 | community-interior-product-comparison | 2.419 | 0.312 | 0.207 | 2.945 | 0.667 |
-| parity-stress | 2.468 | 0.462 | 0.462 | 2.463 | 0.098 |
+| community-positivus-landing | 2.467 | 0.810 | 0.657 | 3.415 | 1.576 |
 | community-untitled-ui-landing-alt | 2.500 | 0.917 | 0.266 | 2.381 | 0.897 |
-| community-untitled-ui-landing | 2.512 | 0.518 | 0.072 | 2.618 | 0.624 |
-| community-positivus-landing | 2.626 | 0.992 | 0.847 | 3.556 | 1.611 |
+| community-untitled-ui-landing | 2.512 | 0.518 | 0.072 | 2.617 | 0.624 |
 | autolayout | 2.632 | 0.410 | 0.410 | 2.395 | 0.281 |
 | community-untitled-ui-pricing | 2.672 | 0.245 | 0.190 | 2.633 | 0.166 |
-| app-untitled-ui-dashboard-tall | 2.680 | 1.310 | 1.110 | 2.849 | 1.006 |
+| app-untitled-ui-dashboard-tall | 2.681 | 1.311 | 1.111 | 2.849 | 1.006 |
 | community-whitepace-saas | 2.962 | 0.875 | 0.842 | 2.525 | 0.933 |
 | card-grid | 3.097 | 0.060 | 0.060 | 3.097 | 0.000 |
-| community-interior-single-product | 3.353 | 2.087 | 0.244 | 4.017 | 1.709 |
 | app-untitled-ui-data-table | 3.411 | 0.732 | 0.716 | 3.878 | 0.825 |
 | community-landify-example | 3.467 | 1.563 | 0.589 | 3.306 | 1.208 |
-| app-untitled-ui-settings-mobile | 3.524 | 0.431 | 0.404 | 3.388 | 0.763 |
+| app-untitled-ui-settings-mobile | 3.524 | 0.431 | 0.404 | 3.378 | 0.771 |
 | app-untitled-ui-dashboard | 3.679 | 1.294 | 1.027 | 4.011 | 1.042 |
-| ds-untitled-ui-table-variants | 3.689 | 1.229 | 0.952 | 3.689 | 0.000 |
-| community-landify-tablet | 4.712 | 2.194 | 0.722 | 4.505 | 1.549 |
-| community-untitled-ui-landing-mobile | 6.186 | 1.311 | 0.607 | 6.282 | 1.149 |
-| typography | 12.669 | 0.005 | 0.005 | 12.594 | 0.192 |
-| **mean** | **3.08** | **0.78** | **0.45** | | **0.73** |
+| ds-untitled-ui-table-variants | 3.689 | 1.229 | 0.952 | 2.747 | 2.392 |
+| community-landify-tablet | 4.709 | 2.190 | 0.718 | 4.505 | 1.546 |
+| community-untitled-ui-landing-mobile | 6.185 | 1.310 | 0.606 | 6.282 | 1.148 |
+| typography | 12.597 | 0.005 | 0.005 | 12.594 | 0.192 |
+| **mean** | **3.01** | **0.71** | **0.42** | | **0.81** |
 
 Read the last three columns together, because they say what is actually wrong:
 
-- **The export hop is nearly free.** Mean drift 0.73% and max 2.38% across the
-  designs in the table; 0.83% mean and 2.38% max once the two clipboard cases
-  the round-trip also covers are included. Whatever the import hop gets right
-  survives the trip back to Figma.
+- **The export hop is nearly free.** Mean drift 0.81% and max 2.49% across the
+  round-trip corpus, which also covers the two clipboard cases. Whatever the
+  import hop gets right survives the trip back to Figma.
 - **Most of the import number is glyph rasterisation.** Excluding text boxes
-  the mean falls to 0.78%, and `typography` — the fixture built to stress text
+  the mean falls to 0.71%, and `typography` — the fixture built to stress text
   — falls to **0.005%**. Nothing but glyphs is wrong on it.
 - **Most of what remains is photo resampling.** Excluding image fills too, the
-  mean falls to **0.44%**, and the photo-heavy interior storefront — 1.94%
+  mean falls to **0.42%**, and the photo-heavy interior storefront — 1.94%
   overall — is **0.13%**.
 
 ## Where the remaining pixels actually are
@@ -296,6 +295,29 @@ buried:
   which a raw kiwi node never carries, and fell back to the uniform weight on
   all four sides — a vertical rule between every column of a table that has
   none. Dashboard 4.95% -> 4.33%, flat interior 0.964% -> 0.452%.
+
+### The aggregate is not the only instrument
+
+Two defects were found by looking at a render rather than at a number, and
+neither moved the percentage much.
+
+- **Icon fonts imported as hollow boxes.** DashStack's sidebar labels each
+  carry a LineAwesome glyph at U+F2C6. A Private Use Area codepoint means
+  nothing outside the font that assigned it, and fonts reach an imported screen
+  by family name from Google Fonts, which serves no icon font — so Chromium
+  drew a `.notdef` box beside all 16 nav items where Figma draws an icon. Such
+  a TEXT node now takes the rendered-PNG fallback the walker already uses for
+  anything it cannot express. 0.97% -> 0.83%: two tenths of a percent for a
+  defect that was the first thing anyone would see. The `.fig` walker has no
+  render to fall back on, so it drops the glyph and records the reason against
+  the node.
+- **A Figma paste into the canvas did nothing at all.** The parent document
+  already toasts when a paste plainly came from Figma but carries nothing
+  importable. A paste inside the canvas iframe never reaches that listener, and
+  the bridge dropped it in silence — so the same paste was explained on the
+  shell and invisible on the canvas, which is what a user reported. The bridge
+  now relays the clipboard strings for the parent to judge with its own
+  `isAttemptedFigmaPaste`, rather than growing a second copy of the rule.
 
 What is left is 0.12% to 0.43% per case. The worst of those cells are the
 INSIDES of thick glyph stems, where a half-pixel difference in advance moves
