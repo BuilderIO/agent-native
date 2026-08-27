@@ -65,6 +65,20 @@ describe("renderVerifySignupEmail", () => {
     });
   });
 
+  it("keeps a same-named custom scaffold off first-party branding", () => {
+    vi.stubEnv("npm_package_name", "slides");
+    vi.stubEnv("VITE_AGENT_NATIVE_TEMPLATE", "chat");
+
+    const rendered = renderVerifySignupEmail({
+      email: "reader@example.com",
+      verifyUrl: "https://example.com/verify?token=abc",
+    });
+
+    expect(rendered.subject).toBe("Verify your email for Slides");
+    expect(rendered.html).not.toContain("Agent-Native");
+    expect(rendered.appSender).toBeUndefined();
+  });
+
   it("uses a configured custom logo in auth email branding", () => {
     vi.stubEnv("APP_NAME", "Try Marisco");
     vi.stubEnv("APP_LOGO_URL", "https://cdn.example.com/try-marisco.png");

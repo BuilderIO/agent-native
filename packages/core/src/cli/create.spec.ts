@@ -156,12 +156,13 @@ describe("createApp", { timeout: 30000 }, () => {
       "try-marisco",
       "server",
       "plugins",
-      "config.ts",
+      "app-branding.ts",
     );
 
     expect(fs.readFileSync(configPath, "utf-8")).toContain(
       'name: "Try Marisco"',
     );
+    expect(fs.readFileSync(configPath, "utf-8")).toContain('template: "chat"');
   });
 
   it("keeps the blank scaffold headless instead of generating UI files", async () => {

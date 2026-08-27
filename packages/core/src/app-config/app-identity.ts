@@ -17,7 +17,7 @@
  * package name cannot mint a mailbox there.
  */
 
-import { TEMPLATES } from "../cli/templates-meta.js";
+import { getTemplate, TEMPLATES } from "../cli/templates-meta.js";
 import type { AppConfig } from "./schema.js";
 
 function titlecase(s: string): string {
@@ -44,14 +44,12 @@ export function deriveAppIdentity(app: AppConfig["app"]): AppConfig["app"] {
 
 /**
  * A custom app can be generated from a first-party template, so the package
- * name must still match the derived slug before it gets first-party email
- * branding or a first-party sender address.
+ * name alone is not enough. When scaffolding records its source template,
+ * that server-side value must agree with the derived first-party identity.
  */
 export function isFirstPartyApp(app: AppConfig["app"]): boolean {
-  const template = app.slug
-    ? TEMPLATES.find((candidate) => candidate.name === app.slug)
-    : undefined;
-  return Boolean(
-    template && (!app.packageName || app.packageName === template.name),
-  );
+  const template = app.slug ? getTemplate(app.slug) : undefined;
+  if (!template || app.packageName !== template.name) return false;
+  if (!app.template?.trim()) return true;
+  return getTemplate(app.template.trim().toLowerCase())?.name === template.name;
 }

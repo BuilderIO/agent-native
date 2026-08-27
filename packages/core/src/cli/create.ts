@@ -3364,12 +3364,16 @@ function ensureScaffoldEmailBrandingConfig(
 ): void {
   if (!templateName || appName === templateName) return;
   const pluginsDir = path.join(appDir, "server", "plugins");
-  const configPath = path.join(pluginsDir, "config.ts");
-  if (!fs.existsSync(pluginsDir) || fs.existsSync(configPath)) return;
+  const configPath = path.join(pluginsDir, "app-branding.ts");
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const appTitle = JSON.stringify(appTitleForScaffold(appName));
+  const sourceTemplate = JSON.stringify(
+    trackingTemplateName(templateName) ?? templateName,
+  );
 
   fs.writeFileSync(
     configPath,
-    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: "${appTitleForScaffold(appName)}",\n    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
+    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    template: ${sourceTemplate},\n    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
   );
 }
 

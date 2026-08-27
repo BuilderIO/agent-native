@@ -56,6 +56,25 @@ describe("deriveAppIdentity", () => {
     ).toBe(true);
   });
 
+  it("does not treat a same-named app as first-party when its source differs", () => {
+    expect(
+      isFirstPartyApp({
+        ...base,
+        packageName: "slides",
+        slug: "slides",
+        template: "chat",
+      }),
+    ).toBe(false);
+    expect(
+      isFirstPartyApp({
+        ...base,
+        packageName: "slides",
+        slug: "slides",
+        template: "slides",
+      }),
+    ).toBe(true);
+  });
+
   it("runs on the resolved config, so APP_NAME still wins", () => {
     vi.stubEnv("npm_package_name", "mail");
     vi.stubEnv("APP_NAME", "Acme Mail");
